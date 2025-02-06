@@ -571,8 +571,8 @@ HugeCache: Since startup, 1000 hugepages released, (500 hugepages due to reachin
 )"));
   // The skip-subrelease mechanism is bypassed for both requests.
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugeCache: Since the start of the execution, 0 subreleases (0 pages) were skipped due to the sum of short-term (0s) fluctuations and long-term (0s) trends.
-HugeCache: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugeCache: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
+HugeCache: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
 HugeCache: Subrelease stats last 10 min: total 256000 pages subreleased (0 pages from partial allocs), 0 hugepages broken
 )"));
 }
@@ -647,8 +647,7 @@ TEST_P(HugeCacheTest, ReleaseByDemandIncreaseTarget) {
   // demand in the past 10s so we can release the rest of the cache.
   HugeLength unbacked_6 = cache_.ReleaseCachedPagesByDemand(
       NHugePages(100),
-      SkipSubreleaseIntervals{.short_interval = absl::Seconds(10),
-                              .long_interval = absl::Seconds(10)},
+      SkipSubreleaseIntervals{.peak_interval = absl::Seconds(10)},
       /*hit_limit=*/false);
   EXPECT_EQ(unbacked_6, NHugePages(10));
 }
@@ -784,15 +783,43 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipRelease) {
         Advance(absl::Minutes(30));
       };
   {
-    // Skip release feature is disabled if all intervals are zero.
+    // Uses peak interval (demand 20 hps), correctly skipped 15 hps.
     SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   /*expected_release=*/false);
+  }
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        /*expected_release=*/false);
+  }
+  {
+    // Uses peak interval (demand 5 hps), released all free hps. Note, the
+    // short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   /*expected_release=*/true);
+  }
+  {
+    // Skip release feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
     demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
                    SkipSubreleaseIntervals{}, /*expected_release=*/true);
   }
   {
     // Uses short-term and long-term intervals (combined demand is 30 hps but
     // capped by maximum demand in 10 mins, 20 hps), incorrectly skipped 15 hps.
-    SCOPED_TRACE("demand_pattern 2");
+    SCOPED_TRACE("demand_pattern 5");
     demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
                                            .long_interval = absl::Minutes(6)},
@@ -801,7 +828,7 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipRelease) {
   {
     // Uses short-term and long-term intervals (combined demand 5 hps), released
     // all free hps.
-    SCOPED_TRACE("demand_pattern 3");
+    SCOPED_TRACE("demand_pattern 6");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
                                            .long_interval = absl::Minutes(2)},
@@ -809,14 +836,14 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipRelease) {
   }
   {
     // Uses only short-term interval (demand 20 hps), correctly skipped 15 hps.
-    SCOPED_TRACE("demand_pattern 4");
+    SCOPED_TRACE("demand_pattern 7");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
                    /*expected_release=*/false);
   }
   {
     // Uses only long-term interval (demand 5 hps), released all free pages.
-    SCOPED_TRACE("demand_pattern 5");
+    SCOPED_TRACE("demand_pattern 8");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
                    /*expected_release=*/true);
@@ -825,7 +852,16 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipRelease) {
   // release decision (recorded in the same epoch), do not count this as
   // a correct release decision.
   {
-    SCOPED_TRACE("demand_pattern 6");
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)},
+                   /*expected_release=*/false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that release decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
     demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
                    absl::Milliseconds(10),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
@@ -844,8 +880,8 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipRelease) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugeCache: Since the start of the execution, 3 subreleases (11520 pages) were skipped due to the sum of short-term (60s) fluctuations and long-term (120s) trends.
-HugeCache: 33.3333% of decisions confirmed correct, 0 pending (33.3333% of pages, 0 pending).
+HugeCache: Since the start of the execution, 6 subreleases (23040 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugeCache: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 HugeCache: Subrelease stats last 10 min: total 0 pages subreleased (0 pages from partial allocs), 0 hugepages broken
 )"));
 }
@@ -875,8 +911,7 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipReleaseReport) {
   EXPECT_EQ(cache_.size(), NHugePages(18));
   EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
                 NHugePages(30),
-                SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
-                                        .long_interval = absl::Minutes(3)},
+                SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
                 /*hit_limit=*/false),
             NHugePages(10));
   Advance(absl::Minutes(3));
@@ -903,8 +938,7 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipReleaseReport) {
   Release(peak_4b);
   EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
                 NHugePages(10),
-                SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
-                                        .long_interval = absl::Minutes(3)},
+                SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
                 /*hit_limit=*/false),
             NHugePages(0));
   Advance(absl::Minutes(3));
@@ -927,8 +961,8 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipReleaseReport) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugeCache: Since the start of the execution, 2 subreleases (4608 pages) were skipped due to the sum of short-term (180s) fluctuations and long-term (180s) trends.
-HugeCache: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending).
+HugeCache: Since the start of the execution, 2 subreleases (4608 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
+HugeCache: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 

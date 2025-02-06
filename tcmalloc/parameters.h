@@ -151,8 +151,14 @@ class Parameters {
     TCMalloc_Internal_SetProfileSamplingInterval(value);
   }
 
+  static void set_filler_skip_subrelease_interval(absl::Duration value) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(value);
+  }
+
   static bool background_process_actions_enabled();
   static absl::Duration background_process_sleep_interval();
+
+  static absl::Duration filler_skip_subrelease_interval();
 
   static void set_filler_skip_subrelease_short_interval(absl::Duration value) {
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(value);
@@ -219,6 +225,8 @@ class Parameters {
       bool v);
   friend void ::TCMalloc_Internal_SetProfileSamplingInterval(int64_t v);
 
+  friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
+      absl::Duration v);
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
       absl::Duration v);
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(

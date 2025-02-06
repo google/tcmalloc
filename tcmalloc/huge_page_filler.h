@@ -998,19 +998,27 @@ inline Length HugePageFiller<TrackerType>::FreePagesInPartialAllocs() const {
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
     Length desired, Length total_released, SkipSubreleaseIntervals intervals) {
-  // Don't subrelease pages if it would push you under the sum of short-term
-  // demand fluctuation peak and long-term demand trend. This is a bit subtle:
-  // We want the current *mapped* pages not to be below the recent *demand*
-  // requirement, i.e., if we have a large amount of free memory right now but
-  // demand is below the requirement, we still want to subrelease.
+  // Don't subrelease pages if it would push you under either the latest peak or
+  // the sum of short-term demand fluctuation peak and long-term demand trend.
+  // This is a bit subtle: We want the current *mapped* pages not to be below
+  // the recent *demand* requirement, i.e., if we have a large amount of free
+  // memory right now but demand is below the requirement, we still want to
+  // subrelease.
   TC_ASSERT_LT(total_released, desired);
   if (!intervals.SkipSubreleaseEnabled()) {
     return desired;
   }
   UpdateFillerStatsTracker();
   Length required_pages;
-  required_pages = fillerstats_tracker_.GetRecentDemand(
-      intervals.short_interval, intervals.long_interval);
+  // As mentioned above, there are two ways to calculate the demand
+  // requirement. We give priority to using the peak if peak_interval is set.
+  if (intervals.IsPeakIntervalSet()) {
+    required_pages =
+        fillerstats_tracker_.GetRecentPeak(intervals.peak_interval);
+  } else {
+    required_pages = fillerstats_tracker_.GetRecentDemand(
+        intervals.short_interval, intervals.long_interval);
+  }
 
   Length current_pages = used_pages() + free_pages();
 

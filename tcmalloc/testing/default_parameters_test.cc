@@ -38,6 +38,7 @@ constexpr int64_t kDefaultGuardedSampleParameter = 5;
 #endif
 constexpr int64_t kDefaultGuardedSamplingInterval =
     kDefaultGuardedSampleParameter * kDefaultProfileSamplingInterval;
+constexpr absl::Duration kDefaultSkipSubreleaseInterval = absl::ZeroDuration();
 constexpr absl::Duration kDefaultSkipSubreleaseShortInterval =
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
     absl::ZeroDuration()
@@ -94,6 +95,13 @@ bool TestBackgroundReleaseRate() {
 
 bool TestSkipSubreleaseIntervals() {
 
+  auto interval_extension_value = MallocExtension::GetSkipSubreleaseInterval();
+  if (interval_extension_value != kDefaultSkipSubreleaseInterval) {
+    absl::FPrintF(stderr, "Skip Subrelease Interval: got %d, want %d\n",
+                  absl::ToInt64Seconds(interval_extension_value),
+                  absl::ToInt64Seconds(kDefaultSkipSubreleaseInterval));
+    return false;
+  }
   auto short_interval_extension_value =
       MallocExtension::GetSkipSubreleaseShortInterval();
   if (short_interval_extension_value != kDefaultSkipSubreleaseShortInterval) {

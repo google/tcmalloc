@@ -904,8 +904,49 @@ TEST_P(HugeRegionSetTest, SkipSubrelease) {
   };
 
   {
-    // Skip subrelease feature is disabled if all intervals are zero.
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
     SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   /*release_phase_1=*/false,
+                   /*release_phase_2=*/false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        /*release_phase_1=*/false,
+        /*release_phase_2=*/false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free pages.
+    // The short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   /*release_phase_1=*/true,
+                   /*release_phase_2=*/false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
     demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
                    SkipSubreleaseIntervals{},
                    /*release_phase_1=*/true,
@@ -916,7 +957,7 @@ TEST_P(HugeRegionSetTest, SkipSubrelease) {
 
   {
     // Uses short-term and long-term intervals for skipping subrelease.
-    SCOPED_TRACE("demand_pattern 2");
+    SCOPED_TRACE("demand_pattern 5");
     demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
                                            .long_interval = absl::Minutes(6)},
@@ -929,7 +970,7 @@ TEST_P(HugeRegionSetTest, SkipSubrelease) {
   {
     // Uses short-term and long-term intervals for skipping subrelease,
     // subreleasing all free pages.
-    SCOPED_TRACE("demand_pattern 3");
+    SCOPED_TRACE("demand_pattern 6");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
                                            .long_interval = absl::Minutes(2)},
@@ -940,7 +981,7 @@ TEST_P(HugeRegionSetTest, SkipSubrelease) {
 
   {
     // Uses only short-term interval for skipping subrelease.
-    SCOPED_TRACE("demand_pattern 4");
+    SCOPED_TRACE("demand_pattern 7");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
                    /*release_phase_1=*/false,
@@ -952,7 +993,7 @@ TEST_P(HugeRegionSetTest, SkipSubrelease) {
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
     // free pages.
-    SCOPED_TRACE("demand_pattern 5");
+    SCOPED_TRACE("demand_pattern 8");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
                    /*release_phase_1=*/true,
@@ -965,7 +1006,17 @@ TEST_P(HugeRegionSetTest, SkipSubrelease) {
   // subrelease decision (in the same time series epoch), do not count this as
   // a correct subrelease decision.
   {
-    SCOPED_TRACE("demand_pattern 6");
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)},
+                   /*release_phase_1=*/false,
+                   /*release_phase_2=*/false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
     demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
                    absl::Milliseconds(10),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
@@ -988,8 +1039,8 @@ TEST_P(HugeRegionSetTest, SkipSubrelease) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugeRegion: Since the start of the execution, 7 subreleases (3840 pages) were skipped due to the sum of short-term (60s) fluctuations and long-term (120s) trends.
-HugeRegion: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugeRegion: Since the start of the execution, 14 subreleases (7680 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugeRegion: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 

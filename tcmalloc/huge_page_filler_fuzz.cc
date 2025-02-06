@@ -270,7 +270,7 @@ void FuzzFiller(const std::string& s) {
         // Release
         //
         // value[0]    - Whether are trying to apply TCMalloc's memory limits
-        // value[1]    - reserved
+        // value[1]    - Whether using peak interval for skip subrelease
         // If using peak interval:
         // value[2:9]  - Peak interval for skip subrelease
         // value[10:31]- Number of pages to try to release
@@ -281,17 +281,25 @@ void FuzzFiller(const std::string& s) {
         // value[30] - Whether we release all free pages from partial allocs.
         // value[31] - Reserved.
         bool hit_limit = value & 0x1;
+        bool use_peak_interval = (value >> 1) & 0x1;
         SkipSubreleaseIntervals skip_subrelease_intervals;
-        uint32_t short_interval_s = (value >> 2) & 0xFF;
-        uint32_t long_interval_s = (value >> 10) & 0xFF;
-        if (short_interval_s > long_interval_s) {
-          std::swap(short_interval_s, long_interval_s);
+        if (use_peak_interval) {
+          const uint32_t peak_interval_s = (value >> 2) & 0xFF;
+          skip_subrelease_intervals.peak_interval =
+              absl::Seconds(peak_interval_s);
+          value >>= 10;
+        } else {
+          uint32_t short_interval_s = (value >> 2) & 0xFF;
+          uint32_t long_interval_s = (value >> 10) & 0xFF;
+          if (short_interval_s > long_interval_s) {
+            std::swap(short_interval_s, long_interval_s);
+          }
+          skip_subrelease_intervals.short_interval =
+              absl::Seconds(short_interval_s);
+          skip_subrelease_intervals.long_interval =
+              absl::Seconds(long_interval_s);
+          value >>= 18;
         }
-        skip_subrelease_intervals.short_interval =
-            absl::Seconds(short_interval_s);
-        skip_subrelease_intervals.long_interval =
-            absl::Seconds(long_interval_s);
-        value >>= 18;
         Length desired(value & 0xFFF);
         const bool release_partial_allocs = (value >> 12) & 0x1;
         size_t to_release_from_partial_allocs;

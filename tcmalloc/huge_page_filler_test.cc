@@ -1252,8 +1252,7 @@ TEST_P(FillerTest, ReleaseZero) {
   // Trying to release no pages should not crash.
   EXPECT_EQ(
       ReleasePages(Length(0),
-                   SkipSubreleaseIntervals{.short_interval = absl::Seconds(1),
-                                           .long_interval = absl::Seconds(1)}),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Seconds(1)}),
       Length(0));
 }
 
@@ -1931,8 +1930,46 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
   };
 
   {
-    // Skip subrelease feature is disabled if all intervals are zero.
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
     SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free pages.
+    // The short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
     demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
                    SkipSubreleaseIntervals{}, true);
   }
@@ -1942,7 +1979,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
     // incorrectly skips 128 pages.
-    SCOPED_TRACE("demand_pattern 2");
+    SCOPED_TRACE("demand_pattern 5");
     demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
                                            .long_interval = absl::Minutes(6)},
@@ -1954,7 +1991,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
   {
     // Uses short-term and long-term intervals for skipping subrelease,
     // subreleasing all free pages.
-    SCOPED_TRACE("demand_pattern 3");
+    SCOPED_TRACE("demand_pattern 6");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
                                            .long_interval = absl::Minutes(2)},
@@ -1965,7 +2002,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
   {
     // Uses only short-term interval for skipping subrelease. It correctly
     // skips 128 pages.
-    SCOPED_TRACE("demand_pattern 4");
+    SCOPED_TRACE("demand_pattern 7");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
                    false);
@@ -1976,7 +2013,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
     // free pages.
-    SCOPED_TRACE("demand_pattern 5");
+    SCOPED_TRACE("demand_pattern 8");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
                    true);
@@ -1984,10 +2021,19 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
 
   Advance(absl::Minutes(30));
 
+  // This captures a corner case: If we hit another peak immediately after a
+  // subrelease decision (in the same time series epoch), do not count this as
+  // a correct subrelease decision.
+  {
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
   // Repeats the "demand_pattern 9" test using short-term and long-term
   // intervals, to show that subrelease decisions are evaluated independently.
   {
-    SCOPED_TRACE("demand_pattern 6");
+    SCOPED_TRACE("demand_pattern 10");
     demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
                    absl::Milliseconds(10),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
@@ -2011,8 +2057,8 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
 
   if (!dense_tracker_sorted_on_allocs_) {
     EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 3 subreleases (384 pages) were skipped due to the sum of short-term (60s) fluctuations and long-term (120s) trends.
-HugePageFiller: 33.3333% of decisions confirmed correct, 0 pending (33.3333% of pages, 0 pending).
+HugePageFiller: Since the start of the execution, 6 subreleases (768 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
   }
 }
@@ -2109,8 +2155,46 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   };
 
   {
-    // Skip subrelease feature is disabled if all intervals are zero.
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
     SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free pages.
+    // The short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
     demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
                    SkipSubreleaseIntervals{}, true);
   }
@@ -2120,7 +2204,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
     // incorrectly skips 128 pages.
-    SCOPED_TRACE("demand_pattern 2");
+    SCOPED_TRACE("demand_pattern 5");
     demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
                                            .long_interval = absl::Minutes(6)},
@@ -2132,7 +2216,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   {
     // Uses short-term and long-term intervals for skipping subrelease,
     // subreleasing all free pages.
-    SCOPED_TRACE("demand_pattern 3");
+    SCOPED_TRACE("demand_pattern 6");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
                                            .long_interval = absl::Minutes(2)},
@@ -2143,7 +2227,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   {
     // Uses only short-term interval for skipping subrelease. It correctly
     // skips 128 pages.
-    SCOPED_TRACE("demand_pattern 4");
+    SCOPED_TRACE("demand_pattern 7");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
                    false);
@@ -2154,7 +2238,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
     // free pages.
-    SCOPED_TRACE("demand_pattern 5");
+    SCOPED_TRACE("demand_pattern 8");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
                    true);
@@ -2166,7 +2250,15 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   // subrelease decision (in the same time series epoch), do not count this as
   // a correct subrelease decision.
   {
-    SCOPED_TRACE("demand_pattern 6");
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
     demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
                    absl::Milliseconds(10),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
@@ -2190,8 +2282,8 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
 
   if (!dense_tracker_sorted_on_allocs_) {
     EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 3 subreleases (384 pages) were skipped due to the sum of short-term (60s) fluctuations and long-term (120s) trends.
-HugePageFiller: 33.3333% of decisions confirmed correct, 0 pending (33.3333% of pages, 0 pending).
+HugePageFiller: Since the start of the execution, 6 subreleases (768 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
   }
 }
@@ -2267,8 +2359,46 @@ TEST_P(FillerTest, SkipSubrelease) {
   };
 
   {
-    // Skip subrelease feature is disabled if all intervals are zero.
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
     SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free pages.
+    // The short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
     demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
                    SkipSubreleaseIntervals{}, true);
   }
@@ -2278,7 +2408,7 @@ TEST_P(FillerTest, SkipSubrelease) {
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
     // incorrectly skips 128 pages.
-    SCOPED_TRACE("demand_pattern 2");
+    SCOPED_TRACE("demand_pattern 5");
     demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
                                            .long_interval = absl::Minutes(6)},
@@ -2290,7 +2420,7 @@ TEST_P(FillerTest, SkipSubrelease) {
   {
     // Uses short-term and long-term intervals for skipping subrelease,
     // subreleasing all free pages.
-    SCOPED_TRACE("demand_pattern 3");
+    SCOPED_TRACE("demand_pattern 6");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
                                            .long_interval = absl::Minutes(2)},
@@ -2301,7 +2431,7 @@ TEST_P(FillerTest, SkipSubrelease) {
   {
     // Uses only short-term interval for skipping subrelease. It correctly
     // skips 128 pages.
-    SCOPED_TRACE("demand_pattern 4");
+    SCOPED_TRACE("demand_pattern 7");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
                    false);
@@ -2312,7 +2442,7 @@ TEST_P(FillerTest, SkipSubrelease) {
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
     // free pages.
-    SCOPED_TRACE("demand_pattern 5");
+    SCOPED_TRACE("demand_pattern 8");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
                    true);
@@ -2324,7 +2454,15 @@ TEST_P(FillerTest, SkipSubrelease) {
   // subrelease decision (in the same time series epoch), do not count this as
   // a correct subrelease decision.
   {
-    SCOPED_TRACE("demand_pattern 6");
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
     demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
                    absl::Milliseconds(10),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
@@ -2347,8 +2485,8 @@ TEST_P(FillerTest, SkipSubrelease) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 3 subreleases (384 pages) were skipped due to the sum of short-term (60s) fluctuations and long-term (120s) trends.
-HugePageFiller: 33.3333% of decisions confirmed correct, 0 pending (33.3333% of pages, 0 pending).
+HugePageFiller: Since the start of the execution, 6 subreleases (768 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 
@@ -2441,8 +2579,46 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
   };
 
   {
-    // Skip subrelease feature is disabled if all intervals are zero.
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
     SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free pages.
+    // The short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
     demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
                    SkipSubreleaseIntervals{}, true);
   }
@@ -2452,7 +2628,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
     // incorrectly skips 128 pages.
-    SCOPED_TRACE("demand_pattern 2");
+    SCOPED_TRACE("demand_pattern 5");
     demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
                                            .long_interval = absl::Minutes(6)},
@@ -2464,7 +2640,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
   {
     // Uses short-term and long-term intervals for skipping subrelease,
     // subreleasing all free pages.
-    SCOPED_TRACE("demand_pattern 3");
+    SCOPED_TRACE("demand_pattern 6");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
                                            .long_interval = absl::Minutes(2)},
@@ -2475,7 +2651,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
   {
     // Uses only short-term interval for skipping subrelease. It correctly
     // skips 128 pages.
-    SCOPED_TRACE("demand_pattern 4");
+    SCOPED_TRACE("demand_pattern 7");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
                    false);
@@ -2486,7 +2662,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
     // free pages.
-    SCOPED_TRACE("demand_pattern 5");
+    SCOPED_TRACE("demand_pattern 8");
     demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
                    SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
                    true);
@@ -2494,10 +2670,19 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
 
   Advance(absl::Minutes(30));
 
+  // This captures a corner case: If we hit another peak immediately after a
+  // subrelease decision (in the same time series epoch), do not count this as
+  // a correct subrelease decision.
+  {
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
   // Repeats the "demand_pattern 9" test using short-term and long-term
   // intervals, to show that subrelease decisions are evaluated independently.
   {
-    SCOPED_TRACE("demand_pattern 6");
+    SCOPED_TRACE("demand_pattern 10");
     demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
                    absl::Milliseconds(10),
                    SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
@@ -2520,8 +2705,8 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 4 subreleases (511 pages) were skipped due to the sum of short-term (60s) fluctuations and long-term (120s) trends.
-HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugePageFiller: Since the start of the execution, 8 subreleases (1022 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 
@@ -2782,8 +2967,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   // Subreleases 0.5N free pages and skips 0.25N free pages.
   EXPECT_EQ(N / 2,
             ReleasePages(10 * N, SkipSubreleaseIntervals{
-                                     .short_interval = absl::Minutes(3),
-                                     .long_interval = absl::Minutes(3)}));
+                                     .peak_interval = absl::Minutes(3)}));
   Advance(absl::Minutes(3));
   std::vector<PAlloc> tiny1 =
       AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
@@ -2821,8 +3005,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   std::vector<PAlloc> half2 = AllocateVector(N / 2);
   EXPECT_EQ(Length(0),
             ReleasePages(10 * N, SkipSubreleaseIntervals{
-                                     .short_interval = absl::Minutes(3),
-                                     .long_interval = absl::Minutes(3)}));
+                                     .peak_interval = absl::Minutes(3)}));
   Advance(absl::Minutes(3));
   std::vector<PAlloc> half3 = AllocateVector(N / 2);
   DeleteVector(half2);
@@ -2844,8 +3027,8 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to the sum of short-term (180s) fluctuations and long-term (180s) trends.
-HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending).
+HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
+HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 
@@ -2892,8 +3075,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   // Subreleases 0.75N free pages.
   EXPECT_EQ(3 * N / 4,
             ReleasePages(10 * N, SkipSubreleaseIntervals{
-                                     .short_interval = absl::Seconds(1),
-                                     .long_interval = absl::Seconds(1)}));
+                                     .peak_interval = absl::Minutes(3)}));
   Advance(absl::Minutes(3));
   std::vector<PAlloc> tiny1 =
       AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
@@ -2931,8 +3113,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   std::vector<PAlloc> half2 = AllocateVectorWithSpanAllocInfo(N / 2, info);
   EXPECT_EQ(Length(0),
             ReleasePages(10 * N, SkipSubreleaseIntervals{
-                                     .short_interval = absl::Seconds(1),
-                                     .long_interval = absl::Seconds(1)}));
+                                     .peak_interval = absl::Minutes(3)}));
   Advance(absl::Minutes(3));
   std::vector<PAlloc> half3 = AllocateVectorWithSpanAllocInfo(N / 2, info);
   DeleteVector(half2);
@@ -2954,8 +3135,8 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 2 subreleases (191 pages) were skipped due to the sum of short-term (1s) fluctuations and long-term (1s) trends.
-HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 
@@ -3896,8 +4077,8 @@ HugePageFiller: minimum free pages: 0 (0 backed)
 HugePageFiller: at peak demand: 3547 pages (and 267 free, 26 unmapped)
 HugePageFiller: at peak demand: 15 hps (10 regular, 1 donated, 0 partial, 4 released)
 
-HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to the sum of short-term (0s) fluctuations and long-term (0s) trends.
-HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
 HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased (0 pages from partial allocs), 5 hugepages broken
 )"));
 

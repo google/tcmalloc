@@ -521,7 +521,11 @@ class MallocExtension final {
   // demand fluctuation, and long-term demand trend. Zero duration means not
   // considering corresponding demand history for delayed subrelease. Delayed
   // subrelease is disabled if all intervals are zero.
+  //
+  // TODO(b/394157733): Remove non-short/long skip subrelease accessers.
+  ABSL_DEPRECATED("This feature is being removed.")
   static absl::Duration GetSkipSubreleaseInterval();
+  ABSL_DEPRECATED("This feature is being removed.")
   static void SetSkipSubreleaseInterval(absl::Duration value);
   static absl::Duration GetSkipSubreleaseShortInterval();
   static void SetSkipSubreleaseShortInterval(absl::Duration value);
