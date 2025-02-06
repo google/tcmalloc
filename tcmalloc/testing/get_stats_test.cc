@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -345,10 +346,15 @@ TEST_F(GetStatsTest, Parameters) {
 
 TEST_F(GetStatsTest, StackDepth) {
   // We run a thread with a limited stack size to confirm that we do not use too
-  // much stack space gathering statistics.
+  // much stack space gathering statistics.  Some threads that gather statistics
+  // may be using small stack sizes and this ensures they are unlikely to stack
+  // overflow.
   //
   // Running out of stack space will manifest as a segmentation fault.
-  const size_t max_stack_depth = std::max<size_t>(60 * 1024, PTHREAD_STACK_MIN);
+  const size_t max_stack_depth = std::max<size_t>(
+         60 * 1024
+      ,
+      PTHREAD_STACK_MIN);
 
   struct Args {
     bool plaintext;
