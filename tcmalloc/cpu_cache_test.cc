@@ -192,6 +192,8 @@ class TestStaticForwarder {
     return numa_topology_;
   }
 
+  bool UseWiderSlabs() const { return true; }
+
   using ShardedManager =
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
                                       FakeCpuLayout,

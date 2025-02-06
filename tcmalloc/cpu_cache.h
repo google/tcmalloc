@@ -178,6 +178,12 @@ class StaticForwarder {
     return tc_globals.sharded_transfer_cache().UseCacheForLargeClassesOnly();
   }
 
+  static bool UseWiderSlabs() {
+    // We use wider 512KiB slab only when NUMA partitioning is not enabled. NUMA
+    // increases shift by 1 by itself, so we can not increase it further.
+    return !numa_topology().numa_aware();
+  }
+
   static bool HaveHooks() { return tc_globals.HaveHooks(); }
 };
 
@@ -927,9 +933,7 @@ inline void CpuCache<Forwarder>::UpdateMaxCapacity(int size_class,
 
 template <class Forwarder>
 inline bool CpuCache<Forwarder>::UseWiderSlabs() const {
-  // We use wider 512KiB slab only when NUMA partitioning is not enabled. NUMA
-  // increases shift by 1 by itself, so we can not increase it further.
-  return !forwarder_.numa_topology().numa_aware();
+  return forwarder_.UseWiderSlabs();
 }
 
 template <class Forwarder>
