@@ -201,10 +201,7 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
 
-  static bool dense_trackers_sorted_on_spans_allocated() {
-    return dense_trackers_sorted_on_spans_allocated_.load(
-        std::memory_order_relaxed);
-  }
+  static bool dense_trackers_sorted_on_spans_allocated();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
@@ -259,7 +256,6 @@ class Parameters {
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
-  static std::atomic<bool> dense_trackers_sorted_on_spans_allocated_;
 };
 
 }  // namespace tcmalloc_internal

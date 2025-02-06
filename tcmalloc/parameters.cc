@@ -30,6 +30,7 @@
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
@@ -262,8 +263,6 @@ ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_grow_threshold_(0.9);
 ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_(0.4);
-ABSL_CONST_INIT std::atomic<bool>
-    Parameters::dense_trackers_sorted_on_spans_allocated_(false);
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
@@ -318,6 +317,41 @@ int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
 static bool want_disable_dynamic_slabs() {
   if (default_want_disable_dynamic_slabs == nullptr) return false;
   return default_want_disable_dynamic_slabs() > 0;
+}
+
+// TODO(b/394569259): remove the
+// default_want_disable_dense_trackers_sorted_on_spans_allocated some time after
+// 2025-03-15.
+bool ABSL_ATTRIBUTE_WEAK
+default_want_disable_dense_trackers_sorted_on_spans_allocated();
+static bool want_dense_trackers_sorted_on_spans_allocated() {
+  if (default_want_disable_dense_trackers_sorted_on_spans_allocated != nullptr)
+    return false;
+  const char* e = thread_safe_getenv(
+      "TCMALLOC_DISABLE_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        // TODO(b/348043731): enable this.
+        return false;
+      case '1':
+        return false;
+      default:
+        TC_BUG("bad env var '%s'", e);
+    }
+  }
+  // TODO(b/348043731): enable this.
+  return false;
+}
+
+bool Parameters::dense_trackers_sorted_on_spans_allocated() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(want_dense_trackers_sorted_on_spans_allocated(),
+            std::memory_order_relaxed);
+  });
+  return v.load(std::memory_order_relaxed);
 }
 
 }  // namespace tcmalloc_internal
