@@ -113,9 +113,11 @@ static std::atomic<int64_t>& background_process_sleep_interval_ns() {
 static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::Duration interval = absl::ZeroDuration();
+#if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+#endif
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(absl::ToInt64Nanoseconds(absl::ZeroDuration()),
-            std::memory_order_relaxed);
+    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
   });
   return v;
 }
@@ -125,16 +127,16 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::Duration interval;
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+  interval = absl::ZeroDuration();
+#else
+  interval = absl::Seconds(60);
+#endif
+
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     // clang-format off
-    v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-                absl::ZeroDuration()
-#else
-                absl::Seconds(60)
-#endif
-                    ),
-            std::memory_order_relaxed);
+    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
     // clang-format on
   });
   return v;
@@ -143,16 +145,16 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::Duration interval;
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+  interval = absl::ZeroDuration();
+#else
+  interval = absl::Seconds(300);
+#endif
+
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     // clang-format off
-    v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-                absl::ZeroDuration()
-#else
-                absl::Seconds(300)
-#endif
-                    ),
-            std::memory_order_relaxed);
+    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
     // clang-format on
   });
   return v;
