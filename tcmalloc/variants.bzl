@@ -150,6 +150,14 @@ test_variants = [
         "env": {"TCMALLOC_DISABLE_BIG_SPAN": "1"},
     },
     {
+        "name": "dense_trackers_sorted_on_spans_allocated_disable",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"TCMALLOC_DISABLE_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED": "1"},
+    },
+    {
         "name": "256k_pages_pow2_sharded_transfer_cache",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": [
