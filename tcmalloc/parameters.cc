@@ -349,6 +349,7 @@ default_want_disable_dense_trackers_sorted_on_spans_allocated();
 static bool want_dense_trackers_sorted_on_spans_allocated() {
   if (default_want_disable_dense_trackers_sorted_on_spans_allocated != nullptr)
     return false;
+
   const char* e = thread_safe_getenv(
       "TCMALLOC_DISABLE_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED");
   if (e) {
