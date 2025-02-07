@@ -17,10 +17,14 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/mman.h>
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <ctime>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
@@ -39,6 +43,7 @@
 #include "absl/flags/flag.h"
 #include "absl/memory/memory.h"
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
@@ -53,6 +58,8 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/range_tracker.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -261,6 +268,42 @@ class PageTrackerTest : public testing::Test {
     PageHeapSpinLockHolder l;
     return tracker_.ReleaseFree(mock_);
   }
+};
+
+class FakeResidency : public Residency {
+ public:
+  FakeResidency() : native_pages_in_huge_page_(kMaxResidencyBits) {}
+  explicit FakeResidency(size_t native_pages_in_huge_page) {
+    native_pages_in_huge_page_ = native_pages_in_huge_page;
+  };
+  std::optional<Info> Get(const void* addr, size_t size) override {
+    return std::nullopt;
+  };
+
+  // Returns a bitmap of pages that are unbacked and a bitmap of pages that are
+  // swapped.
+  // The histogram creates bitmaps with the following pattern:
+  // unbacked: h
+  // swapped: s
+  // | h | h |   |   |
+  // |   |   | s | s |
+  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+    Bitmap<kMaxResidencyBits> page_unbacked;
+    Bitmap<kMaxResidencyBits> page_swapped;
+    ResidencyPageMap residency;
+    size_t kNativePagesInHugePage = residency.GetNativePagesInHugePage();
+    page_unbacked.SetRange(0, kNativePagesInHugePage / 2);
+    page_swapped.SetRange(kNativePagesInHugePage / 2,
+                          kNativePagesInHugePage / 2);
+    return SinglePageBitmaps{page_unbacked, page_swapped,
+                             absl::StatusCode::kOk};
+  };
+  size_t GetNativePagesInHugePage() const override {
+    return native_pages_in_huge_page_;
+  };
+
+ private:
+  size_t native_pages_in_huge_page_;
 };
 
 TEST_F(PageTrackerTest, AllocSane) {
@@ -615,6 +658,54 @@ TEST_F(PageTrackerTest, b151915873) {
                                   &small.normal_length[kMaxPages.raw_num()]));
 }
 
+TEST_F(PageTrackerTest, CountInfoInHugePage) {
+  // This test verifies that CountInfoInHugePage returns the correct number of
+  // free_swapped, used_swapped, used_unbacked, and non_free_non_used_unbacked
+  // pages.
+  // The test creates a hugepage with the following pattern:
+  // unbacked: h
+  // swapped: s
+  // used: u
+  // free: f
+
+  // | h | h |   |   |
+  // |   |   | s | s |
+  // | u |   | u |   |
+  // |   | f |   | f |
+
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  Get(kAllocSize - Length(4), info);              // 60 used pages
+  PAlloc a2 = Get(kAllocSize, info);              // 64 free pages
+  Get(kAllocSize + Length(3), info);              // 67 used pages
+  PAlloc a4 = Get(kAllocSize + Length(1), info);  // 65 free pages
+  Put(a2);
+  Put(a4);
+  // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
+  // The free parts should be released when we mark the hugepage as such,
+  // but not the allocated parts.
+  ExpectPages(a2, /*success=*/true);
+  ExpectPages(a4, /*success=*/false);
+  ReleaseFree();
+  mock_.VerifyAndClear();
+
+  EXPECT_EQ(tracker_.released_pages(), a2.n);
+  EXPECT_EQ(tracker_.free_pages(), a2.n + a4.n);
+
+  FakeResidency fake_residency;
+  FakeResidency::SinglePageBitmaps bitmaps =
+      fake_residency.GetUnbackedAndSwappedBitmaps(
+          tracker_.location().start_addr());
+  int native_pages_in_huge_page = fake_residency.GetNativePagesInHugePage();
+  PageTracker::NativePageCounterInfo counter_info =
+      tracker_.CountInfoInHugePage(bitmaps, native_pages_in_huge_page);
+
+  EXPECT_EQ(counter_info.n_free_swapped, native_pages_in_huge_page / 4 + 2);
+  EXPECT_EQ(counter_info.n_used_swapped, native_pages_in_huge_page / 4 - 2);
+  EXPECT_EQ(counter_info.n_used_unbacked, native_pages_in_huge_page / 4);
+  EXPECT_EQ(counter_info.n_non_free_non_used_unbacked,
+            native_pages_in_huge_page / 4);
+}
 class BlockingUnback final : public MemoryModifyFunction {
  public:
   constexpr BlockingUnback() = default;
@@ -3752,6 +3843,101 @@ TEST_P(FillerTest, CheckFillerStats_SpansAllocated) {
     Delete(alloc);
   }
 }
+// Test the native page bounds where kNativePagesInHugePage (kernel) is <
+// kPagesPerHugePage (tcmalloc), kNativePagesInHugePage = kPagesPerHugePage,
+// kNativePagesInHugePage > kPagesPerHugePage.
+TEST_P(FillerTest, CheckNativePageHistoBounds) {
+  if (std::get<0>(GetParam()) ==
+      HugePageFillerDenseTrackerType::kSpansAllocated) {
+    GTEST_SKIP() << "Skipping test for kSpansAllocated";
+  }
+  if (kPagesPerHugePage != Length(256)) {
+    // The output is hardcoded on this assumption, and dynamically calculating
+    // it would be way too much of a pain.
+    return;
+  }
+  // Case for 256 KiB pages, 8 pages in a huge page region
+  FakeResidency residency_8_native_pages(8);
+  std::string buffer(1024 * 1024, '\0');
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, /*everything=*/true, &residency_8_native_pages);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0
+)"));
+
+  // Case for 128 KiB pages, 16 pages in a huge page region
+  FakeResidency residency_16_native_pages(16);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, /*everything=*/true, &residency_16_native_pages);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 <  9<=     0 < 10<=     0 < 11<=     0
+HugePageFiller: < 12<=     0 < 13<=     0 < 14<=     0 < 15<=     0
+)"));
+
+  // Case for arm 64 KiB native pages, 32 pages in a huge page region
+  FakeResidency residency_32_native_pages(32);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, /*everything=*/true, &residency_32_native_pages);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 10<=     0 < 12<=     0 < 14<=     0
+HugePageFiller: < 16<=     0 < 18<=     0 < 20<=     0 < 22<=     0 < 24<=     0 < 25<=     0
+HugePageFiller: < 26<=     0 < 27<=     0 < 28<=     0 < 29<=     0 < 30<=     0 < 31<=     0
+)"));
+
+  // Case for 8 KiB kib pages, 256 pages in a huge page region
+  FakeResidency residency_256_native_pages(256);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, /*everything=*/true, &residency_256_native_pages);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 24<=     0 < 40<=     0 < 56<=     0
+HugePageFiller: < 72<=     0 < 88<=     0 <104<=     0 <120<=     0 <136<=     0 <152<=     0
+HugePageFiller: <168<=     0 <184<=     0 <200<=     0 <216<=     0 <232<=     0 <248<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0
+)"));
+
+  // Case for 4kib native pages, 512 pages in a huge page region
+  FakeResidency residency_512_native_pages(512);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, /*everything=*/true, &residency_512_native_pages);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+)"));
+}
 
 // Test the output of Print(). This is something of a change-detector test,
 // but that's not all bad in this case.
@@ -3771,12 +3957,12 @@ TEST_P(FillerTest, Print) {
   // chosen at random.
   randomize_density_ = false;
   auto allocs = GenerateInterestingAllocs();
-
+  FakeResidency fake_residency;
   std::string buffer(1024 * 1024, '\0');
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(printer, /*everything=*/true);
+    filler_.Print(printer, /*everything=*/true, &fake_residency);
     buffer.erase(printer.SpaceRequired());
   }
 
@@ -4061,6 +4247,230 @@ HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0
 HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
+
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     5 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     5 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of donated hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     1 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed partial released hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed partial released hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed released hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     2 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed released hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     2 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     5 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed regular hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     5 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of donated hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     1 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed partial released hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed partial released hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed released hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     2 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed released hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     2 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of used and swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     5 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed regular hps with a <= # of used and swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     5 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of donated hps with a <= # of used and swapped < b
+HugePageFiller: <  0<=     1 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed partial released hps with a <= # of used and swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed partial released hps with a <= # of used and swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed released hps with a <= # of used and swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     2 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed released hps with a <= # of used and swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     2 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of used and unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     5 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed regular hps with a <= # of used and unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     5 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of donated hps with a <= # of used and unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     1 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed partial released hps with a <= # of used and unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed partial released hps with a <= # of used and unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed released hps with a <= # of used and unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     2 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed released hps with a <= # of used and unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     2 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
 
 HugePageFiller: 0 of sparsely-accessed regular pages hugepage backed out of 5.
 HugePageFiller: 0 of densely-accessed regular pages hugepage backed out of 5.

@@ -320,6 +320,7 @@ perftools::profiles::Profile MakeTestProfile(
   StubPageFlags* p = nullptr;
   Residency* r = nullptr;
   std::optional<StubPageFlags> pageflags;
+  // TODO(b/242550501): Mock residency
   std::optional<ResidencyPageMap> residency;
   if (profile_type == ProfileType::kHeap) {
     p = &pageflags.emplace();
