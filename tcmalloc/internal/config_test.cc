@@ -50,7 +50,10 @@ TEST(AddressBits, CpuVirtualBits) {
       /* clobbers */
       : "rdi", "ecx", "edx");
   const int kImplementedVirtualBits = (ret >> 8) & ((1 << 8) - 1);
-  ASSERT_GE(kAddressBits, std::min(kImplementedVirtualBits, kPointerBits));
+
+  // TODO(b/134686025): Remove 48-bit lower bound.
+  ASSERT_GE(kAddressBits,
+            std::min({48, kImplementedVirtualBits, kPointerBits}));
 #elif __aarch64__
   const int kPointerBits = 8 * sizeof(void*);
 
