@@ -344,7 +344,7 @@ static bool want_disable_dynamic_slabs() {
 // TODO(b/394569259): remove the
 // default_want_disable_dense_trackers_sorted_on_spans_allocated some time after
 // 2025-03-15.
-bool ABSL_ATTRIBUTE_WEAK
+extern "C" bool ABSL_ATTRIBUTE_WEAK
 default_want_disable_dense_trackers_sorted_on_spans_allocated();
 static bool want_dense_trackers_sorted_on_spans_allocated() {
   if (default_want_disable_dense_trackers_sorted_on_spans_allocated != nullptr)
@@ -354,16 +354,14 @@ static bool want_dense_trackers_sorted_on_spans_allocated() {
   if (e) {
     switch (e[0]) {
       case '0':
-        // TODO(b/348043731): enable this.
-        return false;
+        return true;
       case '1':
         return false;
       default:
         TC_BUG("bad env var '%s'", e);
     }
   }
-  // TODO(b/348043731): enable this.
-  return false;
+  return true;
 }
 
 bool Parameters::dense_trackers_sorted_on_spans_allocated() {
