@@ -320,7 +320,7 @@ perftools::profiles::Profile MakeTestProfile(
   StubPageFlags* p = nullptr;
   Residency* r = nullptr;
   std::optional<StubPageFlags> pageflags;
-  std::optional<Residency> residency;
+  std::optional<ResidencyPageMap> residency;
   if (profile_type == ProfileType::kHeap) {
     p = &pageflags.emplace();
     r = &residency.emplace();

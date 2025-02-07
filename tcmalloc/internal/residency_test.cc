@@ -55,12 +55,12 @@ class ResidencySpouse {
     return r_.Get(std::forward<Args>(args)...);
   }
 
-  decltype(auto) GetHolesAndSwappedBitmaps(const void* const addr) {
-    return r_.GetHolesAndSwappedBitmaps(addr);
+  decltype(auto) GetUnbackedAndSwappedBitmaps(const void* const addr) {
+    return r_.GetUnbackedAndSwappedBitmaps(addr);
   }
 
  private:
-  Residency r_;
+  ResidencyPageMap r_;
 };
 
 namespace {
@@ -82,7 +82,7 @@ TEST(ResidenceTest, ThisProcess) {
     const size_t kHead = kPageSize * 10;
     const size_t kTail = kPageSize * 10;
 
-    Residency r;
+    ResidencyPageMap r;
     // Overallocate kNumPages of memory, so we can munmap the page before and
     // after it.
     void* p = mmap(nullptr, kNumPages * kPageSize + kHead + kTail,
@@ -208,52 +208,52 @@ void GenerateHolesInSinglePage(absl::string_view filename, int case_num,
 }
 
 Residency::SinglePageBitmaps GenerateExpectedSinglePageBitmaps(int case_num) {
-  Bitmap<512> expected_holes;
+  Bitmap<512> expected_unbacked;
   Bitmap<512> expected_swapped;
   switch (case_num) {
     case 0:
       // All Pages are present. Both bitmaps are 0
       break;
     case 1:
-      // All Pages are swapped. Both bitmaps are all 1
-      expected_holes.SetRange(0, 512);
+      // All Pages are swapped. Swapped bitmap is all 1
       expected_swapped.SetRange(0, 512);
       break;
     case 2:
-      // All pages are holes. Holes bitmap is all 1
-      expected_holes.SetRange(0, 512);
+      // All pages are holes. Unbacked bitmap is all 1
+      expected_unbacked.SetRange(0, 512);
       break;
     case 3:
       // Every other page is a hole, rest are present.
       // Both bitmaps are 0 and 1 alternating
       for (int idx = 0; idx < 512; idx += 2) {
         if (idx % 2 == 0) {
-          expected_holes.SetBit(idx);
+          expected_unbacked.SetBit(idx);
         }
       }
       break;
     case 4:
       // Every other page is swapped, rest are present,
-      // Bitmaps are 0 and 1 alternating
+      // Swapped bitmap are 0 and 1 alternating
       for (int idx = 0; idx < 512; idx += 2) {
         if (idx % 2 == 0) {
-          expected_holes.SetBit(idx);
           expected_swapped.SetBit(idx);
         }
       }
       break;
     case 5:
       // Every other page is swapped, rest are holes,
-      // swapped bitmaps are 0 and 1 alternating, holes bitmaps are all 1
+      // Swapped bitmaps are 0 and 1 alternating
+      // Unbacked bitmaps are 1 and 0 alternating
       for (int idx = 0; idx < 512; idx++) {
-        expected_holes.SetRange(0, 512);
         if (idx % 2 == 0) {
           expected_swapped.SetBit(idx);
+        } else {
+          expected_unbacked.SetBit(idx);
         }
       }
       break;
   }
-  return Residency::SinglePageBitmaps{expected_holes, expected_swapped,
+  return Residency::SinglePageBitmaps{expected_unbacked, expected_swapped,
                                       absl::StatusCode::kOk};
 }
 
@@ -267,7 +267,7 @@ bool BitmapsAreEqual(const Bitmap<512>& bitmap1, const Bitmap<512>& bitmap2) {
   return true;
 }
 
-TEST(PageMapTest, GetHolesAndSwappedBitmaps) {
+TEST(PageMapTest, GetUnbackedAndSwappedBitmaps) {
   constexpr int kNumCases = 6;
   std::array<Residency::SinglePageBitmaps, kNumCases> expected;
   for (int i = 0; i < kNumCases; ++i) {
@@ -284,10 +284,10 @@ TEST(PageMapTest, GetHolesAndSwappedBitmaps) {
     g.emplace();
     ResidencySpouse s(file_path);
     Residency::SinglePageBitmaps res =
-        s.GetHolesAndSwappedBitmaps(reinterpret_cast<void*>(0));
+        s.GetUnbackedAndSwappedBitmaps(reinterpret_cast<void*>(0));
     g.reset();
     EXPECT_THAT(res.status, expected[i].status);
-    EXPECT_TRUE(BitmapsAreEqual(res.holes, expected[i].holes));
+    EXPECT_TRUE(BitmapsAreEqual(res.unbacked, expected[i].unbacked));
     EXPECT_TRUE(BitmapsAreEqual(res.swapped, expected[i].swapped));
   }
 }
@@ -302,10 +302,10 @@ TEST(PageMapTest, CountHolesWithAddressBeyondFirstPage) {
   g.emplace();
   ResidencySpouse s(file_path);
   Residency::SinglePageBitmaps res =
-      s.GetHolesAndSwappedBitmaps(reinterpret_cast<void*>(2 << 21));
+      s.GetUnbackedAndSwappedBitmaps(reinterpret_cast<void*>(2 << 21));
   g.reset();
   EXPECT_THAT(res.status, expected.status);
-  EXPECT_TRUE(BitmapsAreEqual(res.holes, expected.holes));
+  EXPECT_TRUE(BitmapsAreEqual(res.unbacked, expected.unbacked));
   EXPECT_TRUE(BitmapsAreEqual(res.swapped, expected.swapped));
 }
 
@@ -317,7 +317,7 @@ TEST(PageMapTest, VerifyAddressAlignmentCheckPasses) {
   g.emplace();
   ResidencySpouse s(file_path);
   Residency::SinglePageBitmaps non_align_addr_res =
-      s.GetHolesAndSwappedBitmaps(reinterpret_cast<void*>(0x00001));
+      s.GetUnbackedAndSwappedBitmaps(reinterpret_cast<void*>(0x00001));
   g.reset();
   EXPECT_EQ(non_align_addr_res.status, absl::StatusCode::kFailedPrecondition);
 }
@@ -327,7 +327,7 @@ TEST(PageMapTest, VerifyAddressAlignmentBeyondFirstPageFails) {
   g.emplace();
   ResidencySpouse s;
   Residency::SinglePageBitmaps res =
-      s.GetHolesAndSwappedBitmaps(reinterpret_cast<void*>((2 << 21) + 1));
+      s.GetUnbackedAndSwappedBitmaps(reinterpret_cast<void*>((2 << 21) + 1));
   g.reset();
   EXPECT_EQ(res.status, absl::StatusCode::kFailedPrecondition);
 }
@@ -344,11 +344,11 @@ TEST(PageMapIntegrationTest, WorksOnActualData) {
     addr = reinterpret_cast<void*>(position);
   }
   g.emplace();
-  Residency r;
-  auto res = r.GetHolesAndSwappedBitmaps(addr);
+  ResidencyPageMap r;
+  Residency::SinglePageBitmaps res = r.GetUnbackedAndSwappedBitmaps(addr);
   g.reset();
   ASSERT_EQ(res.status, absl::StatusCode::kOk);
-  EXPECT_TRUE(res.holes.IsZero());
+  EXPECT_TRUE(res.unbacked.IsZero());
   EXPECT_TRUE(res.swapped.IsZero());
   ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 1 * 4096, 4096), 0)
       << errno;
@@ -356,15 +356,15 @@ TEST(PageMapIntegrationTest, WorksOnActualData) {
       << errno;
 
   g.emplace();
-  res = r.GetHolesAndSwappedBitmaps(addr);
+  res = r.GetUnbackedAndSwappedBitmaps(addr);
   g.reset();
   ASSERT_EQ(res.status, absl::StatusCode::kOk);
-  EXPECT_FALSE(res.holes.IsZero());
-  ASSERT_TRUE(res.holes.GetBit(1));
-  ASSERT_TRUE(res.holes.GetBit(17));
-  res.holes.ClearLowestBit();
-  res.holes.ClearLowestBit();
-  EXPECT_TRUE(res.holes.IsZero());
+  EXPECT_FALSE(res.unbacked.IsZero());
+  ASSERT_TRUE(res.unbacked.GetBit(1));
+  ASSERT_TRUE(res.unbacked.GetBit(17));
+  res.unbacked.ClearLowestBit();
+  res.unbacked.ClearLowestBit();
+  EXPECT_TRUE(res.unbacked.IsZero());
   EXPECT_TRUE(res.swapped.IsZero());
 }
 

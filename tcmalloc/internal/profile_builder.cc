@@ -910,7 +910,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     const ::tcmalloc::Profile& profile) {
   // Used to populate residency info in heap profile.
   std::optional<PageFlags> pageflags;
-  std::optional<Residency> residency;
+  std::optional<ResidencyPageMap> residency;
 
   PageFlags* p = nullptr;
   Residency* r = nullptr;
