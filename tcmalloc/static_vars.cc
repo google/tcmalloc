@@ -36,9 +36,9 @@
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
+#include "tcmalloc/internal/gwp_asan_state.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
-#include "tcmalloc/internal/mismatched_delete_state.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
@@ -128,7 +128,7 @@ ABSL_CONST_INIT PageMap Static::pagemap_;
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
 ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
-ABSL_CONST_INIT MismatchedDeleteState Static::mismatched_delete_state_;
+ABSL_CONST_INIT GwpAsanState Static::gwp_asan_state_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
     SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>>
         Static::system_allocator_{numa_topology_};
@@ -158,7 +158,7 @@ size_t Static::metadata_bytes() {
       sizeof(allocation_samples) + sizeof(deallocation_samples) +
       sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
       sizeof(guardedpage_allocator_) + sizeof(numa_topology_) +
-      sizeof(CacheTopology::Instance()) + sizeof(mismatched_delete_state_) +
+      sizeof(CacheTopology::Instance()) + sizeof(gwp_asan_state_) +
       sizeof(system_allocator_);
   // LINT.ThenChange(:static_vars)
 

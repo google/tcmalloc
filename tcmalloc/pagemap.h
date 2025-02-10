@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "absl/base/attributes.h"
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -466,22 +467,18 @@ class PageMap {
   // Return the descriptor and sizeclass for the specified page.
   // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] inline std::pair<Span*, CompactSizeClass>
+  [[nodiscard]] inline std::pair<absl::Nullable<Span*>, CompactSizeClass>
   GetExistingDescriptorAndSizeClass(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    auto [span, sizeclass] = map_.get_existing_with_sizeclass(p.index());
-    TC_ASSERT_NE(span, nullptr, "Possible double free detected");
-    return {span, sizeclass};
+    return map_.get_existing_with_sizeclass(p.index());
   }
 
   // Return the descriptor for the specified page.
   // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] inline Span* GetExistingDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    Span* span = map_.get_existing(p.index());
-    TC_ASSERT_NE(span, nullptr, "Possible double free detected");
-    return span;
+  [[nodiscard]] inline absl::Nullable<Span*> GetExistingDescriptor(
+      PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return map_.get_existing(p.index());
   }
 
   size_t bytes() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {

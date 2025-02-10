@@ -73,6 +73,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/debugging/stacktrace.h"
 #include "absl/numeric/bits.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -629,6 +630,12 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
 ABSL_ATTRIBUTE_NORETURN
 ABSL_ATTRIBUTE_NOINLINE
 static void ReportDoubleFree(void* ptr) {
+  static void* stack[kMaxStackDepth];
+  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
+
+  RecordCrash("GWP-ASan", "double-free");
+  tc_globals.gwp_asan_state().RecordDoubleFree(absl::MakeSpan(stack, depth));
+
   TC_BUG("Possible double free detected of %p", ptr);
 }
 

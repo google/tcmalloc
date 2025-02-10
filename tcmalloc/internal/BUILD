@@ -208,6 +208,20 @@ cc_library(
 )
 
 cc_library(
+    name = "gwp_asan_state",
+    hdrs = ["gwp_asan_state.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
     name = "linked_list",
     hdrs = ["linked_list.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -358,20 +372,6 @@ cc_library(
     deps = [
         ":config",
         ":page_size",
-    ],
-)
-
-cc_library(
-    name = "mismatched_delete_state",
-    hdrs = ["mismatched_delete_state.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
-    deps = [
-        ":config",
-        ":logging",
-        "@com_google_absl//absl/types:span",
     ],
 )
 

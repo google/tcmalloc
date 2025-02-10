@@ -370,9 +370,10 @@ TEST_F(TcMallocTest, DoubleFree) {
     benchmark::DoNotOptimize(buf);
     ::operator delete(buf);
   };
-  EXPECT_DEATH(DoubleFree(),
-               "Span::Unsample\\(\\)|Span::IN_USE|Possible double free "
-               "detected|attempting double-free");
+  EXPECT_DEATH(
+      DoubleFree(),
+      absl::StrCat("(Possible double free detected"
+                   ")|attempting double-free"));
 }
 
 TEST_F(TcMallocTest, LargeDoubleFree) {
@@ -385,8 +386,10 @@ TEST_F(TcMallocTest, LargeDoubleFree) {
     benchmark::DoNotOptimize(buf);
     ::operator delete(buf);
   };
-  EXPECT_DEATH(DoubleFree(),
-               "Possible double free detected|attempting double-free");
+  EXPECT_DEATH(
+      DoubleFree(),
+      absl::StrCat("(Possible double free detected"
+                   ")|attempting double-free"));
 }
 
 TEST_F(TcMallocTest, ReallocLarger) {

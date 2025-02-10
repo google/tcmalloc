@@ -95,9 +95,9 @@ static void ReportMismatchedSizeClass(void* object, int page_size_class,
       "later point in time and different code location.");
   RecordCrash("GWP-ASan", "mismatched-size-class");
 
-  tc_globals.mismatched_delete_state().Record(object_min_size, object_max_size,
-                                              page_min_size, page_max_size,
-                                              std::nullopt, std::nullopt);
+  tc_globals.gwp_asan_state().RecordMismatch(object_min_size, object_max_size,
+                                             page_min_size, page_max_size,
+                                             std::nullopt, std::nullopt);
   abort();
 }
 
