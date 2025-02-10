@@ -193,14 +193,13 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
           HasBrittleTestFailures(config.id)) {
         continue;
       }
-      TC_CHECK(!buffer[static_cast<int>(config.id)]);
       experiment_id = config.id;
 
       // Enabling is specifically based on the experiment name so that it's
       // stable when experiments are added/removed.
       bool enabled =
           ((target_hash ^ absl::HashOf(config.name)) % kEnableOneOf) == 0;
-      buffer[static_cast<int>(config.id)] = enabled;
+      buffer[static_cast<int>(config.id)] |= enabled;
       num_enabled_experiments += enabled;
     }
     // In case the hash-based selection above did not work out, select the last

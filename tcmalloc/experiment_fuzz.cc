@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/experiment.h"
@@ -37,6 +38,14 @@ void FuzzSelectExperiments(absl::string_view test_target,
 }
 
 FUZZ_TEST(ExperimentTest, FuzzSelectExperiments);
+
+TEST(ExperimentTest, FuzzSelectExperiments_b395212979) {
+  FuzzSelectExperiments(
+      "t_fuenchmark&"
+      "vvvvvvvvvvvvvvvvvvVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
+      "", "",
+      true);
+}
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
