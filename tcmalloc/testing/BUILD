@@ -776,7 +776,9 @@ cc_test(
         "//tcmalloc/internal:proc_maps",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/debugging:leak_check",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
     ],
 )

@@ -571,6 +571,8 @@ void DumpStats(Printer& out, int level) {
                Parameters::release_pages_from_huge_region() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
+    out.printf("PARAMETER tag_metadata_separately %d\n",
+               tc_globals.system_allocator().tag_metadata_separately() ? 1 : 0);
 
     out.printf(
         "PARAMETER size_class_config %s\n",
