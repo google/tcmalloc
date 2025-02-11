@@ -136,6 +136,10 @@
 #error "Unsupported platform."
 #endif
 
+#ifndef ABSL_IS_LITTLE_ENDIAN
+#error "TCMalloc only supports little endian architectures"
+#endif
+
 // We use this before out-of-line calls to slow paths so that compiler
 // does not emit long conditional jump on the fast path.
 //
