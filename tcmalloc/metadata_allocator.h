@@ -18,7 +18,9 @@
 #include <cstddef>
 
 #include "absl/base/attributes.h"
+#include "tcmalloc/internal/config.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
 class MetadataAllocator {
@@ -36,5 +38,6 @@ class MetadataAllocator {
 };
 
 }  // namespace tcmalloc::tcmalloc_internal
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_METADATA_ALLOCATOR_H_

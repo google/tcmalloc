@@ -1066,6 +1066,7 @@ cc_library(
     hdrs = ["metadata_allocator.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
 )

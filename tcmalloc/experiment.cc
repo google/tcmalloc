@@ -88,7 +88,7 @@ const bool* GetSelectedExperiments() {
   ABSL_CONST_INIT static bool by_id[kNumExperiments];
   ABSL_CONST_INIT static absl::once_flag flag;
 
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() GOOGLE_MALLOC_SECTION {
     const char* test_target = thread_safe_getenv("TEST_TARGET");
     const char* active_experiments = thread_safe_getenv(kExperiments);
     const char* disabled_experiments = thread_safe_getenv(kDisableExperiments);
