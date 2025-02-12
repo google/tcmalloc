@@ -32,6 +32,7 @@
 #include "absl/debugging/symbolize.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/numeric/bits.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
@@ -67,14 +68,17 @@ size_t CountMatchingBytes(const char* target, Profile profile) {
   return sum;
 }
 
+// A 10000 byte allocation aligned to 2K will map to the same size class as
+// malloc(10000).
+constexpr size_t kRequestedSize = 10000;
+constexpr size_t kRequestedAlignment = 2048;
+
 ABSL_ATTRIBUTE_NOINLINE static void* AllocateAllocate(bool align) {
   void* p;
   if (align) {
-    // A 10000 byte allocation aligned to 2K will use a 10K size class
-    // and get 'charged' identically to malloc(10000).
-    TC_CHECK_EQ(0, posix_memalign(&p, 2048, 10000));
+    TC_CHECK_EQ(0, posix_memalign(&p, kRequestedAlignment, kRequestedSize));
   } else {
-    p = malloc(10000);
+    p = malloc(kRequestedSize);
   }
   benchmark::DoNotOptimize(p);
   return p;
@@ -84,6 +88,13 @@ class SamplingTest : public testing::TestWithParam<int64_t> {};
 
 TEST_P(SamplingTest, ParamChange) {
   static const size_t kIters = 80 * 1000;
+  const size_t kActualSize = nallocx(kRequestedSize, 0);
+  const size_t kActualAlignedSize =
+      nallocx(kRequestedSize, absl::bit_width(kRequestedAlignment) - 1);
+  // We make various assumptions that these map to the same size classes.
+  // Validate this.
+  EXPECT_EQ(kActualSize, kActualAlignedSize);
+
   std::vector<void*> allocs;
   allocs.reserve(kIters * 2);
 
@@ -100,8 +111,8 @@ TEST_P(SamplingTest, ParamChange) {
         "AllocateAllocate",
         MallocExtension::SnapshotCurrent(ProfileType::kHeap));
     if (GetParam() > 0) {
-      EXPECT_LE(500 * 1024 * 1024, bytes);
-      EXPECT_GE(1100 * 1024 * 1024, bytes);
+      EXPECT_LE(kActualSize * kIters * 0.8, bytes);
+      EXPECT_GE(kActualSize * kIters * 1.2, bytes);
     } else {
       EXPECT_EQ(0, bytes);
     }
@@ -118,12 +129,12 @@ TEST_P(SamplingTest, ParamChange) {
   bytes = CountMatchingBytes<true>(
       "AllocateAllocate", MallocExtension::SnapshotCurrent(ProfileType::kHeap));
   if (GetParam() > 0) {
-    EXPECT_LE(1000ULL * 1024 * 1024, bytes);
-    EXPECT_GE(2100ULL * 1024 * 1024, bytes);
+    EXPECT_LE(2 * kActualSize * kIters * 0.8, bytes);
+    EXPECT_GE(2 * kActualSize * kIters * 1.2, bytes);
   } else {
     // samples that don't exist can't be reweighted properly
-    EXPECT_LE(500ULL * 1024 * 1024, bytes);
-    EXPECT_GE(1100ULL * 1024 * 1024, bytes);
+    EXPECT_LE(kActualSize * kIters * 0.8, bytes);
+    EXPECT_GE(kActualSize * kIters * 1.2, bytes);
   }
 
   for (auto p : allocs) {

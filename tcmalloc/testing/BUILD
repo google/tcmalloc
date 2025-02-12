@@ -251,7 +251,7 @@ cc_test(
         "@com_google_absl//absl/debugging:symbolize",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
-        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest_main",
     ],
