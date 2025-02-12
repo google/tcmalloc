@@ -132,6 +132,9 @@ class Profile final {
   struct Sample {
     static constexpr int kMaxStackDepth = 64;
 
+    // Estimated number of allocated bytes for this sample.
+    //
+    // Requested bytes can be estimated via count * requested_size.
     int64_t sum;
     // The reported count of samples, with possible rounding up for unsample.
     // A given sample typically corresponds to some allocated objects, and the
@@ -139,14 +142,20 @@ class Profile final {
     // between previous and current samples) divided by the requested size.
     int64_t count;
 
+    // The size parameter to new/malloc/etc.
     size_t requested_size;
+    // The requested alignment if specified.  malloc() implicitly aligns to
+    // alignof(std::max_align_t) and this value is used.
     size_t requested_alignment;
+    // The actual size allocated considering size, implicit/explicit alignment,
+    // GWP-ASan.
     size_t allocated_size;
 
     // Return whether the allocation was returned with
     // tcmalloc_size_returning_operator_new or its variants.
     bool requested_size_returning;
 
+    // The hint provided to the hot-cold methods.  Hot if not provided.
     enum class Access : uint8_t {
       Hot,
       Cold,
@@ -156,6 +165,8 @@ class Profile final {
       kDoNotUse,
     };
     hot_cold_t access_hint;
+    // The actual access value used for the allocation considering
+    // implementation constraints.
     Access access_allocated;
 
     // Whether this sample captures allocations where the deallocation event
