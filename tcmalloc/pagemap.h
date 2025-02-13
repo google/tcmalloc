@@ -1,4 +1,3 @@
-
 // Copyright 2019 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,6 +53,29 @@ namespace tcmalloc_internal {
 typedef void* (*PagemapAllocator)(size_t);
 void* MetaDataAlloc(size_t bytes);
 
+// Convenience wrapper around a uintptr that packs a Span pointer and its
+// size class into a single word.
+class PackedSpanAndSizeclass {
+ public:
+  void set(Span* span, CompactSizeClass sizeclass) {
+    packed_value_ = (static_cast<uintptr_t>(sizeclass) << kSizeclassShift) |
+                    reinterpret_cast<uintptr_t>(span);
+  }
+
+  Span* span() const {
+    return reinterpret_cast<Span*>(packed_value_ & kSpanMask);
+  }
+  CompactSizeClass sizeclass() const {
+    return static_cast<CompactSizeClass>(packed_value_ >> kSizeclassShift);
+  }
+
+ private:
+  uintptr_t packed_value_;
+  static_assert(sizeof(CompactSizeClass) <= 2);
+  static constexpr uintptr_t kSizeclassShift = 48;
+  static constexpr uintptr_t kSpanMask = (uintptr_t{1} << kSizeclassShift) - 1;
+};
+
 template <int BITS, PagemapAllocator Allocator>
 class PageMap2 {
  private:
@@ -79,8 +101,13 @@ class PageMap2 {
     // since small object deallocations are so frequent and do not
     // need the other information kept in a Span.
     CompactSizeClass sizeclass[kLeafLength];
-    Span* span[kLeafLength];
+    // Span pointers, with the top two most significant bytes used to also
+    // store a redundant copy of the sizeclass. This allows us to avoid two
+    // separate memory loads when fetching both the span and the sizeclass.
+    PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
     void* hugepage[kLeafHugepages];
+
+    Span* span(int i) const { return span_and_sizeclass[i].span(); }
   };
 
   Leaf* root_[kRootLength];  // Top-level node
@@ -98,7 +125,7 @@ class PageMap2 {
     if ((k >> BITS) > 0 || root_[i1] == nullptr) {
       return nullptr;
     }
-    return root_[i1]->span[i2];
+    return root_[i1]->span(i2);
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -109,7 +136,7 @@ class PageMap2 {
     for (; i1 < kRootLength; ++i1, i2 = 0) {
       if (root_[i1] == nullptr) continue;
       for (; i2 < kLeafLength; ++i2) {
-        if (root_[i1]->span[i2] != nullptr) return (i1 << kLeafBits) | i2;
+        if (root_[i1]->span(i2) != nullptr) return (i1 << kLeafBits) | i2;
       }
     }
     return std::nullopt;
@@ -123,7 +150,10 @@ class PageMap2 {
     const Number i2 = k & (kLeafLength - 1);
     TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
-    return std::make_pair(root_[i1]->span[i2], root_[i1]->sizeclass[i2]);
+    PackedSpanAndSizeclass span_and_sizeclass =
+        root_[i1]->span_and_sizeclass[i2];
+    return std::make_pair(span_and_sizeclass.span(),
+                          span_and_sizeclass.sizeclass());
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -133,7 +163,7 @@ class PageMap2 {
     const Number i2 = k & (kLeafLength - 1);
     TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
-    return root_[i1]->span[i2];
+    return root_[i1]->span(i2);
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -151,7 +181,13 @@ class PageMap2 {
     TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
-    root_[i1]->span[i2] = s;
+    Leaf* leaf = root_[i1];
+    // This function should be used just after allocating a new Span;
+    // in that case, the sizeclass should have been left at zero when the
+    // old span was deallocated/unregistered (or it would have been zero
+    // at initialization time.)
+    TC_ASSERT_EQ(leaf->sizeclass[i2], 0);
+    leaf->span_and_sizeclass[i2].set(s, 0);
   }
 
   void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
@@ -159,7 +195,7 @@ class PageMap2 {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     Leaf* leaf = root_[i1];
-    leaf->span[i2] = s;
+    leaf->span_and_sizeclass[i2].set(s, sc);
     leaf->sizeclass[i2] = sc;
   }
 
@@ -251,8 +287,13 @@ class PageMap3 {
     // since small object deallocations are so frequent and do not
     // need the other information kept in a Span.
     CompactSizeClass sizeclass[kLeafLength];
-    Span* span[kLeafLength];
+    // Span pointers, with the top two most significant bytes used to also
+    // store a redundantcopy of the sizeclass. This allows us to avoid two
+    // separate memory loads when fetching both the span and the sizeclass.
+    PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
     void* hugepage[kLeafHugepages];
+
+    Span* span(int i) const { return span_and_sizeclass[i].span(); }
   };
 
   struct Node {
@@ -277,7 +318,7 @@ class PageMap3 {
         root_[i1]->leafs[i2] == nullptr) {
       return nullptr;
     }
-    return root_[i1]->leafs[i2]->span[i3];
+    return root_[i1]->leafs[i2]->span(i3);
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -291,7 +332,7 @@ class PageMap3 {
       for (; i2 < kMidLength; ++i2, i3 = 0) {
         if (root_[i1]->leafs[i2] == nullptr) continue;
         for (; i3 < kLeafLength; ++i3) {
-          if (root_[i1]->leafs[i2]->span[i3] != nullptr)
+          if (root_[i1]->leafs[i2]->span(i3) != nullptr)
             return (i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) | i3;
         }
       }
@@ -309,8 +350,11 @@ class PageMap3 {
     TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
     TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
-    return std::make_pair(root_[i1]->leafs[i2]->span[i3],
-                          root_[i1]->leafs[i2]->sizeclass[i3]);
+    PackedSpanAndSizeclass span_and_sizeclass =
+        root_[i1]->leafs[i2]->span_and_sizeclass[i3];
+
+    return std::make_pair(span_and_sizeclass.span(),
+                          span_and_sizeclass.sizeclass());
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -322,7 +366,7 @@ class PageMap3 {
     TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
     TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
-    return root_[i1]->leafs[i2]->span[i3];
+    return root_[i1]->leafs[i2]->span(i3);
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -339,11 +383,16 @@ class PageMap3 {
   }
 
   void set(Number k, Span* s) {
-    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
-    root_[i1]->leafs[i2]->span[i3] = s;
+    Leaf* leaf = root_[i1]->leafs[i2];
+    // This function should be used just after allocating a new Span;
+    // in that case, the sizeclass should have been left at zero when the
+    // old span was deallocated/unregistered (or it would have been zero
+    // at initialization time.)
+    TC_ASSERT_EQ(leaf->sizeclass[i3], 0);
+    leaf->span_and_sizeclass[i3].set(s, 0);
   }
 
   void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
@@ -352,7 +401,7 @@ class PageMap3 {
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
     Leaf* leaf = root_[i1]->leafs[i2];
-    leaf->span[i3] = s;
+    leaf->span_and_sizeclass[i3].set(s, sc);
     leaf->sizeclass[i3] = sc;
   }
 

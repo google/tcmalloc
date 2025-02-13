@@ -23,12 +23,14 @@
 #include <algorithm>
 #include <new>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/span.h"
 
 // Note: we leak memory every time a map is constructed, so do not
 // create too many maps.
@@ -88,11 +90,16 @@ TEST_P(PageMapTest, Sequential) {
 
     // Test size class handling
     ASSERT_EQ(0, map->sizeclass(i));
+    ASSERT_EQ(map->get_existing_with_sizeclass(i),
+              (std::pair<Span*, int>(span(i), 0)));
     map->set_with_sizeclass(i, span(i), sc(i));
     ASSERT_EQ(sc(i), map->sizeclass(i));
   }
   for (intptr_t i = 0; i < limit; i++) {
     ASSERT_EQ(map->get(i), span(i));
+    ASSERT_EQ(map->sizeclass(i), sc(i));
+    ASSERT_EQ(map->get_existing_with_sizeclass(i),
+              (std::pair<Span*, int>(span(i), sc(i))));
   }
 }
 
