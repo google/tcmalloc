@@ -37,12 +37,13 @@ namespace tcmalloc_internal {
 namespace cpu_cache_internal {
 ABSL_ATTRIBUTE_WEAK bool default_want_disable_wider_slabs();
 bool use_wider_slabs() {
+  const char* e = thread_safe_getenv("TCMALLOC_DISABLE_WIDER_SLABS");
+
   // Disable wider slabs if built against an opt-out.
   if (default_want_disable_wider_slabs != nullptr) {
     return false;
   }
 
-  const char* e = thread_safe_getenv("TCMALLOC_DISABLE_WIDER_SLABS");
   if (e) {
     switch (e[0]) {
       case '0':

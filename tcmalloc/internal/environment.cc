@@ -15,6 +15,7 @@
 
 #include <string.h>
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -27,7 +28,7 @@ namespace tcmalloc_internal {
 // return a const pointer into it.
 // e.g. { "SHELL=/bin/bash", "MY_ENV_VAR=1", "" }
 extern "C" char** environ;
-const char* thread_safe_getenv(const char* env_var) {
+ABSL_ATTRIBUTE_WEAK const char* thread_safe_getenv(const char* env_var) {
   int var_len = strlen(env_var);
 
   char** envv = environ;

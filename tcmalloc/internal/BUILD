@@ -150,7 +150,10 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
-    deps = [":config"],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base:core_headers",
+    ],
 )
 
 cc_test(

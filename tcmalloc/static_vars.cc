@@ -71,6 +71,7 @@ bool tcmalloc_big_span() {
   }
 
   const char* e = thread_safe_getenv("TCMALLOC_DISABLE_BIG_SPAN");
+
   if (e) {
     switch (e[0]) {
       case '0':
