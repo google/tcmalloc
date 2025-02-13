@@ -349,12 +349,13 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
 // stack spills. ABSL_ATTRIBUTE_ALWAYS_INLINE does not work on
 // size_class_with_alignment, compiler barks that it can't inline the function
 // somewhere.
-static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
+static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags,
+                                                   hot_cold_t hot_cold) {
   tc_globals.InitIfNecessary();
   size_t align = static_cast<size_t>(1ull << (flags & 0x3f));
   size_t size_class;
   if (ABSL_PREDICT_TRUE(tc_globals.sizemap().GetSizeClass(
-          CppPolicy().AlignAs(align), size, &size_class))) {
+          CppPolicy().AlignAs(align).AccessAs(hot_cold), size, &size_class))) {
     TC_ASSERT_NE(size_class, 0);
     return tc_globals.sizemap().class_to_size(size_class);
   } else {
@@ -369,7 +370,7 @@ static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
 // http://www.unix.com/man-page/freebsd/3/nallocx/
 extern "C" size_t nallocx(size_t size, int flags) noexcept {
   if (ABSL_PREDICT_FALSE(!tc_globals.IsInited() || flags != 0)) {
-    return nallocx_slow(size, flags);
+    return nallocx_slow(size, flags, hot_cold_t{255});
   }
   size_t size_class;
   if (ABSL_PREDICT_TRUE(
@@ -379,6 +380,11 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept {
   } else {
     return BytesToLengthCeil(size).in_bytes();
   }
+}
+
+extern "C" size_t MallocExtension_Internal_GetEstimatedAllocatedSize(
+    size_t bytes, tcmalloc::hot_cold_t hot_cold) {
+  return nallocx_slow(bytes, 0, hot_cold);
 }
 
 extern "C" MallocExtension::Ownership MallocExtension_Internal_GetOwnership(

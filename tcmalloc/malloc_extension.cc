@@ -710,6 +710,17 @@ std::optional<size_t> MallocExtension::GetNumericProperty(
   return std::nullopt;
 }
 
+size_t MallocExtension::GetEstimatedAllocatedSize(size_t size,
+                                                  hot_cold_t hot_cold) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetEstimatedAllocatedSize != nullptr) {
+    return MallocExtension_Internal_GetEstimatedAllocatedSize(size, hot_cold);
+  }
+#endif
+  // Fall-through to assuming that the hot/cold hint doesn't affect the
+  return nallocx(size, 0);
+}
+
 size_t MallocExtension::GetEstimatedAllocatedSize(size_t size) {
   return nallocx(size, 0);
 }

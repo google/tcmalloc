@@ -561,6 +561,12 @@ class MallocExtension final {
   // reserve more bytes, but will never reserve fewer.
   static size_t GetEstimatedAllocatedSize(size_t size);
 
+  // Returns the estimated number of bytes that will be allocated for a request
+  // of "size" bytes.  This is an estimate: an allocation of "size" bytes may
+  // reserve more bytes, but will never reserve fewer.
+  static size_t GetEstimatedAllocatedSize(size_t size,
+                                          tcmalloc::hot_cold_t hot_cold);
+
   // Returns the actual number N of bytes reserved by tcmalloc for the pointer
   // p.  This number may be equal to or greater than the number of bytes
   // requested when p was allocated.

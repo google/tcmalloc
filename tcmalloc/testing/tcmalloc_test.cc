@@ -813,6 +813,23 @@ TEST(TCMallocTest, nallocx_alignment) {
   }
 }
 
+TEST(TCMallocTest, GetEstimatedAllocatedSizeHotCold) {
+  // Guarded allocations may have a smaller allocated size than nallocx
+  // predicts.  So we disable guarded allocations.
+  ScopedGuardedSamplingInterval gs(-1);
+  for (size_t size = 0; size <= kMaxTestAllocSize; size += 17) {
+    for (hot_cold_t hot_cold : {hot_cold_t{0}, hot_cold_t{255}}) {
+      size_t rounded =
+          MallocExtension::GetEstimatedAllocatedSize(size, hot_cold);
+      ASSERT_GE(rounded, size);
+      auto [ptr, allocated_size] =
+          tcmalloc_size_returning_operator_new_hot_cold(size, hot_cold);
+      ASSERT_EQ(rounded, allocated_size);
+      free(ptr);
+    }
+  }
+}
+
 TEST(TCMallocTest, sdallocx) {
   for (size_t size = 0; size <= 4096; size += 7) {
     void* ptr = malloc(size);

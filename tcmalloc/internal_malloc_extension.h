@@ -131,6 +131,8 @@ MallocExtension_Internal_ReleaseMemoryToSystem(size_t bytes);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMemoryLimit(
     size_t limit, tcmalloc::MallocExtension::LimitKind limit_kind);
 
+ABSL_ATTRIBUTE_WEAK size_t MallocExtension_Internal_GetEstimatedAllocatedSize(
+    size_t bytes, tcmalloc::hot_cold_t hot_cold);
 ABSL_ATTRIBUTE_WEAK size_t
 MallocExtension_Internal_GetAllocatedSize(const void* ptr);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_MarkThreadBusy();
