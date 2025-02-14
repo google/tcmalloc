@@ -30,7 +30,6 @@
 #include "gtest/gtest.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
-#include "absl/memory/memory.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"

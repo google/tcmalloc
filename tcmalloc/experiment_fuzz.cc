@@ -14,7 +14,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"

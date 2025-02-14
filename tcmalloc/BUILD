@@ -640,8 +640,10 @@ cc_library(
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest",
     ],
 )

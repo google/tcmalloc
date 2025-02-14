@@ -27,6 +27,7 @@
 #include "gtest/gtest.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/transfer_cache.h"

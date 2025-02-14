@@ -14,6 +14,7 @@
 
 #include "tcmalloc/mock_central_freelist.h"
 
+#include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/logging.h"
