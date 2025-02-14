@@ -22,6 +22,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+#ifdef __linux__
 // POSIX provides the **environ array which contains environment variables in a
 // linear array, terminated by a NULL string.  This array is only perturbed when
 // the environment is changed (which is inherently unsafe) so it's safe to
@@ -42,6 +43,9 @@ ABSL_ATTRIBUTE_WEAK const char* thread_safe_getenv(const char* env_var) {
 
   return nullptr;
 }
+#else
+const char* thread_safe_getenv(const char* env_var) { return nullptr; }
+#endif
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
