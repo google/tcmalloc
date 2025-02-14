@@ -195,9 +195,8 @@ class Profile final {
       MProtectFailed = -6,
       // Used in an improved guarding selection algorithm.
       Filtered = -7,
-      // An unexpected state, which represents that branch for selection was
-      // missed.
-      Unknown = -100,
+      // An unexpected state that will be removed.
+      Unknown ABSL_DEPRECATED("Unused") = -100,
       // When guarding is not even considered on a sample.
       NotAttempted = 0,
       // The following values do not represent final states, but rather intent
@@ -211,7 +210,7 @@ class Profile final {
       // The result when a sample is actually guarded by GWP-ASAN.
       Guarded = 10,
     };
-    GuardedStatus guarded_status = GuardedStatus::Unknown;
+    GuardedStatus guarded_status;
 
     // How the memory was allocated (new/malloc/etc.).
     enum class AllocationType : uint8_t {

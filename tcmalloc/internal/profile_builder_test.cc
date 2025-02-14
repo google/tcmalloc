@@ -353,6 +353,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[4] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
     sample.access_hint = hot_cold_t{254};
     sample.access_allocated = Profile::Sample::Access::Cold;
+    sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
     sample.type = Profile::Sample::AllocationType::New;
     samples.push_back(sample);
 
@@ -398,6 +399,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[3] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{1};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    sample.guarded_status = Profile::Sample::GuardedStatus::NoAvailableSlots;
     sample.type = Profile::Sample::AllocationType::Malloc;
 
     if (profile_type == ProfileType::kHeap) {
@@ -436,6 +438,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[2] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{0};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
     sample.type = Profile::Sample::AllocationType::AlignedMalloc;
   }
 
@@ -607,19 +610,19 @@ TEST(ProfileConverterTest, HeapProfile) {
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "Unknown"),
+              Pair("size_returning", 1), Pair("guarded_status", "RateLimited"),
               Pair("allocation type", "new")),
           UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
                                Pair("stale_scan_period", 10),
                                Pair("access_hint", 1),
                                Pair("access_allocated", "hot"),
-                               Pair("guarded_status", "Unknown"),
+                               Pair("guarded_status", "NoAvailableSlots"),
                                Pair("allocation type", "malloc")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 16),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
-              Pair("size_returning", 1), Pair("guarded_status", "Unknown"),
+              Pair("size_returning", 1), Pair("guarded_status", "RateLimited"),
               Pair("allocation type", "aligned malloc")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
@@ -777,12 +780,12 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "Unknown"),
+              Pair("size_returning", 1), Pair("guarded_status", "NotAttempted"),
               Pair("allocation type", "new")),
           UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
                                Pair("access_hint", 1),
                                Pair("access_allocated", "hot"),
-                               Pair("guarded_status", "Unknown"),
+                               Pair("guarded_status", "NotAttempted"),
                                Pair("allocation type", "new"))));
 
   ASSERT_GE(converted.sample().size(), 2);
