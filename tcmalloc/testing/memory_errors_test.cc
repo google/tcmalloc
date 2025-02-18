@@ -664,5 +664,38 @@ TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
           ")|size check failed|alloc-dealloc-mismatch"));
 }
 
+TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+#ifndef NDEBUG
+  GTEST_SKIP() << "CorrectSize will trap ahead of us";
+#endif
+  // Ensure GWP-ASAN doesn't catch the issue before we do, so that we validate
+  // the checks during freelist insertion.
+  ScopedNeverSample never_sample;
+  const size_t kSize = tcmalloc_internal::kPageSize / 2;
+
+  std::vector<void*> ptrs;
+  // Allocate enough enough to fill the CPU cache.
+  for (int i = 0; i < 10000; ++i) {
+    ptrs.push_back(::operator new(kSize));
+  }
+  EXPECT_DEATH(
+      {
+        // Delete the objects.
+        for (void* ptr : ptrs) {
+          ::operator delete(ptr, kSize);
+        }
+        // Now double-free.
+        for (void* ptr : ptrs) {
+          ::operator delete(ptr, kSize);
+        }
+      },
+      absl::StrCat(
+          "(CHECK in ReportDoubleFree: Possible double free detected of "
+          ")"));
+}
+
 }  // namespace
 }  // namespace tcmalloc
