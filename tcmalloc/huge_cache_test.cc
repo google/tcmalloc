@@ -20,7 +20,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <memory>
 #include <random>
 #include <string>
 #include <tuple>
@@ -29,7 +28,6 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/memory/memory.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
