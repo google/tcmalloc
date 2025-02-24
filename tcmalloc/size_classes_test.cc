@@ -221,10 +221,9 @@ TEST_F(RunTimeSizeClassesTest, NumToMove) {
   }
 }
 
+// Tests that the size classes that use many-object spans fit in a single page.
+// This allows us to simplify the HugePageFiller's logic for many-object spans.
 TEST_F(RunTimeSizeClassesTest, DenseSpansAreOnePage) {
-  // TODO(b/348043731):  We do not currently rely on this invariant, but we may
-  // be able to simplify the HugePageFiller's logic for many-object spans if it
-  // is true.
   for (int c = 1; c < kNumClasses; c++) {
     const Length in_pages = Length(m_.class_to_pages(c));
     const size_t span_size = in_pages.in_bytes();
