@@ -318,6 +318,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/selsan",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/base:nullability",
