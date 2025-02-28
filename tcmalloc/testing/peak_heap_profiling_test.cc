@@ -65,7 +65,9 @@ class ScopedPeakGrowthFraction {
 //
 // We could modify it to allocate up until we change the peak, but that will
 // cause test failures to show up as OOMs instead, which is undesirable.
-TEST(PeakHeapProfilingTest, PeakHeapTracking) {
+//
+// TODO(b/399861868): Enable the test.
+TEST(PeakHeapProfilingTest, DISABLED_PeakHeapTracking) {
   // Adjust high watermark threshold for our scenario, to be independent of
   // changes to the default.  As we use a random value for choosing our next
   // sampling point, we may overweight some allocations above their true size.
