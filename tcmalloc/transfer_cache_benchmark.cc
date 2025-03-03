@@ -17,7 +17,6 @@
 
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
-#include "absl/types/optional.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/mock_central_freelist.h"
