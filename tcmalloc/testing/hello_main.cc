@@ -21,7 +21,6 @@
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/malloc_extension.h"
 
 int main(int argc, char** argv) {

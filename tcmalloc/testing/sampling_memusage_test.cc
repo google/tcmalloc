@@ -22,7 +22,6 @@
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/logging.h"

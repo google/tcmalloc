@@ -31,7 +31,6 @@
 
 #include "benchmark/benchmark.h"
 #include "absl/random/random.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
