@@ -20,18 +20,13 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
 #include <limits>
-#include <optional>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
-#include "absl/numeric/bits.h"
-#include "absl/status/status.h"
-#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
@@ -47,7 +42,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
-#include "tcmalloc/internal/residency.h"
+#include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -166,17 +161,6 @@ class PageTracker : public TList<PageTracker>::Elem {
   double alloctime() const { return alloctime_; }
   Length free_pages() const;
   bool empty() const;
-
-  struct NativePageCounterInfo {
-    size_t n_free_swapped;
-    size_t n_used_swapped;
-    size_t n_used_unbacked;
-    size_t n_non_free_non_used_unbacked;
-  };
-
-  NativePageCounterInfo CountInfoInHugePage(
-      Residency::SinglePageBitmaps bitmaps,
-      int native_pages_in_huge_page) const;
 
   bool unbroken() const { return unbroken_; }
 
@@ -405,8 +389,8 @@ class HugePageFiller {
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
 
   HugePageFillerStats GetStats() const;
-  void Print(Printer& out, bool everything, Residency* residency = nullptr);
-  void PrintInPbtxt(PbtxtRegion& hpaa, Residency* residency = nullptr) const;
+  void Print(Printer& out, bool everything);
+  void PrintInPbtxt(PbtxtRegion& hpaa) const;
 
   template <typename F>
   void ForEachHugePage(const F& func)
@@ -650,76 +634,6 @@ inline Length PageTracker::free_pages() const {
   return kPagesPerHugePage - used_pages();
 }
 
-inline size_t scaleIdx(bool bit_shift_left, size_t idx,
-                       int page_scale_bit_width) {
-  return bit_shift_left ? idx << page_scale_bit_width
-                        : idx >> page_scale_bit_width;
-}
-
-inline PageTracker::NativePageCounterInfo PageTracker::CountInfoInHugePage(
-    Residency::SinglePageBitmaps bitmaps, int native_pages_in_huge_page) const {
-  Bitmap<Residency::kMaxResidencyBits> unbacked = bitmaps.unbacked;
-  Bitmap<Residency::kMaxResidencyBits> swapped = bitmaps.swapped;
-  Bitmap<kPagesPerHugePage.raw_num()> free = free_.bits();
-  Bitmap<kPagesPerHugePage.raw_num()> released_by_page = released_by_page_;
-
-  int page_scale;
-  bool bit_shift_left;
-  // If the number of native pages per hugepage is greater than the number of
-  // TCMalloc pages per hugepage, scale up the tracker bitmap data to read
-  // native_pages_in_huge_page bits, else, scale down.
-  if (native_pages_in_huge_page > kPagesPerHugePage.raw_num()) {
-    page_scale = native_pages_in_huge_page / kPagesPerHugePage.raw_num();
-    bit_shift_left = false;
-  } else {
-    page_scale = kPagesPerHugePage.raw_num() / native_pages_in_huge_page;
-    bit_shift_left = true;
-  }
-  int page_scale_bit_width = absl::bit_width<uint8_t>(page_scale - 1);
-  TC_ASSERT_LT(scaleIdx(bit_shift_left, native_pages_in_huge_page - 1,
-                        page_scale_bit_width),
-               kPagesPerHugePage.raw_num());
-  size_t swapped_idx = 0;
-  size_t n_free_swapped = 0;
-  size_t n_used_swapped = 0;
-  size_t n_used_unbacked = 0;
-  size_t n_non_free_non_used_unbacked = 0;
-  while (swapped_idx < native_pages_in_huge_page) {
-    swapped_idx = swapped.FindSet(swapped_idx);
-    if (swapped_idx >= native_pages_in_huge_page) {
-      break;
-    }
-    // Number of free pages that are swapped
-    // free_bitmap 1 means used and 0 means free
-    if (!free.GetBit(
-            scaleIdx(bit_shift_left, swapped_idx, page_scale_bit_width))) {
-      ++n_free_swapped;
-    } else {
-      ++n_used_swapped;
-    }
-    swapped_idx++;
-  }
-  size_t unbacked_idx = 0;
-  while (unbacked_idx < native_pages_in_huge_page) {
-    unbacked_idx = unbacked.FindSet(unbacked_idx);
-    if (unbacked_idx >= native_pages_in_huge_page) {
-      break;
-    }
-    // Number of used pages that are unbacked
-    if (free.GetBit(
-            scaleIdx(bit_shift_left, unbacked_idx, page_scale_bit_width))) {
-      ++n_used_unbacked;
-    }
-    // Number of non-free non-used unbacked pages
-    if (released_by_page.GetBit(
-            scaleIdx(bit_shift_left, unbacked_idx, page_scale_bit_width))) {
-      ++n_non_free_non_used_unbacked;
-    }
-    unbacked_idx++;
-  }
-  return {n_free_swapped, n_used_swapped, n_used_unbacked,
-          n_non_free_non_used_unbacked};
-}
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     HugePageFillerDenseTrackerType dense_tracker_type,
@@ -1303,8 +1217,7 @@ class UsageInfo {
     kNumTypes
   };
 
-  explicit UsageInfo(Residency* residency) {
-    residency_ = residency;
+  UsageInfo() {
     size_t i;
     for (i = 0; i <= kBucketsAtBounds && i < kPagesPerHugePage.raw_num(); ++i) {
       bucket_bounds_[buckets_size_] = i;
@@ -1336,52 +1249,12 @@ class UsageInfo {
       buckets_size_++;
     }
 
-    // Native page Histograms bounds
-    int kNativePagesInHugePage = residency->GetNativePagesInHugePage();
-    const int step = kNativePagesInHugePage / kBucketsInBetween;
-    // Ensure that the number of native page buckets is at least the number of
-    // buckets at a bound.
-    TC_ASSERT_GE(kNativePagesInHugePage, kBucketsAtBounds);
-    // First kBucketsAtBounds buckets have a step size of 1
-    for (int i = 0; i <= kBucketsAtBounds &&
-                    native_page_buckets_size_ < kNativePagesInHugePage;
-         ++i) {
-      native_page_bucket_bounds_[native_page_buckets_size_] = i;
-      native_page_buckets_size_++;
-    }
-
-    // All the buckets in between should increment with a step of
-    // kNativePagesInHugePage / kBucketsInBetween
-    for (int i = 0; i < kNativePagesInHugePage - kBucketsAtBounds; ++i) {
-      int bound =
-          native_page_bucket_bounds_[native_page_buckets_size_ - 1] + step;
-      // We break early so that we can log histogram at the end with step 1
-      if (bound >= kNativePagesInHugePage - kBucketsAtBounds) {
-        break;
-      }
-      native_page_bucket_bounds_[native_page_buckets_size_] = bound;
-      native_page_buckets_size_++;
-    }
-
-    // End kBucketBoundsBuckets have a step size of 1
-    for (int i = 0; i < kBucketsAtBounds; ++i) {
-      int end_bound = kNativePagesInHugePage - kBucketsAtBounds + i;
-      // Prevent duplicate end bounds from being added to the histogram
-      if (native_page_bucket_bounds_[native_page_buckets_size_ - 1] >=
-          end_bound) {
-        continue;
-      }
-      native_page_bucket_bounds_[native_page_buckets_size_] = end_bound;
-      native_page_buckets_size_++;
-    }
-
     lifetime_bucket_bounds_[0] = 0;
     lifetime_bucket_bounds_[1] = 1;
     for (int i = 2; i <= kLifetimeBuckets; ++i) {
       lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
     }
     TC_CHECK_LE(buckets_size_, kBucketCapacity);
-    TC_CHECK_LE(native_page_buckets_size_, kBucketCapacity);
   }
 
   template <class TrackerType>
@@ -1397,18 +1270,6 @@ class UsageInfo {
   // full and are hugepage backed.
   size_t HugepageBackedPreviouslyReleased() {
     return hugepage_backed_previously_released_;
-  }
-
-  // Reports the number of native pages that are free and swapped.
-  size_t NumFreeSwapped() { return n_free_swapped_.raw_num(); }
-  // Reports the number of native pages that are used and swapped.
-  size_t NumUsedSwapped() { return n_used_swapped_.raw_num(); }
-  // Reports the number of native pages that are used and unbacked.
-  size_t NumUsedUnbacked() { return n_used_unbacked_.raw_num(); }
-  // Reports the number of native pages that are non-free, non-used, and
-  // unbacked.
-  size_t NumNonFreeNonUsedUnbacked() {
-    return n_non_free_non_used_unbacked_.raw_num();
   }
 
   template <class TrackerType>
@@ -1445,28 +1306,6 @@ class UsageInfo {
       }
     }
     ++total_pages_[which];
-
-    Residency::SinglePageBitmaps bitmaps =
-        residency_->GetUnbackedAndSwappedBitmaps(pt.location().start_addr());
-    if (bitmaps.status == absl::StatusCode::kOk) {
-      const int kNativePagesInHugepage = residency_->GetNativePagesInHugePage();
-      PageTracker::NativePageCounterInfo counter_info =
-          pt.CountInfoInHugePage(bitmaps, kNativePagesInHugepage);
-
-      ++unbacked_histo_[which]
-                       [NativePageBucketNum(bitmaps.unbacked.CountBits())];
-      ++swapped_histo_[which][NativePageBucketNum(bitmaps.swapped.CountBits())];
-      ++used_and_swapped_histo_[which][NativePageBucketNum(
-          counter_info.n_used_swapped)];
-      ++used_and_unbacked_histo_[which][NativePageBucketNum(
-          counter_info.n_used_unbacked)];
-
-      n_free_swapped_ += Length(counter_info.n_free_swapped);
-      n_used_swapped_ += Length(counter_info.n_used_swapped);
-      n_used_unbacked_ += Length(counter_info.n_used_unbacked);
-      n_non_free_non_used_unbacked_ +=
-          Length(counter_info.n_non_free_non_used_unbacked);
-    }
   }
 
   void Print(Printer& out) {
@@ -1515,29 +1354,6 @@ class UsageInfo {
       PrintHisto(out, long_lived_hps_histo_[type], type,
                  "hps with a <= # of allocations < b", 0);
     }
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintNativePageHisto(out, unbacked_histo_[type], type,
-                           "hps with a <= # of unbacked < b", 0);
-    }
-
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintNativePageHisto(out, swapped_histo_[type], type,
-                           "hps with a <= # of swapped < b", 0);
-    }
-
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintNativePageHisto(out, used_and_swapped_histo_[type], type,
-                           "hps with a <= # of used and swapped < b", 0);
-    }
-
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintNativePageHisto(out, used_and_unbacked_histo_[type], type,
-                           "hps with a <= # of used and unbacked < b", 0);
-    }
 
     for (int i = 0; i < kNumTypes; ++i) {
       const Type type = static_cast<Type>(i);
@@ -1563,12 +1379,6 @@ class UsageInfo {
                          "low_occupancy_lifetime_histogram");
       PrintHisto(scoped, long_lived_hps_histo_[i],
                  "long_lived_hugepages_histogram", 0);
-      PrintNativePageHisto(scoped, unbacked_histo_[i], "unbacked_histogram", 0);
-      PrintNativePageHisto(scoped, swapped_histo_[i], "swapped_histogram", 0);
-      PrintNativePageHisto(scoped, used_and_swapped_histo_[i],
-                           "used_and_swapped_histogram", 0);
-      PrintNativePageHisto(scoped, used_and_unbacked_histo_[i],
-                           "used_and_unbacked_histogram", 0);
       scoped.PrintI64("total_pages", total_pages_[type]);
       scoped.PrintI64("num_pages_hugepage_backed", hugepage_backed_[type]);
     }
@@ -1587,9 +1397,8 @@ class UsageInfo {
   static constexpr Length kLowOccupancyNumFreePages =
       Length(kPagesPerHugePage.raw_num() - (kPagesPerHugePage.raw_num() >> 3));
   // 16 buckets in the middle.
-  static constexpr size_t kBucketsInBetween = 16;
   static constexpr size_t kBucketCapacity =
-      kBucketsAtBounds + kBucketsInBetween + kBucketsAtBounds;
+      kBucketsAtBounds + 16 + kBucketsAtBounds;
   using Histo = size_t[kBucketCapacity];
   using LifetimeHisto = size_t[kLifetimeBuckets];
 
@@ -1608,13 +1417,6 @@ class UsageInfo {
     TC_CHECK_NE(it, lifetime_bucket_bounds_);
     return it - lifetime_bucket_bounds_ - 1;
   }
-  int NativePageBucketNum(size_t page) {
-    auto it =
-        std::upper_bound(native_page_bucket_bounds_,
-                         native_page_bucket_bounds_ + buckets_size_, page);
-    TC_CHECK_NE(it, native_page_bucket_bounds_);
-    return it - native_page_bucket_bounds_ - 1;
-  }
 
   void PrintHisto(Printer& out, Histo h, Type type, absl::string_view blurb,
                   size_t offset) {
@@ -1624,18 +1426,6 @@ class UsageInfo {
         out.printf("\nHugePageFiller:");
       }
       out.printf(" <%3zu<=%6zu", bucket_bounds_[i] + offset, h[i]);
-    }
-    out.printf("\n");
-  }
-
-  void PrintNativePageHisto(Printer& out, Histo h, Type type,
-                            absl::string_view blurb, size_t offset) {
-    out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
-    for (size_t i = 0; i < native_page_buckets_size_; ++i) {
-      if (i % 6 == 0) {
-        out.printf("\nHugePageFiller:");
-      }
-      out.printf(" <%3zu<=%6zu", native_page_bucket_bounds_[i] + offset, h[i]);
     }
     out.printf("\n");
   }
@@ -1662,21 +1452,6 @@ class UsageInfo {
                     (i == buckets_size_ - 1 ? bucket_bounds_[i]
                                             : bucket_bounds_[i + 1] - 1) +
                         offset);
-      hist.PrintI64("value", h[i]);
-    }
-  }
-
-  void PrintNativePageHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
-                            size_t offset) {
-    for (size_t i = 0; i < buckets_size_; ++i) {
-      if (h[i] == 0) continue;
-      auto hist = hpaa.CreateSubRegion(key);
-      hist.PrintI64("lower_bound", native_page_bucket_bounds_[i] + offset);
-      hist.PrintI64(
-          "upper_bound",
-          (i == buckets_size_ - 1 ? native_page_bucket_bounds_[i]
-                                  : native_page_bucket_bounds_[i + 1] - 1) +
-              offset);
       hist.PrintI64("value", h[i]);
     }
   }
@@ -1755,35 +1530,15 @@ class UsageInfo {
   Histo free_page_histo_[kNumTypes]{};
   Histo longest_free_histo_[kNumTypes]{};
   Histo nalloc_histo_[kNumTypes]{};
-  Histo unbacked_histo_[kNumTypes]{};
-  Histo swapped_histo_[kNumTypes]{};
-  Histo used_and_swapped_histo_[kNumTypes]{};
-  Histo used_and_unbacked_histo_[kNumTypes]{};
   LifetimeHisto lifetime_histo_[kNumTypes]{};
   Histo long_lived_hps_histo_[kNumTypes]{};
   LifetimeHisto low_occupancy_lifetime_histo_[kNumTypes]{};
   size_t bucket_bounds_[kBucketCapacity];
-  size_t native_page_bucket_bounds_[kBucketCapacity];
   size_t lifetime_bucket_bounds_[kBucketCapacity];
   size_t hugepage_backed_[kNumTypes] = {0};
   size_t total_pages_[kNumTypes] = {0};
   size_t hugepage_backed_previously_released_ = 0;
-  typedef Length NativeLength;
-  // n_free_swapped_ is the number of native pages which are free and swapped.
-  NativeLength n_free_swapped_;
-  // n_used_unbacked_ is the number of native pages which are used and
-  // unbacked.
-  NativeLength n_used_unbacked_;
-  // n_used_swapped_ is the number of native pages which are used and swapped.
-  NativeLength n_used_swapped_;
-  // n_non_free_non_used_unbacked_ is the number of native pages which are not
-  // free, unused and unbacked. Pages that are not free and unused indicate that
-  // they are released.
-  NativeLength n_non_free_non_used_unbacked_;
-
   int buckets_size_ = 0;
-  int native_page_buckets_size_ = 0;
-  Residency* residency_;
 };
 }  // namespace huge_page_filler_internal
 
@@ -1842,8 +1597,7 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
-                                               Residency* residency) {
+inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything) {
   out.printf("HugePageFiller: densely pack small requests into hugepages\n");
   const HugePageFillerStats stats = GetStats();
 
@@ -1923,12 +1677,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
 
   // Compute some histograms of fullness.
   using huge_page_filler_internal::UsageInfo;
-  std::optional<ResidencyPageMap> residency_obj;
-  if (residency == nullptr) {
-    residency_obj.emplace();
-    residency = &*residency_obj;
-  }
-  UsageInfo usage(residency);
+  UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
   PageFlags pageflags;
@@ -2000,8 +1749,7 @@ inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::PrintInPbtxt(
-    PbtxtRegion& hpaa, Residency* residency) const {
+inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion& hpaa) const {
   const HugePageFillerStats stats = GetStats();
 
   // A donated alloc full list is impossible because it would have never been
@@ -2067,12 +1815,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
       subrelease_stats_.total_hugepages_broken_due_to_limit.raw_num());
   // Compute some histograms of fullness.
   using huge_page_filler_internal::UsageInfo;
-  std::optional<ResidencyPageMap> residency_obj;
-  if (residency == nullptr) {
-    residency_obj.emplace();
-    residency = &*residency_obj;
-  }
-  UsageInfo usage(residency);
+  UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
   PageFlags pageflags;
@@ -2116,12 +1859,6 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
 
   hpaa.PrintI64("filler_previously_released_backed_huge_pages",
                 usage.HugepageBackedPreviouslyReleased());
-
-  hpaa.PrintI64("filler_num_free_pages_swapped", usage.NumFreeSwapped());
-  hpaa.PrintI64("filler_num_used_pages_swapped", usage.NumUsedSwapped());
-  hpaa.PrintI64("filler_num_used_pages_unbacked", usage.NumUsedUnbacked());
-  hpaa.PrintI64("filler_num_non_free_non_used_unbacked_pages",
-                usage.NumNonFreeNonUsedUnbacked());
   usage.Print(hpaa);
   fillerstats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
                                                    "filler_skipped_subrelease");
