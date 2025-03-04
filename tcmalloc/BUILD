@@ -320,6 +320,7 @@ create_tcmalloc_libraries(
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
+        "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_map",

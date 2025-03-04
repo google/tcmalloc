@@ -717,6 +717,8 @@ DeallocationSample::DeallocationSample(DeallocationProfilerList* list) {
   profiler_ = std::make_unique<DeallocationProfiler>(list);
 }
 
+DeallocationSample::~DeallocationSample() = default;
+
 tcmalloc::Profile DeallocationSample::Stop() && {
   if (profiler_ != nullptr) {
     tcmalloc::Profile profile = profiler_->Stop();
