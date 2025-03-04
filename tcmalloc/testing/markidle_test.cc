@@ -20,7 +20,6 @@
 #include <thread>  // NOLINT(build/c++11)
 
 #include "gtest/gtest.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
