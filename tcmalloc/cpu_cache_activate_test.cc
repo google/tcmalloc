@@ -14,12 +14,10 @@
 
 #include <stdint.h>
 
-#include <string>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
-#include "absl/base/internal/sysinfo.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"

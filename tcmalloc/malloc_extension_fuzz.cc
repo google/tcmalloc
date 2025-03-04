@@ -20,7 +20,6 @@
 #include <string>
 
 #include "fuzztest/fuzztest.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
