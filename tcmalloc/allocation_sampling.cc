@@ -106,11 +106,10 @@ ABSL_ATTRIBUTE_NOINLINE void FreeProxyObject(Static& state, void* ptr,
   }
 }
 
-ABSL_ATTRIBUTE_NOINLINE
-static void ReportMismatchedDelete(Static& state,
-                                   const SampledAllocation& alloc, size_t size,
-                                   size_t requested_size,
-                                   std::optional<size_t> allocated_size) {
+[[noreturn]]
+ABSL_ATTRIBUTE_NOINLINE static void ReportMismatchedDelete(
+    Static& state, const SampledAllocation& alloc, size_t size,
+    size_t requested_size, std::optional<size_t> allocated_size) {
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
   TC_LOG("Error originates from memory allocated at:");
   PrintStackTrace(alloc.sampled_stack.stack, alloc.sampled_stack.depth);
@@ -145,9 +144,11 @@ static void ReportMismatchedDelete(Static& state,
   abort();
 }
 
-ABSL_ATTRIBUTE_NOINLINE
-static void ReportMismatchedDelete(Static& state, void* ptr, size_t size,
-                                   size_t minimum_size, size_t maximum_size) {
+[[noreturn]]
+ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(Static& state, void* ptr,
+                                                    size_t size,
+                                                    size_t minimum_size,
+                                                    size_t maximum_size) {
   // Try to refine the maximum possible size.
   const PageId p = PageIdContainingTagged(ptr);
   size_t size_class = state.pagemap().sizeclass(p);

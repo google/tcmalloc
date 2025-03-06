@@ -817,22 +817,29 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
 // Checks that an asserted object size for <ptr> is valid.
 template <typename AlignPolicy>
-bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
-  // size == 0 means we got no hint from sized delete, so we certainly don't
-  // have an incorrect one.
-  if (size == 0) return true;
+bool CorrectSize(void* ptr, const size_t provided_size, AlignPolicy align) {
+  // provided_size == 0 means we got no hint from sized delete, so we certainly
+  // don't have an incorrect one.
+  //
+  // TODO(ckennelly): Use an optional.
+  if (provided_size == 0) return true;
   if (ptr == nullptr) return true;
+  size_t size = provided_size;
+  size_t minimum_size, maximum_size;
   size_t size_class = 0;
+  const size_t actual = GetSize(ptr);
   // Round-up passed in size to how much tcmalloc allocates for that size.
   if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
     // For guarded allocations we recorded the actual requested size.
+    minimum_size = maximum_size = actual;
   } else if (tc_globals.sizemap().GetSizeClass(
                  CppPolicy().AlignAs(align.align()), size, &size_class)) {
-    size = tc_globals.sizemap().class_to_size(size_class);
+    size = maximum_size = tc_globals.sizemap().class_to_size(size_class);
   } else {
-    size = BytesToLengthCeil(size).in_bytes();
+    size = maximum_size = BytesToLengthCeil(size).in_bytes();
+    minimum_size = maximum_size - (kPageSize - 1u);
   }
-  size_t actual = GetSize(ptr);
+
   if (ABSL_PREDICT_TRUE(actual == size)) return true;
   // We might have had a cold size class, so actual > size.  If we did not use
   // size returning new, the caller may not know this occurred.
@@ -843,14 +850,25 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
     if (tc_globals.sizemap().GetSizeClass(
             CppPolicy().AlignAs(align.align()).AccessAsCold(), size,
             &size_class)) {
-      size = tc_globals.sizemap().class_to_size(size_class);
-      if (actual == size) {
+      size = maximum_size = tc_globals.sizemap().class_to_size(size_class);
+      if (ABSL_PREDICT_TRUE(actual == size)) {
         return true;
       }
     }
   }
-  TC_LOG("size check failed for %p: claimed %v, actual %v, class %v", ptr, size,
-         actual, size_class);
+
+  if (size_class > 0) {
+    if (align.align() > static_cast<size_t>(kAlignment)) {
+      // Nontrivial alignment.  We might have used a larger size to satisify it.
+      minimum_size = 0;
+    } else {
+      minimum_size = tc_globals.sizemap().class_to_size(size_class - 1);
+    }
+  }
+
+  ReportMismatchedDelete(tc_globals, ptr, provided_size, minimum_size,
+                         maximum_size);
+
   return false;
 }
 
