@@ -354,6 +354,7 @@ class CpuCache {
 
   // Whether <cpu>'s cache has ever been populated with objects
   bool HasPopulated(int cpu) const;
+  bool HasPhysicalPopulated(int cpu) const;
 
   PerCPUMetadataState MetadataMemoryUsage() const;
 
@@ -583,6 +584,7 @@ class CpuCache {
     size_t next_steal = 1;
     // Track whether we have ever populated this CPU.
     std::atomic<bool> populated;
+    std::atomic<bool> populated_physical_cpu{false};
     // For cross-cpu operations. We can't allocate while holding one of these so
     // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock){
@@ -1259,10 +1261,18 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
 template <class Forwarder>
 std::pair<int, bool> CpuCache<Forwarder>::CacheCpuSlab() {
   auto [cpu, cached] = freelist_.CacheCpuSlab();
-  if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0) &&
-      ABSL_PREDICT_FALSE(
-          !resize_[cpu].populated.load(std::memory_order_acquire))) {
-    Populate(cpu);
+  if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0)) {
+    if (ABSL_PREDICT_FALSE(
+            !resize_[cpu].populated.load(std::memory_order_acquire))) {
+      Populate(cpu);
+    }
+    const int physical_cpu = subtle::percpu::GetRealCpuUnsafe();
+    if (std::atomic<bool>& populated_physical =
+            resize_[physical_cpu].populated_physical_cpu;
+        ABSL_PREDICT_FALSE(
+            !populated_physical.load(std::memory_order_relaxed))) {
+      populated_physical.store(true, std::memory_order_relaxed);
+    }
   }
   return {cpu, cached};
 }
@@ -2070,6 +2080,13 @@ inline bool CpuCache<Forwarder>::HasPopulated(int target_cpu) const {
 }
 
 template <class Forwarder>
+inline bool CpuCache<Forwarder>::HasPhysicalPopulated(int target_cpu) const {
+  TC_ASSERT_GE(target_cpu, 0);
+  return resize_[target_cpu].populated_physical_cpu.load(
+      std::memory_order_relaxed);
+}
+
+template <class Forwarder>
 inline PerCPUMetadataState CpuCache<Forwarder>::MetadataMemoryUsage() const {
   return freelist_.MetadataMemoryUsage();
 }
@@ -2506,14 +2523,15 @@ inline void CpuCache<Forwarder>::Print(Printer& out) const {
 
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);
+    bool physical_populated = HasPhysicalPopulated(cpu);
     uint64_t unallocated = Unallocated(cpu);
     out.printf(
         "cpu %3d: %12u"
         " bytes (%7.1f MiB) with"
-        "%12u bytes unallocated %s%s\n",
+        "%12u bytes unallocated %s%s%s\n",
         cpu, rbytes, rbytes / MiB, unallocated,
-        allowed_cpus.IsSet(cpu) ? " active" : "",
-        populated ? " populated" : "");
+        allowed_cpus.IsSet(cpu) ? " active" : "", populated ? " populated" : "",
+        physical_populated ? " physical-populated" : "");
   }
 
   out.printf("------------------------------------------------\n");
@@ -2587,10 +2605,15 @@ template <class Forwarder>
 inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
   const CpuSet allowed_cpus = FillActiveCpuMask();
 
+  int physical_used = 0;
   for (int cpu = 0, num_cpus = NumCPUs(); cpu < num_cpus; ++cpu) {
     PbtxtRegion entry = region.CreateSubRegion("cpu_cache");
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);
+    bool physical_populated = HasPhysicalPopulated(cpu);
+    if (physical_populated) {
+      physical_used++;
+    }
     uint64_t unallocated = Unallocated(cpu);
     CpuCacheMissStats miss_stats = GetTotalCacheMissStats(cpu);
     uint64_t reclaims = GetNumReclaims(cpu);
@@ -2605,6 +2628,8 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
     entry.PrintI64("reclaims", reclaims);
     entry.PrintI64("size_class_resizes", resizes);
   }
+
+  region.PrintI64("physical_cores_used", physical_used);
 
   // Record size class capacity statistics.
   for (int size_class = 1; size_class < kNumClasses; ++size_class) {
