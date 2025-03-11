@@ -157,8 +157,7 @@ class Static final {
 
   // MallocHook::AllocHandle is a simple 64-bit int, and is not dependent on
   // other data.
-  ABSL_CONST_INIT static std::atomic<AllocHandle>
-      sampled_alloc_handle_generator;
+  ABSL_CONST_INIT static std::atomic<int64_t> sampled_alloc_handle_generator;
 
   static MetadataObjectAllocator<StackTraceTable::LinkedSample>&
   linked_sample_allocator() {

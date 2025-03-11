@@ -189,9 +189,9 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
   TC_ASSERT_NE(span, nullptr);
 
   stack_trace.sampled_alloc_handle =
-      state.sampled_alloc_handle_generator.fetch_add(
-          1, std::memory_order_relaxed) +
-      1;
+      AllocHandle(state.sampled_alloc_handle_generator.fetch_add(
+                      1, std::memory_order_relaxed) +
+                  1);
   stack_trace.span_start_address = span->start_address();
   stack_trace.allocation_time = absl::Now();
   stack_trace.guarded_status = alloc_with_status.status;

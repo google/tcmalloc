@@ -116,8 +116,7 @@ ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::total_sampled_count_;
 ABSL_CONST_INIT AllocationSampleList Static::allocation_samples;
 ABSL_CONST_INIT deallocationz::DeallocationProfilerList
     Static::deallocation_samples;
-ABSL_CONST_INIT std::atomic<AllocHandle> Static::sampled_alloc_handle_generator{
-    0};
+ABSL_CONST_INIT std::atomic<int64_t> Static::sampled_alloc_handle_generator{0};
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT PeakHeapTracker
     Static::peak_heap_tracker_{sampledallocation_allocator_};
 ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample>
