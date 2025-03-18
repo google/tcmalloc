@@ -132,7 +132,8 @@ inline constexpr int kAddressBits = 8 * sizeof(void*);
 #endif
 
 #ifdef TCMALLOC_INTERNAL_SELSAN
-inline constexpr bool kSelSanPresent = true;
+// TODO(b/404529382): add tcmalloc test suite and remove maybe_unused annotation
+[[maybe_unused]] inline constexpr bool kSelSanPresent = true;
 #else
 inline constexpr bool kSelSanPresent = false;
 #endif
