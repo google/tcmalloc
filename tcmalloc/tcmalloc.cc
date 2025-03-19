@@ -69,6 +69,7 @@
 #include <vector>
 
 #include "absl/base/attributes.h"
+#include "absl/base/casts.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
@@ -649,6 +650,22 @@ static void ReportDoubleFree(void* ptr) {
   TC_BUG("Possible double free detected of %p", ptr);
 }
 
+ABSL_ATTRIBUTE_NORETURN
+ABSL_ATTRIBUTE_NOINLINE
+static void ReportCorruptedFree(std::align_val_t expected_alignment,
+                                void* ptr) {
+  static void* stack[kMaxStackDepth];
+  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
+
+  RecordCrash("GWP-ASan", "invalid-free");
+  tc_globals.gwp_asan_state().RecordInvalidFree(
+      static_cast<std::align_val_t>(
+          1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
+      expected_alignment, absl::MakeSpan(stack, depth));
+
+  TC_BUG("Attempted to free corrupted pointer %p", ptr);
+}
+
 // Handles freeing object that doesn't have size class, i.e. which
 // is either large or sampled. We explicitly prevent inlining it to
 // keep it out of fast-path. This helps avoid expensive
@@ -678,8 +695,14 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     Span::Delete(span);
   } else {
-    TC_ASSERT_EQ(span->first_page(), p);
-    TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) % kPageSize, 0);
+    // TODO(b/404341539): Cover guarded deallocations as well.
+    //
+    // Naively, right-aligned objects will fail this test even though they are
+    // correct for GWP-ASan purposes.
+    if (ABSL_PREDICT_FALSE(ptr != span->start_address())) {
+      ReportCorruptedFree(static_cast<std::align_val_t>(kPageSize), ptr);
+    }
+
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
     tc_globals.page_allocator().Delete(span, GetMemoryTag(ptr));

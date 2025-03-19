@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <new>
 #include <optional>
 
 #include "absl/types/span.h"
@@ -36,6 +37,7 @@ class GwpAsanState {
     kNone,
     kMismatchedDelete,
     kDoubleFree,
+    kInvalidFree,
   };
 
   Type type() const { return type_; }
@@ -80,6 +82,16 @@ class GwpAsanState {
     return maximum_;
   }
 
+  std::align_val_t actual_alignment() const {
+    TC_ASSERT_EQ(type_, Type::kInvalidFree);
+    return actual_alignment_;
+  }
+
+  std::align_val_t expected_alignment() const {
+    TC_ASSERT_EQ(type_, Type::kInvalidFree);
+    return expected_alignment_;
+  }
+
   void RecordMismatch(
       size_t provided_min, size_t provided_max, size_t minimum, size_t maximum,
       std::optional<absl::Span<void* const>> allocation_stack,
@@ -122,9 +134,26 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
+  void RecordInvalidFree(std::align_val_t actual_alignment,
+                         std::align_val_t expected_alignment,
+                         absl::Span<void* const> deallocation_stack) {
+    type_ = Type::kInvalidFree;
+
+    actual_alignment_ = actual_alignment;
+    expected_alignment_ = expected_alignment;
+
+    size_t deallocation_stack_depth =
+        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
+    memcpy(deallocation_stack_, deallocation_stack.data(),
+           sizeof(void*) * deallocation_stack_depth);
+    deallocation_stack_depth_ = deallocation_stack_depth;
+  }
+
  private:
   Type type_ = Type::kNone;
   size_t provided_min_ = 0, provided_max_ = 0, minimum_ = 0, maximum_ = 0;
+  std::align_val_t actual_alignment_ = static_cast<std::align_val_t>(0),
+                   expected_alignment_ = static_cast<std::align_val_t>(0);
 
   void* allocation_stack_[kMaxStackDepth] = {};
   std::optional<size_t> allocation_stack_depth_ = std::nullopt;

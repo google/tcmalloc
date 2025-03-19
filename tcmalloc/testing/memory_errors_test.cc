@@ -30,6 +30,7 @@
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/base/casts.h"
+#include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -719,6 +720,52 @@ TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
       absl::StrCat(
           "(CHECK in ReportDoubleFree: Possible double free detected of "
           ")"));
+}
+
+TEST_F(TcMallocTest, CorruptedPointer) {
+  constexpr size_t kSizes[] = {
+      8u,
+      64u,
+      1024u,
+      tcmalloc_internal::kPageSize,
+      tcmalloc_internal::kMaxSize,
+      tcmalloc_internal::kMaxSize + 1,
+      tcmalloc_internal::kHugePageSize,
+  };
+
+  constexpr size_t kMisalignment[] = {
+      1,
+      2,
+      3,
+      4,
+      static_cast<size_t>(tcmalloc_internal::kAlignment) - 1,
+      ABSL_CACHELINE_SIZE,
+#ifndef ABSL_HAVE_ADDRESS_SANITIZER
+      tcmalloc_internal::kPageSize / 2,
+#endif  // ABSL_HAVE_ADDRESS_SANITIZER
+  };
+
+  for (const size_t size : kSizes) {
+    for (const size_t misalignment : kMisalignment) {
+      SCOPED_TRACE(absl::StrCat("size=", size, ",misalignment=", misalignment));
+      EXPECT_DEATH(
+          {
+            // TODO(b/404341539): Cover unsampled allocations in debug builds.
+            ScopedAlwaysSample always_sample;
+            ScopedGuardedSamplingInterval never_gwp_asan(-1);
+            for (size_t i = 0; i < 10000; ++i) {
+              // TODO(b/404341539): Cover aligned operator new.
+              char* ptr = static_cast<char*>(::operator new(size));
+              sized_delete(ptr + misalignment, size);
+            }
+          },
+          absl::StrCat(
+              "attempting free on address which was not "
+              "malloc|alloc-dealloc-mismatch.*INVALID|"
+              "(Attempted to free corrupted pointer"
+              ")"));
+    }
+  }
 }
 
 }  // namespace
