@@ -718,6 +718,11 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   }
 }
 
+template <typename AlignPolicy>
+bool CorrectSize(void* ptr, size_t size, AlignPolicy align);
+
+bool CorrectAlignment(void* ptr, std::align_val_t alignment);
+
 // Helper for the object deletion (free, delete, etc.).  Inputs:
 //   ptr is object to be freed
 //   size_class is the size class of that object, or 0 if it's unknown
@@ -730,6 +735,9 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
 // "have_size_class-case" and others are "!have_size_class-case". But we
 // certainly don't have such compiler. See also do_free_with_size below.
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
+  // TODO(b/404341539):  Improve the bound.
+  TC_ASSERT(CorrectAlignment(ptr, static_cast<std::align_val_t>(1)));
+
   if (!kSelSanPresent || ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
     if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
@@ -757,11 +765,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
     InvokeHooksAndFreePages(ptr, std::nullopt);
   }
 }
-
-template <typename AlignPolicy>
-bool CorrectSize(void* ptr, size_t size, AlignPolicy align);
-
-bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
 template <typename AlignPolicy>
 ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
@@ -899,7 +902,17 @@ bool CorrectSize(void* ptr, const size_t provided_size, AlignPolicy align) {
 bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
   size_t align = static_cast<size_t>(alignment);
   TC_ASSERT(absl::has_single_bit(align));
-  return ((reinterpret_cast<uintptr_t>(ptr) & (align - 1)) == 0);
+  if (GetMemoryTag(ptr) != MemoryTag::kSampled) {
+    // TODO(b/404341539): Use stricter alignment than kAlignment when the object
+    // size is larger.
+    align = std::max(align, static_cast<size_t>(kAlignment));
+  }
+  if (ABSL_PREDICT_FALSE((reinterpret_cast<uintptr_t>(ptr) & (align - 1)) !=
+                         0)) {
+    ReportCorruptedFree(static_cast<std::align_val_t>(align), ptr);
+    return false;
+  }
+  return true;
 }
 
 // Helpers for use by exported routines below or inside debugallocation.cc:
