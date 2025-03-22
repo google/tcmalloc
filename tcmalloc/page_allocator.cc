@@ -138,6 +138,10 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
   warned = true;
   TC_LOG("Couldn't respect usage limit of %v and OOM is likely to follow.",
          limits_[kSoft]);
+
+  if (auto* handler = MallocExtension::GetSoftMemoryLimitHandler()) {
+    (*handler)();
+  }
 }
 
 bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
