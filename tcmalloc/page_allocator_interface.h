@@ -36,7 +36,7 @@ class PageAllocatorInterface {
   PageAllocatorInterface(const char* label, MemoryTag tag);
   // For testing: use a non-default pagemap.
   PageAllocatorInterface(const char* label, PageMap* map, MemoryTag tag);
-  virtual ~PageAllocatorInterface();
+  virtual ~PageAllocatorInterface() = default;
   // Allocate a run of "n" pages. These pages would be allocated to a total of
   // 'objects_per_span' objects. Returns zero if out of memory.  Caller should
   // not pass "n == 0" -- instead, n should have been rounded up already.

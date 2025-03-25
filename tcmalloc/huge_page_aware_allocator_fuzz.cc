@@ -126,19 +126,13 @@ void FuzzHPAA(const std::string& s) {
   data += 13;
   size -= 13;
 
-  // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
-  // to one and construct in place.
-  void* p =
-      malloc(sizeof(HugePageAwareAllocator<FakeStaticForwarderWithUnback>));
   HugePageAwareAllocatorOptions options;
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
   options.huge_cache_time = absl::Seconds(huge_cache_release_s);
   options.dense_tracker_type = dense_tracker_type;
-  HugePageAwareAllocator<FakeStaticForwarderWithUnback>* allocator;
-  allocator =
-      new (p) HugePageAwareAllocator<FakeStaticForwarderWithUnback>(options);
-  auto& forwarder = allocator->forwarder();
+  HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator(options);
+  auto& forwarder = allocator.forwarder();
 
   struct SpanInfo {
     Span* span;
@@ -216,9 +210,9 @@ void FuzzHPAA(const std::string& s) {
               density == AccessDensityPrediction::kSparse ||
               length == Length(1));
           if (use_aligned) {
-            s = allocator->NewAligned(length, align, alloc_info);
+            s = allocator.NewAligned(length, align, alloc_info);
           } else {
-            s = allocator->New(length, alloc_info);
+            s = allocator.New(length, alloc_info);
           }
           TC_CHECK_NE(s, nullptr);
           TC_CHECK_GE(s->num_pages().raw_num(), length.raw_num());
@@ -245,16 +239,16 @@ void FuzzHPAA(const std::string& s) {
           {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
             PageHeapSpinLockHolder l;
-            allocator->Delete(span_info.span);
+            allocator.Delete(span_info.span);
 #else
             PageAllocatorInterface::AllocationState a{
                 Range(span_info.span->first_page(),
                       span_info.span->num_pages()),
                 span_info.span->donated(),
             };
-            allocator->forwarder().DeleteSpan(span_info.span);
+            allocator.forwarder().DeleteSpan(span_info.span);
             PageHeapSpinLockHolder l;
-            allocator->Delete(a);
+            allocator.Delete(a);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
           }
           break;
@@ -285,8 +279,8 @@ void FuzzHPAA(const std::string& s) {
           PageReleaseStats actual_stats;
           {
             PageHeapSpinLockHolder l;
-            released = allocator->ReleaseAtLeastNPages(desired, reason);
-            actual_stats = allocator->GetReleaseStats();
+            released = allocator.ReleaseAtLeastNPages(desired, reason);
+            actual_stats = allocator.GetReleaseStats();
           }
           expected_stats.total += released;
           switch (reason) {
@@ -325,12 +319,12 @@ void FuzzHPAA(const std::string& s) {
           PageReleaseStats actual_stats;
           {
             PageHeapSpinLockHolder l;
-            releasable_bytes = allocator->FillerStats().free_bytes +
-                               allocator->RegionsFreeBacked().in_bytes() +
-                               allocator->CacheStats().free_bytes;
-            released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired,
-                                                                        reason);
-            actual_stats = allocator->GetReleaseStats();
+            releasable_bytes = allocator.FillerStats().free_bytes +
+                               allocator.RegionsFreeBacked().in_bytes() +
+                               allocator.CacheStats().free_bytes;
+            released = allocator.ReleaseAtLeastNPagesBreakingHugepages(desired,
+                                                                       reason);
+            actual_stats = allocator.GetReleaseStats();
           }
 
           if (forwarder.release_succeeds()) {
@@ -362,7 +356,7 @@ void FuzzHPAA(const std::string& s) {
           Printer p(&output[0], output.size());
           {
             PbtxtRegion region(p, kTop);
-            allocator->PrintInPbtxt(region);
+            allocator.PrintInPbtxt(region);
           }
           CHECK_LE(p.SpaceRequired(), output.size());
           break;
@@ -374,7 +368,7 @@ void FuzzHPAA(const std::string& s) {
           // value[63:1]: Reserved.
           Printer p(&output[0], output.size());
           bool everything = (value % 2 == 0);
-          allocator->Print(p, everything);
+          allocator.Print(p, everything);
           break;
         }
         case 6: {
@@ -384,7 +378,7 @@ void FuzzHPAA(const std::string& s) {
           BackingStats stats;
           {
             PageHeapSpinLockHolder l;
-            stats = allocator->stats();
+            stats = allocator.stats();
           }
           uint64_t used_bytes =
               stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
@@ -498,7 +492,7 @@ void FuzzHPAA(const std::string& s) {
 
   run_dsl(data, size);
 
-  // Stop recursing, since allocator->Delete below might cause us to "release"
+  // Stop recursing, since allocator.Delete below might cause us to "release"
   // more pages to the system.
   reentrant.clear();
 
@@ -509,26 +503,24 @@ void FuzzHPAA(const std::string& s) {
       allocated -= span->num_pages();
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       PageHeapSpinLockHolder l;
-      allocator->Delete(span_info.span);
+      allocator.Delete(span_info.span);
 #else
       PageAllocatorInterface::AllocationState a{
           Range(span_info.span->first_page(), span_info.span->num_pages()),
           span_info.span->donated(),
       };
-      allocator->forwarder().DeleteSpan(span_info.span);
+      allocator.forwarder().DeleteSpan(span_info.span);
       PageHeapSpinLockHolder l;
-      allocator->Delete(a);
+      allocator.Delete(a);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     }
 
     PageHeapSpinLockHolder l;
-    return allocator->GetReleaseStats();
+    return allocator.GetReleaseStats();
   }();
 
   TC_CHECK_EQ(allocated.in_bytes(), 0);
   TC_CHECK_EQ(final_stats, expected_stats);
-
-  free(allocator);
 }
 
 FUZZ_TEST(HugePageAwareAllocatorTest, FuzzHPAA)

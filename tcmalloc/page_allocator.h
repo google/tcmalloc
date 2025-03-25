@@ -45,7 +45,7 @@ namespace tcmalloc_internal {
 class PageAllocator {
  public:
   PageAllocator();
-  ~PageAllocator() = delete;
+  ~PageAllocator() = default;
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.

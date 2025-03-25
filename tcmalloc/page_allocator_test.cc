@@ -53,27 +53,24 @@ class PageAllocatorTest : public testing::Test {
     before_ = MallocExtension::GetRegionFactory();
     extra_ = new ExtraRegionFactory(before_);
     MallocExtension::SetRegionFactory(extra_);
-    void* p = malloc(sizeof(PageAllocator));
-    allocator_ = new (p) PageAllocator;
   }
   void TearDown() override {
     MallocExtension::SetRegionFactory(before_);
     delete extra_;
-    free(allocator_);
   }
 
   Span* New(Length n, SpanAllocInfo span_alloc_info,
             MemoryTag tag = MemoryTag::kNormal) {
-    return allocator_->New(n, span_alloc_info, tag);
+    return allocator_.New(n, span_alloc_info, tag);
   }
   Span* NewAligned(Length n, Length align, SpanAllocInfo span_alloc_info,
                    MemoryTag tag = MemoryTag::kNormal) {
-    return allocator_->NewAligned(n, align, span_alloc_info, tag);
+    return allocator_.NewAligned(n, align, span_alloc_info, tag);
   }
   void Delete(Span* s, MemoryTag tag = MemoryTag::kNormal) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
-    allocator_->Delete(s, tag);
+    allocator_.Delete(s, tag);
 #else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
@@ -81,19 +78,19 @@ class PageAllocatorTest : public testing::Test {
     };
     Span::Delete(s);
     PageHeapSpinLockHolder l;
-    allocator_->Delete(a, tag);
+    allocator_.Delete(a, tag);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   std::string Print() {
     std::vector<char> buf(1024 * 1024);
     Printer out(&buf[0], buf.size());
-    allocator_->Print(out, MemoryTag::kNormal);
+    allocator_.Print(out, MemoryTag::kNormal);
 
     return std::string(&buf[0]);
   }
 
-  PageAllocator* allocator_;
+  PageAllocator allocator_;
   ExtraRegionFactory* extra_;
   AddressRegionFactory* before_;
 };
@@ -117,7 +114,7 @@ TEST_F(PageAllocatorTest, Record) {
   }
   {
     PageHeapSpinLockHolder l;
-    auto info = allocator_->info(MemoryTag::kNormal);
+    auto info = allocator_.info(MemoryTag::kNormal);
 
     ASSERT_EQ(15, info.counts_for(Length(1)).nalloc);
     ASSERT_EQ(15, info.counts_for(Length(1)).nfree);
@@ -165,21 +162,21 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
   BackingStats stats;
   {
     PageHeapSpinLockHolder l;
-    stats = allocator_->stats();
+    stats = allocator_.stats();
   }
   EXPECT_EQ(stats.system_bytes, 2 * kHugePageSize);
   EXPECT_EQ(stats.free_bytes, kHugePageSize);
   EXPECT_EQ(stats.unmapped_bytes, 0);
 
   // Choose a limit so that we hit and we are not able to satisfy it.
-  allocator_->set_limit(kPagesPerHugePage.in_bytes(), PageAllocator::kSoft);
+  allocator_.set_limit(kPagesPerHugePage.in_bytes(), PageAllocator::kSoft);
   {
     PageHeapSpinLockHolder l;
-    allocator_->ShrinkToUsageLimit(Length(0));
+    allocator_.ShrinkToUsageLimit(Length(0));
   }
-  EXPECT_LE(1, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_LE(1, allocator_.limit_hits(PageAllocator::kSoft));
   EXPECT_LE(
-      0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+      0, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, MemoryTag::kNormal);
   Delete(sampled, MemoryTag::kSampled);
@@ -199,7 +196,7 @@ TEST_F(PageAllocatorTest, b270916852) {
   BackingStats stats;
   {
     PageHeapSpinLockHolder l;
-    stats = allocator_->stats();
+    stats = allocator_.stats();
   }
   EXPECT_EQ(stats.system_bytes, 2 * kHugePageSize);
   EXPECT_EQ(stats.free_bytes, kHugePageSize);
@@ -213,16 +210,16 @@ TEST_F(PageAllocatorTest, b270916852) {
     PageHeapSpinLockHolder l;
     return tc_globals.metadata_bytes();
   }();
-  allocator_->set_limit(
+  allocator_.set_limit(
       metadata_bytes + (3 * kPagesPerHugePage / 2).in_bytes() + kPageSize,
       PageAllocator::kSoft);
   {
     PageHeapSpinLockHolder l;
-    allocator_->ShrinkToUsageLimit(Length(0));
+    allocator_.ShrinkToUsageLimit(Length(0));
   }
-  EXPECT_LE(1, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_LE(1, allocator_.limit_hits(PageAllocator::kSoft));
   EXPECT_LE(
-      1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+      1, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, MemoryTag::kNormal);
   Delete(sampled, MemoryTag::kSampled);

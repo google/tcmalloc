@@ -35,11 +35,6 @@ PageAllocatorInterface::PageAllocatorInterface(const char* label, PageMap* map,
                                                MemoryTag tag)
     : info_(label), pagemap_(map), tag_(tag) {}
 
-PageAllocatorInterface::~PageAllocatorInterface() {
-  // This is part of tcmalloc statics - they must be immortal.
-  TC_BUG("should never destroy this");
-}
-
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

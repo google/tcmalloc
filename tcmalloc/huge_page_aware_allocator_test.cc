@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 #include <utility>
@@ -125,14 +126,11 @@ class HugePageAwareAllocatorTest
     extra_ = new ExtraRegionFactory(before_);
     MallocExtension::SetRegionFactory(extra_);
 
-    // HugePageAwareAllocator can't be destroyed cleanly, so we store a
-    // pointer to one and construct in place.
-    void* p = malloc(sizeof(MockedHugePageAwareAllocator));
     HugePageAwareAllocatorOptions options;
     options.tag = MemoryTag::kNormal;
     // TODO(b/242550501): Parameterize other parts of the options.
     options.use_huge_region_more_often = GetParam();
-    allocator_ = new (p) MockedHugePageAwareAllocator(options);
+    allocator_.emplace(options);
   }
 
   ~HugePageAwareAllocatorTest() override {
@@ -149,8 +147,6 @@ class HugePageAwareAllocatorTest
       auto stats = allocator_->stats();
       TC_CHECK_EQ(stats.free_bytes + stats.unmapped_bytes, stats.system_bytes);
     }
-
-    free(allocator_);
 
     MallocExtension::SetRegionFactory(before_);
     delete extra_;
@@ -293,7 +289,7 @@ class HugePageAwareAllocatorTest
 
   // TODO(b/242550501):  Replace this with one templated with a different
   // forwarder, as to facilitate mocks.
-  MockedHugePageAwareAllocator* allocator_;
+  std::optional<MockedHugePageAwareAllocator> allocator_;
   ExtraRegionFactory* extra_;
   AddressRegionFactory* before_;
   absl::base_internal::SpinLock lock_;
