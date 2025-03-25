@@ -126,8 +126,6 @@ class PageAllocator {
     HPAA = 1,
   };
 
-  Algorithm algorithm() const { return alg_; }
-
   struct PeakStats {
     size_t backed_bytes;
     size_t sampled_application_bytes;
