@@ -19,21 +19,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/static_vars.h"
+#include "tcmalloc/internal/memory_tag.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
 PageAllocatorInterface::PageAllocatorInterface(const char* label, MemoryTag tag)
-    : PageAllocatorInterface(label, &tc_globals.pagemap(), tag) {}
-
-PageAllocatorInterface::PageAllocatorInterface(const char* label, PageMap* map,
-                                               MemoryTag tag)
-    : info_(label), pagemap_(map), tag_(tag) {}
+    : info_(label), tag_(tag) {}
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -112,6 +112,9 @@ class FakeStaticForwarder {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {}
 
   // PageMap state.
+  // TODO(b/242550501): We should just swap out a PageMap instead of doing
+  // these things. See the description of cl/169552275 for the original TODO.
+  // While we're here, also look into consolidating forwarders.
   [[nodiscard]] void* GetHugepage(HugePage p) {
     auto it = trackers_.find(p);
     if (it == trackers_.end()) {
