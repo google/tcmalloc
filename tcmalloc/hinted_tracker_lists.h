@@ -92,7 +92,6 @@ class HintedTrackerLists {
     return lists_[n];
   }
   size_t size() const { return size_; }
-  bool empty() const { return size_ == 0; }
 
   // Returns length of the list at an index <n>.
   // REQUIRES: n < N.

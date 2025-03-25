@@ -56,9 +56,6 @@ class StaticForwarder {
   static uint32_t max_span_cache_size() {
     return Parameters::max_span_cache_size();
   }
-  static uint32_t max_span_cache_array_size() {
-    return Parameters::max_span_cache_array_size();
-  }
   static uint64_t clock_now() { return absl::base_internal::CycleClock::Now(); }
   static double clock_frequency() {
     return absl::base_internal::CycleClock::Frequency();
