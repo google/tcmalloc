@@ -669,6 +669,7 @@ cc_library(
 cc_test(
     name = "huge_page_aware_allocator_fuzz",
     srcs = ["huge_page_aware_allocator_fuzz.cc"],
+    args = ["--fuzztest_stack_limit_kb=2048"],
     copts = TCMALLOC_DEFAULT_COPTS,
     data = glob(["testdata/huge_page_aware_allocator_fuzz/*"]),
     deps = [
