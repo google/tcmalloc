@@ -18,6 +18,8 @@
 # https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
 # how this malloc works.
 
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
@@ -28,7 +30,10 @@ package(default_visibility = ["//visibility:private"])
 
 licenses(["notice"])
 
-exports_files(["LICENSE"])
+exports_files([
+    "LICENSE",
+    "tcmalloc.h",
+])
 
 config_setting(
     name = "llvm",
