@@ -1,4 +1,5 @@
 use tcmalloc_rs;
+use tcmalloc_extensions_rs::get_stats;
 
 #[global_allocator]
 static GLOBAL: tcmalloc_rs::TCMalloc = tcmalloc_rs::TCMalloc;
@@ -10,4 +11,7 @@ fn main() {
     println!("push an element");
     v.push(1);
     println!("done");
+
+    let stats = get_stats();
+    println!("{}", stats)
 }
