@@ -753,34 +753,41 @@ TEST_F(TcMallocTest, CorruptedPointer) {
       tcmalloc::hot_cold_t{255},
   };
 
-  for (const size_t size : kSizes) {
-    for (const size_t misalignment : kMisalignment) {
-      for (const auto hot_cold : kAccessDensities) {
-        SCOPED_TRACE(absl::StrCat(
-            "size=", size, ",misalignment=", misalignment, ",hot_cold=",
-            !hot_cold.has_value() ? "nullopt" : absl::StrCat(*hot_cold)));
-        EXPECT_DEATH(
-            {
-#ifdef NDEBUG
-              ScopedAlwaysSample always_sample;
-#endif  // NDEBUG
-              ScopedGuardedSamplingInterval never_gwp_asan(-1);
-              for (size_t i = 0; i < 10000; ++i) {
-                // TODO(b/404341539): Cover aligned operator new.
-                char* ptr;
-                if (hot_cold.has_value()) {
-                  ptr = static_cast<char*>(::operator new(size, *hot_cold));
-                } else {
-                  ptr = static_cast<char*>(::operator new(size));
+  for (const bool sampled : {true
+#ifndef NDEBUG
+                             ,
+                             false
+#endif
+       }) {
+    SCOPED_TRACE(absl::StrCat("sampled=", sampled));
+
+    for (const size_t size : kSizes) {
+      for (const size_t misalignment : kMisalignment) {
+        for (const auto hot_cold : kAccessDensities) {
+          SCOPED_TRACE(absl::StrCat(
+              "size=", size, ",misalignment=", misalignment, ",hot_cold=",
+              !hot_cold.has_value() ? "nullopt" : absl::StrCat(*hot_cold)));
+          EXPECT_DEATH(
+              {
+                ScopedProfileSamplingInterval sampling(sampled ? 1 : 0);
+                ScopedGuardedSamplingInterval never_gwp_asan(-1);
+                for (size_t i = 0; i < 10000; ++i) {
+                  // TODO(b/404341539): Cover aligned operator new.
+                  char* ptr;
+                  if (hot_cold.has_value()) {
+                    ptr = static_cast<char*>(::operator new(size, *hot_cold));
+                  } else {
+                    ptr = static_cast<char*>(::operator new(size));
+                  }
+                  sized_delete(ptr + misalignment, size);
                 }
-                sized_delete(ptr + misalignment, size);
-              }
-            },
-            absl::StrCat(
-                "attempting free on address which was not "
-                "malloc|alloc-dealloc-mismatch.*INVALID|"
-                "(Attempted to free corrupted pointer"
-                ")"));
+              },
+              absl::StrCat(
+                  "attempting free on address which was not "
+                  "malloc|alloc-dealloc-mismatch.*INVALID|"
+                  "(Attempted to free corrupted pointer"
+                  ")"));
+        }
       }
     }
   }
