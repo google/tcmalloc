@@ -24,6 +24,35 @@ config_setting(
 )
 
 rust_bindgen_library(
+    name = "tcmalloc_sys_extensions",
+    cc_lib = "//tcmalloc:malloc_extension",
+    header = "//tcmalloc:malloc_extension.h",
+    clang_flags = [
+        # "-v",  # enable for debugging
+        "-x",
+        "c++",
+        "-std=c++17",
+    ],
+    bindgen_flags = [
+        "--allowlist-function=.*MallocExtension_.*",
+        "--allowlist-type=.*MallocExtension_Ownership",
+        "--allowlist-type=.*MallocExtension_Property",
+        "--blocklist-function=.*MallocExtension_GetProfileSamplingRate",
+        "--blocklist-function=.*MallocExtension_SetProfileSamplingRate",
+        "--blocklist-function=.*MallocExtension_GetGuardedSamplingRate",
+        "--blocklist-function=.*MallocExtension_SetGuardedSamplingRate",
+        "--blocklist-function=.*MallocExtension_GetSkipSubreleaseInterval",
+        "--blocklist-function=.*MallocExtension_SetSkipSubreleaseInterval",
+         "--opaque-type=std::optional", # prevents unsafe comparisons which could result in overflow
+         "--opaque-type=std::basic_string", # prevents unsafe comparisons which could result in overflow
+         "--opaque-type=std::basic_string_view", # allow bindgen to use __BindgenOpaqueArray to repr std::string
+         "--opaque-type=std::unique_ptr", # prevents unsafe comparisons which could result in overflow
+        "--use-core", # don't compile with std, allows baremetal envs
+    ],
+    alwayslink = 1,
+)
+
+rust_bindgen_library(
     name = "tcmalloc_sys",
     cc_lib = select({
         ":xlarge": "//tcmalloc:tcmalloc_256k_pages",
@@ -57,19 +86,35 @@ rust_library(
     visibility = ["//visibility:public"],
 )
 
+rust_library(
+    name = "tcmalloc_extensions_rs",
+    deps = [":tcmalloc_sys_extensions"],
+    srcs = ["extension.rs"],
+    visibility = ["//visibility:public"],
+)
 
 # bazel test //tcmalloc_rs/... --extra_toolchains=@llvm_toolchain//:cc-toolchain-x86_64-linux --//tcmalloc:alwayslink=false
 rust_test(
-    name = "test",
+    name = "test_malloc",
     size = "small",
     crate = ":tcmalloc_rs",
+)
+
+rust_test(
+    name = "test_malloc_extension",
+    size = "small",
+    crate = ":tcmalloc_extensions_rs",
+    deps = [":tcmalloc_rs"],
 )
 
 # bazel run //tcmalloc_rs:main --extra_toolchains=@llvm_toolchain//:cc-toolchain-x86_64-linux --//tcmalloc:alwayslink=false
 rust_binary(
     name = "main",
     srcs = ["main.rs"],
-    deps = [":tcmalloc_rs"],
+    deps = [
+        ":tcmalloc_rs",
+        ":tcmalloc_extensions_rs",
+    ],
     rustc_flags = [
         "-Ccodegen-units=1",
         "-Copt-level=3",

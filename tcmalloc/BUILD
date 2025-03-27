@@ -26,7 +26,7 @@ package(default_visibility = ["//visibility:private"])
 
 licenses(["notice"])
 
-exports_files(["LICENSE", "tcmalloc.h"])
+exports_files(["LICENSE", "tcmalloc.h", "malloc_extension.h"])
 
 bool_flag(
     name = "alwayslink",
