@@ -793,5 +793,53 @@ TEST_F(TcMallocTest, CorruptedPointer) {
   }
 }
 
+TEST_F(TcMallocTest, CorruptedPointerFixed) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Skipped under sanitizers";
+#endif
+#ifndef NDEBUG
+  GTEST_SKIP() << "Skipping with debug assertions";
+#endif
+
+  constexpr size_t kSizes[] = {
+      8u, 64u, 1024u, tcmalloc_internal::kPageSize, tcmalloc_internal::kMaxSize,
+  };
+
+  constexpr uintptr_t kAlignmentMask =
+      ~(static_cast<uintptr_t>(tcmalloc_internal::kAlignment) - 1u);
+
+  constexpr size_t kMisalignment[] = {
+      1, 2, 3, 4, static_cast<size_t>(tcmalloc_internal::kAlignment) - 1u,
+  };
+
+  // Sampled deallocations will detect misalignment.
+  ScopedNeverSample never_sample;
+
+  int same_pointers = 0;
+  for (const size_t size : kSizes) {
+    for (const size_t misalignment : kMisalignment) {
+      ASSERT_EQ(misalignment & kAlignmentMask, 0);
+      char* p = static_cast<char*>(::operator new(size));
+      const uintptr_t pu = absl::bit_cast<uintptr_t>(p);
+      sized_delete(p + misalignment, size);
+
+      char* q = static_cast<char*>(::operator new(size));
+      const uintptr_t qu = absl::bit_cast<uintptr_t>(q);
+      sized_delete(q, size);
+
+      // We generally expect back to back deallocation-allocation to produce the
+      // same pointer, but we might end up sampling in between, migrating across
+      // cores, etc.
+      if ((pu & kAlignmentMask) == (qu & kAlignmentMask)) {
+        same_pointers++;
+        EXPECT_EQ(pu, qu);
+      }
+    }
+  }
+
+  // We should have gotten some back to back allocations.
+  EXPECT_GT(same_pointers, 0);
+}
+
 }  // namespace
 }  // namespace tcmalloc

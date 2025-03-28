@@ -570,6 +570,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
     TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold, "ptr=%p", ptr);
   }
 
+  ptr = absl::bit_cast<void*>(absl::bit_cast<uintptr_t>(ptr) &
+                              ~(static_cast<uintptr_t>(kAlignment) - 1u));
+
   // DeallocateFast may fail if:
   //  - the cpu cache is full
   //  - the cpu cache is not initialized
