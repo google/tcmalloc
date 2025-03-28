@@ -65,20 +65,6 @@ static std::atomic<bool>& hpaa_subrelease_ptr() {
   return v;
 }
 
-// Lazy-init and getter to reference of guarded_sampling_interval.
-static std::atomic<int64_t>& guarded_sampling_interval_ptr() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{
-      DefaultOrDebugValue(/*default_val=*/50, /*debug_val=*/5) *
-      kDefaultProfileSamplingInterval};
-  absl::base_internal::LowLevelCallOnce(&flag, [&] {
-    if (IsExperimentActive(Experiment::TCMALLOC_AGGRESSIVE_GUARDED_SAMPLING)) {
-      v.store(5 * kDefaultProfileSamplingInterval, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
-
 // As background_process_actions_enabled_ptr() are determined at runtime, we
 // cannot require constant initialization for the atomic.  This avoids an
 // initialization order fiasco.
@@ -242,15 +228,14 @@ absl::Duration Parameters::huge_cache_release_time() {
   return absl::Seconds(v.load(std::memory_order_relaxed));
 }
 
-int64_t Parameters::guarded_sampling_interval() {
-  return guarded_sampling_interval_ptr().load(std::memory_order_relaxed);
-}
-
 ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
     Parameters::background_release_rate_(MallocExtension::BytesPerSecond{
         0
     });
 
+ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
+    DefaultOrDebugValue(/*default_val=*/50, /*debug_val=*/5) *
+    kDefaultProfileSamplingInterval);
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
@@ -541,8 +526,7 @@ bool TCMalloc_Internal_GetPerCpuCachesEnabled() {
 }
 
 void TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v) {
-  tcmalloc::tcmalloc_internal::guarded_sampling_interval_ptr().store(
-      v, std::memory_order_relaxed);
+  Parameters::guarded_sampling_interval_.store(v, std::memory_order_relaxed);
 }
 
 int TCMalloc_Internal_GetSelSanPercent() {
