@@ -234,8 +234,7 @@ ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
     });
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
-    DefaultOrDebugValue(/*default_val=*/50, /*debug_val=*/5) *
-    kDefaultProfileSamplingInterval);
+    5 * kDefaultProfileSamplingInterval);
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
