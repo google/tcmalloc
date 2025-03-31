@@ -88,6 +88,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/deallocation_profiler.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/global_stats.h"
 #include "tcmalloc/guarded_allocations.h"
@@ -641,34 +642,6 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
   return res;
 }
 
-ABSL_ATTRIBUTE_NORETURN
-ABSL_ATTRIBUTE_NOINLINE
-static void ReportDoubleFree(void* ptr) {
-  static void* stack[kMaxStackDepth];
-  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
-
-  RecordCrash("GWP-ASan", "double-free");
-  tc_globals.gwp_asan_state().RecordDoubleFree(absl::MakeSpan(stack, depth));
-
-  TC_BUG("Possible double free detected of %p", ptr);
-}
-
-ABSL_ATTRIBUTE_NORETURN
-ABSL_ATTRIBUTE_NOINLINE
-static void ReportCorruptedFree(std::align_val_t expected_alignment,
-                                void* ptr) {
-  static void* stack[kMaxStackDepth];
-  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
-
-  RecordCrash("GWP-ASan", "invalid-free");
-  tc_globals.gwp_asan_state().RecordInvalidFree(
-      static_cast<std::align_val_t>(
-          1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
-      expected_alignment, absl::MakeSpan(stack, depth));
-
-  TC_BUG("Attempted to free corrupted pointer %p", ptr);
-}
-
 // Handles freeing object that doesn't have size class, i.e. which
 // is either large or sampled. We explicitly prevent inlining it to
 // keep it out of fast-path. This helps avoid expensive
@@ -685,7 +658,7 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   // (it's corrupted, it's an interior pointer to another allocation separated
   // by more than kPageSize from the true pointer, etc.).
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    ReportDoubleFree(ptr);
+    ReportDoubleFree(tc_globals, ptr);
   }
 
   MaybeUnsampleAllocation(tc_globals, ptr, size, *span);
@@ -703,7 +676,8 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
     // Naively, right-aligned objects will fail this test even though they are
     // correct for GWP-ASan purposes.
     if (ABSL_PREDICT_FALSE(ptr != span->start_address())) {
-      ReportCorruptedFree(static_cast<std::align_val_t>(kPageSize), ptr);
+      ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
+                          ptr);
     }
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -912,7 +886,7 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
   }
   if (ABSL_PREDICT_FALSE((reinterpret_cast<uintptr_t>(ptr) & (align - 1)) !=
                          0)) {
-    ReportCorruptedFree(static_cast<std::align_val_t>(align), ptr);
+    ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(align), ptr);
     return false;
   }
   return true;

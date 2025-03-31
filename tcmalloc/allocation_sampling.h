@@ -71,9 +71,6 @@ inline Sampler* GetThreadSampler() {
 }
 
 void FreeProxyObject(Static& state, void* ptr, size_t size_class);
-[[noreturn]] void ReportMismatchedDelete(Static& state, void* ptr, size_t size,
-                                         size_t minimum_size,
-                                         size_t maximum_size);
 
 // Performs sampling for already occurred allocation of object.
 //

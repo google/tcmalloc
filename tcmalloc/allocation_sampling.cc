@@ -14,10 +14,8 @@
 
 #include "tcmalloc/allocation_sampling.h"
 
-#include <atomic>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -30,6 +28,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/exponential_biased.h"
@@ -104,81 +103,6 @@ ABSL_ATTRIBUTE_NOINLINE void FreeProxyObject(Static& state, void* ptr,
     // into transfer cache.
     state.transfer_cache().InsertRange(size_class, absl::Span<void*>(&ptr, 1));
   }
-}
-
-[[noreturn]]
-ABSL_ATTRIBUTE_NOINLINE static void ReportMismatchedDelete(
-    Static& state, const SampledAllocation& alloc, size_t size,
-    size_t requested_size, std::optional<size_t> allocated_size) {
-  TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
-  TC_LOG("Error originates from memory allocated at:");
-  PrintStackTrace(alloc.sampled_stack.stack, alloc.sampled_stack.depth);
-
-  size_t maximum_size;
-  if (allocated_size.value_or(requested_size) != requested_size) {
-    TC_LOG(
-        "Mismatched-size-delete "
-        "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
-        "of %v bytes (expected %v - %v bytes) at:",
-        size, requested_size, *allocated_size);
-
-    maximum_size = *allocated_size;
-  } else {
-    TC_LOG(
-        "Mismatched-size-delete "
-        "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
-        "of %v bytes (expected %v bytes) at:",
-        size, requested_size);
-
-    maximum_size = requested_size;
-  }
-  static void* stack[kMaxStackDepth];
-  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
-  PrintStackTrace(stack, depth);
-
-  RecordCrash("GWP-ASan", "mismatched-size-delete");
-  state.gwp_asan_state().RecordMismatch(
-      size, size, requested_size, maximum_size,
-      absl::MakeSpan(alloc.sampled_stack.stack, alloc.sampled_stack.depth),
-      absl::MakeSpan(stack, depth));
-  abort();
-}
-
-[[noreturn]]
-ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(Static& state, void* ptr,
-                                                    size_t size,
-                                                    size_t minimum_size,
-                                                    size_t maximum_size) {
-  // Try to refine the maximum possible size.
-  const PageId p = PageIdContainingTagged(ptr);
-  size_t size_class = state.pagemap().sizeclass(p);
-  if (size_class != 0) {
-    maximum_size = state.sizemap().class_to_size(size_class);
-    if (maximum_size < minimum_size) {
-      // Our size class refinement may have made the bounds inconsistent.
-      // Consult the size map to find the correct bounds.
-      minimum_size = state.sizemap().class_to_size_range(size_class).first;
-    }
-  }
-
-  TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
-
-  TC_LOG(
-      "Mismatched-size-delete "
-      "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
-      "of %v bytes (expected between [%v, %v] bytes) for %p at:",
-      size, minimum_size, maximum_size, ptr);
-
-  static void* stack[kMaxStackDepth];
-  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
-  PrintStackTrace(stack, depth);
-
-  RecordCrash("GWP-ASan", "mismatched-size-delete");
-  state.gwp_asan_state().RecordMismatch(/*provided_min=*/size,
-                                        /*provided_max=*/size, minimum_size,
-                                        maximum_size, std::nullopt,
-                                        absl::MakeSpan(stack, depth));
-  abort();
 }
 
 void MaybeUnsampleAllocation(Static& state, void* ptr,
