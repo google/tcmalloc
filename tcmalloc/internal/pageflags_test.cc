@@ -506,6 +506,11 @@ TEST(StaleSeconds, Read) {
   // Allocate at least a couple hugepages or pageflags might have a short read.
   auto alloc = std::make_unique<std::array<char, (1 << 22)>>();
 
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_MEMORY_SANITIZER || \
+    ABSL_HAVE_THREAD_SANITIZER
+  GTEST_SKIP() << "Skipped under sanitizers.";
+#endif
+
   std::string fake_pageflags =
       absl::StrCat(testing::TempDir(), "/fake_pageflags2");
   void* fake_p = GenerateAllStaleTest(fake_pageflags, &*alloc, 1);
@@ -542,6 +547,11 @@ TEST(StaleSeconds, NotFound) {
 }
 
 TEST(StaleSeconds, Bad) {
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_MEMORY_SANITIZER || \
+    ABSL_HAVE_THREAD_SANITIZER
+  GTEST_SKIP() << "Skipped under sanitizers.";
+#endif
+
   std::string fake_stale_seconds =
       absl::StrCat(testing::TempDir(), "/fake_stale_seconds2");
   SetContents(fake_stale_seconds, "[always]");
@@ -550,6 +560,11 @@ TEST(StaleSeconds, Bad) {
 }
 
 TEST(StaleSeconds, IntOutOfBounds) {
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_MEMORY_SANITIZER || \
+    ABSL_HAVE_THREAD_SANITIZER
+  GTEST_SKIP() << "Skipped under sanitizers.";
+#endif
+
   std::string fake_stale_seconds =
       absl::StrCat(testing::TempDir(), "/fake_stale_seconds3");
   SetContents(fake_stale_seconds, "-1");
@@ -558,6 +573,11 @@ TEST(StaleSeconds, IntOutOfBounds) {
 }
 
 TEST(StaleSeconds, TextOverflow) {
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_MEMORY_SANITIZER || \
+    ABSL_HAVE_THREAD_SANITIZER
+  GTEST_SKIP() << "Skipped under sanitizers.";
+#endif
+
   std::string fake_stale_seconds =
       absl::StrCat(testing::TempDir(), "/fake_stale_seconds4");
   std::string contents(1 << 22, '9');
