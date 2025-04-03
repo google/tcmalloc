@@ -25,7 +25,8 @@ namespace tcmalloc {
 // Marshal converts a Profile instance into a gzip-encoded, serialized
 // representation suitable for viewing with PProf
 // (https://github.com/google/pprof).
-absl::StatusOr<std::string> Marshal(const tcmalloc::Profile& profile);
+[[nodiscard]] absl::StatusOr<std::string> Marshal(
+    const tcmalloc::Profile& profile);
 
 }  // namespace tcmalloc
 

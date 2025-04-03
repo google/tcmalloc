@@ -64,7 +64,7 @@ TEST(AllocationSampleTest, TokenAbuse) {
 
   // Delete (on the scope ending) without Claim should also be OK.
   {
-    MallocExtension::StartAllocationProfiling();
+    (void)MallocExtension::StartAllocationProfiling();
   }
 }
 
