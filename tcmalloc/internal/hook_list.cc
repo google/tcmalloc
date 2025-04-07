@@ -1,4 +1,4 @@
-// Copyright 2021 The TCMalloc Authors
+// Copyright 2025 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,22 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_PROFILE_MARSHALER_H_
-#define TCMALLOC_PROFILE_MARSHALER_H_
+#include "tcmalloc/internal/hook_list.h"
 
-#include <string>
+#include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
+#include "absl/base/internal/spinlock.h"
+#include "tcmalloc/internal/config.h"
 
-#include "absl/status/statusor.h"
-#include "tcmalloc/malloc_extension.h"
+GOOGLE_MALLOC_SECTION_BEGIN
+namespace tcmalloc::tcmalloc_internal {
 
-namespace tcmalloc {
+ABSL_CONST_INIT absl::base_internal::SpinLock HookListBase::hooklist_spinlock_{
+    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
-// Marshal converts a Profile instance into a gzip-encoded, serialized
-// representation suitable for viewing with PProf
-// (https://github.com/google/pprof).
-[[nodiscard]] absl::StatusOr<std::string> Marshal(
-    const tcmalloc::Profile& profile);
-
-}  // namespace tcmalloc
-
-#endif  // TCMALLOC_PROFILE_MARSHALER_H_
+}  // namespace tcmalloc::tcmalloc_internal
+GOOGLE_MALLOC_SECTION_END

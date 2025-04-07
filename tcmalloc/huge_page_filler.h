@@ -1534,7 +1534,7 @@ class UsageInfo {
   Histo long_lived_hps_histo_[kNumTypes]{};
   LifetimeHisto low_occupancy_lifetime_histo_[kNumTypes]{};
   size_t bucket_bounds_[kBucketCapacity];
-  size_t lifetime_bucket_bounds_[kBucketCapacity];
+  size_t lifetime_bucket_bounds_[kLifetimeBuckets + 1];
   size_t hugepage_backed_[kNumTypes] = {0};
   size_t total_pages_[kNumTypes] = {0};
   size_t hugepage_backed_previously_released_ = 0;

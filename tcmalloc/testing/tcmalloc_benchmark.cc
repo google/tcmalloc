@@ -455,7 +455,8 @@ static void BM_get_heap_profile(benchmark::State& state) {
   }
 
   for (auto s : state) {
-    MallocExtension::SnapshotCurrent(ProfileType::kHeap);
+    benchmark::DoNotOptimize(
+        MallocExtension::SnapshotCurrent(ProfileType::kHeap));
   }
 }
 BENCHMARK(BM_get_heap_profile)->Range(1, 1 << 20);
@@ -477,7 +478,8 @@ static void BM_get_heap_profile_while_allocating(benchmark::State& state) {
   absl::Notification done;
   std::thread profile_thread([&] {
     while (!done.HasBeenNotified()) {
-      MallocExtension::SnapshotCurrent(ProfileType::kHeap);
+      benchmark::DoNotOptimize(
+          MallocExtension::SnapshotCurrent(ProfileType::kHeap));
     }
   });
 

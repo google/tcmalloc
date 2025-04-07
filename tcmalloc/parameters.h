@@ -52,7 +52,9 @@ class Parameters {
 
   static absl::Duration huge_cache_release_time();
 
-  static int64_t guarded_sampling_interval();
+  static int64_t guarded_sampling_interval() {
+    return guarded_sampling_interval_.load(std::memory_order_relaxed);
+  }
 
   static void set_guarded_sampling_interval(int64_t value) {
     TCMalloc_Internal_SetGuardedSamplingInterval(value);
@@ -248,6 +250,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
+  static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<uint32_t> max_span_cache_size_;
   static std::atomic<uint32_t> max_span_cache_array_size_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;

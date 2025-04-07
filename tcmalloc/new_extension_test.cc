@@ -39,12 +39,12 @@ TEST(HotColdNew, InvalidSizeFails) {
   GTEST_SKIP() << "skipping large allocation tests on sanitizers";
 #endif
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
-  EXPECT_DEATH(::operator new(kBadSize, hot_cold_t{0}), ".*");
-  EXPECT_DEATH(::operator new(kBadSize, hot_cold_t{128}), ".*");
-  EXPECT_DEATH(::operator new(kBadSize, hot_cold_t{255}), ".*");
-  EXPECT_DEATH(::operator new[](kBadSize, hot_cold_t{0}), ".*");
-  EXPECT_DEATH(::operator new[](kBadSize, hot_cold_t{128}), ".*");
-  EXPECT_DEATH(::operator new[](kBadSize, hot_cold_t{255}), ".*");
+  EXPECT_DEATH((void)::operator new(kBadSize, hot_cold_t{0}), ".*");
+  EXPECT_DEATH((void)::operator new(kBadSize, hot_cold_t{128}), ".*");
+  EXPECT_DEATH((void)::operator new(kBadSize, hot_cold_t{255}), ".*");
+  EXPECT_DEATH((void)::operator new[](kBadSize, hot_cold_t{0}), ".*");
+  EXPECT_DEATH((void)::operator new[](kBadSize, hot_cold_t{128}), ".*");
+  EXPECT_DEATH((void)::operator new[](kBadSize, hot_cold_t{255}), ".*");
 }
 
 TEST(HotColdNew, InvalidSizeNothrow) {

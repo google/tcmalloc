@@ -338,7 +338,7 @@ class AddressRegionFactory {
   // useful for creating AddressRegions inside Create().
   //
   // This memory is never freed, so allocate sparingly.
-  static void* MallocInternal(size_t size);
+  [[nodiscard]] static void* MallocInternal(size_t size);
 };
 
 class MallocExtension final {
@@ -348,7 +348,7 @@ class MallocExtension final {
   //
   // See https://github.com/google/tcmalloc/tree/master/docs/stats.md for how to interpret these
   // statistics.
-  static std::string GetStats();
+  [[nodiscard]] static std::string GetStats();
 
   // -------------------------------------------------------------------
   // Control operations for getting malloc implementation specific parameters.
@@ -395,7 +395,8 @@ class MallocExtension final {
   // -------------------------------------------------------------------
 
   // Gets the named property's value or a nullopt if the property is not valid.
-  static std::optional<size_t> GetNumericProperty(absl::string_view property);
+  [[nodiscard]] static std::optional<size_t> GetNumericProperty(
+      absl::string_view property);
 
   // Marks the current thread as "idle".  This function may optionally be called
   // by threads as a hint to the malloc implementation that any thread-specific
@@ -558,7 +559,7 @@ class MallocExtension final {
   // Returns the estimated number of bytes that will be allocated for a request
   // of "size" bytes.  This is an estimate: an allocation of "size" bytes may
   // reserve more bytes, but will never reserve fewer.
-  static size_t GetEstimatedAllocatedSize(size_t size);
+  [[nodiscard]] static size_t GetEstimatedAllocatedSize(size_t size);
 
   // Returns the estimated number of bytes that will be allocated for a request
   // of "size" bytes.  This is an estimate: an allocation of "size" bytes may
@@ -582,7 +583,7 @@ class MallocExtension final {
   // -- that is, must be exactly the pointer returned to by malloc() et al., not
   // some offset from that -- and should not have been freed yet.  p may be
   // null.
-  static std::optional<size_t> GetAllocatedSize(const void* p);
+  [[nodiscard]] static std::optional<size_t> GetAllocatedSize(const void* p);
 
   // Returns
   // * kOwned if TCMalloc allocated the memory pointed to by p, or
@@ -619,9 +620,9 @@ class MallocExtension final {
   //  tcmalloc.metadata_bytes      -- Used by internal data structures
   //  tcmalloc.thread_cache_count  -- Number of thread caches in use
   //  tcmalloc.experiment.NAME     -- Experiment NAME is running if 1
-  static std::map<std::string, Property> GetProperties();
+  [[nodiscard]] static std::map<std::string, Property> GetProperties();
 
-  static Profile SnapshotCurrent(tcmalloc::ProfileType type);
+  [[nodiscard]] static Profile SnapshotCurrent(tcmalloc::ProfileType type);
 
   // AllocationProfilingToken tracks an active profiling session started with
   // StartAllocationProfiling.  Profiling continues until Stop() is called.
@@ -652,11 +653,11 @@ class MallocExtension final {
 
   // Start recording a sample of allocation and deallocation calls.  Returns
   // null if the implementation does not support profiling.
-  static AllocationProfilingToken StartAllocationProfiling();
+  [[nodiscard]] static AllocationProfilingToken StartAllocationProfiling();
 
   // Start recording lifetimes of objects live during this profiling
   // session. Returns null if the implementation does not support profiling.
-  static AllocationProfilingToken StartLifetimeProfiling();
+  [[nodiscard]] static AllocationProfilingToken StartLifetimeProfiling();
 
   // Runs housekeeping actions for the allocator off of the main allocation path
   // of new/delete.  As of 2020, this includes:
@@ -671,7 +672,7 @@ class MallocExtension final {
   // Return true if ProcessBackgroundActions should be called on this platform.
   // Not all platforms need/support background actions. As of 2021 this
   // includes Apple and Emscripten.
-  static bool NeedsProcessBackgroundActions();
+  [[nodiscard]] static bool NeedsProcessBackgroundActions();
 
   // Specifies a rate in bytes per second.
   //
@@ -697,7 +698,7 @@ class MallocExtension final {
 // NOTE: prefer using tcmalloc_size_returning_operator_new over nallocx.
 // tcmalloc_size_returning_operator_new is more efficienct and provides tcmalloc
 // with better telemetry.
-extern "C" size_t nallocx(size_t size, int flags) noexcept;
+extern "C" [[nodiscard]] size_t nallocx(size_t size, int flags) noexcept;
 
 // The sdallocx function deallocates memory allocated by malloc or memalign.  It
 // takes a size parameter to pass the original allocation size.
@@ -760,9 +761,13 @@ using sized_ptr_t = __sized_ptr_t;
 extern "C" {
 // The following declarations provide an alternative spelling which should be
 // used so that the compiler can identify these as allocator functions.
+[[nodiscard]]
 __sized_ptr_t __size_returning_new(size_t size);
+[[nodiscard]]
 __sized_ptr_t __size_returning_new_hot_cold(size_t, __hot_cold_t);
+[[nodiscard]]
 __sized_ptr_t __size_returning_new_aligned(size_t, std::align_val_t);
+[[nodiscard]]
 __sized_ptr_t __size_returning_new_aligned_hot_cold(size_t, std::align_val_t,
                                                     __hot_cold_t);
 
@@ -804,22 +809,31 @@ __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
 
 }  // extern "C"
 
+[[nodiscard]]
 void* operator new(size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false);
+[[nodiscard]]
 void* operator new(size_t size, const std::nothrow_t&,
                    tcmalloc::hot_cold_t hot_cold) noexcept;
+[[nodiscard]]
 void* operator new[](size_t size,
+
                      tcmalloc::hot_cold_t hot_cold) noexcept(false);
+[[nodiscard]]
 void* operator new[](size_t size, const std::nothrow_t&,
                      tcmalloc::hot_cold_t hot_cold) noexcept;
 
 #ifdef __cpp_aligned_new
+[[nodiscard]]
 void* operator new(size_t size, std::align_val_t alignment,
                    tcmalloc::hot_cold_t hot_cold) noexcept(false);
+[[nodiscard]]
 void* operator new(size_t size, std::align_val_t alignment,
                    const std::nothrow_t&,
                    tcmalloc::hot_cold_t hot_cold) noexcept;
+[[nodiscard]]
 void* operator new[](size_t size, std::align_val_t alignment,
                      tcmalloc::hot_cold_t hot_cold) noexcept(false);
+[[nodiscard]]
 void* operator new[](size_t size, std::align_val_t alignment,
                      const std::nothrow_t&,
                      tcmalloc::hot_cold_t hot_cold) noexcept;

@@ -225,6 +225,22 @@ cc_library(
 )
 
 cc_library(
+    name = "hook_list",
+    srcs = ["hook_list.cc"],
+    hdrs = ["hook_list.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+        "@com_google_absl//absl/base:__pkg__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_library(
     name = "linked_list",
     hdrs = ["linked_list.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
