@@ -162,17 +162,35 @@ TEST_F(GetStatsTest, Pbtxt) {
 }
 
 TEST_F(GetStatsTest, Parameters) {
+  const bool old_hpaa_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(false);
+  const bool old_guarded_sampling_interval =
+      Parameters::guarded_sampling_interval();
   Parameters::set_guarded_sampling_interval(-1);
+  const bool old_per_cpu_caches = Parameters::per_cpu_caches();
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
   Parameters::set_per_cpu_caches(false);
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
+  const int64_t old_max_per_cpu_cache_size =
+      Parameters::max_per_cpu_cache_size();
   Parameters::set_max_per_cpu_cache_size(-1);
+  const int64_t old_max_total_thread_cache_bytes =
+      Parameters::max_total_thread_cache_bytes();
   Parameters::set_max_total_thread_cache_bytes(-1);
+  const absl::Duration old_skip_subrelease =
+      Parameters::filler_skip_subrelease_interval();
   Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
+  const absl::Duration old_skip_subrelease_short =
+      Parameters::filler_skip_subrelease_short_interval();
   Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
+  const absl::Duration old_skip_subrelease_long =
+      Parameters::filler_skip_subrelease_long_interval();
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
+  const absl::Duration old_cache_demand_release_short =
+      Parameters::cache_demand_release_short_interval();
   Parameters::set_cache_demand_release_short_interval(absl::Seconds(4));
+  const absl::Duration old_cache_demand_release_long =
+      Parameters::cache_demand_release_long_interval();
   Parameters::set_cache_demand_release_long_interval(absl::Seconds(5));
 
   auto using_hpaa = [](absl::string_view sv) {
@@ -368,6 +386,22 @@ TEST_F(GetStatsTest, Parameters) {
             R"(tcmalloc_cache_demand_release_long_interval_ns: 240375000000)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
   }
+
+  Parameters::set_hpaa_subrelease(old_hpaa_subrelease);
+  Parameters::set_guarded_sampling_interval(old_guarded_sampling_interval);
+  Parameters::set_per_cpu_caches(old_per_cpu_caches);
+  Parameters::set_max_per_cpu_cache_size(old_max_per_cpu_cache_size);
+  Parameters::set_max_total_thread_cache_bytes(
+      old_max_total_thread_cache_bytes);
+  Parameters::set_filler_skip_subrelease_interval(old_skip_subrelease);
+  Parameters::set_filler_skip_subrelease_short_interval(
+      old_skip_subrelease_short);
+  Parameters::set_filler_skip_subrelease_long_interval(
+      old_skip_subrelease_long);
+  Parameters::set_cache_demand_release_short_interval(
+      old_cache_demand_release_short);
+  Parameters::set_cache_demand_release_long_interval(
+      old_cache_demand_release_long);
 }
 
 TEST_F(GetStatsTest, StackDepth) {
