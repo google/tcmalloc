@@ -41,8 +41,7 @@ void ParseInput(const std::string& s) {
   (void)r;
 }
 
-FUZZ_TEST(SysinfoTest, ParseInput)
-    ;
+FUZZ_TEST(SysinfoTest, ParseInput);
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
