@@ -1625,7 +1625,7 @@ using FakeHugePageAwareAllocator =
     huge_page_allocator_internal::HugePageAwareAllocator<
         huge_page_allocator_internal::FakeStaticForwarder>;
 struct SpanDeleter {
-  explicit SpanDeleter(absl::Nonnull<FakeHugePageAwareAllocator*> allocator)
+  explicit SpanDeleter(FakeHugePageAwareAllocator* /*absl_nonnull*/ allocator)
       : allocator(*allocator) {}
 
   void operator()(Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
