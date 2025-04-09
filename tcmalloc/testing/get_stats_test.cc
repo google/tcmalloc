@@ -100,17 +100,17 @@ TEST_F(GetStatsTest, Pbtxt) {
               HasSubstr(absl::StrCat("profile_sampling_interval: ",
                                      Parameters::profile_sampling_interval())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
 #else
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 60000000000"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
+  EXPECT_THAT(
+      buf,
+      HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 60000000000"));
+  EXPECT_THAT(
+      buf,
+      HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
 #endif
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf,
@@ -141,15 +141,15 @@ TEST_F(GetStatsTest, Pbtxt) {
                 HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
   }
 #endif
-    if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
-      EXPECT_THAT(
-          buf,
-          HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
-    } else {
-      EXPECT_THAT(
-          buf, HasSubstr(
-                   "tcmalloc_dense_trackers_sorted_on_spans_allocated: false"));
-    }
+  if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
+    EXPECT_THAT(
+        buf,
+        HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
+  } else {
+    EXPECT_THAT(
+        buf,
+        HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: false"));
+  }
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   if (!IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
@@ -242,17 +242,17 @@ TEST_F(GetStatsTest, Parameters) {
           HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 0)"));
     }
 #endif
-      if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
-        EXPECT_THAT(
-            buf,
-            HasSubstr(
-                R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
-      } else {
-        EXPECT_THAT(
-            buf,
-            HasSubstr(
-                R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 0)"));
-      }
+    if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(
+              R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
+    } else {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(
+              R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 0)"));
+    }
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));

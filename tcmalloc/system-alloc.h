@@ -466,6 +466,7 @@ void* SystemAllocator<Topology>::MmapAligned(size_t size, size_t alignment,
 
 template <typename Topology>
 bool SystemAllocator<Topology>::tag_metadata_separately() const {
+  // TODO(b/394157733): Remove this.
   return tag_metadata_separately_;
 }
 

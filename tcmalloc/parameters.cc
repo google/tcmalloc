@@ -100,8 +100,6 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
   absl::Duration interval = absl::ZeroDuration();
-#if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-#endif
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
   });
