@@ -685,6 +685,14 @@ class MallocExtension final {
   // Specifies the release rate from the page heap.  ProcessBackgroundActions
   // must be called for this to be operative.
   static void SetBackgroundReleaseRate(BytesPerSecond rate);
+
+  // Specifies the pointer to a callback function to be invoked when the soft
+  // memory limit is reached.
+  using SoftMemoryLimitCallback = void();
+  static void SetSoftMemoryLimitHandler(SoftMemoryLimitCallback* handler);
+
+  // Gets the current handler of the soft memory limit event.
+  static SoftMemoryLimitCallback* GetSoftMemoryLimitHandler();
 };
 
 }  // namespace tcmalloc
