@@ -395,22 +395,16 @@ void FuzzHPAA(const std::string& s) {
           const uint64_t actual_value = value >> 8;
           switch (value & 0xF) {
             case 0:
-              forwarder.set_filler_skip_subrelease_interval(
-                  absl::Nanoseconds(actual_value));
               forwarder.set_filler_skip_subrelease_short_interval(
                   absl::ZeroDuration());
               forwarder.set_filler_skip_subrelease_long_interval(
                   absl::ZeroDuration());
               break;
             case 1:
-              forwarder.set_filler_skip_subrelease_interval(
-                  absl::ZeroDuration());
               forwarder.set_filler_skip_subrelease_short_interval(
                   absl::Nanoseconds(actual_value));
               break;
             case 2:
-              forwarder.set_filler_skip_subrelease_interval(
-                  absl::ZeroDuration());
               forwarder.set_filler_skip_subrelease_long_interval(
                   absl::Nanoseconds(actual_value));
               break;

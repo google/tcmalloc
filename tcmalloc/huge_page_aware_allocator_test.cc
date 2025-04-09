@@ -488,11 +488,6 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
   const bool old_subrelease = allocator_->forwarder().hpaa_subrelease();
   allocator_->forwarder().set_hpaa_subrelease(/*value=*/true);
 
-  const absl::Duration old_skip_subrelease_interval =
-      allocator_->forwarder().filler_skip_subrelease_interval();
-  allocator_->forwarder().set_filler_skip_subrelease_interval(
-      absl::ZeroDuration());
-
   absl::Duration old_skip_subrelease_short_interval =
       allocator_->forwarder().filler_skip_subrelease_short_interval();
   allocator_->forwarder().set_filler_skip_subrelease_short_interval(
@@ -524,8 +519,6 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
   }
 
   allocator_->forwarder().set_hpaa_subrelease(old_subrelease);
-  allocator_->forwarder().set_filler_skip_subrelease_interval(
-      old_skip_subrelease_interval);
   allocator_->forwarder().set_filler_skip_subrelease_short_interval(
       old_skip_subrelease_short_interval);
   allocator_->forwarder().set_filler_skip_subrelease_long_interval(
@@ -1662,8 +1655,6 @@ class GetReleaseStatsTest : public testing::Test {
         /*value=*/false);
     allocator_->forwarder().set_huge_region_demand_based_release(
         /*value=*/false);
-    allocator_->forwarder().set_filler_skip_subrelease_interval(
-        absl::ZeroDuration());
     allocator_->forwarder().set_filler_skip_subrelease_short_interval(
         absl::ZeroDuration());
     allocator_->forwarder().set_filler_skip_subrelease_long_interval(
