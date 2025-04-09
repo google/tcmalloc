@@ -528,16 +528,16 @@ class MallocExtension final {
   static absl::Duration GetBackgroundProcessSleepInterval();
   static void SetBackgroundProcessSleepInterval(absl::Duration value);
 
-  // Gets and sets intervals used for finding recent demand peak, short-term
-  // demand fluctuation, and long-term demand trend. Zero duration means not
-  // considering corresponding demand history for delayed subrelease. Delayed
-  // subrelease is disabled if all intervals are zero.
-  //
-  // TODO(b/394157733): Remove non-short/long skip subrelease accessers.
-  ABSL_DEPRECATED("This feature is being removed.")
-  static absl::Duration GetSkipSubreleaseInterval();
-  ABSL_DEPRECATED("This feature is being removed.")
-  static void SetSkipSubreleaseInterval(absl::Duration value);
+  // Gets and sets intervals used for finding short-term demand fluctuation and
+  // long-term demand trend. Zero duration means not considering corresponding
+  // demand history for delayed subrelease. Delayed subrelease is disabled if
+  // all intervals are zero.
+  ABSL_DEPRECATE_AND_INLINE()
+  static absl::Duration GetSkipSubreleaseInterval() {
+    return absl::ZeroDuration();
+  }
+  ABSL_DEPRECATE_AND_INLINE()
+  static void SetSkipSubreleaseInterval(absl::Duration) {}
   static absl::Duration GetSkipSubreleaseShortInterval();
   static void SetSkipSubreleaseShortInterval(absl::Duration value);
   static absl::Duration GetSkipSubreleaseLongInterval();

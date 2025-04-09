@@ -458,32 +458,6 @@ void MallocExtension::SetMaxTotalThreadCacheBytes(int64_t value) {
 #endif
 }
 
-absl::Duration MallocExtension::GetSkipSubreleaseInterval() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetSkipSubreleaseInterval == nullptr) {
-    return absl::ZeroDuration();
-  }
-
-  absl::Duration value;
-  MallocExtension_Internal_GetSkipSubreleaseInterval(&value);
-  return value;
-#else
-  return absl::ZeroDuration();
-#endif
-}
-
-void MallocExtension::SetSkipSubreleaseInterval(absl::Duration value) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetSkipSubreleaseInterval == nullptr) {
-    return;
-  }
-
-  MallocExtension_Internal_SetSkipSubreleaseInterval(value);
-#else
-  (void)value;
-#endif
-}
-
 bool MallocExtension::GetBackgroundProcessActionsEnabled() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (MallocExtension_Internal_GetBackgroundProcessActionsEnabled == nullptr) {

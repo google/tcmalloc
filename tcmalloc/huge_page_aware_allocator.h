@@ -57,9 +57,6 @@ bool use_huge_region_more_often();
 class StaticForwarder {
  public:
   // Runtime parameters.  This can change between calls.
-  static absl::Duration filler_skip_subrelease_interval() {
-    return Parameters::filler_skip_subrelease_interval();
-  }
   static absl::Duration filler_skip_subrelease_short_interval() {
     return Parameters::filler_skip_subrelease_short_interval();
   }
@@ -959,7 +956,6 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
       released += regions_.ReleasePagesByPeakDemand(
           desired,
           SkipSubreleaseIntervals{
-              .peak_interval = forwarder_.filler_skip_subrelease_interval(),
               .short_interval =
                   forwarder_.filler_skip_subrelease_short_interval(),
               .long_interval =
@@ -979,7 +975,6 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
       released += filler_.ReleasePages(
           num_pages - released,
           SkipSubreleaseIntervals{
-              .peak_interval = forwarder_.filler_skip_subrelease_interval(),
               .short_interval =
                   forwarder_.filler_skip_subrelease_short_interval(),
               .long_interval =
