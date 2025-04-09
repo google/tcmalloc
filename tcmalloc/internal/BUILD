@@ -305,6 +305,7 @@ cc_library(
         ":environment",
         ":parameter_accessors",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/debugging:stacktrace",

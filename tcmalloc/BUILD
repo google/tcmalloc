@@ -1055,6 +1055,7 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":malloc_extension",
+        ":malloc_hook",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
@@ -1265,6 +1266,7 @@ cc_library(
         "//visibility:public",
     ],
     deps = [
+        ":malloc_hook",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:malloc_internal",

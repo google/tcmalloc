@@ -42,6 +42,7 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
+#include "tcmalloc/malloc_hook.h"
 
 // Not all versions of Abseil provide this macro.
 // TODO(b/323943471): Remove on upgrading to version that provides the macro.
@@ -150,6 +151,8 @@ class Profile final {
     // The actual size allocated considering size, implicit/explicit alignment,
     // GWP-ASan.
     size_t allocated_size;
+
+    MallocHook::AllocHandle alloc_handle;
 
     // Return whether the allocation was returned with
     // tcmalloc_size_returning_operator_new or its variants.
