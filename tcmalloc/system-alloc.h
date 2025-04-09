@@ -144,9 +144,6 @@ class SystemAllocator {
   [[nodiscard]] void* MmapAligned(size_t size, size_t alignment, MemoryTag tag)
       ABSL_LOCKS_EXCLUDED(spinlock_);
 
-  bool tag_metadata_separately() const;
-  void set_tag_metadata_separately(bool v);
-
  private:
   const Topology& topology_;
 
@@ -183,8 +180,6 @@ class SystemAllocator {
   AddressRegion* selsan_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
   AddressRegion* cold_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
   AddressRegion* metadata_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
-  mutable absl::once_flag tag_metadata_separately_flag_;
-  mutable bool tag_metadata_separately_ = true;
 
   class MmapRegion final : public AddressRegion {
    public:
@@ -465,17 +460,6 @@ void* SystemAllocator<Topology>::MmapAligned(size_t size, size_t alignment,
 }
 
 template <typename Topology>
-bool SystemAllocator<Topology>::tag_metadata_separately() const {
-  // TODO(b/394157733): Remove this.
-  return tag_metadata_separately_;
-}
-
-template <typename Topology>
-void SystemAllocator<Topology>::set_tag_metadata_separately(bool v) {
-  tag_metadata_separately_ = v;
-}
-
-template <typename Topology>
 void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
                                                    size_t alignment,
                                                    const MemoryTag tag) {
@@ -691,11 +675,7 @@ AddressRegionFactory::UsageHint SystemAllocator<Topology>::TagToHint(
     case MemoryTag::kCold:
       return UsageHint::kInfrequentAccess;
     case MemoryTag::kMetadata:
-      // TODO(b/394157733): Complete this cleanup.
-      if (ABSL_PREDICT_TRUE(tag_metadata_separately())) {
-        return UsageHint::kMetadata;
-      }
-      return UsageHint::kInfrequentAllocation;
+      return UsageHint::kMetadata;
   }
 
   ASSUME(false);
