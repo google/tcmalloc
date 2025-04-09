@@ -37,6 +37,7 @@
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/pagemap.h"

@@ -283,6 +283,7 @@ create_tcmalloc_libraries(
     deps = [
         ":experiment",
         ":malloc_extension",
+        ":malloc_hook",
         ":malloc_tracing_extension",
         ":metadata_allocator",
         ":size_class_info",
@@ -310,7 +311,6 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:percpu_tcmalloc",
         "//tcmalloc/internal:prefetch",
         "//tcmalloc/internal:range_tracker",
-        "//tcmalloc/internal:residency",
         "//tcmalloc/internal:sampled_allocation",
         "//tcmalloc/internal:sampled_allocation_recorder",
         "//tcmalloc/internal:stacktrace_filter",
@@ -331,7 +331,6 @@ create_tcmalloc_libraries(
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/numeric:bits",
-        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
@@ -1534,5 +1533,22 @@ create_tcmalloc_testsuite(
     deps = [
         ":size_class_info",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "malloc_hook",
+    srcs = ["malloc_hook.cc"],
+    hdrs = ["malloc_hook.h"],
+    textual_hdrs = ["malloc_hook_invoke.h"],
+    visibility = [
+        ":__subpackages__",
+    ],
+    deps = [
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:hook_list",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
     ],
 )

@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
