@@ -836,7 +836,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "generic.peak_memory_usage") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, false);
-    *value = static_cast<uint64_t>(stats.peak_stats.sampled_application_bytes);
+    *value = static_cast<uint64_t>(stats.peak_stats.backed_bytes);
     return true;
   }
 
