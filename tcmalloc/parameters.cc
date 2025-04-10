@@ -89,23 +89,11 @@ static std::atomic<int64_t>& background_process_sleep_interval_ns() {
   return v;
 }
 
-// As skip_subrelease_interval_ns(), skip_subrelease_short_interval_ns(), and
+// As skip_subrelease_short_interval_ns(), and
 // skip_subrelease_long_interval_ns() are determined at runtime, we cannot
 // require constant initialization for the atomic.  This avoids an
 // initialization order fiasco.
 //
-// TODO(b/197880883, b/394157733):  Clean up legacy subrelease when
-// short-long-term subrelease is the default.
-static std::atomic<int64_t>& skip_subrelease_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::Duration interval = absl::ZeroDuration();
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
-  });
-  return v;
-}
-
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
