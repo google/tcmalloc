@@ -242,13 +242,6 @@ test_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING"],
         "tags": ["noubsan"],
     },
-    {
-        "name": "no_wide_slabs",
-        "malloc": "//tcmalloc:tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES"],
-        "env": {"TCMALLOC_DISABLE_WIDER_SLABS": "1"},
-    },
 ]
 
 def create_tcmalloc_library(

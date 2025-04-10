@@ -106,9 +106,6 @@ TEST(TCMallocVariant, KnownExperimentVariants) {
 // thread_safe_getenv is the superset of the variables specified during testing.
 TEST(TCMallocVariant, KnownEnvironmentVariables) {
   absl::flat_hash_set<absl::string_view> exemptions;
-  if (!tcmalloc_internal::subtle::percpu::IsFast()) {
-    exemptions.insert("TCMALLOC_DISABLE_WIDER_SLABS");
-  }
 
   std::vector<std::string> strings;
   strings.resize(kNumEnvNames);
