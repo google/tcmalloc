@@ -23,7 +23,6 @@ namespace tcmalloc {
 enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
-  TCMALLOC_AGGRESSIVE_GUARDED_SAMPLING,  // TODO(b/383523284): Complete experiment.
   TCMALLOC_HUGE_CACHE_DEMAND_BASED_RELEASE,  // TODO(b/346877743): Complete experiment.
   TCMALLOC_L3_AWARE_VCPUS,  // TODO(b/239977380): Complete experiment.
   TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION,  // TODO(b/376902157): Complete experiment.
@@ -44,7 +43,6 @@ struct ExperimentConfig {
 // clang-format off
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
-    {Experiment::TCMALLOC_AGGRESSIVE_GUARDED_SAMPLING, "TCMALLOC_AGGRESSIVE_GUARDED_SAMPLING"},
     {Experiment::TCMALLOC_HUGE_CACHE_DEMAND_BASED_RELEASE, "TCMALLOC_HUGE_CACHE_DEMAND_BASED_RELEASE"},
     {Experiment::TCMALLOC_L3_AWARE_VCPUS, "TCMALLOC_L3_AWARE_VCPUS"},
     {Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION, "TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION"},
