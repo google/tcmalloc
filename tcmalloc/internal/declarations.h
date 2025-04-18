@@ -18,6 +18,11 @@
 #ifndef TCMALLOC_INTERNAL_DECLARATIONS_H_
 #define TCMALLOC_INTERNAL_DECLARATIONS_H_
 
+#if !defined(__cpp_sized_deallocation) || !defined(__cpp_aligned_new)
+#include <cstddef>
+#include <new>
+#endif  // !defined(__cpp_sized_deallocation) || !defined(__cpp_aligned_new)
+
 #if !defined(__cpp_sized_deallocation)
 
 void operator delete(void*, std::size_t) noexcept;
