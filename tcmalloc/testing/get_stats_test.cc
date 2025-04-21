@@ -127,19 +127,6 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  EXPECT_THAT(buf,
-              HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
-#else
-  if (IsExperimentActive(
-          Experiment::TCMALLOC_HUGE_CACHE_DEMAND_BASED_RELEASE)) {
-    EXPECT_THAT(buf,
-                HasSubstr("tcmalloc_huge_cache_demand_based_release: true"));
-  } else {
-    EXPECT_THAT(buf,
-                HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
-  }
-#endif
   if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
     EXPECT_THAT(
         buf,
@@ -219,23 +206,6 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    EXPECT_THAT(
-        buf,
-        HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 0)"));
-#else
-    if (IsExperimentActive(
-            Experiment::TCMALLOC_HUGE_CACHE_DEMAND_BASED_RELEASE)) {
-      EXPECT_THAT(
-          buf,
-          HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 1)"));
-
-    } else {
-      EXPECT_THAT(
-          buf,
-          HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 0)"));
-    }
-#endif
     if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
       EXPECT_THAT(
           buf,

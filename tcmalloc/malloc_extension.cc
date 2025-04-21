@@ -560,28 +560,6 @@ void MallocExtension::SetSkipSubreleaseLongInterval(absl::Duration value) {
 #endif
 }
 
-bool MallocExtension::GetCacheDemandBasedRelease() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetCacheDemandBasedRelease == nullptr) {
-    return false;
-  }
-  return MallocExtension_Internal_GetCacheDemandBasedRelease();
-#else
-  return false;
-#endif
-}
-
-void MallocExtension::SetCacheDemandBasedRelease(bool value) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetCacheDemandBasedRelease == nullptr) {
-    return;
-  }
-  MallocExtension_Internal_SetCacheDemandBasedRelease(value);
-#else
-  (void)value;
-#endif
-}
-
 absl::Duration MallocExtension::GetCacheDemandReleaseShortInterval() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (MallocExtension_Internal_GetCacheDemandReleaseShortInterval == nullptr) {
