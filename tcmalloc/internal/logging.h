@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
 
 //-------------------------------------------------------------------
 // Utility routines
@@ -54,7 +55,7 @@ namespace tcmalloc_internal {
 static constexpr int kMaxStackDepth = 64;
 
 // An opaque handle type used to identify allocations.
-using AllocHandle = int64_t;
+using AllocHandle = MallocHook::AllocHandle;
 
 // size/depth are made the same size as a pointer so that some generic
 // code below can conveniently cast them back and forth to void*.

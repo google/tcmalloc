@@ -193,7 +193,7 @@ class TestStaticForwarder {
     return numa_topology_;
   }
 
-  bool UseWiderSlabs() const { return wider_slabs_enabled_; }
+  bool UseWiderSlabs() const { return true; }
 
   using ShardedManager =
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
@@ -232,7 +232,6 @@ class TestStaticForwarder {
   bool dynamic_slab_enabled_ = false;
   double dynamic_slab_grow_threshold_ = -1;
   double dynamic_slab_shrink_threshold_ = -1;
-  bool wider_slabs_enabled_ = true;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   std::optional<SizeMap> size_map_;
 
@@ -1160,19 +1159,12 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
   cache.Reclaim(cpu_id);
 }
 
-class DynamicWideSlabTest
-    : public testing::TestWithParam<std::tuple<bool /* use_wider_slab */>> {
- public:
-  bool use_wider_slab() { return std::get<0>(GetParam()); }
-};
-
-INSTANTIATE_TEST_SUITE_P(TestDynamicWideSlab, DynamicWideSlabTest,
-                         testing::Combine(testing::Bool()));
+class DynamicWideSlabTest : public testing::Test {};
 
 // Test that we are complying with the threshold when we grow the slab.
 // When wider slab is enabled, we check if overflow/underflow ratio is above the
 // threshold for individual cpu caches.
-TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
+TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -1182,7 +1174,6 @@ TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
   TestStaticForwarder& forwarder = cache.forwarder();
   forwarder.dynamic_slab_enabled_ = true;
   forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
-  forwarder.wider_slabs_enabled_ = use_wider_slab();
   SizeMap size_map;
   size_map.Init(size_map.CurrentClasses().classes);
   forwarder.size_map_ = size_map;
@@ -1228,15 +1219,11 @@ TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
   // slab should have grown. If wider slabs is disabled, slab shift should
   // stay the same as total miss ratio is lower than
   // kDynamicSlabGrowThreshold.
-  if (use_wider_slab()) {
-    EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
-  } else {
-    EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
-  }
+  EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
 }
 
 // Test that when dynamic slab parameters change, things still work.
-TEST_P(DynamicWideSlabTest, DynamicSlabParamsChange) {
+TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -1255,7 +1242,6 @@ TEST_P(DynamicWideSlabTest, DynamicSlabParamsChange) {
       TestStaticForwarder& forwarder = cache.forwarder();
       forwarder.dynamic_slab_enabled_ = initially_enabled;
       forwarder.dynamic_slab_ = initial_dynamic_slab;
-      forwarder.wider_slabs_enabled_ = use_wider_slab();
       forwarder.size_map_ = size_map;
 
       cache.Activate();

@@ -103,6 +103,29 @@ create_tcmalloc_benchmark_suite(
 )
 
 create_tcmalloc_testsuite(
+    name = "hooks_test",
+    srcs = ["hooks_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    # Sanitizers have limited support for hooks.
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:malloc_internal",
+        "@com_google_absl//absl/debugging:leak_check",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
     name = "threadcachesize_test",
     srcs = ["threadcachesize_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

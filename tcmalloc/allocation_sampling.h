@@ -25,6 +25,8 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
+#include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/span.h"

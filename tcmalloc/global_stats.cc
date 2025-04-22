@@ -37,6 +37,7 @@
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/pagemap.h"
@@ -244,6 +245,17 @@ size_t SlackBytes(const BackingStats& stats) {
   return stats.free_bytes + stats.unmapped_bytes;
 }
 
+static void PrintHooksState(Printer& printer) {
+  int new_hooks = 0;
+  int delete_hooks = 0;
+  int sampled_new_hooks = sampled_new_hooks_.size();
+  int sampled_delete_hooks = sampled_delete_hooks_.size();
+
+  printer.printf(
+      "MALLOC HOOKS: NEW=%d DELETE=%d SAMPLED_NEW=%d SAMPLED_DELETE=%d\n",
+      new_hooks, delete_hooks, sampled_new_hooks, sampled_delete_hooks);
+}
+
 static int CountAllowedCpus() {
   CpuSet allowed_cpus;
   if (!allowed_cpus.GetAffinity(0)) {
@@ -397,6 +409,7 @@ void DumpStats(Printer& out, int level) {
   });
   out.printf("\n");
 
+  PrintHooksState(out);
   out.printf(
       "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (internal "
       "fragmentation), %zu bytes (peak), %zu count (total)\n",
@@ -546,9 +559,6 @@ void DumpStats(Printer& out, int level) {
                Parameters::max_total_thread_cache_bytes());
     out.printf("PARAMETER malloc_release_bytes_per_sec %llu\n",
                Parameters::background_release_rate());
-    out.printf(
-        "PARAMETER tcmalloc_skip_subrelease_interval %s\n",
-        absl::FormatDuration(Parameters::filler_skip_subrelease_interval()));
     out.printf("PARAMETER tcmalloc_skip_subrelease_short_interval %s\n",
                absl::FormatDuration(
                    Parameters::filler_skip_subrelease_short_interval()));
@@ -571,8 +581,6 @@ void DumpStats(Printer& out, int level) {
                Parameters::release_pages_from_huge_region() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
-    out.printf("PARAMETER tag_metadata_separately %d\n",
-               tc_globals.system_allocator().tag_metadata_separately() ? 1 : 0);
 
     out.printf(
         "PARAMETER size_class_config %s\n",
@@ -760,9 +768,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   Parameters::max_total_thread_cache_bytes());
   region.PrintI64("malloc_release_bytes_per_sec",
                   static_cast<int64_t>(Parameters::background_release_rate()));
-  region.PrintI64(
-      "tcmalloc_skip_subrelease_interval_ns",
-      absl::ToInt64Nanoseconds(Parameters::filler_skip_subrelease_interval()));
   region.PrintI64("tcmalloc_skip_subrelease_short_interval_ns",
                   absl::ToInt64Nanoseconds(
                       Parameters::filler_skip_subrelease_short_interval()));
@@ -843,7 +848,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "generic.peak_memory_usage") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, false);
-    *value = static_cast<uint64_t>(stats.peak_stats.sampled_application_bytes);
+    *value = static_cast<uint64_t>(stats.peak_stats.backed_bytes);
     return true;
   }
 

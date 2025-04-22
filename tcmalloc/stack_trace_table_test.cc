@@ -30,6 +30,7 @@
 #include "absl/strings/str_join.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
@@ -44,6 +45,7 @@ struct AllocationEntry {
   size_t requested_size;
   size_t requested_alignment;
   size_t allocated_size;
+  MallocHook::AllocHandle alloc_handle;
   uint8_t access_hint;
   bool cold_allocated;
   int depth;
@@ -161,6 +163,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t1.requested_size = static_cast<uintptr_t>(512);
   t1.requested_alignment = static_cast<uintptr_t>(16);
   t1.allocated_size = static_cast<uintptr_t>(1024);
+  t1.sampled_alloc_handle = AllocHandle{1};
   t1.access_hint = 3;
   t1.cold_allocated = true;
   t1.depth = static_cast<uintptr_t>(2);
@@ -174,6 +177,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .requested_size = 512,
       .requested_alignment = 16,
       .allocated_size = 1024,
+      .alloc_handle = AllocHandle{1},
       .access_hint = 3,
       .cold_allocated = true,
       .depth = 2,
@@ -184,6 +188,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t2.requested_size = static_cast<uintptr_t>(375);
   t2.requested_alignment = static_cast<uintptr_t>(0);
   t2.allocated_size = static_cast<uintptr_t>(512);
+  t2.sampled_alloc_handle = AllocHandle{2};
   t2.access_hint = 254;
   t2.cold_allocated = false;
   t2.depth = static_cast<uintptr_t>(2);
@@ -197,6 +202,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .requested_size = 375,
       .requested_alignment = 0,
       .allocated_size = 512,
+      .alloc_handle = AllocHandle{2},
       .access_hint = 254,
       .cold_allocated = false,
       .depth = 2,
@@ -232,6 +238,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .requested_size = 512,
       .requested_alignment = 16,
       .allocated_size = 1024,
+      .alloc_handle = AllocHandle{1},
       .access_hint = 3,
       .cold_allocated = true,
       .depth = 2,
@@ -290,6 +297,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t3.requested_size = static_cast<uintptr_t>(13);
   t3.requested_alignment = static_cast<uintptr_t>(0);
   t3.allocated_size = static_cast<uintptr_t>(17);
+  t3.sampled_alloc_handle = AllocHandle{3};
   t3.access_hint = 3;
   t3.cold_allocated = false;
   t3.depth = static_cast<uintptr_t>(2);
@@ -303,6 +311,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .requested_size = 13,
       .requested_alignment = 0,
       .allocated_size = 17,
+      .alloc_handle = AllocHandle{3},
       .access_hint = 3,
       .cold_allocated = false,
       .depth = 2,
@@ -326,6 +335,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t4.requested_size = static_cast<uintptr_t>(512);
   t4.requested_alignment = static_cast<uintptr_t>(32);
   t4.allocated_size = static_cast<uintptr_t>(1024);
+  t4.sampled_alloc_handle = AllocHandle{4};
   t4.access_hint = 3;
   t4.cold_allocated = false;
   t4.depth = static_cast<uintptr_t>(2);
@@ -339,6 +349,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .requested_size = 512,
       .requested_alignment = 32,
       .allocated_size = 1024,
+      .alloc_handle = AllocHandle{4},
       .access_hint = 3,
       .cold_allocated = false,
       .depth = 2,
@@ -362,6 +373,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t5.requested_size = static_cast<uintptr_t>(512);
   t5.requested_alignment = static_cast<uintptr_t>(32);
   t5.allocated_size = static_cast<uintptr_t>(1024);
+  t5.sampled_alloc_handle = AllocHandle{5};
   t5.access_hint = 4;
   t5.cold_allocated = true;
   t5.depth = static_cast<uintptr_t>(2);
@@ -375,6 +387,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .requested_size = 512,
       .requested_alignment = 32,
       .allocated_size = 1024,
+      .alloc_handle = AllocHandle{5},
       .access_hint = 4,
       .cold_allocated = true,
       .depth = 2,

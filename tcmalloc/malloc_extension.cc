@@ -458,32 +458,6 @@ void MallocExtension::SetMaxTotalThreadCacheBytes(int64_t value) {
 #endif
 }
 
-absl::Duration MallocExtension::GetSkipSubreleaseInterval() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetSkipSubreleaseInterval == nullptr) {
-    return absl::ZeroDuration();
-  }
-
-  absl::Duration value;
-  MallocExtension_Internal_GetSkipSubreleaseInterval(&value);
-  return value;
-#else
-  return absl::ZeroDuration();
-#endif
-}
-
-void MallocExtension::SetSkipSubreleaseInterval(absl::Duration value) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetSkipSubreleaseInterval == nullptr) {
-    return;
-  }
-
-  MallocExtension_Internal_SetSkipSubreleaseInterval(value);
-#else
-  (void)value;
-#endif
-}
-
 bool MallocExtension::GetBackgroundProcessActionsEnabled() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (MallocExtension_Internal_GetBackgroundProcessActionsEnabled == nullptr) {
@@ -581,28 +555,6 @@ void MallocExtension::SetSkipSubreleaseLongInterval(absl::Duration value) {
   }
 
   MallocExtension_Internal_SetSkipSubreleaseLongInterval(value);
-#else
-  (void)value;
-#endif
-}
-
-bool MallocExtension::GetCacheDemandBasedRelease() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetCacheDemandBasedRelease == nullptr) {
-    return false;
-  }
-  return MallocExtension_Internal_GetCacheDemandBasedRelease();
-#else
-  return false;
-#endif
-}
-
-void MallocExtension::SetCacheDemandBasedRelease(bool value) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetCacheDemandBasedRelease == nullptr) {
-    return;
-  }
-  MallocExtension_Internal_SetCacheDemandBasedRelease(value);
 #else
   (void)value;
 #endif

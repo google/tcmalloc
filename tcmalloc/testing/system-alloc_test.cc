@@ -236,11 +236,8 @@ TEST(Basic, RetryFailTest) {
   free(q);
 }
 
-// Verify when tag_metadata_separately is true, the usage hint is kMetadata.
+// Verify the usage hint is kMetadata for metadata
 TEST(UsageHint, VerifyUsageHintkMetadataTest) {
-  Static::system_allocator().set_tag_metadata_separately(true);
-  EXPECT_TRUE(Static::system_allocator().tag_metadata_separately());
-
   f.usage_hint_ = std::nullopt;
   MallocExtension::SetRegionFactory(&f);
   // Need a large enough size to trigger the system allocator,
@@ -250,30 +247,6 @@ TEST(UsageHint, VerifyUsageHintkMetadataTest) {
 
   ASSERT_TRUE(f.usage_hint_.has_value());
   EXPECT_EQ(*f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
-      << "Usage hint is " << hintToString(*f.usage_hint_);
-
-  // Deliberately leak memory so it isn't reused by other tests exercising this
-  // code path.
-  absl::IgnoreLeak(ptr);
-}
-
-// Verify that when tag_metadata_separately is false, the usage hint is
-// kInfrequentAllocation.
-TEST(UsageHint, WhenNotTaggingMetadataSeparately) {
-  Static::system_allocator().set_tag_metadata_separately(false);
-  EXPECT_FALSE(Static::system_allocator().tag_metadata_separately());
-
-  f.usage_hint_ = std::nullopt;
-  MallocExtension::SetRegionFactory(&f);
-
-  // Need a large enough size to trigger the system allocator,
-  //  2.0 is an arbitrary number. Else it would continue to use the previous
-  //  hugepage region and a new usage hint wouldn't be assigned
-  void* ptr = ::operator new(kMinMmapAlloc * 2.0);
-
-  ASSERT_TRUE(f.usage_hint_.has_value());
-  EXPECT_EQ(f.usage_hint_,
-            AddressRegionFactory::UsageHint::kInfrequentAllocation)
       << "Usage hint is " << hintToString(*f.usage_hint_);
 
   // Deliberately leak memory so it isn't reused by other tests exercising this

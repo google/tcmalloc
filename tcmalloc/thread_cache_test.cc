@@ -116,10 +116,6 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
   }
 
   // Flush the page heap.  Our allocations may have been retained.
-  if (TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval != nullptr) {
-    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
-        absl::ZeroDuration());
-  }
   MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
 
   // Read RSS usage only after releasing page heap has had an opportunity to

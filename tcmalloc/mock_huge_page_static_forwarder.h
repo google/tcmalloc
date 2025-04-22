@@ -46,9 +46,6 @@ namespace huge_page_allocator_internal {
 class FakeStaticForwarder {
  public:
   // Runtime parameters.  This can change between calls.
-  absl::Duration filler_skip_subrelease_interval() {
-    return subrelease_interval_;
-  }
   absl::Duration filler_skip_subrelease_short_interval() {
     return short_interval_;
   }
@@ -64,9 +61,6 @@ class FakeStaticForwarder {
   bool release_partial_alloc_pages() { return release_partial_alloc_pages_; }
   bool hpaa_subrelease() const { return hpaa_subrelease_; }
 
-  void set_filler_skip_subrelease_interval(absl::Duration value) {
-    subrelease_interval_ = value;
-  }
   void set_filler_skip_subrelease_short_interval(absl::Duration value) {
     short_interval_ = value;
   }
@@ -192,7 +186,6 @@ class FakeStaticForwarder {
     });
     return a;
   }
-  absl::Duration subrelease_interval_;
   absl::Duration short_interval_ = absl::Seconds(60);
   absl::Duration long_interval_ = absl::Seconds(300);
   absl::Duration cache_demand_release_short_interval_ = absl::Seconds(10);

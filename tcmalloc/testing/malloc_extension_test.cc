@@ -65,8 +65,6 @@ TEST(MallocExtension, BackgroundReleaseRate) {
 TEST(MallocExtension, SkipSubreleaseIntervals) {
 
   // Mutate via MallocExtension.
-  MallocExtension::SetSkipSubreleaseInterval(absl::Seconds(10));
-  EXPECT_EQ(MallocExtension::GetSkipSubreleaseInterval(), absl::Seconds(10));
   MallocExtension::SetSkipSubreleaseShortInterval(absl::Seconds(20));
   EXPECT_EQ(MallocExtension::GetSkipSubreleaseShortInterval(),
             absl::Seconds(20));
@@ -75,8 +73,6 @@ TEST(MallocExtension, SkipSubreleaseIntervals) {
             absl::Seconds(30));
 
   // Disable skip subrelease by setting all intervals to zero.
-  MallocExtension::SetSkipSubreleaseInterval(absl::ZeroDuration());
-  EXPECT_EQ(MallocExtension::GetSkipSubreleaseInterval(), absl::ZeroDuration());
   MallocExtension::SetSkipSubreleaseShortInterval(absl::ZeroDuration());
   EXPECT_EQ(MallocExtension::GetSkipSubreleaseShortInterval(),
             absl::ZeroDuration());
@@ -85,7 +81,7 @@ TEST(MallocExtension, SkipSubreleaseIntervals) {
             absl::ZeroDuration());
 }
 
-TEST(MallocExtension, CacheDemandBasedReleaseConfigurations) {
+TEST(MallocExtension, CacheDemandReleaseIntervals) {
 
   // Mutate via MallocExtension.
   MallocExtension::SetCacheDemandReleaseShortInterval(absl::Seconds(50));
@@ -94,8 +90,6 @@ TEST(MallocExtension, CacheDemandBasedReleaseConfigurations) {
   MallocExtension::SetCacheDemandReleaseLongInterval(absl::Seconds(60));
   EXPECT_EQ(MallocExtension::GetCacheDemandReleaseLongInterval(),
             absl::Seconds(60));
-  MallocExtension::SetCacheDemandBasedRelease(false);
-  EXPECT_EQ(MallocExtension::GetCacheDemandBasedRelease(), false);
 
   // Sets all intervals to zero, this means no history is considered for
   // demand-based release.

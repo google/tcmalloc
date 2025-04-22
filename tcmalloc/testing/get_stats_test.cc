@@ -100,17 +100,16 @@ TEST_F(GetStatsTest, Pbtxt) {
               HasSubstr(absl::StrCat("profile_sampling_interval: ",
                                      Parameters::profile_sampling_interval())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
 #else
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 60000000000"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
+  EXPECT_THAT(
+      buf,
+      HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 60000000000"));
+  EXPECT_THAT(
+      buf,
+      HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
 #endif
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf,
@@ -128,28 +127,15 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  EXPECT_THAT(buf,
-              HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
-#else
-  if (IsExperimentActive(
-          Experiment::TCMALLOC_HUGE_CACHE_DEMAND_BASED_RELEASE)) {
-    EXPECT_THAT(buf,
-                HasSubstr("tcmalloc_huge_cache_demand_based_release: true"));
+  if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
+    EXPECT_THAT(
+        buf,
+        HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
   } else {
-    EXPECT_THAT(buf,
-                HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: false"));
   }
-#endif
-    if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
-      EXPECT_THAT(
-          buf,
-          HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
-    } else {
-      EXPECT_THAT(
-          buf, HasSubstr(
-                   "tcmalloc_dense_trackers_sorted_on_spans_allocated: false"));
-    }
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   if (!IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
@@ -162,17 +148,32 @@ TEST_F(GetStatsTest, Pbtxt) {
 }
 
 TEST_F(GetStatsTest, Parameters) {
+  const bool old_hpaa_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(false);
+  const bool old_guarded_sampling_interval =
+      Parameters::guarded_sampling_interval();
   Parameters::set_guarded_sampling_interval(-1);
+  const bool old_per_cpu_caches = Parameters::per_cpu_caches();
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
   Parameters::set_per_cpu_caches(false);
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
+  const int64_t old_max_per_cpu_cache_size =
+      Parameters::max_per_cpu_cache_size();
   Parameters::set_max_per_cpu_cache_size(-1);
+  const int64_t old_max_total_thread_cache_bytes =
+      Parameters::max_total_thread_cache_bytes();
   Parameters::set_max_total_thread_cache_bytes(-1);
-  Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
+  const absl::Duration old_skip_subrelease_short =
+      Parameters::filler_skip_subrelease_short_interval();
   Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
+  const absl::Duration old_skip_subrelease_long =
+      Parameters::filler_skip_subrelease_long_interval();
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
+  const absl::Duration old_cache_demand_release_short =
+      Parameters::cache_demand_release_short_interval();
   Parameters::set_cache_demand_release_short_interval(absl::Seconds(4));
+  const absl::Duration old_cache_demand_release_long =
+      Parameters::cache_demand_release_long_interval();
   Parameters::set_cache_demand_release_long_interval(absl::Seconds(5));
 
   auto using_hpaa = [](absl::string_view sv) {
@@ -196,8 +197,6 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_max_total_thread_cache_bytes -1)"));
-    EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_interval 1s)"));
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_short_interval 2s)"));
@@ -207,34 +206,17 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    EXPECT_THAT(
-        buf,
-        HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 0)"));
-#else
-    if (IsExperimentActive(
-            Experiment::TCMALLOC_HUGE_CACHE_DEMAND_BASED_RELEASE)) {
+    if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
       EXPECT_THAT(
           buf,
-          HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 1)"));
-
+          HasSubstr(
+              R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
     } else {
       EXPECT_THAT(
           buf,
-          HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 0)"));
+          HasSubstr(
+              R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 0)"));
     }
-#endif
-      if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
-        EXPECT_THAT(
-            buf,
-            HasSubstr(
-                R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
-      } else {
-        EXPECT_THAT(
-            buf,
-            HasSubstr(
-                R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 0)"));
-      }
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));
@@ -252,9 +234,6 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: -1)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: -1)"));
-    EXPECT_THAT(
-        pbtxt,
-        HasSubstr(R"(tcmalloc_skip_subrelease_interval_ns: 1000000000)"));
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_skip_subrelease_short_interval_ns: 2000000000)"));
@@ -283,7 +262,6 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_per_cpu_caches(true);
   Parameters::set_max_per_cpu_cache_size(3 << 20);
   Parameters::set_max_total_thread_cache_bytes(4 << 20);
-  Parameters::set_filler_skip_subrelease_interval(absl::Milliseconds(60125));
   Parameters::set_filler_skip_subrelease_short_interval(
       absl::Milliseconds(120250));
   Parameters::set_filler_skip_subrelease_long_interval(
@@ -319,9 +297,6 @@ TEST_F(GetStatsTest, Parameters) {
                  R"(PARAMETER tcmalloc_max_total_thread_cache_bytes 4194304)"));
     EXPECT_THAT(
         buf,
-        HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_interval 1m0.125s)"));
-    EXPECT_THAT(
-        buf,
         HasSubstr(
             R"(PARAMETER tcmalloc_skip_subrelease_short_interval 2m0.25s)"));
     EXPECT_THAT(
@@ -349,9 +324,6 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: 4194304)"));
     EXPECT_THAT(
         pbtxt,
-        HasSubstr(R"(tcmalloc_skip_subrelease_interval_ns: 60125000000)"));
-    EXPECT_THAT(
-        pbtxt,
         HasSubstr(
             R"(tcmalloc_skip_subrelease_short_interval_ns: 120250000000)"));
     EXPECT_THAT(
@@ -368,6 +340,21 @@ TEST_F(GetStatsTest, Parameters) {
             R"(tcmalloc_cache_demand_release_long_interval_ns: 240375000000)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
   }
+
+  Parameters::set_hpaa_subrelease(old_hpaa_subrelease);
+  Parameters::set_guarded_sampling_interval(old_guarded_sampling_interval);
+  Parameters::set_per_cpu_caches(old_per_cpu_caches);
+  Parameters::set_max_per_cpu_cache_size(old_max_per_cpu_cache_size);
+  Parameters::set_max_total_thread_cache_bytes(
+      old_max_total_thread_cache_bytes);
+  Parameters::set_filler_skip_subrelease_short_interval(
+      old_skip_subrelease_short);
+  Parameters::set_filler_skip_subrelease_long_interval(
+      old_skip_subrelease_long);
+  Parameters::set_cache_demand_release_short_interval(
+      old_cache_demand_release_short);
+  Parameters::set_cache_demand_release_long_interval(
+      old_cache_demand_release_long);
 }
 
 TEST_F(GetStatsTest, StackDepth) {

@@ -42,6 +42,7 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
+#include "tcmalloc/malloc_hook.h"
 
 // Not all versions of Abseil provide this macro.
 // TODO(b/323943471): Remove on upgrading to version that provides the macro.
@@ -150,6 +151,8 @@ class Profile final {
     // The actual size allocated considering size, implicit/explicit alignment,
     // GWP-ASan.
     size_t allocated_size;
+
+    MallocHook::AllocHandle alloc_handle;
 
     // Return whether the allocation was returned with
     // tcmalloc_size_returning_operator_new or its variants.
@@ -528,29 +531,25 @@ class MallocExtension final {
   static absl::Duration GetBackgroundProcessSleepInterval();
   static void SetBackgroundProcessSleepInterval(absl::Duration value);
 
-  // Gets and sets intervals used for finding recent demand peak, short-term
-  // demand fluctuation, and long-term demand trend. Zero duration means not
-  // considering corresponding demand history for delayed subrelease. Delayed
-  // subrelease is disabled if all intervals are zero.
-  //
-  // TODO(b/394157733): Remove non-short/long skip subrelease accessers.
-  ABSL_DEPRECATED("This feature is being removed.")
-  static absl::Duration GetSkipSubreleaseInterval();
-  ABSL_DEPRECATED("This feature is being removed.")
-  static void SetSkipSubreleaseInterval(absl::Duration value);
+  // Gets and sets intervals used for finding short-term demand fluctuation and
+  // long-term demand trend. Zero duration means not considering corresponding
+  // demand history for delayed subrelease. Delayed subrelease is disabled if
+  // all intervals are zero.
+  ABSL_DEPRECATE_AND_INLINE()
+  static absl::Duration GetSkipSubreleaseInterval() {
+    return absl::ZeroDuration();
+  }
+  ABSL_DEPRECATE_AND_INLINE()
+  static void SetSkipSubreleaseInterval(absl::Duration) {}
   static absl::Duration GetSkipSubreleaseShortInterval();
   static void SetSkipSubreleaseShortInterval(absl::Duration value);
   static absl::Duration GetSkipSubreleaseLongInterval();
   static void SetSkipSubreleaseLongInterval(absl::Duration value);
 
-  // Enables and Disables the demand-based release feature in HugeCache.
-  static bool GetCacheDemandBasedRelease();
-  static void SetCacheDemandBasedRelease(bool value);
-
   // Gets and sets intervals used for finding the recent short-term demand
   // fluctuation and long-term demand trend in HugeCache. Zero duration means
   // not considering corresponding demand history for delayed (demand-based)
-  // hugepage release. These intervals are used for performance tuning.
+  // hugepage release. The feature is disabled if both intervals are zero.
   static absl::Duration GetCacheDemandReleaseShortInterval();
   static void SetCacheDemandReleaseShortInterval(absl::Duration value);
   static absl::Duration GetCacheDemandReleaseLongInterval();
