@@ -245,6 +245,17 @@ size_t SlackBytes(const BackingStats& stats) {
   return stats.free_bytes + stats.unmapped_bytes;
 }
 
+static void PrintHooksState(Printer& printer) {
+  int new_hooks = 0;
+  int delete_hooks = 0;
+  int sampled_new_hooks = sampled_new_hooks_.size();
+  int sampled_delete_hooks = sampled_delete_hooks_.size();
+
+  printer.printf(
+      "MALLOC HOOKS: NEW=%d DELETE=%d SAMPLED_NEW=%d SAMPLED_DELETE=%d\n",
+      new_hooks, delete_hooks, sampled_new_hooks, sampled_delete_hooks);
+}
+
 static int CountAllowedCpus() {
   CpuSet allowed_cpus;
   if (!allowed_cpus.GetAffinity(0)) {
@@ -398,6 +409,7 @@ void DumpStats(Printer& out, int level) {
   });
   out.printf("\n");
 
+  PrintHooksState(out);
   out.printf(
       "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (internal "
       "fragmentation), %zu bytes (peak), %zu count (total)\n",
