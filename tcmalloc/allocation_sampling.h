@@ -187,10 +187,11 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
   // A span must be provided or created by this point.
   TC_ASSERT_NE(span, nullptr);
 
-  stack_trace.sampled_alloc_handle =
-      AllocHandle(state.sampled_alloc_handle_generator.fetch_add(
-                      1, std::memory_order_relaxed) +
-                  1);
+  stack_trace.sampled_alloc_handle = AllocHandle(
+      (state.sampled_alloc_handle_generator.fetch_add(
+           1, std::memory_order_relaxed) +
+       1) ^
+      absl::bit_cast<int64_t>(&state.sampled_alloc_handle_generator));
   stack_trace.span_start_address = span->start_address();
   stack_trace.allocation_time = absl::Now();
   stack_trace.guarded_status = alloc_with_status.status;
