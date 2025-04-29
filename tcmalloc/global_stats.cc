@@ -657,6 +657,12 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintI64("cpus_allowed", CountAllowedCpus());
   region.PrintI64("arena_blocks", stats.arena.blocks);
 
+  // Print hooks stats.
+  region.PrintI64("sampled_new_hooks_present",
+                  uint64_t(sampled_new_hooks_.size()));
+  region.PrintI64("sampled_delete_hooks_present",
+                  uint64_t(sampled_delete_hooks_.size()));
+
   {
     auto sampled_profiles = region.CreateSubRegion("sampled_profiles");
     sampled_profiles.PrintI64("current_bytes",

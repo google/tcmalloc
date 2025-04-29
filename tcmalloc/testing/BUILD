@@ -462,6 +462,24 @@ create_tcmalloc_testsuite(
 )
 
 create_tcmalloc_testsuite(
+    name = "sampled_hooks_test",
+    srcs = ["sampled_hooks_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":testutil",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
     name = "memory_errors_test",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

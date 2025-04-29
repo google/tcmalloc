@@ -15,6 +15,8 @@
 #ifndef TCMALLOC_MALLOC_HOOK_H_
 #define TCMALLOC_MALLOC_HOOK_H_
 
+#include <ostream>
+
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
@@ -87,5 +89,10 @@ class MallocHook final {
 
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
+
+inline std::ostream& operator<<(std::ostream& os,
+                                const tcmalloc::MallocHook::AllocHandle& h) {
+  return os << static_cast<int64_t>(h);
+}
 
 #endif  // TCMALLOC_MALLOC_HOOK_H_

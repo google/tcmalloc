@@ -69,6 +69,7 @@ struct AllocationEntry {
     os << "requested_size = " << e.requested_size << "; ";
     os << "requested_alignment = " << e.requested_alignment << "; ";
     os << "allocated_size = " << e.allocated_size << "; ";
+    os << "alloc_handle = " << e.alloc_handle << "; ";
     os << "access_hint = " << e.access_hint << "; ";
     os << "cold_allocated = " << e.cold_allocated << "; ";
 
@@ -105,6 +106,10 @@ inline bool operator==(const AllocationEntry& x, const AllocationEntry& y) {
     return false;
   }
 
+  if (x.alloc_handle != y.alloc_handle) {
+    return false;
+  }
+
   if (x.access_hint != y.access_hint) {
     return false;
   }
@@ -131,6 +136,7 @@ void CheckTraces(const StackTraceTable& table,
     tmp.requested_size = e.requested_size;
     tmp.requested_alignment = e.requested_alignment;
     tmp.allocated_size = e.allocated_size;
+    tmp.alloc_handle = e.alloc_handle;
     tmp.access_hint = static_cast<uint8_t>(e.access_hint);
     tmp.cold_allocated = e.access_allocated == Profile::Sample::Access::Cold;
 
