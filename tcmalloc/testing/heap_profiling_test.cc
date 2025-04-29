@@ -40,12 +40,15 @@
 #include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/test_allocator_harness.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
 namespace {
+
+using absl::base_internal::LowLevelAlloc;
 
 auto process_start = absl::Now();
 
@@ -263,6 +266,117 @@ TEST(HeapProfilingTest, AllocateWhileIterating) {
     ::operator delete(obj);
   }
 }
+
+LowLevelAlloc::Arena* arena() {
+  static auto* arena = LowLevelAlloc::NewArena(0);
+  return arena;
+}
+
+template <class T>
+class TestAllocator {
+ public:
+  using value_type = T;
+  TestAllocator() = default;
+  template <typename U>
+  TestAllocator(TestAllocator<U>) {}  // NOLINT
+
+  static T* allocate(size_t size) {
+    return reinterpret_cast<T*>(
+        LowLevelAlloc::AllocWithArena(size * sizeof(T), arena()));
+  }
+
+  static void deallocate(T* ptr, size_t size) { LowLevelAlloc::Free(ptr); }
+};
+
+using AllocHandle = MallocHook::AllocHandle;
+// We can't allocate memory from TCMalloc for the hash set here, otherwise,
+// we will run into a deadlock.
+using AllocHandles =
+    absl::flat_hash_set<AllocHandle, absl::flat_hash_set<AllocHandle>::hasher,
+                        std::equal_to<AllocHandle>, TestAllocator<AllocHandle>>;
+
+class HeapAllocHandleTest : public ::testing::TestWithParam<int64_t> {
+ public:
+  HeapAllocHandleTest() {
+    alloc_handles_ = new AllocHandles;
+    ABSL_CHECK(
+        MallocHook::AddSampledNewHook(&HeapAllocHandleTest::MemoryAllocated));
+    ABSL_CHECK(MallocHook::AddSampledDeleteHook(
+        &HeapAllocHandleTest::MemoryDeallocated));
+  }
+
+  ~HeapAllocHandleTest() override {
+    ABSL_CHECK(MallocHook::RemoveSampledNewHook(
+        &HeapAllocHandleTest::MemoryAllocated));
+    ABSL_CHECK(MallocHook::RemoveSampledDeleteHook(
+        &HeapAllocHandleTest::MemoryDeallocated));
+    delete alloc_handles_;
+  }
+
+  static void MemoryAllocated(const MallocHook::SampledAlloc& sampled_alloc) {
+    absl::base_internal::SpinLockHolder h(&lock_);
+    alloc_handles_->insert(sampled_alloc.handle);
+  }
+
+  static void MemoryDeallocated(
+      const
+      MallocHook::SampledAlloc& sampled_alloc) {
+    absl::base_internal::SpinLockHolder h(&lock_);
+    alloc_handles_->erase(sampled_alloc.handle);
+  }
+
+  static absl::base_internal::SpinLock lock_;
+  static AllocHandles* alloc_handles_ ABSL_PT_GUARDED_BY(lock_);
+};
+
+ABSL_CONST_INIT absl::base_internal::SpinLock HeapAllocHandleTest::lock_(
+    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+AllocHandles* HeapAllocHandleTest::alloc_handles_;
+
+// Verify that alloc handles in `tc_globals.sampled_allocation_recorder_` can be
+// found in `alloc_handles_`, which manages the handle information through the
+// malloc hook. Here the allocation/deallocation can happen on the same thread
+// or the object is allocated in one thread, transferred to another thread and
+// deleted there.
+TEST_P(HeapAllocHandleTest, VerifyAllocHandles) {
+  ScopedProfileSamplingInterval s(GetParam());
+  const int kThreads = 2;
+  ThreadManager manager;
+  AllocatorHarness harness(kThreads);
+
+  // First insert existing live alloc handles to `alloc_handles_`.
+  tcmalloc_internal::tc_globals.sampled_allocation_recorder().Iterate(
+      [&](const tcmalloc_internal::SampledAllocation& sampled_allocation) {
+        absl::base_internal::SpinLockHolder h(&lock_);
+        alloc_handles_->insert(
+            sampled_allocation.sampled_stack.sampled_alloc_handle);
+      });
+
+  // Set up some threads busy with allocating and deallocating.
+  manager.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
+
+  // Set up some threads iterating over the sampled allocations and check if
+  // their alloc handles are present in `alloc_handles_`.
+  manager.Start(2, [&](int) {
+    tcmalloc_internal::tc_globals.sampled_allocation_recorder().Iterate(
+        [&](const tcmalloc_internal::SampledAllocation& sampled_allocation) {
+          absl::base_internal::SpinLockHolder h(&lock_);
+          ABSL_CHECK(alloc_handles_->contains(
+              sampled_allocation.sampled_stack.sampled_alloc_handle));
+        });
+  });
+
+  absl::SleepFor(absl::Seconds(1));
+  manager.Stop();
+}
+
+// Test at different sampling rates, from always sampling to lower sampling
+// probabilities. This is stress testing and attempts to expose potential
+// failure modes when we only have sampled allocations and when we have a mix of
+// sampled/unsampled allocations.
+INSTANTIATE_TEST_SUITE_P(SamplingIntervals, HeapAllocHandleTest,
+                         testing::Values(1, 1 << 7, 1 << 14, 1 << 21),
+                         testing::PrintToStringParamName());
 
 }  // namespace
 }  // namespace tcmalloc

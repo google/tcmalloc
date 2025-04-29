@@ -209,6 +209,20 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
         allocation_estimate * (stack_trace.allocated_size - requested_size));
   }
 
+  MallocHook::SampledAlloc sampled_alloc = {
+      .handle = stack_trace.sampled_alloc_handle,
+      .requested_size = stack_trace.requested_size,
+      .requested_alignment = stack_trace.requested_alignment,
+      .allocated_size = stack_trace.allocated_size,
+      .weight = allocation_estimate,
+      .stack = absl::MakeSpan(stack_trace.stack, stack_trace.depth),
+      .allocation_time = stack_trace.allocation_time,
+      .ptr = (alloc_with_status.alloc != nullptr)
+                 ? alloc_with_status.alloc
+                 : stack_trace.span_start_address,
+  };
+  MallocHook::InvokeSampledNewHook(sampled_alloc);
+
   state.allocation_samples.ReportMalloc(stack_trace);
 
   state.deallocation_samples.ReportMalloc(stack_trace);
