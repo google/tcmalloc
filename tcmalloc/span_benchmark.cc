@@ -163,33 +163,6 @@ BENCHMARK(BM_single_span_fulldrain)
     ->Arg(40)
     ->Arg(80);
 
-void BM_NewDelete(benchmark::State& state) {
-  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/7,
-                                       AccessDensityPrediction::kSparse};
-  for (auto s : state) {
-    Span* sp = tc_globals.page_allocator().New(Length(1), kSpanInfo,
-                                               MemoryTag::kNormal);
-
-    benchmark::DoNotOptimize(sp);
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(sp, MemoryTag::kNormal);
-#else
-    PageAllocatorInterface::AllocationState a{
-        Range(sp->first_page(), sp->num_pages()),
-        sp->donated(),
-    };
-    Span::Delete(sp);
-    PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(a, MemoryTag::kNormal);
-#endif
-  }
-  state.SetItemsProcessed(state.iterations());
-}
-
-BENCHMARK(BM_NewDelete);
-
 void BM_multiple_spans(benchmark::State& state) {
   const int size_class = state.range(0);
 

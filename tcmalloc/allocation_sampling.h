@@ -142,7 +142,7 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       PageHeapSpinLockHolder l;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-      span = Span::New(Range(p, num_pages));
+      span = tc_globals.span_allocator().New(Range(p, num_pages));
       state.pagemap().Set(p, span);
       // If we report capacity back from a size returning allocation, we can not
       // report the stack_trace.allocated_size, as we guard the size to

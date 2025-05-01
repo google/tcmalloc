@@ -319,16 +319,6 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   return result;
 }
 
-Span* Span::New(Range r) { return Static::span_allocator().New(r); }
-
-void Span::Delete(Span* span) {
-#ifndef NDEBUG
-  // In debug mode, trash the contents of deleted Spans
-  memset(static_cast<void*>(span), 0x3f, sizeof(*span));
-#endif
-  Static::span_allocator().Delete(span);
-}
-
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

@@ -76,7 +76,7 @@ class PageAllocatorTest : public testing::Test {
         Range(s->first_page(), s->num_pages()),
         s->donated(),
     };
-    Span::Delete(s);
+    tc_globals.span_allocator().Delete(s);
     PageHeapSpinLockHolder l;
     allocator_.Delete(a, tag);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING

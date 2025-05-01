@@ -240,7 +240,7 @@ TEST(SpanAllocatorTest, Alignment) {
     PageHeapSpinLockHolder l;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     for (int i = 0; i < kNumSpans; ++i) {
-      spans.push_back(Span::New(r));
+      spans.push_back(tc_globals.span_allocator().New(r));
     }
   }
 
@@ -262,7 +262,7 @@ TEST(SpanAllocatorTest, Alignment) {
     PageHeapSpinLockHolder l;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     for (Span* s : spans) {
-      Span::Delete(s);
+      tc_globals.span_allocator().Delete(s);
     }
   }
 }
