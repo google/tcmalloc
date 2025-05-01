@@ -869,7 +869,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     // we may use larger capacity for some sizes.
     const uint16_t kLargeUninterestingObjectDepth =
         forwarder_.reuse_size_classes() ? 246 * kWiderSlabMultiplier
-                                        : 133 * kWiderSlabMultiplier;
+                                        : 123 * kWiderSlabMultiplier;
     const uint16_t kLargeInterestingObjectDepth =
         forwarder_.reuse_size_classes() ? 46 * kWiderSlabMultiplier
                                         : 28 * kWiderSlabMultiplier;

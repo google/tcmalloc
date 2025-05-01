@@ -271,8 +271,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   uint8_t is_donated_ : 1;
 
   // The number of bits of the cache space that may be used for bitmap.
-  static constexpr size_t kBitmapCacheSize = 4;
-  static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kBitmapCacheSize;
+  static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kCacheSize;
 
   uint64_t first_page_ : kMaxPageIdBits;  // Starting page number.
 
