@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstring>
+#include <new>
 
 #include "absl/base/optimization.h"
 #include "absl/types/span.h"
@@ -175,8 +176,7 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
 
   // Pop from cache.
   auto csize = cache_size_;
-  // TODO(b/304135905):  Complete experiment and update kCacheSize.
-  ASSUME(csize <= kLargeCacheSize);
+  ASSUME(csize <= kCacheSize);
   auto cache_reads = csize < N ? csize : N;
   const uintptr_t span_start = first_page().start_uintptr();
   for (; result < cache_reads; result++) {
@@ -245,7 +245,7 @@ void Span::BuildBitmap(size_t size, size_t count) {
 }
 
 int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
-                        uint32_t max_cache_size, uint64_t alloc_time) {
+                        uint64_t alloc_time) {
   TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
@@ -280,17 +280,12 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   // The index of the end of the useful portion of the span.
   ObjIdx idxEnd = count * idxStep;
 
+  // Update the time when the span was allocated.
+  small_span_state_.alloc_time = alloc_time;
+
   // Then, push as much as we can into the cache.
-  TC_ASSERT_GE(max_cache_size, kCacheSize);
-  TC_ASSERT_LE(max_cache_size, kLargeCacheSize);
-
-  if (max_cache_size == Span::kLargeCacheSize) {
-    memcpy(&small_span_state_.cache[Span::kLargeCacheSize], &alloc_time,
-           sizeof(alloc_time));
-  }
-
   int cache_size = 0;
-  for (; idx < idxEnd && cache_size < max_cache_size; idx += idxStep) {
+  for (; idx < idxEnd && cache_size < kCacheSize; idx += idxStep) {
     small_span_state_.cache[cache_size] = idx;
     cache_size++;
   }
@@ -324,30 +319,12 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   return result;
 }
 
-Span* Span::New(Range r) {
-  const uint32_t max_span_cache_array_size =
-      Parameters::max_span_cache_array_size();
-  TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
-             max_span_cache_array_size == Span::kCacheSize) ||
-            (Parameters::max_span_cache_size() == kLargeCacheSize &&
-             max_span_cache_array_size == Span::kLargeCacheArraySize));
-  return Static::span_allocator().NewWithSize(
-      Span::CalcSizeOf(max_span_cache_array_size),
-      Span::CalcAlignOf(max_span_cache_array_size), r);
-}
+Span* Span::New(Range r) { return Static::span_allocator().New(r); }
 
 void Span::Delete(Span* span) {
 #ifndef NDEBUG
-  const uint32_t max_span_cache_array_size =
-      Parameters::max_span_cache_array_size();
-  TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
-             max_span_cache_array_size == Span::kCacheSize) ||
-            (Parameters::max_span_cache_size() == kLargeCacheSize &&
-             max_span_cache_array_size == Span::kLargeCacheArraySize));
-  const size_t span_size = Span::CalcSizeOf(max_span_cache_array_size);
-
   // In debug mode, trash the contents of deleted Spans
-  memset(static_cast<void*>(span), 0x3f, span_size);
+  memset(static_cast<void*>(span), 0x3f, sizeof(*span));
 #endif
   Static::span_allocator().Delete(span);
 }

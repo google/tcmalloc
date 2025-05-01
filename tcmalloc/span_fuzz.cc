@@ -43,15 +43,6 @@ void FuzzSpan(const std::string& s) {
   const size_t object_size = state[0];
   const size_t num_pages = state[1];
   const size_t num_to_move = state[2];
-  const uint32_t max_span_cache_size =
-      std::clamp(state[3] & 0xF, Span::kCacheSize, Span::kLargeCacheSize);
-
-  // Use a larger cache array only when we are using a maximum allowed cache
-  // size.
-  const uint32_t max_span_cache_array_size =
-      max_span_cache_size == Span::kLargeCacheSize ? Span::kLargeCacheArraySize
-                                                   : max_span_cache_size;
-  const uint64_t alloc_time = state[5];
 
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_to_move)) {
     // Invalid size class configuration, but ValidSizeClass detected that.
@@ -60,26 +51,26 @@ void FuzzSpan(const std::string& s) {
 
   const auto pages = Length(num_pages);
   const size_t objects_per_span = pages.in_bytes() / object_size;
-  const size_t span_size = Span::CalcSizeOf(max_span_cache_array_size);
-  const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
-
   const size_t initial_objects_at_build =
       std::min(objects_per_span, state[3] >> 4);
+
+  // state[4] reserved.
+  const uint64_t alloc_time = state[5];
+  const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
 
   void* mem;
   int res = posix_memalign(&mem, kPageSize, pages.in_bytes());
   TC_CHECK_EQ(res, 0);
 
-  void* buf = ::operator new(span_size, std::align_val_t(alignof(Span)));
+  void* buf = ::operator new(sizeof(Span), std::align_val_t(alignof(Span)));
   Span* span = new (buf) Span(Range(PageIdContaining(mem), pages));
 
   std::vector<void*> ptrs;
   ptrs.resize(initial_objects_at_build);
 
-  TC_CHECK_EQ(
-      span->BuildFreelist(object_size, objects_per_span, absl::MakeSpan(ptrs),
-                          max_span_cache_size, alloc_time),
-      initial_objects_at_build);
+  TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span,
+                                  absl::MakeSpan(ptrs), alloc_time),
+              initial_objects_at_build);
   TC_CHECK_EQ(span->Allocated(), initial_objects_at_build);
 
   ptrs.reserve(objects_per_span);
@@ -101,8 +92,7 @@ void FuzzSpan(const std::string& s) {
   TC_CHECK_EQ(ptrs.size(), span->Allocated());
 
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
-    bool ok = span->FreelistPush(ptrs[i], object_size, size_reciprocal,
-                                 max_span_cache_size);
+    bool ok = span->FreelistPush(ptrs[i], object_size, size_reciprocal);
     TC_CHECK_EQ(ok, i != popped - 1);
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.
@@ -111,11 +101,10 @@ void FuzzSpan(const std::string& s) {
     TC_CHECK(popped == 1 || !span->FreelistEmpty(object_size));
   }
 
-  if (!span->UseBitmapForSize(object_size) &&
-      max_span_cache_size == Span::kLargeCacheSize) {
-    TC_CHECK_EQ(span->AllocTime(object_size, max_span_cache_size), alloc_time);
+  if (!span->UseBitmapForSize(object_size)) {
+    TC_CHECK_EQ(span->AllocTime(object_size), alloc_time);
   } else {
-    TC_CHECK_EQ(span->AllocTime(object_size, max_span_cache_size), 0);
+    TC_CHECK_EQ(span->AllocTime(object_size), 0);
   }
 
   free(mem);

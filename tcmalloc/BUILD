@@ -356,18 +356,6 @@ cc_library(
 )
 
 cc_library(
-    # TODO(b/304135905):  Remove this opt-out.
-    name = "want_disable_tcmalloc_big_span",
-    srcs = ["want_disable_tcmalloc_big_span.cc"],
-    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc/testing:__pkg__",
-    ],
-    deps = ["@com_google_absl//absl/base:core_headers"],
-    alwayslink = 1,
-)
-
-cc_library(
     # TODO(b/394569259):  Remove this opt-out.
     name = "want_disable_dense_trackers_sorted_on_spans_allocated",
     srcs = ["want_disable_dense_trackers_sorted_on_spans_allocated.cc"],

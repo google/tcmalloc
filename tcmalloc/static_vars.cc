@@ -61,32 +61,6 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-// TODO(b/304135905): Remove the opt out.
-ABSL_ATTRIBUTE_WEAK bool default_want_disable_tcmalloc_big_span();
-bool tcmalloc_big_span() {
-  // Disable 64B span if built against an opt-out.
-  if (default_want_disable_tcmalloc_big_span != nullptr) {
-    return false;
-  }
-
-  const char* e = thread_safe_getenv("TCMALLOC_DISABLE_BIG_SPAN");
-
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        return true;
-      case '1':
-        return false;
-      default:
-        TC_BUG("bad env var '%s'", e);
-        return false;
-    }
-  }
-
-  return true;
-}
-
 // Cacheline-align our SizeMap and CpuCache.  They both have very hot arrays as
 // their first member variables, and aligning them reduces the number of cache
 // lines these arrays use.
@@ -213,12 +187,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     (void)subtle::percpu::IsFast();
     numa_topology_.Init();
     CacheTopology::Instance().Init();
-
-    const bool large_span_experiment = tcmalloc_big_span();
-    Parameters::set_max_span_cache_size(
-        large_span_experiment ? Span::kLargeCacheSize : Span::kCacheSize);
-    Parameters::set_max_span_cache_array_size(
-        large_span_experiment ? Span::kLargeCacheArraySize : Span::kCacheSize);
 
     if (IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
       TCMalloc_Internal_SetMinHotAccessHint(1);

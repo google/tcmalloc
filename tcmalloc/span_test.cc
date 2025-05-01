@@ -47,23 +47,20 @@ constexpr uint64_t kSpanAllocTime = 1234;
 
 class RawSpan {
  public:
-  void Init(size_t size_class, uint32_t max_cache_array_size,
-            uint32_t max_cache_size) {
+  void Init(size_t size_class) {
     size_t size = tc_globals.sizemap().class_to_size(size_class);
     auto npages = Length(tc_globals.sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
     // Dynamically allocate so ASan can flag if we run out of bounds.
-    size_t span_size = Span::CalcSizeOf(max_cache_array_size);
-    buf_ = ::operator new(span_size, std::align_val_t(alignof(Span)));
+    buf_ = ::operator new(sizeof(Span), std::align_val_t(alignof(Span)));
 
     int res = posix_memalign(&mem_, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
 
     span_ = new (buf_) Span(Range(PageIdContaining(mem_), npages));
-    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, max_cache_size,
-                                     kSpanAllocTime),
-                0);
+    TC_CHECK_EQ(
+        span_->BuildFreelist(size, objects_per_span, {}, kSpanAllocTime), 0);
   }
 
   ~RawSpan() {
@@ -79,7 +76,7 @@ class RawSpan {
   Span* span_;
 };
 
-class SpanTest : public testing::TestWithParam<std::tuple<size_t, size_t>> {
+class SpanTest : public testing::TestWithParam<size_t> {
  protected:
   size_t size_class_;
   size_t size_;
@@ -87,22 +84,11 @@ class SpanTest : public testing::TestWithParam<std::tuple<size_t, size_t>> {
   size_t batch_size_;
   size_t objects_per_span_;
   uint32_t reciprocal_;
-  uint32_t max_cache_size_;
-  uint32_t max_cache_array_size_;
   RawSpan raw_span_;
 
  private:
   void SetUp() override {
-    size_class_ = std::get<0>(GetParam());
-    max_cache_array_size_ = std::get<1>(GetParam());
-    max_cache_size_ = max_cache_array_size_ == Span::kCacheSize
-                          ? Span::kCacheSize
-                          : Span::kLargeCacheSize;
-    ASSERT_THAT(max_cache_array_size_,
-                testing::AnyOf(testing::Eq(Span::kCacheSize),
-                               testing::Eq(Span::kLargeCacheArraySize)));
-    ASSERT_LE(max_cache_size_, max_cache_array_size_);
-
+    size_class_ = GetParam();
     size_ = tc_globals.sizemap().class_to_size(size_class_);
     if (size_ == 0) {
       GTEST_SKIP() << "Skipping empty size class.";
@@ -113,7 +99,7 @@ class SpanTest : public testing::TestWithParam<std::tuple<size_t, size_t>> {
     objects_per_span_ = npages_ * kPageSize / size_;
     reciprocal_ = Span::CalcReciprocal(size_);
 
-    raw_span_.Init(size_class_, max_cache_array_size_, max_cache_size_);
+    raw_span_.Init(size_class_);
   }
 
   void TearDown() override {}
@@ -164,8 +150,7 @@ TEST_P(SpanTest, FreelistBasic) {
     // Push all objects back except the last one (which would not be pushed).
     for (size_t idx = 0; idx < objects_per_span_ - 1; ++idx) {
       EXPECT_TRUE(objects[idx]);
-      bool ok = span_.FreelistPush(start + idx * size_, size_, reciprocal_,
-                                   max_cache_size_);
+      bool ok = span_.FreelistPush(start + idx * size_, size_, reciprocal_);
       EXPECT_TRUE(ok);
       EXPECT_FALSE(span_.FreelistEmpty(size_));
       objects[idx] = false;
@@ -174,7 +159,7 @@ TEST_P(SpanTest, FreelistBasic) {
     // On the last iteration we can actually push the last object.
     if (x == 1) {
       bool ok = span_.FreelistPush(start + (objects_per_span_ - 1) * size_,
-                                   size_, reciprocal_, max_cache_size_);
+                                   size_, reciprocal_);
       EXPECT_FALSE(ok);
     }
   }
@@ -182,11 +167,10 @@ TEST_P(SpanTest, FreelistBasic) {
 
 TEST_P(SpanTest, AllocTime) {
   Span& span_ = raw_span_.span();
-  if (span_.UseBitmapForSize(size_) ||
-      max_cache_size_ != Span::kLargeCacheSize) {
-    EXPECT_EQ(span_.AllocTime(size_, max_cache_size_), 0);
+  if (span_.UseBitmapForSize(size_)) {
+    EXPECT_EQ(span_.AllocTime(size_), 0);
   } else {
-    EXPECT_EQ(span_.AllocTime(size_, max_cache_size_), kSpanAllocTime);
+    EXPECT_EQ(span_.AllocTime(size_), kSpanAllocTime);
   }
 }
 
@@ -202,7 +186,7 @@ TEST_P(SpanTest, FreelistRandomized) {
   for (size_t x = 0; x < 10000; ++x) {
     if (!objects.empty() && absl::Bernoulli(rng, 1.0 / 2)) {
       void* p = *objects.begin();
-      if (span_.FreelistPush(p, size_, reciprocal_, max_cache_size_)) {
+      if (span_.FreelistPush(p, size_, reciprocal_)) {
         objects.erase(objects.begin());
       } else {
         EXPECT_EQ(objects.size(), 1);
@@ -220,8 +204,8 @@ TEST_P(SpanTest, FreelistRandomized) {
     }
   }
 
-  EXPECT_TRUE(span_.AllocTime(size_, max_cache_size_) == 0 ||
-              span_.AllocTime(size_, max_cache_size_) == kSpanAllocTime);
+  EXPECT_TRUE(span_.AllocTime(size_) == 0 ||
+              span_.AllocTime(size_) == kSpanAllocTime);
   // Now pop everything what's there.
   for (;;) {
     size_t n =
@@ -242,11 +226,7 @@ TEST_P(SpanTest, FreelistRandomized) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    All, SpanTest,
-    testing::Combine(testing::Range(size_t(1), kNumClasses),
-                     testing::Values(Span::kCacheSize,
-                                     Span::kLargeCacheArraySize)));
+INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
 
 TEST(SpanAllocatorTest, Alignment) {
   Range r(PageId{1}, Length{2});
@@ -270,12 +250,7 @@ TEST(SpanAllocatorTest, Alignment) {
                             ABSL_CACHELINE_SIZE];
   }
 
-  // TODO(b/304135905): Remove the opt out.
-  if (tcmalloc_big_span()) {
-    EXPECT_EQ(address_mod_cacheline[0], kNumSpans);
-  } else {
-    EXPECT_LT(address_mod_cacheline[0], kNumSpans);
-  }
+  EXPECT_EQ(address_mod_cacheline[0], kNumSpans);
 
   // Verify alignof is respected.
   for (auto [alignment, count] : address_mod_cacheline) {

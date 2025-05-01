@@ -33,13 +33,10 @@ namespace tcmalloc_internal {
 class FakeStaticForwarder {
  public:
   FakeStaticForwarder() : class_size_(0), pages_() {}
-  void Init(size_t class_size, size_t pages, size_t num_objects_to_move,
-            bool use_large_spans) {
+  void Init(size_t class_size, size_t pages, size_t num_objects_to_move) {
     class_size_ = class_size;
     pages_ = Length(pages);
     num_objects_to_move_ = num_objects_to_move;
-    use_large_spans_ = use_large_spans;
-    TC_ASSERT_LE(max_span_cache_size(), max_span_cache_array_size());
     clock_ = 1234;
   }
   uint64_t clock_now() const { return clock_; }
@@ -53,12 +50,6 @@ class FakeStaticForwarder {
   size_t class_to_size(int size_class) const { return class_size_; }
   Length class_to_pages(int size_class) const { return pages_; }
   size_t num_objects_to_move() const { return num_objects_to_move_; }
-  uint32_t max_span_cache_size() const {
-    return use_large_spans_ ? Span::kLargeCacheSize : Span::kCacheSize;
-  }
-  uint32_t max_span_cache_array_size() const {
-    return use_large_spans_ ? Span::kLargeCacheArraySize : Span::kCacheSize;
-  }
 
   void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                          int expected_size_class) {
@@ -89,12 +80,7 @@ class FakeStaticForwarder {
         ::operator new(pages_per_span.in_bytes(), std::align_val_t(kPageSize));
     PageId page = PageIdContaining(backing);
 
-    void* span_buf =
-        ::operator new(Span::CalcSizeOf(max_span_cache_array_size()),
-                       Span::CalcAlignOf(max_span_cache_array_size()));
-    TC_ASSERT_LE(max_span_cache_size(), max_span_cache_array_size());
-
-    auto* span = new (span_buf) Span(Range(page, pages_per_span));
+    auto* span = new Span(Range(page, pages_per_span));
 
     absl::MutexLock l(&mu_);
     SpanInfo info;
@@ -117,14 +103,9 @@ class FakeStaticForwarder {
       }
     }
 
-    const std::align_val_t span_alignment =
-        Span::CalcAlignOf(max_span_cache_array_size());
-
     for (Span* span : free_spans) {
       ::operator delete(span->start_address(), std::align_val_t(kPageSize));
-
-      span->~Span();
-      ::operator delete(span, span_alignment);
+      delete span;
     }
   }
 
@@ -139,7 +120,6 @@ class FakeStaticForwarder {
   size_t class_size_;
   Length pages_;
   size_t num_objects_to_move_;
-  bool use_large_spans_;
   uint64_t clock_;
 };
 
@@ -157,10 +137,8 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
     });
     ON_CALL(*this, Init)
         .WillByDefault([this](size_t size_class, size_t pages,
-                              size_t num_objects_to_move,
-                              bool use_large_spans) {
-          FakeStaticForwarder::Init(size_class, pages, num_objects_to_move,
-                                    use_large_spans);
+                              size_t num_objects_to_move) {
+          FakeStaticForwarder::Init(size_class, pages, num_objects_to_move);
         });
 
     ON_CALL(*this, MapObjectsToSpans)
@@ -186,8 +164,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(Length, class_to_pages, (int size_class));
   MOCK_METHOD(size_t, num_objects_to_move, ());
   MOCK_METHOD(void, Init,
-              (size_t class_size, size_t pages, size_t num_objects_to_move,
-               bool use_large_spans));
+              (size_t class_size, size_t pages, size_t num_objects_to_move));
   MOCK_METHOD(void, MapObjectsToSpans,
               (absl::Span<void*> batch, Span** spans, int expected_size_class));
   MOCK_METHOD(Span*, AllocateSpan,
@@ -219,9 +196,8 @@ class FakeCentralFreeListEnvironment {
   size_t batch_size() { return forwarder().num_objects_to_move(); }
 
   explicit FakeCentralFreeListEnvironment(size_t class_size, size_t pages,
-                                          size_t num_objects_to_move,
-                                          bool use_large_spans) {
-    forwarder().Init(class_size, pages, num_objects_to_move, use_large_spans);
+                                          size_t num_objects_to_move) {
+    forwarder().Init(class_size, pages, num_objects_to_move);
     cache_.Init(kSizeClass);
   }
 

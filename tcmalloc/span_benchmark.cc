@@ -34,8 +34,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-// TODO(b/304135905): Complete experiments and remove hard-coded cache size.
-constexpr uint32_t kMaxCacheSize = 4;
 constexpr uint64_t kSpanAllocTime = 1234;
 
 class RawSpan {
@@ -50,9 +48,8 @@ class RawSpan {
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
     span_.emplace(Range(PageIdContaining(mem), npages));
-    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, kMaxCacheSize,
-                                     kSpanAllocTime),
-                0);
+    TC_CHECK_EQ(
+        span_->BuildFreelist(size, objects_per_span, {}, kSpanAllocTime), 0);
   }
 
   ~RawSpan() {
@@ -87,7 +84,7 @@ void BM_single_span(benchmark::State& state) {
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      (void)span.FreelistPush(batch[j], size, reciprocal, kMaxCacheSize);
+      (void)span.FreelistPush(batch[j], size, reciprocal);
     }
   }
 
@@ -125,7 +122,7 @@ void BM_single_span_fulldrain(benchmark::State& state) {
     // Fill span
     while (oindex > 0) {
       void* p = objects[oindex - 1];
-      if (!span.FreelistPush(p, size, reciprocal, kMaxCacheSize)) {
+      if (!span.FreelistPush(p, size, reciprocal)) {
         break;
       }
 
@@ -218,8 +215,7 @@ void BM_multiple_spans(benchmark::State& state) {
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      (void)spans[current_span].span().FreelistPush(batch[j], size, reciprocal,
-                                                    kMaxCacheSize);
+      (void)spans[current_span].span().FreelistPush(batch[j], size, reciprocal);
     }
   }
 

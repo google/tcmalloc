@@ -373,7 +373,7 @@ void DumpStats(Printer& out, int level) {
       virtual_memory_used, virtual_memory_used / MiB,
       uint64_t(stats.span_stats.in_use),
       uint64_t(stats.span_stats.total),
-      (stats.span_stats.total * Span::CalcSizeOf(Parameters::max_span_cache_array_size())) / MiB,
+      (stats.span_stats.total * sizeof(Span)) / MiB,
       uint64_t(stats.tc_stats.in_use),
       uint64_t(stats.tc_stats.total),
       (stats.tc_stats.total * sizeof(ThreadCache)) / MiB,
@@ -587,10 +587,6 @@ void DumpStats(Printer& out, int level) {
         SizeClassConfigurationString(tc_globals.size_class_configuration()));
     out.printf("PARAMETER percpu_vcpu_type %s\n",
                PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
-    out.printf("PARAMETER max_span_cache_size %d\n",
-               Parameters::max_span_cache_size());
-    out.printf("PARAMETER max_span_cache_array_size %d\n",
-               Parameters::max_span_cache_array_size());
     out.printf("PARAMETER madvise %s\n", MadviseString());
     out.printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
                Parameters::resize_size_class_max_capacity() ? 1 : 0);
@@ -800,9 +796,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   region.PrintBool("tcmalloc_use_wider_slabs",
                    tc_globals.cpu_cache().UseWiderSlabs());
-  region.PrintI64("span_max_cache_size", Parameters::max_span_cache_size());
-  region.PrintI64("span_max_cache_array_size",
-                  Parameters::max_span_cache_array_size());
   region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated",
                    Parameters::dense_trackers_sorted_on_spans_allocated());
   region.PrintI64("min_hot_access_hint",
