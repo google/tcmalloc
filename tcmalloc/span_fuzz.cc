@@ -101,11 +101,7 @@ void FuzzSpan(const std::string& s) {
     TC_CHECK(popped == 1 || !span->FreelistEmpty(object_size));
   }
 
-  if (!span->UseBitmapForSize(object_size)) {
-    TC_CHECK_EQ(span->AllocTime(object_size), alloc_time);
-  } else {
-    TC_CHECK_EQ(span->AllocTime(object_size), 0);
-  }
+  TC_CHECK_EQ(span->AllocTime(object_size), alloc_time);
 
   free(mem);
   ::operator delete(buf, std::align_val_t(alignof(Span)));

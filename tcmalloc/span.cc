@@ -249,6 +249,7 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
+  small_span_state_.alloc_time = alloc_time;
 
   if (UseBitmapForSize(size)) {
     BuildBitmap(size, count);
@@ -279,9 +280,6 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
 
   // The index of the end of the useful portion of the span.
   ObjIdx idxEnd = count * idxStep;
-
-  // Update the time when the span was allocated.
-  small_span_state_.alloc_time = alloc_time;
 
   // Then, push as much as we can into the cache.
   int cache_size = 0;

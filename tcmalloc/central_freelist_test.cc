@@ -690,14 +690,13 @@ TEST_P(CentralFreeListTest, SpanPriority) {
 
 TEST_P(CentralFreeListTest, SpanLifetime) {
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
-  const size_t object_size =
-      e.central_freelist().forwarder().class_to_size(TypeParam::kSizeClass);
-  if (Span::UseBitmapForSize(object_size)) {
-    GTEST_SKIP() << "Bitmap is used for size class. We do not "
-                    "record lifetime telemetry.";
+  // Skip the check for objects_per_span = 1 since such spans skip most of the
+  // central freelist's logic.
+  if (e.objects_per_span() == 1) {
+    GTEST_SKIP() << "Skipping test for objects_per_span = 1.";
   }
-  std::vector<void*> all_objects;
 
+  std::vector<void*> all_objects;
   // Request kNumSpans spans.
   void* batch[kMaxObjectsToMove];
   ASSERT_GT(e.objects_per_span(), 0);

@@ -660,9 +660,6 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer& out) {
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
-  // We do not log allocation time when bitmap is used for spans.
-  if (Span::UseBitmapForSize(object_size_)) return;
-
   uint64_t now = forwarder_.clock_now();
   double frequency = forwarder_.clock_frequency();
   LifetimeHistogram lifetime_histo{};
@@ -711,9 +708,6 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
     PbtxtRegion& region) {
-  // We do not log allocation time when bitmap is used for spans.
-  if (Span::UseBitmapForSize(object_size_)) return;
-
   uint64_t now = forwarder_.clock_now();
   double frequency = forwarder_.clock_frequency();
   LifetimeHistogram lifetime_histo{};

@@ -340,10 +340,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 };
 
 inline uint64_t Span::AllocTime(size_t size) const {
-  if (!UseBitmapForSize(size)) {
-    return small_span_state_.alloc_time;
-  }
-  return 0;
+  if (is_large_or_sampled()) return 0;
+  return small_span_state_.alloc_time;
 }
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,

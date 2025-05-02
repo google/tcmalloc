@@ -167,11 +167,7 @@ TEST_P(SpanTest, FreelistBasic) {
 
 TEST_P(SpanTest, AllocTime) {
   Span& span_ = raw_span_.span();
-  if (span_.UseBitmapForSize(size_)) {
-    EXPECT_EQ(span_.AllocTime(size_), 0);
-  } else {
-    EXPECT_EQ(span_.AllocTime(size_), kSpanAllocTime);
-  }
+  EXPECT_EQ(span_.AllocTime(size_), kSpanAllocTime);
 }
 
 TEST_P(SpanTest, FreelistRandomized) {
@@ -204,8 +200,7 @@ TEST_P(SpanTest, FreelistRandomized) {
     }
   }
 
-  EXPECT_TRUE(span_.AllocTime(size_) == 0 ||
-              span_.AllocTime(size_) == kSpanAllocTime);
+  EXPECT_TRUE(span_.AllocTime(size_) == kSpanAllocTime);
   // Now pop everything what's there.
   for (;;) {
     size_t n =
