@@ -669,7 +669,7 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    tc_globals.span_allocator().Delete(span);
+    Span::Delete(span);
   } else {
     // TODO(b/404341539): Cover guarded deallocations as well.
     //
@@ -688,7 +688,7 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
         Range(p, span->num_pages()),
         span->donated(),
     };
-    tc_globals.span_allocator().Delete(span);
+    Span::Delete(span);
     PageHeapSpinLockHolder l;
     tc_globals.page_allocator().Delete(a, GetMemoryTag(ptr));
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING

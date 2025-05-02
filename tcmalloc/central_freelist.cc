@@ -169,7 +169,7 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
     TC_ASSERT_EQ(tag, GetMemoryTag(s->start_address()));
     allocs[i].r = Range(s->first_page(), s->num_pages());
     allocs[i].donated = s->donated();
-    tc_globals.span_allocator().Delete(s);
+    Span::Delete(s);
   }
   ReturnAllocsToPageHeap(tag, absl::MakeSpan(allocs, free_spans.size()));
 #endif

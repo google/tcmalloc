@@ -126,11 +126,7 @@ class Static final {
     return sampledallocation_allocator_;
   }
 
-  static MetadataObjectAllocator<Span>& span_allocator()
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ABSL_LOCKS_EXCLUDED(pageheap_lock)
-#endif
-  {
+  static MetadataObjectAllocator<Span>& span_allocator() {
     return span_allocator_;
   }
 
