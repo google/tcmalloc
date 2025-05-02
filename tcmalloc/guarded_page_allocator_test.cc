@@ -148,6 +148,34 @@ TEST_F(GuardedPageAllocatorTest, AllocDeallocAligned) {
   EXPECT_EQ(gpa_.successful_allocations(), (32 - __builtin_clz(PageSize())));
 }
 
+TEST_F(GuardedPageAllocatorTest, MismatchedAlignment) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Skipping slow death test under ASan";
+#endif
+  for (size_t align = 1; align <= PageSize(); align <<= 1) {
+    for (size_t misalign = 1; misalign <= align; misalign <<= 1) {
+      constexpr size_t alloc_size = 1;
+      auto alloc_with_status =
+          gpa_.Allocate(alloc_size, align, GetStackTrace());
+      EXPECT_EQ(alloc_with_status.status,
+                Profile::Sample::GuardedStatus::Guarded);
+      EXPECT_NE(alloc_with_status.alloc, nullptr);
+      EXPECT_TRUE(gpa_.PointerIsMine(alloc_with_status.alloc));
+      EXPECT_EQ(reinterpret_cast<uintptr_t>(alloc_with_status.alloc) % align,
+                0);
+
+      EXPECT_DEATH(
+          {
+            gpa_.Deallocate(absl::bit_cast<void*>(
+                absl::bit_cast<uintptr_t>(alloc_with_status.alloc) + misalign));
+          },
+          "CHECK in AddrToSlot|Attempted to free corrupted pointer");
+
+      gpa_.Deallocate(alloc_with_status.alloc);
+    }
+  }
+}
+
 TEST_P(GuardedPageAllocatorParamTest, AllocDeallocAllPages) {
   size_t num_pages = GetParam();
   char* bufs[kMaxGpaPages];

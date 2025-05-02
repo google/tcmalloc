@@ -22,9 +22,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <new>
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/casts.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
@@ -32,6 +34,7 @@
 #include "absl/debugging/stacktrace.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
@@ -202,6 +205,10 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   d.alloc_trace.thread_id = absl::base_internal::GetTID();
   d.dealloc_trace.depth = 0;
   d.requested_size = size;
+  d.requested_alignment = static_cast<std::align_val_t>(std::max(
+      alignment,
+      std::max(static_cast<size_t>(kAlignment),
+               static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__))));
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
   d.dealloc_count.store(0, std::memory_order_relaxed);
   TC_ASSERT(!d.write_overflow_detected);
@@ -255,6 +262,16 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
 
   if (d.write_overflow_detected) {
     ForceTouchPage(ptr);
+  }
+
+  if (ABSL_PREDICT_FALSE(absl::bit_cast<void*>(d.allocation_start) != ptr)) {
+    // TODO(ckennelly): Plumb d.dealloc_trace into this call.
+    const bool left_aligned = SlotToAddr(slot) == d.allocation_start;
+    const std::align_val_t expected_alignment =
+        left_aligned ? static_cast<std::align_val_t>(page_size_)
+                     : d.requested_alignment;
+
+    ReportCorruptedFree(tc_globals, expected_alignment, ptr);
   }
 
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
