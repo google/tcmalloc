@@ -510,17 +510,7 @@ inline bool Span::FreelistEmpty(size_t size) const {
   }
 }
 
-inline void Span::Prefetch() {
-  // TODO(b/304135905): Will revisit this.
-  // The first 16 bytes of a Span are the next and previous pointers
-  // for when it is stored in a linked list. Since the sizeof(Span) is
-  // 48 bytes, spans fit into 2 cache lines 50% of the time, with either
-  // the first 16-bytes or the last 16-bytes in a different cache line.
-  // Prefetch the cacheline that contains the most frequestly accessed
-  // data by offseting into the middle of the Span.
-  static_assert(sizeof(Span) <= 64, "Update span prefetch offset");
-  PrefetchT0(&this->allocated_);
-}
+inline void Span::Prefetch() { PrefetchT0(this); }
 
 inline bool Span::IsValidSizeClass(size_t size, size_t pages) {
   if (Length(pages) > kLargeSpanLength) return false;
