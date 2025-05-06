@@ -19,7 +19,6 @@
 
 #include <algorithm>
 #include <initializer_list>
-#include <ostream>
 #include <string>
 #include <vector>
 
@@ -54,26 +53,6 @@ struct AllocationEntry {
   friend bool operator==(const AllocationEntry& x, const AllocationEntry& y);
   friend bool operator!=(const AllocationEntry& x, const AllocationEntry& y) {
     return !(x == y);
-  }
-
-  friend std::ostream& operator<<(std::ostream& os, const AllocationEntry& e) {
-    os << "sum = " << e.sum << "; ";
-    os << "count = " << e.count << "; ";
-
-    std::vector<std::string> ptrs;
-    for (int i = 0; i < e.depth; i++) {
-      ptrs.push_back(absl::StrFormat("%p", e.stack[i]));
-    }
-    os << "stack = [" << absl::StrJoin(ptrs, ", ") << "]; ";
-
-    os << "requested_size = " << e.requested_size << "; ";
-    os << "requested_alignment = " << e.requested_alignment << "; ";
-    os << "allocated_size = " << e.allocated_size << "; ";
-    os << "alloc_handle = " << e.alloc_handle << "; ";
-    os << "access_hint = " << e.access_hint << "; ";
-    os << "cold_allocated = " << e.cold_allocated << "; ";
-
-    return os;
   }
 };
 
