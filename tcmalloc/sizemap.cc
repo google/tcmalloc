@@ -51,41 +51,41 @@ const SizeClasses& SizeMap::CurrentClasses() {
   TC_BUG("unreachable");
 }
 
-void SizeMap::CheckAssumptions() {
+bool SizeMap::CheckAssumptions() {
   bool failed = false;
   auto a = CurrentClasses().assumptions;
   if (a.has_expanded_classes != kHasExpandedClasses) {
     fprintf(stderr, "kHasExpandedClasses: assumed %d, actual %d\n",
             a.has_expanded_classes, kHasExpandedClasses);
-    failed = true;
+    failed |= true;
   }
   if (a.span_size != sizeof(Span)) {
-    // TODO(b/304135905):  Complete experiments.
     fprintf(stderr, "sizeof(Span): assumed %zu, actual %zu\n", a.span_size,
             sizeof(Span));
-    failed = true;
+    failed |= true;
   }
   if (a.sampling_interval != kDefaultProfileSamplingInterval) {
     fprintf(stderr,
             "kDefaultProfileSamplingInterval: assumed %zu, actual %zu\n",
             a.sampling_interval, kDefaultProfileSamplingInterval);
-    failed = true;
+    failed |= true;
   }
   if (a.large_size != SizeMap::kLargeSize) {
     fprintf(stderr, "SizeMap::kLargeSize: assumed %zu, actual %u\n",
             a.large_size, SizeMap::kLargeSize);
-    failed = true;
+    failed |= true;
   }
   if (a.large_size_alignment != SizeMap::kLargeSizeAlignment) {
     fprintf(stderr, "SizeMap::kLargeSizeAlignment: assumed %zu, actual %u\n",
             a.large_size_alignment, SizeMap::kLargeSizeAlignment);
-    failed = true;
+    failed |= true;
   }
   if (failed) {
     fprintf(stderr, "*************************************\n");
     fprintf(stderr, "* MISMATCHED SIZE CLASS ASSUMPTIONS *\n");
     fprintf(stderr, "*************************************\n");
   }
+  return !failed;
 }
 
 bool SizeMap::IsValidSizeClass(size_t size, size_t pages,

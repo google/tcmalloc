@@ -176,7 +176,9 @@ class SizeMap {
 
   // Checks assumptions used to generate the current size classes.
   // Prints any wrong assumptions to stderr.
-  static void CheckAssumptions();
+  //
+  // Returns true if all assumptions are correct, else returns false.
+  [[nodiscard]] static bool CheckAssumptions();
 
   // constexpr constructor to guarantee zero-initialization at compile-time.  We
   // rely on Init() to populate things.
