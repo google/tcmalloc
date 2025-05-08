@@ -210,6 +210,9 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
 // TODO(b/328440160):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_demand_based_release_(
     false);
+// TODO(b/287498389):  Remove this opt-out.
+ABSL_CONST_INIT std::atomic<bool> Parameters::usermode_hugepage_collapse_(
+    false);
 // TODO(b/123345734): Remove the flag when experimentation is done.
 ABSL_CONST_INIT std::atomic<bool> Parameters::resize_size_class_max_capacity_(
     true);
@@ -464,6 +467,10 @@ bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
   return Parameters::release_pages_from_huge_region();
 }
 
+bool TCMalloc_Internal_GetUsermodeHugepageCollapse() {
+  return Parameters::usermode_hugepage_collapse();
+}
+
 bool TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled() {
   return Parameters::resize_size_class_max_capacity();
 }
@@ -526,6 +533,10 @@ void TCMalloc_Internal_SetHugeCacheDemandBasedRelease(bool v) {
 void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v) {
   Parameters::huge_region_demand_based_release_.store(
       v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v) {
+  Parameters::usermode_hugepage_collapse_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v) {

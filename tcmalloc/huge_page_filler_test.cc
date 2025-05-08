@@ -19,7 +19,9 @@
 #include <string.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
+#include <optional>
 #include <random>
 #include <string>
 #include <tuple>
@@ -31,9 +33,11 @@
 #include "absl/algorithm/container.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/macros.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/flags/flag.h"
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
@@ -47,6 +51,9 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/range_tracker.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -157,7 +164,7 @@ class PageTrackerTest : public testing::Test {
                  /*was_donated=*/false,
                  absl::base_internal::CycleClock::Now()) {}
 
-  ~PageTrackerTest() override { mock_.VerifyAndClear(); }
+  ~PageTrackerTest() override { mock_unback_.VerifyAndClear(); }
 
   struct PAlloc {
     PageId p;
@@ -178,7 +185,7 @@ class PageTrackerTest : public testing::Test {
     }
   }
 
-  class MockUnbackInterface final : public MemoryModifyFunction {
+  class MockMemoryInterface final : public MemoryModifyFunction {
    public:
     [[nodiscard]] bool operator()(Range r) override {
       TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(actual_));
@@ -220,6 +227,8 @@ class PageTrackerTest : public testing::Test {
     size_t actual_index_{0};
   };
 
+  MockMemoryInterface mock_collapse_;
+
   void Check(PAlloc a, size_t mark) {
     EXPECT_LE(huge_.first_page(), a.p);
     size_t index = (a.p - huge_.first_page()).raw_num();
@@ -229,8 +238,12 @@ class PageTrackerTest : public testing::Test {
       EXPECT_EQ(marks_[index], mark);
     }
   }
-  void ExpectPages(PAlloc a, bool success = true) {
-    mock_.Expect(a.p, a.n, success);
+  void ExpectUnbackPages(PAlloc a, bool success = true) {
+    mock_unback_.Expect(a.p, a.n, success);
+  }
+
+  void ExpectCollapsedPages(PAlloc a, bool success = true) {
+    mock_collapse_.Expect(a.p, a.n, success);
   }
 
   PAlloc Get(Length n, SpanAllocInfo span_alloc_info) {
@@ -246,15 +259,74 @@ class PageTrackerTest : public testing::Test {
 
   Length ReleaseFree() {
     PageHeapSpinLockHolder l;
-    return tracker_.ReleaseFree(mock_);
+    return tracker_.ReleaseFree(mock_unback_);
   }
 
   // strict because release calls should only happen when we ask
-  MockUnbackInterface mock_;
+  MockMemoryInterface mock_unback_;
 
   size_t marks_[kPagesPerHugePage.raw_num()];
   HugePage huge_;
   PageTracker tracker_;
+
+  bool Collapse() { return tracker_.Collapse(mock_collapse_); }
+};
+
+class FakePageFlags : public PageFlagsBase {
+ public:
+  FakePageFlags() = default;
+  std::optional<PageStats> Get(const void* addr, size_t size) override {
+    // unimplemented
+    return std::nullopt;
+  }
+
+  void MarkHugePageBacked(void* addr, bool is_hugepage_backed) {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    is_hugepage_backed_[hp.start_addr()] = is_hugepage_backed;
+  }
+
+  bool IsHugepageBacked(const void* addr) override {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    if (!is_hugepage_backed_.contains(hp.start_addr())) return false;
+    return is_hugepage_backed_[hp.start_addr()];
+  }
+
+ private:
+  absl::flat_hash_map<const void*, bool> is_hugepage_backed_;
+};
+
+class FakeResidency : public Residency {
+ public:
+  FakeResidency() = default;
+  std::optional<Info> Get(const void* addr, size_t size) override {
+    return std::nullopt;
+  };
+
+  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    EXPECT_TRUE(residency_bitmaps_.contains(hp.start_addr()));
+    return residency_bitmaps_[hp.start_addr()];
+  };
+
+  void SetUnbackedAndSwappedBitmaps(const void* addr,
+                                    const Bitmap<kMaxResidencyBits>& unbacked,
+                                    const Bitmap<kMaxResidencyBits>& swapped) {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    residency_bitmaps_[hp.start_addr()] = {unbacked, swapped,
+                                           absl::StatusCode::kOk};
+  }
+
+  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  size_t GetNativePagesInHugePage() const override {
+    return kNativePagesInHugePage;
+  };
+
+ private:
+  absl::flat_hash_map<const void*, SinglePageBitmaps> residency_bitmaps_;
 };
 
 TEST_F(PageTrackerTest, AllocSane) {
@@ -279,6 +351,66 @@ TEST_F(PageTrackerTest, AllocSane) {
   }
 }
 
+TEST_F(PageTrackerTest, Collapse) {
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a1 = Get(kAllocSize, info);
+  PAlloc a2 = Get(kAllocSize, info);
+  PAlloc a3 = Get(kAllocSize, info);
+  PAlloc a4 = Get(kAllocSize, info);
+
+  PAlloc first_page_alloc = PAlloc(huge_.first_page(), kPagesPerHugePage, info);
+  ExpectCollapsedPages(first_page_alloc, /*success=*/true);
+  Collapse();
+  mock_collapse_.VerifyAndClear();
+
+  Put(a2);
+  ExpectCollapsedPages(first_page_alloc, /*success=*/false);
+  Collapse();
+  mock_collapse_.VerifyAndClear();
+
+  Put(a4);
+  ExpectCollapsedPages(first_page_alloc, /*success=*/true);
+  Collapse();
+  mock_collapse_.VerifyAndClear();
+
+  Put(a1);
+  Put(a3);
+}
+
+TEST_F(PageTrackerTest, CollapseReleasedPage) {
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a1 = Get(kAllocSize, info);
+  PAlloc a2 = Get(kAllocSize, info);
+  PAlloc a3 = Get(kAllocSize, info);
+  PAlloc a4 = Get(kAllocSize, info);
+
+  PAlloc first_page_alloc = PAlloc(huge_.first_page(), kPagesPerHugePage, info);
+  ExpectCollapsedPages(first_page_alloc, /*success=*/true);
+  Collapse();
+  mock_collapse_.VerifyAndClear();
+
+  Put(a2);
+  ExpectUnbackPages(a2, /*success=*/true);
+  ReleaseFree();
+  mock_unback_.VerifyAndClear();
+
+  // The page was released, so we should not be able to collapse it.
+  ASSERT_TRUE(tracker_.released());
+  EXPECT_FALSE(Collapse());
+
+  a2 = Get(kAllocSize, info);
+  ASSERT_FALSE(tracker_.released());
+  ExpectCollapsedPages(first_page_alloc, /*success=*/true);
+  Collapse();
+  mock_collapse_.VerifyAndClear();
+
+  Put(a1);
+  Put(a3);
+  Put(a4);
+}
+
 TEST_F(PageTrackerTest, ReleasingReturn) {
   static const Length kAllocSize = kPagesPerHugePage / 4;
   SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
@@ -292,10 +424,10 @@ TEST_F(PageTrackerTest, ReleasingReturn) {
   // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
   // The free parts should be released when we mark the hugepage as such,
   // but not the allocated parts.
-  ExpectPages(a2, /*success=*/true);
-  ExpectPages(a4, /*success=*/true);
+  ExpectUnbackPages(a2, /*success=*/true);
+  ExpectUnbackPages(a4, /*success=*/true);
   ReleaseFree();
-  mock_.VerifyAndClear();
+  mock_unback_.VerifyAndClear();
 
   EXPECT_EQ(tracker_.released_pages(), a2.n + a4.n);
   EXPECT_EQ(tracker_.free_pages(), a2.n + a4.n);
@@ -317,22 +449,22 @@ TEST_F(PageTrackerTest, ReleasingRetain) {
   // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
   // The free parts should be released when we mark the hugepage as such,
   // but not the allocated parts.
-  ExpectPages(a2);
-  ExpectPages(a4);
+  ExpectUnbackPages(a2);
+  ExpectUnbackPages(a4);
   ReleaseFree();
-  mock_.VerifyAndClear();
+  mock_unback_.VerifyAndClear();
 
   // Now we return the other parts, and they shouldn't get released.
   Put(a1);
   Put(a3);
 
-  mock_.VerifyAndClear();
+  mock_unback_.VerifyAndClear();
 
   // But they will if we ReleaseFree.
-  ExpectPages(a1);
-  ExpectPages(a3);
+  ExpectUnbackPages(a1);
+  ExpectUnbackPages(a3);
   ReleaseFree();
-  mock_.VerifyAndClear();
+  mock_unback_.VerifyAndClear();
 }
 
 TEST_F(PageTrackerTest, ReleasingRetainFailure) {
@@ -348,10 +480,10 @@ TEST_F(PageTrackerTest, ReleasingRetainFailure) {
   // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
   // The free parts should be released when we mark the hugepage as such if
   // successful, but not the allocated parts.
-  ExpectPages(a2, /*success=*/true);
-  ExpectPages(a4, /*success=*/false);
+  ExpectUnbackPages(a2, /*success=*/true);
+  ExpectUnbackPages(a4, /*success=*/false);
   ReleaseFree();
-  mock_.VerifyAndClear();
+  mock_unback_.VerifyAndClear();
 
   EXPECT_EQ(tracker_.released_pages(), a2.n);
   EXPECT_EQ(tracker_.free_pages(), a2.n + a4.n);
@@ -360,15 +492,15 @@ TEST_F(PageTrackerTest, ReleasingRetainFailure) {
   Put(a1);
   Put(a3);
 
-  mock_.VerifyAndClear();
+  mock_unback_.VerifyAndClear();
 
   // But they will if we ReleaseFree.  We attempt to coalesce the deallocation
   // of a3/a4.
-  ExpectPages(a1, /*success=*/true);
-  ExpectPages(PAlloc{std::min(a3.p, a4.p), a3.n + a4.n, info},
-              /*success=*/false);
+  ExpectUnbackPages(a1, /*success=*/true);
+  ExpectUnbackPages(PAlloc{std::min(a3.p, a4.p), a3.n + a4.n, info},
+                    /*success=*/false);
   ReleaseFree();
-  mock_.VerifyAndClear();
+  mock_unback_.VerifyAndClear();
 
   EXPECT_EQ(tracker_.released_pages(), a1.n + a2.n);
   EXPECT_EQ(tracker_.free_pages(), a1.n + a2.n + a3.n + a4.n);
@@ -554,10 +686,10 @@ TEST_F(PageTrackerTest, Stats) {
   EXPECT_EQ(large.returned_pages, Length(0));
 
   n = kMaxPages + Length(1);
-  ExpectPages({p, n, info2});
-  ExpectPages({p + kMaxPages + Length(2), Length(1), info3});
-  ExpectPages({p + kMaxPages + Length(4), Length(2), info4});
-  ExpectPages({p + kMaxPages + Length(7), Length(3), info5});
+  ExpectUnbackPages({p, n, info2});
+  ExpectUnbackPages({p + kMaxPages + Length(2), Length(1), info3});
+  ExpectUnbackPages({p + kMaxPages + Length(4), Length(2), info4});
+  ExpectUnbackPages({p + kMaxPages + Length(7), Length(3), info5});
   EXPECT_EQ(kMaxPages + Length(7), ReleaseFree());
   Helper::Stat(tracker_, &small_backed, &small_unbacked, &large);
   EXPECT_THAT(small_backed, testing::ElementsAre());
@@ -608,6 +740,35 @@ TEST_F(PageTrackerTest, b151915873) {
               testing::AllOfArray(&small.normal_length[2],
                                   &small.normal_length[kMaxPages.raw_num()]));
 }
+
+class MockCollapse final : public MemoryModifyFunction {
+ public:
+  MockCollapse() = default;
+  [[nodiscard]] bool operator()(Range r) override {
+    EXPECT_EQ(r.n, kPagesPerHugePage);
+    ++collapsed_[r.start_addr()];
+    return success_;
+  }
+
+  bool TriedCollapse(void* addr) const {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    return collapsed_.contains(hp.start_addr());
+  }
+
+  int TimesCollapsed(void* addr) {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    return collapsed_.contains(hp.start_addr()) ? collapsed_[hp.start_addr()]
+                                                : 0;
+  }
+
+  void SetSuccess(bool success) { success_ = success; }
+
+ private:
+  absl::flat_hash_map<void*, int> collapsed_;
+  bool success_ = true;
+};
 
 class BlockingUnback final : public MemoryModifyFunction {
  public:
@@ -677,12 +838,13 @@ class FillerTest
 
   HugePageFiller<PageTracker> filler_;
   BlockingUnback blocking_unback_;
+  MockCollapse collapse_;
 
   FillerTest()
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*dense_tracker_type=*/std::get<0>(GetParam()),
                 /*sparse_tracker_type=*/std::get<1>(GetParam()),
-                blocking_unback_, blocking_unback_),
+                blocking_unback_, blocking_unback_, collapse_),
         dense_tracker_sorted_on_allocs_(
             std::get<0>(GetParam()) ==
             HugePageFillerDenseTrackerType::kSpansAllocated) {
@@ -849,6 +1011,20 @@ class FillerTest
                                 /*hit_limit=*/true);
   }
 
+  void TryHugepageCollapse(PageFlagsBase* pageflags, Residency* residency) {
+    // Note that scoped pageheap lock isn't used here. This is because the
+    // pageheap lock is manually unlocked before the collapse operation, and the
+    // scoped lock doesn't recognize the manual unlock. In tests, collapse
+    // allocates, so we use manual lock and unlock here.
+    pageheap_lock.Lock();
+    filler_.TryHugepageCollapse(pageflags, residency);
+    // In the single-threaded tests below, there should be no intervening Put
+    // operations that deallocate all the pages in the hugepages that are
+    // eligible to be collapsed. So, the fully freed tracker should be empty at
+    // the end of collapse operation.
+    EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
+    pageheap_lock.Unlock();
+  }
   // Generates an "interesting" pattern of allocations that highlights all the
   // various features of our stats.
   std::vector<PAlloc> GenerateInterestingAllocs();
@@ -955,6 +1131,288 @@ TEST_P(FillerTest, Density) {
     Delete(a);
     ASSERT_EQ(filler_.pages_allocated(), Length(--n));
   }
+}
+
+// Makes sure that we do not collapse the pages that are already hugepage
+// backed.
+TEST_P(FillerTest, DontCollapseAlreadyHugepages) {
+  const Length kAlloc = kPagesPerHugePage / 2;
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
+  ASSERT_TRUE(!p1.empty());
+  FakePageFlags pageflags;
+  FakeResidency residency;
+
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/true);
+    EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  TryHugepageCollapse(&pageflags, &residency);
+
+  for (const auto& pa : p1) {
+    EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
+  }
+  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
+      filler_.GetCollapseStats();
+  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
+  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
+  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
+  DeleteVector(p1);
+}
+
+TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
+  const Length kAlloc = kPagesPerHugePage / 2;
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
+  ASSERT_TRUE(!p1.empty());
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  auto check_stats = [&](int expected_eligible, int expected_attempted,
+                         int expected_succeeded) {
+    const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
+        filler_.GetCollapseStats();
+    EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed),
+              expected_eligible);
+    EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed),
+              expected_attempted);
+    EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed),
+              expected_succeeded);
+  };
+
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  TryHugepageCollapse(&pageflags, &residency);
+  check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
+              /*expected_succeeded=*/1);
+
+  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
+      filler_.GetCollapseStats();
+  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
+  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 1);
+  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 1);
+
+  for (const auto& pa : p1) {
+    EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+  }
+
+  // The first collapse was successful, so the second collapse should not
+  // occur.
+  TryHugepageCollapse(&pageflags, &residency);
+  for (const auto& pa : p1) {
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+  }
+  check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
+              /*expected_succeeded=*/1);
+  DeleteVector(p1);
+}
+
+// Checks that we collapse hugepages that are eligible to be collapsed.
+TEST_P(FillerTest, CollapseHugepages) {
+  const Length kAlloc = kPagesPerHugePage / 2;
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
+  ASSERT_TRUE(!p1.empty());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, /*n=*/1);
+    swapped.SetRange(/*index=*/0, /*n=*/1);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  TryHugepageCollapse(&pageflags, &residency);
+  for (const auto& pa : p1) {
+    EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+  }
+  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
+      filler_.GetCollapseStats();
+  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
+  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 1);
+  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 1);
+
+  DeleteVector(p1);
+}
+
+// Checks that we do not collapse hugepages that are not eligible to be
+// collapsed.
+TEST_P(FillerTest, DontCollapseHugepages) {
+  const Length kAlloc = kPagesPerHugePage / 2;
+
+  auto test_collapse = [&](size_t total_unbacked, size_t total_swapped) {
+    std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
+    ASSERT_TRUE(!p1.empty());
+
+    FakePageFlags pageflags;
+    FakeResidency residency;
+    for (const auto& pa : p1) {
+      pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                   /*is_hugepage_backed=*/false);
+      EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+      Bitmap<kMaxResidencyBits> unbacked, swapped;
+      unbacked.SetRange(/*index=*/0, total_unbacked);
+      swapped.SetRange(/*index=*/0, total_swapped);
+      residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                             swapped);
+    }
+
+    ASSERT_EQ(filler_.size(), NHugePages(1));
+    TryHugepageCollapse(&pageflags, &residency);
+    for (const auto& pa : p1) {
+      EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
+    }
+
+    DeleteVector(p1);
+  };
+
+  for (auto unbacked : {kMaxResidencyBits / 2, kMaxResidencyBits}) {
+    for (auto swapped : {kMaxResidencyBits / 2, kMaxResidencyBits}) {
+      test_collapse(unbacked, swapped);
+    }
+  }
+
+  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
+      filler_.GetCollapseStats();
+  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 4);
+  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
+  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
+}
+
+// Don't collapse pages that are released.
+TEST_P(FillerTest, DontCollapseReleasedPages) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
+  const Length kAlloc = kPagesPerHugePage / 2;
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc);
+  std::vector<PAlloc> p2 =
+      AllocateVectorWithSpanAllocInfo(kAlloc, p1.front().span_alloc_info);
+  ASSERT_TRUE(!p1.empty());
+  ASSERT_TRUE(!p2.empty());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, kMaxResidencyBits / 2);
+    swapped.SetRange(/*index=*/0, kMaxResidencyBits / 2);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+
+  DeleteVector(p2);
+  EXPECT_EQ(ReleasePartialPages(kAlloc), kAlloc);
+  ASSERT_EQ(filler_.unmapped_pages(), kAlloc);
+  ASSERT_TRUE(AllReleased(p2));
+
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  TryHugepageCollapse(&pageflags, &residency);
+
+  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
+      filler_.GetCollapseStats();
+  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 0);
+  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
+  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
+  for (const auto& pa : p1) {
+    EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
+  }
+
+  DeleteVector(p1);
+}
+
+// Tests that the pages are revisited periodically (after the clock threshold
+// expires), if the collapse wasn't successful before.
+TEST_P(FillerTest, CollapseClock) {
+  const Length kAlloc = kPagesPerHugePage / 2;
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
+  ASSERT_TRUE(!p1.empty());
+  // Sets up collapse for failure. This is because we want to test the case
+  // where we want to try collapse multiple times after the clock expires.
+  collapse_.SetSuccess(/*success=*/false);
+
+  auto check_stats = [&](int expected_eligible, int expected_attempted,
+                         int expected_succeeded) {
+    const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
+        filler_.GetCollapseStats();
+    EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed),
+              expected_eligible);
+    EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed),
+              expected_attempted);
+    EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed),
+              expected_succeeded);
+  };
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, 1);
+    swapped.SetRange(/*index=*/0, 1);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  TryHugepageCollapse(&pageflags, &residency);
+  for (const auto& pa : p1) {
+    EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+  }
+  check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
+              /*expected_succeeded=*/0);
+
+  Advance(absl::Seconds(1));
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+  }
+
+  TryHugepageCollapse(&pageflags, &residency);
+  for (const auto& pa : p1) {
+    EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+  }
+  check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
+              /*expected_succeeded=*/0);
+
+  Advance(absl::Minutes(10));
+  TryHugepageCollapse(&pageflags, &residency);
+  for (const auto& pa : p1) {
+    EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 2);
+  }
+  check_stats(/*expected_eligible=*/2, /*expected_attempted=*/2,
+              /*expected_succeeded=*/0);
+
+  DeleteVector(p1);
 }
 
 // This test makes sure that we continue releasing from regular (non-partial)
@@ -3925,6 +4383,7 @@ HugePageFiller: 4 hugepages partially released, 0.0254 released
 HugePageFiller: 0.7186 of used pages hugepageable
 HugePageFiller: Since startup, 282 pages subreleased, 5 hugepages broken, (0 pages, 0 hugepages due to reaching tcmalloc limit)
 HugePageFiller: 0 hugepages became full after being previously released, out of which 0 pages are hugepage backed.
+HugePageFiller: Out of 0 eligible hugepages, 0 were attempted, and 0 were collapsed.
 
 HugePageFiller: fullness histograms
 

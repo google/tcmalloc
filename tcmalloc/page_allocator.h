@@ -118,6 +118,8 @@ class PageAllocator {
   void ShrinkToUsageLimit(Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock);
+
   const PageAllocInfo& info(MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -279,6 +281,15 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
     LargeSpanStats selsan;
     selsan_impl_->GetLargeSpanStats(&selsan);
     *result = *result + selsan;
+  }
+}
+
+inline void PageAllocator::TryHugepageCollapse() {
+  if (selsan_impl_) {
+    selsan_impl_->TryHugepageCollapse();
+  }
+  for (int partition = 0; partition < active_numa_partitions(); partition++) {
+    normal_impl_[partition]->TryHugepageCollapse();
   }
 }
 

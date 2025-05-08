@@ -124,6 +124,7 @@ class StaticForwarder {
                                                   MemoryTag tag);
   static void Back(Range r);
   [[nodiscard]] static bool ReleasePages(Range r);
+  [[nodiscard]] static bool CollapsePages(Range r);
 };
 
 struct HugePageAwareAllocatorOptions {
@@ -204,6 +205,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
+  void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
   // Prints stats about the page heap to *out.
   void Print(Printer& out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
@@ -299,10 +301,27 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     HugePageAwareAllocator& hpaa_;
   };
 
+  class Collapse final : public MemoryModifyFunction {
+   public:
+    explicit Collapse(
+        HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
+        : hpaa_(hpaa) {}
+    ~Collapse() override = default;
+
+    [[nodiscard]] bool operator()(Range r) override {
+      bool ret = hpaa_.forwarder_.CollapsePages(r);
+      return ret;
+    }
+
+   public:
+    HugePageAwareAllocator& hpaa_;
+  };
+
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
   Unback unback_ ABSL_GUARDED_BY(pageheap_lock);
   UnbackWithoutLock unback_without_lock_ ABSL_GUARDED_BY(pageheap_lock);
+  Collapse collapse_;
 
   typedef HugePageFiller<PageTracker> FillerType;
   FillerType filler_ ABSL_GUARDED_BY(pageheap_lock);
@@ -433,8 +452,9 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     : PageAllocatorInterface("HugePageAware", options.tag),
       unback_(*this),
       unback_without_lock_(*this),
+      collapse_(*this),
       filler_(options.dense_tracker_type, options.sparse_tracker_type, unback_,
-              unback_without_lock_),
+              unback_without_lock_, collapse_),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),
@@ -744,15 +764,6 @@ inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
     }
     return;
   }
-  if (pt->was_donated()) {
-    --donated_huge_pages_;
-    if (pt->abandoned()) {
-      abandoned_pages_ -= pt->abandoned_count();
-      pt->set_abandoned(false);
-    }
-  } else {
-    TC_ASSERT_EQ(pt->abandoned_count(), Length(0));
-  }
   ReleaseHugepage(pt);
 }
 
@@ -843,15 +854,14 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(AllocationState s) {
       // have to split it off and release it independently.)
       //
       // We were able to reclaim the donated slack.
-      --donated_huge_pages_;
       TC_ASSERT(!pt->abandoned());
-
       if (pt->released()) {
         --hl;
         ReleaseHugepage(pt);
       } else {
         // Get rid of the tracker *object*, but not the *hugepage* (which is
         // still part of our range.)
+        --donated_huge_pages_;
         SetTracker(pt->location(), nullptr);
         tracker_allocator_.Delete(pt);
       }
@@ -867,7 +877,20 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(AllocationState s) {
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
     FillerType::Tracker* pt) {
+  TC_ASSERT(pt != nullptr);
   TC_ASSERT_EQ(pt->used_pages(), Length(0));
+
+  // If the tracker was previously donated/abandoned, fix the telemetry.
+  if (pt->was_donated()) {
+    --donated_huge_pages_;
+    if (pt->abandoned()) {
+      abandoned_pages_ -= pt->abandoned_count();
+      pt->set_abandoned(false);
+    }
+  } else {
+    TC_ASSERT_EQ(pt->abandoned_count(), Length(0));
+  }
+
   HugeRange r = {pt->location(), NHugePages(1)};
   SetTracker(pt->location(), nullptr);
 
@@ -996,6 +1019,16 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
 
   info_.RecordRelease(num_pages, released, reason);
   return released;
+}
+
+template <class Forwarder>
+inline void HugePageAwareAllocator<Forwarder>::TryHugepageCollapse() {
+  PageHeapSpinLockHolder l;
+  filler_.TryHugepageCollapse();
+  FillerType::Tracker* pt;
+  while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
+    ReleaseHugepage(pt);
+  }
 }
 
 inline static double BytesToMiB(size_t bytes) {

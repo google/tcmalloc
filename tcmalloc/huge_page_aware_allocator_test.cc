@@ -23,7 +23,9 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -121,7 +123,6 @@ class HugePageAwareAllocatorTest
   using MockedHugePageAwareAllocator =
       huge_page_allocator_internal::HugePageAwareAllocator<
           FakeStaticForwarderWithReleaseCheck>;
-
  protected:
   HugePageAwareAllocatorTest() {
     before_ = MallocExtension::GetRegionFactory();
@@ -254,6 +255,8 @@ class HugePageAwareAllocatorTest
     PageHeapSpinLockHolder l;
     return allocator_->ReleaseAtLeastNPages(k, reason);
   }
+
+  void TryHugepageCollapse() { allocator_->TryHugepageCollapse(); }
 
   Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
                                                PageReleaseReason reason) {
@@ -1593,6 +1596,9 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
     } else if (thread_id == 1) {
       benchmark::DoNotOptimize(Print());
       return;
+    } else if (thread_id == 2) {
+      TryHugepageCollapse();
+      return;
     }
 
     if (absl::Bernoulli(m.rng, 0.6) || m.spans.empty()) {
@@ -1612,7 +1618,7 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
     }
   });
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Seconds(5));
 
   threads.Stop();
 
@@ -1623,6 +1629,70 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
+  constexpr int kAllocThreads = 10;
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  struct ABSL_CACHELINE_ALIGNED Metadata {
+    absl::BitGen rng;
+    std::vector<Span*> spans;
+  };
+
+  std::vector<Metadata> metadata;
+  metadata.resize(kAllocThreads);
+  allocator_->forwarder().set_collapse_succeeds(true);
+
+  auto collase_func = [&](const std::atomic<bool>& done) {
+    absl::BitGen rng;
+    while (!done.load(std::memory_order_acquire)) {
+      allocator_->forwarder().set_collapse_succeeds(absl::Bernoulli(rng, 0.5));
+      TryHugepageCollapse();
+    }
+  };
+
+  auto alloc_func = [&](int thread_id, const std::atomic<bool>& done) {
+    Metadata& m = metadata[thread_id];
+
+    while (!done.load(std::memory_order_acquire)) {
+      if (absl::Bernoulli(m.rng, 0.6) || m.spans.empty()) {
+        Span* s = AllocatorNew(Length(absl::LogUniform(m.rng, 1, 1 << 10)),
+                               kSpanInfo);
+        TC_CHECK_NE(s, nullptr);
+        m.spans.push_back(s);
+      } else {
+        size_t index = absl::Uniform<size_t>(m.rng, 0, m.spans.size());
+
+        Span* back = m.spans.back();
+        Span* s = m.spans[index];
+        m.spans[index] = back;
+        m.spans.pop_back();
+
+        AllocatorDelete(s, kSpanInfo.objects_per_span);
+      }
+    }
+  };
+
+  std::atomic<bool> done(false);
+
+  std::thread collapse_thread = std::thread(collase_func, std::ref(done));
+  std::vector<std::thread> alloc_threads;
+  for (int i = 0; i < kAllocThreads; ++i) {
+    alloc_threads.push_back(std::thread(alloc_func, i, std::ref(done)));
+  }
+  absl::SleepFor(absl::Seconds(5));
+  done.store(true, std::memory_order_release);
+
+  collapse_thread.join();
+  for (auto& thread : alloc_threads) {
+    thread.join();
+  }
+
+  for (auto& m : metadata) {
+    for (Span* s : m.spans) {
+      AllocatorDelete(s, kSpanInfo.objects_per_span);
+    }
+  }
+}
 INSTANTIATE_TEST_SUITE_P(
     All, HugePageAwareAllocatorTest,
     testing::Values(HugeRegionUsageOption::kDefault,

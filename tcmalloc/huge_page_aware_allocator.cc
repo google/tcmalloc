@@ -151,6 +151,10 @@ void StaticForwarder::ReportDoubleFree(void* ptr) {
   ::tcmalloc::tcmalloc_internal::ReportDoubleFree(tc_globals, ptr);
 }
 
+bool StaticForwarder::CollapsePages(Range r) {
+  return tc_globals.system_allocator().Collapse(r.start_addr(), r.in_bytes());
+}
+
 }  // namespace huge_page_allocator_internal
 
 }  // namespace tcmalloc_internal

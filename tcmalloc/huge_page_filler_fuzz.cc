@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,6 +25,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
@@ -31,7 +33,11 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/clock.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/range_tracker.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -43,6 +49,10 @@ namespace {
 // state.
 int64_t fake_clock = 0;
 bool unback_success = true;
+bool collapse_success = true;
+bool is_hugepage_backed = true;
+Bitmap<kMaxResidencyBits> unbacked_bitmap;
+Bitmap<kMaxResidencyBits> swapped_bitmap;
 
 int64_t mock_clock() { return fake_clock; }
 
@@ -51,6 +61,15 @@ double freq() { return 1 << 10; }
 absl::flat_hash_set<PageId>& ReleasedPages() {
   static auto* set = new absl::flat_hash_set<PageId>();
   return *set;
+}
+
+Bitmap<kMaxResidencyBits> GetBitmap(int value) {
+  int v = value % kMaxResidencyBits;
+  Bitmap<kMaxResidencyBits> bitmap;
+  if (v > 0) {
+    bitmap.SetRange(/*index=*/0, v);
+  }
+  return bitmap;
 }
 
 class MockUnback final : public MemoryModifyFunction {
@@ -71,6 +90,44 @@ class MockUnback final : public MemoryModifyFunction {
   }
 };
 
+class FakePageFlags : public PageFlagsBase {
+ public:
+  FakePageFlags() = default;
+  std::optional<PageStats> Get(const void* addr, size_t size) override {
+    // unimplemented
+    return std::nullopt;
+  }
+
+  bool IsHugepageBacked(const void* addr) override {
+    return is_hugepage_backed;
+  }
+};
+
+class FakeResidency : public Residency {
+ public:
+  FakeResidency() = default;
+  std::optional<Info> Get(const void* addr, size_t size) override {
+    return std::nullopt;
+  };
+
+  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+    return {unbacked_bitmap, swapped_bitmap, absl::StatusCode::kOk};
+  };
+
+  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  size_t GetNativePagesInHugePage() const override {
+    return kNativePagesInHugePage;
+  };
+
+ private:
+  absl::flat_hash_map<const void*, SinglePageBitmaps> residency_bitmaps_;
+};
+
+class MockCollapse final : public MemoryModifyFunction {
+ public:
+  [[nodiscard]] bool operator()(Range r) override { return collapse_success; }
+};
+
 void FuzzFiller(const std::string& s) {
   const char* data = s.data();
   size_t size = s.size();
@@ -88,6 +145,7 @@ void FuzzFiller(const std::string& s) {
 
   // Reset global state.
   MockUnback unback;
+  MockCollapse collapse;
   fake_clock = 0;
   unback_success = true;
   absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -128,7 +186,7 @@ void FuzzFiller(const std::string& s) {
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
                                      dense_tracker_type, sparse_tracker_type,
-                                     unback, unback);
+                                     unback, unback, collapse);
 
   std::vector<PageTracker*> trackers;
   absl::flat_hash_map<PageTracker*, std::vector<Range>> allocs;
@@ -431,6 +489,33 @@ void FuzzFiller(const std::string& s) {
         SmallSpanStats small;
         LargeSpanStats large;
         filler.AddSpanStats(&small, &large);
+        break;
+      }
+      case 10: {
+        FakePageFlags pageflags;
+        FakeResidency residency;
+        PageHeapSpinLockHolder l;
+        filler.TryHugepageCollapse(&pageflags, &residency);
+        CHECK(filler.FetchFullyFreedTracker() == nullptr);
+        break;
+      }
+      case 11: {
+        is_hugepage_backed = value & 0x1;
+        if (is_hugepage_backed) {
+          unbacked_bitmap.Clear();
+          swapped_bitmap.Clear();
+        } else {
+          value >>= 1;
+          unbacked_bitmap = GetBitmap(value & 0x01FF);
+          value >>= 9;
+          swapped_bitmap = GetBitmap(value & 0x01FF);
+          value >>= 9;
+        }
+        break;
+      }
+      case 12: {
+        // Toggle collapse success.
+        collapse_success = !collapse_success;
         break;
       }
     }

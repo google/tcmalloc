@@ -598,6 +598,8 @@ void DumpStats(Printer& out, int level) {
         Parameters::sparse_trackers_coarse_longest_free_range() ? 1 : 0);
     out.printf("PARAMETER min_hot_access_hint %d\n",
                static_cast<int>(Parameters::min_hot_access_hint()));
+    out.printf("PARAMETER tcmalloc_usermode_hugepage_collapse %d\n",
+               Parameters::usermode_hugepage_collapse() ? 1 : 0);
   }
 }
 
@@ -805,6 +807,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                    Parameters::sparse_trackers_coarse_longest_free_range());
   region.PrintI64("min_hot_access_hint",
                   static_cast<int>(Parameters::min_hot_access_hint()));
+  region.PrintBool("usermode_hugepage_collapse",
+                   Parameters::usermode_hugepage_collapse());
 
   region.PrintRaw(
       "size_class_config",

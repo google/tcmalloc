@@ -79,6 +79,7 @@ class FakeStaticForwarder {
   void set_hpaa_subrelease(bool value) { hpaa_subrelease_ = value; }
   bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool value) { release_succeeds_ = value; }
+  void set_collapse_succeeds(bool value) { collapse_succeeds_ = value; }
 
   bool huge_region_demand_based_release() const {
     return huge_region_demand_based_release_;
@@ -179,6 +180,7 @@ class FakeStaticForwarder {
   [[noreturn]] void ReportDoubleFree(void* ptr) {
     TC_BUG("Double free of %p", ptr);
   }
+  [[nodiscard]] bool CollapsePages(Range r) { return collapse_succeeds_; }
 
  private:
   static absl::base_internal::LowLevelAlloc::Arena* ll_arena() {
@@ -197,6 +199,7 @@ class FakeStaticForwarder {
   bool release_partial_alloc_pages_ = false;
   bool hpaa_subrelease_ = true;
   bool release_succeeds_ = true;
+  bool collapse_succeeds_ = true;
   bool huge_region_demand_based_release_ = false;
   bool huge_cache_demand_based_release_ = false;
   Arena arena_;

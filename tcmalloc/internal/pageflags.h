@@ -65,6 +65,7 @@ class PageFlagsBase {
   PageFlagsBase(PageFlagsBase&&) = delete;
   PageFlagsBase& operator=(const PageFlagsBase&) = delete;
   PageFlagsBase& operator=(PageFlagsBase&&) = delete;
+  virtual bool IsHugepageBacked(const void* addr) = 0;
   virtual std::optional<PageStats> Get(const void* addr, size_t size) = 0;
 };
 
@@ -95,7 +96,7 @@ class PageFlags final : public PageFlagsBase {
   // dynamically allocate memory when needed.  Using std::optional allows us to
   // use the function in places where memory allocation is prohibited.
   std::optional<PageStats> Get(const void* addr, size_t size) override;
-  bool IsHugepageBacked(const void* addr);
+  bool IsHugepageBacked(const void* addr) override;
 
  private:
   // Returns the offset in the pageflags file for the given virtual address.

@@ -455,6 +455,14 @@ void FuzzHPAA(const std::string& s) {
               }
               break;
             }
+            case 9: {
+              forwarder.set_collapse_succeeds(actual_value & 0x1);
+              break;
+            }
+            case 10: {
+              allocator.TryHugepageCollapse();
+              break;
+            }
           }
           break;
         }
