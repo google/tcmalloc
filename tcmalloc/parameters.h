@@ -190,6 +190,7 @@ class Parameters {
   }
 
   static bool dense_trackers_sorted_on_spans_allocated();
+  static bool sparse_trackers_coarse_longest_free_range();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);

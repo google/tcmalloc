@@ -133,6 +133,10 @@ struct HugePageAwareAllocatorOptions {
       Parameters::dense_trackers_sorted_on_spans_allocated()
           ? HugePageFillerDenseTrackerType::kSpansAllocated
           : HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks;
+  HugePageFillerSparseTrackerType sparse_tracker_type =
+      Parameters::sparse_trackers_coarse_longest_free_range()
+          ? HugePageFillerSparseTrackerType::kCoarseLongestFreeRange
+          : HugePageFillerSparseTrackerType::kExactLongestFreeRange;
   absl::Duration huge_cache_time = Parameters::huge_cache_release_time();
 };
 
@@ -429,7 +433,8 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     : PageAllocatorInterface("HugePageAware", options.tag),
       unback_(*this),
       unback_without_lock_(*this),
-      filler_(options.dense_tracker_type, unback_, unback_without_lock_),
+      filler_(options.dense_tracker_type, options.sparse_tracker_type, unback_,
+              unback_without_lock_),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),

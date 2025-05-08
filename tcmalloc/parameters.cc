@@ -271,6 +271,17 @@ absl::Duration Parameters::cache_demand_release_long_interval() {
       cache_demand_release_long_interval_ns().load(std::memory_order_relaxed));
 }
 
+bool Parameters::sparse_trackers_coarse_longest_free_range() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(
+        IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS),
+        std::memory_order_relaxed);
+  });
+  return v;
+}
+
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }

@@ -20,13 +20,17 @@
 
 #include <algorithm>
 #include <array>
+#include <climits>
+#include <cstddef>
 #include <limits>
+#include <optional>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
@@ -42,7 +46,6 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
-#include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -244,6 +247,34 @@ struct HugePageFillerStats {
   HugeLength n_partial[AccessDensityPrediction::kPredictionCounts + 1];
 };
 
+// Hugepages are sorted along two axes: the longest free range of pages
+// available on the hugepage and the number of spans allocated from the
+// hugepage.  When allocating a new span, the allocation is made from a hugepage
+// that appears first in the sorted order.  There are currently two different
+// ways in which the sorting on the first axis can occur.
+enum class HugePageFillerSparseTrackerType : bool {
+  // Hugepages sorted linearly on longest free range. This is currently
+  // the default.
+  kExactLongestFreeRange,
+  // Hugepages with short free ranges (< kCoarseLFRStart) are sorted exactly.
+  // Hugepages with longer free ranges (>= kCoarseLFRStart) are binned together
+  // depending on the length of the free range.
+  kCoarseLongestFreeRange,
+};
+
+// The enum is used to distinguish between cases where the list index
+// calculation needs to return the index with hugepages that have a longer free
+// range than necessary.  For further explanation, read the comments in the
+// function SparseListFor().
+enum class LFRRequirement : bool {
+  // Op that fetches LFR index containing trackers with LFRs that are equal to
+  // or greater than the required longest range.
+  kLongerLFR,
+  // Op that fetches LFR index containing trackers with LFR range of [a, b]
+  // for the required <longest> range, such that a <= longest <= b.
+  kMatchingLFR,
+};
+
 enum class HugePageFillerDenseTrackerType : bool {
   // Hugepages sorted on longest free range and chunk index. This is currently
   // the default.
@@ -262,9 +293,12 @@ class HugePageFiller {
  public:
   explicit HugePageFiller(
       HugePageFillerDenseTrackerType dense_tracker_type,
+      HugePageFillerSparseTrackerType sparse_tracker_type,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND);
+
   HugePageFiller(Clock clock, HugePageFillerDenseTrackerType dense_tracker_type,
+                 HugePageFillerSparseTrackerType sparse_tracker_type,
                  MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
                  MemoryModifyFunction& unback_without_lock
                      ABSL_ATTRIBUTE_LIFETIME_BOUND);
@@ -417,9 +451,20 @@ class HugePageFiller {
   // This returns the largest possible value kChunks - 1 iff
   // pt has a single allocation.
   size_t IndexFor(TrackerType* pt) const;
-  // Returns index for regular_alloc_.
-  size_t ListFor(Length longest, size_t chunk, AccessDensityPrediction density,
-                 size_t nallocs) const;
+  // Returns index for the list where hugepages with at least one free range of
+  // pages whose length is at least as much as "longest".
+  //
+  // In case such hugepages are not found, std::nullopt is returned.  This is
+  // currently only used for sparse trackers for type kCoarseRangeLength and
+  // operation is kLongerLFR.
+  std::optional<size_t> ListFor(Length longest, size_t chunk,
+                                AccessDensityPrediction density, size_t nallocs,
+                                LFRRequirement op) const;
+  // Returns index for sparse alloclists.
+  std::optional<size_t> SparseListFor(Length longest, size_t chunk,
+                                      LFRRequirement op) const;
+  // Returns index for dense alloclists.
+  size_t DenseListFor(Length longest, size_t chunk, size_t nallocs) const;
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
 
   // List of hugepages from which no pages have been released to the OS.
@@ -448,6 +493,7 @@ class HugePageFiller {
   // from the hugepages in the set regular_alloc_partial_released.
   Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
   const HugePageFillerDenseTrackerType dense_tracker_type_;
+  const HugePageFillerSparseTrackerType sparse_tracker_type_;
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* pt);
@@ -637,17 +683,21 @@ inline Length PageTracker::free_pages() const {
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     HugePageFillerDenseTrackerType dense_tracker_type,
+    HugePageFillerSparseTrackerType sparse_tracker_type,
     MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     dense_tracker_type, unback, unback_without_lock) {}
+                     dense_tracker_type, sparse_tracker_type, unback,
+                     unback_without_lock) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     Clock clock, HugePageFillerDenseTrackerType dense_tracker_type,
+    HugePageFillerSparseTrackerType sparse_tracker_type,
     MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
     : dense_tracker_type_(dense_tracker_type),
+      sparse_tracker_type_(sparse_tracker_type),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
@@ -733,12 +783,15 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   bool was_released = false;
   const AccessDensityPrediction type = span_alloc_info.density;
   do {
-    const size_t listindex =
-        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1);
-    pt = regular_alloc_[type].GetLeast(listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      break;
+    const std::optional<size_t> listindex =
+        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1,
+                LFRRequirement::kLongerLFR);
+    if (listindex.has_value()) {
+      pt = regular_alloc_[type].GetLeast(listindex.value());
+      if (pt) {
+        TC_ASSERT(!pt->donated());
+        break;
+      }
     }
     if (ABSL_PREDICT_TRUE(type == AccessDensityPrediction::kSparse)) {
       pt = donated_alloc_.GetLeast(n.raw_num());
@@ -746,21 +799,23 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
         break;
       }
     }
-    pt = regular_alloc_partial_released_[type].GetLeast(listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      was_released = true;
-      TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
-      n_used_partial_released_[type] -= pt->used_pages();
-      break;
-    }
-    pt = regular_alloc_released_[type].GetLeast(listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      was_released = true;
-      TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
-      n_used_released_[type] -= pt->used_pages();
-      break;
+    if (listindex.has_value()) {
+      pt = regular_alloc_partial_released_[type].GetLeast(listindex.value());
+      if (pt) {
+        TC_ASSERT(!pt->donated());
+        was_released = true;
+        TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
+        n_used_partial_released_[type] -= pt->used_pages();
+        break;
+      }
+      pt = regular_alloc_released_[type].GetLeast(listindex.value());
+      if (pt) {
+        TC_ASSERT(!pt->donated());
+        was_released = true;
+        TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
+        n_used_released_[type] -= pt->used_pages();
+        break;
+      }
     }
 
     return {nullptr, PageId{0}, false};
@@ -1545,17 +1600,19 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
   HugePageFillerStats stats;
   // Note kChunks, not kNumLists here--we're iterating *full* lists.
   for (size_t chunk = 0; chunk < kChunks; ++chunk) {
+    std::optional<size_t> sparselist =
+        ListFor(/*longest=*/Length(0), chunk, AccessDensityPrediction::kSparse,
+                /*nallocs=*/0, LFRRequirement::kMatchingLFR);
+    TC_ASSERT(sparselist.has_value());
     stats.n_full[AccessDensityPrediction::kSparse] += NHugePages(
-        regular_alloc_[AccessDensityPrediction::kSparse]
-                      [ListFor(/*longest=*/Length(0), chunk,
-                               AccessDensityPrediction::kSparse, /*nallocs=*/0)]
-                          .length());
-    stats.n_full[AccessDensityPrediction::kDense] +=
-        NHugePages(regular_alloc_[AccessDensityPrediction::kDense]
-                                 [ListFor(/*longest=*/Length(0), chunk,
-                                          AccessDensityPrediction::kDense,
-                                          kPagesPerHugePage.raw_num())]
-                                     .length());
+        regular_alloc_[AccessDensityPrediction::kSparse][*sparselist].length());
+
+    std::optional<size_t> denselist = ListFor(
+        /*longest=*/Length(0), chunk, AccessDensityPrediction::kDense,
+        kPagesPerHugePage.raw_num(), LFRRequirement::kMatchingLFR);
+    TC_ASSERT(denselist.has_value());
+    stats.n_full[AccessDensityPrediction::kDense] += NHugePages(
+        regular_alloc_[AccessDensityPrediction::kDense][*denselist].length());
   }
   stats.n_full[AccessDensityPrediction::kPredictionCounts] =
       stats.n_full[AccessDensityPrediction::kSparse] +
@@ -1913,18 +1970,64 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType* pt) const {
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::ListFor(
-    const Length longest, const size_t chunk,
-    const AccessDensityPrediction density, size_t nallocs) const {
-  TC_ASSERT_LT(chunk, kChunks);
+inline std::optional<size_t> HugePageFiller<TrackerType>::SparseListFor(
+    const Length longest, const size_t chunk, const LFRRequirement op) const {
+  TC_ASSERT_LT(longest, kPagesPerHugePage);
   if (ABSL_PREDICT_TRUE(
-          density == AccessDensityPrediction::kSparse ||
+          sparse_tracker_type_ ==
+          HugePageFillerSparseTrackerType::kExactLongestFreeRange)) {
+    return longest.raw_num() * kChunks + chunk;
+  }
+  constexpr size_t kCoarseLFRStartSize = 256 * 1024;
+  constexpr int kCoarseLFRStart = (kCoarseLFRStartSize >> kPageShift);
+  // The first condition is for handling the TCMalloc page size 256KB.  We
+  // handle this specifically since only eight pages are sufficient for forming
+  // a hugepage when TCMalloc page size is 256KB.  Eight pages is too low for
+  // having coarse longest free range.
+  if (kCoarseLFRStart <= 1 || longest.raw_num() < kCoarseLFRStart) {
+    return longest.raw_num() * kChunks + chunk;
+  }
+  // Size of memory that encompasses a single coarse index.
+  constexpr size_t kCoarseLFRShiftSize = 64 * 1024;
+  // Number of pages encompassing a single coarse index.
+  constexpr uint32_t kCoarseLFRRange =
+      std::max<uint32_t>(kCoarseLFRShiftSize >> kPageShift, 1);
+  // Number of bits to use for obtaining the coarse index.
+  constexpr int kCoarseLFRShift = absl::countr_zero(kCoarseLFRRange);
+  // We handle the case for kLongerLFR separately from other operations
+  // since we need to return the index with hugepages that have a longer free
+  // range than necessary.  This is because coarser bins can also have hugepages
+  // with shorter longest free range than required.  For example, suppose the
+  // minimum length of free range required is 35.  We cannot return the index
+  // with free range from 32-39 as this range also contains hugepages with
+  // longest free range of 32, 33 and 34.  Those hugepages cannot satisfy the
+  // allocation to be made.
+  //
+  // For other operations, we need to return the exact bucket for hugepages with
+  // free range of length 'longest'.
+  const int target = longest.raw_num() +
+                     (op == LFRRequirement::kLongerLFR ? kCoarseLFRRange : 0);
+  if (target >= kPagesPerHugePage.raw_num()) {
+    return std::nullopt;
+  }
+  // Compress each kCoarseRangeLength interval of free ranges to one
+  // longest-free-range list.
+  const auto diff = target - kCoarseLFRStart;
+  const auto adjusteddiff = (diff >> kCoarseLFRShift) << kCoarseLFRShift;
+  // Add fine_range_threshold as this represents the starting point.
+  return (kCoarseLFRStart + adjusteddiff) * kChunks + chunk;
+}
+
+template <class TrackerType>
+inline size_t HugePageFiller<TrackerType>::DenseListFor(const Length longest,
+                                                        const size_t chunk,
+                                                        size_t nallocs) const {
+  if (ABSL_PREDICT_TRUE(
           dense_tracker_type_ ==
-              HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks)) {
+          HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks)) {
     TC_ASSERT_LT(longest, kPagesPerHugePage);
     return longest.raw_num() * kChunks + chunk;
   }
-  TC_ASSERT(density == AccessDensityPrediction::kDense);
   TC_ASSERT(dense_tracker_type_ ==
             HugePageFillerDenseTrackerType::kSpansAllocated);
   TC_ASSERT_LE(nallocs, kPagesPerHugePage.raw_num());
@@ -1932,6 +2035,22 @@ inline size_t HugePageFiller<TrackerType>::ListFor(
   // placed only in lists that are multiples of kChunks.  The in-between lists
   // are empty.
   return (kPagesPerHugePage.raw_num() - nallocs) * kChunks + chunk;
+}
+
+template <class TrackerType>
+inline std::optional<size_t> HugePageFiller<TrackerType>::ListFor(
+    const Length longest, const size_t chunk,
+    const AccessDensityPrediction density, size_t nallocs,
+    const LFRRequirement op) const {
+  TC_ASSERT_LT(chunk, kChunks);
+  switch (density) {
+    case AccessDensityPrediction::kSparse:
+      return SparseListFor(longest, chunk, op);
+    case AccessDensityPrediction::kDense:
+      return DenseListFor(longest, chunk, nallocs);
+    default:
+      TC_BUG("bad density %v", density);
+  }
 }
 
 template <class TrackerType>
@@ -1947,16 +2066,18 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   const AccessDensityPrediction type = pt->HasDenseSpans()
                                            ? AccessDensityPrediction::kDense
                                            : AccessDensityPrediction::kSparse;
-  size_t i = ListFor(longest, IndexFor(pt), type, pt->nallocs());
+  std::optional<size_t> i = ListFor(longest, IndexFor(pt), type, pt->nallocs(),
+                                    LFRRequirement::kMatchingLFR);
+  TC_ASSERT(i.has_value());
 
   if (!pt->released()) {
-    regular_alloc_[type].Remove(pt, i);
+    regular_alloc_[type].Remove(pt, *i);
   } else if (pt->free_pages() <= pt->released_pages()) {
-    regular_alloc_released_[type].Remove(pt, i);
+    regular_alloc_released_[type].Remove(pt, *i);
     TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
     n_used_released_[type] -= pt->used_pages();
   } else {
-    regular_alloc_partial_released_[type].Remove(pt, i);
+    regular_alloc_partial_released_[type].Remove(pt, *i);
     TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
     n_used_partial_released_[type] -= pt->used_pages();
   }
@@ -1976,15 +2097,17 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   const AccessDensityPrediction type = pt->HasDenseSpans()
                                            ? AccessDensityPrediction::kDense
                                            : AccessDensityPrediction::kSparse;
-  size_t i = ListFor(longest, IndexFor(pt), type, pt->nallocs());
+  std::optional<size_t> i = ListFor(longest, IndexFor(pt), type, pt->nallocs(),
+                                    LFRRequirement::kMatchingLFR);
+  TC_ASSERT(i.has_value());
 
   if (!pt->released()) {
-    regular_alloc_[type].Add(pt, i);
+    regular_alloc_[type].Add(pt, *i);
   } else if (pt->free_pages() <= pt->released_pages()) {
-    regular_alloc_released_[type].Add(pt, i);
+    regular_alloc_released_[type].Add(pt, *i);
     n_used_released_[type] += pt->used_pages();
   } else {
-    regular_alloc_partial_released_[type].Add(pt, i);
+    regular_alloc_partial_released_[type].Add(pt, *i);
     n_used_partial_released_[type] += pt->used_pages();
   }
 }
@@ -1998,6 +2121,8 @@ inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType* pt) {
   TC_ASSERT(!pt->released());
   pt->set_donated(true);
 
+  // Donated allocs always follow finer indexing based on the longest free
+  // range.
   donated_alloc_.Add(pt, longest.raw_num());
 }
 

@@ -40,7 +40,6 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
-#include "absl/meta/type_traits.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
@@ -55,11 +54,14 @@
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
+#include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_allocator_test_util.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
@@ -887,7 +889,16 @@ TEST_P(HugePageAwareAllocatorTest, SmallDonations) {
 
   RefreshStats();
   EXPECT_EQ(slack, kSlack);
-  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  // The filler is not able to use the already available hugepage since that
+  // page has a kSmallSize2 allocation.  The longest free range for this
+  // hugepage will be kPagesPerHugePage - kSmallSize2.  This means that hugepage
+  // will be in the final list.  Hugepages in that list are not used for
+  // allocations of size kLargeSize.
+  if (Parameters::sparse_trackers_coarse_longest_free_range()) {
+    EXPECT_EQ(donated_huge_pages, NHugePages(2));
+  } else {
+    EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  }
   EXPECT_EQ(abandoned_pages, kLargeSize);
 
   Delete(large2, kSpanInfo.objects_per_span);
@@ -1076,9 +1087,16 @@ TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   RefreshStats();
   // large contributes slack, but isn't donated.
   EXPECT_EQ(slack, kSmallSize);
-  EXPECT_EQ(donated_huge_pages, NHugePages(0));
+  // The hugepage used depends on whether coarse longest free range feature is
+  // enabled or not.
+  if (Parameters::sparse_trackers_coarse_longest_free_range()) {
+    EXPECT_EQ(donated_huge_pages, NHugePages(1));
+    EXPECT_TRUE(large->donated());
+  } else {
+    EXPECT_EQ(donated_huge_pages, NHugePages(0));
+    EXPECT_FALSE(large->donated());
+  }
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_FALSE(large->donated());
 
   Delete(large, kSpanInfo.objects_per_span);
   RefreshStats();

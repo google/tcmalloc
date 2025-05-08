@@ -220,9 +220,6 @@ class PageTrackerTest : public testing::Test {
     size_t actual_index_{0};
   };
 
-  // strict because release calls should only happen when we ask
-  MockUnbackInterface mock_;
-
   void Check(PAlloc a, size_t mark) {
     EXPECT_LE(huge_.first_page(), a.p);
     size_t index = (a.p - huge_.first_page()).raw_num();
@@ -232,10 +229,6 @@ class PageTrackerTest : public testing::Test {
       EXPECT_EQ(marks_[index], mark);
     }
   }
-  size_t marks_[kPagesPerHugePage.raw_num()];
-  HugePage huge_;
-  PageTracker tracker_;
-
   void ExpectPages(PAlloc a, bool success = true) {
     mock_.Expect(a.p, a.n, success);
   }
@@ -255,6 +248,13 @@ class PageTrackerTest : public testing::Test {
     PageHeapSpinLockHolder l;
     return tracker_.ReleaseFree(mock_);
   }
+
+  // strict because release calls should only happen when we ask
+  MockUnbackInterface mock_;
+
+  size_t marks_[kPagesPerHugePage.raw_num()];
+  HugePage huge_;
+  PageTracker tracker_;
 };
 
 TEST_F(PageTrackerTest, AllocSane) {
@@ -636,8 +636,9 @@ class BlockingUnback final : public MemoryModifyFunction {
 
 thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
 
-class FillerTest : public testing::TestWithParam<
-                       std::tuple<HugePageFillerDenseTrackerType>> {
+class FillerTest
+    : public testing::TestWithParam<std::tuple<
+          HugePageFillerDenseTrackerType, HugePageFillerSparseTrackerType>> {
  protected:
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
@@ -680,6 +681,7 @@ class FillerTest : public testing::TestWithParam<
   FillerTest()
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*dense_tracker_type=*/std::get<0>(GetParam()),
+                /*sparse_tracker_type=*/std::get<1>(GetParam()),
                 blocking_unback_, blocking_unback_),
         dense_tracker_sorted_on_allocs_(
             std::get<0>(GetParam()) ==
@@ -959,6 +961,10 @@ TEST_P(FillerTest, Density) {
 // allocs when we enable a feature to release all free pages from partial
 // allocs.
 TEST_P(FillerTest, ReleaseFromFullAllocs) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   const Length kAlloc = kPagesPerHugePage / 2;
   // Maintain the object count for the second allocation so that the alloc list
   // remains the same for the two allocations.
@@ -1005,6 +1011,82 @@ TEST_P(FillerTest, ReleaseFromFullAllocs) {
   DeleteVector(p4);
   ASSERT_TRUE(DeleteVector(p5));
 }
+// Test the difference in behavior for kFineLongestFreeRange and
+// kCoarseLongestFreeRange.
+TEST_P(FillerTest, CoarseLongestFreeRangeUsesSameHugePageForSmallAllocs) {
+  if (kPagesPerHugePage != Length(256)) {
+    GTEST_SKIP();
+  }
+  SpanAllocInfo info;
+  info.objects_per_span = 1;
+  info.density = AccessDensityPrediction::kSparse;
+  PAlloc p1 = AllocateWithSpanAllocInfo(Length(225), info);
+  PAlloc p2 = AllocateWithSpanAllocInfo(Length(31), info);
+  // p1.pt has sufficient number of pages to satisfy p2.  p1.pt will be used
+  // irrespective of the type of longest free range indexing in use.
+  ASSERT_EQ(p1.pt, p2.pt);
+  ASSERT_FALSE(Delete(p2));
+  ASSERT_TRUE(Delete(p1));
+}
+
+// The same allocations result in different hugepages being used for allocation.
+TEST_P(FillerTest,
+       CoarseLongestFreeRangeChoosesHugePageFromHigherBinForLargeAllocs) {
+  if (kPagesPerHugePage != Length(256)) {
+    GTEST_SKIP();
+  }
+  bool is_coarse_longest_free_range_enabled =
+      std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange;
+  SpanAllocInfo info;
+  info.objects_per_span = 1;
+  info.density = AccessDensityPrediction::kSparse;
+  PAlloc p1 = AllocateWithSpanAllocInfo(Length(200), info);
+  PAlloc p2 = AllocateWithSpanAllocInfo(Length(221), info);
+  // At this point we two hugepages has been used.
+  ASSERT_NE(p1.pt, p2.pt);
+
+  PAlloc p3 = AllocateWithSpanAllocInfo(Length(35), info);
+  // Both p1.pt and p2.pt have sufficient number of pages to satisfy p3.  But we
+  // use p1.pt when is_coarse_longest_free_range_enabled.  This is because we do
+  // not want to run into the case where the coarse bin returns a hugepage that
+  // cannot satisfy the allocation request.  For the current test, hugepages
+  // with longest free range of length 35 are stored with those with longest
+  // free range of 32, 33 and 34.  So we cannot use this bin and we use the next
+  // bin instead.
+  if (is_coarse_longest_free_range_enabled) {
+    ASSERT_EQ(p3.pt, p1.pt);
+  } else {
+    ASSERT_EQ(p3.pt, p2.pt);
+  }
+  Delete(p3);
+  ASSERT_TRUE(Delete(p1));
+  ASSERT_TRUE(Delete(p2));
+}
+
+TEST_P(FillerTest, CoarseLongestFreeRangeAllocatesNewHugePage) {
+  if (kPagesPerHugePage != Length(256)) {
+    GTEST_SKIP();
+  }
+  bool is_coarse_longest_free_range_enabled =
+      std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange;
+  SpanAllocInfo info;
+  info.objects_per_span = 1;
+  info.density = AccessDensityPrediction::kSparse;
+  PAlloc p1 = AllocateWithSpanAllocInfo(Length(5), info);
+  PAlloc p2 = AllocateWithSpanAllocInfo(Length(250), info);
+  // p1.pt has sufficient number of pages to satisfy p2.  But with
+  // is_coarse_longest_free_range_enabled, we should allocate a new hugepage.
+  if (is_coarse_longest_free_range_enabled) {
+    ASSERT_NE(p1.pt, p2.pt);
+    ASSERT_TRUE(Delete(p2));
+  } else {
+    ASSERT_EQ(p1.pt, p2.pt);
+    ASSERT_FALSE(Delete(p2));
+  }
+  ASSERT_TRUE(Delete(p1));
+}
 
 // This test makes sure that we release all the free pages from partial allocs
 // even when we request fewer pages to release. It also confirms that we
@@ -1014,6 +1096,10 @@ TEST_P(FillerTest, ReleaseFreePagesInPartialAllocs) {
   if (std::get<0>(GetParam()) ==
       HugePageFillerDenseTrackerType::kSpansAllocated) {
     GTEST_SKIP() << "Skipping test for kSpansAllocated";
+  }
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
   }
   static const Length kAlloc = kPagesPerHugePage / 2;
   static const Length kL1 = kAlloc - Length(1);
@@ -1150,6 +1236,10 @@ TEST_P(FillerTest, ReleaseFreePagesInPartialAllocs_SpansAllocated) {
 }
 
 TEST_P(FillerTest, AccountingForUsedPartialReleased) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   static const Length kAlloc = kPagesPerHugePage / 2;
   static const Length kL1 = kAlloc + Length(3);
   static const Length kL2 = kAlloc + Length(5);
@@ -1192,6 +1282,10 @@ TEST_P(FillerTest, AccountingForUsedPartialReleased) {
 }
 
 TEST_P(FillerTest, Release) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   static const Length kAlloc = kPagesPerHugePage / 2;
   // Maintain the object count for the second allocation so that the alloc
   // list
@@ -1308,6 +1402,10 @@ TEST_P(FillerTest, PrintFreeRatio) {
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
+  }
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
   }
 
   // We prevent randomly choosing the number of objects per span since this
@@ -1615,6 +1713,10 @@ TEST_P(FillerTest, ReleaseAccounting) {
 }
 
 TEST_P(FillerTest, ReleaseWithReuse) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   const Length N = kPagesPerHugePage;
   auto half = AllocateVector(N / 2);
   ASSERT_TRUE(!half.empty());
@@ -1661,6 +1763,10 @@ TEST_P(FillerTest, ReleaseWithReuse) {
 }
 
 TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   const Length N = kPagesPerHugePage;
   auto half = AllocateVector(N / 2);
   ASSERT_TRUE(!half.empty());
@@ -1727,6 +1833,10 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
 // Make sure that previously_released_huge_pages stat is correct when a huge
 // page toggles from full -> released -> full -> released.
 TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   const Length N = kPagesPerHugePage;
   auto half = AllocateVector(N / 2);
   ASSERT_TRUE(!half.empty());
@@ -1860,6 +1970,10 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
   if (std::get<0>(GetParam()) ==
       HugePageFillerDenseTrackerType::kSpansAllocated) {
     GTEST_SKIP() << "Skipping test for kSpansAllocated";
+  }
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
   }
 
   // Firstly, this test generates a peak (long-term demand peak) and waits for
@@ -2292,6 +2406,10 @@ TEST_P(FillerTest, SkipSubrelease) {
       HugePageFillerDenseTrackerType::kSpansAllocated) {
     GTEST_SKIP() << "Skipping test for kSpansAllocated";
   }
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
 
   // Firstly, this test generates a peak (long-term demand peak) and waits for
   // time interval a. Then, it generates a higher peak plus a short-term
@@ -2710,6 +2828,10 @@ TEST_P(FillerTest, LifetimeTelemetryTest) {
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
   }
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
 
   const Length N = kPagesPerHugePage;
   SpanAllocInfo info_sparsely_accessed = {1, AccessDensityPrediction::kSparse};
@@ -2875,7 +2997,11 @@ HugePageFiller: <254<=     0 <255<=     0
   Delete(large_alloc);
 }
 
-TEST_P(FillerTest, SkipSubReleaseDemandPeak) {
+TEST_P(FillerTest, SkipSubreleaseDemandPeak) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   // Tests that HugePageFiller can cap filler's short-term long-term
   // skip-subrelease mechanism using the demand measured by subrelease
   // intervals.
@@ -2936,6 +3062,10 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   if (std::get<0>(GetParam()) ==
       HugePageFillerDenseTrackerType::kSpansAllocated) {
     GTEST_SKIP() << "Skipping test for kSpansAllocated";
+  }
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
   }
   const Length N = kPagesPerHugePage;
   // Reports skip subrelease using the recent demand peak (2.5N): it is smaller
@@ -3394,6 +3524,10 @@ TEST_P(FillerTest, CheckSubreleaseStats_SpansAllocated) {
 }
 
 TEST_P(FillerTest, ConstantBrokenHugePages) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   // Get and Fill up many huge pages
   const HugeLength kHugePages = NHugePages(10 * kPagesPerHugePage.raw_num());
 
@@ -3491,6 +3625,10 @@ TEST_P(FillerTest, CheckBufferSize) {
 }
 
 TEST_P(FillerTest, ReleasePriority) {
+  if (std::get<1>(GetParam()) ==
+      HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {
+    GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
+  }
   // Fill up many huge pages (>> kPagesPerHugePage).  This relies on an
   // implementation detail of ReleasePages buffering up at most
   // kPagesPerHugePage as potential release candidates.
@@ -4420,9 +4558,13 @@ TEST_P(FillerTest, ReleasedPagesStatistics) {
 
 INSTANTIATE_TEST_SUITE_P(
     All, FillerTest,
-    testing::Combine(testing::Values(
-        HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks,
-        HugePageFillerDenseTrackerType::kSpansAllocated)));
+    testing::Combine(
+        testing::Values(
+            HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks,
+            HugePageFillerDenseTrackerType::kSpansAllocated),
+        testing::Values(
+            HugePageFillerSparseTrackerType::kExactLongestFreeRange,
+            HugePageFillerSparseTrackerType::kCoarseLongestFreeRange)));
 
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the

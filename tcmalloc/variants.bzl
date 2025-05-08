@@ -150,6 +150,14 @@ test_variants = [
         "env": {"TCMALLOC_DISABLE_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED": "1"},
     },
     {
+        "name": "sparse_trackers_coarse_longest_free_range",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS": "1"},
+    },
+    {
         "name": "256k_pages_pow2_sharded_transfer_cache",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": [

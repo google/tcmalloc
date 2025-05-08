@@ -104,7 +104,7 @@ void FuzzFiller(const std::string& s) {
   // HugePageFiller.
   //
   // [0] - used for choosing dense tracker type.
-  // [1] - (available)
+  // [1] - used for choosing sparse tracker type.
   // [2] - (available)
   //
   // Afterwards, we read 5 bytes at a time until the buffer is exhausted.
@@ -119,11 +119,16 @@ void FuzzFiller(const std::string& s) {
       static_cast<uint8_t>(data[0]) >= 128
           ? HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks
           : HugePageFillerDenseTrackerType::kSpansAllocated;
+  const HugePageFillerSparseTrackerType sparse_tracker_type =
+      static_cast<uint8_t>(data[1]) >= 128
+          ? HugePageFillerSparseTrackerType::kExactLongestFreeRange
+          : HugePageFillerSparseTrackerType::kCoarseLongestFreeRange;
   data += kInitBytes;
   size -= kInitBytes;
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
-                                     dense_tracker_type, unback, unback);
+                                     dense_tracker_type, sparse_tracker_type,
+                                     unback, unback);
 
   std::vector<PageTracker*> trackers;
   absl::flat_hash_map<PageTracker*, std::vector<Range>> allocs;

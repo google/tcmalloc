@@ -593,6 +593,9 @@ void DumpStats(Printer& out, int level) {
     out.printf(
         "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated %d\n",
         Parameters::dense_trackers_sorted_on_spans_allocated() ? 1 : 0);
+    out.printf(
+        "PARAMETER tcmalloc_sparse_trackers_coarse_longest_free_range %d\n",
+        Parameters::sparse_trackers_coarse_longest_free_range() ? 1 : 0);
     out.printf("PARAMETER min_hot_access_hint %d\n",
                static_cast<int>(Parameters::min_hot_access_hint()));
   }
@@ -798,6 +801,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                    tc_globals.cpu_cache().UseWiderSlabs());
   region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated",
                    Parameters::dense_trackers_sorted_on_spans_allocated());
+  region.PrintBool("tcmalloc_sparse_trackers_coarse_longest_free_range",
+                   Parameters::sparse_trackers_coarse_longest_free_range());
   region.PrintI64("min_hot_access_hint",
                   static_cast<int>(Parameters::min_hot_access_hint()));
 
