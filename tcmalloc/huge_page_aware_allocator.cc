@@ -18,6 +18,7 @@
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/arena.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
@@ -144,6 +145,10 @@ void StaticForwarder::Back(Range r) {
 
 bool StaticForwarder::ReleasePages(Range r) {
   return tc_globals.system_allocator().Release(r.start_addr(), r.in_bytes());
+}
+
+void StaticForwarder::ReportDoubleFree(void* ptr) {
+  ::tcmalloc::tcmalloc_internal::ReportDoubleFree(tc_globals, ptr);
 }
 
 }  // namespace huge_page_allocator_internal

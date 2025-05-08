@@ -116,6 +116,9 @@ class StaticForwarder {
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
           ABSL_ATTRIBUTE_NONNULL();
 
+  // Error reporting
+  [[noreturn]] static void ReportDoubleFree(void* ptr);
+
   // SystemAlloc state.
   [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
                                                   MemoryTag tag);
@@ -810,7 +813,9 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(AllocationState s) {
     TC_ASSERT_EQ(GetTracker(last), nullptr);
   } else {
     pt = GetTracker(last);
-    TC_CHECK_NE(pt, nullptr);
+    if (ABSL_PREDICT_FALSE(pt == nullptr)) {
+      forwarder_.ReportDoubleFree(p.start_addr());
+    }
     TC_ASSERT(pt->was_donated());
     // We put the slack into the filler (see AllocEnormous.)
     // Handle this page separately as a virtual allocation

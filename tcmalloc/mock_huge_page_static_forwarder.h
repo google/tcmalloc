@@ -176,6 +176,10 @@ class FakeStaticForwarder {
     return release_succeeds_;
   }
 
+  [[noreturn]] void ReportDoubleFree(void* ptr) {
+    TC_BUG("Double free of %p", ptr);
+  }
+
  private:
   static absl::base_internal::LowLevelAlloc::Arena* ll_arena() {
     ABSL_CONST_INIT static absl::base_internal::LowLevelAlloc::Arena* a;
