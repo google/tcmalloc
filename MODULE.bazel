@@ -29,11 +29,10 @@ bazel_dep(name = "fuzztest", version = "20241028.0", dev_dependency = True, repo
 bazel_dep(name = "google_benchmark", version = "1.9.2", dev_dependency = True, repo_name = "com_github_google_benchmark")
 bazel_dep(name = "googletest", version = "1.13.0", dev_dependency = True, repo_name = "com_google_googletest")
 bazel_dep(name = "rules_fuzzing", version = "0.5.2", dev_dependency = True)
+
 bazel_dep(name = "toolchains_llvm", version = "1.4.0")
-
-bazel_dep(name = "rules_rust", version = "0.59.2")
-bazel_dep(name = "rules_rust_bindgen", version = "0.59.2")
-
+bazel_dep(name = "rules_rust", version = "0.61.0")
+bazel_dep(name = "rules_rust_bindgen", version = "0.61.0")
 
 # Configure and register the toolchain.
 # https://github.com/bazel-contrib/toolchains_llvm/blob/master/toolchain/internal/llvm_distributions.bzl
@@ -42,8 +41,8 @@ llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm", 
 # LLVM toolchain.
 llvm.toolchain(
     name = "llvm_toolchain",
-    llvm_version = "17.0.6",
     cxx_standard = {"": "c++17"},
+    llvm_version = "17.0.6",
 )
 use_repo(llvm, "llvm_toolchain", "llvm_toolchain_llvm")
 
@@ -60,6 +59,7 @@ register_toolchains(
     "@rust_toolchains//:all",
     dev_dependency = True,
 )
+
 register_toolchains(
     "//:default_bindgen_toolchain",
     dev_dependency = True,
