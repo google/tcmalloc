@@ -15,15 +15,44 @@
 #ifndef TCMALLOC_MALLOC_HOOK_H_
 #define TCMALLOC_MALLOC_HOOK_H_
 
+#include <ostream>
+
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
+
 namespace tcmalloc {
+
+// Enum to control how a hook can access the memory.
+enum class HookMemoryMutable : bool {
+  kImmutable,
+  kMutable,
+};
 
 class MallocHook final {
  public:
+  struct NewInfo final {
+    // Pointer to the allocated memory.
+    void* ptr = nullptr;
+    // Requested allocation size.
+    size_t requested_size = 0;
+    // Actual allocation size, if implemented by the allocator. Defaults to 0.
+    size_t allocated_size = 0;
+    // Allow a hook to modify the memory.
+    HookMemoryMutable is_mutable;
+  };
+
+  struct DeleteInfo final {
+    // Pointer to the deallocated memory.
+    void* ptr = nullptr;
+    // Size of the allocated memory.
+    size_t allocated_size = 0;
+    // Allow a hook to modify the memory.
+    HookMemoryMutable is_mutable;
+  };
+
   // The SampledNewHook is invoked for some subset of object allocations
   // according to the sampling policy of an allocator such as tcmalloc.
   // SampledAlloc has the following fields:
@@ -87,5 +116,10 @@ class MallocHook final {
 
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
+
+inline std::ostream& operator<<(std::ostream& os,
+                                const tcmalloc::MallocHook::AllocHandle& h) {
+  return os << static_cast<int64_t>(h);
+}
 
 #endif  // TCMALLOC_MALLOC_HOOK_H_

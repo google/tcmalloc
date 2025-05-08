@@ -160,6 +160,18 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
       static_cast<double>(weight) / (requested_size + 1);
   AllocHandle sampled_alloc_handle =
       sampled_allocation->sampled_stack.sampled_alloc_handle;
+  MallocHook::SampledAlloc sampled_alloc = {
+      .handle = sampled_alloc_handle,
+      .requested_size = requested_size,
+      .requested_alignment =
+          sampled_allocation->sampled_stack.requested_alignment,
+      .allocated_size = allocated_size,
+      .weight = allocation_estimate,
+      .stack = absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                              sampled_allocation->sampled_stack.depth),
+      .allocation_time = sampled_allocation->sampled_stack.allocation_time,
+      .ptr = ptr,
+  };
   state.sampled_allocation_recorder().Unregister(sampled_allocation);
 
   // Adjust our estimate of internal fragmentation.
@@ -173,6 +185,7 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
                  sampled_fragmentation);
     state.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
   }
+  MallocHook::InvokeSampledDeleteHook(sampled_alloc);
 
   state.deallocation_samples.ReportFree(sampled_alloc_handle);
 

@@ -477,7 +477,9 @@ TEST(SizeMapTest, Preinit) {
   }
 }
 
-TEST(SizeMapTest, CheckAssumptions) { SizeMap::CheckAssumptions(); }
+TEST(SizeMapTest, CheckAssumptions) {
+  EXPECT_TRUE(SizeMap::CheckAssumptions());
+}
 
 }  // namespace
 }  // namespace tcmalloc_internal

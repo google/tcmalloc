@@ -462,6 +462,24 @@ create_tcmalloc_testsuite(
 )
 
 create_tcmalloc_testsuite(
+    name = "sampled_hooks_test",
+    srcs = ["sampled_hooks_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":testutil",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
     name = "memory_errors_test",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -915,12 +933,14 @@ create_tcmalloc_testsuite(
         ":test_allocator_harness",
         ":thread_manager",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:profile_builder",
         "//tcmalloc/internal:profile_cc_proto",
         "//tcmalloc/internal:sampled_allocation",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:check",

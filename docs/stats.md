@@ -187,6 +187,15 @@ The enabled experiments are reported as part of the statistics.
 MALLOC EXPERIMENTS: TCMALLOC_TEMERAIRE=0 TCMALLOC_TEMERAIRE_WITH_SUBRELEASE_V3=0
 ```
 
+### Hooks
+
+The state of TCMalloc hooks is reported.
+
+```
+MALLOC HOOKS: NEW=0 DELETE=0 SAMPLED_NEW=0 SAMPLED_DELETE=0
+
+```
+
 ### Actual Memory Footprint
 
 The output also reports the memory size information recorded by the OS:

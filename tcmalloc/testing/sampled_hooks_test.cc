@@ -73,7 +73,9 @@ void TestSampledNewHook(const MallocHook::SampledAlloc& sampled_alloc) {
   last_alloc_time = sampled_alloc.allocation_time;
 }
 
-void TestSampledDeleteHook(MallocHook::SampledAlloc& sampled_alloc) {
+void TestSampledDeleteHook(
+    const
+    MallocHook::SampledAlloc& sampled_alloc) {
   if (hooks_enabled) {
     ++num_delete_hook_calls;
   }
@@ -114,12 +116,12 @@ class SampledHooksTest : public ::testing::Test {
   }
   void Deallocate(void* p, size_t bytes) {
     hooks_enabled = true;
-    ::operator delete(p, bytes);
+    sized_delete(p, bytes);
     hooks_enabled = false;
   }
   void DeallocateAligned(void* p, size_t bytes, size_t alignment) {
     hooks_enabled = true;
-    ::operator delete(p, bytes, std::align_val_t(alignment));
+    sized_aligned_delete(p, bytes, std::align_val_t(alignment));
     hooks_enabled = false;
   }
 };

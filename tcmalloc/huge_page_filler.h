@@ -733,8 +733,9 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   bool was_released = false;
   const AccessDensityPrediction type = span_alloc_info.density;
   do {
-    pt = regular_alloc_[type].GetLeast(
-        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1));
+    const size_t listindex =
+        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1);
+    pt = regular_alloc_[type].GetLeast(listindex);
     if (pt) {
       TC_ASSERT(!pt->donated());
       break;
@@ -745,8 +746,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
         break;
       }
     }
-    pt = regular_alloc_partial_released_[type].GetLeast(
-        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1));
+    pt = regular_alloc_partial_released_[type].GetLeast(listindex);
     if (pt) {
       TC_ASSERT(!pt->donated());
       was_released = true;
@@ -754,8 +754,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
       n_used_partial_released_[type] -= pt->used_pages();
       break;
     }
-    pt = regular_alloc_released_[type].GetLeast(
-        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1));
+    pt = regular_alloc_released_[type].GetLeast(listindex);
     if (pt) {
       TC_ASSERT(!pt->donated());
       was_released = true;
@@ -1297,7 +1296,6 @@ class UsageInfo {
     if (free >= kLowOccupancyNumFreePages) {
       ++low_occupancy_lifetime_histo_[which][LifetimeBucketNum(lifetime)];
     }
-
 
     if (IsHugepageBacked(pt, pageflags)) {
       ++hugepage_backed_[which];

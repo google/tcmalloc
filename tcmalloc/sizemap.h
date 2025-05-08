@@ -176,7 +176,9 @@ class SizeMap {
 
   // Checks assumptions used to generate the current size classes.
   // Prints any wrong assumptions to stderr.
-  static void CheckAssumptions();
+  //
+  // Returns true if all assumptions are correct, else returns false.
+  [[nodiscard]] static bool CheckAssumptions();
 
   // constexpr constructor to guarantee zero-initialization at compile-time.  We
   // rely on Init() to populate things.
@@ -202,8 +204,13 @@ class SizeMap {
   // TODO(b/171978365): Replace the output parameter with returning
   // absl::optional<uint32_t>.
   template <typename Policy>
-  ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool GetSizeClass(
-      Policy policy, size_t size, size_t* size_class) const {
+  // clang does not correctly optimize out the array bounds check,
+  // leading to high overhead. Disable UBSan to avoid the performance
+  // regression.
+  // TODO(b/323587189): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
+  // optimizes out the array bounds check.
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool
+  GetSizeClass(Policy policy, size_t size, size_t* size_class) const {
     const size_t align = policy.align();
     TC_ASSERT(absl::has_single_bit(align));
 
@@ -262,6 +269,13 @@ class SizeMap {
 
   // Get the byte-size for a specified class. REQUIRES: size_class <=
   // kNumClasses.
+  //
+  // clang does not correctly optimize out the array bounds check,
+  // leading to high overhead. Disable UBSan to avoid the performance
+  // regression.
+  // TODO(b/323587189): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
+  // optimizes out the array bounds check.
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_size(
       size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);

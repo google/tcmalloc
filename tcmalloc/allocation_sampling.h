@@ -187,6 +187,7 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
   // A span must be provided or created by this point.
   TC_ASSERT_NE(span, nullptr);
 
+  // TODO(b/414876446): Add entropy to the handles generated.
   stack_trace.sampled_alloc_handle =
       AllocHandle(state.sampled_alloc_handle_generator.fetch_add(
                       1, std::memory_order_relaxed) +
@@ -207,6 +208,20 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
     state.sampled_internal_fragmentation_.Add(
         allocation_estimate * (stack_trace.allocated_size - requested_size));
   }
+
+  MallocHook::SampledAlloc sampled_alloc = {
+      .handle = stack_trace.sampled_alloc_handle,
+      .requested_size = stack_trace.requested_size,
+      .requested_alignment = stack_trace.requested_alignment,
+      .allocated_size = stack_trace.allocated_size,
+      .weight = allocation_estimate,
+      .stack = absl::MakeSpan(stack_trace.stack, stack_trace.depth),
+      .allocation_time = stack_trace.allocation_time,
+      .ptr = (alloc_with_status.alloc != nullptr)
+                 ? alloc_with_status.alloc
+                 : stack_trace.span_start_address,
+  };
+  MallocHook::InvokeSampledNewHook(sampled_alloc);
 
   state.allocation_samples.ReportMalloc(stack_trace);
 

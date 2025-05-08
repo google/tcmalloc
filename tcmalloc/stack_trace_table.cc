@@ -79,6 +79,7 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   s->sample.requested_alignment = t.requested_alignment;
   s->sample.requested_size_returning = t.requested_size_returning;
   s->sample.allocated_size = allocated_size;
+  s->sample.alloc_handle = t.sampled_alloc_handle;
   s->sample.access_hint = static_cast<hot_cold_t>(t.access_hint);
   s->sample.access_allocated = t.cold_allocated ? Profile::Sample::Access::Cold
                                                 : Profile::Sample::Access::Hot;
