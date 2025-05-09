@@ -491,8 +491,8 @@ class HugePageFiller {
   const CollapseStats& GetCollapseStats() const { return collapse_stats_; };
 
   HugePageFillerStats GetStats() const;
-  void Print(Printer& out, bool everything);
-  void PrintInPbtxt(PbtxtRegion& hpaa) const;
+  void Print(Printer& out, bool everything, PageFlagsBase& pageflags);
+  void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags) const;
 
   template <typename F>
   void ForEachHugePage(const F& func)
@@ -1437,7 +1437,7 @@ class UsageInfo {
   }
 
   template <class TrackerType>
-  bool IsHugepageBacked(const TrackerType& tracker, PageFlags& pageflags) {
+  bool IsHugepageBacked(const TrackerType& tracker, PageFlagsBase& pageflags) {
     void* addr = tracker.location().start_addr();
     // TODO(b/28093874): Investigate if pageflags may be queried without
     // pageheap_lock.
@@ -1452,7 +1452,7 @@ class UsageInfo {
   }
 
   template <class TrackerType>
-  void Record(const TrackerType& pt, PageFlags& pageflags, Type which,
+  void Record(const TrackerType& pt, PageFlagsBase& pageflags, Type which,
               double clock_now, double clock_frequency) {
     TC_ASSERT_LT(which, kNumTypes);
     const Length free = kPagesPerHugePage - pt.used_pages();
@@ -1916,7 +1916,8 @@ inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything) {
+inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
+                                               PageFlagsBase& pageflags) {
   out.printf("HugePageFiller: densely pack small requests into hugepages\n");
   const HugePageFillerStats stats = GetStats();
 
@@ -1999,7 +2000,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything) {
   UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
-  PageFlags pageflags;
+
   donated_alloc_.Iter(
       [&](const TrackerType& pt) {
         usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency);
@@ -2075,7 +2076,8 @@ inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion& hpaa) const {
+inline void HugePageFiller<TrackerType>::PrintInPbtxt(
+    PbtxtRegion& hpaa, PageFlagsBase& pageflags) const {
   const HugePageFillerStats stats = GetStats();
 
   // A donated alloc full list is impossible because it would have never been
@@ -2144,7 +2146,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion& hpaa) const {
   UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
-  PageFlags pageflags;
+
   donated_alloc_.Iter(
       [&](const TrackerType& pt) {
         usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency);

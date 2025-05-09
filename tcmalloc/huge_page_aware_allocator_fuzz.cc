@@ -33,6 +33,7 @@
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
@@ -362,9 +363,10 @@ void FuzzHPAA(const std::string& s) {
           //
           // value is unused.
           Printer p(&output[0], output.size());
+          PageFlags pageflags;
           {
             PbtxtRegion region(p, kTop);
-            allocator.PrintInPbtxt(region);
+            allocator.PrintInPbtxt(region, pageflags);
           }
           CHECK_LE(p.SpaceRequired(), output.size());
           break;
@@ -374,9 +376,10 @@ void FuzzHPAA(const std::string& s) {
           //
           // value[0]: Choose if we print everything.
           // value[63:1]: Reserved.
+          PageFlags pageflags;
           Printer p(&output[0], output.size());
           bool everything = (value % 2 == 0);
-          allocator.Print(p, everything);
+          allocator.Print(p, everything, pageflags);
           break;
         }
         case 6: {

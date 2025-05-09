@@ -58,6 +58,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -274,7 +275,8 @@ class HugePageAwareAllocatorTest
     const size_t kSize = 1 << 20;
     ret.resize(kSize);
     Printer p(&ret[0], kSize);
-    allocator_->Print(p);
+    PageFlags pageflags;
+    allocator_->Print(p, pageflags);
     ret.erase(p.SpaceRequired());
     return ret;
   }
@@ -283,10 +285,11 @@ class HugePageAwareAllocatorTest
     std::string ret;
     const size_t kSize = 1 << 20;
     ret.resize(kSize);
+    PageFlags pageflags;
     Printer p(&ret[0], kSize);
     {
       PbtxtRegion region(p, kNested);
-      allocator_->PrintInPbtxt(region);
+      allocator_->PrintInPbtxt(region, pageflags);
     }
     ret.erase(p.SpaceRequired());
     return ret;
@@ -1181,8 +1184,9 @@ TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
 
   constexpr size_t kBufferSize = 1024 * 1024;
   char buffer[kBufferSize];
+  PageFlags pageflags;
   Printer printer(buffer, kBufferSize);
-  allocator_->Print(printer);
+  allocator_->Print(printer, pageflags);
   // Verify that we have less free memory than we allocated in total. We have
   // to account for bytes tied up in the cache.
   EXPECT_LE(stats.free_bytes - allocator_->cache()->size().in_bytes(),

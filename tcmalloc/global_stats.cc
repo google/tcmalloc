@@ -36,6 +36,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
@@ -491,14 +492,15 @@ void DumpStats(Printer& out, int level) {
       tc_globals.cpu_cache().Print(out);
     }
 
-    tc_globals.page_allocator().Print(out, MemoryTag::kNormal);
+    PageFlags pageflags;
+    tc_globals.page_allocator().Print(out, MemoryTag::kNormal, pageflags);
     if (tc_globals.numa_topology().active_partitions() > 1) {
-      tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1);
+      tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1, pageflags);
     }
-    tc_globals.page_allocator().Print(out, MemoryTag::kSampled);
-    tc_globals.page_allocator().Print(out, MemoryTag::kCold);
+    tc_globals.page_allocator().Print(out, MemoryTag::kSampled, pageflags);
+    tc_globals.page_allocator().Print(out, MemoryTag::kCold, pageflags);
     if (selsan::IsEnabled()) {
-      tc_globals.page_allocator().Print(out, MemoryTag::kSelSan);
+      tc_globals.page_allocator().Print(out, MemoryTag::kSelSan, pageflags);
     }
     tc_globals.guardedpage_allocator().Print(out);
     selsan::PrintTextStats(out);
@@ -715,14 +717,20 @@ void DumpStatsInPbtxt(Printer& out, int level) {
       tc_globals.cpu_cache().PrintInPbtxt(region);
     }
   }
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormal);
+
+  PageFlags pageflags;
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormal,
+                                           pageflags);
   if (tc_globals.numa_topology().active_partitions() > 1) {
-    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormalP1);
+    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormalP1,
+                                             pageflags);
   }
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled);
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold);
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled,
+                                           pageflags);
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold, pageflags);
   if (selsan::IsEnabled()) {
-    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSelSan);
+    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSelSan,
+                                             pageflags);
   }
   // We do not collect tracking information in pbtxt.
 

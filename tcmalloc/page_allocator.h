@@ -32,6 +32,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
@@ -94,8 +95,10 @@ class PageAllocator {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prints stats about the page heap to *out.
-  void Print(Printer& out, MemoryTag tag) ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  void PrintInPbtxt(PbtxtRegion& region, MemoryTag tag)
+  void Print(Printer& out, MemoryTag tag, PageFlagsBase& pageflags)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void PrintInPbtxt(PbtxtRegion& region, MemoryTag tag,
+                    PageFlagsBase& pageflags)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   enum LimitKind { kSoft, kHard, kNumLimits };
@@ -333,7 +336,8 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
   return stats;
 }
 
-inline void PageAllocator::Print(Printer& out, MemoryTag tag) {
+inline void PageAllocator::Print(Printer& out, MemoryTag tag,
+                                 PageFlagsBase& pageflags) {
   if (tag == MemoryTag::kCold && !has_cold_impl_) {
     return;
   }
@@ -345,13 +349,14 @@ inline void PageAllocator::Print(Printer& out, MemoryTag tag) {
   if (tag != MemoryTag::kNormal) {
     out.printf("\n>>>>>>> Begin %s page allocator <<<<<<<\n", label);
   }
-  impl(tag)->Print(out);
+  impl(tag)->Print(out, pageflags);
   if (tag != MemoryTag::kNormal) {
     out.printf(">>>>>>> End %s page allocator <<<<<<<\n", label);
   }
 }
 
-inline void PageAllocator::PrintInPbtxt(PbtxtRegion& region, MemoryTag tag) {
+inline void PageAllocator::PrintInPbtxt(PbtxtRegion& region, MemoryTag tag,
+                                        PageFlagsBase& pageflags) {
   if (tag == MemoryTag::kCold && !has_cold_impl_) {
     return;
   }
@@ -361,7 +366,7 @@ inline void PageAllocator::PrintInPbtxt(PbtxtRegion& region, MemoryTag tag) {
 
   PbtxtRegion pa = region.CreateSubRegion("page_allocator");
   pa.PrintRaw("tag", MemoryTagToLabel(tag));
-  impl(tag)->PrintInPbtxt(pa);
+  impl(tag)->PrintInPbtxt(pa, pageflags);
 }
 
 inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {

@@ -34,6 +34,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/metadata_allocator.h"
 #include "tcmalloc/metadata_object_allocator.h"
@@ -207,13 +208,15 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
   // Prints stats about the page heap to *out.
-  void Print(Printer& out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+  void Print(Printer& out, PageFlagsBase& pageflags)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Print stats to *out, excluding long/likely uninteresting things
   // unless <everything> is true.
-  void Print(Printer& out, bool everything) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void Print(Printer& out, bool everything, PageFlagsBase& pageflags)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  void PrintInPbtxt(PbtxtRegion& region)
+  void PrintInPbtxt(PbtxtRegion& region, PageFlagsBase& pageflags)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   BackingStats FillerStats() const
@@ -1054,13 +1057,15 @@ inline static void BreakdownStatsInPbtxt(PbtxtRegion& hpaa,
 
 // public
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out) {
-  Print(out, true);
+inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
+                                                     PageFlagsBase& pageflags) {
+  Print(out, true, pageflags);
 }
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
-                                                     bool everything) {
+                                                     bool everything,
+                                                     PageFlagsBase& pageflags) {
   SmallSpanStats small;
   LargeSpanStats large;
   BackingStats bstats;
@@ -1100,7 +1105,7 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
   // Component debug output
   // Filler is by far the most important; print (some) of it
   // unconditionally.
-  filler_.Print(out, everything);
+  filler_.Print(out, everything, pageflags);
   out.printf("\n");
   if (everything) {
     regions_.Print(out);
@@ -1120,7 +1125,7 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
-    PbtxtRegion& region) {
+    PbtxtRegion& region, PageFlagsBase& pageflags) {
   SmallSpanStats small;
   LargeSpanStats large;
   PageHeapSpinLockHolder l;
@@ -1153,7 +1158,7 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
 
     BreakdownStatsInPbtxt(hpaa, astats, "alloc_usage");
 
-    filler_.PrintInPbtxt(hpaa);
+    filler_.PrintInPbtxt(hpaa, pageflags);
     regions_.PrintInPbtxt(hpaa);
     cache_.PrintInPbtxt(hpaa);
     alloc_.PrintInPbtxt(hpaa);

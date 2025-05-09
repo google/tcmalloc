@@ -21,6 +21,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -92,10 +93,11 @@ class PageAllocatorInterface {
   virtual void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.
-  virtual void Print(Printer& out) ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
+  virtual void Print(Printer& out, PageFlagsBase& pageflags)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap in pbtxt format.
-  virtual void PrintInPbtxt(PbtxtRegion& region)
+  virtual void PrintInPbtxt(PbtxtRegion& region, PageFlagsBase& pageflags)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   const PageAllocInfo& info() const
