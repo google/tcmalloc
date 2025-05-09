@@ -89,6 +89,8 @@ TEST_F(GuardedPageAllocatorTest, SingleAllocDealloc) {
   char* buf = static_cast<char*>(alloc_with_status.alloc);
   EXPECT_NE(buf, nullptr);
   EXPECT_TRUE(gpa_.PointerIsMine(buf));
+  EXPECT_TRUE(gpa_.PointerIsCorrectlyAligned(buf));
+  EXPECT_FALSE(gpa_.PointerIsCorrectlyAligned(buf + 1));
   memset(buf, 'A', PageSize());
   EXPECT_DEATH(buf[-1] = 'A', "");
   EXPECT_DEATH(buf[PageSize()] = 'A', "");

@@ -661,25 +661,22 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
     ReportDoubleFree(tc_globals, ptr);
   }
 
+  auto& gwp_asan = tc_globals.guardedpage_allocator();
+  const bool is_gwp_asan_ptr = gwp_asan.PointerIsMine(ptr);
+
   MaybeUnsampleAllocation(tc_globals, ptr, size, *span);
 
-  if (ABSL_PREDICT_FALSE(
-          tc_globals.guardedpage_allocator().PointerIsMine(ptr))) {
-    tc_globals.guardedpage_allocator().Deallocate(ptr);
+  if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
+    gwp_asan.Deallocate(ptr);
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     Span::Delete(span);
   } else {
-    // TODO(b/404341539): Cover guarded deallocations as well.
-    //
-    // Naively, right-aligned objects will fail this test even though they are
-    // correct for GWP-ASan purposes.
     if (ABSL_PREDICT_FALSE(ptr != span->start_address())) {
       ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
                           ptr);
     }
-
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
     tc_globals.page_allocator().Delete(span, GetMemoryTag(ptr));

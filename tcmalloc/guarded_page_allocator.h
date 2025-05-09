@@ -176,6 +176,13 @@ class GuardedPageAllocator {
     return pages_base_addr_ <= addr && addr < pages_end_addr_;
   }
 
+  [[nodiscard]] inline bool PointerIsCorrectlyAligned(const void* ptr) const {
+    const uintptr_t addr = absl::bit_cast<uintptr_t>(ptr);
+    size_t slot = GetNearestSlot(addr);
+    const SlotMetadata& metadata = data_[slot];
+    return metadata.allocation_start == addr;
+  }
+
   // Allows Allocate() to start returning allocations.
   void AllowAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock_) {
     AllocationGuardSpinLockHolder h(&guarded_page_lock_);

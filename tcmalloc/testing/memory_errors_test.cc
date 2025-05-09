@@ -761,11 +761,7 @@ TEST_F(TcMallocTest, CorruptedPointer) {
        }) {
     SCOPED_TRACE(absl::StrCat("sampled=", sampled));
 
-    for (const bool guarded : {
-#ifdef NDEBUG
-             true,
-#endif
-             false}) {
+    for (const bool guarded : {true, false}) {
       SCOPED_TRACE(absl::StrCat("guarded=", guarded));
       if (!sampled && guarded) {
         continue;
