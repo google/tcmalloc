@@ -887,7 +887,7 @@ cc_test(
 
 cc_test(
     name = "huge_page_filler_test",
-    timeout = "eternal",
+    timeout = "long",
     srcs = ["huge_page_filler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
