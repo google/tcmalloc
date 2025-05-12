@@ -368,7 +368,7 @@ TEST_P(SampledAllocationWithFilterTest, SizedNewMismatchedSizeDelete) {
   const auto& filter = GetParam();
 
   for (int i = 0; i < kIter; ++i) {
-    auto sized_ptr = tcmalloc_size_returning_operator_new(1000);
+    auto sized_ptr = __size_returning_new(1000);
     auto deleter = [](void* ptr) { ::operator delete(ptr); };
     std::unique_ptr<void, decltype(deleter)> ptr(sized_ptr.p, deleter);
     if (!filter(ptr.get())) continue;

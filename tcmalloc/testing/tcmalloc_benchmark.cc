@@ -81,7 +81,7 @@ static void BM_size_returning_new_delete(benchmark::State& state) {
   const int arg = state.range(0);
 
   for (auto s : state) {
-    sized_ptr_t res = tcmalloc_size_returning_operator_new(arg);
+    sized_ptr_t res = __size_returning_new(arg);
     ::operator delete(res.p, res.n);
   }
 }
