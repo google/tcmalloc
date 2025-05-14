@@ -1487,6 +1487,18 @@ TEST_P(FillerTest, CoarseLongestFreeRangeUsesSameHugePageForSmallAllocs) {
   ASSERT_TRUE(Delete(p1));
 }
 
+TEST_P(FillerTest, CoarseLongestFreeRangeUsesSameHugepagesForAlignedAllocs) {
+  SpanAllocInfo info;
+  info.objects_per_span = 1;
+  info.density = AccessDensityPrediction::kSparse;
+  PAlloc p1 = AllocateWithSpanAllocInfo(Length(kPagesPerHugePage / 2), info);
+  PAlloc p2 = AllocateWithSpanAllocInfo(Length(kPagesPerHugePage / 2), info);
+  // p1.pt has sufficient number of pages to satisfy p2.  p1.pt will be used
+  // irrespective of the type of longest free range indexing in use.
+  ASSERT_EQ(p1.pt, p2.pt);
+  ASSERT_FALSE(Delete(p2));
+  ASSERT_TRUE(Delete(p1));
+}
 // The same allocations result in different hugepages being used for allocation.
 TEST_P(FillerTest,
        CoarseLongestFreeRangeChoosesHugePageFromHigherBinForLargeAllocs) {

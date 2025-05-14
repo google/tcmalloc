@@ -2284,11 +2284,18 @@ inline std::optional<size_t> HugePageFiller<TrackerType>::SparseListFor(
   // with free range from 32-39 as this range also contains hugepages with
   // longest free range of 32, 33 and 34.  Those hugepages cannot satisfy the
   // allocation to be made.
+  // On the other hand, if the requested longest free range is 32, we do not
+  // need to return a larger index, as all the trackers in 32-39 bin may
+  // satisfy the request. Generally speaking, when longest.raw_num() is a
+  // multiple of kCoarseLFRRange, we do not need to return a larger index.
   //
   // For other operations, we need to return the exact bucket for hugepages with
   // free range of length 'longest'.
-  const int target = longest.raw_num() +
-                     (op == LFRRequirement::kLongerLFR ? kCoarseLFRRange : 0);
+  const bool use_larger_index =
+      (op == LFRRequirement::kLongerLFR) &&
+      (absl::countr_zero(longest.raw_num()) < kCoarseLFRShift);
+  const int target =
+      longest.raw_num() + (use_larger_index ? kCoarseLFRRange : 0);
   if (target >= kPagesPerHugePage.raw_num()) {
     return std::nullopt;
   }
