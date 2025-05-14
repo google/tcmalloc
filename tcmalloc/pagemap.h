@@ -144,12 +144,23 @@ class PageMap2 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // Requires that the span is known to already exist.
+  //
+  // ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED is to disable array-bounds sanitizer.
+  // This function is hot, and we can manually prove the array accesses.
+  //
+  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
+  // optimizes out the array bounds check.
   std::pair<Span*, int> get_existing_with_sizeclass(Number k) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+      ABSL_NO_THREAD_SAFETY_ANALYSIS ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
+    // This is a static_assert to ensure that the index into root_ is within
+    // bounds. The index into span_and_sizeclass is trivially within bounds,
+    // because kLeafLength = 1 << kLeafBits, and i2 masks to kLeafLength - 1
+    // bits.
+    static_assert((((Number(1) << BITS) - 1) >> kLeafBits) < kRootLength);
     PackedSpanAndSizeclass span_and_sizeclass =
         root_[i1]->span_and_sizeclass[i2];
     return std::make_pair(span_and_sizeclass.span(),
@@ -349,14 +360,25 @@ class PageMap3 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // Requires that the span is known to already exist.
+  //
+  // ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED is to disable array-bounds sanitizer.
+  // This function is hot, and we can manually prove the array accesses.
+  //
+  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
+  // optimizes out the array bounds check.
   std::pair<Span*, int> get_existing_with_sizeclass(Number k) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+      ABSL_NO_THREAD_SAFETY_ANALYSIS ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
     TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
     TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
+    // This is a static_assert to ensure that the index into root_ is within
+    // bounds. The index into leafs and span_and_sizeclass are trivially
+    // within bounds, because i2 and i3 mask to the correct number of bits.
+    static_assert((((Number(1) << BITS) - 1) >> (kLeafBits + kMidBits)) <
+                  kRootLength);
     PackedSpanAndSizeclass span_and_sizeclass =
         root_[i1]->leafs[i2]->span_and_sizeclass[i3];
 
