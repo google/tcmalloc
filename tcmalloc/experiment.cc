@@ -62,11 +62,6 @@ bool HasBrittleTestFailures(Experiment exp) {
     return true;
   }
 
-  // TODO(b/368054442): Remove this once test flakiness is fixed.
-  if (exp == Experiment::TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS) {
-    return true;
-  }
-
   return false;
 }
 
