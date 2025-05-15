@@ -207,7 +207,7 @@ class SizeMap {
   // clang does not correctly optimize out the array bounds check,
   // leading to high overhead. Disable UBSan to avoid the performance
   // regression.
-  // TODO(b/323587189): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
+  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
   ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool
   GetSizeClass(Policy policy, size_t size, size_t* size_class) const {
@@ -273,7 +273,7 @@ class SizeMap {
   // clang does not correctly optimize out the array bounds check,
   // leading to high overhead. Disable UBSan to avoid the performance
   // regression.
-  // TODO(b/323587189): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
+  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
   ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_size(
