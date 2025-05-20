@@ -157,7 +157,6 @@ void BM_TrySample(benchmark::State& state) {
         TC_CHECK_NE(alloc.status, GuardedStatus::LargerThanOnePage);
         TC_CHECK_NE(alloc.status, GuardedStatus::Disabled);
         TC_CHECK_NE(alloc.status, GuardedStatus::MProtectFailed);
-        TC_CHECK_NE(alloc.status, GuardedStatus::TooSmall);
         break;
     }
     TC_CHECK_EQ(alloc.alloc, nullptr);

@@ -189,9 +189,9 @@ class Profile final {
       // Too many guards have been placed, any further guards will cause
       // unexpected load on binary.
       RateLimited = -3,
-      // The requested_size of the allocation sample is too small (= 0) to be
-      // guarded.
-      TooSmall = -4,
+      // The requested_size of the allocation sample is too small (= 0). Will be
+      // removed in future.
+      TooSmall ABSL_DEPRECATED("Unused") = -4,
       // Too many samples are already guarded.
       NoAvailableSlots = -5,
       // Perhaps the only true error, when the mprotect call fails.

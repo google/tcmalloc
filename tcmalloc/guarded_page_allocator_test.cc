@@ -228,6 +228,47 @@ TEST_F(GuardedPageAllocatorTest, Print) {
   EXPECT_THAT(buf, testing::ContainsRegex("GWP-ASan Status"));
 }
 
+TEST_F(GuardedPageAllocatorTest, ZeroByteAllocationAndDeallocation) {
+  auto alloc_with_status = gpa_.Allocate(0, 0, GetStackTrace());
+  EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  EXPECT_NE(alloc_with_status.alloc, nullptr);
+  void* ptr = alloc_with_status.alloc;
+
+  EXPECT_TRUE(gpa_.PointerIsMine(ptr));
+  EXPECT_EQ(gpa_.GetRequestedSize(ptr), 0);
+  EXPECT_TRUE(gpa_.PointerIsCorrectlyAligned(ptr));
+
+  // Any attempt to dereference a zero-byte allocation should crash,
+  // as the page is never made writable.
+  EXPECT_DEATH(static_cast<char*>(ptr)[0] = 'A', "");
+
+  gpa_.Deallocate(ptr);
+  EXPECT_EQ(gpa_.successful_allocations(), 1);
+}
+
+TEST_F(GuardedPageAllocatorTest, ZeroByteUseAfterFree) {
+  auto alloc_with_status = gpa_.Allocate(0, 0, GetStackTrace());
+  EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  ASSERT_NE(alloc_with_status.alloc, nullptr);
+  void* ptr = alloc_with_status.alloc;
+
+  EXPECT_EQ(gpa_.GetRequestedSize(ptr), 0);
+  gpa_.Deallocate(ptr);
+
+  // Use-after-free on a zero-byte allocation should crash.
+  EXPECT_DEATH(static_cast<char*>(ptr)[0] = 'B', "");
+}
+
+TEST_F(GuardedPageAllocatorTest, ZeroByteDoubleFree) {
+  auto alloc_with_status = gpa_.Allocate(0, 0, GetStackTrace());
+  EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  ASSERT_NE(alloc_with_status.alloc, nullptr);
+  void* ptr = alloc_with_status.alloc;
+
+  gpa_.Deallocate(ptr);
+  EXPECT_DEATH(gpa_.Deallocate(ptr), "");
+}
+
 // Test that no pages are double-allocated or left unallocated, and that no
 // extra pages are allocated when there's concurrent calls to Allocate().
 TEST_F(GuardedPageAllocatorTest, ThreadedAllocCount) {

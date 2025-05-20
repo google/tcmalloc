@@ -208,6 +208,46 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
   EXPECT_DEATH(RepeatOverflow(), expected_output);
 }
 
+TEST_P(ReadWriteTcMallocTest, ZeroByteAccessDetected) {
+#if ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Test requires GWP-ASan";
+#endif  // ABSL_HAVE_ADDRESS_SANITIZER
+
+  const bool write_test = GetParam();
+  auto RepeatZeroByteAccess = [&]() {
+    for (int i = 0; i < 100000000; i++) {
+      auto buf = std::make_unique<char[]>(0);
+      benchmark::DoNotOptimize(buf);
+
+      // Ensure it's a GWP-ASan guarded allocation.
+      const auto& gpa = tc_globals.guardedpage_allocator();
+      if (gpa.PointerIsMine(buf.get())) {
+        // Ensure it's a zero-byte allocation.
+        TC_CHECK_EQ(gpa.GetRequestedSize(buf.get()), 0);
+        if (write_test) {
+          buf[123] = 'A';
+          benchmark::DoNotOptimize(buf[123]);
+        } else {
+          volatile char sink = buf[123];
+          benchmark::DoNotOptimize(sink);
+        }
+      }
+    }
+  };
+  std::string expected_output = absl::StrCat(
+      // For a zero-byte allocation, any access is an overflow of that 0-byte
+      // region.
+      "Buffer overflow ",
+#if !defined(__riscv)
+      write_test ? "\\(write\\)" : "\\(read\\)",
+#else
+      "\\(read or write: indeterminate\\)",
+#endif
+      " occurs in thread [0-9]+ at"
+  );
+  EXPECT_DEATH(RepeatZeroByteAccess(), expected_output);
+}
+
 TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
   const bool write_test = GetParam();
   auto RepeatUseAfterFree = [&]() {
