@@ -980,10 +980,9 @@ TEST(TCMallocTest, TestAliasedFunctions) {
   void (*operator_delete_array_nothrow)(void*, const std::nothrow_t&) =
       &::operator delete[];
 
-  ExpectSameAddresses(&::free, operator_delete);
-  ExpectSameAddresses(&::free, operator_delete_nothrow);
-  ExpectSameAddresses(&::free, operator_delete_array);
-  ExpectSameAddresses(&::free, operator_delete_array_nothrow);
+  ExpectSameAddresses(operator_delete, operator_delete_nothrow);
+  ExpectSameAddresses(operator_delete, operator_delete_array);
+  ExpectSameAddresses(operator_delete, operator_delete_array_nothrow);
 }
 
 // This test is extremely slow on riscv.

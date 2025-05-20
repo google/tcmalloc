@@ -708,7 +708,8 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 // would know that places that call this function with explicit 0 is
 // "have_size_class-case" and others are "!have_size_class-case". But we
 // certainly don't have such compiler. See also do_free_with_size below.
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
+template <typename Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
   // TODO(b/404341539):  Improve the bound.
   TC_ASSERT(CorrectAlignment(ptr, static_cast<std::align_val_t>(1)));
 
@@ -761,12 +762,12 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
   FreeSmall(ptr, size_class);
 }
 
-template <typename AlignPolicy>
+template <typename Policy>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
                                                            size_t size,
-                                                           AlignPolicy align) {
+                                                           Policy policy) {
   TC_ASSERT(
-      CorrectAlignment(ptr, static_cast<std::align_val_t>(align.align())));
+      CorrectAlignment(ptr, static_cast<std::align_val_t>(policy.align())));
 
   // This is an optimized path that may be taken if the binary is compiled
   // with -fsized-delete. We attempt to discover the size class cheaply
@@ -780,9 +781,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
       return;
     }
     if (ABSL_PREDICT_TRUE(IsSelSanMemory(ptr))) {
-      TC_ASSERT(CorrectSize(ptr, size, align));
+      TC_ASSERT(CorrectSize(ptr, size, policy));
       size_t size_class = tc_globals.sizemap().SizeClass(
-          CppPolicy().AlignAs(align.align()).InSameNumaPartitionAs(ptr), size);
+          policy.InSameNumaPartitionAs(ptr), size);
       size = tc_globals.sizemap().class_to_size(size_class);
       ptr = selsan::UpdateTag(ptr, size);
       FreeSmall(ptr, size_class);
@@ -790,12 +791,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     }
     // Outline cold path to avoid putting cold size lookup on the fast path.
     SLOW_PATH_BARRIER();
-    return free_non_normal(ptr, size, align);
+    return free_non_normal(ptr, size, policy);
   }
 
   // Mismatched-size-delete error detection for sampled memory is performed in
   // the slow path above in all builds.
-  TC_ASSERT(CorrectSize(ptr, size, align));
+  TC_ASSERT(CorrectSize(ptr, size, policy));
 
   // At this point, since ptr's tag bit is 1, it means that it
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
@@ -803,10 +804,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
   size_t size_class;
   if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
-          CppPolicy().AlignAs(align.align()).InSameNumaPartitionAs(ptr), size,
-          &size_class))) {
+          policy.InSameNumaPartitionAs(ptr), size, &size_class))) {
     // We couldn't calculate the size class, which means size > kMaxSize.
-    TC_ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
+    TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
     SLOW_PATH_BARRIER();
     return InvokeHooksAndFreePages(ptr, size);
@@ -816,8 +816,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 }
 
 // Checks that an asserted object size for <ptr> is valid.
-template <typename AlignPolicy>
-bool CorrectSize(void* ptr, const size_t provided_size, AlignPolicy align) {
+template <typename Policy>
+bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
   // provided_size == 0 means we got no hint from sized delete, so we certainly
   // don't have an incorrect one.
   //
@@ -832,8 +832,7 @@ bool CorrectSize(void* ptr, const size_t provided_size, AlignPolicy align) {
   if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
     // For guarded allocations we recorded the actual requested size.
     minimum_size = maximum_size = actual;
-  } else if (tc_globals.sizemap().GetSizeClass(
-                 CppPolicy().AlignAs(align.align()), size, &size_class)) {
+  } else if (tc_globals.sizemap().GetSizeClass(policy, size, &size_class)) {
     size = maximum_size = tc_globals.sizemap().class_to_size(size_class);
   } else {
     size = maximum_size = BytesToLengthCeil(size).in_bytes();
@@ -847,9 +846,8 @@ bool CorrectSize(void* ptr, const size_t provided_size, AlignPolicy align) {
   // Nonetheless, it is permitted to pass a size anywhere in [requested, actual]
   // to sized delete.
   if (actual > size && !IsNormalMemory(ptr)) {
-    if (tc_globals.sizemap().GetSizeClass(
-            CppPolicy().AlignAs(align.align()).AccessAsCold(), size,
-            &size_class)) {
+    if (tc_globals.sizemap().GetSizeClass(policy.AccessAsCold(), size,
+                                          &size_class)) {
       size = maximum_size = tc_globals.sizemap().class_to_size(size_class);
       if (ABSL_PREDICT_TRUE(actual == size)) {
         return true;
@@ -858,7 +856,7 @@ bool CorrectSize(void* ptr, const size_t provided_size, AlignPolicy align) {
   }
 
   if (size_class > 0) {
-    if (align.align() > static_cast<size_t>(kAlignment)) {
+    if (policy.align() > static_cast<size_t>(kAlignment)) {
       // Nontrivial alignment.  We might have used a larger size to satisify it.
       minimum_size = 0;
     } else {
@@ -1305,7 +1303,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
     // We could use a variant of do_free() that leverages the fact
     // that we already know the sizeclass of old_ptr.  The benefit
     // would be small, so don't bother.
-    do_free(old_ptr);
+    do_free(old_ptr, MallocPolicy());
     return new_ptr;
   } else {
     return old_ptr;
@@ -1318,7 +1316,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
     return fast_alloc(size, MallocPolicy());
   }
   if (size == 0) {
-    do_free(ptr);
+    do_free(ptr, MallocPolicy());
     return nullptr;
   }
   return do_realloc(ptr, size);
@@ -1334,7 +1332,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
     return fast_alloc(size, MallocPolicy());
   }
   if (size == 0) {
-    do_free(ptr);
+    do_free(ptr, MallocPolicy());
     return nullptr;
   }
   return do_realloc(ptr, size);
@@ -1374,18 +1372,18 @@ __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFree(
     void* ptr) noexcept {
-  do_free(ptr);
+  do_free(ptr, MallocPolicy());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeSized(void* ptr,
                                                                  size_t size) {
-  do_free_with_size(ptr, size, MallocAlignPolicy());
+  do_free_with_size(ptr, size, MallocPolicy());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeAlignedSized(
     void* ptr, size_t align, size_t size) {
   TC_ASSERT(absl::has_single_bit(align));
-  do_free_with_size(ptr, size, AlignAsPolicy(align));
+  do_free_with_size(ptr, size, MallocPolicy().AlignAs(align));
 }
 
 extern "C" void TCMallocInternalCfree(void* ptr) noexcept
@@ -1400,11 +1398,12 @@ extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalSdallocx(
     alignment = static_cast<size_t>(1ull << (flags & 0x3f));
   }
 
-  return do_free_with_size(ptr, size, AlignAsPolicy(alignment));
+  return do_free_with_size(ptr, size, MallocPolicy().AlignAs(alignment));
 }
 
-extern "C" void TCMallocInternalDelete(void* p) noexcept
-    TCMALLOC_ALIAS(TCMallocInternalFree);
+extern "C" void TCMallocInternalDelete(void* p) noexcept {
+  return do_free(p, CppPolicy());
+}
 
 extern "C" void TCMallocInternalDeleteAligned(
     void* p, std::align_val_t alignment) noexcept
@@ -1416,19 +1415,19 @@ extern "C" void TCMallocInternalDeleteAligned(
   // their respective aliased implementations to take advantage of checking the
   // passed-in alignment.
   TC_ASSERT(CorrectAlignment(p, alignment));
-  return TCMallocInternalDelete(p);
+  return do_free(p, CppPolicy().AlignAs(alignment));
 }
 #endif
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalDeleteSized(
     void* p, size_t size) noexcept {
-  do_free_with_size(p, size, DefaultAlignPolicy());
+  do_free_with_size(p, size, CppPolicy());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalDeleteSizedAligned(
     void* p, size_t t, std::align_val_t alignment) noexcept {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
-  return do_free_with_size(p, t, AlignAsPolicy(alignment));
+  return do_free_with_size(p, t, CppPolicy().AlignAs(alignment));
 }
 
 extern "C" void TCMallocInternalDeleteArraySized(void* p, size_t size) noexcept
@@ -1443,7 +1442,7 @@ extern "C" void TCMallocInternalDeleteArraySizedAligned(
 // But it's really the same as normal delete, so we just do the same thing.
 extern "C" void TCMallocInternalDeleteNothrow(void* p,
                                               const std::nothrow_t&) noexcept
-    TCMALLOC_ALIAS(TCMallocInternalFree);
+    TCMALLOC_ALIAS(TCMallocInternalDelete);
 
 extern "C" void TCMallocInternalDeleteAlignedNothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t&) noexcept
@@ -1465,7 +1464,7 @@ extern "C" void* TCMallocInternalNewArrayAlignedNothrow(
     TCMALLOC_ALIAS(TCMallocInternalNewAlignedNothrow);
 
 extern "C" void TCMallocInternalDeleteArray(void* p) noexcept
-    TCMALLOC_ALIAS(TCMallocInternalFree);
+    TCMALLOC_ALIAS(TCMallocInternalDelete);
 
 extern "C" void TCMallocInternalDeleteArrayAligned(
     void* p, std::align_val_t alignment) noexcept
@@ -1473,7 +1472,7 @@ extern "C" void TCMallocInternalDeleteArrayAligned(
 
 extern "C" void TCMallocInternalDeleteArrayNothrow(
     void* p, const std::nothrow_t& nt) noexcept
-    TCMALLOC_ALIAS(TCMallocInternalFree);
+    TCMALLOC_ALIAS(TCMallocInternalDelete);
 
 extern "C" void TCMallocInternalDeleteArrayAlignedNothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t& nt) noexcept
