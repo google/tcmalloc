@@ -132,9 +132,7 @@ struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionUsageOption use_huge_region_more_often = huge_region_option();
   HugePageFillerDenseTrackerType dense_tracker_type =
-      Parameters::dense_trackers_sorted_on_spans_allocated()
-          ? HugePageFillerDenseTrackerType::kSpansAllocated
-          : HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks;
+      HugePageFillerDenseTrackerType::kSpansAllocated;
   HugePageFillerSparseTrackerType sparse_tracker_type =
       Parameters::sparse_trackers_coarse_longest_free_range()
           ? HugePageFillerSparseTrackerType::kCoarseLongestFreeRange

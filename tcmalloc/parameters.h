@@ -193,7 +193,6 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
 
-  static bool dense_trackers_sorted_on_spans_allocated();
   static bool sparse_trackers_coarse_longest_free_range();
 
  private:

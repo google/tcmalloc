@@ -298,43 +298,6 @@ static bool want_disable_dynamic_slabs() {
   return default_want_disable_dynamic_slabs() > 0;
 }
 
-// TODO(b/394569259): remove the
-// default_want_disable_dense_trackers_sorted_on_spans_allocated some time after
-// 2025-03-15.
-extern "C" bool ABSL_ATTRIBUTE_WEAK
-default_want_disable_dense_trackers_sorted_on_spans_allocated();
-static bool want_dense_trackers_sorted_on_spans_allocated() {
-  if (default_want_disable_dense_trackers_sorted_on_spans_allocated !=
-      nullptr) {
-    return false;
-  }
-
-  const char* e = thread_safe_getenv(
-      "TCMALLOC_DISABLE_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED");
-
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        return true;
-      case '1':
-        return false;
-      default:
-        TC_BUG("bad env var '%s'", e);
-    }
-  }
-  return true;
-}
-
-bool Parameters::dense_trackers_sorted_on_spans_allocated() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(want_dense_trackers_sorted_on_spans_allocated(),
-            std::memory_order_relaxed);
-  });
-  return v.load(std::memory_order_relaxed);
-}
-
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
