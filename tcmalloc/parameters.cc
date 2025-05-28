@@ -114,6 +114,20 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   return v;
 }
 
+// As usermode_hugepage_collapse_enabled() is determined at runtime, we
+// cannot require constant initialization for the atomic. This avoids an
+// initialization order fiasco.
+static std::atomic<bool>& usermode_hugepage_collapse_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE)) {
+      v.store(true, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
@@ -210,9 +224,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
 // TODO(b/328440160):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_demand_based_release_(
     false);
-// TODO(b/287498389):  Remove this opt-out.
-ABSL_CONST_INIT std::atomic<bool> Parameters::usermode_hugepage_collapse_(
-    false);
 // TODO(b/123345734): Remove the flag when experimentation is done.
 ABSL_CONST_INIT std::atomic<bool> Parameters::resize_size_class_max_capacity_(
     true);
@@ -272,6 +283,10 @@ absl::Duration Parameters::cache_demand_release_short_interval() {
 absl::Duration Parameters::cache_demand_release_long_interval() {
   return absl::Nanoseconds(
       cache_demand_release_long_interval_ns().load(std::memory_order_relaxed));
+}
+
+bool Parameters::usermode_hugepage_collapse() {
+  return usermode_hugepage_collapse_enabled().load(std::memory_order_relaxed);
 }
 
 bool Parameters::sparse_trackers_coarse_longest_free_range() {
@@ -499,7 +514,8 @@ void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v) {
 }
 
 void TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v) {
-  Parameters::usermode_hugepage_collapse_.store(v, std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::usermode_hugepage_collapse_enabled().store(
+      v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v) {

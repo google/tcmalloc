@@ -130,10 +130,11 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(
       buf,
       HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
-  EXPECT_THAT(
-      buf, HasSubstr(absl::StrCat(
-               "usermode_hugepage_collapse: ",
-               Parameters::usermode_hugepage_collapse() ? "true" : "false")));
+  if (IsExperimentActive(Experiment::TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE)) {
+    EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: true"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: false"));
+  }
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   if (!IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
@@ -208,9 +209,14 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(
             R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
-    EXPECT_THAT(buf, HasSubstr(absl::StrCat(
-                         "PARAMETER tcmalloc_usermode_hugepage_collapse ",
-                         Parameters::usermode_hugepage_collapse())));
+
+    if (IsExperimentActive(Experiment::TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE)) {
+      EXPECT_THAT(
+          buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 1)"));
+    } else {
+      EXPECT_THAT(
+          buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 0)"));
+    }
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));

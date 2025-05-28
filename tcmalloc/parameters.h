@@ -98,9 +98,7 @@ class Parameters {
     return huge_region_demand_based_release_.load(std::memory_order_relaxed);
   }
 
-  static bool usermode_hugepage_collapse() {
-    return usermode_hugepage_collapse_.load(std::memory_order_relaxed);
-  }
+  static bool usermode_hugepage_collapse();
 
   static bool huge_cache_demand_based_release() {
     return huge_cache_demand_based_release_.load(std::memory_order_relaxed);
@@ -240,7 +238,6 @@ class Parameters {
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<bool> release_partial_alloc_pages_;
   static std::atomic<bool> huge_region_demand_based_release_;
-  static std::atomic<bool> usermode_hugepage_collapse_;
   static std::atomic<bool> huge_cache_demand_based_release_;
   static std::atomic<bool> release_pages_from_huge_region_;
   static std::atomic<bool> resize_size_class_max_capacity_;
