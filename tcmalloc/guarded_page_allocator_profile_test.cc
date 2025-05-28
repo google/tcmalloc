@@ -265,6 +265,20 @@ TEST_F(GuardedPageAllocatorProfileTest, ZeroSizedAllocSizeReturningNew) {
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Guarded);
 }
 
+TEST_F(GuardedPageAllocatorProfileTest, ZeroSizedAllocDeallocProfile) {
+  ScopedAlwaysSample always_sample;
+  AllocateUntilGuarded();
+  auto token = MallocExtension::StartLifetimeProfiling();
+
+  auto alloc = __size_returning_new(0);
+  ASSERT_EQ(alloc.n, 0);
+  benchmark::DoNotOptimize(alloc);
+  ::operator delete(alloc.p);
+
+  auto profile = std::move(token).Stop();
+  profile.Iterate([&](const Profile::Sample& s) {});
+}
+
 TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
   ScopedAlwaysSample always_sample;
   AllocateUntilGuarded();
