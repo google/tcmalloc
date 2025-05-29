@@ -1139,13 +1139,10 @@ void TCMalloc_Internal_SetMadvise(
 // Exported routines
 //-------------------------------------------------------------------
 
-using tcmalloc::tcmalloc_internal::AlignAsPolicy;
 using tcmalloc::tcmalloc_internal::CorrectAlignment;
-using tcmalloc::tcmalloc_internal::DefaultAlignPolicy;
 using tcmalloc::tcmalloc_internal::do_free;
 using tcmalloc::tcmalloc_internal::do_free_with_size;
 using tcmalloc::tcmalloc_internal::GetPageSize;
-using tcmalloc::tcmalloc_internal::MallocAlignPolicy;
 using tcmalloc::tcmalloc_internal::MultiplyOverflow;
 
 // depends on TCMALLOC_HAVE_STRUCT_MALLINFO, so needs to come after that.
