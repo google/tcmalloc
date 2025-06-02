@@ -269,8 +269,6 @@ static int CountAllowedCpus() {
 static absl::string_view SizeClassConfigurationString(
     SizeClassConfiguration config) {
   switch (config) {
-    case SizeClassConfiguration::kPow2Below64:
-      return "SIZE_CLASS_POW2_BELOW_64";
     case SizeClassConfiguration::kPow2Only:
       return "SIZE_CLASS_POW2_ONLY";
     case SizeClassConfiguration::kLegacy:

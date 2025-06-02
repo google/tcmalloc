@@ -44,6 +44,7 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
     GTEST_SKIP() << "cold size classes are not activated on the small page";
   }
 
+  // TODO(ckennelly): Parameterize across size class sets.
   const auto& classes = kSizeClasses.classes;
   std::vector<size_t> allowed_alloc_size;
   std::vector<size_t> expected_cold_size_classes;

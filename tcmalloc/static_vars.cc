@@ -163,8 +163,6 @@ SizeClassConfiguration Static::size_class_configuration() {
   const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
   if (e == nullptr) {
     return SizeClassConfiguration::kReuse;
-  } else if (!strcmp(e, "pow2below64")) {
-    return SizeClassConfiguration::kPow2Below64;
   } else if (!strcmp(e, "0")) {
     return SizeClassConfiguration::kReuse;
   } else {

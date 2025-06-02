@@ -64,7 +64,6 @@ using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
     SampledAllocation, MetadataObjectAllocator<SampledAllocation>>;
 
 enum class SizeClassConfiguration {
-  kPow2Below64 = 1,
   kPow2Only = 2,
   kLegacy = 4,
   kReuse = 6,

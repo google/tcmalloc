@@ -38,12 +38,10 @@ namespace tcmalloc_internal {
 
 const SizeClasses& SizeMap::CurrentClasses() {
   switch (Static::size_class_configuration()) {
-    case SizeClassConfiguration::kPow2Below64:
-      return kSizeClasses;
     case SizeClassConfiguration::kPow2Only:
       return kExperimentalPow2SizeClasses;
     case SizeClassConfiguration::kReuse:
-      return kReuseSizeClasses;
+      return kSizeClasses;
     case SizeClassConfiguration::kLegacy:
       // TODO(b/242710633): remove this opt out.
       return kLegacySizeClasses;
