@@ -1254,11 +1254,6 @@ TEST(HotColdTest, HotColdNew) {
   }
 }
 
-hot_cold_t MinHotAccessHint() {
-  return static_cast<tcmalloc::hot_cold_t>(
-      TCMalloc_Internal_GetMinHotAccessHint());
-}
-
 TEST(HotColdTest, NothrowHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
@@ -1286,7 +1281,7 @@ TEST(HotColdTest, NothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1332,7 +1327,7 @@ TEST(HotColdTest, AlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1383,7 +1378,7 @@ TEST(HotColdTest, ArrayNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1429,7 +1424,7 @@ TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1480,7 +1475,7 @@ TEST(HotColdTest, SizeReturningHotColdNew) {
         requested, static_cast<hot_cold_t>(label));
     ASSERT_GE(actual, requested);
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;

@@ -137,11 +137,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   }
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
-  if (!IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
-    EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
-  }
+  EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
 
   sized_delete(alloc, kSize);
 }
@@ -248,12 +244,7 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_cache_demand_release_long_interval_ns: 5000000000)"));
-    if (!IsExperimentActive(
-            Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
-      EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 2)"));
-    } else {
-      EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
-    }
+    EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 2)"));
   }
 
   Parameters::set_hpaa_subrelease(true);
