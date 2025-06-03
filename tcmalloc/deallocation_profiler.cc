@@ -459,7 +459,7 @@ class DeallocationProfiler {
     }
   }
 
-  const tcmalloc::Profile Stop() {
+  tcmalloc::Profile Stop() {
     if (reports_ != nullptr) {
       // We first remove the profiler from the list to avoid racing with
       // potential allocations which may modify the allocs_ table.
