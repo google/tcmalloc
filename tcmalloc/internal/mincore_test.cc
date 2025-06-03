@@ -77,7 +77,7 @@ class MInCoreTest {
 
   // Expose the internal size of array that we use to call mincore() so
   // that we can be sure to need multiple calls to cover large memory regions.
-  const size_t chunkSize() { return MInCore::kArrayLength; }
+  size_t chunkSize() { return MInCore::kArrayLength; }
 
  private:
   MInCoreMock mcm_;
