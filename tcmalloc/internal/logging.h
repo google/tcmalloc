@@ -276,7 +276,7 @@ class Printer {
     }
     required_ += r;
 
-    if (r > left_) {
+    if (static_cast<size_t>(r) > left_) {
       left_ = 0;
     } else {
       left_ -= r;
