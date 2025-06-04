@@ -166,9 +166,9 @@ extern "C" {
 void* malloc(size_t size) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalMalloc);
 void free(void* ptr) TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalFree);
-void free_sized(void* ptr, size_t size) TCMALLOC_NOTHROW
+void free_sized(void* ptr, size_t size)
     TCMALLOC_ALIAS(TCMallocInternalFreeSized);
-void free_aligned_sized(void* ptr, size_t align, size_t size) TCMALLOC_NOTHROW
+void free_aligned_sized(void* ptr, size_t align, size_t size)
     TCMALLOC_ALIAS(TCMallocInternalFreeAlignedSized);
 void sdallocx(void* ptr, size_t size, int flags) noexcept
     TCMALLOC_ALIAS(TCMallocInternalSdallocx);
