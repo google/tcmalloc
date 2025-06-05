@@ -247,8 +247,8 @@ size_t SlackBytes(const BackingStats& stats) {
 }
 
 static void PrintHooksState(Printer& printer) {
-  int new_hooks = 0;
-  int delete_hooks = 0;
+  int new_hooks = new_hooks_.size();
+  int delete_hooks = delete_hooks_.size();
   int sampled_new_hooks = sampled_new_hooks_.size();
   int sampled_delete_hooks = sampled_delete_hooks_.size();
 
@@ -658,6 +658,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintI64("arena_blocks", stats.arena.blocks);
 
   // Print hooks stats.
+  region.PrintI64("new_hooks_present", uint64_t(new_hooks_.size()));
+  region.PrintI64("delete_hooks_present", uint64_t(delete_hooks_.size()));
   region.PrintI64("sampled_new_hooks_present",
                   uint64_t(sampled_new_hooks_.size()));
   region.PrintI64("sampled_delete_hooks_present",

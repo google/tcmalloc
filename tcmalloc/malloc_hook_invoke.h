@@ -23,10 +23,25 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+extern HookList<MallocHook::NewHook> new_hooks_;
+extern HookList<MallocHook::DeleteHook> delete_hooks_;
+
 extern HookList<MallocHook::SampledNewHook> sampled_new_hooks_;
 extern HookList<MallocHook::SampledDeleteHook> sampled_delete_hooks_;
 
 }  // namespace tcmalloc_internal
+
+inline void MallocHook::InvokeNewHook(const NewInfo& info) {
+  if (!tcmalloc_internal::new_hooks_.empty()) {
+    InvokeNewHookSlow(info);
+  }
+}
+
+inline void MallocHook::InvokeDeleteHook(const DeleteInfo& info) {
+  if (!tcmalloc_internal::delete_hooks_.empty()) {
+    InvokeDeleteHookSlow(info);
+  }
+}
 
 inline void MallocHook::InvokeSampledNewHook(
     const SampledAlloc& sampled_alloc) {

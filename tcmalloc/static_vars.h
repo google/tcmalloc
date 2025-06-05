@@ -40,6 +40,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sampled_allocation_recorder.h"
+#include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/pages.h"
@@ -169,7 +170,13 @@ class Static final {
   }
 
   static bool ABSL_ATTRIBUTE_ALWAYS_INLINE HaveHooks() {
-    return false;
+    return
+        // These boolean operations do not require short-circuiting from &&.
+        // Bitwise AND of booleans triggers -Wbitwise-instead-of-logical, as
+        // this can be a common source of bugs.  Suppress this by casting to
+        // int first.
+        static_cast<int>(!new_hooks_.empty()) |
+        static_cast<int>(!delete_hooks_.empty());
   }
 
   static size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);

@@ -533,6 +533,9 @@ inline size_t GetSize(const void* ptr) {
 // This slow path also handles delete hooks and non-per-cpu mode.
 ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
     void* ptr, size_t size_class) {
+  MallocHook::InvokeDeleteHook({ptr,
+                                tc_globals.sizemap().class_to_size(size_class),
+                                HookMemoryMutable::kMutable});
   if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
     tc_globals.cpu_cache().DeallocateSlow(ptr, size_class);
   } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent();
@@ -663,6 +666,23 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
 
   auto& gwp_asan = tc_globals.guardedpage_allocator();
   const bool is_gwp_asan_ptr = gwp_asan.PointerIsMine(ptr);
+  // Check for alignment before invoking hooks.
+  //
+  // We need to do special checks for GWP-ASan guarded allocations, since we may
+  // right-align them to make it easier to find small buffer overruns.  This
+  // causes our internal hook invocations to overrun and fail with SIGSEGV
+  // rather than a cleaner error.
+  bool valid_ptr = true;
+  if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
+    valid_ptr = gwp_asan.PointerIsCorrectlyAligned(ptr);
+  } else if (ABSL_PREDICT_FALSE(ptr != span->start_address())) {
+    valid_ptr = false;
+  }
+
+  if (ABSL_PREDICT_TRUE(valid_ptr)) {
+    MallocHook::InvokeDeleteHook(
+        {ptr, GetLargeSize(ptr, *span), HookMemoryMutable::kMutable});
+  }
 
   MaybeUnsampleAllocation(tc_globals, ptr, size, *span);
 
@@ -993,6 +1013,10 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
                                 ptr);
   }
   if (Policy::invoke_hooks()) {
+    // TODO(b/273983652): Size returning tcmallocs call NewHooks with capacity
+    // as requested_size
+    MallocHook::InvokeNewHook({ptr.p, Policy::size_returning() ? ptr.n : size,
+                               ptr.n, HookMemoryMutable::kMutable});
   }
   return Policy::as_pointer(ptr.p, ptr.n);
 }
@@ -1031,6 +1055,10 @@ ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
 
   if (Policy::invoke_hooks()) {
+    // TODO(b/273983652): Size returning tcmallocs call NewHooks with capacity
+    // as requested_size
+    MallocHook::InvokeNewHook({res.p, Policy::size_returning() ? res.n : size,
+                               res.n, HookMemoryMutable::kMutable});
   }
   return Policy::as_pointer(res.p, res.n);
 }
@@ -1286,6 +1314,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
           fast_alloc(lower_bound_to_grow,
                      MallocPolicy().Nothrow().WithoutHooks().SizeReturning());
       if (res.p != nullptr) {
+        tcmalloc::MallocHook::InvokeNewHook(
+            {res.p, new_size, res.n, tcmalloc::HookMemoryMutable::kMutable});
       }
       new_ptr = res.p;
     }
@@ -1303,6 +1333,13 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
     do_free(old_ptr, MallocPolicy());
     return new_ptr;
   } else {
+    // We still need to call hooks to report the updated size:
+    tcmalloc::MallocHook::InvokeDeleteHook(
+        {const_cast<void*>(old_ptr), old_size,
+         tcmalloc::HookMemoryMutable::kImmutable});
+    tcmalloc::MallocHook::InvokeNewHook(
+        {const_cast<void*>(old_ptr), new_size, old_size,
+         tcmalloc::HookMemoryMutable::kImmutable});
     return old_ptr;
   }
 }

@@ -1524,6 +1524,7 @@ cc_library(
     deps = [
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:hook_list",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
