@@ -61,6 +61,8 @@ class PageAllocatorInterface {
   struct AllocationState {
     Range r;
     bool donated;
+
+    operator bool() const { return ABSL_PREDICT_TRUE(r.p != PageId{0}); }
   };
 
   virtual void Delete(AllocationState s)

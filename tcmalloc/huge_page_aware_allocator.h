@@ -406,10 +406,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   using FinalizeType = Span*;
 #else   // !TCMALLOC_INTERNAL_LEGACY_LOCKING
-  struct FinalizeType {
-    Range r;
-    bool donated = false;
-  };
+  using FinalizeType = AllocationState;
 #endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   FinalizeType LockAndAlloc(Length n, SpanAllocInfo span_alloc_info,
@@ -441,6 +438,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   FinalizeType Finalize(Range r);
 
   Span* Spanify(FinalizeType f);
+  Range Unspanify(FinalizeType f);
 
   // Whether this HPAA should use subrelease. This delegates to the appropriate
   // parameter depending whether this is for the cold heap or another heap.
@@ -674,14 +672,16 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
     Length n, SpanAllocInfo span_alloc_info) {
   TC_CHECK_GT(n, Length(0));
   bool from_released;
-  Span* s = Spanify(LockAndAlloc(n, span_alloc_info, &from_released));
-  if (s) {
+  FinalizeType f = LockAndAlloc(n, span_alloc_info, &from_released);
+  if (f) {
+    Range r = Unspanify(f);
     // Prefetch for writing, as we anticipate using the memory soon.
-    PrefetchW(s->start_address());
+    PrefetchW(r.p.start_addr());
     if (from_released) {
-      forwarder_.Back(Range(s->first_page(), s->num_pages()));
+      forwarder_.Back(r);
     }
   }
+  Span* s = Spanify(f);
   TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
 }
@@ -726,11 +726,14 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
     PageHeapSpinLockHolder l;
     f = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
-  Span* s = Spanify(f);
-  if (s && from_released) {
-    forwarder_.Back(Range(s->first_page(), s->num_pages()));
+  if (f && from_released) {
+    Range r = Unspanify(f);
+    // Prefetch for writing, as we anticipate using the memory soon.
+    PrefetchW(r.p.start_addr());
+    forwarder_.Back(r);
   }
 
+  Span* s = Spanify(f);
   TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
 }
@@ -749,6 +752,16 @@ inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
   TC_ASSERT(!s->sampled());
   s->set_donated(f.donated);
   return s;
+#endif
+}
+
+template <class Forwarder>
+inline Range HugePageAwareAllocator<Forwarder>::Unspanify(FinalizeType f) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  TC_ASSERT(f);
+  return Range(f->first_page(), f->num_pages());
+#else
+  return f.r;
 #endif
 }
 
