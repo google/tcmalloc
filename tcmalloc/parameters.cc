@@ -293,9 +293,10 @@ bool Parameters::sparse_trackers_coarse_longest_free_range() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(
-        IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS),
-        std::memory_order_relaxed);
+    v.store(IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS) ||
+                IsExperimentActive(Experiment::TCMALLOC_COARSE_LFR_TRACKERS),
+            std::memory_order_relaxed);
   });
   return v;
 }

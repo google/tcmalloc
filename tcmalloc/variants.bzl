@@ -142,12 +142,20 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "sparse_trackers_coarse_longest_free_range",
+        "name": "sparse_trackers_coarse_longest_free_range_test",
         "malloc": "//tcmalloc",
         "deps": [
             "//tcmalloc:common_8k_pages",
         ],
-        "env": {"TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS": "1"},
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS"},
+    },
+    {
+        "name": "sparse_trackers_coarse_longest_free_range_exp",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_COARSE_LFR_TRACKERS"},
     },
     {
         "name": "256k_pages_pow2_sharded_transfer_cache",
