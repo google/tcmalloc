@@ -70,7 +70,7 @@ class TimeSeriesTracker {
 
   // This retrieves a particular data point (if offset is outside the valid
   // range, the default data point will be returned).
-  const T GetEpochAtOffset(size_t offset);
+  T GetEpochAtOffset(size_t offset);
 
   // Updates the time base to the current time. This is useful to report the
   // most recent time window rather than the last time window that had any
@@ -167,7 +167,7 @@ void TimeSeriesTracker<T, S, kEpochs>::IterBackwards(
 }
 
 template <class T, class S, size_t kEpochs>
-const T TimeSeriesTracker<T, S, kEpochs>::GetEpochAtOffset(size_t offset) {
+T TimeSeriesTracker<T, S, kEpochs>::GetEpochAtOffset(size_t offset) {
   return (offset >= kEpochs)
              ? T::Nil()
              : entries_[(current_epoch_ + kEpochs - offset) % kEpochs];

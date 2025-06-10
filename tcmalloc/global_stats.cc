@@ -36,6 +36,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
@@ -246,8 +247,8 @@ size_t SlackBytes(const BackingStats& stats) {
 }
 
 static void PrintHooksState(Printer& printer) {
-  int new_hooks = 0;
-  int delete_hooks = 0;
+  int new_hooks = new_hooks_.size();
+  int delete_hooks = delete_hooks_.size();
   int sampled_new_hooks = sampled_new_hooks_.size();
   int sampled_delete_hooks = sampled_delete_hooks_.size();
 
@@ -268,8 +269,6 @@ static int CountAllowedCpus() {
 static absl::string_view SizeClassConfigurationString(
     SizeClassConfiguration config) {
   switch (config) {
-    case SizeClassConfiguration::kPow2Below64:
-      return "SIZE_CLASS_POW2_BELOW_64";
     case SizeClassConfiguration::kPow2Only:
       return "SIZE_CLASS_POW2_ONLY";
     case SizeClassConfiguration::kLegacy:
@@ -491,14 +490,15 @@ void DumpStats(Printer& out, int level) {
       tc_globals.cpu_cache().Print(out);
     }
 
-    tc_globals.page_allocator().Print(out, MemoryTag::kNormal);
+    PageFlags pageflags;
+    tc_globals.page_allocator().Print(out, MemoryTag::kNormal, pageflags);
     if (tc_globals.numa_topology().active_partitions() > 1) {
-      tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1);
+      tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1, pageflags);
     }
-    tc_globals.page_allocator().Print(out, MemoryTag::kSampled);
-    tc_globals.page_allocator().Print(out, MemoryTag::kCold);
+    tc_globals.page_allocator().Print(out, MemoryTag::kSampled, pageflags);
+    tc_globals.page_allocator().Print(out, MemoryTag::kCold, pageflags);
     if (selsan::IsEnabled()) {
-      tc_globals.page_allocator().Print(out, MemoryTag::kSelSan);
+      tc_globals.page_allocator().Print(out, MemoryTag::kSelSan, pageflags);
     }
     tc_globals.guardedpage_allocator().Print(out);
     selsan::PrintTextStats(out);
@@ -591,10 +591,14 @@ void DumpStats(Printer& out, int level) {
     out.printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
                Parameters::resize_size_class_max_capacity() ? 1 : 0);
     out.printf(
-        "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated %d\n",
-        Parameters::dense_trackers_sorted_on_spans_allocated() ? 1 : 0);
+        "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1\n");
+    out.printf(
+        "PARAMETER tcmalloc_sparse_trackers_coarse_longest_free_range %d\n",
+        Parameters::sparse_trackers_coarse_longest_free_range() ? 1 : 0);
     out.printf("PARAMETER min_hot_access_hint %d\n",
                static_cast<int>(Parameters::min_hot_access_hint()));
+    out.printf("PARAMETER tcmalloc_usermode_hugepage_collapse %d\n",
+               Parameters::usermode_hugepage_collapse() ? 1 : 0);
   }
 }
 
@@ -654,6 +658,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintI64("arena_blocks", stats.arena.blocks);
 
   // Print hooks stats.
+  region.PrintI64("new_hooks_present", uint64_t(new_hooks_.size()));
+  region.PrintI64("delete_hooks_present", uint64_t(delete_hooks_.size()));
   region.PrintI64("sampled_new_hooks_present",
                   uint64_t(sampled_new_hooks_.size()));
   region.PrintI64("sampled_delete_hooks_present",
@@ -710,14 +716,20 @@ void DumpStatsInPbtxt(Printer& out, int level) {
       tc_globals.cpu_cache().PrintInPbtxt(region);
     }
   }
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormal);
+
+  PageFlags pageflags;
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormal,
+                                           pageflags);
   if (tc_globals.numa_topology().active_partitions() > 1) {
-    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormalP1);
+    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormalP1,
+                                             pageflags);
   }
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled);
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold);
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled,
+                                           pageflags);
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold, pageflags);
   if (selsan::IsEnabled()) {
-    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSelSan);
+    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSelSan,
+                                             pageflags);
   }
   // We do not collect tracking information in pbtxt.
 
@@ -796,10 +808,13 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   region.PrintBool("tcmalloc_use_wider_slabs",
                    tc_globals.cpu_cache().UseWiderSlabs());
-  region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated",
-                   Parameters::dense_trackers_sorted_on_spans_allocated());
+  region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated", true);
+  region.PrintBool("tcmalloc_sparse_trackers_coarse_longest_free_range",
+                   Parameters::sparse_trackers_coarse_longest_free_range());
   region.PrintI64("min_hot_access_hint",
                   static_cast<int>(Parameters::min_hot_access_hint()));
+  region.PrintBool("usermode_hugepage_collapse",
+                   Parameters::usermode_hugepage_collapse());
 
   region.PrintRaw(
       "size_class_config",

@@ -98,7 +98,7 @@ void GuardedPageAllocator::Reset() {
 GuardedAllocWithStatus GuardedPageAllocator::TrySample(
     size_t size, size_t alignment, Length num_pages,
     const StackTrace& stack_trace) {
-  if (num_pages != Length(1)) {
+  if (num_pages > Length(1)) {
     skipped_allocations_toolarge_.Add(1);
     return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
   }
@@ -166,9 +166,6 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
 
 GuardedAllocWithStatus GuardedPageAllocator::Allocate(
     size_t size, size_t alignment, const StackTrace& stack_trace) {
-  if (size == 0) {
-    return {nullptr, Profile::Sample::GuardedStatus::TooSmall};
-  }
   const ssize_t free_slot = ReserveFreeSlot();
   if (free_slot == -1) {
     // All slots are reserved.
@@ -179,17 +176,20 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   TC_ASSERT_LE(alignment, page_size_);
   TC_ASSERT(alignment == 0 || absl::has_single_bit(alignment));
   void* result = reinterpret_cast<void*>(SlotToAddr(free_slot));
-  if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
-    TC_ASSERT(false, "mprotect(.., PROT_READ|PROT_WRITE) failed");
-    AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-    failed_allocations_.LossyAdd(1);
-    successful_allocations_.LossyAdd(-1);
-    FreeSlot(free_slot);
-    return {nullptr, Profile::Sample::GuardedStatus::MProtectFailed};
-  }
 
-  // Place some allocations at end of page for better overflow detection.
-  MaybeRightAlign(free_slot, size, alignment, &result);
+  // For size == 0, the page remains protected.
+  if (size > 0) {
+    if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
+      TC_ASSERT(false, "mprotect(.., PROT_READ|PROT_WRITE) failed");
+      AllocationGuardSpinLockHolder h(&guarded_page_lock_);
+      failed_allocations_.LossyAdd(1);
+      successful_allocations_.LossyAdd(-1);
+      FreeSlot(free_slot);
+      return {nullptr, Profile::Sample::GuardedStatus::MProtectFailed};
+    }
+    // Place some allocations at end of page for better overflow detection.
+    MaybeRightAlign(free_slot, size, alignment, &result);
+  }
 
   // Record stack trace.
   SlotMetadata& d = data_[free_slot];
@@ -249,19 +249,22 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
   // Remove allocation (based on allocation stack trace) from filter.
   stacktrace_filter_.Add({d.alloc_trace.stack, d.alloc_trace.depth}, -1);
 
-  // Needs to be done before mprotect() because it accesses the object page to
-  // check canary bytes.
-  if (WriteOverflowOccurred(slot)) {
-    d.write_overflow_detected = true;
-  }
+  // For zero-byte allocations WriteOverflowOccurred() and mprotect are skipped.
+  if (d.requested_size > 0) {
+    // Needs to be done before mprotect() because it accesses the object page to
+    // check canary bytes.
+    if (WriteOverflowOccurred(slot)) {
+      d.write_overflow_detected = true;
+    }
 
-  // Calling mprotect() should also be done outside the guarded_page_lock_
-  // critical section, since mprotect() can have relatively large latency.
-  TC_CHECK_EQ(
-      0, mprotect(reinterpret_cast<void*>(page_addr), page_size_, PROT_NONE));
+    // Calling mprotect() should also be done outside the guarded_page_lock_
+    // critical section, since mprotect() can have relatively large latency.
+    TC_CHECK_EQ(
+        0, mprotect(reinterpret_cast<void*>(page_addr), page_size_, PROT_NONE));
 
-  if (d.write_overflow_detected) {
-    ForceTouchPage(ptr);
+    if (d.write_overflow_detected) {
+      ForceTouchPage(ptr);
+    }
   }
 
   if (ABSL_PREDICT_FALSE(absl::bit_cast<void*>(d.allocation_start) != ptr)) {

@@ -20,13 +20,19 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <climits>
+#include <cstddef>
 #include <limits>
+#include <optional>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
+#include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
@@ -42,7 +48,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
-#include "tcmalloc/internal/timeseries_tracker.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -172,9 +178,61 @@ class PageTracker : public TList<PageTracker>::Elem {
   Length ReleaseFree(MemoryModifyFunction& unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  // Attempts to collapse memory tracked by this tracker. Returns true if the
+  // collapse was successful.
+  bool Collapse(MemoryModifyFunction& collapse);
+
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
   bool HasDenseSpans() const { return has_dense_spans_; }
   void SetHasDenseSpans() { has_dense_spans_ = true; }
+
+  struct HugePageResidencyState {
+    // Records whether the page is hugepage backed.
+    bool maybe_hugepage_backed = false;
+    // Records the time (in ticks) when the residency state was last updated.
+    // This is used to determine when the tracker may be revisited for
+    // collapse.
+    double record_time;
+    // Records whether metrics are valid. It is set the first time the
+    // residency state is queried.
+    bool entry_valid = false;
+    // Records whether the page is eligible for collapse. When set, the tracker
+    // state may be accessed outside of the pageheap lock. So, we do not want
+    // an intervening Put operation to deallocate all the pages on that tracker
+    // and delete it.
+    //
+    // When maybe_collapse is set, any interleaving Put operation will instead
+    // move the fully-freed tracker to the donated list, allowing the collapse
+    // to proceed.
+    bool maybe_collapse = false;
+    // This records the trackers that are currently being collapsed. This is
+    // used to avoid subreleasing the pages that are being collapsed.
+    bool being_collapsed = false;
+  };
+
+  void SetHugePageResidencyState(const HugePageResidencyState& state) {
+    hugepage_residency_state_ = state;
+  }
+
+  HugePageResidencyState GetHugePageResidencyState() const {
+    return hugepage_residency_state_;
+  }
+
+  void SetBeingCollapsed(bool value) {
+    hugepage_residency_state_.being_collapsed = value;
+  }
+
+  void SetMaybeCollapse(bool value) {
+    hugepage_residency_state_.maybe_collapse = value;
+  }
+
+  bool BeingCollapsed() const {
+    return hugepage_residency_state_.being_collapsed;
+  }
+
+  bool MaybeCollapse() const {
+    return hugepage_residency_state_.maybe_collapse;
+  }
 
  private:
   HugePage location_;
@@ -216,6 +274,8 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   bool has_dense_spans_ = false;
 
+  HugePageResidencyState hugepage_residency_state_;
+
   [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
     bool success = unback(r);
     if (ABSL_PREDICT_TRUE(success)) {
@@ -244,6 +304,34 @@ struct HugePageFillerStats {
   HugeLength n_partial[AccessDensityPrediction::kPredictionCounts + 1];
 };
 
+// Hugepages are sorted along two axes: the longest free range of pages
+// available on the hugepage and the number of spans allocated from the
+// hugepage.  When allocating a new span, the allocation is made from a hugepage
+// that appears first in the sorted order.  There are currently two different
+// ways in which the sorting on the first axis can occur.
+enum class HugePageFillerSparseTrackerType : bool {
+  // Hugepages sorted linearly on longest free range. This is currently
+  // the default.
+  kExactLongestFreeRange,
+  // Hugepages with short free ranges (< kCoarseLFRStart) are sorted exactly.
+  // Hugepages with longer free ranges (>= kCoarseLFRStart) are binned together
+  // depending on the length of the free range.
+  kCoarseLongestFreeRange,
+};
+
+// The enum is used to distinguish between cases where the list index
+// calculation needs to return the index with hugepages that have a longer free
+// range than necessary.  For further explanation, read the comments in the
+// function SparseListFor().
+enum class LFRRequirement : bool {
+  // Op that fetches LFR index containing trackers with LFRs that are equal to
+  // or greater than the required longest range.
+  kLongerLFR,
+  // Op that fetches LFR index containing trackers with LFR range of [a, b]
+  // for the required <longest> range, such that a <= longest <= b.
+  kMatchingLFR,
+};
+
 enum class HugePageFillerDenseTrackerType : bool {
   // Hugepages sorted on longest free range and chunk index. This is currently
   // the default.
@@ -262,12 +350,16 @@ class HugePageFiller {
  public:
   explicit HugePageFiller(
       HugePageFillerDenseTrackerType dense_tracker_type,
+      HugePageFillerSparseTrackerType sparse_tracker_type,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
-      MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND);
+      MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND);
   HugePageFiller(Clock clock, HugePageFillerDenseTrackerType dense_tracker_type,
+                 HugePageFillerSparseTrackerType sparse_tracker_type,
                  MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
                  MemoryModifyFunction& unback_without_lock
-                     ABSL_ATTRIBUTE_LIFETIME_BOUND);
+                     ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                 MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   typedef TrackerType Tracker;
 
@@ -301,6 +393,9 @@ class HugePageFiller {
   // marked as having come from the tail of a multi-hugepage allocation, which
   // causes it to be treated slightly differently.
   void Contribute(TrackerType* pt, bool donated, SpanAllocInfo span_alloc_info);
+
+  TrackerType* /*absl_nullable*/ FetchFullyFreedTracker()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   HugeLength size() const { return size_; }
 
@@ -385,15 +480,32 @@ class HugePageFiller {
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
+  struct CollapseStats {
+    std::atomic<size_t> eligible = 0;
+    std::atomic<size_t> attempted = 0;
+    std::atomic<size_t> succeeded = 0;
+  };
+
   BackingStats stats() const;
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
+  const CollapseStats& GetCollapseStats() const { return collapse_stats_; };
 
   HugePageFillerStats GetStats() const;
-  void Print(Printer& out, bool everything);
-  void PrintInPbtxt(PbtxtRegion& hpaa) const;
+  void Print(Printer& out, bool everything, PageFlagsBase& pageflags);
+  void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags) const;
 
   template <typename F>
   void ForEachHugePage(const F& func)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  // Attempts to collapse eligible memory into hugepages.
+  //
+  // It uses heuristics to determine eligibility of the pages for collapse. It
+  // * Attempts to collapse up to kTotalTrackersToScan trackers.
+  // * Collapses pages with less than kMaxSwappedPagesForCollapse swapped
+  //   pages and kMaxUnbackedPagesForCollapse unbacked pages.
+  void TryHugepageCollapse(PageFlagsBase* pageflags = nullptr,
+                           Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  private:
@@ -417,9 +529,20 @@ class HugePageFiller {
   // This returns the largest possible value kChunks - 1 iff
   // pt has a single allocation.
   size_t IndexFor(TrackerType* pt) const;
-  // Returns index for regular_alloc_.
-  size_t ListFor(Length longest, size_t chunk, AccessDensityPrediction density,
-                 size_t nallocs) const;
+  // Returns index for the list where hugepages with at least one free range of
+  // pages whose length is at least as much as "longest".
+  //
+  // In case such hugepages are not found, std::nullopt is returned.  This is
+  // currently only used for sparse trackers for type kCoarseRangeLength and
+  // operation is kLongerLFR.
+  std::optional<size_t> ListFor(Length longest, size_t chunk,
+                                AccessDensityPrediction density, size_t nallocs,
+                                LFRRequirement op) const;
+  // Returns index for sparse alloclists.
+  std::optional<size_t> SparseListFor(Length longest, size_t chunk,
+                                      LFRRequirement op) const;
+  // Returns index for dense alloclists.
+  size_t DenseListFor(Length longest, size_t chunk, size_t nallocs) const;
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
 
   // List of hugepages from which no pages have been released to the OS.
@@ -438,6 +561,16 @@ class HugePageFiller {
       [AccessDensityPrediction::kPredictionCounts];
   PageTrackerLists<kNumLists>
       regular_alloc_released_[AccessDensityPrediction::kPredictionCounts];
+
+  // Records a list of fully freed trackers. We might end up with trackers that
+  // are fully freed, but not deleted, when: the trackers are being userspace-
+  // collapsed, and an intermediate Put operation deallocates all the pages
+  // in the tracker. The list temporarily holds these trackers before they are
+  // deleted, once the collapse operation completes.
+  TList<TrackerType> fully_freed_trackers_;
+
+  CollapseStats collapse_stats_;
+
   // n_used_released_ contains the number of pages in huge pages that are not
   // free (i.e., allocated).  Only the hugepages in regular_alloc_released_ are
   // considered.
@@ -448,6 +581,7 @@ class HugePageFiller {
   // from the hugepages in the set regular_alloc_partial_released.
   Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
   const HugePageFillerDenseTrackerType dense_tracker_type_;
+  const HugePageFillerSparseTrackerType sparse_tracker_type_;
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* pt);
@@ -475,6 +609,10 @@ class HugePageFiller {
     // prefer to release from 'a'.  Otherwise, we do not prefer either.
     return b->HasDenseSpans();
   }
+
+  // Tries to collapse eligible memory into hugepages.
+  bool TryUserspaceCollapse(Tracker& tracker)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // SelectCandidates identifies the candidates.size() best candidates in the
   // given tracker list.
@@ -509,6 +647,7 @@ class HugePageFiller {
   // TODO(b/73749855):  Remove remaining uses of unback_.
   MemoryModifyFunction& unback_;
   MemoryModifyFunction& unback_without_lock_;
+  MemoryModifyFunction& collapse_;
 };
 
 inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
@@ -587,6 +726,28 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   return Length(count);
 }
 
+inline bool PageTracker::Collapse(MemoryModifyFunction& collapse) {
+  // TODO(b/287498389): Consider using an atomic variable instead of a lock to
+  // store the being_collapsed state.
+  {
+    PageHeapSpinLockHolder l;
+    // If the tracker is in the released state, we do no want to collapse it.
+    if (released()) return false;
+    TC_ASSERT(!BeingCollapsed());
+    SetBeingCollapsed(/*value=*/true);
+  }
+
+  bool success = collapse(Range(location_.first_page(), kPagesPerHugePage));
+
+  {
+    PageHeapSpinLockHolder l;
+    TC_ASSERT(!released());
+    SetBeingCollapsed(/*value=*/false);
+  }
+
+  return success;
+}
+
 inline void PageTracker::AddSpanStats(SmallSpanStats* small,
                                       LargeSpanStats* large) const {
   size_t index = 0, n;
@@ -637,22 +798,29 @@ inline Length PageTracker::free_pages() const {
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     HugePageFillerDenseTrackerType dense_tracker_type,
-    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
+    HugePageFillerSparseTrackerType sparse_tracker_type,
+    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock,
+    MemoryModifyFunction& collapse)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     dense_tracker_type, unback, unback_without_lock) {}
+                     dense_tracker_type, sparse_tracker_type, unback,
+                     unback_without_lock, collapse) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     Clock clock, HugePageFillerDenseTrackerType dense_tracker_type,
-    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
+    HugePageFillerSparseTrackerType sparse_tracker_type,
+    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock,
+    MemoryModifyFunction& collapse)
     : dense_tracker_type_(dense_tracker_type),
+      sparse_tracker_type_(sparse_tracker_type),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
       unback_(unback),
-      unback_without_lock_(unback_without_lock) {}
+      unback_without_lock_(unback_without_lock),
+      collapse_(collapse) {}
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
@@ -733,12 +901,15 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   bool was_released = false;
   const AccessDensityPrediction type = span_alloc_info.density;
   do {
-    const size_t listindex =
-        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1);
-    pt = regular_alloc_[type].GetLeast(listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      break;
+    const std::optional<size_t> listindex =
+        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1,
+                LFRRequirement::kLongerLFR);
+    if (listindex.has_value()) {
+      pt = regular_alloc_[type].GetLeast(listindex.value());
+      if (pt) {
+        TC_ASSERT(!pt->donated());
+        break;
+      }
     }
     if (ABSL_PREDICT_TRUE(type == AccessDensityPrediction::kSparse)) {
       pt = donated_alloc_.GetLeast(n.raw_num());
@@ -746,21 +917,23 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
         break;
       }
     }
-    pt = regular_alloc_partial_released_[type].GetLeast(listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      was_released = true;
-      TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
-      n_used_partial_released_[type] -= pt->used_pages();
-      break;
-    }
-    pt = regular_alloc_released_[type].GetLeast(listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      was_released = true;
-      TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
-      n_used_released_[type] -= pt->used_pages();
-      break;
+    if (listindex.has_value()) {
+      pt = regular_alloc_partial_released_[type].GetLeast(listindex.value());
+      if (pt) {
+        TC_ASSERT(!pt->donated());
+        was_released = true;
+        TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
+        n_used_partial_released_[type] -= pt->used_pages();
+        break;
+      }
+      pt = regular_alloc_released_[type].GetLeast(listindex.value());
+      if (pt) {
+        TC_ASSERT(!pt->donated());
+        was_released = true;
+        TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
+        n_used_released_[type] -= pt->used_pages();
+        break;
+      }
     }
 
     return {nullptr, PageId{0}, false};
@@ -841,8 +1014,10 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, Range r) {
       }
     }
 
-    UpdateFillerStatsTracker();
-    return pt;
+    if (!pt->MaybeCollapse()) {
+      UpdateFillerStatsTracker();
+      return pt;
+    }
   }
   AddToFillerList(pt);
   UpdateFillerStatsTracker();
@@ -881,6 +1056,11 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
   auto PushCandidate = [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
     TC_ASSERT_GT(pt.free_pages(), Length(0));
     TC_ASSERT_GT(pt.free_pages(), pt.released_pages());
+
+    // If the tracker is being collapsed, don't release it. Collapse might race
+    // with the release, and we might collapse the pages that have been recently
+    // released.
+    if (pt.BeingCollapsed()) return;
 
     // If we have few candidates, we can avoid creating a heap.
     //
@@ -1257,7 +1437,7 @@ class UsageInfo {
   }
 
   template <class TrackerType>
-  bool IsHugepageBacked(const TrackerType& tracker, PageFlags& pageflags) {
+  bool IsHugepageBacked(const TrackerType& tracker, PageFlagsBase& pageflags) {
     void* addr = tracker.location().start_addr();
     // TODO(b/28093874): Investigate if pageflags may be queried without
     // pageheap_lock.
@@ -1272,7 +1452,7 @@ class UsageInfo {
   }
 
   template <class TrackerType>
-  void Record(const TrackerType& pt, PageFlags& pageflags, Type which,
+  void Record(const TrackerType& pt, PageFlagsBase& pageflags, Type which,
               double clock_now, double clock_frequency) {
     TC_ASSERT_LT(which, kNumTypes);
     const Length free = kPagesPerHugePage - pt.used_pages();
@@ -1545,17 +1725,19 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
   HugePageFillerStats stats;
   // Note kChunks, not kNumLists here--we're iterating *full* lists.
   for (size_t chunk = 0; chunk < kChunks; ++chunk) {
+    std::optional<size_t> sparselist =
+        ListFor(/*longest=*/Length(0), chunk, AccessDensityPrediction::kSparse,
+                /*nallocs=*/0, LFRRequirement::kMatchingLFR);
+    TC_ASSERT(sparselist.has_value());
     stats.n_full[AccessDensityPrediction::kSparse] += NHugePages(
-        regular_alloc_[AccessDensityPrediction::kSparse]
-                      [ListFor(/*longest=*/Length(0), chunk,
-                               AccessDensityPrediction::kSparse, /*nallocs=*/0)]
-                          .length());
-    stats.n_full[AccessDensityPrediction::kDense] +=
-        NHugePages(regular_alloc_[AccessDensityPrediction::kDense]
-                                 [ListFor(/*longest=*/Length(0), chunk,
-                                          AccessDensityPrediction::kDense,
-                                          kPagesPerHugePage.raw_num())]
-                                     .length());
+        regular_alloc_[AccessDensityPrediction::kSparse][*sparselist].length());
+
+    std::optional<size_t> denselist = ListFor(
+        /*longest=*/Length(0), chunk, AccessDensityPrediction::kDense,
+        kPagesPerHugePage.raw_num(), LFRRequirement::kMatchingLFR);
+    TC_ASSERT(denselist.has_value());
+    stats.n_full[AccessDensityPrediction::kDense] += NHugePages(
+        regular_alloc_[AccessDensityPrediction::kDense][*denselist].length());
   }
   stats.n_full[AccessDensityPrediction::kPredictionCounts] =
       stats.n_full[AccessDensityPrediction::kSparse] +
@@ -1595,7 +1777,147 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything) {
+inline bool HugePageFiller<TrackerType>::TryUserspaceCollapse(
+    TrackerType& tracker) {
+  bool success = tracker.Collapse(collapse_);
+  collapse_stats_.attempted.fetch_add(1, std::memory_order_relaxed);
+  if (success) {
+    collapse_stats_.succeeded.fetch_add(1, std::memory_order_relaxed);
+  }
+  return success;
+}
+
+template <class TrackerType>
+inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
+    PageFlagsBase* pageflags, Residency* residency) {
+  // Trying to collapse the pages invoves three steps:
+  // 1. Collect up to kTotalTrackersToScan trackers that may be collapsed.
+  //    Eligible pages here include:
+  //   a. The trackers that manage pages that either were hugepage backed or
+  //      were previously successfully collapsed.
+  //   b. The trackers that were never scanned before.
+  //   c. The trackers that were last scanned more than kRecordInterval ago.
+  // 2. Release the pageheap lock and obtain the residency and pageflags
+  //    information for the collected trackers. Attempt to collapse the pages
+  //    that aren't hugepage backed, and the number of unbacked and swapped
+  //    pages are less than kMaxUnbackedPagesForCollapse and
+  //    kMaxSwappedPagesForCollapse respectively.
+  // 3. Acquire the pageheap lock and update the residency information in the
+  //    trackers.
+  constexpr size_t kTotalTrackersToScan = 64;
+  constexpr size_t kMaxSwappedPagesForCollapse = 128;
+  constexpr size_t kMaxUnbackedPagesForCollapse = 64;
+
+  using TrackerArray = std::array<TrackerType*, kTotalTrackersToScan>;
+  TrackerArray page_trackers;
+
+  int num_valid_addresses = 0;
+  const absl::Duration kRecordInterval = absl::Minutes(5);
+
+  // Collect all the addresses under pageheap lock that aren't likely hugepage
+  // backed, and that were last scanned more than kRecordInterval ago.
+  auto CollectNonHugePageAddresses =
+      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        if (num_valid_addresses >= kTotalTrackersToScan) return;
+        PageTracker::HugePageResidencyState state =
+            pt.GetHugePageResidencyState();
+        if (state.maybe_hugepage_backed) return;
+
+        if (!state.entry_valid) {
+          page_trackers[num_valid_addresses] = &pt;
+          ++num_valid_addresses;
+          pt.SetMaybeCollapse(/*value=*/true);
+          return;
+        }
+        double now = clock_.now();
+        double frequency = clock_.freq();
+        double elapsed = std::max<double>(now - state.record_time, 0);
+        if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * frequency) {
+          page_trackers[num_valid_addresses] = &pt;
+          ++num_valid_addresses;
+          pt.SetMaybeCollapse(/*value=*/true);
+        }
+      };
+
+  // Collect up to kTotalTrackersToScan trackers from the regular sparse and
+  // dense lists.
+  regular_alloc_[AccessDensityPrediction::kSparse].Iter(
+      CollectNonHugePageAddresses,
+      /*start=*/0);
+
+  if (num_valid_addresses < kTotalTrackersToScan) {
+    regular_alloc_[AccessDensityPrediction::kDense].Iter(
+        CollectNonHugePageAddresses,
+        /*start=*/0);
+  }
+
+  pageheap_lock.Unlock();
+
+  // Obtain residency information for the collected addresses.
+  PageFlags pageflags_obj;
+  if (pageflags == nullptr) {
+    pageflags = &pageflags_obj;
+  }
+
+  ResidencyPageMap residency_obj;
+  if (residency == nullptr) {
+    residency = &residency_obj;
+  }
+
+  struct ResidencyState {
+    TrackerType* tracker;
+    PageTracker::HugePageResidencyState tracker_state;
+  };
+  std::array<ResidencyState, kTotalTrackersToScan> residency_states;
+  TC_ASSERT_LE(num_valid_addresses, kTotalTrackersToScan);
+
+  // Outside of the pageheap lock, obtain the residency and pageflags
+  // information for the collected addresses. Try to collapse the pages that
+  // aren't hugepage backed, and for which, the number of unbacked and swapped
+  // pages are less than kMaxUnbackedPagesForCollapse and
+  // kMaxSwappedPagesForCollapse respectively.
+  for (int i = 0; i < num_valid_addresses; ++i) {
+    PageTracker::HugePageResidencyState state;
+    TrackerType* tracker = page_trackers[i];
+    TC_ASSERT_NE(tracker, nullptr);
+    bool is_hugepage =
+        pageflags->IsHugepageBacked(tracker->location().start_addr());
+    state.entry_valid = true;
+    state.record_time = clock_.now();
+    bool collapsed = false;
+    size_t total_swapped_pages = 0;
+    size_t total_unbacked_pages = 0;
+    collapse_stats_.eligible.fetch_add(1, std::memory_order_relaxed);
+    // If the address is not hugepage backed, obtain the residency information.
+    if (!is_hugepage) {
+      Residency::SinglePageBitmaps bitmaps =
+          residency->GetUnbackedAndSwappedBitmaps(
+              tracker->location().start_addr());
+      total_swapped_pages = bitmaps.swapped.CountBits();
+      total_unbacked_pages = bitmaps.unbacked.CountBits();
+      if (total_swapped_pages < kMaxSwappedPagesForCollapse &&
+          total_unbacked_pages < kMaxUnbackedPagesForCollapse) {
+        collapsed = TryUserspaceCollapse(*tracker);
+      }
+    }
+    state.maybe_hugepage_backed = is_hugepage | collapsed;
+    residency_states[i].tracker = tracker;
+    residency_states[i].tracker_state = state;
+  }
+
+  // Lock the pageheap lock and update residency information in the tracker.
+  pageheap_lock.Lock();
+  for (int i = 0; i < num_valid_addresses; ++i) {
+    TrackerType* tracker = residency_states[i].tracker;
+    TC_ASSERT_NE(tracker, nullptr);
+    tracker->SetMaybeCollapse(/*value=*/false);
+    tracker->SetHugePageResidencyState(residency_states[i].tracker_state);
+  }
+}
+
+template <class TrackerType>
+inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
+                                               PageFlagsBase& pageflags) {
   out.printf("HugePageFiller: densely pack small requests into hugepages\n");
   const HugePageFillerStats stats = GetStats();
 
@@ -1678,7 +2000,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything) {
   UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
-  PageFlags pageflags;
+
   donated_alloc_.Iter(
       [&](const TrackerType& pt) {
         usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency);
@@ -1724,6 +2046,13 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything) {
       previously_released_huge_pages().raw_num(),
       usage.HugepageBackedPreviouslyReleased());
 
+  out.printf(
+      "HugePageFiller: Out of %zu eligible hugepages, %zu were "
+      "attempted, and %zu were collapsed.\n",
+      collapse_stats_.eligible.load(std::memory_order_relaxed),
+      collapse_stats_.attempted.load(std::memory_order_relaxed),
+      collapse_stats_.succeeded.load(std::memory_order_relaxed));
+
   out.printf("\n");
   out.printf("HugePageFiller: fullness histograms\n");
   usage.Print(out);
@@ -1747,7 +2076,8 @@ inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion& hpaa) const {
+inline void HugePageFiller<TrackerType>::PrintInPbtxt(
+    PbtxtRegion& hpaa, PageFlagsBase& pageflags) const {
   const HugePageFillerStats stats = GetStats();
 
   // A donated alloc full list is impossible because it would have never been
@@ -1816,7 +2146,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion& hpaa) const {
   UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
-  PageFlags pageflags;
+
   donated_alloc_.Iter(
       [&](const TrackerType& pt) {
         usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency);
@@ -1857,6 +2187,15 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion& hpaa) const {
 
   hpaa.PrintI64("filler_previously_released_backed_huge_pages",
                 usage.HugepageBackedPreviouslyReleased());
+  {
+    PbtxtRegion collapse_region = hpaa.CreateSubRegion("filler_collapse_stats");
+    collapse_region.PrintI64(
+        "eligible", collapse_stats_.eligible.load(std::memory_order_relaxed));
+    collapse_region.PrintI64(
+        "attempted", collapse_stats_.attempted.load(std::memory_order_relaxed));
+    collapse_region.PrintI64(
+        "collapsed", collapse_stats_.succeeded.load(std::memory_order_relaxed));
+  }
   usage.Print(hpaa);
   fillerstats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
                                                    "filler_skipped_subrelease");
@@ -1913,18 +2252,71 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType* pt) const {
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::ListFor(
-    const Length longest, const size_t chunk,
-    const AccessDensityPrediction density, size_t nallocs) const {
-  TC_ASSERT_LT(chunk, kChunks);
+inline std::optional<size_t> HugePageFiller<TrackerType>::SparseListFor(
+    const Length longest, const size_t chunk, const LFRRequirement op) const {
+  TC_ASSERT_LT(longest, kPagesPerHugePage);
   if (ABSL_PREDICT_TRUE(
-          density == AccessDensityPrediction::kSparse ||
+          sparse_tracker_type_ ==
+          HugePageFillerSparseTrackerType::kExactLongestFreeRange)) {
+    return longest.raw_num() * kChunks + chunk;
+  }
+  constexpr size_t kCoarseLFRStartSize = 256 * 1024;
+  constexpr int kCoarseLFRStart = (kCoarseLFRStartSize >> kPageShift);
+  // The first condition is for handling the TCMalloc page size 256KB.  We
+  // handle this specifically since only eight pages are sufficient for forming
+  // a hugepage when TCMalloc page size is 256KB.  Eight pages is too low for
+  // having coarse longest free range.
+  if (kCoarseLFRStart <= 1 || longest.raw_num() < kCoarseLFRStart) {
+    return longest.raw_num() * kChunks + chunk;
+  }
+  // Size of memory that encompasses a single coarse index.
+  constexpr size_t kCoarseLFRShiftSize = 64 * 1024;
+  // Number of pages encompassing a single coarse index.
+  constexpr uint32_t kCoarseLFRRange =
+      std::max<uint32_t>(kCoarseLFRShiftSize >> kPageShift, 1);
+  // Number of bits to use for obtaining the coarse index.
+  constexpr int kCoarseLFRShift = absl::countr_zero(kCoarseLFRRange);
+  // We handle the case for kLongerLFR separately from other operations
+  // since we need to return the index with hugepages that have a longer free
+  // range than necessary.  This is because coarser bins can also have hugepages
+  // with shorter longest free range than required.  For example, suppose the
+  // minimum length of free range required is 35.  We cannot return the index
+  // with free range from 32-39 as this range also contains hugepages with
+  // longest free range of 32, 33 and 34.  Those hugepages cannot satisfy the
+  // allocation to be made.
+  // On the other hand, if the requested longest free range is 32, we do not
+  // need to return a larger index, as all the trackers in 32-39 bin may
+  // satisfy the request. Generally speaking, when longest.raw_num() is a
+  // multiple of kCoarseLFRRange, we do not need to return a larger index.
+  //
+  // For other operations, we need to return the exact bucket for hugepages with
+  // free range of length 'longest'.
+  const bool use_larger_index =
+      (op == LFRRequirement::kLongerLFR) &&
+      (absl::countr_zero(longest.raw_num()) < kCoarseLFRShift);
+  const int target =
+      longest.raw_num() + (use_larger_index ? kCoarseLFRRange : 0);
+  if (target >= kPagesPerHugePage.raw_num()) {
+    return std::nullopt;
+  }
+  // Compress each kCoarseRangeLength interval of free ranges to one
+  // longest-free-range list.
+  const auto diff = target - kCoarseLFRStart;
+  const auto adjusteddiff = (diff >> kCoarseLFRShift) << kCoarseLFRShift;
+  // Add fine_range_threshold as this represents the starting point.
+  return (kCoarseLFRStart + adjusteddiff) * kChunks + chunk;
+}
+
+template <class TrackerType>
+inline size_t HugePageFiller<TrackerType>::DenseListFor(const Length longest,
+                                                        const size_t chunk,
+                                                        size_t nallocs) const {
+  if (ABSL_PREDICT_TRUE(
           dense_tracker_type_ ==
-              HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks)) {
+          HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks)) {
     TC_ASSERT_LT(longest, kPagesPerHugePage);
     return longest.raw_num() * kChunks + chunk;
   }
-  TC_ASSERT(density == AccessDensityPrediction::kDense);
   TC_ASSERT(dense_tracker_type_ ==
             HugePageFillerDenseTrackerType::kSpansAllocated);
   TC_ASSERT_LE(nallocs, kPagesPerHugePage.raw_num());
@@ -1935,10 +2327,25 @@ inline size_t HugePageFiller<TrackerType>::ListFor(
 }
 
 template <class TrackerType>
+inline std::optional<size_t> HugePageFiller<TrackerType>::ListFor(
+    const Length longest, const size_t chunk,
+    const AccessDensityPrediction density, size_t nallocs,
+    const LFRRequirement op) const {
+  TC_ASSERT_LT(chunk, kChunks);
+  switch (density) {
+    case AccessDensityPrediction::kSparse:
+      return SparseListFor(longest, chunk, op);
+    case AccessDensityPrediction::kDense:
+      return DenseListFor(longest, chunk, nallocs);
+    default:
+      TC_BUG("bad density %v", density);
+  }
+}
+
+template <class TrackerType>
 inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
   TC_ASSERT_LT(longest, kPagesPerHugePage);
-
   if (pt->donated()) {
     donated_alloc_.Remove(pt, longest.raw_num());
     return;
@@ -1947,25 +2354,46 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   const AccessDensityPrediction type = pt->HasDenseSpans()
                                            ? AccessDensityPrediction::kDense
                                            : AccessDensityPrediction::kSparse;
-  size_t i = ListFor(longest, IndexFor(pt), type, pt->nallocs());
+  std::optional<size_t> i = ListFor(longest, IndexFor(pt), type, pt->nallocs(),
+                                    LFRRequirement::kMatchingLFR);
+  TC_ASSERT(i.has_value());
 
   if (!pt->released()) {
-    regular_alloc_[type].Remove(pt, i);
+    regular_alloc_[type].Remove(pt, *i);
   } else if (pt->free_pages() <= pt->released_pages()) {
-    regular_alloc_released_[type].Remove(pt, i);
+    regular_alloc_released_[type].Remove(pt, *i);
     TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
     n_used_released_[type] -= pt->used_pages();
   } else {
-    regular_alloc_partial_released_[type].Remove(pt, i);
+    regular_alloc_partial_released_[type].Remove(pt, *i);
     TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
     n_used_partial_released_[type] -= pt->used_pages();
   }
 }
 
 template <class TrackerType>
+inline TrackerType* /*absl_nullable*/
+HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
+  if (fully_freed_trackers_.empty()) {
+    return nullptr;
+  }
+
+  TrackerType* pt = fully_freed_trackers_.first();
+  fully_freed_trackers_.remove(pt);
+  return pt;
+}
+
+template <class TrackerType>
 inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
-  TC_ASSERT_LT(longest, kPagesPerHugePage);
+  TC_ASSERT_LE(longest, kPagesPerHugePage);
+
+  if (longest == kPagesPerHugePage) {
+    TC_ASSERT(pt->empty());
+    TC_ASSERT(pt->MaybeCollapse());
+    fully_freed_trackers_.prepend(pt);
+    return;
+  }
 
   // Once a donated alloc is used in any way, it degenerates into being a
   // regular alloc. This allows the algorithm to keep using it (we had to be
@@ -1976,15 +2404,17 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   const AccessDensityPrediction type = pt->HasDenseSpans()
                                            ? AccessDensityPrediction::kDense
                                            : AccessDensityPrediction::kSparse;
-  size_t i = ListFor(longest, IndexFor(pt), type, pt->nallocs());
+  std::optional<size_t> i = ListFor(longest, IndexFor(pt), type, pt->nallocs(),
+                                    LFRRequirement::kMatchingLFR);
+  TC_ASSERT(i.has_value());
 
   if (!pt->released()) {
-    regular_alloc_[type].Add(pt, i);
+    regular_alloc_[type].Add(pt, *i);
   } else if (pt->free_pages() <= pt->released_pages()) {
-    regular_alloc_released_[type].Add(pt, i);
+    regular_alloc_released_[type].Add(pt, *i);
     n_used_released_[type] += pt->used_pages();
   } else {
-    regular_alloc_partial_released_[type].Add(pt, i);
+    regular_alloc_partial_released_[type].Add(pt, *i);
     n_used_partial_released_[type] += pt->used_pages();
   }
 }
@@ -1998,6 +2428,8 @@ inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType* pt) {
   TC_ASSERT(!pt->released());
   pt->set_donated(true);
 
+  // Donated allocs always follow finer indexing based on the longest free
+  // range.
   donated_alloc_.Add(pt, longest.raw_num());
 }
 

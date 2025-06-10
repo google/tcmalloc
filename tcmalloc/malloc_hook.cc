@@ -15,17 +15,81 @@
 #include "tcmalloc/malloc_hook.h"
 
 #include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
+#include "tcmalloc/malloc_hook_invoke.h"
+
+extern "C" {
+
+ABSL_ATTRIBUTE_WEAK void MallocHook_InitAtFirstAllocation_HeapLeakChecker() {
+  // Do nothing
+}
+ABSL_ATTRIBUTE_WEAK void MallocHook_HooksChanged() {
+  // Do Nothing
+}
+
+}  // extern "C"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+static void RemoveInitialHooksAndCallInitializers();
+
+static void InitialNewHook(const MallocHook::NewInfo& info) {
+  ABSL_CONST_INIT static absl::once_flag once;
+  absl::base_internal::LowLevelCallOnce(&once,
+                                        RemoveInitialHooksAndCallInitializers);
+  MallocHook::InvokeNewHook(info);
+}
+
+ABSL_CONST_INIT HookList<MallocHook::NewHook> new_hooks_{&InitialNewHook};
+ABSL_CONST_INIT HookList<MallocHook::DeleteHook> delete_hooks_;
+
 ABSL_CONST_INIT HookList<MallocHook::SampledNewHook> sampled_new_hooks_;
 ABSL_CONST_INIT HookList<MallocHook::SampledDeleteHook> sampled_delete_hooks_;
 
+void RemoveInitialHooksAndCallInitializers() {
+  ABSL_RAW_CHECK(MallocHook::RemoveNewHook(&InitialNewHook), "");
+  // HeapLeakChecker need to get control on the first memory allocation. One can
+  // add other modules by following the same weak/strong function pattern.
+  MallocHook_InitAtFirstAllocation_HeapLeakChecker();
+}
+
 }  // namespace tcmalloc_internal
+
+bool MallocHook::AddNewHook(NewHook hook) {
+  bool ok = tcmalloc_internal::new_hooks_.Add(hook);
+  if (ok) {
+    MallocHook_HooksChanged();
+  }
+  return ok;
+}
+
+bool MallocHook::RemoveNewHook(NewHook hook) {
+  bool ok = tcmalloc_internal::new_hooks_.Remove(hook);
+  if (ok) {
+    MallocHook_HooksChanged();
+  }
+  return ok;
+}
+
+bool MallocHook::AddDeleteHook(DeleteHook hook) {
+  bool ok = tcmalloc_internal::delete_hooks_.Add(hook);
+  if (ok) {
+    MallocHook_HooksChanged();
+  }
+  return ok;
+}
+
+bool MallocHook::RemoveDeleteHook(DeleteHook hook) {
+  bool ok = tcmalloc_internal::delete_hooks_.Remove(hook);
+  if (ok) {
+    MallocHook_HooksChanged();
+  }
+  return ok;
+}
 
 bool MallocHook::AddSampledNewHook(SampledNewHook hook) {
   return tcmalloc_internal::sampled_new_hooks_.Add(hook);
@@ -56,6 +120,14 @@ bool MallocHook::RemoveSampledDeleteHook(SampledDeleteHook hook) {
       (*hooks[i]) args;                                                   \
     }                                                                     \
   } while (0)
+
+void MallocHook::InvokeNewHookSlow(const NewInfo& info) {
+  INVOKE_HOOKS(NewHook, tcmalloc_internal::new_hooks_, (info));
+}
+
+void MallocHook::InvokeDeleteHookSlow(const DeleteInfo& info) {
+  INVOKE_HOOKS(DeleteHook, tcmalloc_internal::delete_hooks_, (info));
+}
 
 void MallocHook::InvokeSampledNewHookSlow(const SampledAlloc& sampled_alloc) {
   INVOKE_HOOKS(SampledNewHook, tcmalloc_internal::sampled_new_hooks_,

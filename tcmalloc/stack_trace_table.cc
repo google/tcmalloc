@@ -65,15 +65,17 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   size_t allocated_size = t.allocated_size;
   size_t requested_size = t.requested_size;
 
-  uintptr_t bytes = sample_weight * AllocatedBytes(t) + 0.5;
-  // We want sum to be a multiple of allocated_size; pick the nearest
-  // multiple rather than always rounding up or down.
-  //
-  // TODO(b/215362992): Revisit this assertion when GWP-ASan guards
-  // zero-byte allocations.
-  TC_ASSERT_GT(allocated_size, 0);
-  // The reported count of samples, with possible rounding up for unsample.
-  s->sample.count = (bytes + allocated_size / 2) / allocated_size;
+  if (allocated_size != 0) {
+    uintptr_t bytes = sample_weight * AllocatedBytes(t) + 0.5;
+    // We want sum to be a multiple of allocated_size; pick the nearest
+    // multiple rather than always rounding up or down.
+    // The reported count of samples, with possible rounding up for unsample.
+    s->sample.count = (bytes + allocated_size / 2) / allocated_size;
+  } else {
+    // Zero-byte allocations without any bytes allocated are serviced by
+    // GuardedPageAllocator, and we know there was only one sample.
+    s->sample.count = 1;
+  }
   s->sample.sum = s->sample.count * allocated_size;
   s->sample.requested_size = requested_size;
   s->sample.requested_alignment = t.requested_alignment;

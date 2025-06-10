@@ -44,6 +44,15 @@ class MallocHook final {
     HookMemoryMutable is_mutable;
   };
 
+  // The NewHook is invoked whenever an object is being allocated.
+  // Object pointer and size are passed in.
+  // It may be passed null pointer if the allocator returned null.
+  typedef void (*NewHook)(const NewInfo& info);
+
+  [[nodiscard]] static bool AddNewHook(NewHook hook);
+  [[nodiscard]] static bool RemoveNewHook(NewHook hook);
+  static void InvokeNewHook(const NewInfo& info);
+
   struct DeleteInfo final {
     // Pointer to the deallocated memory.
     void* ptr = nullptr;
@@ -52,6 +61,15 @@ class MallocHook final {
     // Allow a hook to modify the memory.
     HookMemoryMutable is_mutable;
   };
+
+  // The DeleteHook is invoked whenever an object is being deallocated.
+  // Object pointer is passed in.
+  // It may be passed null pointer if the caller is trying to delete null.
+  typedef void (*DeleteHook)(const DeleteInfo& info);
+
+  [[nodiscard]] static bool AddDeleteHook(DeleteHook hook);
+  [[nodiscard]] static bool RemoveDeleteHook(DeleteHook hook);
+  static void InvokeDeleteHook(const DeleteInfo& info);
 
   // The SampledNewHook is invoked for some subset of object allocations
   // according to the sampling policy of an allocator such as tcmalloc.
@@ -108,6 +126,8 @@ class MallocHook final {
       SampledAlloc& sampled_alloc);
 
  private:
+  static void InvokeNewHookSlow(const NewInfo& info) ABSL_ATTRIBUTE_COLD;
+  static void InvokeDeleteHookSlow(const DeleteInfo& info) ABSL_ATTRIBUTE_COLD;
   static void InvokeSampledNewHookSlow(const SampledAlloc& sampled_alloc);
   static void InvokeSampledDeleteHookSlow(
       const

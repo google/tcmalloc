@@ -459,7 +459,7 @@ class DeallocationProfiler {
     }
   }
 
-  const tcmalloc::Profile Stop() {
+  tcmalloc::Profile Stop() {
     if (reports_ != nullptr) {
       // We first remove the profiler from the list to avoid racing with
       // potential allocations which may modify the allocs_ table.
@@ -651,7 +651,14 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
 
       uintptr_t bytes =
           std::lround(v.counts[index] * k.alloc.weight * allocated_size);
-      int64_t count = (bytes + allocated_size - 1) / allocated_size;
+      int64_t count;
+      if (allocated_size != 0) {
+        count = (bytes + allocated_size - 1) / allocated_size;
+      } else {
+        // Zero-byte allocations without any bytes allocated are serviced by
+        // GuardedPageAllocator, and we know there was only one sample.
+        count = 1;
+      }
       int64_t sum = count * allocated_size;
 
       // The variance should be >= 0, but it's not impossible that it drops

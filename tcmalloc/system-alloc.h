@@ -46,6 +46,10 @@
 #define MADV_FREE 8
 #endif
 
+#ifndef MADV_COLLAPSE
+#define MADV_COLLAPSE 25 /* Synchronous hugepage collapse */
+#endif
+
 // The <sys/prctl.h> on some systems may not define these macros yet even though
 // the kernel may have support for the new PR_SET_VMA syscall, so we explicitly
 // define them here.
@@ -116,6 +120,11 @@ class SystemAllocator {
   //
   // Returns true on success.
   [[nodiscard]] bool Release(void* start, size_t length);
+
+  // Attempt to MADV_COLLAPSE the specified range of memory, starting at the
+  // <start> address, ranging <length>.
+  // Returns true on success.
+  [[nodiscard]] bool Collapse(void* start, size_t length);
 
   // This call is the inverse of Release: the pages in this range are in use and
   // should be faulted in.  (In principle this is a best-effort hint, but in
@@ -616,6 +625,18 @@ bool SystemAllocator<Topology>::Release(void* start, size_t length) {
 #endif
 
   return result;
+}
+
+template <typename Topology>
+bool SystemAllocator<Topology>::Collapse(void* start, size_t length) {
+  int ret = -1;
+  int attempts = 0;
+  constexpr int kMaxAttempts = 3;
+  do {
+    ret = madvise(start, length, MADV_COLLAPSE);
+    ++attempts;
+  } while (ret == -1 && errno == EAGAIN && attempts < kMaxAttempts);
+  return ret == 0;
 }
 
 // Bind the memory region spanning `size` bytes starting from `base` to NUMA

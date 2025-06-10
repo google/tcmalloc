@@ -841,7 +841,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
         builder.InternString("LargerThanOnePage");
     const int disabled_id = builder.InternString("Disabled");
     const int rate_limited_id = builder.InternString("RateLimited");
-    const int too_small_id = builder.InternString("TooSmall");
     const int no_available_slots_id = builder.InternString("NoAvailableSlots");
     const int m_protect_failed_id = builder.InternString("MProtectFailed");
     const int filtered_id = builder.InternString("Filtered");
@@ -861,9 +860,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
         break;
       case Profile::Sample::GuardedStatus::RateLimited:
         guarded_status_label.set_str(rate_limited_id);
-        break;
-      case Profile::Sample::GuardedStatus::TooSmall:
-        guarded_status_label.set_str(too_small_id);
         break;
       case Profile::Sample::GuardedStatus::NoAvailableSlots:
         guarded_status_label.set_str(no_available_slots_id);

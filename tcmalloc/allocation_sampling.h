@@ -165,7 +165,9 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
 
     size_t span_size =
         Length(state.sizemap().class_to_pages(size_class)).in_bytes();
-    size_t objects_per_span = span_size / stack_trace.allocated_size;
+    size_t objects_per_span = stack_trace.allocated_size != 0
+                                  ? span_size / stack_trace.allocated_size
+                                  : -1ul;
 
     if (objects_per_span != 1) {
       TC_ASSERT_GT(objects_per_span, 1);

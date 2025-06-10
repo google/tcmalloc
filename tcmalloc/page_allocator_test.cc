@@ -30,6 +30,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_allocator_test_util.h"
@@ -84,8 +85,9 @@ class PageAllocatorTest : public testing::Test {
 
   std::string Print() {
     std::vector<char> buf(1024 * 1024);
+    PageFlags pageflags;
     Printer out(&buf[0], buf.size());
-    allocator_.Print(out, MemoryTag::kNormal);
+    allocator_.Print(out, MemoryTag::kNormal, pageflags);
 
     return std::string(&buf[0]);
   }

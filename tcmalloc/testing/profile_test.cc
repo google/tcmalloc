@@ -65,8 +65,7 @@ TEST(ProfileTest, HeapProfile) {
   for (int i = 0; i < kAllocs; i++) {
     allocs.emplace_back(::operator new(alloc_size), deleter);
     allocs.emplace_back(::operator new(alloc_size, std::nothrow), deleter);
-    allocs.emplace_back(tcmalloc_size_returning_operator_new(alloc_size).p,
-                        deleter);
+    allocs.emplace_back(__size_returning_new(alloc_size).p, deleter);
   }
 
   auto malloc_deleter = [](void* ptr) { free(ptr); };
@@ -170,7 +169,7 @@ TEST(ProfileTest, HeapProfile) {
   // (same call stack, size, alignment, etc.) during generation of the
   // profile.proto.  Since all of the calls to operator new(alloc_size) are
   // similar in these dimensions, we expect to see only 2 samples, one for
-  // ::operator new and one for tcmalloc_size_returning_operator_new.
+  // ::operator new and one for __size_returning_new.
   EXPECT_EQ(samples, 5);
   EXPECT_EQ(size_returning_samples, 1);
   EXPECT_EQ(new_samples, 3);

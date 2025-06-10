@@ -147,7 +147,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* wrap_memalign(size_t size) {
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* wrap_size_returning_operator_new(
     size_t size) {
-  return tcmalloc_size_returning_operator_new(size).p;
+  return __size_returning_new(size).p;
 }
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
@@ -157,9 +157,7 @@ wrap_size_returning_operator_new_nothrow(size_t size) {
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
 wrap_size_returning_operator_new_hot_cold(size_t size) {
-  return tcmalloc_size_returning_operator_new_hot_cold(size,
-                                                       tcmalloc::hot_cold_t(0))
-      .p;
+  return __size_returning_new_hot_cold(size, tcmalloc::hot_cold_t(0)).p;
 }
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
@@ -171,9 +169,7 @@ wrap_size_returning_operator_new_hot_cold_nothrow(size_t size) {
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
 wrap_size_returning_operator_new_aligned(size_t size) {
-  return tcmalloc_size_returning_operator_new_aligned(size,
-                                                      std::align_val_t(64))
-      .p;
+  return __size_returning_new_aligned(size, std::align_val_t(64)).p;
 }
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
@@ -185,8 +181,8 @@ wrap_size_returning_operator_new_aligned_nothrow(size_t size) {
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
 wrap_size_returning_operator_new_aligned_hot_cold(size_t size) {
-  return tcmalloc_size_returning_operator_new_aligned_hot_cold(
-             size, std::align_val_t(64), tcmalloc::hot_cold_t(0))
+  return __size_returning_new_aligned_hot_cold(size, std::align_val_t(64),
+                                               tcmalloc::hot_cold_t(0))
       .p;
 }
 

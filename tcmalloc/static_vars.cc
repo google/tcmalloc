@@ -163,8 +163,6 @@ SizeClassConfiguration Static::size_class_configuration() {
   const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
   if (e == nullptr) {
     return SizeClassConfiguration::kReuse;
-  } else if (!strcmp(e, "pow2below64")) {
-    return SizeClassConfiguration::kPow2Below64;
   } else if (!strcmp(e, "0")) {
     return SizeClassConfiguration::kReuse;
   } else {
@@ -187,10 +185,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     (void)subtle::percpu::IsFast();
     numa_topology_.Init();
     CacheTopology::Instance().Init();
-
-    if (IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
-      TCMalloc_Internal_SetMinHotAccessHint(1);
-    }
 
     // Do a bit of sanitizing: make sure central_cache is aligned properly
     TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);

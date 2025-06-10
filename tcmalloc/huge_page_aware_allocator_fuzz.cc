@@ -32,6 +32,8 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
@@ -86,7 +88,8 @@ void FuzzHPAA(const std::string& s) {
   // [2] - HugeCache release time
   // [3:4] - Reserved.
   // [5] - Dense tracker type
-  // [6:12] - Reserved.
+  // [6] - Sparse tracker type
+  // [7:12] - Reserved.
   //
   // TODO(b/271282540): Convert these to strongly typed fuzztest parameters.
   //
@@ -114,14 +117,19 @@ void FuzzHPAA(const std::string& s) {
           ? HugeRegionUsageOption::kDefault
           : HugeRegionUsageOption::kUseForAllLargeAllocs;
 
+  const int32_t huge_cache_release_s = std::max<int32_t>(data[2], 1);
+
   const HugePageFillerDenseTrackerType dense_tracker_type =
       static_cast<uint8_t>(data[5]) >= 128
           ? HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks
           : HugePageFillerDenseTrackerType::kSpansAllocated;
 
-  const int32_t huge_cache_release_s = std::max<int32_t>(data[2], 1);
+  const HugePageFillerSparseTrackerType sparse_tracker_type =
+      static_cast<uint8_t>(data[6]) >= 128
+          ? HugePageFillerSparseTrackerType::kExactLongestFreeRange
+          : HugePageFillerSparseTrackerType::kCoarseLongestFreeRange;
 
-  // data[6:12] - Reserve additional bytes for any features we might want to add
+  // data[7:12] - Reserve additional bytes for any features we might want to add
   // in the future.
   data += 13;
   size -= 13;
@@ -131,6 +139,7 @@ void FuzzHPAA(const std::string& s) {
   options.use_huge_region_more_often = huge_region_option;
   options.huge_cache_time = absl::Seconds(huge_cache_release_s);
   options.dense_tracker_type = dense_tracker_type;
+  options.sparse_tracker_type = sparse_tracker_type;
   HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator(options);
   auto& forwarder = allocator.forwarder();
 
@@ -354,9 +363,10 @@ void FuzzHPAA(const std::string& s) {
           //
           // value is unused.
           Printer p(&output[0], output.size());
+          PageFlags pageflags;
           {
             PbtxtRegion region(p, kTop);
-            allocator.PrintInPbtxt(region);
+            allocator.PrintInPbtxt(region, pageflags);
           }
           CHECK_LE(p.SpaceRequired(), output.size());
           break;
@@ -366,9 +376,10 @@ void FuzzHPAA(const std::string& s) {
           //
           // value[0]: Choose if we print everything.
           // value[63:1]: Reserved.
+          PageFlags pageflags;
           Printer p(&output[0], output.size());
           bool everything = (value % 2 == 0);
-          allocator.Print(p, everything);
+          allocator.Print(p, everything, pageflags);
           break;
         }
         case 6: {
@@ -445,6 +456,14 @@ void FuzzHPAA(const std::string& s) {
                     interval_1 >= interval_2 ? absl::Nanoseconds(interval_2)
                                              : absl::Nanoseconds(interval_1));
               }
+              break;
+            }
+            case 9: {
+              forwarder.set_collapse_succeeds(actual_value & 0x1);
+              break;
+            }
+            case 10: {
+              allocator.TryHugepageCollapse();
               break;
             }
           }

@@ -106,8 +106,8 @@ need to perform a costly pointer-to-size lookup.
 We also expose a prototype of
 [P0901](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2019/p0901r5.html) in
 https://github.com/google/tcmalloc/blob/master/tcmalloc/malloc_extension.h with
-`tcmalloc_size_returning_operator_new()`. This returns both memory and the size
-of the allocation in bytes. It can be freed with `::operator delete`.
+`__size_returning_new()`. This returns both memory and the size of the
+allocation in bytes. It can be freed with `::operator delete`.
 
 ## C API
 

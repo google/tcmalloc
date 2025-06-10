@@ -114,6 +114,20 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   return v;
 }
 
+// As usermode_hugepage_collapse_enabled() is determined at runtime, we
+// cannot require constant initialization for the atomic. This avoids an
+// initialization order fiasco.
+static std::atomic<bool>& usermode_hugepage_collapse_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE)) {
+      v.store(true, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
@@ -271,6 +285,22 @@ absl::Duration Parameters::cache_demand_release_long_interval() {
       cache_demand_release_long_interval_ns().load(std::memory_order_relaxed));
 }
 
+bool Parameters::usermode_hugepage_collapse() {
+  return usermode_hugepage_collapse_enabled().load(std::memory_order_relaxed);
+}
+
+bool Parameters::sparse_trackers_coarse_longest_free_range() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS) ||
+                IsExperimentActive(Experiment::TCMALLOC_COARSE_LFR_TRACKERS),
+            std::memory_order_relaxed);
+  });
+  return v;
+}
+
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }
@@ -282,43 +312,6 @@ int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
 static bool want_disable_dynamic_slabs() {
   if (default_want_disable_dynamic_slabs == nullptr) return false;
   return default_want_disable_dynamic_slabs() > 0;
-}
-
-// TODO(b/394569259): remove the
-// default_want_disable_dense_trackers_sorted_on_spans_allocated some time after
-// 2025-03-15.
-extern "C" bool ABSL_ATTRIBUTE_WEAK
-default_want_disable_dense_trackers_sorted_on_spans_allocated();
-static bool want_dense_trackers_sorted_on_spans_allocated() {
-  if (default_want_disable_dense_trackers_sorted_on_spans_allocated !=
-      nullptr) {
-    return false;
-  }
-
-  const char* e = thread_safe_getenv(
-      "TCMALLOC_DISABLE_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED");
-
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        return true;
-      case '1':
-        return false;
-      default:
-        TC_BUG("bad env var '%s'", e);
-    }
-  }
-  return true;
-}
-
-bool Parameters::dense_trackers_sorted_on_spans_allocated() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(want_dense_trackers_sorted_on_spans_allocated(),
-            std::memory_order_relaxed);
-  });
-  return v.load(std::memory_order_relaxed);
 }
 
 }  // namespace tcmalloc_internal
@@ -453,6 +446,10 @@ bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
   return Parameters::release_pages_from_huge_region();
 }
 
+bool TCMalloc_Internal_GetUsermodeHugepageCollapse() {
+  return Parameters::usermode_hugepage_collapse();
+}
+
 bool TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled() {
   return Parameters::resize_size_class_max_capacity();
 }
@@ -514,6 +511,11 @@ void TCMalloc_Internal_SetHugeCacheDemandBasedRelease(bool v) {
 
 void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v) {
   Parameters::huge_region_demand_based_release_.store(
+      v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v) {
+  tcmalloc::tcmalloc_internal::usermode_hugepage_collapse_enabled().store(
       v, std::memory_order_relaxed);
 }
 

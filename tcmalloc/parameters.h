@@ -98,6 +98,8 @@ class Parameters {
     return huge_region_demand_based_release_.load(std::memory_order_relaxed);
   }
 
+  static bool usermode_hugepage_collapse();
+
   static bool huge_cache_demand_based_release() {
     return huge_cache_demand_based_release_.load(std::memory_order_relaxed);
   }
@@ -189,7 +191,7 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
 
-  static bool dense_trackers_sorted_on_spans_allocated();
+  static bool sparse_trackers_coarse_longest_free_range();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
@@ -198,6 +200,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetHugeCacheDemandBasedRelease(bool v);
   friend void ::TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v);
+  friend void ::TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v);
   friend void ::TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v);
   friend void ::TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);

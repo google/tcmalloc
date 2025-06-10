@@ -127,22 +127,17 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
-  if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
+  EXPECT_THAT(
+      buf,
+      HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
+  if (IsExperimentActive(Experiment::TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE)) {
+    EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: true"));
   } else {
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: false"));
+    EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: false"));
   }
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
-  if (!IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
-    EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
-  }
+  EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
 
   sized_delete(alloc, kSize);
 }
@@ -206,16 +201,17 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
-    if (Parameters::dense_trackers_sorted_on_spans_allocated()) {
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
+
+    if (IsExperimentActive(Experiment::TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE)) {
       EXPECT_THAT(
-          buf,
-          HasSubstr(
-              R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
+          buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 1)"));
     } else {
       EXPECT_THAT(
-          buf,
-          HasSubstr(
-              R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 0)"));
+          buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 0)"));
     }
     EXPECT_THAT(
         buf,
@@ -248,12 +244,7 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_cache_demand_release_long_interval_ns: 5000000000)"));
-    if (!IsExperimentActive(
-            Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
-      EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 2)"));
-    } else {
-      EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
-    }
+    EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
   }
 
   Parameters::set_hpaa_subrelease(true);

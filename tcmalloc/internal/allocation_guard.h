@@ -19,13 +19,38 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/malloc_hook.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
-// TODO(b/143069684): actually ensure no allocations in debug mode here.
-struct AllocationGuard {
-  AllocationGuard() {}
+// In debug mode, ensures that no allocations will occur on the current thread
+// while this class is in scope.
+class AllocationGuard {
+ public:
+  AllocationGuard() {
+#ifndef NDEBUG
+    if (disallowed_ == 0) {
+      (void)MallocHook::AddNewHook(Hook);
+    }
+    ++disallowed_;
+#endif
+  }
+  ~AllocationGuard() {
+#ifndef NDEBUG
+    --disallowed_;
+    if (disallowed_ == 0) {
+      (void)MallocHook::RemoveNewHook(Hook);
+    }
+#endif
+  }
+
+ private:
+  static void Hook(const MallocHook::NewInfo& info) {
+    if (disallowed_ > 0) abort();
+  }
+
+  ABSL_CONST_INIT static thread_local int disallowed_;
 };
 
 // A SpinLockHolder that also enforces no allocations while the lock is held in

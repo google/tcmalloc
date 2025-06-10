@@ -817,12 +817,6 @@ __size_returning_new(size_t size) {
   return {::operator new(size), size};
 }
 
-// TODO(b/283856455): Remove once experiment is done.
-ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
-__size_returning_new_experiment(size_t size) {
-  return {::operator new(size), size};
-}
-
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
 __size_returning_new_hot_cold(size_t size, __hot_cold_t) {
   return {::operator new(size), size};
@@ -845,13 +839,6 @@ tcmalloc_size_returning_operator_new_hot_cold_nothrow(size_t size,
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
 __size_returning_new_aligned(size_t size, std::align_val_t alignment) {
-  return {::operator new(size, alignment), size};
-}
-
-// TODO(b/283856455): Remove once experiment is done.
-ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
-__size_returning_new_aligned_experiment(size_t size,
-                                        std::align_val_t alignment) {
   return {::operator new(size, alignment), size};
 }
 

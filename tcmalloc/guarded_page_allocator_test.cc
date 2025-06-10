@@ -89,6 +89,8 @@ TEST_F(GuardedPageAllocatorTest, SingleAllocDealloc) {
   char* buf = static_cast<char*>(alloc_with_status.alloc);
   EXPECT_NE(buf, nullptr);
   EXPECT_TRUE(gpa_.PointerIsMine(buf));
+  EXPECT_TRUE(gpa_.PointerIsCorrectlyAligned(buf));
+  EXPECT_FALSE(gpa_.PointerIsCorrectlyAligned(buf + 1));
   memset(buf, 'A', PageSize());
   EXPECT_DEATH(buf[-1] = 'A', "");
   EXPECT_DEATH(buf[PageSize()] = 'A', "");
@@ -224,6 +226,47 @@ TEST_F(GuardedPageAllocatorTest, Print) {
   Printer out(buf, sizeof(buf));
   gpa_.Print(out);
   EXPECT_THAT(buf, testing::ContainsRegex("GWP-ASan Status"));
+}
+
+TEST_F(GuardedPageAllocatorTest, ZeroByteAllocationAndDeallocation) {
+  auto alloc_with_status = gpa_.Allocate(0, 0, GetStackTrace());
+  EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  EXPECT_NE(alloc_with_status.alloc, nullptr);
+  void* ptr = alloc_with_status.alloc;
+
+  EXPECT_TRUE(gpa_.PointerIsMine(ptr));
+  EXPECT_EQ(gpa_.GetRequestedSize(ptr), 0);
+  EXPECT_TRUE(gpa_.PointerIsCorrectlyAligned(ptr));
+
+  // Any attempt to dereference a zero-byte allocation should crash,
+  // as the page is never made writable.
+  EXPECT_DEATH(static_cast<char*>(ptr)[0] = 'A', "");
+
+  gpa_.Deallocate(ptr);
+  EXPECT_EQ(gpa_.successful_allocations(), 1);
+}
+
+TEST_F(GuardedPageAllocatorTest, ZeroByteUseAfterFree) {
+  auto alloc_with_status = gpa_.Allocate(0, 0, GetStackTrace());
+  EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  ASSERT_NE(alloc_with_status.alloc, nullptr);
+  void* ptr = alloc_with_status.alloc;
+
+  EXPECT_EQ(gpa_.GetRequestedSize(ptr), 0);
+  gpa_.Deallocate(ptr);
+
+  // Use-after-free on a zero-byte allocation should crash.
+  EXPECT_DEATH(static_cast<char*>(ptr)[0] = 'B', "");
+}
+
+TEST_F(GuardedPageAllocatorTest, ZeroByteDoubleFree) {
+  auto alloc_with_status = gpa_.Allocate(0, 0, GetStackTrace());
+  EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  ASSERT_NE(alloc_with_status.alloc, nullptr);
+  void* ptr = alloc_with_status.alloc;
+
+  gpa_.Deallocate(ptr);
+  EXPECT_DEATH(gpa_.Deallocate(ptr), "");
 }
 
 // Test that no pages are double-allocated or left unallocated, and that no
@@ -366,7 +409,7 @@ TEST_P(SampledAllocationWithFilterTest, SizedNewMismatchedSizeDelete) {
   const auto& filter = GetParam();
 
   for (int i = 0; i < kIter; ++i) {
-    auto sized_ptr = tcmalloc_size_returning_operator_new(1000);
+    auto sized_ptr = __size_returning_new(1000);
     auto deleter = [](void* ptr) { ::operator delete(ptr); };
     std::unique_ptr<void, decltype(deleter)> ptr(sized_ptr.p, deleter);
     if (!filter(ptr.get())) continue;

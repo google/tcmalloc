@@ -23,7 +23,9 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -40,7 +42,6 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
-#include "absl/meta/type_traits.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
@@ -55,11 +56,15 @@
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
+#include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_allocator_test_util.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
@@ -119,7 +124,6 @@ class HugePageAwareAllocatorTest
   using MockedHugePageAwareAllocator =
       huge_page_allocator_internal::HugePageAwareAllocator<
           FakeStaticForwarderWithReleaseCheck>;
-
  protected:
   HugePageAwareAllocatorTest() {
     before_ = MallocExtension::GetRegionFactory();
@@ -253,6 +257,8 @@ class HugePageAwareAllocatorTest
     return allocator_->ReleaseAtLeastNPages(k, reason);
   }
 
+  void TryHugepageCollapse() { allocator_->TryHugepageCollapse(); }
+
   Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
                                                PageReleaseReason reason) {
     PageHeapSpinLockHolder l;
@@ -269,7 +275,8 @@ class HugePageAwareAllocatorTest
     const size_t kSize = 1 << 20;
     ret.resize(kSize);
     Printer p(&ret[0], kSize);
-    allocator_->Print(p);
+    PageFlags pageflags;
+    allocator_->Print(p, pageflags);
     ret.erase(p.SpaceRequired());
     return ret;
   }
@@ -278,10 +285,11 @@ class HugePageAwareAllocatorTest
     std::string ret;
     const size_t kSize = 1 << 20;
     ret.resize(kSize);
+    PageFlags pageflags;
     Printer p(&ret[0], kSize);
     {
       PbtxtRegion region(p, kNested);
-      allocator_->PrintInPbtxt(region);
+      allocator_->PrintInPbtxt(region, pageflags);
     }
     ret.erase(p.SpaceRequired());
     return ret;
@@ -887,7 +895,16 @@ TEST_P(HugePageAwareAllocatorTest, SmallDonations) {
 
   RefreshStats();
   EXPECT_EQ(slack, kSlack);
-  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  // The filler is not able to use the already available hugepage since that
+  // page has a kSmallSize2 allocation.  The longest free range for this
+  // hugepage will be kPagesPerHugePage - kSmallSize2.  This means that hugepage
+  // will be in the final list.  Hugepages in that list are not used for
+  // allocations of size kLargeSize.
+  if (Parameters::sparse_trackers_coarse_longest_free_range()) {
+    EXPECT_EQ(donated_huge_pages, NHugePages(2));
+  } else {
+    EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  }
   EXPECT_EQ(abandoned_pages, kLargeSize);
 
   Delete(large2, kSpanInfo.objects_per_span);
@@ -1076,9 +1093,16 @@ TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   RefreshStats();
   // large contributes slack, but isn't donated.
   EXPECT_EQ(slack, kSmallSize);
-  EXPECT_EQ(donated_huge_pages, NHugePages(0));
+  // The hugepage used depends on whether coarse longest free range feature is
+  // enabled or not.
+  if (Parameters::sparse_trackers_coarse_longest_free_range()) {
+    EXPECT_EQ(donated_huge_pages, NHugePages(1));
+    EXPECT_TRUE(large->donated());
+  } else {
+    EXPECT_EQ(donated_huge_pages, NHugePages(0));
+    EXPECT_FALSE(large->donated());
+  }
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_FALSE(large->donated());
 
   Delete(large, kSpanInfo.objects_per_span);
   RefreshStats();
@@ -1160,8 +1184,9 @@ TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
 
   constexpr size_t kBufferSize = 1024 * 1024;
   char buffer[kBufferSize];
+  PageFlags pageflags;
   Printer printer(buffer, kBufferSize);
-  allocator_->Print(printer);
+  allocator_->Print(printer, pageflags);
   // Verify that we have less free memory than we allocated in total. We have
   // to account for bytes tied up in the cache.
   EXPECT_LE(stats.free_bytes - allocator_->cache()->size().in_bytes(),
@@ -1575,6 +1600,9 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
     } else if (thread_id == 1) {
       benchmark::DoNotOptimize(Print());
       return;
+    } else if (thread_id == 2) {
+      TryHugepageCollapse();
+      return;
     }
 
     if (absl::Bernoulli(m.rng, 0.6) || m.spans.empty()) {
@@ -1594,7 +1622,7 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
     }
   });
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Seconds(5));
 
   threads.Stop();
 
@@ -1605,6 +1633,70 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
+  constexpr int kAllocThreads = 10;
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  struct ABSL_CACHELINE_ALIGNED Metadata {
+    absl::BitGen rng;
+    std::vector<Span*> spans;
+  };
+
+  std::vector<Metadata> metadata;
+  metadata.resize(kAllocThreads);
+  allocator_->forwarder().set_collapse_succeeds(true);
+
+  auto collase_func = [&](const std::atomic<bool>& done) {
+    absl::BitGen rng;
+    while (!done.load(std::memory_order_acquire)) {
+      allocator_->forwarder().set_collapse_succeeds(absl::Bernoulli(rng, 0.5));
+      TryHugepageCollapse();
+    }
+  };
+
+  auto alloc_func = [&](int thread_id, const std::atomic<bool>& done) {
+    Metadata& m = metadata[thread_id];
+
+    while (!done.load(std::memory_order_acquire)) {
+      if (absl::Bernoulli(m.rng, 0.6) || m.spans.empty()) {
+        Span* s = AllocatorNew(Length(absl::LogUniform(m.rng, 1, 1 << 10)),
+                               kSpanInfo);
+        TC_CHECK_NE(s, nullptr);
+        m.spans.push_back(s);
+      } else {
+        size_t index = absl::Uniform<size_t>(m.rng, 0, m.spans.size());
+
+        Span* back = m.spans.back();
+        Span* s = m.spans[index];
+        m.spans[index] = back;
+        m.spans.pop_back();
+
+        AllocatorDelete(s, kSpanInfo.objects_per_span);
+      }
+    }
+  };
+
+  std::atomic<bool> done(false);
+
+  std::thread collapse_thread = std::thread(collase_func, std::ref(done));
+  std::vector<std::thread> alloc_threads;
+  for (int i = 0; i < kAllocThreads; ++i) {
+    alloc_threads.push_back(std::thread(alloc_func, i, std::ref(done)));
+  }
+  absl::SleepFor(absl::Seconds(5));
+  done.store(true, std::memory_order_release);
+
+  collapse_thread.join();
+  for (auto& thread : alloc_threads) {
+    thread.join();
+  }
+
+  for (auto& m : metadata) {
+    for (Span* s : m.spans) {
+      AllocatorDelete(s, kSpanInfo.objects_per_span);
+    }
+  }
+}
 INSTANTIATE_TEST_SUITE_P(
     All, HugePageAwareAllocatorTest,
     testing::Values(HugeRegionUsageOption::kDefault,

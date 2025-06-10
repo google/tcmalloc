@@ -823,7 +823,7 @@ TEST(TCMallocTest, GetEstimatedAllocatedSizeHotCold) {
           MallocExtension::GetEstimatedAllocatedSize(size, hot_cold);
       ASSERT_GE(rounded, size);
       auto [ptr, allocated_size] =
-          tcmalloc_size_returning_operator_new_hot_cold(size, hot_cold);
+          __size_returning_new_hot_cold(size, hot_cold);
       ASSERT_EQ(rounded, allocated_size);
       free(ptr);
     }
@@ -980,10 +980,9 @@ TEST(TCMallocTest, TestAliasedFunctions) {
   void (*operator_delete_array_nothrow)(void*, const std::nothrow_t&) =
       &::operator delete[];
 
-  ExpectSameAddresses(&::free, operator_delete);
-  ExpectSameAddresses(&::free, operator_delete_nothrow);
-  ExpectSameAddresses(&::free, operator_delete_array);
-  ExpectSameAddresses(&::free, operator_delete_array_nothrow);
+  ExpectSameAddresses(operator_delete, operator_delete_nothrow);
+  ExpectSameAddresses(operator_delete, operator_delete_array);
+  ExpectSameAddresses(operator_delete, operator_delete_array_nothrow);
 }
 
 // This test is extremely slow on riscv.
@@ -1005,14 +1004,14 @@ class TcmallocSizedNewTest
         (align_needed << 2) | (hot_cold_needed << 1) | nothrow_needed;
     switch (encoding) {
       case 0b000:
-        sro_new_ = tcmalloc_size_returning_operator_new;
+        sro_new_ = __size_returning_new;
         break;
       case 0b001:
         sro_new_ = tcmalloc_size_returning_operator_new_nothrow;
         break;
       case 0b010:
         sro_new_ = [this](size_t size) {
-          return tcmalloc_size_returning_operator_new_hot_cold(size, hot_cold_);
+          return __size_returning_new_hot_cold(size, hot_cold_);
         };
         break;
       case 0b011:
@@ -1023,7 +1022,7 @@ class TcmallocSizedNewTest
         break;
       case 0b100:
         sro_new_ = [this](size_t size) {
-          return tcmalloc_size_returning_operator_new_aligned(size, align_);
+          return __size_returning_new_aligned(size, align_);
         };
         break;
       case 0b101:
@@ -1034,8 +1033,7 @@ class TcmallocSizedNewTest
         break;
       case 0b110:
         sro_new_ = [this](size_t size) {
-          return tcmalloc_size_returning_operator_new_aligned_hot_cold(
-              size, align_, hot_cold_);
+          return __size_returning_new_aligned_hot_cold(size, align_, hot_cold_);
         };
         break;
       case 0b111:
@@ -1163,7 +1161,7 @@ TEST(SizedDeleteTest, SizedOperatorDelete) {
   enum DeleteSize { kSize, kCapacity, kHalfway };
   for (size_t size = 0; size < kMaxSize; ++size) {
     for (auto delete_size : {kSize, kCapacity, kHalfway}) {
-      sized_ptr_t res = tcmalloc_size_returning_operator_new(size);
+      sized_ptr_t res = __size_returning_new(size);
       switch (delete_size) {
         case kSize:
           ::operator delete(res.p, size);
@@ -1255,11 +1253,6 @@ TEST(HotColdTest, HotColdNew) {
   }
 }
 
-hot_cold_t MinHotAccessHint() {
-  return static_cast<tcmalloc::hot_cold_t>(
-      TCMalloc_Internal_GetMinHotAccessHint());
-}
-
 TEST(HotColdTest, NothrowHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
@@ -1287,7 +1280,7 @@ TEST(HotColdTest, NothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1333,7 +1326,7 @@ TEST(HotColdTest, AlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1384,7 +1377,7 @@ TEST(HotColdTest, ArrayNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1430,7 +1423,7 @@ TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1477,11 +1470,11 @@ TEST(HotColdTest, SizeReturningHotColdNew) {
     const size_t requested = absl::LogUniform<size_t>(rng, kSmall, kLarge);
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
-    auto [ptr, actual] = tcmalloc_size_returning_operator_new_hot_cold(
+    auto [ptr, actual] = __size_returning_new_hot_cold(
         requested, static_cast<hot_cold_t>(label));
     ASSERT_GE(actual, requested);
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= MinHotAccessHint()) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;
@@ -1625,10 +1618,10 @@ TEST(MallocExtension, SizeReturningNewAndSizedDelete) {
   ScopedGuardedSamplingInterval gs(-1);
 
   for (int i = 0; i < 100; ++i) {
-    tcmalloc::sized_ptr_t sized_ptr = tcmalloc_size_returning_operator_new(i);
+    tcmalloc::sized_ptr_t sized_ptr = __size_returning_new(i);
     ::operator delete(sized_ptr.p, sized_ptr.n);
     for (int j = i, end = sized_ptr.n; j < end; ++j) {
-      sized_ptr = tcmalloc_size_returning_operator_new(i);
+      sized_ptr = __size_returning_new(i);
       EXPECT_EQ(end, sized_ptr.n) << i << "," << j;
       ::operator delete(sized_ptr.p, j);
     }

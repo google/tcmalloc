@@ -167,7 +167,6 @@ TEST_F(RunTimeSizeClassesTest, WastedSpan) {
   // (alignment) at the end of the span.
   switch (tc_globals.size_class_configuration()) {
     case SizeClassConfiguration::kLegacy:
-    case SizeClassConfiguration::kPow2Below64:
     case SizeClassConfiguration::kReuse:
       // This test fails for other classes (was passing with a different span
       // size allocation algorithm used between cl/130150125 and cl/139955211).
@@ -439,6 +438,8 @@ TEST(SizeMapTest, SizeClass) {
   }
 
   // After m.Init(), SizeClass should return a size class.
+  //
+  // TODO(ckennelly): Parameterize this and other tests to vary size class sets.
   m.Init(kSizeClasses.classes);
 
   for (int i = 0; i < kTrials; ++i) {
