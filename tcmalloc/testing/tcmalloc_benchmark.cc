@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "absl/base/attributes.h"
+#include "absl/log/check.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
@@ -34,6 +35,8 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
+#include "tcmalloc/malloc_hook_invoke.h"
 
 extern "C" ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetStats(
     std::string* ret);
@@ -70,12 +73,48 @@ BENCHMARK_TEMPLATE(BM_new_delete_fixed, 4096);
 static void BM_new_sized_delete(benchmark::State& state) {
   const int arg = state.range(0);
 
+  CHECK_EQ(tcmalloc_internal::new_hooks_.size(), 0);
+  CHECK_EQ(tcmalloc_internal::delete_hooks_.size(), 0);
   for (auto s : state) {
     void* ptr = ::operator new(arg);
     ::operator delete(ptr, arg);
   }
 }
 BENCHMARK(BM_new_sized_delete)->Range(1, 1 << 20);
+
+static void BM_hooked_new_sized_delete(benchmark::State& state) {
+  const int arg = state.range(0);
+
+  auto new_hook = [](const MallocHook::NewInfo& info) {
+    benchmark::DoNotOptimize(info.ptr);
+  };
+  CHECK(MallocHook::AddNewHook(new_hook));
+
+  for (auto s : state) {
+    void* ptr = ::operator new(arg);
+    ::operator delete(ptr, arg);
+  }
+
+  CHECK(MallocHook::RemoveNewHook(new_hook));
+}
+BENCHMARK(BM_hooked_new_sized_delete)->Range(1, 1 << 20);
+
+static void BM_new_hooked_sized_delete(benchmark::State& state) {
+  const int arg = state.range(0);
+
+  auto delete_hook = [](const MallocHook::DeleteInfo& info) {
+    benchmark::DoNotOptimize(info.ptr);
+  };
+  CHECK(MallocHook::AddDeleteHook(delete_hook));
+
+  for (auto s : state) {
+    void* ptr = ::operator new(arg);
+    ::operator delete(ptr, arg);
+  }
+
+  CHECK(MallocHook::RemoveDeleteHook(delete_hook));
+}
+BENCHMARK(BM_new_hooked_sized_delete)->Range(1, 1 << 20);
 
 static void BM_size_returning_new_delete(benchmark::State& state) {
   const int arg = state.range(0);
