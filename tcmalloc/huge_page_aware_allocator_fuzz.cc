@@ -87,7 +87,7 @@ void FuzzHPAA(const std::string& s) {
   // [1] - HugeRegionsMode.
   // [2] - HugeCache release time
   // [3:4] - Reserved.
-  // [5] - Dense tracker type
+  // [5] - Reserved.
   // [6] - Sparse tracker type
   // [7:12] - Reserved.
   //
@@ -119,11 +119,6 @@ void FuzzHPAA(const std::string& s) {
 
   const int32_t huge_cache_release_s = std::max<int32_t>(data[2], 1);
 
-  const HugePageFillerDenseTrackerType dense_tracker_type =
-      static_cast<uint8_t>(data[5]) >= 128
-          ? HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks
-          : HugePageFillerDenseTrackerType::kSpansAllocated;
-
   const HugePageFillerSparseTrackerType sparse_tracker_type =
       static_cast<uint8_t>(data[6]) >= 128
           ? HugePageFillerSparseTrackerType::kExactLongestFreeRange
@@ -138,7 +133,6 @@ void FuzzHPAA(const std::string& s) {
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
   options.huge_cache_time = absl::Seconds(huge_cache_release_s);
-  options.dense_tracker_type = dense_tracker_type;
   options.sparse_tracker_type = sparse_tracker_type;
   HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator(options);
   auto& forwarder = allocator.forwarder();
@@ -196,9 +190,7 @@ void FuzzHPAA(const std::string& s) {
             // This is an invalid size class, so skip it.
             break;
           }
-          if (dense_tracker_type ==
-                  HugePageFillerDenseTrackerType::kSpansAllocated &&
-              density == AccessDensityPrediction::kDense) {
+          if (density == AccessDensityPrediction::kDense) {
             length = Length(1);
           }
 
@@ -214,8 +206,6 @@ void FuzzHPAA(const std::string& s) {
           SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
                                       .density = density};
           TC_CHECK(
-              dense_tracker_type ==
-                  HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks ||
               density == AccessDensityPrediction::kSparse ||
               length == Length(1));
           if (use_aligned) {

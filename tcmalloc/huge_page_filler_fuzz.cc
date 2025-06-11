@@ -30,6 +30,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_subrelease.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/clock.h"
@@ -161,7 +162,7 @@ void FuzzFiller(const std::string& s) {
   // We interpret data as a small DSL for exploring the state space of
   // HugePageFiller.
   //
-  // [0] - used for choosing dense tracker type.
+  // [0] - Reserved.
   // [1] - used for choosing sparse tracker type.
   // [2] - (available)
   //
@@ -173,10 +174,6 @@ void FuzzFiller(const std::string& s) {
   //                  For example, this input can provide a Length to
   //                  allocate, or the index of the previous allocation to
   //                  deallocate.
-  const HugePageFillerDenseTrackerType dense_tracker_type =
-      static_cast<uint8_t>(data[0]) >= 128
-          ? HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks
-          : HugePageFillerDenseTrackerType::kSpansAllocated;
   const HugePageFillerSparseTrackerType sparse_tracker_type =
       static_cast<uint8_t>(data[1]) >= 128
           ? HugePageFillerSparseTrackerType::kExactLongestFreeRange
@@ -185,8 +182,8 @@ void FuzzFiller(const std::string& s) {
   size -= kInitBytes;
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
-                                     dense_tracker_type, sparse_tracker_type,
-                                     unback, unback, collapse);
+                                     sparse_tracker_type, unback, unback,
+                                     collapse);
 
   std::vector<PageTracker*> trackers;
   absl::flat_hash_map<PageTracker*, std::vector<Range>> allocs;
@@ -224,9 +221,7 @@ void FuzzFiller(const std::string& s) {
           num_objects = 1;
           density = AccessDensityPrediction::kSparse;
         }
-        if (dense_tracker_type ==
-                HugePageFillerDenseTrackerType::kSpansAllocated &&
-            density == AccessDensityPrediction::kDense) {
+        if (density == AccessDensityPrediction::kDense) {
           n = Length(1);
         }
 

@@ -332,16 +332,6 @@ enum class LFRRequirement : bool {
   kMatchingLFR,
 };
 
-enum class HugePageFillerDenseTrackerType : bool {
-  // Hugepages sorted on longest free range and chunk index. This is currently
-  // the default.
-  kLongestFreeRangeAndChunks,
-  // Hugepages sorted only on number of spans allocated. As we allocate
-  // single-page many-object spans, we do not sort hugepages on longest free
-  // range when this configuration is used.
-  kSpansAllocated,
-};
-
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
@@ -349,17 +339,16 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   explicit HugePageFiller(
-      HugePageFillerDenseTrackerType dense_tracker_type,
       HugePageFillerSparseTrackerType sparse_tracker_type,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND);
-  HugePageFiller(Clock clock, HugePageFillerDenseTrackerType dense_tracker_type,
-                 HugePageFillerSparseTrackerType sparse_tracker_type,
-                 MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
-                 MemoryModifyFunction& unback_without_lock
-                     ABSL_ATTRIBUTE_LIFETIME_BOUND,
-                 MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND);
+
+  HugePageFiller(
+      Clock clock, HugePageFillerSparseTrackerType sparse_tracker_type,
+      MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   typedef TrackerType Tracker;
 
@@ -580,7 +569,6 @@ class HugePageFiller {
   // n_used_partial_released_ is the number of pages which have been allocated
   // from the hugepages in the set regular_alloc_partial_released.
   Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
-  const HugePageFillerDenseTrackerType dense_tracker_type_;
   const HugePageFillerSparseTrackerType sparse_tracker_type_;
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
@@ -797,24 +785,21 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    HugePageFillerDenseTrackerType dense_tracker_type,
     HugePageFillerSparseTrackerType sparse_tracker_type,
     MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock,
     MemoryModifyFunction& collapse)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     dense_tracker_type, sparse_tracker_type, unback,
-                     unback_without_lock, collapse) {}
+                     sparse_tracker_type, unback, unback_without_lock,
+                     collapse) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    Clock clock, HugePageFillerDenseTrackerType dense_tracker_type,
-    HugePageFillerSparseTrackerType sparse_tracker_type,
+    Clock clock, HugePageFillerSparseTrackerType sparse_tracker_type,
     MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock,
     MemoryModifyFunction& collapse)
-    : dense_tracker_type_(dense_tracker_type),
-      sparse_tracker_type_(sparse_tracker_type),
+    : sparse_tracker_type_(sparse_tracker_type),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
@@ -826,9 +811,7 @@ template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
 HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   TC_ASSERT_GT(n, Length(0));
-  TC_ASSERT(dense_tracker_type_ ==
-                HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks ||
-            span_alloc_info.density == AccessDensityPrediction::kSparse ||
+  TC_ASSERT(span_alloc_info.density == AccessDensityPrediction::kSparse ||
             n == Length(1));
 
   // How do we choose which hugepage to allocate from (among those with
@@ -2311,14 +2294,6 @@ template <class TrackerType>
 inline size_t HugePageFiller<TrackerType>::DenseListFor(const Length longest,
                                                         const size_t chunk,
                                                         size_t nallocs) const {
-  if (ABSL_PREDICT_TRUE(
-          dense_tracker_type_ ==
-          HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks)) {
-    TC_ASSERT_LT(longest, kPagesPerHugePage);
-    return longest.raw_num() * kChunks + chunk;
-  }
-  TC_ASSERT(dense_tracker_type_ ==
-            HugePageFillerDenseTrackerType::kSpansAllocated);
   TC_ASSERT_LE(nallocs, kPagesPerHugePage.raw_num());
   // For the dense tracker with hugepages sorted on allocs, the hugepages are
   // placed only in lists that are multiples of kChunks.  The in-between lists
