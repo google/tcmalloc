@@ -802,13 +802,13 @@ ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void sdallocx(void* ptr, size_t,
   free(ptr);
 }
 
-ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void free_sized(void* ptr, size_t) {
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void free_sized(void* ptr, size_t)
+    TCMALLOC_FREE_SIZED_NOEXCEPT {
   free(ptr);
 }
 
-ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void free_aligned_sized(void* ptr,
-                                                                    size_t,
-                                                                    size_t) {
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void free_aligned_sized(
+    void* ptr, size_t, size_t) TCMALLOC_FREE_SIZED_NOEXCEPT {
   free(ptr);
 }
 
