@@ -753,6 +753,13 @@ uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
 template <typename Topology>
 inline bool SystemAllocator<Topology>::ReleasePages(void* start,
                                                     size_t length) const {
+  // TODO(b/424551232): madvise rounds up length to the multiple of page size.
+  // If TCMalloc's page size is lower than the system's page size, madvise may
+  // corrupt the in-use memory. Return false to avoid this for now. We might
+  // want to fix this by releasing only if all the TCMalloc pages within the
+  // system page are free.
+  if (kPageSize < GetPageSize()) return false;
+
   int ret;
   // Note -- ignoring most return codes, because if this fails it
   // doesn't matter...
