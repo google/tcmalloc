@@ -1773,7 +1773,7 @@ inline bool HugePageFiller<TrackerType>::TryUserspaceCollapse(
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
     PageFlagsBase* pageflags, Residency* residency) {
-  // Trying to collapse the pages invoves three steps:
+  // Trying to collapse the pages involves three steps:
   // 1. Collect up to kTotalTrackersToScan trackers that may be collapsed.
   //    Eligible pages here include:
   //   a. The trackers that manage pages that either were hugepage backed or
@@ -1799,6 +1799,8 @@ inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
 
   // Collect all the addresses under pageheap lock that aren't likely hugepage
   // backed, and that were last scanned more than kRecordInterval ago.
+  const double now = clock_.now();
+  const double frequency = clock_.freq();
   auto CollectNonHugePageAddresses =
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
         if (num_valid_addresses >= kTotalTrackersToScan) return;
@@ -1812,8 +1814,6 @@ inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
           pt.SetMaybeCollapse(/*value=*/true);
           return;
         }
-        double now = clock_.now();
-        double frequency = clock_.freq();
         double elapsed = std::max<double>(now - state.record_time, 0);
         if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * frequency) {
           page_trackers[num_valid_addresses] = &pt;
@@ -1866,7 +1866,7 @@ inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
     bool is_hugepage =
         pageflags->IsHugepageBacked(tracker->location().start_addr());
     state.entry_valid = true;
-    state.record_time = clock_.now();
+    state.record_time = now;
     bool collapsed = false;
     size_t total_swapped_pages = 0;
     size_t total_unbacked_pages = 0;
