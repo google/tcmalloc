@@ -254,6 +254,26 @@ build --cxxopt='-std=c++17'
 
 Congratulations! You've created your first binary using TCMalloc.
 
+### Using TCMalloc in non-Bazel Projects
+
+If you are not using Bazel, you can instead build a standalone version
+of TCMalloc that you can vendor in your project. Before doing so you
+should still run the tests, as described above, to make sure the
+vendored library will work in your environment. Then build the
+standalone bazel target:
+
+```
+tcmalloc$ bazel build tcmalloc:tcmalloc_standalone --experimental_cc_static_library
+```
+
+Once this builds you can copy the resulting static library from
+`bazel-bin/tcmalloc/libtcmalloc_standalone.a` into your project!
+
+Note that if you have dependencies in your project that are also
+included in TCMalloc, it is up to you to ensure the versions are
+compatible in order to avoid symbol conflicts (which may or may not be
+hard errors at link time).
+
 ## What's Next
 
 *   Read our [overview](overview.md), if you haven't already. The overview
