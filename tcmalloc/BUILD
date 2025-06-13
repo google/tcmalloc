@@ -117,6 +117,12 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_static_library(
+    name = "tcmalloc_standalone",
+    deps = [":tcmalloc"],
+    tags = ["manual"],
+)
+
 cc_library(
     name = "tcmalloc_internal_methods_only",
     testonly = True,
