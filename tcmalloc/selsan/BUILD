@@ -38,7 +38,10 @@ cc_library(
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
     ],
-    alwayslink = 1,
+    alwayslink = select({
+        "//tcmalloc:unlinked": 0,
+        "//conditions:default": 1,
+    }),
 )
 
 cc_test(
