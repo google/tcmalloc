@@ -119,8 +119,9 @@ cc_library(
 
 cc_static_library(
     name = "tcmalloc_standalone",
-    deps = [":tcmalloc"],
     tags = ["manual"],
+    visibility = [":__subpackages__"],
+    deps = [":tcmalloc"],
 )
 
 cc_library(
