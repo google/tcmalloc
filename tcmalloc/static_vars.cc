@@ -160,6 +160,11 @@ SizeClassConfiguration Static::size_class_configuration() {
     return SizeClassConfiguration::kLegacy;
   }
 
+  if (IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2)) {
+    return SizeClassConfiguration::kReuseV2;
+  }
+
   const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
   if (e == nullptr) {
     return SizeClassConfiguration::kReuse;

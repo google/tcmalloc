@@ -68,6 +68,7 @@ enum class SizeClassConfiguration {
   kPow2Only = 2,
   kLegacy = 4,
   kReuse = 6,
+  kReuseV2 = 7,
 };
 
 class Static final {

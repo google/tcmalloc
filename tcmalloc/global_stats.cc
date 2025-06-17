@@ -276,6 +276,8 @@ static absl::string_view SizeClassConfigurationString(
       return "SIZE_CLASS_LEGACY";
     case SizeClassConfiguration::kReuse:
       return "SIZE_CLASS_REUSE";
+    case SizeClassConfiguration::kReuseV2:
+      return "SIZE_CLASS_REUSE_V2";
   }
 
   ASSUME(false);
