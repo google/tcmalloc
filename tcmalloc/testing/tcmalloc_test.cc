@@ -192,6 +192,12 @@ TEST(TcmallocTest, Calloc) {
 }
 
 TEST(TcmallocTest, Realloc) {
+  // When sampling, we always reallocate as we record the requested and actual
+  // allocation sizes during the original allocation. During reallocation, we
+  // would have to attempt to update this recorded state. Since sampling is
+  // random, we turn off sampling to make sure that doesn't happen to us here.
+  ScopedNeverSample never_sample;
+
   // Test that realloc doesn't always reallocate and copy memory.
   constexpr int kLargeSize = (1 << 20) - (1 << 10);
   ASSERT_GT(kLargeSize, tcmalloc_internal::kMaxSize);
@@ -200,16 +206,6 @@ TEST(TcmallocTest, Realloc) {
                             -32, 64, -128, 1 << 10, -(2 << 10)};
 
   for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
-    // When sampling, we always allocate in units of page-size, which makes
-    // reallocs of small sizes do extra work (thus, failing these checks).
-    // Since sampling is random, we turn off sampling to make sure that
-    // doesn't happen to us here. But very large blocks shouldn't be
-    // reallocated even with sampling.
-    std::optional<ScopedNeverSample> never_sample;
-    if (start_sizes[s] != kLargeSize) {
-      never_sample.emplace();
-    }
-
     void* p = malloc(start_sizes[s]);
     // We stash a copy of the pointer p so we can reference it later.  We must
     // work with the return value of p.
@@ -846,6 +842,27 @@ TEST(TCMallocTest, free_sized) {
     benchmark::DoNotOptimize(ptr);
     free_sized(ptr, size);
   }
+}
+
+TEST(TCMallocTest, realloc_free_sized) {
+  for (size_t size = 0; size <= 4096; size += 7) {
+    void* ptr = malloc(size);
+    size_t realloc_size = malloc_usable_size(ptr) + 1;
+    ptr = realloc(ptr, realloc_size);
+    memset(ptr, 0, realloc_size);
+    benchmark::DoNotOptimize(ptr);
+    free_sized(ptr, realloc_size);
+  }
+}
+
+TEST(TCMallocTest, b421895944) {
+  size_t size = 80;
+  void* ptr = malloc(size);
+  size_t realloc_size = malloc_usable_size(ptr) + 1;
+  ptr = realloc(ptr, realloc_size);
+  memset(ptr, 0, realloc_size);
+  benchmark::DoNotOptimize(ptr);
+  free_sized(ptr, realloc_size);
 }
 
 #ifndef NDEBUG

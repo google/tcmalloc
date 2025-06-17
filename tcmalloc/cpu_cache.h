@@ -146,6 +146,11 @@ class StaticForwarder {
            SizeClassConfiguration::kReuse;
   }
 
+  static bool reuse_size_classes_v2() {
+    return tc_globals.size_class_configuration() ==
+           SizeClassConfiguration::kReuseV2;
+  }
+
   static size_t class_to_size(int size_class) {
     return tc_globals.sizemap().class_to_size(size_class);
   }
@@ -868,8 +873,9 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     // We use fewer number of size classes when using reuse size classes. So,
     // we may use larger capacity for some sizes.
     const uint16_t kLargeUninterestingObjectDepth =
-        forwarder_.reuse_size_classes() ? 246 * kWiderSlabMultiplier
-                                        : 123 * kWiderSlabMultiplier;
+        forwarder_.reuse_size_classes()      ? 246 * kWiderSlabMultiplier
+        : forwarder_.reuse_size_classes_v2() ? 326 * kWiderSlabMultiplier
+                                             : 123 * kWiderSlabMultiplier;
     const uint16_t kLargeInterestingObjectDepth =
         forwarder_.reuse_size_classes() ? 46 * kWiderSlabMultiplier
                                         : 28 * kWiderSlabMultiplier;

@@ -101,6 +101,11 @@ class Sampler {
   // without changing the internal state.
   bool WillRecordAllocation(size_t k);
 
+  // If WillRecordAllocation returned `false`, and an allocation was made, this
+  // should be called to adjust the internal state to account for the
+  // allocation.
+  void ReportAllocation(size_t k);
+
   // Generate a geometric with mean profile_sampling_interval.
   //
   // Remembers the value of sample_interval for use in reweighing the sample
@@ -183,6 +188,11 @@ inline size_t Sampler::RecordedAllocationFast(size_t k) {
 
 inline bool Sampler::WillRecordAllocation(size_t k) {
   return ABSL_PREDICT_FALSE(bytes_until_sample_ < (k + 1));
+}
+
+inline void Sampler::ReportAllocation(size_t k) {
+  TC_ASSERT(!WillRecordAllocation(k));
+  bytes_until_sample_ -= k + 1;
 }
 
 // Returns the approximate number of bytes that would have been allocated to
