@@ -838,11 +838,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 // Checks that an asserted object size for <ptr> is valid.
 template <typename Policy>
 bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
-  // provided_size == 0 means we got no hint from sized delete, so we certainly
-  // don't have an incorrect one.
-  //
-  // TODO(ckennelly): Use an optional.
-  if (provided_size == 0) return true;
   if (ptr == nullptr) return true;
   size_t size = provided_size;
   size_t minimum_size, maximum_size;
