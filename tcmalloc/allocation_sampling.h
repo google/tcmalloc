@@ -121,6 +121,11 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
   stack_trace.access_hint = static_cast<uint8_t>(policy.access());
   stack_trace.weight = weight;
 
+  // How many allocations does this sample represent, given the sampling
+  // frequency (weight) and its size.
+  const double allocation_estimate =
+      static_cast<double>(weight) / (requested_size + 1);
+
   GuardedAllocWithStatus alloc_with_status{
       nullptr, Profile::Sample::GuardedStatus::NotAttempted};
 
@@ -128,6 +133,7 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
   if (size_class != 0) {
     TC_ASSERT_EQ(size_class,
                  state.pagemap().sizeclass(PageIdContainingTagged(obj)));
+    state.per_size_class_counts()[size_class].Add(allocation_estimate);
 
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
     stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
@@ -198,11 +204,6 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
   stack_trace.allocation_time = absl::Now();
   stack_trace.guarded_status = alloc_with_status.status;
   stack_trace.allocation_type = policy.allocation_type();
-
-  // How many allocations does this sample represent, given the sampling
-  // frequency (weight) and its size.
-  const double allocation_estimate =
-      static_cast<double>(weight) / (requested_size + 1);
 
   // Adjust our estimate of internal fragmentation.
   TC_ASSERT_LE(requested_size, stack_trace.allocated_size);

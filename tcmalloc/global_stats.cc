@@ -485,8 +485,9 @@ void DumpStats(Printer& out, int level) {
     }
 #endif
 
-    tc_globals.transfer_cache().Print(out);
-    tc_globals.sharded_transfer_cache().Print(out);
+    tc_globals.transfer_cache().Print(tc_globals.per_size_class_counts(), out);
+    tc_globals.sharded_transfer_cache().Print(
+        tc_globals.per_size_class_counts(), out);
 
     if (UsePerCpuCache(tc_globals)) {
       tc_globals.cpu_cache().Print(out);
@@ -711,8 +712,10 @@ void DumpStatsInPbtxt(Printer& out, int level) {
 #endif
     }
 
-    tc_globals.transfer_cache().PrintInPbtxt(region);
-    tc_globals.sharded_transfer_cache().PrintInPbtxt(region);
+    tc_globals.transfer_cache().PrintInPbtxt(tc_globals.per_size_class_counts(),
+                                             region);
+    tc_globals.sharded_transfer_cache().PrintInPbtxt(
+        tc_globals.per_size_class_counts(), region);
 
     if (UsePerCpuCache(tc_globals)) {
       tc_globals.cpu_cache().PrintInPbtxt(region);
