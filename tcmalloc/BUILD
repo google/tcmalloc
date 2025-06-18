@@ -18,7 +18,6 @@
 # https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
 # how this malloc works.
 
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
 
@@ -26,20 +25,11 @@ package(default_visibility = ["//visibility:private"])
 
 licenses(["notice"])
 
-exports_files(["LICENSE", "tcmalloc.h", "malloc_extension.h"])
-
-bool_flag(
-    name = "alwayslink",
-    build_setting_default = True,
-)
-
-config_setting(
-    name = "unlinked",
-    flag_values = {
-        ":alwayslink": "false",
-    },
-    visibility = ["//visibility:public"],
-)
+exports_files([
+    "LICENSE",
+    "tcmalloc.h",
+    "malloc_extension.h",
+])
 
 config_setting(
     name = "llvm",
@@ -122,10 +112,7 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
     ],
-    alwayslink = select({
-        ":unlinked": 0,
-        "//conditions:default": 1,
-    }),
+    alwayslink = 1,
 )
 
 cc_library(
@@ -355,10 +342,7 @@ create_tcmalloc_libraries(
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
     ],
-    alwayslink = select({
-        ":unlinked": 0,
-        "//conditions:default": 1,
-    }),
+    alwayslink = 1,
 )
 
 # TEMPORARY. WILL BE REMOVED.
@@ -426,10 +410,7 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
     ],
-    alwayslink = select({
-        ":unlinked": 0,
-        "//conditions:default": 1,
-    }),
+    alwayslink = 1,
 )
 
 # TCMalloc with 256k pages is usually faster but fragmentation is higher.  See
@@ -452,10 +433,7 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
     ],
-    alwayslink = select({
-        ":unlinked": 0,
-        "//conditions:default": 1,
-    }),
+    alwayslink = 1,
 )
 
 cc_library(
