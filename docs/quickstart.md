@@ -256,12 +256,6 @@ Congratulations! You've created your first binary using TCMalloc.
 
 ## TCMalloc-rs
 This is the rust wrapper for using `TCMalloc` as a global allocator.
-### Building
-To build the `tcmalloc` rust bindings, you need to turn off the `alwayslink` flag on `cc_library` targets. 
-This is done with the `--//tcmalloc:alwayslink=false` flag.
-
-`//tcmalloc:tcmalloc` with `alwayslink=1` will produce `libtcmalloc.lo` which rustc does not recognize as a valid static library ([related](https://github.com/bazelbuild/rules_rust/issues/325#issuecomment-706548453)).
-Optionally turning off `alwayslink` for `tcmalloc_sys` will allow `bindgen` to successfully build.
 
 #### Pagesize
 By default, `tcmalloc` build with support for `8k` pagesize.
@@ -270,7 +264,7 @@ To build `tcmalloc` with `32k` pagesizes, build `tcmalloc_rs` with `--//tcmalloc
 
 To build `tcmalloc` with `512k` pagesizes, build `tcmalloc_rs` with `--//tcmalloc_rs:pagesize=512k`
 ### Running Tests
-`bazel run //tcmalloc_rs:test --extra_toolchains=@llvm_toolchain//:cc-toolchain-x86_64-linux --//tcmalloc:alwayslink=false`
+`bazel run //tcmalloc_rs:test --extra_toolchains=@llvm_toolchain//:cc-toolchain-x86_64-linux`
 
 ### Usage
 Add the bazel dependency:
@@ -288,7 +282,7 @@ static GLOBAL: tcmalloc_rs::TCMalloc = tcmalloc_rs::TCMalloc;
 
 #### Running the example
 Take a look at the code in `tcmalloc_rs/main.rs` and run
-`bazel run //tcmalloc_rs:main --extra_toolchains=@llvm_toolchain//:cc-toolchain-x86_64-linux --//tcmalloc:alwayslink=false`.
+`bazel run //tcmalloc_rs:main --extra_toolchains=@llvm_toolchain//:cc-toolchain-x86_64-linux`.
 
 ## What's Next
 

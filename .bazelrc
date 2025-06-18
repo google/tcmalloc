@@ -23,6 +23,9 @@ build --incompatible_disallow_empty_glob
 # for details.
 common --incompatible_config_setting_private_default_visibility
 
+# cc static lib for rust
+build --experimental_cc_static_library
+
 # Link Google Test against Abseil and RE2.
 build --define='absl=1'
 
