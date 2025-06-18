@@ -1057,7 +1057,6 @@ cc_test(
 cc_import(
     name = "standalone_import",
     static_library = "//tcmalloc:tcmalloc_standalone",
-    tags = ["manual"],  # TODO: Remove once cc_static_library is always enabled
     alwayslink = True,
 )
 
@@ -1065,7 +1064,6 @@ cc_test(
     name = "standalone_test",
     srcs = ["standalone_test.cc"],
     tags = [
-        "manual",  # TODO: Remove once cc_static_library is always enabled
         "noasan",
         "nomsan",
         "notsan",
