@@ -263,7 +263,7 @@ vendored library will work in your environment. Then build the
 standalone bazel target:
 
 ```
-tcmalloc$ bazel build tcmalloc:tcmalloc_standalone --experimental_cc_static_library
+tcmalloc$ bazel build tcmalloc:tcmalloc_standalone
 ```
 
 Once this builds you can copy the resulting static library from
