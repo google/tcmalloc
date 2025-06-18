@@ -821,7 +821,7 @@ TEST(TCMallocTest, GetEstimatedAllocatedSizeHotCold) {
       auto [ptr, allocated_size] =
           __size_returning_new_hot_cold(size, hot_cold);
       ASSERT_EQ(rounded, allocated_size);
-      free(ptr);
+      sized_delete(ptr, size);
     }
   }
 }
