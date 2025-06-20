@@ -1258,74 +1258,85 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
   return result;
 }
 
-using tcmalloc::tcmalloc_internal::BytesToLengthCeil;
-using tcmalloc::tcmalloc_internal::PageId;
-using tcmalloc::tcmalloc_internal::PageIdContainingTagged;
-using tcmalloc::tcmalloc_internal::Span;
-
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
                                                             size_t new_size) {
   tc_globals.InitIfNecessary();
   // Get the size of the old entry
-  size_t old_size;
-  bool old_was_sampled;
-  const PageId p = PageIdContainingTagged(old_ptr);
-  const size_t old_size_class = tc_globals.pagemap().sizeclass(p);
-  if (old_size_class != 0) {
-    old_size = tc_globals.sizemap().class_to_size(old_size_class);
-    old_was_sampled = false;
+  const size_t old_size = GetSize(old_ptr);
+
+  // Reallocate if the new size is larger than the old size,
+  // or if the new size is significantly smaller than the old size.
+  // We do hysteresis to avoid resizing ping-pongs:
+  //    . If we need to grow, grow to max(new_size, old_size * 1.X)
+  //    . Don't shrink unless new_size < old_size * 0.Y
+  // X and Y trade-off time for wasted space.  For now we do 1.25 and 0.5.
+  // Also reallocate if the current allocation is guarded or if the new
+  // allocation will be sampled (and potentially guarded), this allows
+  // to detect both use-after-frees on the old pointer and precise
+  // out-of-bounds accesses on the new pointer for all possible combinations
+  // of new/old size.
+  const size_t min_growth = std::min(
+      old_size / 4,
+      std::numeric_limits<size_t>::max() - old_size);  // Avoid overflow.
+  const size_t lower_bound_to_grow = old_size + min_growth;
+  const size_t upper_bound_to_shrink = old_size / 2;
+  const size_t alloc_size =
+      new_size > old_size ? std::max(new_size, lower_bound_to_grow) : new_size;
+  // Sampled allocations are reallocated and copied even if not strictly
+  // necessary. This is problematic for very large allocations, since some old
+  // programs rely on realloc to be very efficient (e.g. call realloc to the
+  // same size repeatedly assuming it will do nothing). Very large allocations
+  // are both all sampled and expensive to allocate and copy, so don't
+  // reallocate them if not necessary. The use of kMaxSize here as a notion of
+  // "very large" is somewhat arbitrary.
+  const bool will_sample =
+      alloc_size <= tcmalloc::tcmalloc_internal::kMaxSize &&
+      GetThreadSampler()->WillRecordAllocation(alloc_size);
+  if ((new_size > old_size) || (new_size < upper_bound_to_shrink) ||
+      will_sample ||
+      tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
+    // Need to reallocate.
+    void* new_ptr = nullptr;
+
+    // Note: we shouldn't use larger size if the allocation will be sampled
+    // b/c we will record wrong size and guarded page allocator won't be able
+    // to properly enforce size limit.
+    if (new_size > old_size && new_size < lower_bound_to_grow && !will_sample) {
+      // Avoid fast_alloc() reporting a hook with the lower bound size
+      // as the expectation for pointer returning allocation functions
+      // is that malloc hooks are invoked with the requested_size.
+      auto res =
+          fast_alloc(lower_bound_to_grow,
+                     MallocPolicy().Nothrow().WithoutHooks().SizeReturning());
+      if (res.p != nullptr) {
+        tcmalloc::MallocHook::InvokeNewHook(
+            {res.p, new_size, res.n, tcmalloc::HookMemoryMutable::kMutable});
+      }
+      new_ptr = res.p;
+    }
+    if (new_ptr == nullptr) {
+      // Either new_size is not a tiny increment, or last fast_alloc failed.
+      new_ptr = fast_alloc(new_size, MallocPolicy());
+    }
+    if (new_ptr == nullptr) {
+      return nullptr;
+    }
+    memcpy(new_ptr, old_ptr, ((old_size < new_size) ? old_size : new_size));
+    // We could use a variant of do_free() that leverages the fact
+    // that we already know the sizeclass of old_ptr.  The benefit
+    // would be small, so don't bother.
+    do_free(old_ptr, MallocPolicy());
+    return new_ptr;
   } else {
-    Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
-    if (ABSL_PREDICT_FALSE(span == nullptr)) {
-      ReportDoubleFree(tc_globals, old_ptr);
-    }
-    old_size = GetLargeSize(old_ptr, *span);
-    old_was_sampled = span->sampled();
-  }
-  TC_ASSERT(old_size == GetSize(old_ptr));
-  size_t new_size_class;
-  if (!tc_globals.sizemap().GetSizeClass(MallocPolicy(), new_size,
-                                         &new_size_class)) {
-    new_size_class = 0;
-  }
-  // We can avoid reallocating if all the following conditions are met:
-  //   - The size class of the existing allocation and new allocation are the
-  //     same. If both have the size class of 0 (too large to fit into size
-  //     classes), then both sizes must have the same kPageSize pages.
-  //   - The allocation would not be sampled.
-  //   - The existing allocation is not owned by the guarded page allocator.
-  if (!old_was_sampled && old_size_class == new_size_class &&
-      (old_size_class != 0 || BytesToLengthCeil(old_size).in_bytes() ==
-                                  BytesToLengthCeil(new_size).in_bytes()) &&
-      (new_size <= old_size ||
-       !GetThreadSampler()->WillRecordAllocation(new_size - old_size)) &&
-      !tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
-    if (new_size > old_size) {
-      GetThreadSampler()->ReportAllocation(new_size - old_size);
-    }
     // We still need to call hooks to report the updated size:
-    size_t actual_new_size;
-    if (new_size_class != 0) {
-      actual_new_size = tc_globals.sizemap().class_to_size(new_size_class);
-    } else {
-      actual_new_size = BytesToLengthCeil(new_size).in_bytes();
-    }
     tcmalloc::MallocHook::InvokeDeleteHook(
         {const_cast<void*>(old_ptr), old_size,
          tcmalloc::HookMemoryMutable::kImmutable});
     tcmalloc::MallocHook::InvokeNewHook(
-        {const_cast<void*>(old_ptr), new_size, actual_new_size,
+        {const_cast<void*>(old_ptr), new_size, old_size,
          tcmalloc::HookMemoryMutable::kImmutable});
-    TC_ASSERT(GetSize(old_ptr) == actual_new_size);
     return old_ptr;
   }
-  void* new_ptr = fast_alloc(new_size, MallocPolicy());
-  if (new_ptr == nullptr) {
-    return nullptr;
-  }
-  memcpy(new_ptr, old_ptr, std::min(old_size, new_size));
-  do_free(old_ptr, MallocPolicy());
-  return new_ptr;
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
