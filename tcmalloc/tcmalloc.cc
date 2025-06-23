@@ -961,7 +961,6 @@ inline struct mallinfo2 do_mallinfo2() {
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::CppPolicy;
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
@@ -978,7 +977,6 @@ using tcmalloc::tcmalloc_internal::MallocPolicy;
 using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -1101,7 +1099,6 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::GetOwnership;
 using tcmalloc::tcmalloc_internal::GetSize;
@@ -1594,7 +1591,6 @@ extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
   return GetSize(ptr);
 }
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -1620,7 +1616,6 @@ static TCMallocGuard module_enter_exit_hook;
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 ABSL_CACHELINE_ALIGNED void* operator new(
@@ -1673,3 +1668,5 @@ ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, std::align_val_t align,
                     CppPolicy().Nothrow().AlignAs(align).AccessAs(hot_cold));
 }
 #endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
+
+GOOGLE_MALLOC_SECTION_END

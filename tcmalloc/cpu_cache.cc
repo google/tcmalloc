@@ -61,7 +61,6 @@ static PerCPUInitializer module_enter_exit;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 extern "C" void TCMalloc_Internal_ForceCpuCacheActivation() {
   tcmalloc::tcmalloc_internal::ActivatePerCpuCaches();
@@ -78,3 +77,4 @@ extern "C" int32_t MallocExtension_Internal_GetMaxPerCpuCacheSize() {
 extern "C" void MallocExtension_Internal_SetMaxPerCpuCacheSize(int32_t value) {
   tcmalloc::tcmalloc_internal::Parameters::set_max_per_cpu_cache_size(value);
 }
+GOOGLE_MALLOC_SECTION_END
