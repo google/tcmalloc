@@ -848,6 +848,27 @@ TEST(TCMallocTest, free_sized) {
   }
 }
 
+TEST(TCMallocTest, realloc_free_sized) {
+  for (size_t size = 0; size <= 4096; size += 7) {
+    void* ptr = malloc(size);
+    size_t realloc_size = malloc_usable_size(ptr) + 1;
+    ptr = realloc(ptr, realloc_size);
+    memset(ptr, 0, realloc_size);
+    benchmark::DoNotOptimize(ptr);
+    free_sized(ptr, realloc_size);
+  }
+}
+
+TEST(TCMallocTest, b421895944) {
+  size_t size = 80;
+  void* ptr = malloc(size);
+  size_t realloc_size = malloc_usable_size(ptr) + 1;
+  ptr = realloc(ptr, realloc_size);
+  memset(ptr, 0, realloc_size);
+  benchmark::DoNotOptimize(ptr);
+  free_sized(ptr, realloc_size);
+}
+
 #ifndef NDEBUG
 TEST(TCMallocTest, FreeSizedDeathTest) {
   void* ptr;
