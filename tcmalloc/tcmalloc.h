@@ -29,6 +29,7 @@
 #include <new>
 
 #include "absl/base/attributes.h"
+#include "tcmalloc/alloc_at_least.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"  // IWYU pragma: keep
 
@@ -90,6 +91,12 @@ ABSL_ATTRIBUTE_UNUSED struct mallinfo2 TCMallocInternalMallInfo2(void) noexcept
 #endif
 ABSL_ATTRIBUTE_UNUSED int TCMallocInternalMallocInfo(int opts,
                                                      FILE* fp) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+
+ABSL_ATTRIBUTE_UNUSED alloc_result_t TCMallocInternalAllocAtLeast(
+    size_t min_size) noexcept ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED alloc_result_t
+TCMallocInternalAlignedAllocAtLeast(size_t alignment, size_t min_size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
 // This is an alias for MallocExtension::GetAllocatedSize().

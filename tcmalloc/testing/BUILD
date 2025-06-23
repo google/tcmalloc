@@ -61,6 +61,7 @@ create_tcmalloc_testsuite(
         ":test_allocator_harness",
         ":testutil",
         ":thread_manager",
+        "//tcmalloc:alloc_at_least",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:declarations",
@@ -1026,5 +1027,14 @@ create_tcmalloc_testsuite(
     deps = [
         "//tcmalloc/internal:numa",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "alloc_at_least_test",
+    srcs = ["alloc_at_least_test.c"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc:alloc_at_least",
     ],
 )

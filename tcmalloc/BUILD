@@ -101,6 +101,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_8k_pages",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -123,6 +124,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_8k_pages",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -147,6 +149,7 @@ cc_library(
         ":tcmalloc_tests",
     ],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_deprecated_perthread",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -399,6 +402,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_large_pages",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -422,6 +426,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_256k_pages",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -448,6 +453,7 @@ cc_library(
         ":tcmalloc_tests",
     ],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_256k_pages_numa_aware",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -475,6 +481,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_small_but_slow",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -500,6 +507,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_numa_aware",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -524,6 +532,7 @@ cc_library(
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_legacy_locking",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -1530,4 +1539,15 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
     ],
+)
+
+cc_library(
+    name = "alloc_at_least",
+    srcs = ["alloc_at_least.cc"],
+    hdrs = ["alloc_at_least.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        ":tcmalloc_tests",
+    ],
+    deps = ["@com_google_absl//absl/base:core_headers"],
 )

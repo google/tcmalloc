@@ -83,6 +83,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/types/span.h"
+#include "tcmalloc/alloc_at_least.h"
 #include "tcmalloc/allocation_sample.h"
 #include "tcmalloc/allocation_sampling.h"
 #include "tcmalloc/common.h"
@@ -1556,6 +1557,31 @@ extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
   return GetSize(ptr);
 }
 
+extern "C" ABSL_CACHELINE_ALIGNED alloc_result_t
+TCMallocInternalAllocAtLeast(size_t min_size) noexcept {
+  auto sized_ptr = fast_alloc(min_size, MallocPolicy().SizeReturning());
+  return alloc_result_t{sized_ptr.p, sized_ptr.n};
+}
+
+extern "C" ABSL_CACHELINE_ALIGNED alloc_result_t
+TCMallocInternalAlignedAllocAtLeast(size_t alignment,
+                                    size_t min_size) noexcept {
+  // See https://www.open-std.org/jtc1/sc22/wg14/www/docs/summary.htm#dr_460.
+  // The standard was updated to say that if align is not supported by the
+  // implementation, a null pointer should be returned. We require alignment to
+  // be greater than 0 and a power of 2.
+  if (ABSL_PREDICT_FALSE(!absl::has_single_bit(alignment))) {
+    // glibc, FreeBSD, and NetBSD manuals all document aligned_alloc() as
+    // returning EINVAL if align is not a power of 2. We do the same.
+    errno = EINVAL;
+    return alloc_result_t{nullptr, 0};
+  }
+  auto sized_ptr =
+      fast_alloc(min_size, MallocPolicy().AlignAs(alignment).SizeReturning());
+  return alloc_result_t{sized_ptr.p, sized_ptr.n};
+}
+
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {

@@ -69,6 +69,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "tcmalloc/alloc_at_least.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
@@ -915,6 +916,43 @@ TEST(TCMallocTest, sdallocx_alignment) {
       memset(ptr, 0, size);
       benchmark::DoNotOptimize(ptr);
       sdallocx(ptr, size, MALLOCX_LG_ALIGN(align));
+    }
+  }
+}
+
+TEST(TCMallocTest, alloc_at_least) {
+  for (size_t size = 0; size <= 4096; size += 7) {
+    auto result = alloc_at_least(size);
+    ASSERT_GE(result.size, size);
+    memset(result.ptr, 0, size);
+    if (result.size > size) {
+      memset(static_cast<uint8_t*>(result.ptr) + size, 1, result.size - size);
+      void* ptr = realloc(result.ptr, result.size + 1);
+      ASSERT_NE(ptr, nullptr);
+      result.ptr = ptr;
+      ASSERT_GE(malloc_usable_size(result.ptr), result.size + 1);
+      for (size_t i = size; i < result.size; ++i) {
+        ASSERT_EQ(static_cast<uint8_t*>(result.ptr)[i], 1);
+      }
+      ++result.size;
+    }
+    benchmark::DoNotOptimize(result);
+    ASSERT_GE(malloc_usable_size(result.ptr), result.size);
+    free_sized(result.ptr, result.size);
+  }
+}
+
+TEST(TCMallocTest, aligned_alloc_at_least) {
+  for (size_t size = 7; size <= 4096; size += 7) {
+    for (size_t align = 0; align <= 10; align++) {
+      const size_t alignment = 1 << align;
+      auto result = aligned_alloc_at_least(alignment, size);
+      ASSERT_NE(result.ptr, nullptr) << alignment << " " << size;
+      ASSERT_EQ(reinterpret_cast<uintptr_t>(result.ptr) & (alignment - 1), 0);
+      ASSERT_GE(result.size, size);
+      memset(result.ptr, 0, result.size);
+      benchmark::DoNotOptimize(result);
+      free_aligned_sized(result.ptr, alignment, result.size);
     }
   }
 }
