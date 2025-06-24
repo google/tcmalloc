@@ -1367,13 +1367,13 @@ extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFree(
   do_free(ptr, MallocPolicy());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeSized(void* ptr,
-                                                                 size_t size) {
+extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeSized(
+    void* ptr, size_t size) noexcept {
   do_free_with_size(ptr, size, MallocPolicy());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeAlignedSized(
-    void* ptr, size_t align, size_t size) {
+    void* ptr, size_t align, size_t size) noexcept {
   TC_ASSERT(absl::has_single_bit(align));
   do_free_with_size(ptr, size, MallocPolicy().AlignAs(align));
 }
