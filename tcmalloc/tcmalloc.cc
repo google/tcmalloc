@@ -1476,7 +1476,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalAlignedAlloc(
   // The standard was updated to say that if align is not supported by the
   // implementation, a null pointer should be returned. We require alignment to
   // be greater than 0 and a power of 2.
-  if (ABSL_PREDICT_FALSE(align == 0 || !absl::has_single_bit(align))) {
+  if (ABSL_PREDICT_FALSE(!absl::has_single_bit(align))) {
     // glibc, FreeBSD, and NetBSD manuals all document aligned_alloc() as
     // returning EINVAL if align is not a power of 2. We do the same.
     errno = EINVAL;
