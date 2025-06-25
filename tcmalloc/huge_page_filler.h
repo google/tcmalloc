@@ -196,15 +196,6 @@ class PageTracker : public TList<PageTracker>::Elem {
     // Records whether metrics are valid. It is set the first time the
     // residency state is queried.
     bool entry_valid = false;
-    // Records whether the page is eligible for collapse. When set, the tracker
-    // state may be accessed outside of the pageheap lock. So, we do not want
-    // an intervening Put operation to deallocate all the pages on that tracker
-    // and delete it.
-    //
-    // When maybe_collapse is set, any interleaving Put operation will instead
-    // move the fully-freed tracker to the donated list, allowing the collapse
-    // to proceed.
-    bool maybe_collapse = false;
     // This records the trackers that are currently being collapsed. This is
     // used to avoid subreleasing the pages that are being collapsed.
     bool being_collapsed = false;
@@ -222,17 +213,12 @@ class PageTracker : public TList<PageTracker>::Elem {
     hugepage_residency_state_.being_collapsed = value;
   }
 
-  void SetMaybeCollapse(bool value) {
-    hugepage_residency_state_.maybe_collapse = value;
-  }
-
   bool BeingCollapsed() const {
     return hugepage_residency_state_.being_collapsed;
   }
 
-  bool MaybeCollapse() const {
-    return hugepage_residency_state_.maybe_collapse;
-  }
+  void SetDontFreeTracker(bool value) { dont_free_tracker_ = value; }
+  bool DontFreeTracker() const { return dont_free_tracker_; }
 
  private:
   HugePage location_;
@@ -275,6 +261,13 @@ class PageTracker : public TList<PageTracker>::Elem {
   bool has_dense_spans_ = false;
 
   HugePageResidencyState hugepage_residency_state_;
+
+  // This field is used to avoid freeing this tracker prematurely. When this
+  // is set, any maintenance operation (e.g. collapse) that drops
+  // pageheap_lock might manipulate the tracker state without holding the
+  // lock. When all the pages on the tracked hugepage are freed, this field
+  // is checked to ensure that the tracker is not freed right away.
+  bool dont_free_tracker_ = false;
 
   [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
     bool success = unback(r);
@@ -997,7 +990,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, Range r) {
       }
     }
 
-    if (!pt->MaybeCollapse()) {
+    if (!pt->DontFreeTracker()) {
       UpdateFillerStatsTracker();
       return pt;
     }
@@ -1811,14 +1804,14 @@ inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
         if (!state.entry_valid) {
           page_trackers[num_valid_addresses] = &pt;
           ++num_valid_addresses;
-          pt.SetMaybeCollapse(/*value=*/true);
+          pt.SetDontFreeTracker(/*value=*/true);
           return;
         }
         double elapsed = std::max<double>(now - state.record_time, 0);
         if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * frequency) {
           page_trackers[num_valid_addresses] = &pt;
           ++num_valid_addresses;
-          pt.SetMaybeCollapse(/*value=*/true);
+          pt.SetDontFreeTracker(/*value=*/true);
         }
       };
 
@@ -1893,7 +1886,7 @@ inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
   for (int i = 0; i < num_valid_addresses; ++i) {
     TrackerType* tracker = residency_states[i].tracker;
     TC_ASSERT_NE(tracker, nullptr);
-    tracker->SetMaybeCollapse(/*value=*/false);
+    tracker->SetDontFreeTracker(/*value=*/false);
     tracker->SetHugePageResidencyState(residency_states[i].tracker_state);
   }
 }
@@ -2365,7 +2358,7 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
 
   if (longest == kPagesPerHugePage) {
     TC_ASSERT(pt->empty());
-    TC_ASSERT(pt->MaybeCollapse());
+    TC_ASSERT(pt->DontFreeTracker());
     fully_freed_trackers_.prepend(pt);
     return;
   }
