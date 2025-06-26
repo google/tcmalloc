@@ -28,6 +28,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
 #include "absl/numeric/bits.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
@@ -181,6 +182,8 @@ class FakeStaticForwarder {
     TC_BUG("Double free of %p", ptr);
   }
   [[nodiscard]] bool CollapsePages(Range r) { return collapse_succeeds_; }
+  void SetAnonVmaName(
+      Range, std::optional<absl::string_view> name) { /* unimplemented */ }
 
  private:
   static absl::base_internal::LowLevelAlloc::Arena* ll_arena() {

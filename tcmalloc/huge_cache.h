@@ -21,9 +21,11 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/huge_allocator.h"
@@ -48,6 +50,13 @@ class MemoryModifyFunction {
   [[nodiscard]] bool operator()(HugeRange r) {
     return (*this)(Range{r.start().first_page(), r.len().in_pages()});
   }
+};
+
+class MemoryTagFunction {
+ public:
+  virtual ~MemoryTagFunction() = default;
+
+  virtual void operator()(Range r, std::optional<absl::string_view> name) = 0;
 };
 
 // Track the extreme values of a HugeLength value over the past

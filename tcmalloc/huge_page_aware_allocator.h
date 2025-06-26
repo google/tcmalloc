@@ -17,10 +17,13 @@
 
 #include <stddef.h>
 
+#include <optional>
+
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
@@ -126,6 +129,7 @@ class StaticForwarder {
   static void Back(Range r);
   [[nodiscard]] static bool ReleasePages(Range r);
   [[nodiscard]] static bool CollapsePages(Range r);
+  static void SetAnonVmaName(Range r, std::optional<absl::string_view> name);
 };
 
 struct HugePageAwareAllocatorOptions {
@@ -203,6 +207,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+  void CustomNameSampledTrackers() ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
   // Prints stats about the page heap to *out.
   void Print(Printer& out, PageFlagsBase& pageflags)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
@@ -316,11 +321,26 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     HugePageAwareAllocator& hpaa_;
   };
 
+  class SetAnonVmaName final : public MemoryTagFunction {
+   public:
+    explicit SetAnonVmaName(
+        HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
+        : hpaa_(hpaa) {}
+    ~SetAnonVmaName() override = default;
+    void operator()(Range r, std::optional<absl::string_view> name) override {
+      hpaa_.forwarder_.SetAnonVmaName(r, name);
+    }
+
+   private:
+    HugePageAwareAllocator& hpaa_;
+  };
+
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
   Unback unback_ ABSL_GUARDED_BY(pageheap_lock);
   UnbackWithoutLock unback_without_lock_ ABSL_GUARDED_BY(pageheap_lock);
   Collapse collapse_;
+  SetAnonVmaName set_anon_vma_name_;
 
   typedef HugePageFiller<PageTracker> FillerType;
   FillerType filler_ ABSL_GUARDED_BY(pageheap_lock);
@@ -450,8 +470,9 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_(*this),
       unback_without_lock_(*this),
       collapse_(*this),
+      set_anon_vma_name_(*this),
       filler_(options.sparse_tracker_type, unback_, unback_without_lock_,
-              collapse_),
+              collapse_, set_anon_vma_name_),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),
@@ -1037,6 +1058,16 @@ template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::TryHugepageCollapse() {
   PageHeapSpinLockHolder l;
   filler_.TryHugepageCollapse();
+  FillerType::Tracker* pt;
+  while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
+    ReleaseHugepage(pt);
+  }
+}
+
+template <class Forwarder>
+inline void HugePageAwareAllocator<Forwarder>::CustomNameSampledTrackers() {
+  PageHeapSpinLockHolder l;
+  filler_.CustomNameSampledTrackers();
   FillerType::Tracker* pt;
   while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
     ReleaseHugepage(pt);

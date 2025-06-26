@@ -33,6 +33,7 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/numeric/bits.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
@@ -43,6 +44,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
@@ -52,6 +54,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -220,6 +223,16 @@ class PageTracker : public TList<PageTracker>::Elem {
   void SetDontFreeTracker(bool value) { dont_free_tracker_ = value; }
   bool DontFreeTracker() const { return dont_free_tracker_; }
 
+  struct TagState {
+    bool sampled_for_tagging = false;
+    double record_time = 0;
+  };
+  TagState GetTagState() { return tagged_state_; }
+  void SetTagState(const TagState& state) { tagged_state_ = state; }
+
+  void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
+                      std::optional<absl::string_view> name);
+
  private:
   HugePage location_;
 
@@ -241,6 +254,9 @@ class PageTracker : public TList<PageTracker>::Elem {
   double alloctime_;
 
   RangeTracker<kPagesPerHugePage.raw_num()> free_;
+
+  TagState tagged_state_;
+
   // Bitmap of pages based on them being released to the OS.
   // * Not yet released pages are unset (considered "free")
   // * Released pages are set.
@@ -335,13 +351,15 @@ class HugePageFiller {
       HugePageFillerSparseTrackerType sparse_tracker_type,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND,
-      MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND);
+      MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MemoryTagFunction& set_anon_vma_name ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   HugePageFiller(
       Clock clock, HugePageFillerSparseTrackerType sparse_tracker_type,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND,
-      MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND);
+      MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MemoryTagFunction& set_anon_vma_name ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   typedef TrackerType Tracker;
 
@@ -490,6 +508,13 @@ class HugePageFiller {
                            Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  // This periodically sets a name for the allocated region tracked by sampled
+  // trackers. Every iteration, it scans up to 64 sampled trackers, records
+  // features such as longest free range, nallocs, etc. and encodes them into a
+  // string that is used for naming the region. Once set, the tracker is
+  // revisited only after five minutes.
+  void CustomNameSampledTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
  private:
   // This class wraps an array of N TrackerLists and a Bitmap storing which
   // elements are non-empty.
@@ -629,6 +654,8 @@ class HugePageFiller {
   MemoryModifyFunction& unback_;
   MemoryModifyFunction& unback_without_lock_;
   MemoryModifyFunction& collapse_;
+  MemoryTagFunction& set_anon_vma_name_;
+  uintptr_t rng_ = 0;
 };
 
 inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
@@ -652,6 +679,11 @@ inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
   return PageAllocation{location_.first_page() + Length(index),
                         Length(unbacked)};
+}
+
+inline void PageTracker::SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
+                                        std::optional<absl::string_view> name) {
+  set_anon_vma_name(Range(location_.first_page(), kPagesPerHugePage), name);
 }
 
 inline void PageTracker::Put(Range r) {
@@ -780,25 +812,26 @@ template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     HugePageFillerSparseTrackerType sparse_tracker_type,
     MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock,
-    MemoryModifyFunction& collapse)
+    MemoryModifyFunction& collapse, MemoryTagFunction& set_anon_vma_name)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     sparse_tracker_type, unback, unback_without_lock,
-                     collapse) {}
+                     sparse_tracker_type, unback, unback_without_lock, collapse,
+                     set_anon_vma_name) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     Clock clock, HugePageFillerSparseTrackerType sparse_tracker_type,
     MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock,
-    MemoryModifyFunction& collapse)
+    MemoryModifyFunction& collapse, MemoryTagFunction& set_anon_vma_name)
     : sparse_tracker_type_(sparse_tracker_type),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
       unback_(unback),
       unback_without_lock_(unback_without_lock),
-      collapse_(collapse) {}
+      collapse_(collapse),
+      set_anon_vma_name_(set_anon_vma_name) {}
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
@@ -992,12 +1025,99 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, Range r) {
 
     if (!pt->DontFreeTracker()) {
       UpdateFillerStatsTracker();
+      if (pt->GetTagState().sampled_for_tagging) {
+        // Set the default region name if the tracked was sampled.
+        pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
+      }
       return pt;
     }
   }
   AddToFillerList(pt);
   UpdateFillerStatsTracker();
   return nullptr;
+}
+
+inline size_t RoundDown(size_t metric, size_t align) {
+  return metric & ~(align - 1);
+}
+
+template <class TrackerType>
+inline void HugePageFiller<TrackerType>::CustomNameSampledTrackers() {
+  constexpr size_t kTotalTrackersToScan = 64;
+
+  struct TrackerState {
+    TrackerType* tracker;
+    size_t lfr;
+    size_t nallocs;
+  };
+  using TrackerArray = std::array<TrackerState, kTotalTrackersToScan>;
+  TrackerArray page_trackers;
+  // Collect all the addresses under pageheap lock that are to be sampled for
+  // tagging, and that were last scanned more than kRecordInterval ago.
+  const double now = clock_.now();
+  const double frequency = clock_.freq();
+  int num_valid_addresses = 0;
+  const absl::Duration kRecordInterval = absl::Minutes(5);
+
+  auto CollectSampledTrackers = [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+    if (num_valid_addresses >= kTotalTrackersToScan) return;
+
+    PageTracker::TagState tagged_state = pt.GetTagState();
+    if (!tagged_state.sampled_for_tagging) return;
+    double elapsed = std::max<double>(now - tagged_state.record_time, 0);
+    if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * frequency) {
+      page_trackers[num_valid_addresses] = {
+          &pt, pt.longest_free_range().raw_num(), pt.nallocs()};
+      pt.SetTagState({.sampled_for_tagging = true, .record_time = now});
+      ++num_valid_addresses;
+      pt.SetDontFreeTracker(/*value=*/true);
+    }
+  };
+
+  // Collect up to kTotalTrackersToScan trackers from the regular sparse and
+  // dense lists.
+  regular_alloc_[AccessDensityPrediction::kSparse].Iter(CollectSampledTrackers,
+                                                        /*start=*/0);
+
+  if (num_valid_addresses < kTotalTrackersToScan) {
+    regular_alloc_[AccessDensityPrediction::kDense].Iter(CollectSampledTrackers,
+                                                         /*start=*/0);
+  }
+  pageheap_lock.Unlock();
+
+  TC_ASSERT_LE(num_valid_addresses, kTotalTrackersToScan);
+
+  // Record all the features we want to record, encode that into a string, and
+  // use it to name the allocated region.
+  for (int i = 0; i < num_valid_addresses; ++i) {
+    TrackerType* tracker = page_trackers[i].tracker;
+    TC_ASSERT_NE(tracker, nullptr);
+    const size_t lfr = page_trackers[i].lfr;
+    const size_t nallocs = page_trackers[i].nallocs;
+
+    char name[256];
+    absl::SNPrintF(
+        name, sizeof(name),
+        "tcmalloc_region_page_%d_lfr_%d_nallocs_%d_dense_%d_released_%d",
+        kPageSize, RoundDown(lfr, /*align=*/16),
+        RoundDown(nallocs, /*align=*/16), tracker->HasDenseSpans(),
+        tracker->released());
+    tracker->SetAnonVmaName(set_anon_vma_name_, name);
+  }
+
+  pageheap_lock.Lock();
+  for (int i = 0; i < num_valid_addresses; ++i) {
+    TrackerType* tracker = page_trackers[i].tracker;
+    TC_ASSERT_NE(tracker, nullptr);
+    tracker->SetDontFreeTracker(/*value=*/false);
+  }
+
+  // It should be rare that we find anything in the fully freed list, because
+  // we only sample 1% of the trackers for naming, and an interleaving Put
+  // operation would have to free all the pages while the memory is being named.
+  for (TrackerType* tracker : fully_freed_trackers_) {
+    tracker->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
+  }
 }
 
 template <class TrackerType>
@@ -1007,6 +1127,10 @@ inline void HugePageFiller<TrackerType>::Contribute(
   TC_ASSERT_EQ(pt->released_pages(), Length(0));
 
   const AccessDensityPrediction type = span_alloc_info.density;
+
+  // Decide whether to sample this tracker for tagging.
+  rng_ = ExponentialBiased::NextRandom(rng_);
+  pt->SetTagState({.sampled_for_tagging = (rng_ % 100 == 0)});
 
   pages_allocated_[type] += pt->used_pages();
   TC_ASSERT(!(type == AccessDensityPrediction::kDense && donated));

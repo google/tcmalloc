@@ -770,6 +770,26 @@ class MockCollapse final : public MemoryModifyFunction {
   bool success_ = true;
 };
 
+class MockSetAnonVmaName final : public MemoryTagFunction {
+ public:
+  MockSetAnonVmaName() = default;
+  void operator()(Range r, std::optional<absl::string_view> name) override {
+    EXPECT_EQ(r.n, kPagesPerHugePage);
+    if (name.has_value()) {
+      EXPECT_EQ(name, expected_name_);
+    } else {
+      EXPECT_EQ(expected_name_, "tcmalloc_region_NORMAL");
+    }
+    ++times_called_;
+  }
+  void SetExpectedName(absl::string_view name) { expected_name_ = name; }
+  int TimesCalled() { return times_called_; }
+
+ private:
+  absl::string_view expected_name_ = "tcmalloc_region_NORMAL";
+  int times_called_ = 0;
+};
+
 class BlockingUnback final : public MemoryModifyFunction {
  public:
   constexpr BlockingUnback() = default;
@@ -838,11 +858,12 @@ class FillerTest
   HugePageFiller<PageTracker> filler_;
   BlockingUnback blocking_unback_;
   MockCollapse collapse_;
+  MockSetAnonVmaName set_anon_vma_name_;
 
   FillerTest()
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*sparse_tracker_type=*/GetParam(), blocking_unback_,
-                blocking_unback_, collapse_) {
+                blocking_unback_, collapse_, set_anon_vma_name_) {
     ResetClock();
     // Reset success state
     blocking_unback_.success_ = true;
@@ -1021,6 +1042,12 @@ class FillerTest
     // eligible to be collapsed. So, the fully freed tracker should be empty at
     // the end of collapse operation.
     EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
+    pageheap_lock.Unlock();
+  }
+
+  void CustomNameSampledTrackers() {
+    pageheap_lock.Lock();
+    filler_.CustomNameSampledTrackers();
     pageheap_lock.Unlock();
   }
   // Generates an "interesting" pattern of allocations that highlights all the
@@ -1213,6 +1240,30 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
   check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
               /*expected_succeeded=*/1);
   DeleteVector(p1);
+}
+
+// Checks that the anonymous VMA name is being recorded correctly for the
+// sampled tracker.
+TEST_P(FillerTest, SetAnonVmaName) {
+  SpanAllocInfo info;
+  info.objects_per_span = 256;
+  info.density = AccessDensityPrediction::kDense;
+  PAlloc p = AllocateWithSpanAllocInfo(Length(1), info);
+  p.pt->SetTagState({.sampled_for_tagging = true});
+  set_anon_vma_name_.SetExpectedName(
+      "tcmalloc_region_page_8192_lfr_240_nallocs_0_dense_1_released_0");
+  Advance(absl::Minutes(10));
+  CustomNameSampledTrackers();
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
+
+  // Advance clock by 10 seconds, which is not enough to sample the tracker
+  // again.
+  Advance(absl::Seconds(10));
+  CustomNameSampledTrackers();
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
+  set_anon_vma_name_.SetExpectedName("tcmalloc_region_NORMAL");
+  Delete(p);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
 }
 
 // Checks that we collapse hugepages that are eligible to be collapsed.

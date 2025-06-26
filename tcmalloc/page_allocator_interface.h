@@ -93,6 +93,8 @@ class PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   virtual void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
+  virtual void CustomNameSampledTrackers()
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.
   virtual void Print(Printer& out, PageFlagsBase& pageflags)

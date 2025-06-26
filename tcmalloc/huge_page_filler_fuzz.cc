@@ -26,6 +26,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
@@ -91,6 +92,11 @@ class MockUnback final : public MemoryModifyFunction {
   }
 };
 
+class MockSetAnonVmaName final : public MemoryTagFunction {
+ public:
+  void operator()(Range r, std::optional<absl::string_view> name) override {}
+};
+
 class FakePageFlags : public PageFlagsBase {
  public:
   FakePageFlags() = default;
@@ -147,6 +153,7 @@ void FuzzFiller(const std::string& s) {
   // Reset global state.
   MockUnback unback;
   MockCollapse collapse;
+  MockSetAnonVmaName set_anon_vma_name;
   fake_clock = 0;
   unback_success = true;
   absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -183,7 +190,7 @@ void FuzzFiller(const std::string& s) {
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
                                      sparse_tracker_type, unback, unback,
-                                     collapse);
+                                     collapse, set_anon_vma_name);
 
   std::vector<PageTracker*> trackers;
   absl::flat_hash_map<PageTracker*, std::vector<Range>> allocs;
