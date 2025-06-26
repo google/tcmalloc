@@ -39,6 +39,7 @@
 #include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/blocking_counter.h"
@@ -51,6 +52,7 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/residency.h"
@@ -862,8 +864,9 @@ class FillerTest
 
   FillerTest()
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
-                /*sparse_tracker_type=*/GetParam(), blocking_unback_,
-                blocking_unback_, collapse_, set_anon_vma_name_) {
+                /*sparse_tracker_type=*/GetParam(), MemoryTag::kNormal,
+                blocking_unback_, blocking_unback_, collapse_,
+                set_anon_vma_name_) {
     ResetClock();
     // Reset success state
     blocking_unback_.success_ = true;
@@ -1251,7 +1254,8 @@ TEST_P(FillerTest, SetAnonVmaName) {
   PAlloc p = AllocateWithSpanAllocInfo(Length(1), info);
   p.pt->SetTagState({.sampled_for_tagging = true});
   set_anon_vma_name_.SetExpectedName(
-      "tcmalloc_region_page_8192_lfr_240_nallocs_0_dense_1_released_0");
+      "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_dense_1_released_0");
+
   Advance(absl::Minutes(10));
   CustomNameSampledTrackers();
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);

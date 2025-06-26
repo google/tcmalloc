@@ -37,6 +37,7 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/residency.h"
@@ -188,9 +189,9 @@ void FuzzFiller(const std::string& s) {
   data += kInitBytes;
   size -= kInitBytes;
 
-  HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
-                                     sparse_tracker_type, unback, unback,
-                                     collapse, set_anon_vma_name);
+  HugePageFiller<PageTracker> filler(
+      Clock{.now = mock_clock, .freq = freq}, sparse_tracker_type,
+      MemoryTag::kNormal, unback, unback, collapse, set_anon_vma_name);
 
   std::vector<PageTracker*> trackers;
   absl::flat_hash_map<PageTracker*, std::vector<Range>> allocs;

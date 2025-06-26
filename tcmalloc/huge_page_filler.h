@@ -47,6 +47,7 @@
 #include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
@@ -348,7 +349,7 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   explicit HugePageFiller(
-      HugePageFillerSparseTrackerType sparse_tracker_type,
+      HugePageFillerSparseTrackerType sparse_tracker_type, MemoryTag tag,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND,
@@ -356,7 +357,7 @@ class HugePageFiller {
 
   HugePageFiller(
       Clock clock, HugePageFillerSparseTrackerType sparse_tracker_type,
-      MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MemoryTag tag, MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryTagFunction& set_anon_vma_name ABSL_ATTRIBUTE_LIFETIME_BOUND);
@@ -650,6 +651,7 @@ class HugePageFiller {
   using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
   Clock clock_;
+  const MemoryTag tag_;
   // TODO(b/73749855):  Remove remaining uses of unback_.
   MemoryModifyFunction& unback_;
   MemoryModifyFunction& unback_without_lock_;
@@ -810,24 +812,26 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    HugePageFillerSparseTrackerType sparse_tracker_type,
+    HugePageFillerSparseTrackerType sparse_tracker_type, MemoryTag tag,
     MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock,
     MemoryModifyFunction& collapse, MemoryTagFunction& set_anon_vma_name)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     sparse_tracker_type, unback, unback_without_lock, collapse,
-                     set_anon_vma_name) {}
+                     sparse_tracker_type, tag, unback, unback_without_lock,
+                     collapse, set_anon_vma_name) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     Clock clock, HugePageFillerSparseTrackerType sparse_tracker_type,
-    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock,
-    MemoryModifyFunction& collapse, MemoryTagFunction& set_anon_vma_name)
+    MemoryTag tag, MemoryModifyFunction& unback,
+    MemoryModifyFunction& unback_without_lock, MemoryModifyFunction& collapse,
+    MemoryTagFunction& set_anon_vma_name)
     : sparse_tracker_type_(sparse_tracker_type),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
+      tag_(tag),
       unback_(unback),
       unback_without_lock_(unback_without_lock),
       collapse_(collapse),
@@ -1098,8 +1102,8 @@ inline void HugePageFiller<TrackerType>::CustomNameSampledTrackers() {
     char name[256];
     absl::SNPrintF(
         name, sizeof(name),
-        "tcmalloc_region_page_%d_lfr_%d_nallocs_%d_dense_%d_released_%d",
-        kPageSize, RoundDown(lfr, /*align=*/16),
+        "tcmalloc_region_%s_page_%d_lfr_%d_nallocs_%d_dense_%d_released_%d",
+        MemoryTagToLabel(tag_), kPageSize, RoundDown(lfr, /*align=*/16),
         RoundDown(nallocs, /*align=*/16), tracker->HasDenseSpans(),
         tracker->released());
     tracker->SetAnonVmaName(set_anon_vma_name_, name);

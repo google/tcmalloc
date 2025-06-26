@@ -471,7 +471,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_without_lock_(*this),
       collapse_(*this),
       set_anon_vma_name_(*this),
-      filler_(options.sparse_tracker_type, unback_, unback_without_lock_,
+      filler_(options.sparse_tracker_type, tag_, unback_, unback_without_lock_,
               collapse_, set_anon_vma_name_),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
