@@ -112,7 +112,7 @@ class PageAllocatorInterface {
  protected:
   PageAllocInfo info_ ABSL_GUARDED_BY(pageheap_lock);
 
-  MemoryTag tag_;  // The type of tagged memory this heap manages
+  const MemoryTag tag_;  // The type of tagged memory this heap manages
 };
 
 }  // namespace tcmalloc_internal
