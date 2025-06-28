@@ -18,7 +18,9 @@
 #include <atomic>
 #include <cstdint>
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -65,6 +67,25 @@ class StatsCounter {
 
  private:
   std::atomic<Value> value_;
+};
+
+template <int N>
+class StatsCounters {
+ public:
+  constexpr StatsCounters() = default;
+
+  StatsCounter& operator[](int i) ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    TC_ASSERT(i < N);
+    return counters_[i];
+  }
+
+  const StatsCounter& operator[](int i) const ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    TC_ASSERT(i < N);
+    return counters_[i];
+  }
+
+ private:
+  StatsCounter counters_[N];
 };
 
 }  // namespace tcmalloc_internal

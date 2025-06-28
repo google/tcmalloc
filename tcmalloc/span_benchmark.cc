@@ -199,11 +199,16 @@ BENCHMARK(BM_NewDelete);
 
 void BM_multiple_spans(benchmark::State& state) {
   const int size_class = state.range(0);
+  const size_t size = tc_globals.sizemap().class_to_size(size_class);
+  if (size == 0) {
+    state.SkipWithMessage("Empty size class");
+    return;
+  }
 
   // Should be large enough to cause cache misses
-  const int num_spans = 10000000;
+  const int num_spans =
+      2 * benchmark::CPUInfo::Get().caches.back().size / sizeof(RawSpan);
   std::vector<RawSpan> spans(num_spans);
-  size_t size = tc_globals.sizemap().class_to_size(size_class);
   uint32_t reciprocal = Span::CalcReciprocal(size);
   TC_CHECK_GT(size, 0);
   size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);

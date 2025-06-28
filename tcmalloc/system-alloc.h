@@ -19,6 +19,13 @@
 #define TCMALLOC_SYSTEM_ALLOC_H_
 
 #include <asm/unistd.h>
+
+#include <cstring>
+#include <optional>
+
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "tcmalloc/internal/logging.h"
 #ifdef __linux__
 #include <linux/mempolicy.h>
 #endif
@@ -125,6 +132,13 @@ class SystemAllocator {
   // <start> address, ranging <length>.
   // Returns true on success.
   [[nodiscard]] bool Collapse(void* start, size_t length);
+
+  // Sets the anonymous VMA <name> for the specified range of memory, starting
+  // at the <start> address, ranging <length>.
+  // If <name> is empty, it uses a default name based on the memory tag for the
+  // address.
+  void SetAnonVmaName(void* start, size_t length,
+                      std::optional<absl::string_view> name);
 
   // This call is the inverse of Release: the pages in this range are in use and
   // should be faulted in.  (In principle this is a best-effort hint, but in
@@ -530,18 +544,7 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
 
       TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(result) & (alignment - 1), 0);
       // Give the mmaped region a name based on its tag.
-#ifdef __linux__
-      // Make a best-effort attempt to name the allocated region based on its
-      // tag.
-      //
-      // The call to prctl() may fail if the kernel was not configured with the
-      // CONFIG_ANON_VMA_NAME kernel option.  This is OK since the call is
-      // primarily a debugging aid.
-      char name[256];
-      absl::SNPrintF(name, sizeof(name), "tcmalloc_region_%s",
-                     MemoryTagToLabel(tag));
-      prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, result, size, name);
-#endif  // __linux__
+      SetAnonVmaName(result, size, /*name=*/std::nullopt);
       return result;
     }
     if (map_fixed_noreplace_flag) {
@@ -637,6 +640,29 @@ bool SystemAllocator<Topology>::Collapse(void* start, size_t length) {
     ++attempts;
   } while (ret == -1 && errno == EAGAIN && attempts < kMaxAttempts);
   return ret == 0;
+}
+
+template <typename Topology>
+void SystemAllocator<Topology>::SetAnonVmaName(
+    void* start, size_t length, std::optional<absl::string_view> name) {
+#ifdef __linux__
+  // Make a best-effort attempt to name the allocated region based on its
+  // tag.
+  //
+  // The call to prctl() may fail if the kernel was not configured with the
+  // CONFIG_ANON_VMA_NAME kernel option.  This is OK since the call is
+  // primarily a debugging aid.
+  if (name.has_value()) {
+    TC_ASSERT_EQ(strlen(name.value().data()), name.value().size());
+    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, start, length, name.value().data());
+  } else {
+    char name[256];
+    MemoryTag tag = GetMemoryTag(start);
+    absl::SNPrintF(name, sizeof(name), "tcmalloc_region_%s",
+                   MemoryTagToLabel(tag));
+    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, start, length, name);
+  }
+#endif  // __linux__
 }
 
 // Bind the memory region spanning `size` bytes starting from `base` to NUMA

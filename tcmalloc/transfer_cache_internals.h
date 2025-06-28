@@ -195,6 +195,7 @@ class TransferCache {
         void **entry = GetSlot(info.used);
         memcpy(batch.data(), entry, sizeof(void *) * got);
         remove_hits_.LossyAdd(1);
+        remove_object_hits_.LossyAdd(got);
         low_water_mark_ = std::min(low_water_mark_, info.used);
         return got;
       }
@@ -255,6 +256,7 @@ class TransferCache {
 
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
+    stats.remove_object_hits = remove_object_hits_.value();
     stats.insert_misses = insert_misses_.value();
     stats.insert_object_misses = insert_object_misses_.Total();
     stats.remove_misses = remove_misses_.value();
@@ -381,6 +383,7 @@ class TransferCache {
   // need a lock for reads.
   StatsCounter insert_hits_;
   StatsCounter remove_hits_;
+  StatsCounter remove_object_hits_;
 
   // Number of currently used and available cached entries in slots_. This
   // variable is updated under a lock but can be read without one.

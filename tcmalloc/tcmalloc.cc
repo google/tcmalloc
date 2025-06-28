@@ -83,6 +83,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/types/span.h"
+#include "tcmalloc/alloc_at_least.h"
 #include "tcmalloc/allocation_sample.h"
 #include "tcmalloc/allocation_sampling.h"
 #include "tcmalloc/common.h"
@@ -961,7 +962,6 @@ inline struct mallinfo2 do_mallinfo2() {
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::CppPolicy;
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
@@ -978,7 +978,6 @@ using tcmalloc::tcmalloc_internal::MallocPolicy;
 using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -1101,7 +1100,6 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::GetOwnership;
 using tcmalloc::tcmalloc_internal::GetSize;
@@ -1258,74 +1256,50 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
   return result;
 }
 
-using tcmalloc::tcmalloc_internal::BytesToLengthCeil;
-using tcmalloc::tcmalloc_internal::PageId;
-using tcmalloc::tcmalloc_internal::PageIdContainingTagged;
-using tcmalloc::tcmalloc_internal::Span;
-
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
                                                             size_t new_size) {
   tc_globals.InitIfNecessary();
   // Get the size of the old entry
-  size_t old_size;
-  bool old_was_sampled;
-  const PageId p = PageIdContainingTagged(old_ptr);
-  const size_t old_size_class = tc_globals.pagemap().sizeclass(p);
-  if (old_size_class != 0) {
-    old_size = tc_globals.sizemap().class_to_size(old_size_class);
-    old_was_sampled = false;
+  const size_t old_size = GetSize(old_ptr);
+
+  // Reallocate if the new size is larger than the old size,
+  // or if the new size is significantly smaller than the old size.
+  const size_t upper_bound_to_shrink = old_size / 2;
+  const size_t alloc_size = new_size;
+  // Sampled allocations are reallocated and copied even if not strictly
+  // necessary. This is problematic for very large allocations, since some old
+  // programs rely on realloc to be very efficient (e.g. call realloc to the
+  // same size repeatedly assuming it will do nothing). Very large allocations
+  // are both all sampled and expensive to allocate and copy, so don't
+  // reallocate them if not necessary. The use of kMaxSize here as a notion of
+  // "very large" is somewhat arbitrary.
+  const bool will_sample =
+      alloc_size <= tcmalloc::tcmalloc_internal::kMaxSize &&
+      GetThreadSampler()->WillRecordAllocation(alloc_size);
+  if ((new_size > old_size) || (new_size < upper_bound_to_shrink) ||
+      will_sample ||
+      tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
+    // Need to reallocate.
+    void* new_ptr = fast_alloc(new_size, MallocPolicy());
+    if (new_ptr == nullptr) {
+      return nullptr;
+    }
+    memcpy(new_ptr, old_ptr, ((old_size < new_size) ? old_size : new_size));
+    // We could use a variant of do_free() that leverages the fact
+    // that we already know the sizeclass of old_ptr.  The benefit
+    // would be small, so don't bother.
+    do_free(old_ptr, MallocPolicy());
+    return new_ptr;
   } else {
-    Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
-    if (ABSL_PREDICT_FALSE(span == nullptr)) {
-      ReportDoubleFree(tc_globals, old_ptr);
-    }
-    old_size = GetLargeSize(old_ptr, *span);
-    old_was_sampled = span->sampled();
-  }
-  TC_ASSERT(old_size == GetSize(old_ptr));
-  size_t new_size_class;
-  if (!tc_globals.sizemap().GetSizeClass(MallocPolicy(), new_size,
-                                         &new_size_class)) {
-    new_size_class = 0;
-  }
-  // We can avoid reallocating if all the following conditions are met:
-  //   - The size class of the existing allocation and new allocation are the
-  //     same. If both have the size class of 0 (too large to fit into size
-  //     classes), then both sizes must have the same kPageSize pages.
-  //   - The allocation would not be sampled.
-  //   - The existing allocation is not owned by the guarded page allocator.
-  if (!old_was_sampled && old_size_class == new_size_class &&
-      (old_size_class != 0 || BytesToLengthCeil(old_size).in_bytes() ==
-                                  BytesToLengthCeil(new_size).in_bytes()) &&
-      (new_size <= old_size ||
-       !GetThreadSampler()->WillRecordAllocation(new_size - old_size)) &&
-      !tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
-    if (new_size > old_size) {
-      GetThreadSampler()->ReportAllocation(new_size - old_size);
-    }
     // We still need to call hooks to report the updated size:
-    size_t actual_new_size;
-    if (new_size_class != 0) {
-      actual_new_size = tc_globals.sizemap().class_to_size(new_size_class);
-    } else {
-      actual_new_size = BytesToLengthCeil(new_size).in_bytes();
-    }
     tcmalloc::MallocHook::InvokeDeleteHook(
         {const_cast<void*>(old_ptr), old_size,
          tcmalloc::HookMemoryMutable::kImmutable});
     tcmalloc::MallocHook::InvokeNewHook(
-        {const_cast<void*>(old_ptr), new_size, actual_new_size,
+        {const_cast<void*>(old_ptr), new_size, old_size,
          tcmalloc::HookMemoryMutable::kImmutable});
-    TC_ASSERT(GetSize(old_ptr) == actual_new_size);
     return old_ptr;
   }
-  void* new_ptr = fast_alloc(new_size, MallocPolicy());
-  if (new_ptr == nullptr) {
-    return nullptr;
-  }
-  memcpy(new_ptr, old_ptr, std::min(old_size, new_size));
-  do_free(old_ptr, MallocPolicy());
-  return new_ptr;
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
@@ -1393,13 +1367,13 @@ extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFree(
   do_free(ptr, MallocPolicy());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeSized(void* ptr,
-                                                                 size_t size) {
+extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeSized(
+    void* ptr, size_t size) noexcept {
   do_free_with_size(ptr, size, MallocPolicy());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeAlignedSized(
-    void* ptr, size_t align, size_t size) {
+    void* ptr, size_t align, size_t size) noexcept {
   TC_ASSERT(absl::has_single_bit(align));
   do_free_with_size(ptr, size, MallocPolicy().AlignAs(align));
 }
@@ -1502,7 +1476,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalAlignedAlloc(
   // The standard was updated to say that if align is not supported by the
   // implementation, a null pointer should be returned. We require alignment to
   // be greater than 0 and a power of 2.
-  if (ABSL_PREDICT_FALSE(align == 0 || !absl::has_single_bit(align))) {
+  if (ABSL_PREDICT_FALSE(!absl::has_single_bit(align))) {
     // glibc, FreeBSD, and NetBSD manuals all document aligned_alloc() as
     // returning EINVAL if align is not a power of 2. We do the same.
     errno = EINVAL;
@@ -1583,6 +1557,30 @@ extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
   return GetSize(ptr);
 }
 
+extern "C" ABSL_CACHELINE_ALIGNED alloc_result_t
+TCMallocInternalAllocAtLeast(size_t min_size) noexcept {
+  auto sized_ptr = fast_alloc(min_size, MallocPolicy().SizeReturning());
+  return alloc_result_t{sized_ptr.p, sized_ptr.n};
+}
+
+extern "C" ABSL_CACHELINE_ALIGNED alloc_result_t
+TCMallocInternalAlignedAllocAtLeast(size_t alignment,
+                                    size_t min_size) noexcept {
+  // See https://www.open-std.org/jtc1/sc22/wg14/www/docs/summary.htm#dr_460.
+  // The standard was updated to say that if align is not supported by the
+  // implementation, a null pointer should be returned. We require alignment to
+  // be greater than 0 and a power of 2.
+  if (ABSL_PREDICT_FALSE(!absl::has_single_bit(alignment))) {
+    // glibc, FreeBSD, and NetBSD manuals all document aligned_alloc() as
+    // returning EINVAL if align is not a power of 2. We do the same.
+    errno = EINVAL;
+    return alloc_result_t{nullptr, 0};
+  }
+  auto sized_ptr =
+      fast_alloc(min_size, MallocPolicy().AlignAs(alignment).SizeReturning());
+  return alloc_result_t{sized_ptr.p, sized_ptr.n};
+}
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -1609,7 +1607,6 @@ static TCMallocGuard module_enter_exit_hook;
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 ABSL_CACHELINE_ALIGNED void* operator new(
@@ -1662,3 +1659,5 @@ ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, std::align_val_t align,
                     CppPolicy().Nothrow().AlignAs(align).AccessAs(hot_cold));
 }
 #endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
+
+GOOGLE_MALLOC_SECTION_END

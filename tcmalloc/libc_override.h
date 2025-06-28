@@ -32,6 +32,7 @@
 #include <cstdlib>
 #include <new>
 
+#include "tcmalloc/alloc_at_least.h"
 #include "tcmalloc/tcmalloc.h"  // IWYU pragma: keep
 
 #define TCMALLOC_ALIAS(tc_fn) \
@@ -209,6 +210,12 @@ size_t malloc_size(void* p) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalMallocSize);
 size_t malloc_usable_size(void* p) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalMallocSize);
+
+alloc_result_t alloc_at_least(size_t min_size) TCMALLOC_NOTHROW
+    TCMALLOC_ALIAS(TCMallocInternalAllocAtLeast);
+alloc_result_t aligned_alloc_at_least(size_t alignment,
+                                      size_t min_size) TCMALLOC_NOTHROW
+    TCMALLOC_ALIAS(TCMallocInternalAlignedAllocAtLeast);
 
 }  // extern "C"
 

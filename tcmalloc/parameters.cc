@@ -316,7 +316,6 @@ static bool want_disable_dynamic_slabs() {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
@@ -656,3 +655,5 @@ void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v) {
 }
 
 }  // extern "C"
+
+GOOGLE_MALLOC_SECTION_END

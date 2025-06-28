@@ -15,8 +15,10 @@
 #include "tcmalloc/huge_page_aware_allocator.h"
 
 #include <cstddef>
+#include <optional>
 
 #include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/huge_pages.h"
@@ -153,6 +155,12 @@ void StaticForwarder::ReportDoubleFree(void* ptr) {
 
 bool StaticForwarder::CollapsePages(Range r) {
   return tc_globals.system_allocator().Collapse(r.start_addr(), r.in_bytes());
+}
+
+void StaticForwarder::SetAnonVmaName(Range r,
+                                     std::optional<absl::string_view> name) {
+  tc_globals.system_allocator().SetAnonVmaName(r.start_addr(), r.in_bytes(),
+                                               name);
 }
 
 }  // namespace huge_page_allocator_internal

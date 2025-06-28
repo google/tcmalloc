@@ -105,6 +105,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_8k_pages",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -127,6 +128,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_8k_pages",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -151,6 +153,7 @@ cc_library(
         ":tcmalloc_tests",
     ],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_deprecated_perthread",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -403,6 +406,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_large_pages",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -426,6 +430,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_256k_pages",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -452,6 +457,7 @@ cc_library(
         ":tcmalloc_tests",
     ],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_256k_pages_numa_aware",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -479,6 +485,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_small_but_slow",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -504,6 +511,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_numa_aware",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -528,6 +536,7 @@ cc_library(
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
     deps = tcmalloc_deps + [
+        ":alloc_at_least",
         ":common_legacy_locking",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
@@ -692,6 +701,7 @@ cc_test(
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:pageflags",
         "//tcmalloc/internal:range_tracker",
         "//tcmalloc/internal:residency",
@@ -699,6 +709,7 @@ cc_test(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
@@ -891,6 +902,7 @@ cc_test(
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:pageflags",
         "//tcmalloc/internal:range_tracker",
         "//tcmalloc/internal:residency",
@@ -904,6 +916,7 @@ cc_test(
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -1534,4 +1547,15 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
     ],
+)
+
+cc_library(
+    name = "alloc_at_least",
+    srcs = ["alloc_at_least.cc"],
+    hdrs = ["alloc_at_least.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        ":tcmalloc_tests",
+    ],
+    deps = ["@com_google_absl//absl/base:core_headers"],
 )

@@ -122,6 +122,7 @@ class PageAllocator {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void CustomNameSampledTrackers() ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   const PageAllocInfo& info(MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -293,6 +294,12 @@ inline void PageAllocator::TryHugepageCollapse() {
   }
   for (int partition = 0; partition < active_numa_partitions(); partition++) {
     normal_impl_[partition]->TryHugepageCollapse();
+  }
+}
+
+inline void PageAllocator::CustomNameSampledTrackers() {
+  for (int partition = 0; partition < active_numa_partitions(); partition++) {
+    normal_impl_[partition]->CustomNameSampledTrackers();
   }
 }
 

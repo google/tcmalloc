@@ -93,6 +93,8 @@ class PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   virtual void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
+  virtual void CustomNameSampledTrackers()
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.
   virtual void Print(Printer& out, PageFlagsBase& pageflags)
@@ -110,7 +112,7 @@ class PageAllocatorInterface {
  protected:
   PageAllocInfo info_ ABSL_GUARDED_BY(pageheap_lock);
 
-  MemoryTag tag_;  // The type of tagged memory this heap manages
+  const MemoryTag tag_;  // The type of tagged memory this heap manages
 };
 
 }  // namespace tcmalloc_internal

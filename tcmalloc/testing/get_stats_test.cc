@@ -356,7 +356,7 @@ TEST_F(GetStatsTest, StackDepth) {
   //
   // Running out of stack space will manifest as a segmentation fault.
   const size_t max_stack_depth = std::max<size_t>(
-         60 * 1024
+         64 * 1024
       ,
       PTHREAD_STACK_MIN);
 

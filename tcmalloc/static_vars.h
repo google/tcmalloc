@@ -149,6 +149,12 @@ class Static final {
   // sampled.
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter total_sampled_count_;
 
+  using PerSizeClassCounts = StatsCounters<kNumClasses>;
+
+  static PerSizeClassCounts& per_size_class_counts() {
+    return per_size_class_counts_;
+  }
+
   ABSL_CONST_INIT static AllocationSampleList allocation_samples;
 
   ABSL_CONST_INIT static deallocationz::DeallocationProfilerList
@@ -221,6 +227,7 @@ class Static final {
   ABSL_CONST_INIT static NumaTopology<kNumaPartitions, kNumBaseClasses>
       numa_topology_;
   ABSL_CONST_INIT static GwpAsanState gwp_asan_state_;
+  ABSL_CONST_INIT static PerSizeClassCounts per_size_class_counts_;
 
   // PageHeap uses a constructor for initialization.  Like the members above,
   // we can't depend on initialization order, so pageheap is new'd

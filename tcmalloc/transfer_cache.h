@@ -205,7 +205,7 @@ class ShardedTransferCacheManagerBase {
     get_cache(size_class).InsertRange(size_class, absl::MakeSpan(&ptr, 1));
   }
 
-  void Print(Printer &out) const {
+  void Print(const StatsCounters<kNumClasses> &counts, Printer &out) const {
     out.printf("------------------------------------------------\n");
     out.printf("Cumulative sharded transfer cache stats.\n");
     out.printf("Used bytes, current capacity, and maximum allowed capacity\n");
@@ -225,20 +225,32 @@ class ShardedTransferCacheManagerBase {
       const uint64_t class_bytes =
           stats.used * Manager::class_to_size(size_class);
       sharded_cumulative_bytes += class_bytes;
+
+      const auto estimated_frontend_operations = counts[size_class].value();
+      const double hit_rate =
+          estimated_frontend_operations == 0
+              ? 0.
+              : 100. *
+                    (estimated_frontend_operations -
+                     (stats.remove_object_hits + stats.remove_object_misses)) /
+                    estimated_frontend_operations;
+
       out.printf(
           "class %3d [ %8zu bytes ] : %8u"
           " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %8u"
           " max_capacity; %8u insert hits; %8u"
-          " insert misses; %8u remove hits; %8u"
-          " remove misses;\n",
+          " insert misses (%10lu object misses); %8u remove hits; %8u"
+          " remove misses (%10lu object misses); %3.5f frontline hit rate\n",
           size_class, Manager::class_to_size(size_class), stats.used,
           class_bytes / MiB, sharded_cumulative_bytes / MiB, stats.capacity,
           stats.max_capacity, stats.insert_hits, stats.insert_misses,
-          stats.remove_hits, stats.remove_misses);
+          stats.insert_object_misses, stats.remove_hits, stats.remove_misses,
+          stats.remove_object_misses, hit_rate);
     }
   }
 
-  void PrintInPbtxt(PbtxtRegion &region) const {
+  void PrintInPbtxt(const StatsCounters<kNumClasses> &counts,
+                    PbtxtRegion &region) const {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       const TransferCacheStats stats = GetStats(size_class);
       PbtxtRegion entry = region.CreateSubRegion("sharded_transfer_cache");
@@ -247,9 +259,12 @@ class ShardedTransferCacheManagerBase {
       entry.PrintI64("insert_misses", stats.insert_misses);
       entry.PrintI64("remove_hits", stats.remove_hits);
       entry.PrintI64("remove_misses", stats.remove_misses);
+      entry.PrintI64("remove_object_hits", stats.remove_object_hits);
+      entry.PrintI64("remove_object_misses", stats.remove_object_misses);
       entry.PrintI64("used", stats.used);
       entry.PrintI64("capacity", stats.capacity);
       entry.PrintI64("max_capacity", stats.max_capacity);
+      entry.PrintI64("frontend_allocations", counts[size_class].value());
     }
     region.PrintI64("active_sharded_transfer_caches", NumActiveShards());
   }
@@ -265,7 +280,9 @@ class ShardedTransferCacheManagerBase {
       stats.insert_hits += shard_stats.insert_hits;
       stats.insert_misses += shard_stats.insert_misses;
       stats.remove_hits += shard_stats.remove_hits;
+      stats.remove_object_hits += shard_stats.remove_object_hits;
       stats.remove_misses += shard_stats.remove_misses;
+      stats.remove_object_misses += shard_stats.remove_object_misses;
       stats.used += shard_stats.used;
       stats.capacity += shard_stats.capacity;
       stats.max_capacity += shard_stats.max_capacity;
@@ -480,7 +497,7 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.FetchCommitIntervalMisses();
   }
 
-  void Print(Printer &out) const {
+  void Print(const StatsCounters<kNumClasses> &counts, Printer &out) const {
     out.printf("------------------------------------------------\n");
     out.printf("Used bytes, current capacity, and maximum allowed capacity\n");
     out.printf("of the transfer cache freelists.\n");
@@ -492,21 +509,33 @@ class TransferCacheManager : public StaticForwarder {
       const TransferCacheStats tc_stats = GetStats(size_class);
       const uint64_t class_bytes = tc_stats.used * class_to_size(size_class);
       cumulative_bytes += class_bytes;
+
+      const auto estimated_frontend_operations = counts[size_class].value();
+      const double hit_rate = estimated_frontend_operations == 0
+                                  ? 0.
+                                  : 100. *
+                                        (estimated_frontend_operations -
+                                         (tc_stats.remove_object_hits +
+                                          tc_stats.remove_object_misses)) /
+                                        estimated_frontend_operations;
+
       out.printf(
           "class %3d [ %8zu bytes ] : %8u"
           " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %5u"
           " max_capacity; %8u insert hits; %8u"
           " insert misses (%10lu object misses); %8u remove hits;"
-          " %8u remove misses (%10lu object misses);\n",
+          " %8u remove misses (%10lu object misses); %3.5f frontline hit "
+          "rate\n",
           size_class, class_to_size(size_class), tc_stats.used,
           class_bytes / MiB, cumulative_bytes / MiB, tc_stats.capacity,
           tc_stats.max_capacity, tc_stats.insert_hits, tc_stats.insert_misses,
           tc_stats.insert_object_misses, tc_stats.remove_hits,
-          tc_stats.remove_misses, tc_stats.remove_object_misses);
+          tc_stats.remove_misses, tc_stats.remove_object_misses, hit_rate);
     }
   }
 
-  void PrintInPbtxt(PbtxtRegion &region) const {
+  void PrintInPbtxt(const StatsCounters<kNumClasses> &counts,
+                    PbtxtRegion &region) const {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       PbtxtRegion entry = region.CreateSubRegion("transfer_cache");
       const TransferCacheStats tc_stats = GetStats(size_class);
@@ -516,10 +545,12 @@ class TransferCacheManager : public StaticForwarder {
       entry.PrintI64("insert_object_misses", tc_stats.insert_object_misses);
       entry.PrintI64("remove_hits", tc_stats.remove_hits);
       entry.PrintI64("remove_misses", tc_stats.remove_misses);
+      entry.PrintI64("remove_object_hits", tc_stats.remove_object_hits);
       entry.PrintI64("remove_object_misses", tc_stats.remove_object_misses);
       entry.PrintI64("used", tc_stats.used);
       entry.PrintI64("capacity", tc_stats.capacity);
       entry.PrintI64("max_capacity", tc_stats.max_capacity);
+      entry.PrintI64("frontend_allocations", counts[size_class].value());
     }
   }
 
@@ -569,8 +600,9 @@ class TransferCacheManager {
     return freelist_[size_class];
   }
 
-  void Print(Printer& out) const {}
-  void PrintInPbtxt(PbtxtRegion& region) const {}
+  void Print(const StatsCounters<kNumClasses>&, Printer& out) const {}
+  void PrintInPbtxt(const StatsCounters<kNumClasses>&,
+                    PbtxtRegion& region) const {}
 
  private:
   CentralFreeList freelist_[kNumClasses];
@@ -596,8 +628,9 @@ struct ShardedTransferCacheManager {
   bool UseGenericCache() const { return false; }
   bool UseCacheForLargeClassesOnly() const { return false; }
   int NumActiveShards() const { return 0; }
-  void Print(Printer& out) const {}
-  void PrintInPbtxt(PbtxtRegion& region) const {}
+  void Print(const StatsCounters<kNumClasses>&, Printer& out) const {}
+  void PrintInPbtxt(const StatsCounters<kNumClasses>&,
+                    PbtxtRegion& region) const {}
 };
 
 #endif  // !TCMALLOC_INTERNAL_SMALL_BUT_SLOW
