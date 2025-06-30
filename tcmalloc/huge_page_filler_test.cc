@@ -1184,8 +1184,7 @@ TEST_P(FillerTest, DontCollapseAlreadyHugepages) {
   for (const auto& pa : p1) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
   }
-  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
-      filler_.GetCollapseStats();
+  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
   EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
   EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
   EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
@@ -1200,8 +1199,7 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
   FakeResidency residency;
   auto check_stats = [&](int expected_eligible, int expected_attempted,
                          int expected_succeeded) {
-    const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
-        filler_.GetCollapseStats();
+    const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
     EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed),
               expected_eligible);
     EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed),
@@ -1223,8 +1221,7 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
   check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
               /*expected_succeeded=*/1);
 
-  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
-      filler_.GetCollapseStats();
+  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
   EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
   EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 1);
   EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 1);
@@ -1296,8 +1293,7 @@ TEST_P(FillerTest, CollapseHugepages) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
   }
-  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
-      filler_.GetCollapseStats();
+  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
   EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
   EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 1);
   EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 1);
@@ -1343,8 +1339,7 @@ TEST_P(FillerTest, DontCollapseHugepages) {
     }
   }
 
-  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
-      filler_.GetCollapseStats();
+  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
   EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 4);
   EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
   EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
@@ -1384,8 +1379,7 @@ TEST_P(FillerTest, DontCollapseReleasedPages) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TryHugepageCollapse(&pageflags, &residency);
 
-  const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
-      filler_.GetCollapseStats();
+  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
   EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 0);
   EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
   EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
@@ -1408,8 +1402,7 @@ TEST_P(FillerTest, CollapseClock) {
 
   auto check_stats = [&](int expected_eligible, int expected_attempted,
                          int expected_succeeded) {
-    const HugePageFiller<PageTracker>::CollapseStats& collapse_stats =
-        filler_.GetCollapseStats();
+    const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
     EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed),
               expected_eligible);
     EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed),
