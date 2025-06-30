@@ -118,6 +118,17 @@ class PageTracker : public TList<PageTracker>::Elem {
     Length previously_unbacked;
   };
 
+  struct TrackerFeatures {
+    bool is_valid = false;
+    bool is_hugepage_backed = false;
+    bool density = false;
+    size_t allocations = 0;
+    size_t objects = 0;
+    double allocation_time = 0.0;
+    double reallocation_time = 0.0;
+    Length longest_free_range = kPagesPerHugePage;
+  };
+
   // REQUIRES: there's a free range of at least n pages
   //
   // Returns a PageId i and a count of previously unbacked pages in the range
@@ -169,9 +180,15 @@ class PageTracker : public TList<PageTracker>::Elem {
   Length used_pages() const { return Length(free_.used()); }
   Length released_pages() const { return Length(released_count_); }
   double alloctime() const { return alloctime_; }
+  double last_page_allocation_time() const {
+    return last_page_allocation_time_;
+  }
   Length free_pages() const;
   bool empty() const;
 
+  // This is the snapshot of the features at the time of the last invocation of
+  // RecordFeatures().
+  TrackerFeatures features() const { return features_; }
   bool unbroken() const { return unbroken_; }
 
   // Returns the hugepage whose availability is being tracked.
@@ -217,6 +234,20 @@ class PageTracker : public TList<PageTracker>::Elem {
     hugepage_residency_state_.being_collapsed = value;
   }
 
+  void SetLastAllocationTime(double value) {
+    last_page_allocation_time_ = value;
+  }
+
+  void RecordFeatures() {
+    features_.is_hugepage_backed =
+        hugepage_residency_state_.maybe_hugepage_backed;
+    features_.density = has_dense_spans_;
+    features_.allocations = nallocs();
+    features_.objects = free_.allocs();
+    features_.allocation_time = last_page_allocation_time_;
+    features_.longest_free_range = longest_free_range();
+  }
+
   bool BeingCollapsed() const {
     return hugepage_residency_state_.being_collapsed;
   }
@@ -228,7 +259,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     bool sampled_for_tagging = false;
     double record_time = 0;
   };
-  TagState GetTagState() { return tagged_state_; }
+  TagState GetTagState() const { return tagged_state_; }
   void SetTagState(const TagState& state) { tagged_state_ = state; }
 
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
@@ -253,8 +284,11 @@ class PageTracker : public TList<PageTracker>::Elem {
   bool abandoned_;
   bool unbroken_;
   double alloctime_;
+  double last_page_allocation_time_ = 0;
 
   RangeTracker<kPagesPerHugePage.raw_num()> free_;
+
+  TrackerFeatures features_;
 
   TagState tagged_state_;
 
@@ -956,6 +990,13 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   // type == AccessDensityPrediction::kDense => pt->HasDenseSpans(). This
   // also verifies we do not end up with a donated pt on the kDense path.
   TC_ASSERT(type == AccessDensityPrediction::kSparse || pt->HasDenseSpans());
+
+  // Log previous features before modifying the page tracker.
+  const auto now = clock_.now();
+  if (pt->GetTagState().sampled_for_tagging) {
+    pt->RecordFeatures();
+  }
+  pt->SetLastAllocationTime(now);
   const auto page_allocation = pt->Get(n);
   AddToFillerList(pt);
   pages_allocated_[type] += n;
@@ -1500,6 +1541,8 @@ class UsageInfo {
     kNumTypes
   };
 
+  static constexpr size_t kMaxSampledTrackers = 64;
+
   UsageInfo() {
     size_t i;
     for (i = 0; i <= kBucketsAtBounds && i < kPagesPerHugePage.raw_num(); ++i) {
@@ -1557,7 +1600,7 @@ class UsageInfo {
 
   template <class TrackerType>
   void Record(const TrackerType& pt, PageFlagsBase& pageflags, Type which,
-              double clock_now, double clock_frequency) {
+              double clock_now, double clock_frequency, size_t& num_selected) {
     TC_ASSERT_LT(which, kNumTypes);
     const Length free = kPagesPerHugePage - pt.used_pages();
     const Length lf = pt.longest_free_range();
@@ -1588,6 +1631,21 @@ class UsageInfo {
       }
     }
     ++total_pages_[which];
+
+    PageTracker::TrackerFeatures tracker_features = pt.features();
+    PageTracker::TagState tag_state = pt.GetTagState();
+
+    // Selecting the first 64 tagged trackers could yield unrepresentative data
+    // if we sample >> kMaxSampledTrackers, we expect this to be fine in the
+    // common case, at least for initial exploration.
+    if (tag_state.sampled_for_tagging && num_selected < kMaxSampledTrackers) {
+      tracker_features.is_valid = true;
+      tracker_features.reallocation_time =
+          (pt.last_page_allocation_time() - tracker_features.allocation_time) /
+          clock_frequency;
+      sampled_trackers_[which][num_selected] = tracker_features;
+      ++num_selected;
+    }
   }
 
   void Print(Printer& out) {
@@ -1644,6 +1702,10 @@ class UsageInfo {
           hugepage_backed_[type], TypeToStr(type), total_pages_[type]);
     }
     out.printf("\n");
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintSampledTrackers(out, type);
+    }
   }
 
   void Print(PbtxtRegion& hpaa) {
@@ -1661,6 +1723,7 @@ class UsageInfo {
                          "low_occupancy_lifetime_histogram");
       PrintHisto(scoped, long_lived_hps_histo_[i],
                  "long_lived_hugepages_histogram", 0);
+      PrintSampledTrackers(scoped, type, "sampled_trackers");
       scoped.PrintI64("total_pages", total_pages_[type]);
       scoped.PrintI64("num_pages_hugepage_backed", hugepage_backed_[type]);
     }
@@ -1683,6 +1746,7 @@ class UsageInfo {
       kBucketsAtBounds + 16 + kBucketsAtBounds;
   using Histo = size_t[kBucketCapacity];
   using LifetimeHisto = size_t[kLifetimeBuckets];
+  using SampledTrackers = PageTracker::TrackerFeatures[kMaxSampledTrackers];
 
   int BucketNum(size_t page) {
     auto it =
@@ -1724,6 +1788,27 @@ class UsageInfo {
     out.printf("\n");
   }
 
+  void PrintSampledTrackers(Printer& out, Type type) {
+    out.printf("\nHugePageFiller: Sampled Trackers for %s pages:",
+               TypeToStr(type));
+    for (size_t i = 0; i < kMaxSampledTrackers; ++i) {
+      if (sampled_trackers_[type][i].is_valid) {
+        out.printf(
+            "\nHugePageFiller: Allocations: %d, Longest Free Range: %d, "
+            "Objects: %d, Is Hugepage Backed?: %d, Density: %d, "
+            "Reallocation Time: %f",
+            sampled_trackers_[type][i].allocations,
+            sampled_trackers_[type][i].longest_free_range.raw_num(),
+            sampled_trackers_[type][i].objects,
+            sampled_trackers_[type][i].is_hugepage_backed,
+            sampled_trackers_[type][i].density,
+            sampled_trackers_[type][i].reallocation_time);
+        sampled_trackers_[type][i].is_valid = false;
+      }
+    }
+    out.printf("\n");
+  }
+
   void PrintHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
                   size_t offset) {
     for (size_t i = 0; i < buckets_size_; ++i) {
@@ -1747,6 +1832,30 @@ class UsageInfo {
                                         ? lifetime_bucket_bounds_[i]
                                         : lifetime_bucket_bounds_[i + 1]));
       hist.PrintI64("value", h[i]);
+    }
+  }
+
+  void PrintSampledTrackers(PbtxtRegion& hpaa, Type type,
+                            absl::string_view key) {
+    for (size_t i = 0; i < kMaxSampledTrackers; ++i) {
+      if (sampled_trackers_[type][i].is_valid) {
+        auto sampled_tracker = hpaa.CreateSubRegion(key);
+        sampled_tracker.PrintI64("allocations",
+                                 sampled_trackers_[type][i].allocations);
+        sampled_tracker.PrintI64(
+            "longest_free_range",
+            sampled_trackers_[type][i].longest_free_range.raw_num());
+        sampled_tracker.PrintI64("objects", sampled_trackers_[type][i].objects);
+        sampled_tracker.PrintBool(
+            "is_hugepage_backed",
+            sampled_trackers_[type][i].is_hugepage_backed);
+        sampled_tracker.PrintBool("density",
+                                  sampled_trackers_[type][i].density);
+        sampled_tracker.PrintDouble(
+            "reallocation_time_sec",
+            sampled_trackers_[type][i].reallocation_time);
+        sampled_trackers_[type][i].is_valid = false;
+      }
     }
   }
 
@@ -1815,6 +1924,7 @@ class UsageInfo {
   LifetimeHisto lifetime_histo_[kNumTypes]{};
   Histo long_lived_hps_histo_[kNumTypes]{};
   LifetimeHisto low_occupancy_lifetime_histo_[kNumTypes]{};
+  SampledTrackers sampled_trackers_[kNumTypes]{};
   size_t bucket_bounds_[kBucketCapacity];
   size_t lifetime_bucket_bounds_[kLifetimeBuckets + 1];
   size_t hugepage_backed_[kNumTypes] = {0};
@@ -2105,41 +2215,53 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
   const double now = clock_.now();
   const double frequency = clock_.freq();
 
+  size_t num_selected = 0;
   donated_alloc_.Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency,
+                     num_selected);
       },
       0);
+  num_selected = 0;
   regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kSparseRegular, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparseRegular, now, frequency,
+                     num_selected);
       },
       0);
+  num_selected = 0;
   regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kDenseRegular, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDenseRegular, now, frequency,
+                     num_selected);
       },
       0);
+  num_selected = 0;
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType& pt) {
         usage.Record(pt, pageflags, UsageInfo::kSparsePartialReleased, now,
-                     frequency);
+                     frequency, num_selected);
       },
       0);
+  num_selected = 0;
   regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType& pt) {
         usage.Record(pt, pageflags, UsageInfo::kDensePartialReleased, now,
-                     frequency);
+                     frequency, num_selected);
       },
       0);
+  num_selected = 0;
   regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kSparseReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparseReleased, now, frequency,
+                     num_selected);
       },
       0);
+  num_selected = 0;
   regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kDenseReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDenseReleased, now, frequency,
+                     num_selected);
       },
       0);
 
@@ -2250,42 +2372,60 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
   UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
+  size_t num_selected = 0;
 
   donated_alloc_.Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency,
+                     num_selected);
       },
       0);
+
+  num_selected = 0;
   regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kSparseRegular, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparseRegular, now, frequency,
+                     num_selected);
       },
       0);
+
+  num_selected = 0;
   regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kDenseRegular, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDenseRegular, now, frequency,
+                     num_selected);
       },
       0);
+
+  num_selected = 0;
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType& pt) {
         usage.Record(pt, pageflags, UsageInfo::kSparsePartialReleased, now,
-                     frequency);
+                     frequency, num_selected);
       },
       0);
+
+  num_selected = 0;
   regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType& pt) {
         usage.Record(pt, pageflags, UsageInfo::kDensePartialReleased, now,
-                     frequency);
+                     frequency, num_selected);
       },
       0);
+
+  num_selected = 0;
   regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kSparseReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparseReleased, now, frequency,
+                     num_selected);
       },
       0);
+
+  num_selected = 0;
   regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType& pt) {
-        usage.Record(pt, pageflags, UsageInfo::kDenseReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDenseReleased, now, frequency,
+                     num_selected);
       },
       0);
 

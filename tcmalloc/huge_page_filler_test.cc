@@ -1508,7 +1508,7 @@ TEST_P(FillerTest, ReleaseFromFullAllocs) {
   std::vector<PAlloc> p5 = AllocateVectorWithSpanAllocInfo(
       kAlloc - Length(1), p1.front().span_alloc_info);
   for (const auto& pa : p5) {
-      ASSERT_TRUE(pa.pt == p1.front().pt || pa.pt == p3.front().pt);
+    ASSERT_TRUE(pa.pt == p1.front().pt || pa.pt == p3.front().pt);
   }
 
   DeleteVector(p2);
@@ -1853,8 +1853,7 @@ TEST_P(FillerTest, Release) {
   // We expect to reuse p1.pt.
   std::vector<PAlloc> p5 = AllocateVectorWithSpanAllocInfo(
       kAlloc - Length(1), p1.front().span_alloc_info);
-    ASSERT_TRUE(p1.front().pt == p5.front().pt ||
-                p3.front().pt == p5.front().pt);
+  ASSERT_TRUE(p1.front().pt == p5.front().pt || p3.front().pt == p5.front().pt);
 
   DeleteVector(p2);
   DeleteVector(p4);
@@ -3334,6 +3333,181 @@ HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pa
 )"));
 }
 
+TEST_P(FillerTest, RecordFeatureVectorTest) {
+  SpanAllocInfo info_sparsely_accessed = {1, AccessDensityPrediction::kSparse};
+  PAlloc small_alloc =
+      AllocateWithSpanAllocInfo(Length(1), info_sparsely_accessed);
+  small_alloc.pt->SetTagState({.sampled_for_tagging = true});
+  EXPECT_EQ(small_alloc.pt->features().allocations, 0);
+  EXPECT_EQ(small_alloc.pt->features().objects, 0);
+  EXPECT_EQ(small_alloc.pt->features().allocation_time, 0);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 256);
+  EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
+  EXPECT_EQ(small_alloc.pt->features().density, false);
+  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), 0);
+
+  Advance(absl::Seconds(5));
+  PAlloc small_alloc2 =
+      AllocateWithSpanAllocInfo(Length(5), info_sparsely_accessed);
+  EXPECT_EQ(small_alloc.pt, small_alloc2.pt);
+  EXPECT_EQ(small_alloc.pt->features().allocations, 1);
+  EXPECT_EQ(small_alloc.pt->features().objects, 1);
+  EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time, 0);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 255);
+  EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
+  EXPECT_EQ(small_alloc.pt->features().density, false);
+  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
+            static_cast<uint64_t>(5 * GetFakeClockFrequency()) + 1234);
+
+  Advance(absl::Seconds(10));
+  PAlloc small_alloc3 =
+      AllocateWithSpanAllocInfo(Length(10), info_sparsely_accessed);
+  EXPECT_EQ(small_alloc.pt, small_alloc3.pt);
+  EXPECT_EQ(small_alloc.pt->features().allocations, 2);
+  EXPECT_EQ(small_alloc.pt->features().objects, 2);
+  EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time,
+                  5 * GetFakeClockFrequency() + 1234);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 250);
+  EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
+  EXPECT_EQ(small_alloc.pt->features().density, false);
+  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
+            static_cast<uint64_t>(15 * GetFakeClockFrequency()) + 1234);
+
+  // Test dense spans.
+  ResetClock();
+  SpanAllocInfo info_densely_accessed = {1, AccessDensityPrediction::kDense};
+  PAlloc large_alloc =
+      AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
+  large_alloc.pt->SetTagState({.sampled_for_tagging = true});
+  EXPECT_NE(large_alloc.pt, small_alloc.pt);
+  EXPECT_EQ(large_alloc.pt->features().allocations, 0);
+  EXPECT_EQ(large_alloc.pt->features().objects, 0);
+  EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time, 0);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 256);
+  EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
+  // Density is false because it defaults to false and lags behind by
+  // one allocation.
+  EXPECT_EQ(large_alloc.pt->features().density, false);
+  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), 0);
+
+  Advance(absl::Seconds(10));
+  std::vector<PAlloc> large_allocs =
+      AllocateVectorWithSpanAllocInfo(Length(100), info_densely_accessed);
+  EXPECT_EQ(large_alloc.pt->features().allocations, 100);
+  EXPECT_EQ(large_alloc.pt->features().objects, 100);
+  EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
+                  10 * GetFakeClockFrequency() + 1234);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 156);
+  EXPECT_EQ(large_alloc.pt->features().density, true);
+  EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
+  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(),
+            static_cast<uint64_t>(10 * GetFakeClockFrequency()) + 1234);
+
+  Advance(absl::Seconds(10));
+  PAlloc large_alloc2 =
+      AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
+  EXPECT_EQ(large_alloc.pt->features().allocations, 101);
+  EXPECT_EQ(large_alloc.pt->features().objects, 101);
+  EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
+                  10 * GetFakeClockFrequency() + 1234);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 155);
+  EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
+  EXPECT_EQ(large_alloc.pt->features().density, true);
+  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(),
+            static_cast<uint64_t>(20 * GetFakeClockFrequency()) + 1234);
+
+  Delete(small_alloc);
+  Delete(small_alloc2);
+  Delete(small_alloc3);
+
+  Delete(large_alloc);
+  Delete(large_alloc2);
+  for (auto& alloc : large_allocs) {
+    Delete(alloc);
+  }
+}
+
+TEST_P(FillerTest, PrintFeatureVectorTest) {
+  FakePageFlags pageflags;
+  const Length N = kPagesPerHugePage;
+  SpanAllocInfo info_sparsely_accessed = {1, AccessDensityPrediction::kSparse};
+  SpanAllocInfo info_densely_accessed = {1, AccessDensityPrediction::kDense};
+  PAlloc small_alloc = AllocateWithSpanAllocInfo(N / 4, info_sparsely_accessed);
+  small_alloc.pt->SetTagState({.sampled_for_tagging = true});
+  std::string buffer(1024 * 1024, '\0');
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, true, pageflags);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 0.000000
+)"));
+
+  Advance(absl::Seconds(100));
+  PAlloc small_alloc2 =
+      AllocateWithSpanAllocInfo(N / 4, info_sparsely_accessed);
+  EXPECT_EQ(small_alloc.pt, small_alloc2.pt);
+  EXPECT_EQ(small_alloc.pt->features().allocation_time, 0);
+  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
+            static_cast<uint64_t>(100 * GetFakeClockFrequency()) + 1234);
+  EXPECT_EQ(small_alloc.pt->features().allocation_time, 0);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, true, pageflags);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 100.000001
+)"));
+
+  ResetClock();
+  PAlloc large_alloc =
+      AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
+  large_alloc.pt->SetTagState({.sampled_for_tagging = true});
+  Advance(absl::Seconds(100));
+
+  PAlloc large_alloc2 =
+      AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
+  EXPECT_EQ(large_alloc.pt, large_alloc2.pt);
+
+  pageflags.MarkHugePageBacked(large_alloc.pt->location().start_addr(), true);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, true, pageflags);
+  }
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 1, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 100.000001
+)"));
+
+  Advance(absl::Seconds(100));
+  std::vector<PAlloc> large_allocs =
+      AllocateVectorWithSpanAllocInfo(Length(100), info_densely_accessed);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, true, pageflags);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  // Time delta is 0 here because the clock is not advanced during vector
+  // allocation.
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Allocations: 101, Longest Free Range: 155, Objects: 101, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 0.000000
+)"));
+
+  Delete(small_alloc);
+  Delete(small_alloc2);
+  Delete(large_alloc);
+  Delete(large_alloc2);
+
+  for (auto& alloc : large_allocs) {
+    Delete(alloc);
+  }
+}
+
 TEST_P(FillerTest, LifetimeTelemetryTest) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
@@ -4767,6 +4941,20 @@ HugePageFiller: 0 of sparsely-accessed partial released pages hugepage backed ou
 HugePageFiller: 0 of densely-accessed partial released pages hugepage backed out of 0.
 HugePageFiller: 0 of sparsely-accessed released pages hugepage backed out of 4.
 HugePageFiller: 0 of densely-accessed released pages hugepage backed out of 1.
+
+HugePageFiller: Sampled Trackers for sparsely-accessed regular pages:
+
+HugePageFiller: Sampled Trackers for densely-accessed regular pages:
+
+HugePageFiller: Sampled Trackers for donated pages:
+
+HugePageFiller: Sampled Trackers for sparsely-accessed partial released pages:
+
+HugePageFiller: Sampled Trackers for densely-accessed partial released pages:
+
+HugePageFiller: Sampled Trackers for sparsely-accessed released pages:
+
+HugePageFiller: Sampled Trackers for densely-accessed released pages:
 
 HugePageFiller: time series over 5 min interval
 
