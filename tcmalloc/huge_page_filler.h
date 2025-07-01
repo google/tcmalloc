@@ -2214,6 +2214,29 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       },
       /*start=*/0);
 
+  regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
+      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        sampled_tracker_treatment.SelectEligibleTrackers(pt);
+      },
+      /*start=*/0);
+
+  regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
+      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        sampled_tracker_treatment.SelectEligibleTrackers(pt);
+      },
+      /*start=*/0);
+  regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
+      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        sampled_tracker_treatment.SelectEligibleTrackers(pt);
+      },
+      /*start=*/0);
+
+  regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
+      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        sampled_tracker_treatment.SelectEligibleTrackers(pt);
+      },
+      /*start=*/0);
+
   pageheap_lock.Unlock();
   sampled_tracker_treatment.Treat();
   if (collect_non_hugepage_trackers) {
