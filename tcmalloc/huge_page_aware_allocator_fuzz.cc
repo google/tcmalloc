@@ -453,7 +453,7 @@ void FuzzHPAA(const std::string& s) {
               break;
             }
             case 10: {
-              allocator.TryHugepageCollapse();
+              allocator.TreatHugepageTrackers(actual_value & 0x1);
               break;
             }
           }

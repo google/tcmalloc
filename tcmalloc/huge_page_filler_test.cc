@@ -1033,13 +1033,14 @@ class FillerTest
                                 /*hit_limit=*/true);
   }
 
-  void TryHugepageCollapse(PageFlagsBase* pageflags, Residency* residency) {
+  void TreatHugepageTrackers(bool enable_collapse, PageFlagsBase* pageflags,
+                             Residency* residency) {
     // Note that scoped pageheap lock isn't used here. This is because the
     // pageheap lock is manually unlocked before the collapse operation, and the
     // scoped lock doesn't recognize the manual unlock. In tests, collapse
     // allocates, so we use manual lock and unlock here.
     pageheap_lock.Lock();
-    filler_.TryHugepageCollapse(pageflags, residency);
+    filler_.TreatHugepageTrackers(enable_collapse, pageflags, residency);
     // In the single-threaded tests below, there should be no intervening Put
     // operations that deallocate all the pages in the hugepages that are
     // eligible to be collapsed. So, the fully freed tracker should be empty at
@@ -1048,11 +1049,6 @@ class FillerTest
     pageheap_lock.Unlock();
   }
 
-  void CustomNameSampledTrackers() {
-    pageheap_lock.Lock();
-    filler_.CustomNameSampledTrackers();
-    pageheap_lock.Unlock();
-  }
   // Generates an "interesting" pattern of allocations that highlights all the
   // various features of our stats.
   std::vector<PAlloc> GenerateInterestingAllocs();
@@ -1179,7 +1175,7 @@ TEST_P(FillerTest, DontCollapseAlreadyHugepages) {
                                            swapped);
   }
   ASSERT_EQ(filler_.size(), NHugePages(1));
-  TryHugepageCollapse(&pageflags, &residency);
+  TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
 
   for (const auto& pa : p1) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
@@ -1217,7 +1213,7 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
                                            swapped);
   }
   ASSERT_EQ(filler_.size(), NHugePages(1));
-  TryHugepageCollapse(&pageflags, &residency);
+  TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
   check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
               /*expected_succeeded=*/1);
 
@@ -1233,7 +1229,7 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
 
   // The first collapse was successful, so the second collapse should not
   // occur.
-  TryHugepageCollapse(&pageflags, &residency);
+  TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
   }
@@ -1245,6 +1241,8 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
 // Checks that the anonymous VMA name is being recorded correctly for the
 // sampled tracker.
 TEST_P(FillerTest, SetAnonVmaName) {
+  FakePageFlags pageflags;
+  FakeResidency residency;
   SpanAllocInfo info;
   info.objects_per_span = 256;
   info.density = AccessDensityPrediction::kDense;
@@ -1254,13 +1252,13 @@ TEST_P(FillerTest, SetAnonVmaName) {
       "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_dense_1_released_0");
 
   Advance(absl::Minutes(10));
-  CustomNameSampledTrackers();
+  TreatHugepageTrackers(/*enable_collapse=*/false, &pageflags, &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
 
   // Advance clock by 10 seconds, which is not enough to sample the tracker
   // again.
   Advance(absl::Seconds(10));
-  CustomNameSampledTrackers();
+  TreatHugepageTrackers(/*enable_collapse=*/false, &pageflags, &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
   set_anon_vma_name_.SetExpectedName("tcmalloc_region_NORMAL");
   Delete(p);
@@ -1288,7 +1286,7 @@ TEST_P(FillerTest, CollapseHugepages) {
   }
 
   ASSERT_EQ(filler_.size(), NHugePages(1));
-  TryHugepageCollapse(&pageflags, &residency);
+  TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
@@ -1325,7 +1323,7 @@ TEST_P(FillerTest, DontCollapseHugepages) {
     }
 
     ASSERT_EQ(filler_.size(), NHugePages(1));
-    TryHugepageCollapse(&pageflags, &residency);
+    TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
     for (const auto& pa : p1) {
       EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
     }
@@ -1377,7 +1375,7 @@ TEST_P(FillerTest, DontCollapseReleasedPages) {
   ASSERT_TRUE(AllReleased(p2));
 
   ASSERT_EQ(filler_.size(), NHugePages(1));
-  TryHugepageCollapse(&pageflags, &residency);
+  TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
 
   const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
   EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 0);
@@ -1425,7 +1423,7 @@ TEST_P(FillerTest, CollapseClock) {
                                            swapped);
   }
   ASSERT_EQ(filler_.size(), NHugePages(1));
-  TryHugepageCollapse(&pageflags, &residency);
+  TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
@@ -1440,7 +1438,7 @@ TEST_P(FillerTest, CollapseClock) {
     EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
   }
 
-  TryHugepageCollapse(&pageflags, &residency);
+  TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
@@ -1449,7 +1447,7 @@ TEST_P(FillerTest, CollapseClock) {
               /*expected_succeeded=*/0);
 
   Advance(absl::Minutes(10));
-  TryHugepageCollapse(&pageflags, &residency);
+  TreatHugepageTrackers(/*enable_collapse=*/true, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 2);

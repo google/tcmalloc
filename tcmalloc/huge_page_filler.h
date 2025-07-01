@@ -535,22 +535,23 @@ class HugePageFiller {
   void ForEachHugePage(const F& func)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Attempts to collapse eligible memory into hugepages.
-  //
+  // Iterates through all hugepage trackers and applies different treatments.
+  // Treatments applied include:
+  // 1. Attempt to collapse eligible memory into hugepages if <enable_collapse>
+  // is true.
   // It uses heuristics to determine eligibility of the pages for collapse. It
   // * Attempts to collapse up to kTotalTrackersToScan trackers.
   // * Collapses pages with less than kMaxSwappedPagesForCollapse swapped
   //   pages and kMaxUnbackedPagesForCollapse unbacked pages.
-  void TryHugepageCollapse(PageFlagsBase* pageflags = nullptr,
-                           Residency* residency = nullptr)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
-  // This periodically sets a name for the allocated region tracked by sampled
+  // 2. Periodically set a name for the allocated region tracked by sampled
   // trackers. Every iteration, it scans up to 64 sampled trackers, records
   // features such as longest free range, nallocs, etc. and encodes them into a
   // string that is used for naming the region. Once set, the tracker is
   // revisited only after five minutes.
-  void CustomNameSampledTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void TreatHugepageTrackers(bool enable_collapse,
+                             PageFlagsBase* pageflags = nullptr,
+                             Residency* residency = nullptr)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  private:
   // This class wraps an array of N TrackerLists and a Bitmap storing which
@@ -1116,6 +1117,19 @@ class SampledTrackerTreatment final : public HugePageTreatment {
         set_anon_vma_name_(set_anon_vma_name) {}
   ~SampledTrackerTreatment() override = default;
 
+  // Trying to apply treatments to the sampled trackers involves three
+  // steps:
+  // 1. Collect up to kTotalTrackersToScan trackers using
+  //    SelectEligibleTrackers. Eligible pages here include:
+  //   a. The trackers that were sampled for tagging when they were allocated.
+  //   b. The trackers that were last scanned more than kRecordInterval ago.
+  // 2. Apply the treatment using Treat. It encodes tracker features, such as
+  //    the longest free range, number of allocations, etc. into a string and
+  //    uses it to name the memory tracked by the tracker. This is done outside
+  //    of the pageheap lock.
+  // 3. Acquire the pageheap lock and restore the recorded state using Restore
+  //    (e.g. reset the dont_free_tracker bit).
+
   void SelectEligibleTrackers(PageTracker& pt) override {
     if (num_valid_trackers_ >= kTotalTrackersToScan) return;
 
@@ -1130,6 +1144,9 @@ class SampledTrackerTreatment final : public HugePageTreatment {
           &pt, pt.longest_free_range().raw_num(), pt.nallocs()};
       pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now_});
       ++num_valid_trackers_;
+      // Setting this bit makes sure that the tracker is not freed under us
+      // when the pageheap lock is unlocked and we are in the middle of
+      // applying the treatment.
       pt.SetDontFreeTracker(/*value=*/true);
     }
   }
@@ -1182,37 +1199,6 @@ class SampledTrackerTreatment final : public HugePageTreatment {
   TrackerArray selected_trackers_;
   int num_valid_trackers_ = 0;
 };
-
-template <class TrackerType>
-inline void HugePageFiller<TrackerType>::CustomNameSampledTrackers() {
-  SampledTrackerTreatment sampled_tracker_treatment(clock_, tag_,
-                                                    set_anon_vma_name_);
-  // Collect up to kTotalTrackersToScan trackers from the regular sparse and
-  // dense lists.
-  regular_alloc_[AccessDensityPrediction::kSparse].Iter(
-      [&](TrackerType& pt) {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-      },
-      /*start=*/0);
-
-  regular_alloc_[AccessDensityPrediction::kDense].Iter(
-      [&](TrackerType& pt) {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-      },
-      /*start=*/0);
-
-  pageheap_lock.Unlock();
-  sampled_tracker_treatment.Treat();
-
-  pageheap_lock.Lock();
-  sampled_tracker_treatment.Restore();
-  // It should be rare that we find anything in the fully freed list, because
-  // we only sample 1% of the trackers for naming, and an interleaving Put
-  // operation would have to free all the pages while the memory is being named.
-  for (TrackerType* tracker : fully_freed_trackers_) {
-    tracker->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
-  }
-}
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::Contribute(
@@ -2054,6 +2040,22 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         collapse_(collapse) {}
   ~HugePageUnbackedTrackerTreatment() override = default;
 
+  // Trying to apply treatments to the non-hugepage backed pages involves three
+  // steps:
+  // 1. Collect up to kTotalTrackersToScan trackers using
+  //    SelectEligibleTrackers. Eligible pages here include:
+  //   a. The trackers that manage pages that either were hugepage backed or
+  //      were previously successfully collapsed.
+  //   b. The trackers that were never scanned before.
+  //   c. The trackers that were last scanned more than kRecordInterval ago.
+  // 2. Release the pageheap lock and obtain the residency and pageflags
+  //    information for the collected trackers. Attempt to apply treatments to
+  //    the pages that aren't hugepage backed. In case of userspace collapse,
+  //    it attempts to collapse pages that are composed of the number of
+  //    unbacked and swapped pages less than kMaxUnbackedPagesForCollapse and
+  //    kMaxSwappedPagesForCollapse respectively.
+  // 3. Acquire the pageheap lock and restore the recorded state using Restore
+  //    (e.g. update the residency information in the trackers).
   void SelectEligibleTrackers(PageTracker& pt) override {
     if (num_valid_trackers_ >= kTotalTrackersToScan) return;
 
@@ -2181,45 +2183,53 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 };
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::TryHugepageCollapse(
-    PageFlagsBase* pageflags, Residency* residency) {
-  // Trying to collapse the pages involves three steps:
-  // 1. Collect up to kTotalTrackersToScan trackers that may be collapsed.
-  //    Eligible pages here include:
-  //   a. The trackers that manage pages that either were hugepage backed or
-  //      were previously successfully collapsed.
-  //   b. The trackers that were never scanned before.
-  //   c. The trackers that were last scanned more than kRecordInterval ago.
-  // 2. Release the pageheap lock and obtain the residency and pageflags
-  //    information for the collected trackers. Attempt to collapse the pages
-  //    that aren't hugepage backed, and the number of unbacked and swapped
-  //    pages are less than kMaxUnbackedPagesForCollapse and
-  //    kMaxSwappedPagesForCollapse respectively.
-  // 3. Acquire the pageheap lock and update the residency information in the
-  //    trackers.
+inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
+    bool enable_collapse, PageFlagsBase* pageflags, Residency* residency) {
+  const bool collect_non_hugepage_trackers = enable_collapse;
+  SampledTrackerTreatment sampled_tracker_treatment(clock_, tag_,
+                                                    set_anon_vma_name_);
   HugePageUnbackedTrackerTreatment unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_);
   // Collect up to kTotalTrackersToScan trackers from the regular sparse and
   // dense lists.
   regular_alloc_[AccessDensityPrediction::kSparse].Iter(
-      [&](TrackerType& pt) {
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        sampled_tracker_treatment.SelectEligibleTrackers(pt);
+        if (collect_non_hugepage_trackers) {
+          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        }
       },
       /*start=*/0);
 
   regular_alloc_[AccessDensityPrediction::kDense].Iter(
-      [&](TrackerType& pt) {
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        sampled_tracker_treatment.SelectEligibleTrackers(pt);
+        if (collect_non_hugepage_trackers) {
+          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        }
       },
       /*start=*/0);
 
   pageheap_lock.Unlock();
-  unbacked_tracker_treatment.Treat();
-  unbacked_tracker_treatment.GetCollapseStats(collapse_stats_);
+  sampled_tracker_treatment.Treat();
+  if (collect_non_hugepage_trackers) {
+    unbacked_tracker_treatment.Treat();
+    unbacked_tracker_treatment.GetCollapseStats(collapse_stats_);
+  }
 
   // Lock the pageheap lock and update residency information in the tracker.
   pageheap_lock.Lock();
-  unbacked_tracker_treatment.Restore();
+  sampled_tracker_treatment.Restore();
+  if (collect_non_hugepage_trackers) {
+    unbacked_tracker_treatment.Restore();
+  }
+
+  // It should be rare that we find anything in the fully freed list, because
+  // we only sample 1% of the trackers for naming, and an interleaving Put
+  // operation would have to free all the pages while the memory is being named.
+  for (TrackerType* tracker : fully_freed_trackers_) {
+    tracker->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
+  }
 }
 
 template <class TrackerType>
