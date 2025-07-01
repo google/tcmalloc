@@ -711,6 +711,9 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
     tc_globals.page_allocator().Delete(a, GetMemoryTag(ptr));
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
+  // We expect to crash in GuardedPageAllocator::Delete or in
+  // ReportCorruptedFree if the pointer was invalid.  We shouldn't make it here.
+  TC_ASSERT(valid_ptr);
 }
 
 template <typename AlignPolicy>
@@ -1100,6 +1103,11 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+
+extern "C" void MallocHook_HooksChanged() {
+  // A hook has been added, so we need to move off of the fast path.
+  tc_globals.cpu_cache().MaybeForceSlowPath();
+}
 
 using tcmalloc::tcmalloc_internal::GetOwnership;
 using tcmalloc::tcmalloc_internal::GetSize;
@@ -1599,6 +1607,8 @@ class TCMallocGuard {
     TCMallocInternalFree(TCMallocInternalMalloc(1));
     ThreadCache::InitTSD();
     TCMallocInternalFree(TCMallocInternalMalloc(1));
+    // Ensure our MallocHook_HooksChanged implementation is linked in.
+    MallocHook_HooksChanged();
   }
 };
 
