@@ -206,8 +206,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  void TryHugepageCollapse() ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
-  void CustomNameSampledTrackers() ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+  void TreatHugepageTrackers(bool enable_collapse)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+
   // Prints stats about the page heap to *out.
   void Print(Printer& out, PageFlagsBase& pageflags)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
@@ -1055,19 +1056,10 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
 }
 
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::TryHugepageCollapse() {
+inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
+    bool enable_collapse) {
   PageHeapSpinLockHolder l;
-  filler_.TryHugepageCollapse();
-  FillerType::Tracker* pt;
-  while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
-    ReleaseHugepage(pt);
-  }
-}
-
-template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::CustomNameSampledTrackers() {
-  PageHeapSpinLockHolder l;
-  filler_.CustomNameSampledTrackers();
+  filler_.TreatHugepageTrackers(enable_collapse);
   FillerType::Tracker* pt;
   while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
     ReleaseHugepage(pt);

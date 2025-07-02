@@ -23,6 +23,21 @@ load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark_suite", "create_tcmal
 licenses(["notice"])
 
 cc_library(
+    name = "malloc_hook_recorder",
+    testonly = 1,
+    srcs = ["malloc_hook_recorder.cc"],
+    hdrs = ["malloc_hook_recorder.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc:malloc_hook",
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:malloc_internal",
+        "@com_google_absl//absl/debugging:stacktrace",
+    ],
+)
+
+cc_library(
     name = "testutil",
     testonly = 1,
     srcs = ["testutil.cc"],
@@ -117,11 +132,14 @@ create_tcmalloc_testsuite(
         "notsan",
     ],
     deps = [
+        ":malloc_hook_recorder",
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:malloc_hook",
         "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/base:core_headers",
+        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/debugging:leak_check",
         "@com_google_googletest//:gtest_main",

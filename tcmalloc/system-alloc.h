@@ -652,6 +652,7 @@ void SystemAllocator<Topology>::SetAnonVmaName(
   // The call to prctl() may fail if the kernel was not configured with the
   // CONFIG_ANON_VMA_NAME kernel option.  This is OK since the call is
   // primarily a debugging aid.
+  ErrnoRestorer errno_restorer;
   if (name.has_value()) {
     TC_ASSERT_EQ(strlen(name.value().data()), name.value().size());
     prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, start, length, name.value().data());
