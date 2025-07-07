@@ -103,6 +103,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_8k_pages",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
@@ -126,6 +127,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_8k_pages",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
@@ -151,6 +153,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_deprecated_perthread",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
@@ -404,6 +407,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_large_pages",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
@@ -428,6 +432,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_256k_pages",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
@@ -455,6 +460,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_256k_pages_numa_aware",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
@@ -483,6 +489,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_small_but_slow",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
@@ -509,6 +516,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_numa_aware",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
@@ -534,6 +542,7 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_legacy_locking",
+        ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",

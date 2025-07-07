@@ -166,8 +166,8 @@ void MallocHookRecorder::GlobalNewHook(const MallocHook::NewInfo& info) {
 
 void MallocHookRecorder::GlobalDeleteHook(const MallocHook::DeleteInfo& info) {
   if (tls_hook_ && tls_hook_->enabled_) {
-    tls_hook_->AddLog(
-        {kDelete, info.ptr, 0, info.allocated_size, info.is_mutable});
+    tls_hook_->AddLog({kDelete, info.ptr, info.deallocated_size,
+                       info.allocated_size, info.is_mutable});
   }
 }
 
@@ -230,28 +230,34 @@ std::ostream& operator<<(std::ostream& stream,
   switch (lhs.type) {
     case MallocHookRecorder::kNew:
       return stream << ToString(lhs.caller) << "::New(" << lhs.ptr << ", "
-                    << lhs.requested_size << ", " << lhs.allocated_size << ", "
+                    << *lhs.requested_size << ", " << lhs.allocated_size << ", "
                     << ToString(lhs.is_mutable) << ")";
     case MallocHookRecorder::kDelete:
-      return stream << ToString(lhs.caller) << "::Delete(" << lhs.ptr << ", "
-                    << lhs.allocated_size << ", " << ToString(lhs.is_mutable)
+      stream << ToString(lhs.caller) << "::Delete(" << lhs.ptr << ", ";
+
+      if (lhs.requested_size.has_value()) {
+        stream << "size = " << *lhs.requested_size << ", ";
+      } else {
+        stream << "(unsized deallocation), ";
+      }
+      return stream << lhs.allocated_size << ", " << ToString(lhs.is_mutable)
                     << ")";
     case MallocHookRecorder::kMmap:
       return stream << ToString(lhs.caller) << "::Mmap(" << lhs.ptr << ", "
-                    << lhs.address << ", " << lhs.requested_size << ", "
+                    << lhs.address << ", " << *lhs.requested_size << ", "
                     << lhs.protection << ", " << lhs.flags << ", " << lhs.fd
                     << ", " << lhs.offset << ")";
     case MallocHookRecorder::kMremap:
       return stream << ToString(lhs.caller) << "::Mremap(" << lhs.ptr << ", "
                     << lhs.address << ", " << lhs.old_size << ", "
-                    << lhs.requested_size << ", " << lhs.flags << ", "
+                    << *lhs.requested_size << ", " << lhs.flags << ", "
                     << lhs.new_address << ")";
     case MallocHookRecorder::kMunmap:
       return stream << ToString(lhs.caller) << "::Munmap(" << lhs.ptr << ", "
-                    << lhs.requested_size << ")";
+                    << *lhs.requested_size << ")";
     case MallocHookRecorder::kSbrk:
       return stream << ToString(lhs.caller) << "::Sbrk(" << lhs.ptr << ", "
-                    << static_cast<ptrdiff_t>(lhs.requested_size) << ")";
+                    << static_cast<ptrdiff_t>(*lhs.requested_size) << ")";
   }
   ABSL_UNREACHABLE();
 }

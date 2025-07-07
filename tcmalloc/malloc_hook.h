@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_MALLOC_HOOK_H_
 #define TCMALLOC_MALLOC_HOOK_H_
 
+#include <optional>
 #include <ostream>
 
 #include "absl/time/time.h"
@@ -56,6 +57,9 @@ class MallocHook final {
   struct DeleteInfo final {
     // Pointer to the deallocated memory.
     void* ptr = nullptr;
+    // Size of the deallocated memory provided by the caller.  nullopt if
+    // unknown.
+    std::optional<size_t> deallocated_size;
     // Size of the allocated memory.
     size_t allocated_size = 0;
     // Allow a hook to modify the memory.

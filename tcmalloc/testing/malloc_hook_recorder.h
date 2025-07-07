@@ -37,7 +37,9 @@ class MallocHookRecorder {
   struct CallEntry {
     Type type;
     const void* ptr;
-    size_t requested_size;
+    // requested size for allocations, provided size for deallocations (possibly
+    // nullopt)
+    std::optional<size_t> requested_size;
     size_t allocated_size;
     HookMemoryMutable is_mutable;
     Caller caller;

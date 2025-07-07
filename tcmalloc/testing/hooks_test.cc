@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include <new>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -59,9 +60,14 @@ class TCMallocHookTest : public testing::Test {
         allocated_size,           is_mutable, MallocHookRecorder::kTCMalloc};
   }
   MallocHookRecorder::CallEntry DeleteCall(
-      const void* ptr, size_t allocated_size,
+      const void* ptr, std::optional<size_t> deallocated_size,
+      size_t allocated_size,
       HookMemoryMutable is_mutable = HookMemoryMutable::kMutable) {
-    return {MallocHookRecorder::kDelete,  ptr, 0, allocated_size, is_mutable,
+    return {MallocHookRecorder::kDelete,
+            ptr,
+            deallocated_size,
+            allocated_size,
+            is_mutable,
             MallocHookRecorder::kTCMalloc};
   }
 
@@ -91,8 +97,20 @@ TEST_F(TCMallocHookTest, FreeInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   free(p1);
+  EXPECT_THAT(Log(false),
+              ElementsAre(NewCall(copy_p1, 15, allocated_size),
+                          DeleteCall(copy_p1, std::nullopt, allocated_size)));
+}
+
+TEST_F(TCMallocHookTest, FreeSizedInvokesHook) {
+  void* p1 = malloc(15);
+  size_t allocated_size = GetAllocatedSize(p1);
+  // Copy pointers to suppress use-after-free warnings.
+  void* copy_p1 = p1;
+  benchmark::DoNotOptimize(copy_p1);
+  free_sized(p1, 15);
   EXPECT_THAT(Log(false), ElementsAre(NewCall(copy_p1, 15, allocated_size),
-                                      DeleteCall(copy_p1, allocated_size)));
+                                      DeleteCall(copy_p1, 15, allocated_size)));
 }
 
 TEST_F(TCMallocHookTest, CallocInvokesHook) {
@@ -111,7 +129,8 @@ TEST_F(TCMallocHookTest, ReallocInvokesHook) {
   benchmark::DoNotOptimize(copy_p1);
   void* p2 = realloc(p1, 30000);
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p2, 30000, GetAllocatedSize(p2)),
-                                      DeleteCall(copy_p1, p1_allocated_size)));
+                                      DeleteCall(copy_p1, std::nullopt,
+                                                 p1_allocated_size)));
   free(p2);
 }
 
@@ -124,7 +143,8 @@ TEST_F(TCMallocHookTest, ReallocShrinkInvokesHook) {
   benchmark::DoNotOptimize(copy_p1);
   void* p2 = realloc(p1, 100);
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p2, 100, GetAllocatedSize(p2)),
-                                      DeleteCall(copy_p1, p1_allocated_size)));
+                                      DeleteCall(copy_p1, std::nullopt,
+                                                 p1_allocated_size)));
   free(p2);
 }
 
@@ -138,15 +158,16 @@ TEST_F(TCMallocHookTest, ReallocPopInvokesHook) {
   void* p2 = realloc(p1, 999);
   EXPECT_THAT(
       Log(false),
-      testing::AnyOf(ElementsAre(DeleteCall(copy_p1, p1_allocated_size,
-                                            HookMemoryMutable::kImmutable),
-                                 NewCall(p2, 999, GetAllocatedSize(p2),
-                                         HookMemoryMutable::kImmutable)),
+      testing::AnyOf(
+          ElementsAre(DeleteCall(copy_p1, std::nullopt, p1_allocated_size,
+                                 HookMemoryMutable::kImmutable),
+                      NewCall(p2, 999, GetAllocatedSize(p2),
+                              HookMemoryMutable::kImmutable)),
 
-                     ElementsAre(NewCall(p2, 999, GetAllocatedSize(p2),
-                                         HookMemoryMutable::kMutable),
-                                 DeleteCall(copy_p1, p1_allocated_size,
-                                            HookMemoryMutable::kMutable))));
+          ElementsAre(NewCall(p2, 999, GetAllocatedSize(p2),
+                              HookMemoryMutable::kMutable),
+                      DeleteCall(copy_p1, std::nullopt, p1_allocated_size,
+                                 HookMemoryMutable::kMutable))));
   free(p2);
 }
 
@@ -160,7 +181,8 @@ TEST_F(TCMallocHookTest, BoundedReallocInvokesHook) {
   benchmark::DoNotOptimize(copy_p1);
   void* p2 = realloc(p1, 9000);
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p2, 9000, GetAllocatedSize(p2)),
-                                      DeleteCall(copy_p1, p1_allocated_size)));
+                                      DeleteCall(copy_p1, std::nullopt,
+                                                 p1_allocated_size)));
   free(p2);
 }
 
@@ -231,7 +253,8 @@ TEST_F(TCMallocHookTest, OperatorDeleteInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   ::operator delete(p1);
-  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, allocated_size)));
+  EXPECT_THAT(Log(false),
+              ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
 }
 
 TEST_F(TCMallocHookTest, SizedOperatorDeleteInvokesHook) {
@@ -241,8 +264,14 @@ TEST_F(TCMallocHookTest, SizedOperatorDeleteInvokesHook) {
   // Copy pointers to suppress use-after-free warnings.
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
-  sized_delete(p1, 11);
-  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, allocated_size)));
+#ifdef __cpp_sized_deallocation
+  ::operator delete(p1, 11);
+  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, 11, allocated_size)));
+#else
+  ::operator delete(p1);
+  EXPECT_THAT(Log(false),
+              ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
+#endif
 }
 
 TEST_F(TCMallocHookTest, OperatorDeleteArrayInvokesHook) {
@@ -253,7 +282,25 @@ TEST_F(TCMallocHookTest, OperatorDeleteArrayInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   ::operator delete[](p1);
-  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, allocated_size)));
+  EXPECT_THAT(Log(false),
+              ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
+}
+
+TEST_F(TCMallocHookTest, SizedOperatorDeleteArrayInvokesHook) {
+  void* p1 = ::operator new[](13);
+  size_t allocated_size = GetAllocatedSize(p1);
+  RestartLog();
+  // Copy pointers to suppress use-after-free warnings.
+  void* copy_p1 = p1;
+  benchmark::DoNotOptimize(copy_p1);
+#ifdef __cpp_sized_deallocation
+  ::operator delete[](p1, 13);
+  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, 13, allocated_size)));
+#else
+  ::operator delete[](p1);
+  EXPECT_THAT(Log(false),
+              ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
+#endif
 }
 
 TEST_F(TCMallocHookTest, NothrowOperatorDeleteInvokesHook) {
@@ -264,7 +311,8 @@ TEST_F(TCMallocHookTest, NothrowOperatorDeleteInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   ::operator delete(p1, std::nothrow);
-  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, allocated_size)));
+  EXPECT_THAT(Log(false),
+              ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
 }
 
 TEST_F(TCMallocHookTest, NothrowOperatorDeleteArrayInvokesHook) {
@@ -275,7 +323,8 @@ TEST_F(TCMallocHookTest, NothrowOperatorDeleteArrayInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   ::operator delete[](p1, std::nothrow);
-  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, allocated_size)));
+  EXPECT_THAT(Log(false),
+              ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
 }
 
 TEST_F(TCMallocHookTest, SizeReturningOperatorNewInvokesHook) {

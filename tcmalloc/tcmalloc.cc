@@ -104,6 +104,7 @@
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
@@ -533,8 +534,8 @@ inline size_t GetSize(const void* ptr) {
 
 // This slow path also handles delete hooks and non-per-cpu mode.
 ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
-    void* ptr, size_t size_class) {
-  MallocHook::InvokeDeleteHook({ptr,
+    void* ptr, std::optional<size_t> size, size_t size_class) {
+  MallocHook::InvokeDeleteHook({ptr, size,
                                 tc_globals.sizemap().class_to_size(size_class),
                                 HookMemoryMutable::kMutable});
   if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
@@ -558,17 +559,18 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
 #if defined(__clang__)
 __attribute__((flatten))
 #endif
-ABSL_ATTRIBUTE_NOINLINE static void
-FreeSmallSlow(void* ptr, size_t size_class) {
+ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
+                                                  std::optional<size_t> size,
+                                                  size_t size_class) {
   if (ABSL_PREDICT_FALSE(Static::HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
-    return FreeWithHooksOrPerThread(ptr, size_class);
+    return FreeWithHooksOrPerThread(ptr, size, size_class);
   }
   tc_globals.cpu_cache().DeallocateSlowNoHooks(ptr, size_class);
 }
 
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
-                                                          size_t size_class) {
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
+    void* ptr, std::optional<size_t> size, size_t size_class) {
   if (!IsExpandedSizeClass(size_class)) {
     TC_ASSERT(IsNormalMemory(ptr) || IsSelSanMemory(ptr), "ptr=%p", ptr);
   } else {
@@ -585,7 +587,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
   //  - per-thread mode is enabled
   if (ABSL_PREDICT_FALSE(
           !tc_globals.cpu_cache().DeallocateFast(ptr, size_class))) {
-    FreeSmallSlow(ptr, size_class);
+    FreeSmallSlow(ptr, size, size_class);
   }
 }
 
@@ -682,7 +684,7 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
 
   if (ABSL_PREDICT_TRUE(valid_ptr)) {
     MallocHook::InvokeDeleteHook(
-        {ptr, GetLargeSize(ptr, *span), HookMemoryMutable::kMutable});
+        {ptr, size, GetLargeSize(ptr, *span), HookMemoryMutable::kMutable});
   }
 
   MaybeUnsampleAllocation(tc_globals, ptr, size, *span);
@@ -746,7 +748,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
           tc_globals.pagemap().sizeclass(PageIdContainingTagged(ptr));
       size_t size = tc_globals.sizemap().class_to_size(size_class);
       ptr = selsan::UpdateTag(ptr, size);
-      FreeSmall(ptr, size_class);
+      FreeSmall(ptr, std::nullopt, size_class);
       return;
     }
   }
@@ -758,7 +760,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
 
   size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
-    FreeSmall(ptr, size_class);
+    FreeSmall(ptr, std::nullopt, size_class);
   } else {
     SLOW_PATH_BARRIER();
     InvokeHooksAndFreePages(ptr, std::nullopt);
@@ -783,7 +785,7 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
     return InvokeHooksAndFreePages(ptr, size);
   }
-  FreeSmall(ptr, size_class);
+  FreeSmall(ptr, size, size_class);
 }
 
 template <typename Policy>
@@ -810,7 +812,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
           policy.InSameNumaPartitionAs(ptr), size);
       size = tc_globals.sizemap().class_to_size(size_class);
       ptr = selsan::UpdateTag(ptr, size);
-      FreeSmall(ptr, size_class);
+      FreeSmall(ptr, size, size_class);
       return;
     }
     // Outline cold path to avoid putting cold size lookup on the fast path.
@@ -836,7 +838,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     return InvokeHooksAndFreePages(ptr, size);
   }
 
-  FreeSmall(ptr, size_class);
+  FreeSmall(ptr, size, size_class);
 }
 
 // Checks that an asserted object size for <ptr> is valid.
@@ -1301,7 +1303,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   } else {
     // We still need to call hooks to report the updated size:
     tcmalloc::MallocHook::InvokeDeleteHook(
-        {const_cast<void*>(old_ptr), old_size,
+        {const_cast<void*>(old_ptr), std::nullopt, old_size,
          tcmalloc::HookMemoryMutable::kImmutable});
     tcmalloc::MallocHook::InvokeNewHook(
         {const_cast<void*>(old_ptr), new_size, old_size,
