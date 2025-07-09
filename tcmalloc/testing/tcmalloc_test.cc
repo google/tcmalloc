@@ -200,17 +200,14 @@ TEST(TcmallocTest, Realloc) {
   constexpr int deltas[] = {1,   -2, 4,    -8,      16,
                             -32, 64, -128, 1 << 10, -(2 << 10)};
 
-  for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
-    // When sampling, we always allocate in units of page-size, which makes
-    // reallocs of small sizes do extra work (thus, failing these checks).
-    // Since sampling is random, we turn off sampling to make sure that
-    // doesn't happen to us here. But very large blocks shouldn't be
-    // reallocated even with sampling.
-    std::optional<ScopedNeverSample> never_sample;
-    if (start_sizes[s] != kLargeSize) {
-      never_sample.emplace();
-    }
+  // When sampling, we always allocate in units of page-size, which makes
+  // reallocs of small sizes do extra work (thus, failing these checks).
+  // Since sampling is random, we turn off sampling to make sure that
+  // doesn't happen to us here. But very large blocks shouldn't be
+  // reallocated even with sampling.
+  ScopedNeverSample never_sample;
 
+  for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
     void* p = malloc(start_sizes[s]);
     // We stash a copy of the pointer p so we can reference it later.  We must
     // work with the return value of p.
@@ -868,6 +865,23 @@ TEST(TCMallocTest, b421895944) {
   memset(ptr, 0, realloc_size);
   benchmark::DoNotOptimize(ptr);
   free_sized(ptr, realloc_size);
+}
+
+TEST(TCMallocTest, b421895944_2) {
+  void* ptr = malloc(164471);
+  ASSERT_NE(ptr, nullptr);
+  void* newptr = realloc(ptr, 127823);
+  ASSERT_NE(newptr, nullptr);
+  free_sized(newptr, 127823);
+}
+
+TEST(TCMallocTest, b421895944_3) {
+  ScopedAlwaysSample always_sample;
+  void* ptr = malloc(388072);
+  ASSERT_NE(ptr, nullptr);
+  void* newptr = realloc(ptr, 388127);
+  ASSERT_NE(newptr, nullptr);
+  free_sized(newptr, 388127);
 }
 
 #ifndef NDEBUG

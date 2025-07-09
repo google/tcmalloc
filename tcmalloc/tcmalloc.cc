@@ -506,31 +506,48 @@ extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
 // Helpers for the exported routines below
 //-------------------------------------------------------------------
 
-inline size_t GetLargeSize(const void* ptr, const Span& span) {
+struct SizeAndSampled {
+  size_t size;
+  bool sampled;
+};
+
+inline SizeAndSampled GetLargeSizeAndSampled(const void* ptr,
+                                             const Span& span) {
   if (span.sampled()) {
     if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
-      return tc_globals.guardedpage_allocator().GetRequestedSize(ptr);
+      return SizeAndSampled{
+          tc_globals.guardedpage_allocator().GetRequestedSize(ptr), true};
     }
-    return span.sampled_allocation().sampled_stack.allocated_size;
+    return SizeAndSampled{
+        span.sampled_allocation().sampled_stack.allocated_size, true};
   } else {
-    return span.bytes_in_span();
+    return SizeAndSampled{span.bytes_in_span(), false};
   }
 }
 
-inline size_t GetLargeSize(const void* ptr, const PageId p) {
-  return GetLargeSize(ptr, *tc_globals.pagemap().GetExistingDescriptor(p));
+inline size_t GetLargeSize(const void* ptr, const Span& span) {
+  return GetLargeSizeAndSampled(ptr, span).size;
 }
 
-inline size_t GetSize(const void* ptr) {
-  if (ptr == nullptr) return 0;
+inline SizeAndSampled GetLargeSizeAndSampled(const void* ptr, const PageId p) {
+  return GetLargeSizeAndSampled(ptr,
+                                *tc_globals.pagemap().GetExistingDescriptor(p));
+}
+
+inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
+  if (ptr == nullptr) return SizeAndSampled{0, false};
   const PageId p = PageIdContainingTagged(ptr);
-  size_t size_class = tc_globals.pagemap().sizeclass(p);
+  const auto [span, size_class] =
+      tc_globals.pagemap().GetExistingDescriptorAndSizeClass(p);
   if (size_class != 0) {
-    return tc_globals.sizemap().class_to_size(size_class);
+    return SizeAndSampled{tc_globals.sizemap().class_to_size(size_class),
+                          false};
   } else {
-    return GetLargeSize(ptr, p);
+    return GetLargeSizeAndSampled(ptr, *span);
   }
 }
+
+inline size_t GetSize(const void* ptr) { return GetSizeAndSampled(ptr).size; }
 
 // This slow path also handles delete hooks and non-per-cpu mode.
 ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
@@ -1170,10 +1187,14 @@ void TCMalloc_Internal_SetMadvise(
 // Exported routines
 //-------------------------------------------------------------------
 
+using tcmalloc::tcmalloc_internal::BytesToLengthCeil;
 using tcmalloc::tcmalloc_internal::CorrectAlignment;
+using tcmalloc::tcmalloc_internal::CorrectSize;
 using tcmalloc::tcmalloc_internal::do_free;
 using tcmalloc::tcmalloc_internal::do_free_with_size;
 using tcmalloc::tcmalloc_internal::GetPageSize;
+using tcmalloc::tcmalloc_internal::GetSizeAndSampled;
+using tcmalloc::tcmalloc_internal::kMaxSize;
 using tcmalloc::tcmalloc_internal::MultiplyOverflow;
 
 // depends on TCMALLOC_HAVE_STRUCT_MALLINFO, so needs to come after that.
@@ -1270,12 +1291,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
                                                             size_t new_size) {
   tc_globals.InitIfNecessary();
   // Get the size of the old entry
-  const size_t old_size = GetSize(old_ptr);
+  const auto [old_size, was_sampled] = GetSizeAndSampled(old_ptr);
 
-  // Reallocate if the new size is larger than the old size,
-  // or if the new size is significantly smaller than the old size.
-  const size_t upper_bound_to_shrink = old_size / 2;
-  const size_t alloc_size = new_size;
   // Sampled allocations are reallocated and copied even if not strictly
   // necessary. This is problematic for very large allocations, since some old
   // programs rely on realloc to be very efficient (e.g. call realloc to the
@@ -1283,11 +1300,26 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   // are both all sampled and expensive to allocate and copy, so don't
   // reallocate them if not necessary. The use of kMaxSize here as a notion of
   // "very large" is somewhat arbitrary.
-  const bool will_sample =
-      alloc_size <= tcmalloc::tcmalloc_internal::kMaxSize &&
-      GetThreadSampler()->WillRecordAllocation(alloc_size);
-  if ((new_size > old_size) || (new_size < upper_bound_to_shrink) ||
-      will_sample ||
+  const bool will_sample = new_size <= kMaxSize &&
+                           GetThreadSampler()->WillRecordAllocation(new_size);
+
+  // We could avoid doing this calculation in some scenarios by using if
+  // statements to check old_size with new_size, but we chose to unconditionally
+  // calculate the actual size for readability purposes.
+  bool changes_correct_size;
+  {
+    size_t new_size_class;
+    size_t actual_new_size;
+    if (tc_globals.sizemap().GetSizeClass(MallocPolicy(), new_size,
+                                          &new_size_class)) {
+      actual_new_size = tc_globals.sizemap().class_to_size(new_size_class);
+    } else {
+      actual_new_size = BytesToLengthCeil(new_size).in_bytes();
+    }
+    changes_correct_size = actual_new_size != old_size;
+  }
+
+  if (changes_correct_size || was_sampled || will_sample ||
       tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
     // Need to reallocate.
     void* new_ptr = fast_alloc(new_size, MallocPolicy());
@@ -1308,6 +1340,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
     tcmalloc::MallocHook::InvokeNewHook(
         {const_cast<void*>(old_ptr), new_size, old_size,
          tcmalloc::HookMemoryMutable::kImmutable});
+    // Assert that free_sized will work correctly.
+    TC_ASSERT(CorrectSize(old_ptr, new_size, MallocPolicy()));
     return old_ptr;
   }
 }
