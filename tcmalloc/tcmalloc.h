@@ -32,6 +32,7 @@
 #include "tcmalloc/alloc_at_least.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"  // IWYU pragma: keep
+#include "tcmalloc/malloc_extension.h"
 
 extern "C" {
 
@@ -162,6 +163,11 @@ ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArrayNothrow(
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArrayAlignedNothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t&) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED __sized_ptr_t TCMallocInternalSizeReturningNew(
+    size_t size) ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED __sized_ptr_t
+TCMallocInternalSizeReturningNewAligned(size_t size, std::align_val_t alignment)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
 

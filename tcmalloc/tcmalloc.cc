@@ -1219,6 +1219,18 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewNothrow(
   return fast_alloc(size, CppPolicy().Nothrow());
 }
 
+extern "C" ABSL_CACHELINE_ALIGNED __sized_ptr_t
+TCMallocInternalSizeReturningNew(size_t size) {
+  return fast_alloc(size, CppPolicy().SizeReturning());
+}
+
+extern "C" ABSL_CACHELINE_ALIGNED __sized_ptr_t
+TCMallocInternalSizeReturningNewAligned(size_t size,
+                                        std::align_val_t alignment) {
+  TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
+  return fast_alloc(size, CppPolicy().AlignAs(alignment).SizeReturning());
+}
+
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 // Below we provide 'strong' implementations for size returning operator new
 // operations. This is an early implementation of P0901. In the future:
@@ -1229,16 +1241,13 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewNothrow(
 // - tcmalloc provides strong implementations of `__size_returning_new`
 
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
-__sized_ptr_t __size_returning_new(size_t size) {
-  return fast_alloc(size, CppPolicy().SizeReturning());
-}
+__sized_ptr_t __size_returning_new(size_t size)
+    TCMALLOC_ALIAS(TCMallocInternalSizeReturningNew);
 
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
 __sized_ptr_t __size_returning_new_aligned(size_t size,
-                                           std::align_val_t alignment) {
-  TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
-  return fast_alloc(size, CppPolicy().AlignAs(alignment).SizeReturning());
-}
+                                           std::align_val_t alignment)
+    TCMALLOC_ALIAS(TCMallocInternalSizeReturningNewAligned);
 
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
 __sized_ptr_t __size_returning_new_hot_cold(size_t size,
