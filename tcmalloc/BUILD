@@ -115,8 +115,11 @@ cc_library(
 
 cc_library(
     name = "tcmalloc_internal_methods_only",
+    testonly = True,
     srcs = [
         "tcmalloc.cc",
+    ],
+    hdrs = [
         "tcmalloc.h",
     ],
     copts = TCMALLOC_DEFAULT_COPTS + [

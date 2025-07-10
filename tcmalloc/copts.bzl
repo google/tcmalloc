@@ -47,3 +47,17 @@ TCMALLOC_DEFAULT_COPTS = select({
     "//tcmalloc:llvm": TCMALLOC_LLVM_FLAGS,
     "//conditions:default": TCMALLOC_GCC_FLAGS,
 })
+
+_TCMALLOC_LLVM_CXX_FLAGS = [
+]
+
+_TCMALLOC_GCC_CXX_FLAGS = [
+    # fuzztest fails to compile with GCC unless these warnings are suppressed.
+    "-Wno-non-template-friend",
+    "-Wno-sequence-point",
+]
+
+TCMALLOC_DEFAULT_CXXOPTS = select({
+    "//tcmalloc:llvm": _TCMALLOC_LLVM_CXX_FLAGS,
+    "//conditions:default": _TCMALLOC_GCC_CXX_FLAGS,
+})

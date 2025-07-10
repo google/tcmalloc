@@ -17,7 +17,7 @@
 # Description:
 # Tests for tcmalloc, including a performance test.
 
-load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
+load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark_suite", "create_tcmalloc_testsuite")
 
 licenses(["notice"])
@@ -117,6 +117,29 @@ create_tcmalloc_benchmark_suite(
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
+    ],
+)
+
+cc_test(
+    name = "tcmalloc_fuzzer",
+    srcs = ["tcmalloc_fuzzer.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    malloc = "//tcmalloc/internal:system_malloc",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+        "noubsan",
+    ],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//tcmalloc:common_8k_pages",
+        "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep
+        "//tcmalloc/internal:page_size",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:init_fuzztest",
+        "@com_google_googletest//:gtest",
     ],
 )
 

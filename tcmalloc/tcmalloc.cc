@@ -1383,6 +1383,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
   return do_realloc(ptr, size);
 }
 
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
 __sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
     size_t size) noexcept {
@@ -1414,6 +1415,7 @@ __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
                               .Nothrow()
                               .SizeReturning());
 }
+#endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFree(
     void* ptr) noexcept {
