@@ -135,6 +135,7 @@ cc_test(
     deps = [
         "//tcmalloc:common_8k_pages",
         "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep
+        "//tcmalloc/internal:logging",
         "//tcmalloc/internal:page_size",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_fuzztest//fuzztest",

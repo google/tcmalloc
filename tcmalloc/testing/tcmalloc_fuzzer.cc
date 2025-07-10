@@ -20,6 +20,7 @@
 #include "fuzztest/init_fuzztest.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/tcmalloc.h"
 
@@ -29,6 +30,16 @@ namespace {
 inline constexpr size_t kFuzzingMaxSize = kMaxSize * 2 + 1;
 
 size_t GetPageSizeLog2() { return absl::countr_zero(GetPageSize()); }
+
+size_t PickDeleteSize(size_t min, size_t max, double scale) {
+  TC_ASSERT_LE(min, max);
+  TC_ASSERT_GE(max, min);
+  TC_ASSERT(scale >= 0.0 && scale <= 1.0);
+  const size_t result =
+      min + static_cast<size_t>(static_cast<double>(max - min) * scale);
+  TC_ASSERT(result >= min && result <= max);
+  return result;
+}
 
 void MallocFreeSized(size_t size) {
   void* ptr = TCMallocInternalMalloc(size);
@@ -80,6 +91,17 @@ void AllocAtLeastFreeRequestedSize(size_t size) {
 FUZZ_TEST(TCMalloc, AllocAtLeastFreeRequestedSize)
     .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
 
+void AllocAtLeastFreeSized(size_t size, double delete_size_scale) {
+  const auto result = TCMallocInternalAllocAtLeast(size);
+  ASSERT_TRUE(result.ptr != nullptr);
+  TCMallocInternalFreeSized(
+      result.ptr, PickDeleteSize(size, result.size, delete_size_scale));
+}
+
+FUZZ_TEST(TCMalloc, AllocAtLeastFreeSized)
+    .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize),
+                 fuzztest::InRange(0.0, 1.0));
+
 void AlignedAllocAtLeastFreeAllocatedSizeAligned(size_t alignment_log2,
                                                  size_t size) {
   const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
@@ -104,6 +126,21 @@ FUZZ_TEST(TCMalloc, AlignedAllocAtLeastFreeRequestedSizeAligned)
     .WithDomains(fuzztest::InRange(size_t{0}, GetPageSizeLog2()),
                  fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
 
+void AlignedAllocAtLeastFreeSizedAligned(size_t alignment_log2, size_t size,
+                                         double delete_size_scale) {
+  const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
+  const auto result = TCMallocInternalAlignedAllocAtLeast(alignment, size);
+  ASSERT_TRUE(result.ptr != nullptr);
+  TCMallocInternalFreeAlignedSized(
+      result.ptr, alignment,
+      PickDeleteSize(size, result.size, delete_size_scale));
+}
+
+FUZZ_TEST(TCMalloc, AlignedAllocAtLeastFreeSizedAligned)
+    .WithDomains(fuzztest::InRange(size_t{0}, GetPageSizeLog2()),
+                 fuzztest::InRange(size_t{0}, kFuzzingMaxSize),
+                 fuzztest::InRange(0.0, 1.0));
+
 void NewSizedDelete(size_t size) {
   void* ptr = TCMallocInternalNew(size);
   TCMallocInternalDeleteSized(ptr, size);
@@ -127,6 +164,16 @@ void SizeReturningNewDeleteRequestedSize(size_t size) {
 
 FUZZ_TEST(TCMalloc, SizeReturningNewDeleteRequestedSize)
     .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
+
+void SizeReturningNewDeleteSized(size_t size, double delete_size_scale) {
+  const auto ptr = TCMallocInternalSizeReturningNew(size);
+  TCMallocInternalDeleteSized(ptr.p,
+                              PickDeleteSize(size, ptr.n, delete_size_scale));
+}
+
+FUZZ_TEST(TCMalloc, SizeReturningNewDeleteSized)
+    .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize),
+                 fuzztest::InRange(0.0, 1.0));
 
 void SizeReturningNewAlignedDeleteAllocatedSizeAligned(size_t alignment_log2,
                                                        size_t size) {
@@ -153,6 +200,22 @@ void SizeReturningNewAlignedDeleteRequestedSizeAligned(size_t alignment_log2,
 FUZZ_TEST(TCMalloc, SizeReturningNewAlignedDeleteRequestedSizeAligned)
     .WithDomains(fuzztest::InRange(size_t{0}, GetPageSizeLog2()),
                  fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
+
+void SizeReturningNewAlignedDeleteSizedAligned(size_t alignment_log2,
+                                               size_t size,
+                                               double delete_size_scale) {
+  const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
+  const auto ptr = TCMallocInternalSizeReturningNewAligned(
+      size, static_cast<std::align_val_t>(alignment));
+  TCMallocInternalDeleteSizedAligned(
+      ptr.p, PickDeleteSize(size, ptr.n, delete_size_scale),
+      static_cast<std::align_val_t>(alignment));
+}
+
+FUZZ_TEST(TCMalloc, SizeReturningNewAlignedDeleteSizedAligned)
+    .WithDomains(fuzztest::InRange(size_t{0}, GetPageSizeLog2()),
+                 fuzztest::InRange(size_t{0}, kFuzzingMaxSize),
+                 fuzztest::InRange(0.0, 1.0));
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
