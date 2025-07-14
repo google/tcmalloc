@@ -230,6 +230,7 @@ uint32_t Span::CalcReciprocal(size_t size) {
   // object. Instead we'll multiply by a scaled version of the reciprocal.
   // We divide kBitmapScalingDenominator by the object size, so later we can
   // multiply by this reciprocal, and then divide this scaling factor out.
+  TC_ASSERT_GT(size, 0);
   return kBitmapScalingDenominator / size;
 }
 
