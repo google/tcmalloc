@@ -92,6 +92,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     // On PPC64, kHugePageSize / kPageSize is typically ~2K (16MB / 8KB),
     // requiring 512 bytes for representing free_.  While its cache line size is
     // larger, the entirety of free_ will not fit on two cache lines.
+#ifdef NDEBUG
     static_assert(offsetof(PageTracker, location_) + sizeof(location_) <=
                       2 * ABSL_CACHELINE_SIZE,
                   "location_ should fall within the first two cachelines of "
@@ -107,6 +108,7 @@ class PageTracker : public TList<PageTracker>::Elem {
                       2 * ABSL_CACHELINE_SIZE,
                   "alloctime_ should fall within the first two cachelines of "
                   "PageTracker.");
+#endif  // NDEBUG
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif

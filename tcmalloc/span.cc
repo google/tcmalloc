@@ -39,6 +39,9 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+#ifdef NDEBUG
+#endif  // NDEBUG
+
 void Span::Sample(SampledAllocation* sampled_allocation) {
   TC_CHECK(!sampled_ && sampled_allocation);
   Length pages_per_span = num_pages();

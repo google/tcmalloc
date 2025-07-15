@@ -140,6 +140,16 @@ class TList {
     friend class TList<T>;
     Elem* next_;
     Elem* prev_;
+#ifndef NDEBUG
+    // list_ tracks which list this Elem is on, or nullptr if it is not on any
+    // list.  This allows us to ensure:
+    // * Elem is on at most one list.
+    // * When Elem is removed from a list, it is actually on that list.
+    //
+    // We omit this in optimized builds, as it grows sizeof(Elem) and thus the
+    // size of any derived types using the intrusive linked list.
+    TList* list_ = nullptr;
+#endif  // NDEBUG
 
    protected:
     constexpr Elem() : next_(nullptr), prev_(nullptr) {}
@@ -157,24 +167,35 @@ class TList {
 #ifndef NDEBUG
       prev_ = nullptr;
       next_ = nullptr;
+      list_ = nullptr;
 #endif
       return next == prev;
     }
 
-    void prepend(Elem* item) {
+    void prepend(Elem* item, TList* list) {
       Elem* prev = prev_;
       item->prev_ = prev;
       item->next_ = this;
       prev->next_ = item;
       prev_ = item;
+#ifndef NDEBUG
+      TC_ASSERT_EQ(static_cast<Elem*>(item)->list_, nullptr,
+                   "item already on list");
+      static_cast<Elem*>(item)->list_ = list;
+#endif
     }
 
-    void append(Elem* item) {
+    void append(Elem* item, TList* list) {
       Elem* next = next_;
       item->next_ = next;
       item->prev_ = this;
       next->prev_ = item;
       next_ = item;
+#ifndef NDEBUG
+      TC_ASSERT_EQ(static_cast<Elem*>(item)->list_, nullptr,
+                   "item already on list");
+      static_cast<Elem*>(item)->list_ = list;
+#endif
     }
   };
 
@@ -213,12 +234,19 @@ class TList {
   }
 
   // Add item to the front of list.
-  void prepend(T* item) { head_.append(item); }
+  void prepend(T* item) { head_.append(item, this); }
 
-  void append(T* item) { head_.prepend(item); }
+  void prepend(T* item, T* other) { item->prepend(other, this); }
+
+  void append(T* item) { head_.prepend(item, this); }
+
+  void append(T* item, T* other) { item->append(other, this); }
 
   bool remove(T* item) {
-    // must be on the list; we don't check.
+#ifndef NDEBUG
+    TC_ASSERT_EQ(static_cast<Elem*>(item)->list_, this, "item is not on list");
+    static_cast<Elem*>(item)->list_ = nullptr;
+#endif  // NDEBUG
     return item->remove();
   }
 

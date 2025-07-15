@@ -119,10 +119,6 @@ class HugeRegion : public TList<HugeRegion>::Elem {
     return longest_free() < rhs->longest_free();
   }
 
-  void prepend_it(HugeRegion* other) { this->prepend(other); }
-
-  void append_it(HugeRegion* other) { this->append(other); }
-
  private:
   RangeTracker<kRegionSize.in_pages().raw_num()> tracker_;
 
@@ -224,7 +220,7 @@ class HugeRegionSet {
     list_.remove(r);
     for (auto iter = prev; iter != list_.end(); --iter) {
       if (!r->BetterToAllocThan(*iter)) {
-        iter->append_it(r);
+        list_.append(*iter, r);
         return;
       }
     }
@@ -240,7 +236,7 @@ class HugeRegionSet {
     list_.remove(r);
     for (auto iter = next; iter != list_.end(); ++iter) {
       if (!iter->BetterToAllocThan(r)) {
-        iter->prepend_it(r);
+        list_.prepend(*iter, r);
         return;
       }
     }
@@ -251,7 +247,7 @@ class HugeRegionSet {
   void AddToList(Region* r) {
     for (Region* curr : list_) {
       if (r->BetterToAllocThan(curr)) {
-        curr->prepend_it(r);
+        list_.prepend(curr, r);
         return;
       }
     }

@@ -242,6 +242,25 @@ TEST_F(TListTest, AppendRandomRemove) {
   EXPECT_TRUE(list_.empty());
 }
 
+#ifndef NDEBUG
+TEST_F(TListTest, WrongList) {
+  MockSpan a, b;
+  EXPECT_DEATH({ list_.remove(&a); }, "not on list");
+  list_.append(&a);
+
+  MockSpanList list2;
+  list2.append(&b);
+
+  EXPECT_DEATH({ list_.append(&b); }, "already on list");
+  EXPECT_DEATH({ list_.append(&a, &b); }, "already on list");
+  EXPECT_DEATH({ list_.prepend(&b); }, "already on list");
+  EXPECT_DEATH({ list_.prepend(&a, &b); }, "already on list");
+
+  list2.remove(&b);
+  list_.append(&a, &b);
+}
+#endif  // NDEBUG
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
