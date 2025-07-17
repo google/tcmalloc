@@ -466,7 +466,6 @@ void DumpStats(Printer& out, int level) {
           span_stats[size_class].prob_returned());
     }
 
-#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     out.printf("------------------------------------------------\n");
     out.printf("Central cache freelist: Span utilization histogram\n");
     out.printf("Non-cumulative number of spans with allocated objects < N\n");
@@ -483,7 +482,6 @@ void DumpStats(Printer& out, int level) {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       tc_globals.central_freelist(size_class).PrintSpanLifetimeStats(out);
     }
-#endif
 
     tc_globals.transfer_cache().Print(tc_globals.per_size_class_counts(), out);
     tc_globals.sharded_transfer_cache().Print(
@@ -690,26 +688,21 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   tc_globals.total_sampled_count_.value());
 
   if (level >= 2) {
-    {
-#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-      for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-        uint64_t class_bytes = class_count[size_class] *
-                               tc_globals.sizemap().class_to_size(size_class);
-        PbtxtRegion entry = region.CreateSubRegion("freelist");
-        entry.PrintI64("sizeclass",
-                       tc_globals.sizemap().class_to_size(size_class));
-        entry.PrintI64("bytes", class_bytes);
-        entry.PrintI64("num_spans_requested",
-                       span_stats[size_class].num_spans_requested);
-        entry.PrintI64("num_spans_returned",
-                       span_stats[size_class].num_spans_returned);
-        entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
-        tc_globals.central_freelist(size_class)
-            .PrintSpanUtilStatsInPbtxt(entry);
-        tc_globals.central_freelist(size_class)
-            .PrintSpanLifetimeStatsInPbtxt(entry);
-      }
-#endif
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      uint64_t class_bytes = class_count[size_class] *
+                             tc_globals.sizemap().class_to_size(size_class);
+      PbtxtRegion entry = region.CreateSubRegion("freelist");
+      entry.PrintI64("sizeclass",
+                     tc_globals.sizemap().class_to_size(size_class));
+      entry.PrintI64("bytes", class_bytes);
+      entry.PrintI64("num_spans_requested",
+                     span_stats[size_class].num_spans_requested);
+      entry.PrintI64("num_spans_returned",
+                     span_stats[size_class].num_spans_returned);
+      entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
+      tc_globals.central_freelist(size_class).PrintSpanUtilStatsInPbtxt(entry);
+      tc_globals.central_freelist(size_class)
+          .PrintSpanLifetimeStatsInPbtxt(entry);
     }
 
     tc_globals.transfer_cache().PrintInPbtxt(tc_globals.per_size_class_counts(),
