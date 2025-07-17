@@ -1229,10 +1229,6 @@ TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
     return;
   }
   int n_threads = NumCPUs();
-#ifdef UNDEFINED_BEHAVIOR_SANITIZER
-  // Prevent timeout issues by using fewer stress threads with UBSan.
-  n_threads = std::min(n_threads, 2);
-#endif
 
   SizeMap size_map;
   size_map.Init(size_map.CurrentClasses().classes);
@@ -1281,10 +1277,6 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
     return;
   }
   int n_threads = NumCPUs();
-#ifdef UNDEFINED_BEHAVIOR_SANITIZER
-  // Prevent timeout issues by using fewer stress threads with UBSan.
-  n_threads = std::min(n_threads, 2);
-#endif
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
@@ -1330,10 +1322,6 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
     return;
   }
   int n_threads = NumCPUs();
-#ifdef UNDEFINED_BEHAVIOR_SANITIZER
-  // Prevent timeout issues by using fewer stress threads with UBSan.
-  n_threads = std::min(n_threads, 2);
-#endif
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);

@@ -51,11 +51,7 @@ TEST(AllocationSampleTest, TokenAbuse) {
   int count = 0;
   profile.Iterate([&](const Profile::Sample&) { count++; });
 
-#if !defined(UNDEFINED_BEHAVIOR_SANITIZER)
-  // UBSan does not implement our profiling API, but running the test can
-  // validate the correctness of the new/delete pairs.
   EXPECT_EQ(count, 1);
-#endif
 
   auto profile2 = std::move(token).Stop();  // NOLINT: use-after-move intended
   int count2 = 0;
@@ -255,9 +251,6 @@ TEST(AllocationSampleTest, SampleAccuracy) {
     EXPECT_EQ(access_allocated[e.requested_size], e.access_allocated);
   });
 
-#if !defined(UNDEFINED_BEHAVIOR_SANITIZER)
-  // UBSan does not implement our profiling API, but running the test can
-  // validate the correctness of the new/delete pairs.
   size_t max_bytes = 0, min_bytes = std::numeric_limits<size_t>::max();
   EXPECT_EQ(m.size(), sizes_expected.size());
   for (auto seen : m) {
@@ -270,7 +263,6 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   EXPECT_GE((min_bytes * 3) / 2, max_bytes);
   EXPECT_LE((min_bytes * 3) / 4, kTotalPerSize);
   EXPECT_LE(kTotalPerSize, (max_bytes * 4) / 3);
-#endif
 
   // Remove the objects we left alive
   for (auto& s : sizes) {
