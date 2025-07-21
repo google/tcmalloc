@@ -27,6 +27,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sampled_allocation.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/static_vars.h"
@@ -166,6 +167,20 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
       expected_alignment, absl::MakeSpan(stack, depth));
 
   TC_BUG("Attempted to free corrupted pointer %p", ptr);
+}
+
+[[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedFree(
+    Static& state, void* ptr, Profile::Sample::AllocationType alloc_type,
+    Profile::Sample::AllocationType dealloc_type,
+    absl::Span<void*> allocation_stack) {
+  void* stack[kMaxStackDepth];
+  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
+
+  RecordCrash("GWP-ASan", "invalid-free");
+  state.gwp_asan_state().RecordMismatchedFree(
+      alloc_type, dealloc_type, allocation_stack, absl::MakeSpan(stack, depth));
+
+  TC_BUG("Deallocating %p with %v, expected %v", ptr, dealloc_type, alloc_type);
 }
 
 }  // namespace tcmalloc::tcmalloc_internal

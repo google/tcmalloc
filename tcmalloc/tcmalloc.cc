@@ -669,8 +669,9 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
 // is either large or sampled. We explicitly prevent inlining it to
 // keep it out of fast-path. This helps avoid expensive
 // prologue/epilogue for fast-path freeing functions.
-ABSL_ATTRIBUTE_NOINLINE
-static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
+template <typename Policy>
+ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
+    void* ptr, std::optional<size_t> size, Policy policy) {
   const PageId p = PageIdContaining(ptr);
 
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
@@ -704,7 +705,8 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
         {ptr, size, GetLargeSize(ptr, *span), HookMemoryMutable::kMutable});
   }
 
-  MaybeUnsampleAllocation(tc_globals, ptr, size, *span);
+  MaybeUnsampleAllocation(tc_globals, ptr, size, *span,
+                          policy.allocation_type());
 
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
     gwp_asan.Deallocate(ptr);
@@ -780,27 +782,26 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
     FreeSmall(ptr, std::nullopt, size_class);
   } else {
     SLOW_PATH_BARRIER();
-    InvokeHooksAndFreePages(ptr, std::nullopt);
+    InvokeHooksAndFreePages(ptr, std::nullopt, policy);
   }
 }
 
-template <typename AlignPolicy>
+template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
-                                                    AlignPolicy align) {
+                                                    Policy policy) {
   TC_ASSERT_NE(ptr, nullptr);
   if (GetMemoryTag(ptr) == MemoryTag::kSampled) {
     // we don't know true class size of the ptr
-    return InvokeHooksAndFreePages(ptr, size);
+    return InvokeHooksAndFreePages(ptr, size, policy);
   }
   TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold);
   size_t size_class;
   if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
-          CppPolicy().AlignAs(align.align()).AccessAsCold(), size,
-          &size_class))) {
+          policy.AccessAsCold(), size, &size_class))) {
     // We couldn't calculate the size class, which means size > kMaxSize.
-    TC_ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
+    TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
-    return InvokeHooksAndFreePages(ptr, size);
+    return InvokeHooksAndFreePages(ptr, size, policy);
   }
   FreeSmall(ptr, size, size_class);
 }
@@ -852,7 +853,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
     SLOW_PATH_BARRIER();
-    return InvokeHooksAndFreePages(ptr, size);
+    return InvokeHooksAndFreePages(ptr, size, policy);
   }
 
   FreeSmall(ptr, size, size_class);

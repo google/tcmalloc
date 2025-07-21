@@ -893,5 +893,42 @@ TEST_F(TcMallocTest, CorruptedPointerFixed) {
   EXPECT_GT(same_pointers, 0);
 }
 
+TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
+  ScopedAlwaysSample always_sample;
+
+  EXPECT_DEATH(
+      {
+        void* p = malloc(1);
+        benchmark::DoNotOptimize(p);
+        ::operator delete(p);
+      },
+      absl::StrCat(
+          "(alloc-dealloc-mismatch \\(malloc vs operator delete\\))|"
+          "(Deallocating 0x[0-9a-f]+ with new, expected malloc"
+          ")"));
+
+  EXPECT_DEATH(
+      {
+        void* p = aligned_alloc(1, 1);
+        benchmark::DoNotOptimize(p);
+        ::operator delete(p);
+      },
+      absl::StrCat(
+          "(alloc-dealloc-mismatch \\(malloc vs operator delete\\))|"
+          "(Deallocating 0x[0-9a-f]+ with new, expected aligned-malloc"
+          ")"));
+
+  EXPECT_DEATH(
+      {
+        void* p = ::operator new(1);
+        benchmark::DoNotOptimize(p);
+        free(p);
+      },
+      absl::StrCat(
+          "(alloc-dealloc-mismatch \\(operator new vs free\\))|"
+          "(Deallocating 0x[0-9a-f]+ with malloc, expected new"
+          ")"));
+}
+
 }  // namespace
 }  // namespace tcmalloc

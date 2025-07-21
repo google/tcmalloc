@@ -225,6 +225,7 @@ cc_library(
     deps = [
         ":config",
         ":logging",
+        "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/types:span",
     ],
 )

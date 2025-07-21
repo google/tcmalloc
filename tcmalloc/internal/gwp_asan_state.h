@@ -24,6 +24,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/malloc_extension.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -38,6 +39,7 @@ class GwpAsanState {
     kMismatchedDelete,
     kDoubleFree,
     kInvalidFree,
+    kMismatchedFree,
   };
 
   Type type() const { return type_; }
@@ -90,6 +92,16 @@ class GwpAsanState {
   std::align_val_t expected_alignment() const {
     TC_ASSERT_EQ(type_, Type::kInvalidFree);
     return expected_alignment_;
+  }
+
+  Profile::Sample::AllocationType alloc_type() const {
+    TC_ASSERT_EQ(type_, Type::kMismatchedFree);
+    return *alloc_type_;
+  }
+
+  Profile::Sample::AllocationType dealloc_type() const {
+    TC_ASSERT_EQ(type_, Type::kMismatchedFree);
+    return *dealloc_type_;
   }
 
   void RecordMismatch(
@@ -149,11 +161,35 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
+  void RecordMismatchedFree(Profile::Sample::AllocationType alloc_type,
+                            Profile::Sample::AllocationType dealloc_type,
+                            absl::Span<void* const> allocation_stack,
+                            absl::Span<void* const> deallocation_stack) {
+    type_ = Type::kMismatchedFree;
+
+    alloc_type_ = alloc_type;
+    dealloc_type_ = dealloc_type;
+
+    const size_t allocation_stack_depth =
+        std::min<size_t>(kMaxStackDepth, allocation_stack.size());
+    memcpy(allocation_stack_, allocation_stack.data(),
+           sizeof(void*) * allocation_stack_depth);
+    allocation_stack_depth_ = allocation_stack_depth;
+
+    const size_t deallocation_stack_depth =
+        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
+    memcpy(deallocation_stack_, deallocation_stack.data(),
+           sizeof(void*) * deallocation_stack_depth);
+    deallocation_stack_depth_ = deallocation_stack_depth;
+  }
+
  private:
   Type type_ = Type::kNone;
   size_t provided_min_ = 0, provided_max_ = 0, minimum_ = 0, maximum_ = 0;
   std::align_val_t actual_alignment_ = static_cast<std::align_val_t>(0),
                    expected_alignment_ = static_cast<std::align_val_t>(0);
+
+  std::optional<Profile::Sample::AllocationType> alloc_type_, dealloc_type_;
 
   void* allocation_stack_[kMaxStackDepth] = {};
   std::optional<size_t> allocation_stack_depth_ = std::nullopt;

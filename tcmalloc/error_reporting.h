@@ -31,6 +31,11 @@ namespace tcmalloc::tcmalloc_internal {
     Static& state, void* ptr, size_t size, size_t minimum_size,
     size_t maximum_size);
 
+[[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedFree(
+    Static& state, void* ptr, Profile::Sample::AllocationType alloc_type,
+    Profile::Sample::AllocationType dealloc_type,
+    absl::Span<void*> allocation_stack);
+
 [[noreturn]]
 ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedSizeClass(Static& state,
                                                        void* object,

@@ -106,8 +106,26 @@ ABSL_ATTRIBUTE_NOINLINE void FreeProxyObject(Static& state, void* ptr,
   }
 }
 
+// Rewrite type so that the allocation type falls into one of the categories we
+// use for deallocations (new or malloc, not aligned new).
+static Profile::Sample::AllocationType SimplifyType(
+    Profile::Sample::AllocationType type) {
+  using AllocationType = Profile::Sample::AllocationType;
+
+  switch (type) {
+    case AllocationType::New:
+    case AllocationType::Malloc:
+      return type;
+    case AllocationType::AlignedMalloc:
+      return AllocationType::Malloc;
+  }
+
+  ABSL_UNREACHABLE();
+}
+
 void MaybeUnsampleAllocation(Static& state, void* ptr,
-                             std::optional<size_t> size, Span& span) {
+                             std::optional<size_t> size, Span& span,
+                             Profile::Sample::AllocationType type) {
   // No pageheap_lock required. The sampled span should be unmarked and have its
   // state cleared only once. External synchronization when freeing is required;
   // otherwise, concurrent writes here would likely report a double-free.
@@ -148,6 +166,17 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
                              std::nullopt);
     }
   }
+
+  if (auto dealloc_type = SimplifyType(type),
+      alloc_type =
+          SimplifyType(sampled_allocation->sampled_stack.allocation_type);
+      ABSL_PREDICT_FALSE(dealloc_type != alloc_type)) {
+    ReportMismatchedFree(
+        state, ptr, sampled_allocation->sampled_stack.allocation_type, type,
+        absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                       sampled_allocation->sampled_stack.depth));
+  }
+
   // SampleifyAllocation turns alignment 1 into 0, turn it back for
   // SizeMap::SizeClass.
   const size_t alignment =

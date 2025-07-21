@@ -222,6 +222,22 @@ class Profile final {
       AlignedMalloc,
     };
 
+    template <typename Sink>
+    friend void AbslStringify(Sink& sink,
+                              const AllocationType& t) GOOGLE_MALLOC_SECTION {
+      switch (t) {
+        case AllocationType::New:
+          sink.Append("new");
+          break;
+        case AllocationType::Malloc:
+          sink.Append("malloc");
+          break;
+        case AllocationType::AlignedMalloc:
+          sink.Append("aligned-malloc");
+          break;
+      }
+    }
+
     AllocationType type;
 
     int depth;

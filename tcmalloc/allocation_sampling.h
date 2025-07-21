@@ -254,7 +254,8 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
 }
 
 void MaybeUnsampleAllocation(Static& state, void* ptr,
-                             std::optional<size_t> size, Span& span);
+                             std::optional<size_t> size, Span& span,
+                             Profile::Sample::AllocationType type);
 
 template <typename Policy>
 static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
