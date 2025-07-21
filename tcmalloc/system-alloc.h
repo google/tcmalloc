@@ -749,7 +749,7 @@ uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
         rnd_ = reinterpret_cast<uintptr_t>(seed);
       });
 
-#if !defined(MEMORY_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(ABSL_HAVE_MEMORY_SANITIZER) && !defined(ABSL_HAVE_THREAD_SANITIZER)
   // We don't use the following bits:
   //
   //  *  The top bits that are forbidden for use by the hardware (or are
@@ -773,6 +773,44 @@ uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
   rnd_ = ExponentialBiased::NextRandom(rnd_);
   uintptr_t addr = rnd_ & kAddrMask & ~(alignment - 1) & ~kTagMask;
   addr |= static_cast<uintptr_t>(tag) << kTagShift;
+
+#if defined(ABSL_HAVE_THREAD_SANITIZER)
+#if defined(__x86_64__)
+  // The following constants are taken from
+  // llvm-project/compiler-rt/lib/tsan/rtl/tsan_platform.h
+  constexpr uintptr_t kLoAppMemBeg = 0x000000001000ull;
+  constexpr uintptr_t kLoAppMemEnd = 0x020000000000ull;
+  constexpr uintptr_t kMidAppMemBeg = 0x550000000000ull;
+  constexpr uintptr_t kMidAppMemEnd = 0x5a0000000000ull;
+  constexpr uintptr_t kHiAppMemBeg = 0x7a0000000000ull;
+  constexpr uintptr_t kHiAppMemEnd = 0x800000000000ull;
+#elif defined(__aarch64__)
+  // The following constants are taken from
+  // llvm-project/compiler-rt/lib/tsan/rtl/tsan_platform.h
+  constexpr uintptr_t kLoAppMemBeg = 0x0000000001000ull;
+  constexpr uintptr_t kLoAppMemEnd = 0x00a0000000000ull;
+  constexpr uintptr_t kMidAppMemBeg = 0x0aaaa00000000ull;
+  constexpr uintptr_t kMidAppMemEnd = 0x0ac0000000000ull;
+  constexpr uintptr_t kHiAppMemBeg = 0x0fc0000000000ull;
+  constexpr uintptr_t kHiAppMemEnd = 0x1000000000000ull;
+#endif
+
+  // Don't let the initial value be larger than the end of the app memory.
+  constexpr uintptr_t kHiAppMask = kHiAppMemEnd - 1;
+
+  auto reserved_for_app = [](auto a) {
+    return (a >= kLoAppMemBeg && a < kLoAppMemEnd) ||
+           (a >= kMidAppMemBeg && a < kMidAppMemEnd) ||
+           (a >= kHiAppMemBeg && a < kHiAppMemEnd);
+  };
+
+  for (int i = 0; i < 10 && !reserved_for_app(addr); ++i) {
+    rnd_ = ExponentialBiased::NextRandom(rnd_);
+    addr = rnd_ & kHiAppMask & ~(alignment - 1) & ~kTagMask;
+    addr |= static_cast<uintptr_t>(tag) << kTagShift;
+  }
+#endif
+
   TC_ASSERT_EQ(GetMemoryTag(reinterpret_cast<const void*>(addr)), tag);
   return addr;
 }
