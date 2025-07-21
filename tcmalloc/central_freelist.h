@@ -337,8 +337,8 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
-  if (ABSL_PREDICT_FALSE(
-          !span->FreelistPush(object, object_size, size_reciprocal))) {
+  if (ABSL_PREDICT_FALSE(!span->FreelistPushBatch({&object, 1}, object_size,
+                                                  size_reciprocal))) {
     // Update the histogram as the span is full and will be removed from the
     // nonempty_ list.
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);

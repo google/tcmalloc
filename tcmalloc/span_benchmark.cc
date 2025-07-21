@@ -88,7 +88,7 @@ void BM_single_span(benchmark::State& state) {
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      (void)span.FreelistPush(batch[j], size, reciprocal);
+      (void)span.FreelistPushBatch({&batch[j], 1}, size, reciprocal);
     }
   }
 
@@ -129,7 +129,7 @@ void BM_single_span_fulldrain(benchmark::State& state) {
     // Fill span
     while (oindex > 0) {
       void* p = objects[oindex - 1];
-      if (!span.FreelistPush(p, size, reciprocal)) {
+      if (!span.FreelistPushBatch({&p, 1}, size, reciprocal)) {
         break;
       }
 
@@ -227,7 +227,8 @@ void BM_multiple_spans(benchmark::State& state) {
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      (void)spans[current_span].span().FreelistPush(batch[j], size, reciprocal);
+      (void)spans[current_span].span().FreelistPushBatch({&batch[j], 1}, size,
+                                                         reciprocal);
     }
   }
 

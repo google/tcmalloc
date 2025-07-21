@@ -92,7 +92,8 @@ void FuzzSpan(const std::string& s) {
   TC_CHECK_EQ(ptrs.size(), span->Allocated());
 
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
-    bool ok = span->FreelistPush(ptrs[i], object_size, size_reciprocal);
+    bool ok =
+        span->FreelistPushBatch({&ptrs[i], 1}, object_size, size_reciprocal);
     TC_CHECK_EQ(ok, i != popped - 1);
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.

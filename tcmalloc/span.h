@@ -199,11 +199,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] bool FreelistPushBatch(absl::Span<void*> batch, size_t size,
                                        uint32_t reciprocal);
 
-  ABSL_DEPRECATE_AND_INLINE()
-  [[nodiscard]] bool FreelistPush(void* ptr, size_t size, uint32_t reciprocal) {
-    return FreelistPushBatch({&ptr, 1}, size, reciprocal);
-  }
-
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
   [[nodiscard]] size_t FreelistPopBatch(absl::Span<void*> batch, size_t size);

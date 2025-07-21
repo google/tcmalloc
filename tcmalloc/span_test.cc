@@ -150,7 +150,8 @@ TEST_P(SpanTest, FreelistBasic) {
     // Push all objects back except the last one (which would not be pushed).
     for (size_t idx = 0; idx < objects_per_span_ - 1; ++idx) {
       EXPECT_TRUE(objects[idx]);
-      bool ok = span_.FreelistPush(start + idx * size_, size_, reciprocal_);
+      void* ptr = start + idx * size_;
+      bool ok = span_.FreelistPushBatch({&ptr, 1}, size_, reciprocal_);
       EXPECT_TRUE(ok);
       EXPECT_FALSE(span_.FreelistEmpty(size_));
       objects[idx] = false;
@@ -158,8 +159,8 @@ TEST_P(SpanTest, FreelistBasic) {
     }
     // On the last iteration we can actually push the last object.
     if (x == 1) {
-      bool ok = span_.FreelistPush(start + (objects_per_span_ - 1) * size_,
-                                   size_, reciprocal_);
+      void* ptr = start + (objects_per_span_ - 1) * size_;
+      bool ok = span_.FreelistPushBatch({&ptr, 1}, size_, reciprocal_);
       EXPECT_FALSE(ok);
     }
   }
@@ -182,7 +183,7 @@ TEST_P(SpanTest, FreelistRandomized) {
   for (size_t x = 0; x < 10000; ++x) {
     if (!objects.empty() && absl::Bernoulli(rng, 1.0 / 2)) {
       void* p = *objects.begin();
-      if (span_.FreelistPush(p, size_, reciprocal_)) {
+      if (span_.FreelistPushBatch({&p, 1}, size_, reciprocal_)) {
         objects.erase(objects.begin());
       } else {
         EXPECT_EQ(objects.size(), 1);
