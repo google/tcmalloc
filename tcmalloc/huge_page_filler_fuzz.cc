@@ -499,9 +499,11 @@ void FuzzFiller(const std::string& s) {
       case 10: {
         FakePageFlags pageflags;
         FakeResidency residency;
-        bool enable_collapse = (value % 2) == 0;
+        bool enable_collapse = value & 0x1;
+        bool enable_release_free_swap = (value >> 1) & 0x1;
         PageHeapSpinLockHolder l;
-        filler.TreatHugepageTrackers(enable_collapse, &pageflags, &residency);
+        filler.TreatHugepageTrackers(enable_collapse, enable_release_free_swap,
+                                     &pageflags, &residency);
         CHECK(filler.FetchFullyFreedTracker() == nullptr);
         break;
       }

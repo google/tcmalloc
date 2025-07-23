@@ -117,6 +117,8 @@ ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::MadvisePreference
 TCMalloc_Internal_GetMadvise();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadvise(
     tcmalloc::tcmalloc_internal::MadvisePreference v);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseFreeSwapped();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

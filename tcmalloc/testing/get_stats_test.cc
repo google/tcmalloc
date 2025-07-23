@@ -135,6 +135,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   } else {
     EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: false"));
   }
+  // # TODO: b/425749361 - Update this to conditionally expect true.
+  EXPECT_THAT(buf, HasSubstr("release_free_swapped: false"));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
@@ -213,6 +215,8 @@ TEST_F(GetStatsTest, Parameters) {
       EXPECT_THAT(
           buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 0)"));
     }
+    // TODO: b/425749361 - Update this to conditionally expect true.
+    EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 0)"));
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));

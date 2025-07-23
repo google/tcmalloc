@@ -100,6 +100,10 @@ class Parameters {
 
   static bool usermode_hugepage_collapse();
 
+  static bool release_free_swapped() {
+    return release_free_swapped_.load(std::memory_order_relaxed);
+  }
+
   static bool huge_cache_demand_based_release() {
     return huge_cache_demand_based_release_.load(std::memory_order_relaxed);
   }
@@ -229,6 +233,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetMadvise(
       tcmalloc::tcmalloc_internal::MadvisePreference v);
   friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
+  friend void ::TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_interval_;
@@ -246,6 +251,7 @@ class Parameters {
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
+  static std::atomic<bool> release_free_swapped_;
 };
 
 }  // namespace tcmalloc_internal

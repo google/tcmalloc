@@ -83,6 +83,7 @@ class HintedTrackerLists {
     TC_ASSERT_LT(i, N);
     TC_ASSERT_NE(pt, nullptr);
     if (lists_[i].remove(pt)) {
+      TC_ASSERT(nonempty_.GetBit(i));
       nonempty_.ClearBit(i);
     }
     --size_;

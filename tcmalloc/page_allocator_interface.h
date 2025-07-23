@@ -92,7 +92,8 @@ class PageAllocatorInterface {
   virtual PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
-  virtual void TreatHugepageTrackers(bool enable_collapse)
+  virtual void TreatHugepageTrackers(bool enable_collapse,
+                                     bool enable_release_free_swapped)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.

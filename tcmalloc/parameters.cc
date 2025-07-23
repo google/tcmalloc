@@ -255,6 +255,8 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
+ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(false);
+
 bool Parameters::background_process_actions_enabled() {
   return background_process_actions_enabled_ptr().load(
       std::memory_order_relaxed);
@@ -303,6 +305,10 @@ bool Parameters::sparse_trackers_coarse_longest_free_range() {
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
+}
+
+bool TCMalloc_Internal_GetReleaseFreeSwapped() {
+  return Parameters::release_free_swapped();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -652,6 +658,10 @@ uint8_t TCMalloc_Internal_GetMinHotAccessHint() {
 void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v) {
   Parameters::min_hot_access_hint_.store(static_cast<tcmalloc::hot_cold_t>(v),
                                          std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
+  Parameters::release_free_swapped_.store(v, std::memory_order_relaxed);
 }
 
 }  // extern "C"
