@@ -629,18 +629,10 @@ TEST(TCMallocTest, AlignedNew) {
     allocated.emplace_back(a);
   }
   for (const auto& p : allocated) {
-    int choice = absl::Uniform(rand, 0, 3);
-
-    switch (choice) {
-      case 0:
-        ::operator delete(p.ptr);
-        break;
-      case 1:
-        ::operator delete(p.ptr, p.alignment);
-        break;
-      case 2:
-        ::operator delete(p.ptr, p.size, p.alignment);
-        break;
+    if (absl::Bernoulli(rand, 0.5)) {
+      ::operator delete(p.ptr, p.alignment);
+    } else {
+      ::operator delete(p.ptr, p.size, p.alignment);
     }
   }
 }
@@ -667,18 +659,10 @@ TEST(TCMallocTest, AlignedNewArray) {
     allocated.emplace_back(a);
   }
   for (const auto& p : allocated) {
-    int choice = absl::Uniform(rand, 0, 3);
-
-    switch (choice) {
-      case 0:
-        ::operator delete[](p.ptr);
-        break;
-      case 1:
-        ::operator delete[](p.ptr, p.alignment);
-        break;
-      case 2:
-        ::operator delete[](p.ptr, p.size, p.alignment);
-        break;
+    if (absl::Bernoulli(rand, 0.5)) {
+      ::operator delete[](p.ptr, p.alignment);
+    } else {
+      ::operator delete[](p.ptr, p.size, p.alignment);
     }
   }
 }
@@ -1407,18 +1391,10 @@ TEST(HotColdTest, AlignedNothrowHotColdNew) {
   }
 
   for (auto p : ptrs) {
-    int choice = absl::Uniform(rng, 0, 3);
-
-    switch (choice) {
-      case 0:
-        ::operator delete(p.ptr);
-        break;
-      case 1:
-        ::operator delete(p.ptr, p.alignment);
-        break;
-      case 2:
-        ::operator delete(p.ptr, p.size, p.alignment);
-        break;
+    if (absl::Bernoulli(rng, 0.5)) {
+      ::operator delete(p.ptr, p.alignment);
+    } else {
+      ::operator delete(p.ptr, p.size, p.alignment);
     }
   }
 }
@@ -1504,18 +1480,10 @@ TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
   }
 
   for (auto p : ptrs) {
-    int choice = absl::Uniform(rng, 0, 3);
-
-    switch (choice) {
-      case 0:
-        ::operator delete(p.ptr);
-        break;
-      case 1:
-        sized_array_delete(p.ptr, p.size);
-        break;
-      case 2:
-        sized_array_aligned_delete(p.ptr, p.size, p.alignment);
-        break;
+    if (absl::Bernoulli(rng, 0.5)) {
+      ::operator delete[](p.ptr, p.alignment);
+    } else {
+      sized_array_aligned_delete(p.ptr, p.size, p.alignment);
     }
   }
 }
@@ -1655,6 +1623,9 @@ TEST(HotColdTest, SampleHasRuntimeHint) {
                            static_cast<hot_cold_t>(6));
   }
   auto profile = std::move(token).Stop();
+
+  ::operator delete(std::exchange(ptrs[4], nullptr), std::align_val_t{8});
+  ::operator delete(std::exchange(ptrs[5], nullptr), std::align_val_t{8});
 
   for (auto* ptr : ptrs) {
     ::operator delete(ptr);
