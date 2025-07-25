@@ -705,8 +705,7 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
         {ptr, size, GetLargeSize(ptr, *span), HookMemoryMutable::kMutable});
   }
 
-  MaybeUnsampleAllocation(tc_globals, ptr, size, *span,
-                          policy.allocation_type());
+  MaybeUnsampleAllocation(tc_globals, policy, ptr, size, *span);
 
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
     gwp_asan.Deallocate(ptr);
