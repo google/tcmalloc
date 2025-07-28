@@ -205,9 +205,8 @@ void FuzzHPAA(const std::string& s) {
           Span* s;
           SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
                                       .density = density};
-          TC_CHECK(
-              density == AccessDensityPrediction::kSparse ||
-              length == Length(1));
+          TC_CHECK(density == AccessDensityPrediction::kSparse ||
+                   length == Length(1));
           if (use_aligned) {
             s = allocator.NewAligned(length, align, alloc_info);
           } else {
@@ -238,7 +237,9 @@ void FuzzHPAA(const std::string& s) {
           {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
             PageHeapSpinLockHolder l;
-            allocator.Delete(span_info.span);
+            allocator.Delete(span_info.span,
+                             {.objects_per_span = span_info.objects_per_span,
+                              .density = AccessDensityPrediction::kSparse});
 #else
             PageAllocatorInterface::AllocationState a{
                 Range(span_info.span->first_page(),
@@ -247,7 +248,8 @@ void FuzzHPAA(const std::string& s) {
             };
             allocator.forwarder().DeleteSpan(span_info.span);
             PageHeapSpinLockHolder l;
-            allocator.Delete(a);
+            allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
+                                 .density = AccessDensityPrediction::kSparse});
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
           }
           break;
@@ -507,7 +509,9 @@ void FuzzHPAA(const std::string& s) {
       allocated -= span->num_pages();
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       PageHeapSpinLockHolder l;
-      allocator.Delete(span_info.span);
+      allocator.Delete(span_info.span,
+                       {.objects_per_span = span_info.objects_per_span,
+                        .density = AccessDensityPrediction::kSparse});
 #else
       PageAllocatorInterface::AllocationState a{
           Range(span_info.span->first_page(), span_info.span->num_pages()),
@@ -515,7 +519,8 @@ void FuzzHPAA(const std::string& s) {
       };
       allocator.forwarder().DeleteSpan(span_info.span);
       PageHeapSpinLockHolder l;
-      allocator.Delete(a);
+      allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
+                           .density = AccessDensityPrediction::kSparse});
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     }
 

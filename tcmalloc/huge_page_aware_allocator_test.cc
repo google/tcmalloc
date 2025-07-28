@@ -124,6 +124,7 @@ class HugePageAwareAllocatorTest
   using MockedHugePageAwareAllocator =
       huge_page_allocator_internal::HugePageAwareAllocator<
           FakeStaticForwarderWithReleaseCheck>;
+
  protected:
   HugePageAwareAllocatorTest() {
     before_ = MallocExtension::GetRegionFactory();
@@ -188,7 +189,8 @@ class HugePageAwareAllocatorTest
   void AllocatorDelete(Span* s, size_t objects_per_span) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
-    allocator_->Delete(s);
+    allocator_->Delete(s, {.objects_per_span = objects_per_span,
+                           .density = AccessDensityPrediction::kSparse});
 #else
     uintptr_t start = reinterpret_cast<uintptr_t>(s->start_address());
     allocator_->forwarder().RecordDeallocation(start);
@@ -198,7 +200,8 @@ class HugePageAwareAllocatorTest
     };
     allocator_->forwarder().DeleteSpan(s);
     PageHeapSpinLockHolder l;
-    allocator_->Delete(a);
+    allocator_->Delete(a, {.objects_per_span = objects_per_span,
+                           .density = AccessDensityPrediction::kSparse});
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
@@ -1472,7 +1475,7 @@ class StatTest : public testing::Test {
     total_ -= n;
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
-    alloc_->Delete(s);
+    alloc_->Delete(s, span_info);
 #else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
@@ -1480,7 +1483,7 @@ class StatTest : public testing::Test {
     };
     alloc_->forwarder().DeleteSpan(s);
     PageHeapSpinLockHolder l;
-    alloc_->Delete(a);
+    alloc_->Delete(a, span_info);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
@@ -1722,7 +1725,8 @@ struct SpanDeleter {
   void operator()(Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
-    allocator.Delete(s);
+    allocator.Delete(s, {.objects_per_span = 1,
+                         .density = AccessDensityPrediction::kSparse});
 #else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
@@ -1730,7 +1734,8 @@ struct SpanDeleter {
     };
     allocator.forwarder().DeleteSpan(s);
     PageHeapSpinLockHolder l;
-    allocator.Delete(a);
+    allocator.Delete(a, {.objects_per_span = 1,
+                         .density = AccessDensityPrediction::kSparse});
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 

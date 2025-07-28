@@ -68,10 +68,11 @@ class PageAllocatorTest : public testing::Test {
                    MemoryTag tag = MemoryTag::kNormal) {
     return allocator_.NewAligned(n, align, span_alloc_info, tag);
   }
-  void Delete(Span* s, MemoryTag tag = MemoryTag::kNormal) {
+  void Delete(Span* s, SpanAllocInfo span_alloc_info,
+              MemoryTag tag = MemoryTag::kNormal) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
-    allocator_.Delete(s, tag);
+    allocator_.Delete(s, tag, span_alloc_info);
 #else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
@@ -79,7 +80,7 @@ class PageAllocatorTest : public testing::Test {
     };
     Span::Delete(s);
     PageHeapSpinLockHolder l;
-    allocator_.Delete(a, tag);
+    allocator_.Delete(a, tag, span_alloc_info);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
@@ -103,7 +104,7 @@ TEST_F(PageAllocatorTest, Record) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/7,
                                        AccessDensityPrediction::kSparse};
   for (int i = 0; i < 15; ++i) {
-    Delete(New(Length(1), kSpanInfo));
+    Delete(New(Length(1), kSpanInfo), kSpanInfo);
   }
 
   std::vector<Span*> spans;
@@ -112,7 +113,7 @@ TEST_F(PageAllocatorTest, Record) {
   }
 
   for (int i = 0; i < 25; ++i) {
-    Delete(NewAligned(Length(3), Length(2), kSpanInfo));
+    Delete(NewAligned(Length(3), Length(2), kSpanInfo), kSpanInfo);
   }
   {
     PageHeapSpinLockHolder l;
@@ -139,14 +140,14 @@ TEST_F(PageAllocatorTest, Record) {
       ASSERT_EQ(0, info.counts_for(i).nfree);
     }
   }
-  for (auto s : spans) Delete(s);
+  for (auto s : spans) Delete(s, kSpanInfo);
 }
 
 // And that we call the print method properly.
 TEST_F(PageAllocatorTest, PrintIt) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/17,
                                        AccessDensityPrediction::kDense};
-  Delete(New(Length(1), kSpanInfo));
+  Delete(New(Length(1), kSpanInfo), kSpanInfo);
   std::string output = Print();
   EXPECT_THAT(output, testing::ContainsRegex("stats on allocation sizes"));
 }
@@ -180,8 +181,8 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
   EXPECT_LE(
       0, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
-  Delete(normal, MemoryTag::kNormal);
-  Delete(sampled, MemoryTag::kSampled);
+  Delete(normal, kSpanInfo, MemoryTag::kNormal);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
@@ -223,8 +224,8 @@ TEST_F(PageAllocatorTest, b270916852) {
   EXPECT_LE(
       1, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
-  Delete(normal, MemoryTag::kNormal);
-  Delete(sampled, MemoryTag::kSampled);
+  Delete(normal, kSpanInfo, MemoryTag::kNormal);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 

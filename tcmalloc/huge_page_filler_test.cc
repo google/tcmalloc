@@ -250,13 +250,13 @@ class PageTrackerTest : public testing::Test {
 
   PAlloc Get(Length n, SpanAllocInfo span_alloc_info) {
     PageHeapSpinLockHolder l;
-    PageId p = tracker_.Get(n).page;
+    PageId p = tracker_.Get(n, span_alloc_info).page;
     return {p, n, span_alloc_info};
   }
 
   void Put(PAlloc a) {
     PageHeapSpinLockHolder l;
-    tracker_.Put(Range(a.p, a.n));
+    tracker_.Put(Range(a.p, a.n), a.span_alloc_info);
   }
 
   Length ReleaseFree() {
@@ -1081,7 +1081,7 @@ class FillerTest
       ret.pt = new PageTracker(GetBacking(), donated, clock_);
       {
         PageHeapSpinLockHolder l;
-        ret.p = ret.pt->Get(n).page;
+        ret.p = ret.pt->Get(n, span_alloc_info).page;
       }
       filler_.Contribute(ret.pt, donated, span_alloc_info);
       ++hp_contained_;
@@ -1096,7 +1096,7 @@ class FillerTest
     PageTracker* pt;
     {
       PageHeapSpinLockHolder l;
-      pt = filler_.Put(p.pt, Range(p.p, p.n));
+      pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info);
     }
     total_allocated_ -= p.n;
     if (pt != nullptr) {
@@ -3557,7 +3557,7 @@ HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pa
 }
 
 TEST_P(FillerTest, RecordFeatureVectorTest) {
-  SpanAllocInfo info_sparsely_accessed = {1, AccessDensityPrediction::kSparse};
+  SpanAllocInfo info_sparsely_accessed = {2, AccessDensityPrediction::kSparse};
   PAlloc small_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_sparsely_accessed);
   small_alloc.pt->SetTagState({.sampled_for_tagging = true});
@@ -3574,7 +3574,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
       AllocateWithSpanAllocInfo(Length(5), info_sparsely_accessed);
   EXPECT_EQ(small_alloc.pt, small_alloc2.pt);
   EXPECT_EQ(small_alloc.pt->features().allocations, 1);
-  EXPECT_EQ(small_alloc.pt->features().objects, 1);
+  EXPECT_EQ(small_alloc.pt->features().objects, 2);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time, 0);
   EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 255);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
@@ -3587,7 +3587,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
       AllocateWithSpanAllocInfo(Length(10), info_sparsely_accessed);
   EXPECT_EQ(small_alloc.pt, small_alloc3.pt);
   EXPECT_EQ(small_alloc.pt->features().allocations, 2);
-  EXPECT_EQ(small_alloc.pt->features().objects, 2);
+  EXPECT_EQ(small_alloc.pt->features().objects, 4);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time,
                   5 * GetFakeClockFrequency() + 1234);
   EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 250);
@@ -3598,7 +3598,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
 
   // Test dense spans.
   ResetClock();
-  SpanAllocInfo info_densely_accessed = {1, AccessDensityPrediction::kDense};
+  SpanAllocInfo info_densely_accessed = {128, AccessDensityPrediction::kDense};
   PAlloc large_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
   large_alloc.pt->SetTagState({.sampled_for_tagging = true});
@@ -3617,7 +3617,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   std::vector<PAlloc> large_allocs =
       AllocateVectorWithSpanAllocInfo(Length(100), info_densely_accessed);
   EXPECT_EQ(large_alloc.pt->features().allocations, 100);
-  EXPECT_EQ(large_alloc.pt->features().objects, 100);
+  EXPECT_EQ(large_alloc.pt->features().objects, 100 * 128);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
                   10 * GetFakeClockFrequency() + 1234);
   EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 156);
@@ -3630,7 +3630,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   PAlloc large_alloc2 =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
   EXPECT_EQ(large_alloc.pt->features().allocations, 101);
-  EXPECT_EQ(large_alloc.pt->features().objects, 101);
+  EXPECT_EQ(large_alloc.pt->features().objects, 101 * 128);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
                   10 * GetFakeClockFrequency() + 1234);
   EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 155);
@@ -3654,7 +3654,7 @@ TEST_P(FillerTest, PrintFeatureVectorTest) {
   FakePageFlags pageflags;
   const Length N = kPagesPerHugePage;
   SpanAllocInfo info_sparsely_accessed = {1, AccessDensityPrediction::kSparse};
-  SpanAllocInfo info_densely_accessed = {1, AccessDensityPrediction::kDense};
+  SpanAllocInfo info_densely_accessed = {2, AccessDensityPrediction::kDense};
   PAlloc small_alloc = AllocateWithSpanAllocInfo(N / 4, info_sparsely_accessed);
   small_alloc.pt->SetTagState({.sampled_for_tagging = true});
   std::string buffer(1024 * 1024, '\0');
@@ -3703,7 +3703,7 @@ HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage
     filler_.Print(printer, true, pageflags);
   }
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 1, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 100.000001
+HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 100.000001
 )"));
 
   Advance(absl::Seconds(100));
@@ -3718,7 +3718,7 @@ HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 1, Is Hugepage
   // Time delta is 0 here because the clock is not advanced during vector
   // allocation.
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Allocations: 101, Longest Free Range: 155, Objects: 101, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 0.000000
+HugePageFiller: Allocations: 101, Longest Free Range: 155, Objects: 202, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 0.000000
 )"));
 
   Delete(small_alloc);

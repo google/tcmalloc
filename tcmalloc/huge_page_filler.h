@@ -78,7 +78,8 @@ class PageTracker : public TList<PageTracker>::Elem {
         abandoned_(false),
         unbroken_(true),
         alloctime_(now),
-        free_{} {
+        free_{},
+        num_objects_(0) {
 #ifndef __ppc64__
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -135,10 +136,12 @@ class PageTracker : public TList<PageTracker>::Elem {
   //
   // Returns a PageId i and a count of previously unbacked pages in the range
   // [i, i+n) in previously_unbacked.
-  PageAllocation Get(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  PageAllocation Get(Length n, SpanAllocInfo span_alloc_info)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: r was the result of a previous call to Get(n)
-  void Put(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Put(Range r, SpanAllocInfo span_alloc_info)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns true if any unused pages have been returned-to-system.
   bool released() const { return released_count_ > 0; }
@@ -179,6 +182,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   // the desirability of allocating from this hugepage.
   Length longest_free_range() const { return Length(free_.longest_free()); }
   size_t nallocs() const { return free_.allocs(); }
+  size_t nobjects() const { return num_objects_; }
   Length used_pages() const { return Length(free_.used()); }
   Length released_pages() const { return Length(released_count_); }
   double alloctime() const { return alloctime_; }
@@ -245,7 +249,7 @@ class PageTracker : public TList<PageTracker>::Elem {
         hugepage_residency_state_.maybe_hugepage_backed;
     features_.density = has_dense_spans_;
     features_.allocations = nallocs();
-    features_.objects = free_.allocs();
+    features_.objects = nobjects();
     features_.allocation_time = last_page_allocation_time_;
     features_.longest_free_range = longest_free_range();
   }
@@ -289,6 +293,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   double last_page_allocation_time_ = 0;
 
   RangeTracker<kPagesPerHugePage.raw_num()> free_;
+
+  uint64_t num_objects_;
 
   TrackerFeatures features_;
 
@@ -429,7 +435,7 @@ class HugePageFiller {
   //
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, Range{p, n}} was the result of a previous TryGet.
-  TrackerType* Put(TrackerType* pt, Range r)
+  TrackerType* Put(TrackerType* pt, Range r, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
@@ -708,8 +714,10 @@ class HugePageFiller {
   uintptr_t rng_ = 0;
 };
 
-inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
+inline typename PageTracker::PageAllocation PageTracker::Get(
+    Length n, SpanAllocInfo span_alloc_info) {
   size_t index = free_.FindAndMark(n.raw_num());
+  num_objects_ += span_alloc_info.objects_per_span;
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
 
@@ -736,9 +744,11 @@ inline void PageTracker::SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
   set_anon_vma_name(Range(location_.first_page(), kPagesPerHugePage), name);
 }
 
-inline void PageTracker::Put(Range r) {
+inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
   Length index = r.p - location_.first_page();
   free_.Unmark(index.raw_num(), r.n.raw_num());
+  TC_ASSERT_GE(num_objects_, span_alloc_info.objects_per_span);
+  num_objects_ -= span_alloc_info.objects_per_span;
 }
 
 inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
@@ -1011,7 +1021,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     pt->RecordFeatures();
   }
   pt->SetLastAllocationTime(now);
-  const auto page_allocation = pt->Get(n);
+  const auto page_allocation = pt->Get(n, span_alloc_info);
   AddToFillerList(pt);
   pages_allocated_[type] += n;
 
@@ -1037,9 +1047,10 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 // REQUIRES: pt is owned by this object (has been Contribute()), and {pt,
 // Range(p, n)} was the result of a previous TryGet.
 template <class TrackerType>
-inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, Range r) {
+inline TrackerType* HugePageFiller<TrackerType>::Put(
+    TrackerType* pt, Range r, SpanAllocInfo span_alloc_info) {
   RemoveFromFillerList(pt);
-  pt->Put(r);
+  pt->Put(r, span_alloc_info);
   if (pt->HasDenseSpans()) {
     TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kDense], r.n);
     pages_allocated_[AccessDensityPrediction::kDense] -= r.n;

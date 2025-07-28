@@ -720,7 +720,9 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     }
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(span, GetMemoryTag(ptr));
+    tc_globals.page_allocator().Delete(
+        span, GetMemoryTag(ptr),
+        {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
 #else
     PageAllocatorInterface::AllocationState a{
         Range(p, span->num_pages()),
@@ -728,7 +730,9 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     };
     Span::Delete(span);
     PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(a, GetMemoryTag(ptr));
+    tc_globals.page_allocator().Delete(
+        a, GetMemoryTag(ptr),
+        {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
   // We expect to crash in GuardedPageAllocator::Delete or in
@@ -1048,8 +1052,10 @@ template <typename Policy>
 #if defined(__clang__)
 __attribute__((flatten))
 #endif
-ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
-slow_alloc_small(size_t size, uint32_t size_class, Policy policy) {
+ABSL_ATTRIBUTE_NOINLINE static
+    typename Policy::pointer_type slow_alloc_small(size_t size,
+                                                   uint32_t size_class,
+                                                   Policy policy) {
   size_t weight = GetThreadSampler()->RecordedAllocationFast(size);
   if (ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||

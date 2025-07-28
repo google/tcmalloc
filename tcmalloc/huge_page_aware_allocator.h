@@ -175,10 +175,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+  void Delete(Span* span, SpanAllocInfo span_alloc_info)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
-  void Delete(AllocationState s)
+  void Delete(AllocationState s, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   BackingStats stats() const
@@ -453,7 +454,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
-  void DeleteFromHugepage(FillerType::Tracker* pt, Range r, bool might_abandon)
+  void DeleteFromHugepage(FillerType::Tracker* pt, Range r, bool might_abandon,
+                          SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
@@ -514,7 +516,7 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
   if (pt->was_donated()) {
     pt->set_abandoned_count(n);
   }
-  PageId page = pt->Get(n).page;
+  PageId page = pt->Get(n, span_alloc_info).page;
   TC_ASSERT_EQ(page, p.first_page());
   SetTracker(p, pt);
   filler_.Contribute(pt, donated, span_alloc_info);
@@ -790,8 +792,9 @@ inline Range HugePageAwareAllocator<Forwarder>::Unspanify(FinalizeType f) {
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
-    FillerType::Tracker* pt, Range r, bool might_abandon) {
-  if (ABSL_PREDICT_TRUE(filler_.Put(pt, r) == nullptr)) {
+    FillerType::Tracker* pt, Range r, bool might_abandon,
+    SpanAllocInfo span_alloc_info) {
+  if (ABSL_PREDICT_TRUE(filler_.Put(pt, r, span_alloc_info) == nullptr)) {
     // If this allocation had resulted in a donation to the filler, we record
     // these pages as abandoned.
     if (ABSL_PREDICT_FALSE(might_abandon)) {
@@ -815,7 +818,8 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span) {
+inline void HugePageAwareAllocator<Forwarder>::Delete(
+    Span* span, SpanAllocInfo span_alloc_info) {
   TC_ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
   PageId p = span->first_page();
   Length n = span->num_pages();
@@ -823,12 +827,13 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span) {
   bool donated = span->donated();
   forwarder_.DeleteSpan(span);
 
-  Delete(AllocationState{Range{p, n}, donated});
+  Delete(AllocationState{Range{p, n}, donated}, span_alloc_info);
 }
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::Delete(AllocationState s) {
+inline void HugePageAwareAllocator<Forwarder>::Delete(
+    AllocationState s, SpanAllocInfo span_alloc_info) {
   const PageId p = s.r.p;
   const HugePage hp = HugePageContaining(p);
   const Length n = s.r.n;
@@ -847,7 +852,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(AllocationState s) {
   //    allocation to that hugepage in the filler.
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     TC_ASSERT_EQ(hp, HugePageContaining(p + n - Length(1)));
-    DeleteFromHugepage(pt, Range(p, n), might_abandon);
+    DeleteFromHugepage(pt, Range(p, n), might_abandon, span_alloc_info);
     return;
   }
 
@@ -877,7 +882,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(AllocationState s) {
     Length virt_len = kPagesPerHugePage - slack;
     // We may have used the slack, which would prevent us from returning
     // the entire range now.  If filler returned a Tracker, we are fully empty.
-    if (filler_.Put(pt, Range(virt, virt_len)) == nullptr) {
+    if (filler_.Put(pt, Range(virt, virt_len), span_alloc_info) == nullptr) {
       // Last page isn't empty -- pretend the range was shorter.
       --hl;
 

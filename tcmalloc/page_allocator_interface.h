@@ -54,7 +54,7 @@ class PageAllocatorInterface {
   //
   // TODO(b/175334169): Prefer the AllocationState-ful API.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  virtual void Delete(Span* span)
+  virtual void Delete(Span* span, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
@@ -65,7 +65,7 @@ class PageAllocatorInterface {
     operator bool() const { return ABSL_PREDICT_TRUE(r.p != PageId{0}); }
   };
 
-  virtual void Delete(AllocationState s)
+  virtual void Delete(AllocationState s, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   virtual BackingStats stats() const

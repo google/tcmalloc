@@ -194,7 +194,9 @@ void FuzzFiller(const std::string& s) {
       MemoryTag::kNormal, unback, unback, collapse, set_anon_vma_name);
 
   std::vector<PageTracker*> trackers;
-  absl::flat_hash_map<PageTracker*, std::vector<Range>> allocs;
+  absl::flat_hash_map<PageTracker*,
+                      std::vector<std::pair<Range, SpanAllocInfo>>>
+      allocs;
 
   // Running counter to allocate pseudo-random addresses
   size_t next_hugepage = 1;
@@ -262,7 +264,7 @@ void FuzzFiller(const std::string& s) {
           {
             PageHeapSpinLockHolder l;
 
-            result.page = result.pt->Get(n).page;
+            result.page = result.pt->Get(n, alloc_info).page;
             filler.Contribute(result.pt, donated, alloc_info);
           }
 
@@ -275,7 +277,7 @@ void FuzzFiller(const std::string& s) {
           released_set.erase(p);
         }
 
-        allocs[result.pt].push_back({result.page, n});
+        allocs[result.pt].push_back({{result.page, n}, alloc_info});
 
         CHECK_EQ(filler.size().raw_num(), trackers.size());
         CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
@@ -296,7 +298,7 @@ void FuzzFiller(const std::string& s) {
 
         CHECK(!allocs[pt].empty());
         const size_t hi = std::min<size_t>(value >> 16, allocs[pt].size() - 1);
-        Range alloc = allocs[pt][hi];
+        auto [alloc, alloc_info] = allocs[pt][hi];
 
         // Remove the allocation.
         std::swap(allocs[pt][hi], allocs[pt].back());
@@ -311,7 +313,7 @@ void FuzzFiller(const std::string& s) {
         PageTracker* ret;
         {
           PageHeapSpinLockHolder l;
-          ret = filler.Put(pt, alloc);
+          ret = filler.Put(pt, alloc, alloc_info);
         }
         CHECK_EQ(ret != nullptr, last_alloc);
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -431,7 +433,7 @@ void FuzzFiller(const std::string& s) {
         {
           PageHeapSpinLockHolder l;
 
-          start = pt->Get(n).page;
+          start = pt->Get(n, {1, AccessDensityPrediction::kSparse}).page;
           filler.Contribute(pt, /*donated=*/true,
                             {1, AccessDensityPrediction::kSparse});
         }
@@ -444,7 +446,8 @@ void FuzzFiller(const std::string& s) {
           released_set.erase(p);
         }
 
-        allocs[pt].push_back({start, n});
+        allocs[pt].push_back(
+            {{start, n}, {1, AccessDensityPrediction::kSparse}});
 
         CHECK_EQ(filler.size().raw_num(), trackers.size());
         CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
@@ -533,11 +536,11 @@ void FuzzFiller(const std::string& s) {
   CHECK_EQ(ReleasedPages().size(), filler.unmapped_pages().raw_num());
   for (auto& [pt, v] : allocs) {
     for (size_t i = 0, n = v.size(); i < n; ++i) {
-      auto alloc = v[i];
+      auto [alloc, alloc_info] = v[i];
       PageTracker* ret;
       {
         PageHeapSpinLockHolder l;
-        ret = filler.Put(pt, alloc);
+        ret = filler.Put(pt, alloc, alloc_info);
       }
       CHECK_EQ(ret != nullptr, i + 1 == n);
     }

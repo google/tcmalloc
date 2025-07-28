@@ -65,11 +65,12 @@ class PageAllocator {
   // REQUIRES: span was returned by earlier call to New() with the same value of
   //           "tag" and has not yet been deleted.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  void Delete(Span* span, MemoryTag tag)
+  void Delete(Span* span, MemoryTag tag, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
-  void Delete(PageAllocatorInterface::AllocationState s, MemoryTag tag)
+  void Delete(PageAllocatorInterface::AllocationState s, MemoryTag tag,
+              SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   BackingStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -222,14 +223,16 @@ inline Span* PageAllocator::NewAligned(Length n, Length align,
 }
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-inline void PageAllocator::Delete(Span* span, MemoryTag tag) {
-  impl(tag)->Delete(span);
+inline void PageAllocator::Delete(Span* span, MemoryTag tag,
+                                  SpanAllocInfo span_alloc_info) {
+  impl(tag)->Delete(span, span_alloc_info);
 }
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
 inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
-                                  MemoryTag tag) {
-  impl(tag)->Delete(s);
+                                  MemoryTag tag,
+                                  SpanAllocInfo span_alloc_info) {
+  impl(tag)->Delete(s, span_alloc_info);
 }
 
 inline BackingStats PageAllocator::stats() const {
