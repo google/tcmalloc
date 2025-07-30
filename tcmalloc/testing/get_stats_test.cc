@@ -130,7 +130,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(
       buf,
       HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
-  EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: false"));
+  EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: true"));
   // # TODO: b/425749361 - Update this to conditionally expect true.
   EXPECT_THAT(buf, HasSubstr("release_free_swapped: false"));
 
@@ -205,7 +205,7 @@ TEST_F(GetStatsTest, Parameters) {
             R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
 
     EXPECT_THAT(
-        buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 0)"));
+        buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 1)"));
     // TODO: b/425749361 - Update this to conditionally expect true.
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 0)"));
     EXPECT_THAT(
