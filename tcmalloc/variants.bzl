@@ -213,12 +213,6 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S"},
     },
     {
-        "name": "usermode_hugepage_collapse",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE"},
-    },
-    {
         "name": "hpaa",
         "malloc": "//tcmalloc",
         "deps": [

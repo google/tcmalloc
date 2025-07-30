@@ -24,7 +24,6 @@ enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
   TCMALLOC_COARSE_LFR_TRACKERS, // TODO(b/368054442): Complete experiment.
-  TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE,  // TODO(b/287498389): Complete experiment.
   TEST_ONLY_L3_AWARE,  // TODO(b/239977380): Complete experiment.
   TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS,  // TODO(b/368054442): Complete experiment.
   TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S,  // TODO(b/319872040): Complete experiment.
@@ -45,7 +44,6 @@ struct ExperimentConfig {
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::TCMALLOC_COARSE_LFR_TRACKERS, "TCMALLOC_COARSE_LFR_TRACKERS"},
-    {Experiment::TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE, "TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE"},
     {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
     {Experiment::TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS, "TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS"},
     {Experiment::TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S, "TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S"},

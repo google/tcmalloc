@@ -118,13 +118,7 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
 // cannot require constant initialization for the atomic. This avoids an
 // initialization order fiasco.
 static std::atomic<bool>& usermode_hugepage_collapse_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TCMALLOC_USERMODE_HUGEPAGE_COLLAPSE)) {
-      v.store(true, std::memory_order_relaxed);
-    }
-  });
   return v;
 }
 
