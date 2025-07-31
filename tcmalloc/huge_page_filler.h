@@ -1168,8 +1168,12 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     double elapsed = std::max<double>(clock_now_ - tagged_state.record_time, 0);
     if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * clock_freq_) {
       selected_trackers_[num_valid_trackers_] = {
-          &pt, pt.longest_free_range().raw_num(), pt.nallocs(),
-          pt.HasDenseSpans(), pt.released()};
+          &pt,
+          pt.longest_free_range().raw_num(),
+          pt.nallocs(),
+          pt.nobjects(),
+          pt.HasDenseSpans(),
+          pt.released()};
       pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now_});
       ++num_valid_trackers_;
       // Setting this bit makes sure that the tracker is not freed under us
@@ -1190,15 +1194,18 @@ class SampledTrackerTreatment final : public HugePageTreatment {
       TC_ASSERT_NE(tracker, nullptr);
       const size_t lfr = selected_trackers_[i].lfr;
       const size_t nallocs = selected_trackers_[i].nallocs;
+      const size_t nobjects = selected_trackers_[i].nobjects;
       const bool has_dense_spans = selected_trackers_[i].has_dense_spans;
       const bool released = selected_trackers_[i].released;
 
       char name[256];
       absl::SNPrintF(
           name, sizeof(name),
-          "tcmalloc_region_%s_page_%d_lfr_%d_nallocs_%d_dense_%d_released_%d",
+          "tcmalloc_region_%s_page_%d_lfr_%d_nallocs_%d_nobjects_%d_dense_%d_"
+          "released_%d",
           MemoryTagToLabel(tag_), kPageSize, RoundDown(lfr, /*align=*/16),
-          RoundDown(nallocs, /*align=*/16), has_dense_spans, released);
+          RoundDown(nallocs, /*align=*/16), absl::bit_ceil(nobjects),
+          has_dense_spans, released);
       tracker->SetAnonVmaName(set_anon_vma_name_, name);
     }
   }
@@ -1223,6 +1230,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     PageTracker* tracker;
     size_t lfr;
     size_t nallocs;
+    size_t nobjects;
     bool has_dense_spans;
     bool released;
   };

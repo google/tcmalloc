@@ -1453,8 +1453,8 @@ TEST_P(FillerTest, SetAnonVmaName) {
   PAlloc p = AllocateWithSpanAllocInfo(Length(1), info);
   p.pt->SetTagState({.sampled_for_tagging = true});
   set_anon_vma_name_.SetExpectedName(
-      "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_dense_1_released_"
-      "0");
+      "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_nobjects_256_dense_1_"
+      "released_0");
 
   Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
@@ -1469,9 +1469,35 @@ TEST_P(FillerTest, SetAnonVmaName) {
                         /*enable_release_free_swapped=*/false, &pageflags,
                         &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
+
+  // Allocate and advance.  nobjects should round up.
+  info.objects_per_span = 128;
+  PAlloc p2 = AllocateWithSpanAllocInfo(Length(1), info);
+
+  set_anon_vma_name_.SetExpectedName(
+      "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_nobjects_512_dense_1_"
+      "released_0");
+
+  Advance(absl::Minutes(10));
+  TreatHugepageTrackers(/*enable_collapse=*/false,
+                        /*enable_release_free_swapped=*/false, &pageflags,
+                        &residency);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
+
+  // Allocate and advance.  nobjects should remain unchanged.
+  PAlloc p3 = AllocateWithSpanAllocInfo(Length(1), info);
+
+  Advance(absl::Minutes(10));
+  TreatHugepageTrackers(/*enable_collapse=*/false,
+                        /*enable_release_free_swapped=*/false, &pageflags,
+                        &residency);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 3);
+
   set_anon_vma_name_.SetExpectedName("tcmalloc_region_NORMAL");
   Delete(p);
-  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
+  Delete(p2);
+  Delete(p3);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 4);
 }
 
 // Checks that we collapse hugepages that are eligible to be collapsed.
