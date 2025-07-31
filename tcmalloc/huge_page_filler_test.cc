@@ -33,6 +33,7 @@
 #include "absl/algorithm/container.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/macros.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/flags/flag.h"
@@ -857,6 +858,12 @@ class FillerTest
     }
   }
 
+  HugePageTreatmentStats GetHugePageTreatmentStats()
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    PageHeapSpinLockHolder l;
+    return filler_.GetHugePageTreatmentStats();
+  }
+
   HugePageFiller<PageTracker> filler_;
   BlockingUnback blocking_unback_;
   MockCollapse collapse_;
@@ -1181,7 +1188,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
                         /*enable_release_free_swapped=*/true, &pageflags,
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
-  EXPECT_EQ(filler_.GetTreatedPagesSubreleased(), 0);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
 
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
@@ -1199,7 +1206,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
                         /*enable_release_free_swapped=*/true, &pageflags,
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
-  EXPECT_EQ(filler_.GetTreatedPagesSubreleased(), 0);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
 
   // Advance the clock and try again, the last page is free, so it
   // should be released.
@@ -1208,7 +1215,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
                         /*enable_release_free_swapped=*/true, &pageflags,
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
-  EXPECT_EQ(filler_.GetTreatedPagesSubreleased(), 1);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 1);
   DeleteVector(p1);
 }
 
@@ -1240,7 +1247,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   // We expect to release the two free pages, since the second native page is
   // swapped. We expect to log this correctly.
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
-  EXPECT_EQ(filler_.GetTreatedPagesSubreleased(), 2);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 2);
   std::string buffer(1024 * 1024, '\0');
   {
     PageHeapSpinLockHolder l;
@@ -1258,7 +1265,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
                         /*enable_release_free_swapped=*/true, &pageflags,
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
-  EXPECT_EQ(filler_.GetTreatedPagesSubreleased(), 0);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
 
   DeleteVector(p1);
 }
@@ -1291,7 +1298,7 @@ TEST_P(FillerTest, ReleaseNoFreePages) {
 
   SubreleaseStats subrelease_stats = filler_.subrelease_stats();
   EXPECT_EQ(subrelease_stats.total_pages_subreleased, Length(0));
-  EXPECT_EQ(filler_.GetTreatedPagesSubreleased(), 0);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
   DeleteVector(p1);
 }
 
@@ -1340,7 +1347,7 @@ TEST_P(FillerTest, CheckAllocationsComeFromIntactHugepage) {
 
   // There should be two pages released, from p1's hugepage.
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
-  EXPECT_EQ(filler_.GetTreatedPagesSubreleased(), 2);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 2);
   // We make an allocation. We expect it to come from the same hugepage as
   // the elements of p3, since this hugepage has not been subreleased from,
   // while the hugepage containing elements form p1 has been subreleased from.
@@ -1380,10 +1387,10 @@ TEST_P(FillerTest, DontCollapseAlreadyHugepages) {
   for (const auto& pa : p1) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
   }
-  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
-  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
-  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
-  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_eligible, 1);
+  EXPECT_EQ(treatment_stats.collapse_attempted, 0);
+  EXPECT_EQ(treatment_stats.collapse_succeeded, 0);
   DeleteVector(p1);
 }
 
@@ -1395,13 +1402,10 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
   FakeResidency residency;
   auto check_stats = [&](int expected_eligible, int expected_attempted,
                          int expected_succeeded) {
-    const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
-    EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed),
-              expected_eligible);
-    EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed),
-              expected_attempted);
-    EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed),
-              expected_succeeded);
+    HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+    EXPECT_EQ(treatment_stats.collapse_eligible, expected_eligible);
+    EXPECT_EQ(treatment_stats.collapse_attempted, expected_attempted);
+    EXPECT_EQ(treatment_stats.collapse_succeeded, expected_succeeded);
   };
 
   for (const auto& pa : p1) {
@@ -1419,10 +1423,10 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
   check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
               /*expected_succeeded=*/1);
 
-  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
-  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
-  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 1);
-  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 1);
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_eligible, 1);
+  EXPECT_EQ(treatment_stats.collapse_attempted, 1);
+  EXPECT_EQ(treatment_stats.collapse_succeeded, 1);
 
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
@@ -1528,10 +1532,10 @@ TEST_P(FillerTest, CollapseHugepages) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
   }
-  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
-  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 1);
-  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 1);
-  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 1);
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_eligible, 1);
+  EXPECT_EQ(treatment_stats.collapse_attempted, 1);
+  EXPECT_EQ(treatment_stats.collapse_succeeded, 1);
 
   DeleteVector(p1);
 }
@@ -1576,10 +1580,10 @@ TEST_P(FillerTest, DontCollapseHugepages) {
     }
   }
 
-  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
-  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 4);
-  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
-  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_eligible, 4);
+  EXPECT_EQ(treatment_stats.collapse_attempted, 0);
+  EXPECT_EQ(treatment_stats.collapse_succeeded, 0);
 }
 
 // Don't collapse pages that are released.
@@ -1618,10 +1622,10 @@ TEST_P(FillerTest, DontCollapseReleasedPages) {
                         /*enable_release_free_swapped=*/false, &pageflags,
                         &residency);
 
-  const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
-  EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed), 0);
-  EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed), 0);
-  EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed), 0);
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_eligible, 0);
+  EXPECT_EQ(treatment_stats.collapse_attempted, 0);
+  EXPECT_EQ(treatment_stats.collapse_succeeded, 0);
   for (const auto& pa : p1) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
   }
@@ -1641,13 +1645,10 @@ TEST_P(FillerTest, CollapseClock) {
 
   auto check_stats = [&](int expected_eligible, int expected_attempted,
                          int expected_succeeded) {
-    const HugePageTreatmentStats& collapse_stats = filler_.GetCollapseStats();
-    EXPECT_EQ(collapse_stats.eligible.load(std::memory_order_relaxed),
-              expected_eligible);
-    EXPECT_EQ(collapse_stats.attempted.load(std::memory_order_relaxed),
-              expected_attempted);
-    EXPECT_EQ(collapse_stats.succeeded.load(std::memory_order_relaxed),
-              expected_succeeded);
+    HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+    EXPECT_EQ(treatment_stats.collapse_eligible, expected_eligible);
+    EXPECT_EQ(treatment_stats.collapse_attempted, expected_attempted);
+    EXPECT_EQ(treatment_stats.collapse_succeeded, expected_succeeded);
   };
 
   FakePageFlags pageflags;
@@ -4066,6 +4067,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
   }
@@ -4171,6 +4173,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   std::string buffer(1024 * 1024, '\0');
   FakePageFlags pageflags;
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
   }

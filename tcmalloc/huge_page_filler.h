@@ -385,9 +385,10 @@ enum class LFRRequirement : bool {
 };
 
 struct HugePageTreatmentStats {
-  std::atomic<size_t> eligible = 0;
-  std::atomic<size_t> attempted = 0;
-  std::atomic<size_t> succeeded = 0;
+  size_t collapse_eligible = 0;
+  size_t collapse_attempted = 0;
+  size_t collapse_succeeded = 0;
+  size_t treated_pages_subreleased = 0;
 };
 
 // This tracks a set of unfilled hugepages, and fulfills allocations
@@ -531,16 +532,16 @@ class HugePageFiller {
 
   BackingStats stats() const;
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
-  const HugePageTreatmentStats& GetCollapseStats() const {
-    return collapse_stats_;
+  HugePageTreatmentStats GetHugePageTreatmentStats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return treatment_stats_;
   };
-  size_t GetTreatedPagesSubreleased() const {
-    return treated_pages_subreleased_.load(std::memory_order_relaxed);
-  }
 
   HugePageFillerStats GetStats() const;
-  void Print(Printer& out, bool everything, PageFlagsBase& pageflags);
-  void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags) const;
+  void Print(Printer& out, bool everything, PageFlagsBase& pageflags)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   template <typename F>
   void ForEachHugePage(const F& func)
@@ -569,7 +570,7 @@ class HugePageFiller {
 
   // Utility function to release free pages from a given `page_tracker`
   // and handle accounting.
-  void HandleReleaseFree(PageTracker* page_tracker)
+  Length HandleReleaseFree(PageTracker* page_tracker)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  private:
@@ -633,9 +634,7 @@ class HugePageFiller {
   // deleted, once the collapse operation completes.
   TList<TrackerType> fully_freed_trackers_;
 
-  HugePageTreatmentStats collapse_stats_;
-
-  std::atomic<size_t> treated_pages_subreleased_ = 0;
+  HugePageTreatmentStats treatment_stats_ ABSL_GUARDED_BY(pageheap_lock);
 
   // n_used_released_ contains the number of pages in huge pages that are not
   // free (i.e., allocated).  Only the hugepages in regular_alloc_released_ are
@@ -2137,8 +2136,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
     TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
     if (enable_collapse_) {
-      collapse_stats_.eligible.fetch_add(num_valid_trackers_,
-                                         std::memory_order_relaxed);
+      treatment_stats_.collapse_eligible += num_valid_trackers_;
     }
     // Outside of the pageheap lock, obtain the residency and pageflags
     // information for the collected addresses. Try to collapse the pages that
@@ -2188,29 +2186,31 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
       if (enable_release_free_swap_ &&
           !residency_states_[i].bitmaps.swapped.IsZero()) {
-        page_filler_.HandleReleaseFree(tracker);
+        Length released_length = page_filler_.HandleReleaseFree(tracker);
+        if (released_length > Length(0)) {
+          treatment_stats_.treated_pages_subreleased +=
+              released_length.raw_num();
+        }
       }
     }
   }
 
-  void GetCollapseStats(HugePageTreatmentStats& stats) {
-    stats.eligible.fetch_add(
-        collapse_stats_.eligible.load(std::memory_order_relaxed),
-        std::memory_order_relaxed);
-    stats.attempted.fetch_add(
-        collapse_stats_.attempted.load(std::memory_order_relaxed),
-        std::memory_order_relaxed);
-    stats.succeeded.fetch_add(
-        collapse_stats_.succeeded.load(std::memory_order_relaxed),
-        std::memory_order_relaxed);
+  void UpdateHugePageTreatmentStats(HugePageTreatmentStats& stats) {
+    stats.collapse_eligible += treatment_stats_.collapse_eligible;
+    stats.collapse_attempted += treatment_stats_.collapse_attempted;
+    stats.collapse_succeeded += treatment_stats_.collapse_succeeded;
+    // We overwrite this value instead of adding because this value is not
+    // cumulative across treatment iterations.
+    stats.treated_pages_subreleased =
+        treatment_stats_.treated_pages_subreleased;
   }
 
  private:
   bool TryUserspaceCollapse(PageTracker* tracker) {
     bool success = tracker->Collapse(collapse_);
-    collapse_stats_.attempted.fetch_add(1, std::memory_order_relaxed);
+    treatment_stats_.collapse_attempted++;
     if (success) {
-      collapse_stats_.succeeded.fetch_add(1, std::memory_order_relaxed);
+      treatment_stats_.collapse_succeeded++;
     }
     return success;
   }
@@ -2239,7 +2239,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     Residency::SinglePageBitmaps bitmaps;
   };
   std::array<ResidencyState, kTotalTrackersToScan> residency_states_;
-  HugePageTreatmentStats collapse_stats_;
+  HugePageTreatmentStats treatment_stats_;
   HugePageFiller<TrackerType>& page_filler_;
   bool enable_collapse_;
   bool enable_release_free_swap_;
@@ -2256,10 +2256,6 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
       enable_release_free_swapped);
-
-  // Reset the treated_pages_subreleased_ counter. We log it for a given
-  // interval in Print().
-  treated_pages_subreleased_ = 0;
 
   // Collect up to kTotalTrackersToScan trackers from the regular sparse and
   // dense lists. if enable_release_free_swapped is true, we also collect
@@ -2328,13 +2324,13 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   pageheap_lock.Unlock();
   sampled_tracker_treatment.Treat();
   unbacked_tracker_treatment.Treat();
-  unbacked_tracker_treatment.GetCollapseStats(collapse_stats_);
 
   // Lock the pageheap lock and update residency information in the tracker.
   pageheap_lock.Lock();
   sampled_tracker_treatment.Restore();
   unbacked_tracker_treatment.Restore();
 
+  unbacked_tracker_treatment.UpdateHugePageTreatmentStats(treatment_stats_);
   // It should be rare that we find anything in the fully freed list, because
   // we only sample 1% of the trackers for naming, and an interleaving Put
   // operation would have to free all the pages while the memory is being named.
@@ -2344,18 +2340,15 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::HandleReleaseFree(
+inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
     PageTracker* tracker) {
   RemoveFromFillerList(tracker);
   Length released_length = tracker->ReleaseFree(unback_);
-  if (released_length > Length(0)) {
-    treated_pages_subreleased_.fetch_add(released_length.raw_num(),
-                                         std::memory_order_relaxed);
-  }
   subrelease_stats_.total_pages_subreleased += released_length;
   unmapped_ += released_length;
   unmapping_unaccounted_ += released_length;
   AddToFillerList(tracker);
+  return released_length;
 }
 
 template <class TrackerType>
@@ -2504,14 +2497,13 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
   out.printf(
       "HugePageFiller: Out of %zu eligible hugepages, %zu were "
       "attempted, and %zu were collapsed.\n",
-      collapse_stats_.eligible.load(std::memory_order_relaxed),
-      collapse_stats_.attempted.load(std::memory_order_relaxed),
-      collapse_stats_.succeeded.load(std::memory_order_relaxed));
+      treatment_stats_.collapse_eligible, treatment_stats_.collapse_attempted,
+      treatment_stats_.collapse_succeeded);
 
   out.printf(
       "HugePageFiller: In the previous treatment interval, "
       "subreleased %zu pages.\n",
-      treated_pages_subreleased_.load(std::memory_order_relaxed));
+      treatment_stats_.treated_pages_subreleased);
 
   out.printf("\n");
   out.printf("HugePageFiller: fullness histograms\n");
@@ -2666,19 +2658,17 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
   hpaa.PrintI64("filler_previously_released_backed_huge_pages",
                 usage.HugepageBackedPreviouslyReleased());
   {
-    PbtxtRegion collapse_region = hpaa.CreateSubRegion("filler_collapse_stats");
-    collapse_region.PrintI64(
-        "collapse_eligible",
-        collapse_stats_.eligible.load(std::memory_order_relaxed));
-    collapse_region.PrintI64(
-        "collapse_attempted",
-        collapse_stats_.attempted.load(std::memory_order_relaxed));
-    collapse_region.PrintI64(
-        "collapse_succeeded",
-        collapse_stats_.succeeded.load(std::memory_order_relaxed));
-    collapse_region.PrintI64(
+    PbtxtRegion huge_page_treatment_region =
+        hpaa.CreateSubRegion("filler_huge_page_treatment_stats");
+    huge_page_treatment_region.PrintI64("collapse_eligible",
+                                        treatment_stats_.collapse_eligible);
+    huge_page_treatment_region.PrintI64("collapse_attempted",
+                                        treatment_stats_.collapse_attempted);
+    huge_page_treatment_region.PrintI64("collapse_succeeded",
+                                        treatment_stats_.collapse_succeeded);
+    huge_page_treatment_region.PrintI64(
         "treated_pages_subreleased",
-        treated_pages_subreleased_.load(std::memory_order_relaxed));
+        treatment_stats_.treated_pages_subreleased);
   }
   usage.Print(hpaa);
   fillerstats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
