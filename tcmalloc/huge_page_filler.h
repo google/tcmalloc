@@ -230,6 +230,18 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   void SetHugePageResidencyState(const HugePageResidencyState& state) {
     hugepage_residency_state_ = state;
+    // TODO(b/435718337):  As of July 2025, we primarily scan "normal"
+    // (non-released) page lists and avoid collapsing released huge pages.
+    //
+    // If released() && state.maybe_hugepage_backed, then we should:
+    // * was_released_ = false
+    // * unbroken_ = true
+    // * release_count_ = 0
+    // * released_by_page.Clear()
+    // * RemoveFromFillerList/AddToFillerList *this in the filler to reposition
+    //   it to the appropriate freelist.
+    //
+    // since the tracker has transitioned from broken/no hugepage to hugepage'd.
   }
 
   HugePageResidencyState GetHugePageResidencyState() const {
@@ -793,6 +805,9 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   }
 
   released_count_ += count;
+  if (count > 0) {
+    hugepage_residency_state_.maybe_hugepage_backed = false;
+  }
   TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
   return Length(count);
