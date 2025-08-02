@@ -14,11 +14,12 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <atomic>
+#include <limits>
 #include <memory>
 #include <new>
 #include <optional>
-#include <set>
 #include <thread>  // NOLINT(build/c++11)
 #include <utility>
 #include <vector>
@@ -30,7 +31,6 @@
 #include "absl/synchronization/blocking_counter.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
