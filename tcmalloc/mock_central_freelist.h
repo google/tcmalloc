@@ -39,7 +39,7 @@ class RealCentralFreeListForTesting : public CentralFreeList {
 
 class FakeCentralFreeListBase {
  public:
-  FakeCentralFreeListBase() {}
+  FakeCentralFreeListBase() = default;
   FakeCentralFreeListBase(const FakeCentralFreeListBase&) = delete;
   FakeCentralFreeListBase& operator=(const FakeCentralFreeListBase&) = delete;
 

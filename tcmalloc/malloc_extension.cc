@@ -126,7 +126,8 @@ MallocExtension::AllocationProfilingToken::AllocationProfilingToken(
     std::unique_ptr<tcmalloc_internal::AllocationProfilingTokenBase> impl)
     : impl_(std::move(impl)) {}
 
-MallocExtension::AllocationProfilingToken::~AllocationProfilingToken() {}
+MallocExtension::AllocationProfilingToken::~AllocationProfilingToken() =
+    default;
 
 Profile MallocExtension::AllocationProfilingToken::Stop() && {
   std::unique_ptr<tcmalloc_internal::AllocationProfilingTokenBase> p(
@@ -140,7 +141,7 @@ Profile MallocExtension::AllocationProfilingToken::Stop() && {
 Profile::Profile(std::unique_ptr<const tcmalloc_internal::ProfileBase> impl)
     : impl_(std::move(impl)) {}
 
-Profile::~Profile() {}
+Profile::~Profile() = default;
 
 void Profile::Iterate(absl::FunctionRef<void(const Sample&)> f) const {
   if (!impl_) {
@@ -174,7 +175,7 @@ absl::Duration Profile::Duration() const {
   return impl_->Duration();
 }
 
-AddressRegion::~AddressRegion() {}
+AddressRegion::~AddressRegion() = default;
 
 size_t AddressRegionFactory::GetStats(absl::Span<char> buffer) {
   static_cast<void>(buffer);

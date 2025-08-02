@@ -290,7 +290,7 @@ class Profile final {
 
 class AddressRegion {
  public:
-  AddressRegion() {}
+  AddressRegion() = default;
   virtual ~AddressRegion();
 
   // Allocates at least size bytes of memory from this region, aligned with
