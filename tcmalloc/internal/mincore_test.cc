@@ -37,7 +37,7 @@ using ::testing::Eq;
 class MInCoreMock : public MInCoreInterface {
  public:
   MInCoreMock() : mapped_() {}
-  ~MInCoreMock() override {}
+  ~MInCoreMock() override = default;
 
   // Implementation of minCore that reports presence based on provided array.
   int mincore(void* addr, size_t length, unsigned char* result) override {
@@ -67,7 +67,7 @@ class MInCoreMock : public MInCoreInterface {
 class MInCoreTest {
  public:
   MInCoreTest() : mcm_() {}
-  ~MInCoreTest() {}
+  ~MInCoreTest() = default;
 
   size_t residence(uintptr_t addr, size_t size) {
     return MInCore::residence_impl(reinterpret_cast<void*>(addr), size, &mcm_);

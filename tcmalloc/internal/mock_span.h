@@ -25,7 +25,7 @@ typedef TList<MockSpan> MockSpanList;
 
 class MockSpan : public MockSpanList::Elem {
  public:
-  MockSpan() {}
+  MockSpan() = default;
 
   static MockSpan* New(int idx = 0) {
     MockSpan* ret = new MockSpan();

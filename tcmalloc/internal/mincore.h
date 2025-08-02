@@ -26,8 +26,8 @@ namespace tcmalloc_internal {
 // Class to wrap mincore so that we can replace it for testing.
 class MInCoreInterface {
  public:
-  MInCoreInterface() {}
-  virtual ~MInCoreInterface() {}
+  MInCoreInterface() = default;
+  virtual ~MInCoreInterface() = default;
   virtual int mincore(void* addr, size_t length, unsigned char* result) = 0;
 
  private:
@@ -41,7 +41,7 @@ class MInCoreInterface {
 // the constraint of requiring the base address to be page aligned.
 class MInCore {
  public:
-  MInCore() {}
+  MInCore() = default;
   // For a region of memory return the number of bytes that are
   // actually resident in memory. Note that the address and size
   // do not need to be a multiple of the system page size.
