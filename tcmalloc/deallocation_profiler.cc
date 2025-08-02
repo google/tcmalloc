@@ -63,8 +63,8 @@ class AllocAdaptor final {
  public:
   using value_type = T;
 
-  AllocAdaptor() {}
-  AllocAdaptor(const AllocAdaptor&) {}
+  AllocAdaptor() = default;
+  AllocAdaptor(const AllocAdaptor&) = default;
 
   template <class T1>
   using rebind = AllocAdaptor<T1, Alloc>;
