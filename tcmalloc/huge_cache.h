@@ -37,6 +37,7 @@
 #include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/metadata_allocator.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -46,8 +47,8 @@ class MemoryModifyFunction {
  public:
   virtual ~MemoryModifyFunction() = default;
 
-  [[nodiscard]] virtual bool operator()(Range r) = 0;
-  [[nodiscard]] bool operator()(HugeRange r) {
+  [[nodiscard]] virtual MemoryModifyStatus operator()(Range r) = 0;
+  [[nodiscard]] MemoryModifyStatus operator()(HugeRange r) {
     return (*this)(Range{r.start().first_page(), r.len().in_pages()});
   }
 };

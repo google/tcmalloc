@@ -145,7 +145,7 @@ void StaticForwarder::Back(Range r) {
   tc_globals.system_allocator().Back(r.start_addr(), r.in_bytes());
 }
 
-bool StaticForwarder::ReleasePages(Range r) {
+MemoryModifyStatus StaticForwarder::ReleasePages(Range r) {
   return tc_globals.system_allocator().Release(r.start_addr(), r.in_bytes());
 }
 
@@ -153,7 +153,7 @@ void StaticForwarder::ReportDoubleFree(void* ptr) {
   ::tcmalloc::tcmalloc_internal::ReportDoubleFree(tc_globals, ptr);
 }
 
-bool StaticForwarder::CollapsePages(Range r) {
+MemoryModifyStatus StaticForwarder::CollapsePages(Range r) {
   return tc_globals.system_allocator().Collapse(r.start_addr(), r.in_bytes());
 }
 

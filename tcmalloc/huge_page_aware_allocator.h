@@ -127,8 +127,8 @@ class StaticForwarder {
   [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
                                                   MemoryTag tag);
   static void Back(Range r);
-  [[nodiscard]] static bool ReleasePages(Range r);
-  [[nodiscard]] static bool CollapsePages(Range r);
+  [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r);
+  [[nodiscard]] static MemoryModifyStatus CollapsePages(Range r);
   static void SetAnonVmaName(Range r, std::optional<absl::string_view> name);
 };
 
@@ -276,7 +276,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~Unback() override = default;
 
-    [[nodiscard]] bool operator()(Range r) override
+    [[nodiscard]] MemoryModifyStatus operator()(Range r) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
@@ -295,13 +295,13 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~UnbackWithoutLock() override = default;
 
-    [[nodiscard]] bool operator()(Range r) override
+    [[nodiscard]] MemoryModifyStatus operator()(Range r) override
         ABSL_NO_THREAD_SAFETY_ANALYSIS {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
 #endif  // NDEBUG
       pageheap_lock.Unlock();
-      bool ret = hpaa_.forwarder_.ReleasePages(r);
+      MemoryModifyStatus ret = hpaa_.forwarder_.ReleasePages(r);
       pageheap_lock.Lock();
       return ret;
     }
@@ -317,8 +317,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~Collapse() override = default;
 
-    [[nodiscard]] bool operator()(Range r) override {
-      bool ret = hpaa_.forwarder_.CollapsePages(r);
+    [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+      MemoryModifyStatus ret = hpaa_.forwarder_.CollapsePages(r);
       return ret;
     }
 

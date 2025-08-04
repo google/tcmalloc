@@ -40,6 +40,7 @@
 #include "tcmalloc/mock_virtual_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -63,9 +64,9 @@ class HugeCacheTest
 
   class MockBackingInterface : public MemoryModifyFunction {
    public:
-    MOCK_METHOD(bool, Unback, (PageId p, Length len), ());
+    MOCK_METHOD(MemoryModifyStatus, Unback, (PageId p, Length len), ());
 
-    bool operator()(Range r) override { return Unback(r.p, r.n); }
+    MemoryModifyStatus operator()(Range r) override { return Unback(r.p, r.n); }
   };
 
  protected:
@@ -152,14 +153,14 @@ TEST_P(HugeCacheTest, Release) {
 
   ASSERT_EQ(NHugePages(3), cache_.size());
   EXPECT_CALL(mock_unback_, Unback(r5.start().first_page(), kPagesPerHugePage))
-      .WillOnce(Return(true));
+      .WillOnce(Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   EXPECT_EQ(NHugePages(1), cache_.ReleaseCachedPages(NHugePages(1)));
   Release(r3);
   Release(r4);
 
   EXPECT_CALL(mock_unback_,
               Unback(r1.start().first_page(), 4 * kPagesPerHugePage))
-      .WillOnce(Return(true));
+      .WillOnce(Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   EXPECT_EQ(NHugePages(4), cache_.ReleaseCachedPages(NHugePages(200)));
 }
 
@@ -196,14 +197,16 @@ TEST_P(HugeCacheTest, ReleaseFailure) {
   ASSERT_EQ(NHugePages(3), cache_.size());
   EXPECT_CALL(mock_unback_,
               Unback(r5.start().first_page(), 1 * kPagesPerHugePage))
-      .WillOnce(Return(false));
+      .WillOnce(
+          Return(MemoryModifyStatus{.success = false, .error_number = 0}));
   EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(1)));
   Release(r3);
   Release(r4);
 
   EXPECT_CALL(mock_unback_,
               Unback(r1.start().first_page(), 5 * kPagesPerHugePage))
-      .WillOnce(Return(false));
+      .WillOnce(
+          Return(MemoryModifyStatus{.success = false, .error_number = 0}));
   EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(200)));
 }
 
@@ -272,7 +275,8 @@ static double Frac(HugeLength num, HugeLength denom) {
 // test both paths here.
 TEST_P(HugeCacheTest, Growth) {
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
 
   bool released;
   absl::BitGen rng;
@@ -374,7 +378,8 @@ TEST_P(HugeCacheTest, SlowGrowthUncached) {
     GTEST_SKIP();
   }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   absl::Duration cache_time = GetCacheTime();
 
   absl::BitGen rng;
@@ -404,7 +409,8 @@ TEST_P(HugeCacheTest, SpikesUncached) {
     GTEST_SKIP();
   }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   absl::Duration cache_time = GetCacheTime();
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
@@ -494,7 +500,8 @@ TEST_P(HugeCacheTest, Shrink) {
     GTEST_SKIP();
   }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
   absl::Duration cache_time = GetCacheTime();
@@ -541,7 +548,8 @@ TEST_P(HugeCacheTest, ReleaseByDemandHardRelease) {
     GTEST_SKIP();
   }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   bool released;
   HugeRange r = cache_.Get(NHugePages(1000), &released);
   Release(r);
@@ -583,7 +591,8 @@ TEST_P(HugeCacheTest, ReleaseByDemandIncreaseTarget) {
     GTEST_SKIP();
   }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   bool released;
   // (Current - 3 min) Max: 60 hps, Min: 50 hps.
   HugeRange peak_1a = cache_.Get(NHugePages(50), &released);
@@ -669,7 +678,8 @@ TEST_P(HugeCacheTest, ReleaseByDemandNoHistory) {
     GTEST_SKIP();
   }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   // First we make sure that the cache is not empty.
   bool released;
   Release(cache_.Get(NHugePages(10), &released));
@@ -690,7 +700,8 @@ TEST_P(HugeCacheTest, ReleaseByDemandCappedByDemandPeak) {
     GTEST_SKIP();
   }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   // Generates a demand pattern that can cause the sum-of-peak issue.
   bool released;
   // The diff peak: 20 hps - 1 hps = 19 hps.
@@ -730,7 +741,8 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipRelease) {
   }
 
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
   // First it generates a peak (the long-term demand peak) and waits for
   // time_interval(a). Then, it generates a higher peak that contains the
   // short-term fluctuation peak, and waits for time_interval(b). It then
@@ -893,7 +905,8 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipReleaseReport) {
     GTEST_SKIP();
   }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
 
   // Reports skip release using the recent demand peak (23 hps): it is
   // smaller than the current capacity (33 hps) when 8 hps are skipped.

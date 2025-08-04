@@ -81,6 +81,7 @@ class FakeStaticForwarder {
   bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool value) { release_succeeds_ = value; }
   void set_collapse_succeeds(bool value) { collapse_succeeds_ = value; }
+  void set_error_number(int value) { error_number_ = value; }
 
   bool huge_region_demand_based_release() const {
     return huge_region_demand_based_release_;
@@ -169,19 +170,21 @@ class FakeStaticForwarder {
     return ret;
   }
   void Back(Range r) {}
-  [[nodiscard]] bool ReleasePages(Range r) {
+  [[nodiscard]] MemoryModifyStatus ReleasePages(Range r) {
     const uintptr_t start =
         reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
     const uintptr_t end = start + r.n.in_bytes();
     TC_CHECK_LE(end, fake_allocation_);
 
-    return release_succeeds_;
+    return {.success = release_succeeds_, .error_number = 0};
   }
 
   [[noreturn]] void ReportDoubleFree(void* ptr) {
     TC_BUG("Double free of %p", ptr);
   }
-  [[nodiscard]] bool CollapsePages(Range r) { return collapse_succeeds_; }
+  [[nodiscard]] MemoryModifyStatus CollapsePages(Range r) {
+    return {.success = collapse_succeeds_, .error_number = error_number_};
+  }
   void SetAnonVmaName(
       Range, std::optional<absl::string_view> name) { /* unimplemented */ }
 
@@ -203,6 +206,7 @@ class FakeStaticForwarder {
   bool hpaa_subrelease_ = true;
   bool release_succeeds_ = true;
   bool collapse_succeeds_ = true;
+  int error_number_ = 0;
   bool huge_region_demand_based_release_ = false;
   bool huge_cache_demand_based_release_ = false;
   Arena arena_;

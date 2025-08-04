@@ -77,6 +77,11 @@ struct AddressRange {
   size_t bytes;
 };
 
+struct MemoryModifyStatus {
+  bool success;
+  int error_number;
+};
+
 template <typename Topology>
 class SystemAllocator {
  public:
@@ -126,12 +131,12 @@ class SystemAllocator {
   // be released, partial pages will not.)
   //
   // Returns true on success.
-  [[nodiscard]] bool Release(void* start, size_t length);
+  [[nodiscard]] MemoryModifyStatus Release(void* start, size_t length);
 
   // Attempt to MADV_COLLAPSE the specified range of memory, starting at the
   // <start> address, ranging <length>.
   // Returns true on success.
-  [[nodiscard]] bool Collapse(void* start, size_t length);
+  [[nodiscard]] MemoryModifyStatus Collapse(void* start, size_t length);
 
   // Sets the anonymous VMA <name> for the specified range of memory, starting
   // at the <start> address, ranging <length>.
@@ -582,7 +587,8 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
 }
 
 template <typename Topology>
-bool SystemAllocator<Topology>::Release(void* start, size_t length) {
+MemoryModifyStatus SystemAllocator<Topology>::Release(void* start,
+                                                      size_t length) {
   bool result = false;
 
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
@@ -627,19 +633,21 @@ bool SystemAllocator<Topology>::Release(void* start, size_t length) {
   }
 #endif
 
-  return result;
+  return {result, errno};
 }
 
 template <typename Topology>
-bool SystemAllocator<Topology>::Collapse(void* start, size_t length) {
+MemoryModifyStatus SystemAllocator<Topology>::Collapse(void* start,
+                                                       size_t length) {
   int ret = -1;
   int attempts = 0;
   constexpr int kMaxAttempts = 3;
+  ErrnoRestorer errno_restorer;
   do {
     ret = madvise(start, length, MADV_COLLAPSE);
     ++attempts;
   } while (ret == -1 && errno == EAGAIN && attempts < kMaxAttempts);
-  return ret == 0;
+  return {ret == 0, errno};
 }
 
 template <typename Topology>

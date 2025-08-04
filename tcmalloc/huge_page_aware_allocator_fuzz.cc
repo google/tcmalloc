@@ -39,6 +39,7 @@
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
@@ -48,7 +49,7 @@ using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
 class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
  public:
-  bool ReleasePages(Range r) {
+  MemoryModifyStatus ReleasePages(Range r) {
     pending_release_ += r.n;
     release_callback_();
     pending_release_ -= r.n;
@@ -452,6 +453,7 @@ void FuzzHPAA(const std::string& s) {
             }
             case 9: {
               forwarder.set_collapse_succeeds(actual_value & 0x1);
+              forwarder.set_error_number((actual_value >> 1) & 0xffff);
               break;
             }
             case 10: {

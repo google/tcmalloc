@@ -538,7 +538,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
     HugeLength hl = NHugePages(j - i);
     HugePage p = location_.start() + NHugePages(i);
-    if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)))) {
+    if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)).success)) {
       nbacked_ -= hl;
       total_unbacked_ += hl;
 

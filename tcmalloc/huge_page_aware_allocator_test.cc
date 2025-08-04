@@ -82,9 +82,9 @@ class HugePageAwareAllocatorTest
   class FakeStaticForwarderWithReleaseCheck
       : public huge_page_allocator_internal::FakeStaticForwarder {
    public:
-    [[nodiscard]] bool ReleasePages(Range r) {
+    [[nodiscard]] MemoryModifyStatus ReleasePages(Range r) {
       const uintptr_t start = reinterpret_cast<uintptr_t>(r.p.start_addr());
-      bool ret =
+      MemoryModifyStatus ret =
           huge_page_allocator_internal::FakeStaticForwarder::ReleasePages(r);
       // Try to acquire the lock. It is possible that we are holding
       // pageheap_lock while calling ReleasePages, so it might result in a
@@ -1653,11 +1653,30 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
   std::vector<Metadata> metadata;
   metadata.resize(kAllocThreads);
   allocator_->forwarder().set_collapse_succeeds(true);
+  allocator_->forwarder().set_error_number(0);
 
   auto collase_func = [&](const std::atomic<bool>& done) {
     absl::BitGen rng;
     while (!done.load(std::memory_order_acquire)) {
       allocator_->forwarder().set_collapse_succeeds(absl::Bernoulli(rng, 0.5));
+      int error = absl::Uniform(rng, 0, 5);
+      switch (error) {
+        case 0:
+          allocator_->forwarder().set_error_number(ENOMEM);
+          break;
+        case 1:
+          allocator_->forwarder().set_error_number(EAGAIN);
+          break;
+        case 2:
+          allocator_->forwarder().set_error_number(EBUSY);
+          break;
+        case 3:
+          allocator_->forwarder().set_error_number(EINVAL);
+          break;
+        default:
+          allocator_->forwarder().set_error_number(error);
+          break;
+      }
       TreatHugepageTrackers(/*enable_collapse=*/true,
                             /*enable_release_free_swapped=*/false);
     }

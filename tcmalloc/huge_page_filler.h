@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <climits>
 #include <cstddef>
 #include <limits>
@@ -207,7 +208,7 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   // Attempts to collapse memory tracked by this tracker. Returns true if the
   // collapse was successful.
-  bool Collapse(MemoryModifyFunction& collapse);
+  MemoryModifyStatus Collapse(MemoryModifyFunction& collapse);
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
   bool HasDenseSpans() const { return has_dense_spans_; }
@@ -341,7 +342,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   bool dont_free_tracker_ = false;
 
   [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
-    bool success = unback(r);
+    bool success = unback(r).success;
     if (ABSL_PREDICT_TRUE(success)) {
       unbroken_ = false;
     }
@@ -396,11 +397,75 @@ enum class LFRRequirement : bool {
   kMatchingLFR,
 };
 
+enum class CollapseErrorType : size_t {
+  kENoMem = 0,
+  kEBusy,
+  kEInval,
+  kEAgain,
+  kOther,
+  kErrorTypes
+};
+
 struct HugePageTreatmentStats {
   size_t collapse_eligible = 0;
   size_t collapse_attempted = 0;
   size_t collapse_succeeded = 0;
+  std::array<size_t, static_cast<size_t>(CollapseErrorType::kErrorTypes)>
+      collapse_errors = {0};
   size_t treated_pages_subreleased = 0;
+
+  static absl::string_view ErrorTypeToString(CollapseErrorType type) {
+    switch (type) {
+      case CollapseErrorType::kENoMem:
+        return "ETYPE_NOMEM";
+      case CollapseErrorType::kEBusy:
+        return "ETYPE_BUSY";
+      case CollapseErrorType::kEInval:
+        return "ETYPE_INVAL";
+      case CollapseErrorType::kEAgain:
+        return "ETYPE_AGAIN";
+      case CollapseErrorType::kOther:
+        return "ETYPE_OTHER";
+      default:
+        return "ETYPE_OTHER";
+    }
+  }
+
+  static size_t ErrorTypeToIndex(CollapseErrorType type) {
+    return static_cast<size_t>(type);
+  }
+
+  void UpdateCollapseErrorStats(int error_number) {
+    switch (error_number) {
+      case ENOMEM:
+        ++collapse_errors[ErrorTypeToIndex(CollapseErrorType::kENoMem)];
+        break;
+      case EBUSY:
+        ++collapse_errors[ErrorTypeToIndex(CollapseErrorType::kEBusy)];
+        break;
+      case EINVAL:
+        ++collapse_errors[ErrorTypeToIndex(CollapseErrorType::kEInval)];
+        break;
+      case EAGAIN:
+        ++collapse_errors[ErrorTypeToIndex(CollapseErrorType::kEAgain)];
+        break;
+      default:
+        ++collapse_errors[ErrorTypeToIndex(CollapseErrorType::kOther)];
+        break;
+    }
+  }
+
+  HugePageTreatmentStats& operator+=(const HugePageTreatmentStats& rhs) {
+    collapse_eligible += rhs.collapse_eligible;
+    collapse_attempted += rhs.collapse_attempted;
+    collapse_succeeded += rhs.collapse_succeeded;
+    for (size_t i = 0; i < collapse_errors.size(); ++i) {
+      collapse_errors[i] += rhs.collapse_errors[i];
+    }
+    // TODO(b/425749361): Add treated_pages_subreleased to the stats when we
+    // start collecting cumulative stats.
+    return *this;
+  };
 };
 
 // This tracks a set of unfilled hugepages, and fulfills allocations
@@ -813,18 +878,20 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   return Length(count);
 }
 
-inline bool PageTracker::Collapse(MemoryModifyFunction& collapse) {
+inline MemoryModifyStatus PageTracker::Collapse(
+    MemoryModifyFunction& collapse) {
   // TODO(b/287498389): Consider using an atomic variable instead of a lock to
   // store the being_collapsed state.
   {
     PageHeapSpinLockHolder l;
     // If the tracker is in the released state, we do no want to collapse it.
-    if (released()) return false;
+    if (released()) return {.success = false, .error_number = 0};
     TC_ASSERT(!BeingCollapsed());
     SetBeingCollapsed(/*value=*/true);
   }
 
-  bool success = collapse(Range(location_.first_page(), kPagesPerHugePage));
+  MemoryModifyStatus success =
+      collapse(Range(location_.first_page(), kPagesPerHugePage));
 
   {
     PageHeapSpinLockHolder l;
@@ -1090,7 +1157,8 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
         // allowing us to work with hugepage-granularity, rather than needing to
         // retain pt's state indefinitely.
         bool success =
-            unback_without_lock_(HugeRange(pt->location(), NHugePages(1)));
+            unback_without_lock_(HugeRange(pt->location(), NHugePages(1)))
+                .success;
 
         if (ABSL_PREDICT_TRUE(success)) {
           unmapping_unaccounted_ += free_pages - released_pages;
@@ -2211,23 +2279,24 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
   void UpdateHugePageTreatmentStats(HugePageTreatmentStats& stats) {
-    stats.collapse_eligible += treatment_stats_.collapse_eligible;
-    stats.collapse_attempted += treatment_stats_.collapse_attempted;
-    stats.collapse_succeeded += treatment_stats_.collapse_succeeded;
-    // We overwrite this value instead of adding because this value is not
-    // cumulative across treatment iterations.
+    stats += treatment_stats_;
+    // TODO(b/425749361): Roll this up to the overloaded operator once we start
+    // reporting cumulative treated_pages_subreleased stat.
     stats.treated_pages_subreleased =
         treatment_stats_.treated_pages_subreleased;
   }
 
  private:
   bool TryUserspaceCollapse(PageTracker* tracker) {
-    bool success = tracker->Collapse(collapse_);
+    MemoryModifyStatus ret = tracker->Collapse(collapse_);
     treatment_stats_.collapse_attempted++;
-    if (success) {
+    if (ret.success) {
       treatment_stats_.collapse_succeeded++;
+    } else {
+      // If the collapsed operation failed, errno should have been set.
+      treatment_stats_.UpdateCollapseErrorStats(ret.error_number);
     }
-    return success;
+    return ret.success;
   }
 
   static constexpr size_t kTotalTrackersToScan = 64;
@@ -2516,6 +2585,17 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
       treatment_stats_.collapse_succeeded);
 
   out.printf(
+      "HugePageFiller: Of the failed collapse operations, number of operations "
+      "that failed per error type");
+  for (int i = 0; i < treatment_stats_.collapse_errors.size(); ++i) {
+    out.printf(", %s: %zu",
+               HugePageTreatmentStats::ErrorTypeToString(
+                   static_cast<CollapseErrorType>(i)),
+               treatment_stats_.collapse_errors[i]);
+  }
+  out.printf("\n");
+
+  out.printf(
       "HugePageFiller: In the previous treatment interval, "
       "subreleased %zu pages.\n",
       treatment_stats_.treated_pages_subreleased);
@@ -2681,6 +2761,16 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
                                         treatment_stats_.collapse_attempted);
     huge_page_treatment_region.PrintI64("collapse_succeeded",
                                         treatment_stats_.collapse_succeeded);
+    for (int i = 0; i < treatment_stats_.collapse_errors.size(); ++i) {
+      PbtxtRegion collapse_errors_region =
+          huge_page_treatment_region.CreateSubRegion("collapse_errors");
+      collapse_errors_region.PrintRaw("type",
+                                      HugePageTreatmentStats::ErrorTypeToString(
+                                          static_cast<CollapseErrorType>(i)));
+      collapse_errors_region.PrintI64("count",
+                                      treatment_stats_.collapse_errors[i]);
+    }
+
     huge_page_treatment_region.PrintI64(
         "treated_pages_subreleased",
         treatment_stats_.treated_pages_subreleased);

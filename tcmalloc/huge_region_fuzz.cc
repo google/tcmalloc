@@ -31,17 +31,18 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
 class MockUnback final : public MemoryModifyFunction {
  public:
-  [[nodiscard]] bool operator()(Range r) override {
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
     release_callback_();
 
     if (!unback_success_) {
-      return false;
+      return {.success = false, .error_number = 0};
     }
 
     PageId end = r.p + r.n;
@@ -49,7 +50,7 @@ class MockUnback final : public MemoryModifyFunction {
       released_.insert(r.p);
     }
 
-    return true;
+    return {.success = true, .error_number = 0};
   }
 
   absl::flat_hash_set<PageId> released_;

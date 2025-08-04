@@ -43,6 +43,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
@@ -67,9 +68,9 @@ class HugeRegionTest : public ::testing::Test {
 
   class MockBackingInterface : public MemoryModifyFunction {
    public:
-    MOCK_METHOD(bool, Unback, (PageId p, Length len), ());
+    MOCK_METHOD(MemoryModifyStatus, Unback, (PageId p, Length len), ());
 
-    bool operator()(Range r) override { return Unback(r.p, r.n); }
+    MemoryModifyStatus operator()(Range r) override { return Unback(r.p, r.n); }
   };
 
   std::unique_ptr<MockBackingInterface> mock_;
@@ -78,7 +79,8 @@ class HugeRegionTest : public ::testing::Test {
 
   void ExpectUnback(HugeRange r, bool success = true) {
     EXPECT_CALL(*mock_, Unback(r.start().first_page(), r.len().in_pages()))
-        .WillOnce(Return(success));
+        .WillOnce(
+            Return(MemoryModifyStatus{.success = success, .error_number = 0}));
   }
 
   struct Alloc {
@@ -330,7 +332,8 @@ class MemorySimulation final : public MemoryModifyFunction {
                    absl::Span<std::atomic<char>> bytes)
       : mu_(mu), base_(base), bytes_(bytes) {}
 
-  bool operator()(Range r) override ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  MemoryModifyStatus operator()(Range r) override
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
     // TODO(b/73749855): Simulate with unlocking.
     mu_.AssertHeld();
 
@@ -339,7 +342,7 @@ class MemorySimulation final : public MemoryModifyFunction {
       bytes_[index + i].store(0, std::memory_order_release);
     }
 
-    return true;
+    return {.success = true, .error_number = 0};
   }
 
  private:
@@ -631,7 +634,9 @@ TEST_F(HugeRegionTest, StatBreakdownReleaseFailure) {
 
 class NilUnback final : public MemoryModifyFunction {
  public:
-  bool operator()(Range r) override { return true; }
+  MemoryModifyStatus operator()(Range r) override {
+    return {.success = true, .error_number = 0};
+  }
 };
 
 class HugeRegionSetTest

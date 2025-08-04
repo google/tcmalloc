@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -44,6 +45,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
@@ -53,6 +55,7 @@ namespace {
 int64_t fake_clock = 0;
 bool unback_success = true;
 bool collapse_success = true;
+int error_number = 0;
 bool is_hugepage_backed = true;
 Bitmap<kMaxResidencyBits> unbacked_bitmap;
 Bitmap<kMaxResidencyBits> swapped_bitmap;
@@ -77,9 +80,9 @@ Bitmap<kMaxResidencyBits> GetBitmap(int value) {
 
 class MockUnback final : public MemoryModifyFunction {
  public:
-  [[nodiscard]] bool operator()(Range r) override {
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
     if (!unback_success) {
-      return false;
+      return {.success = false, .error_number = 0};
     }
 
     absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -89,7 +92,7 @@ class MockUnback final : public MemoryModifyFunction {
       released_set.insert(r.p);
     }
 
-    return true;
+    return {.success = true, .error_number = error_number};
   }
 };
 
@@ -133,7 +136,9 @@ class FakeResidency : public Residency {
 
 class MockCollapse final : public MemoryModifyFunction {
  public:
-  [[nodiscard]] bool operator()(Range r) override { return collapse_success; }
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+    return {collapse_success, error_number};
+  }
 };
 
 void FuzzFiller(const std::string& s) {
@@ -527,6 +532,31 @@ void FuzzFiller(const std::string& s) {
       case 12: {
         // Toggle collapse success.
         collapse_success = !collapse_success;
+        break;
+      }
+      case 13: {
+        switch (value & 0x3) {
+          case 0: {
+            error_number = ENOMEM;
+            break;
+          }
+          case 1: {
+            error_number = EAGAIN;
+            break;
+          }
+          case 2: {
+            error_number = EBUSY;
+            break;
+          }
+          case 3: {
+            error_number = EINVAL;
+            break;
+          }
+          default: {
+            error_number = (value >> 3);
+            break;
+          }
+        }
         break;
       }
     }
