@@ -252,6 +252,7 @@ class Parameters {
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
   static std::atomic<bool> release_free_swapped_;
+  static std::atomic<bool> usermode_hugepage_collapse_enabled_;
 };
 
 }  // namespace tcmalloc_internal

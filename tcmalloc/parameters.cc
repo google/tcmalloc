@@ -114,14 +114,6 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   return v;
 }
 
-// As usermode_hugepage_collapse_enabled() is determined at runtime, we
-// cannot require constant initialization for the atomic. This avoids an
-// initialization order fiasco.
-static std::atomic<bool>& usermode_hugepage_collapse_enabled() {
-  ABSL_CONST_INIT static std::atomic<bool> v{true};
-  return v;
-}
-
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
@@ -251,6 +243,9 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
 
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(false);
 
+ABSL_CONST_INIT std::atomic<bool>
+    Parameters::usermode_hugepage_collapse_enabled_(true);
+
 bool Parameters::background_process_actions_enabled() {
   return background_process_actions_enabled_ptr().load(
       std::memory_order_relaxed);
@@ -282,7 +277,7 @@ absl::Duration Parameters::cache_demand_release_long_interval() {
 }
 
 bool Parameters::usermode_hugepage_collapse() {
-  return usermode_hugepage_collapse_enabled().load(std::memory_order_relaxed);
+  return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
 
 bool Parameters::sparse_trackers_coarse_longest_free_range() {
@@ -514,7 +509,7 @@ void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v) {
 }
 
 void TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v) {
-  tcmalloc::tcmalloc_internal::usermode_hugepage_collapse_enabled().store(
+  Parameters::usermode_hugepage_collapse_enabled_.store(
       v, std::memory_order_relaxed);
 }
 
