@@ -130,7 +130,13 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(
       buf,
       HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
+
+#ifdef NDEBUG
   EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: true"));
+#else
+  EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: false"));
+#endif
+
   // # TODO: b/425749361 - Update this to conditionally expect true.
   EXPECT_THAT(buf, HasSubstr("release_free_swapped: false"));
 
@@ -204,8 +210,14 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(
             R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
 
+#ifdef NDEBUG
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 1)"));
+#else
+    EXPECT_THAT(
+        buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 0)"));
+#endif
+
     // TODO: b/425749361 - Update this to conditionally expect true.
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 0)"));
     EXPECT_THAT(

@@ -244,7 +244,13 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(false);
 
 ABSL_CONST_INIT std::atomic<bool>
-    Parameters::usermode_hugepage_collapse_enabled_(true);
+    Parameters::usermode_hugepage_collapse_enabled_{
+        // This feature causes very long delays in the tail in non-optimized
+        // builds.
+        //
+        // TODO(b/287498389): remove this divergence.
+        DefaultOrDebugValue(true, false),
+    };
 
 bool Parameters::background_process_actions_enabled() {
   return background_process_actions_enabled_ptr().load(
