@@ -414,6 +414,10 @@ struct HugePageTreatmentStats {
       collapse_errors = {0};
   size_t treated_pages_subreleased = 0;
 
+  // TODO(287498389): Add latency histogram once we have a better idea of the
+  // range of values.
+  double collapse_time_total_cycles = 0;
+  double collapse_time_max_cycles = 0;
   static absl::string_view ErrorTypeToString(CollapseErrorType type) {
     switch (type) {
       case CollapseErrorType::kENoMem:
@@ -462,6 +466,7 @@ struct HugePageTreatmentStats {
     for (size_t i = 0; i < collapse_errors.size(); ++i) {
       collapse_errors[i] += rhs.collapse_errors[i];
     }
+    collapse_time_total_cycles += rhs.collapse_time_total_cycles;
     // TODO(b/425749361): Add treated_pages_subreleased to the stats when we
     // start collecting cumulative stats.
     return *this;
@@ -1220,10 +1225,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
  public:
   explicit SampledTrackerTreatment(Clock clock, MemoryTag tag,
                                    MemoryTagFunction& set_anon_vma_name)
-      : clock_now_(clock.now()),
-        clock_freq_(clock.freq()),
-        tag_(tag),
-        set_anon_vma_name_(set_anon_vma_name) {}
+      : clock_(clock), tag_(tag), set_anon_vma_name_(set_anon_vma_name) {}
   ~SampledTrackerTreatment() override = default;
 
   // Trying to apply treatments to the sampled trackers involves three
@@ -1247,8 +1249,10 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     const absl::Duration kRecordInterval = absl::Minutes(5);
     PageTracker::TagState tagged_state = pt.GetTagState();
     if (!tagged_state.sampled_for_tagging) return;
-    double elapsed = std::max<double>(clock_now_ - tagged_state.record_time, 0);
-    if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * clock_freq_) {
+    double clock_now = clock_.now();
+    double clock_freq = clock_.freq();
+    double elapsed = std::max<double>(clock_now - tagged_state.record_time, 0);
+    if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * clock_freq) {
       selected_trackers_[num_valid_trackers_] = {
           &pt,
           pt.longest_free_range().raw_num(),
@@ -1256,7 +1260,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
           pt.nobjects(),
           pt.HasDenseSpans(),
           pt.released()};
-      pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now_});
+      pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now});
       ++num_valid_trackers_;
       // Setting this bit makes sure that the tracker is not freed under us
       // when the pageheap lock is unlocked and we are in the middle of
@@ -1303,8 +1307,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
 
  private:
   static constexpr size_t kTotalTrackersToScan = 64;
-  double clock_now_;
-  double clock_freq_;
+  Clock clock_;
   MemoryTag tag_;
   MemoryTagFunction& set_anon_vma_name_;
 
@@ -2155,8 +2158,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       Clock clock, PageFlagsBase* pageflags, Residency* residency,
       MemoryModifyFunction& collapse, HugePageFiller<TrackerType>& page_filler,
       bool enable_collapse, bool enable_release_free_swap)
-      : clock_now_(clock.now()),
-        clock_freq_(clock.freq()),
+      : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
         collapse_(collapse),
@@ -2193,8 +2195,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       pt.SetDontFreeTracker(/*value=*/true);
       return;
     }
-    double elapsed = std::max<double>(clock_now_ - state.record_time, 0);
-    if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * clock_freq_) {
+    double elapsed = std::max<double>(clock_.now() - state.record_time, 0);
+    if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * clock_.freq()) {
       selected_trackers_[num_valid_trackers_] = &pt;
       ++num_valid_trackers_;
       pt.SetDontFreeTracker(/*value=*/true);
@@ -2232,7 +2234,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       TC_ASSERT_NE(tracker, nullptr);
       bool is_hugepage = pf->IsHugepageBacked(tracker->location().start_addr());
       state.entry_valid = true;
-      state.record_time = clock_now_;
+      state.record_time = clock_.now();
 
       // If the address is not hugepage backed, obtain the residency
       // information.
@@ -2284,11 +2286,20 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     // reporting cumulative treated_pages_subreleased stat.
     stats.treated_pages_subreleased =
         treatment_stats_.treated_pages_subreleased;
+    stats.collapse_time_max_cycles =
+        std::max(stats.collapse_time_max_cycles,
+                 treatment_stats_.collapse_time_max_cycles);
   }
 
  private:
   bool TryUserspaceCollapse(PageTracker* tracker) {
+    double before = clock_.now();
     MemoryModifyStatus ret = tracker->Collapse(collapse_);
+    double after = clock_.now();
+    double elapsed = std::max<double>(after - before, 0);
+    treatment_stats_.collapse_time_total_cycles += elapsed;
+    treatment_stats_.collapse_time_max_cycles =
+        std::max(elapsed, treatment_stats_.collapse_time_max_cycles);
     treatment_stats_.collapse_attempted++;
     if (ret.success) {
       treatment_stats_.collapse_succeeded++;
@@ -2304,8 +2315,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   static constexpr size_t kMaxSwappedPagesForCollapse = 128;
   static constexpr size_t kMaxUnbackedPagesForCollapse = 64;
 
-  double clock_now_;
-  double clock_freq_;
+  Clock clock_;
   PageFlagsBase* pageflags_;
   Residency* residency_;
   MemoryModifyFunction& collapse_;
@@ -2596,6 +2606,12 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
   out.printf("\n");
 
   out.printf(
+      "HugePageFiller: Latency of collapse operations: "
+      "%f ms (total), %f us (maximum)\n",
+      treatment_stats_.collapse_time_total_cycles * 1000 / clock_.freq(),
+      treatment_stats_.collapse_time_max_cycles * 1000 * 1000 / clock_.freq());
+
+  out.printf(
       "HugePageFiller: In the previous treatment interval, "
       "subreleased %zu pages.\n",
       treatment_stats_.treated_pages_subreleased);
@@ -2770,6 +2786,12 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
       collapse_errors_region.PrintI64("count",
                                       treatment_stats_.collapse_errors[i]);
     }
+    huge_page_treatment_region.PrintI64(
+        "collapse_total_time_ms",
+        treatment_stats_.collapse_time_total_cycles * 1000 / clock_.freq());
+    huge_page_treatment_region.PrintI64(
+        "collapse_max_time_us", treatment_stats_.collapse_time_max_cycles *
+                                    1000 * 1000 / clock_.freq());
 
     huge_page_treatment_region.PrintI64(
         "treated_pages_subreleased",

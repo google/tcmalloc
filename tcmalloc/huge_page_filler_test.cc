@@ -772,12 +772,29 @@ TEST_F(PageTrackerTest, b151915873) {
                                   &small.normal_length[kMaxPages.raw_num()]));
 }
 
+class FakeClock {
+ public:
+  FakeClock() = default;
+  static int64_t now() { return clock_; }
+  static double freq() { return absl::ToDoubleNanoseconds(absl::Seconds(2)); }
+  static void Advance(absl::Duration d) {
+    clock_ += absl::ToDoubleSeconds(d) * freq();
+  }
+  static void ResetClock() { clock_ = 1234; }
+
+ private:
+  static int64_t clock_;
+};
+
+int64_t FakeClock::clock_ = 1234;
+
 class MockCollapse final : public MemoryModifyFunction {
  public:
   MockCollapse() = default;
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
     EXPECT_EQ(r.n, kPagesPerHugePage);
     ++collapsed_[r.start_addr()];
+    FakeClock::Advance(latency_);
     return {.success = success_, .error_number = error_number_};
   }
 
@@ -796,11 +813,13 @@ class MockCollapse final : public MemoryModifyFunction {
 
   void SetSuccess(bool success) { success_ = success; }
   void SetErrorNumber(int error_number) { error_number_ = error_number; }
+  void SetLatency(absl::Duration latency) { latency_ = latency; }
 
  private:
   absl::flat_hash_map<void*, int> collapsed_;
   bool success_ = true;
   int error_number_ = 0;
+  absl::Duration latency_;
 };
 
 class MockSetAnonVmaName final : public MemoryTagFunction {
@@ -853,16 +872,6 @@ thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
 class FillerTest
     : public testing::TestWithParam<HugePageFillerSparseTrackerType> {
  protected:
-  // Allow tests to modify the clock used by the cache.
-  static int64_t FakeClock() { return clock_; }
-  static double GetFakeClockFrequency() {
-    return absl::ToDoubleNanoseconds(absl::Seconds(2));
-  }
-  static void Advance(absl::Duration d) {
-    clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
-  }
-  static void ResetClock() { clock_ = 1234; }
-
   // We have backing of one word per (normal-sized) page for our "hugepages".
   std::vector<size_t> backing_;
   // This is space efficient enough that we won't bother recycling pages.
@@ -900,11 +909,11 @@ class FillerTest
   MockSetAnonVmaName set_anon_vma_name_;
 
   FillerTest()
-      : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
+      : filler_(Clock{.now = FakeClock::now, .freq = FakeClock::freq},
                 /*sparse_tracker_type=*/GetParam(), MemoryTag::kNormal,
                 blocking_unback_, blocking_unback_, collapse_,
                 set_anon_vma_name_) {
-    ResetClock();
+    FakeClock::ResetClock();
     // Reset success state
     blocking_unback_.success_ = true;
   }
@@ -1240,7 +1249,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
 
   // Advance the clock and try again, the last page is free, so it
   // should be released.
-  Advance(absl::Minutes(100));
+  FakeClock::Advance(absl::Minutes(100));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true, &pageflags,
                         &residency);
@@ -1290,7 +1299,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
                                  "interval, subreleased 2 pages."));
 
   // Check that pages are not released again. We have to advance the clock.
-  Advance(absl::Minutes(100));
+  FakeClock::Advance(absl::Minutes(100));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true, &pageflags,
                         &residency);
@@ -1421,6 +1430,8 @@ TEST_P(FillerTest, DontCollapseAlreadyHugepages) {
   EXPECT_EQ(treatment_stats.collapse_eligible, 1);
   EXPECT_EQ(treatment_stats.collapse_attempted, 0);
   EXPECT_EQ(treatment_stats.collapse_succeeded, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_total_cycles, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_max_cycles, 0);
   DeleteVector(p1);
 }
 
@@ -1436,6 +1447,8 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
     EXPECT_EQ(treatment_stats.collapse_eligible, expected_eligible);
     EXPECT_EQ(treatment_stats.collapse_attempted, expected_attempted);
     EXPECT_EQ(treatment_stats.collapse_succeeded, expected_succeeded);
+    EXPECT_EQ(treatment_stats.collapse_time_total_cycles, 0);
+    EXPECT_EQ(treatment_stats.collapse_time_max_cycles, 0);
   };
 
   for (const auto& pa : p1) {
@@ -1490,7 +1503,7 @@ TEST_P(FillerTest, SetAnonVmaName) {
       "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_nobjects_256_dense_1_"
       "released_0");
 
-  Advance(absl::Minutes(10));
+  FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/false, &pageflags,
                         &residency);
@@ -1498,7 +1511,7 @@ TEST_P(FillerTest, SetAnonVmaName) {
 
   // Advance clock by 10 seconds, which is not enough to sample the tracker
   // again.
-  Advance(absl::Seconds(10));
+  FakeClock::Advance(absl::Seconds(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/false, &pageflags,
                         &residency);
@@ -1512,7 +1525,7 @@ TEST_P(FillerTest, SetAnonVmaName) {
       "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_nobjects_512_dense_1_"
       "released_0");
 
-  Advance(absl::Minutes(10));
+  FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/false, &pageflags,
                         &residency);
@@ -1521,7 +1534,7 @@ TEST_P(FillerTest, SetAnonVmaName) {
   // Allocate and advance.  nobjects should remain unchanged.
   PAlloc p3 = AllocateWithSpanAllocInfo(Length(1), info);
 
-  Advance(absl::Minutes(10));
+  FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/false, &pageflags,
                         &residency);
@@ -1614,6 +1627,54 @@ TEST_P(FillerTest, DontCollapseHugepages) {
   EXPECT_EQ(treatment_stats.collapse_eligible, 4);
   EXPECT_EQ(treatment_stats.collapse_attempted, 0);
   EXPECT_EQ(treatment_stats.collapse_succeeded, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_total_cycles, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_max_cycles, 0);
+}
+
+TEST_P(FillerTest, CollapseLatency) {
+  const Length kAlloc = kPagesPerHugePage / 2;
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
+  ASSERT_TRUE(!p1.empty());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, /*n=*/1);
+    swapped.SetRange(/*index=*/0, /*n=*/1);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_time_total_cycles, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_max_cycles, 0);
+
+  const absl::Duration latency = absl::Microseconds(100);
+  collapse_.SetLatency(latency);
+  TreatHugepageTrackers(/*enable_collapse=*/true,
+                        /*enable_release_free_swapped=*/false, &pageflags,
+                        &residency);
+  for (const auto& pa : p1) {
+    EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+  }
+  treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_eligible, 1);
+  EXPECT_EQ(treatment_stats.collapse_attempted, 1);
+  EXPECT_EQ(treatment_stats.collapse_succeeded, 1);
+  EXPECT_EQ(treatment_stats.collapse_time_total_cycles,
+            absl::ToDoubleSeconds(latency) * FakeClock::freq());
+  EXPECT_EQ(treatment_stats.collapse_time_max_cycles,
+            absl::ToDoubleSeconds(latency) * FakeClock::freq());
+
+  DeleteVector(p1);
 }
 
 // Don't collapse pages that are released.
@@ -1656,6 +1717,8 @@ TEST_P(FillerTest, DontCollapseReleasedPages) {
   EXPECT_EQ(treatment_stats.collapse_eligible, 0);
   EXPECT_EQ(treatment_stats.collapse_attempted, 0);
   EXPECT_EQ(treatment_stats.collapse_succeeded, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_total_cycles, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_max_cycles, 0);
   for (const auto& pa : p1) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
   }
@@ -1679,6 +1742,8 @@ TEST_P(FillerTest, CollapseFailure) {
     EXPECT_EQ(treatment_stats.collapse_succeeded, expected_succeeded);
     EXPECT_EQ(treatment_stats.collapse_errors[static_cast<int>(error_type)],
               error_count);
+    EXPECT_EQ(treatment_stats.collapse_time_total_cycles, 0);
+    EXPECT_EQ(treatment_stats.collapse_time_max_cycles, 0);
   };
 
   FakePageFlags pageflags;
@@ -1707,7 +1772,7 @@ TEST_P(FillerTest, CollapseFailure) {
               /*expected_succeeded=*/0, CollapseErrorType::kEInval,
               /*error_count=*/1);
 
-  Advance(absl::Minutes(10));
+  FakeClock::Advance(absl::Minutes(10));
   collapse_.SetErrorNumber(ENOMEM);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false, &pageflags,
@@ -1716,7 +1781,7 @@ TEST_P(FillerTest, CollapseFailure) {
               /*expected_succeeded=*/0, CollapseErrorType::kENoMem,
               /*error_count=*/1);
 
-  Advance(absl::Minutes(10));
+  FakeClock::Advance(absl::Minutes(10));
   collapse_.SetErrorNumber(EBUSY);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false, &pageflags,
@@ -1725,7 +1790,7 @@ TEST_P(FillerTest, CollapseFailure) {
               /*expected_succeeded=*/0, CollapseErrorType::kEBusy,
               /*error_count=*/1);
 
-  Advance(absl::Minutes(10));
+  FakeClock::Advance(absl::Minutes(10));
   collapse_.SetErrorNumber(EAGAIN);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false, &pageflags,
@@ -1734,7 +1799,7 @@ TEST_P(FillerTest, CollapseFailure) {
               /*expected_succeeded=*/0, CollapseErrorType::kEAgain,
               /*error_count=*/1);
 
-  Advance(absl::Minutes(10));
+  FakeClock::Advance(absl::Minutes(10));
   collapse_.SetErrorNumber(0);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false, &pageflags,
@@ -1788,7 +1853,7 @@ TEST_P(FillerTest, CollapseClock) {
   check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
               /*expected_succeeded=*/0);
 
-  Advance(absl::Seconds(1));
+  FakeClock::Advance(absl::Seconds(1));
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
@@ -1805,7 +1870,7 @@ TEST_P(FillerTest, CollapseClock) {
   check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
               /*expected_succeeded=*/0);
 
-  Advance(absl::Minutes(10));
+  FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false, &pageflags,
                         &residency);
@@ -2868,7 +2933,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
     // First peak: min_demand 3/4N, max_demand 1N.
     PAlloc peak1a = AllocateWithSpanAllocInfo(3 * N / 4, info);
     PAlloc peak1b = AllocateWithSpanAllocInfo(N / 4, peak1a.span_alloc_info);
-    Advance(a);
+    FakeClock::Advance(a);
     // Second peak: min_demand 0, max_demand 2N.
     Delete(peak1a);
     Delete(peak1b);
@@ -2885,7 +2950,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
     EXPECT_EQ(filler_.used_pages(), 2 * N);
     Delete(peak2a);
     Delete(peak2b);
-    Advance(b);
+    FakeClock::Advance(b);
     Delete(half);
     EXPECT_EQ(filler_.free_pages(), Length(N / 2));
     // The number of released pages is limited to the number of free
@@ -2893,7 +2958,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
     EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
               ReleasePartialPages(10 * N, intervals));
 
-    Advance(c);
+    FakeClock::Advance(c);
     // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
     PAlloc peak3a = AllocateWithSpanAllocInfo(3 * N / 4, info);
     PAlloc peak3b = AllocateWithSpanAllocInfo(N / 4, peak3a.span_alloc_info);
@@ -2925,7 +2990,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Repeats the "demand_pattern 1" test with additional short-term and
@@ -2940,7 +3005,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
         false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses peak interval for skipping subrelease, subreleasing all free
@@ -2953,7 +3018,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
                    true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Skip subrelease feature is disabled if all intervals are zero.
@@ -2962,7 +3027,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
                    SkipSubreleaseIntervals{}, true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
@@ -2974,7 +3039,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses short-term and long-term intervals for skipping subrelease,
@@ -2985,7 +3050,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
                                            .long_interval = absl::Minutes(2)},
                    true);
   }
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses only short-term interval for skipping subrelease. It correctly
@@ -2996,7 +3061,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
@@ -3007,7 +3072,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
                    true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // This captures a corner case: If we hit another peak immediately after a
   // subrelease decision (in the same time series epoch), do not count this as
@@ -3029,7 +3094,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // Ensure that the tracker is updated.
   auto tiny = Allocate(Length(1));
@@ -3078,7 +3143,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
     ASSERT_TRUE(!peak1a.empty());
     std::vector<PAlloc> peak1b =
         AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
-    Advance(a);
+    FakeClock::Advance(a);
     // Second peak: min_demand 0, max_demand 2N.
     DeleteVector(peak1a);
     DeleteVector(peak1b);
@@ -3101,14 +3166,14 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
     EXPECT_EQ(filler_.used_pages(), 2 * N);
     DeleteVector(peak2a);
     DeleteVector(peak2b);
-    Advance(b);
+    FakeClock::Advance(b);
     DeleteVector(half);
     EXPECT_EQ(filler_.free_pages(), Length(N / 2));
     // The number of released pages is limited to the number of free pages.
     EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
               ReleasePartialPages(10 * N, intervals));
 
-    Advance(c);
+    FakeClock::Advance(c);
     half = AllocateVectorWithSpanAllocInfo(N / 2, half.front().span_alloc_info);
     // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
     std::vector<PAlloc> peak3a =
@@ -3147,7 +3212,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Repeats the "demand_pattern 1" test with additional short-term and
@@ -3162,7 +3227,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
         false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses peak interval for skipping subrelease, subreleasing all free
@@ -3175,7 +3240,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
                    true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Skip subrelease feature is disabled if all intervals are zero.
@@ -3184,7 +3249,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
                    SkipSubreleaseIntervals{}, true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
@@ -3196,7 +3261,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses short-term and long-term intervals for skipping subrelease,
@@ -3207,7 +3272,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
                                            .long_interval = absl::Minutes(2)},
                    true);
   }
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses only short-term interval for skipping subrelease. It correctly
@@ -3218,7 +3283,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
@@ -3229,7 +3294,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
                    true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // This captures a corner case: If we hit another peak immediately after a
   // subrelease decision (in the same time series epoch), do not count this as
@@ -3251,7 +3316,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // Ensure that the tracker is updated.
   auto tiny = Allocate(Length(1));
@@ -3299,7 +3364,7 @@ TEST_P(FillerTest, SkipSubrelease) {
     // First peak: min_demand 3/4N, max_demand 1N.
     PAlloc peak1a = AllocateWithSpanAllocInfo(3 * N / 4, info);
     PAlloc peak1b = AllocateWithSpanAllocInfo(N / 4, info);
-    Advance(a);
+    FakeClock::Advance(a);
     // Second peak: min_demand 0, max_demand 2N.
     Delete(peak1a);
     Delete(peak1b);
@@ -3316,14 +3381,14 @@ TEST_P(FillerTest, SkipSubrelease) {
     EXPECT_EQ(filler_.used_pages(), 2 * N);
     Delete(peak2a);
     Delete(peak2b);
-    Advance(b);
+    FakeClock::Advance(b);
     Delete(half);
     EXPECT_EQ(filler_.free_pages(), Length(N / 2));
     // The number of released pages is limited to the number of free pages.
     EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
               ReleasePages(10 * N, intervals));
 
-    Advance(c);
+    FakeClock::Advance(c);
     // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
     PAlloc peak3a = AllocateWithSpanAllocInfo(3 * N / 4, info);
     PAlloc peak3b = AllocateWithSpanAllocInfo(N / 4, info);
@@ -3353,7 +3418,7 @@ TEST_P(FillerTest, SkipSubrelease) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Repeats the "demand_pattern 1" test with additional short-term and
@@ -3368,7 +3433,7 @@ TEST_P(FillerTest, SkipSubrelease) {
         false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses peak interval for skipping subrelease, subreleasing all free pages
@@ -3381,7 +3446,7 @@ TEST_P(FillerTest, SkipSubrelease) {
                    true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Skip subrelease feature is disabled if all intervals are zero.
@@ -3390,7 +3455,7 @@ TEST_P(FillerTest, SkipSubrelease) {
                    SkipSubreleaseIntervals{}, true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
@@ -3402,7 +3467,7 @@ TEST_P(FillerTest, SkipSubrelease) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses short-term and long-term intervals for skipping subrelease,
@@ -3413,7 +3478,7 @@ TEST_P(FillerTest, SkipSubrelease) {
                                            .long_interval = absl::Minutes(2)},
                    true);
   }
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses only short-term interval for skipping subrelease. It correctly
@@ -3424,7 +3489,7 @@ TEST_P(FillerTest, SkipSubrelease) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
@@ -3435,7 +3500,7 @@ TEST_P(FillerTest, SkipSubrelease) {
                    true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // This captures a corner case: If we hit another peak immediately after a
   // subrelease decision (in the same time series epoch), do not count this as
@@ -3457,7 +3522,7 @@ TEST_P(FillerTest, SkipSubrelease) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // Ensure that the tracker is updated.
   auto tiny = Allocate(Length(1));
@@ -3506,7 +3571,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
     ASSERT_TRUE(!peak1a.empty());
     std::vector<PAlloc> peak1b =
         AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
-    Advance(a);
+    FakeClock::Advance(a);
     // Second peak: min_demand 0, max_demand 2N.
     DeleteVector(peak1a);
     DeleteVector(peak1b);
@@ -3529,14 +3594,14 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
     EXPECT_EQ(filler_.used_pages(), 2 * N);
     DeleteVector(peak2a);
     DeleteVector(peak2b);
-    Advance(b);
+    FakeClock::Advance(b);
     DeleteVector(half);
     EXPECT_EQ(filler_.free_pages(), Length(N / 2));
     // The number of released pages is limited to the number of free pages.
     EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
               ReleasePages(10 * N, intervals));
 
-    Advance(c);
+    FakeClock::Advance(c);
     // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
     std::vector<PAlloc> peak3a =
         AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
@@ -3572,7 +3637,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Repeats the "demand_pattern 1" test with additional short-term and
@@ -3587,7 +3652,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
         false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses peak interval for skipping subrelease, subreleasing all free
@@ -3600,7 +3665,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
                    true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Skip subrelease feature is disabled if all intervals are zero.
@@ -3609,7 +3674,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
                    SkipSubreleaseIntervals{}, true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
@@ -3621,7 +3686,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses short-term and long-term intervals for skipping subrelease,
@@ -3632,7 +3697,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
                                            .long_interval = absl::Minutes(2)},
                    true);
   }
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses only short-term interval for skipping subrelease. It correctly
@@ -3643,7 +3708,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   {
     // Uses only long-term interval for skipping subrelease, subreleased all
@@ -3654,7 +3719,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
                    true);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // This captures a corner case: If we hit another peak immediately after a
   // subrelease decision (in the same time series epoch), do not count this as
@@ -3676,7 +3741,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
                    false);
   }
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // Ensure that the tracker is updated.
   auto tiny = Allocate(Length(1));
@@ -3709,7 +3774,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), 0);
 
-  Advance(absl::Seconds(5));
+  FakeClock::Advance(absl::Seconds(5));
   PAlloc small_alloc2 =
       AllocateWithSpanAllocInfo(Length(5), info_sparsely_accessed);
   EXPECT_EQ(small_alloc.pt, small_alloc2.pt);
@@ -3720,24 +3785,24 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(5 * GetFakeClockFrequency()) + 1234);
+            static_cast<uint64_t>(5 * FakeClock::freq()) + 1234);
 
-  Advance(absl::Seconds(10));
+  FakeClock::Advance(absl::Seconds(10));
   PAlloc small_alloc3 =
       AllocateWithSpanAllocInfo(Length(10), info_sparsely_accessed);
   EXPECT_EQ(small_alloc.pt, small_alloc3.pt);
   EXPECT_EQ(small_alloc.pt->features().allocations, 2);
   EXPECT_EQ(small_alloc.pt->features().objects, 4);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time,
-                  5 * GetFakeClockFrequency() + 1234);
+                  5 * FakeClock::freq() + 1234);
   EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 250);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(15 * GetFakeClockFrequency()) + 1234);
+            static_cast<uint64_t>(15 * FakeClock::freq()) + 1234);
 
   // Test dense spans.
-  ResetClock();
+  FakeClock::ResetClock();
   SpanAllocInfo info_densely_accessed = {128, AccessDensityPrediction::kDense};
   PAlloc large_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
@@ -3753,31 +3818,31 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(large_alloc.pt->features().density, false);
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), 0);
 
-  Advance(absl::Seconds(10));
+  FakeClock::Advance(absl::Seconds(10));
   std::vector<PAlloc> large_allocs =
       AllocateVectorWithSpanAllocInfo(Length(100), info_densely_accessed);
   EXPECT_EQ(large_alloc.pt->features().allocations, 100);
   EXPECT_EQ(large_alloc.pt->features().objects, 100 * 128);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
-                  10 * GetFakeClockFrequency() + 1234);
+                  10 * FakeClock::freq() + 1234);
   EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 156);
   EXPECT_EQ(large_alloc.pt->features().density, true);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(10 * GetFakeClockFrequency()) + 1234);
+            static_cast<uint64_t>(10 * FakeClock::freq()) + 1234);
 
-  Advance(absl::Seconds(10));
+  FakeClock::Advance(absl::Seconds(10));
   PAlloc large_alloc2 =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
   EXPECT_EQ(large_alloc.pt->features().allocations, 101);
   EXPECT_EQ(large_alloc.pt->features().objects, 101 * 128);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
-                  10 * GetFakeClockFrequency() + 1234);
+                  10 * FakeClock::freq() + 1234);
   EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 155);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(large_alloc.pt->features().density, true);
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(20 * GetFakeClockFrequency()) + 1234);
+            static_cast<uint64_t>(20 * FakeClock::freq()) + 1234);
 
   Delete(small_alloc);
   Delete(small_alloc2);
@@ -3808,13 +3873,13 @@ TEST_P(FillerTest, PrintFeatureVectorTest) {
 HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 0.000000
 )"));
 
-  Advance(absl::Seconds(100));
+  FakeClock::Advance(absl::Seconds(100));
   PAlloc small_alloc2 =
       AllocateWithSpanAllocInfo(N / 4, info_sparsely_accessed);
   EXPECT_EQ(small_alloc.pt, small_alloc2.pt);
   EXPECT_EQ(small_alloc.pt->features().allocation_time, 0);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(100 * GetFakeClockFrequency()) + 1234);
+            static_cast<uint64_t>(100 * FakeClock::freq()) + 1234);
   EXPECT_EQ(small_alloc.pt->features().allocation_time, 0);
   {
     PageHeapSpinLockHolder l;
@@ -3826,11 +3891,11 @@ HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage
 HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 100.000001
 )"));
 
-  ResetClock();
+  FakeClock::ResetClock();
   PAlloc large_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
   large_alloc.pt->SetTagState({.sampled_for_tagging = true});
-  Advance(absl::Seconds(100));
+  FakeClock::Advance(absl::Seconds(100));
 
   PAlloc large_alloc2 =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
@@ -3846,7 +3911,7 @@ HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage
 HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 100.000001
 )"));
 
-  Advance(absl::Seconds(100));
+  FakeClock::Advance(absl::Seconds(100));
   std::vector<PAlloc> large_allocs =
       AllocateVectorWithSpanAllocInfo(Length(100), info_densely_accessed);
   {
@@ -4011,7 +4076,7 @@ HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0
 HugePageFiller: <254<=     0 <255<=     0
 )"));
 
-  Advance(absl::Seconds(101));
+  FakeClock::Advance(absl::Seconds(101));
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
@@ -4070,7 +4135,7 @@ TEST_P(FillerTest, SkipSubreleaseDemandPeak) {
   std::vector<PAlloc> half1b =
       AllocateVectorWithSpanAllocInfo(N / 2, peak1a.front().span_alloc_info);
   EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
-  Advance(absl::Minutes(1));
+  FakeClock::Advance(absl::Minutes(1));
 
   // min_demand = 2N, max_demand = 2.5N
   DeleteVector(half1b);
@@ -4078,7 +4143,7 @@ TEST_P(FillerTest, SkipSubreleaseDemandPeak) {
       AllocateVectorWithSpanAllocInfo(N / 2, peak1a.front().span_alloc_info);
   EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
   EXPECT_EQ(filler_.free_pages(), N / 2);
-  Advance(absl::Minutes(1));
+  FakeClock::Advance(absl::Minutes(1));
 
   // At this point, short-term fluctuation, which is the maximum of the
   // difference between max_demand and min_demand in the previous two
@@ -4122,7 +4187,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   PAlloc peak2a = AllocateWithSpanAllocInfo(3 * N / 4, info);
   PAlloc peak2b = AllocateWithSpanAllocInfo(N / 4, info);
   PAlloc half1 = AllocateWithSpanAllocInfo(N / 2, info);
-  Advance(absl::Minutes(2));
+  FakeClock::Advance(absl::Minutes(2));
   Delete(half1);
   Delete(peak1b);
   Delete(peak2b);
@@ -4132,7 +4197,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   EXPECT_EQ(N / 2,
             ReleasePages(10 * N, SkipSubreleaseIntervals{
                                      .peak_interval = absl::Minutes(3)}));
-  Advance(absl::Minutes(3));
+  FakeClock::Advance(absl::Minutes(3));
   PAlloc tiny1 = AllocateWithSpanAllocInfo(N / 4, info);
   EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
   EXPECT_EQ(filler_.unmapped_pages(), N / 2);
@@ -4147,7 +4212,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   // Accounts for pages that are eagerly unmapped (unmapping_unaccounted_).
   EXPECT_EQ(N + N / 2, ReleasePages(10 * N));
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // Reports skip subrelease using HugePageFiller's capacity (N pages): it is
   // smaller than the recent peak (2N) when 0.5N pages are skipped. They are
@@ -4156,7 +4221,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   PAlloc peak4b = AllocateWithSpanAllocInfo(N / 4, info);
   PAlloc peak5a = AllocateWithSpanAllocInfo(3 * N / 4, info);
   PAlloc peak5b = AllocateWithSpanAllocInfo(N / 4, info);
-  Advance(absl::Minutes(2));
+  FakeClock::Advance(absl::Minutes(2));
   Delete(peak4a);
   Delete(peak4b);
   Delete(peak5a);
@@ -4165,7 +4230,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   EXPECT_EQ(Length(0),
             ReleasePages(10 * N, SkipSubreleaseIntervals{
                                      .peak_interval = absl::Minutes(3)}));
-  Advance(absl::Minutes(3));
+  FakeClock::Advance(absl::Minutes(3));
   PAlloc half3 = AllocateWithSpanAllocInfo(N / 2, info);
   Delete(half2);
   Delete(half3);
@@ -4173,7 +4238,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
   EXPECT_EQ(filler_.free_pages(), Length(0));
   EXPECT_EQ(Length(0), ReleasePages(10 * N));
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
   //  Ensures that the tracker is updated.
   auto tiny2 = Allocate(Length(1));
   Delete(tiny2);
@@ -4221,7 +4286,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
       AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
   std::vector<PAlloc> half1 =
       AllocateVectorWithSpanAllocInfo(N / 2, peak1a.front().span_alloc_info);
-  Advance(absl::Minutes(2));
+  FakeClock::Advance(absl::Minutes(2));
   DeleteVector(half1);
   DeleteVector(peak1b);
   DeleteVector(peak2b);
@@ -4232,7 +4297,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   EXPECT_EQ(3 * N / 4,
             ReleasePages(10 * N, SkipSubreleaseIntervals{
                                      .peak_interval = absl::Minutes(3)}));
-  Advance(absl::Minutes(3));
+  FakeClock::Advance(absl::Minutes(3));
   std::vector<PAlloc> tiny1 =
       AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
   EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
@@ -4248,7 +4313,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   // Accounts for pages that are eagerly unmapped (unmapping_unaccounted_).
   EXPECT_EQ(N / 2, ReleasePages(10 * N));
 
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
 
   // Reports skip subrelease using HugePageFiller's capacity (N pages): it is
   // smaller than the recent peak (2N) when 0.5N pages are skipped. They are
@@ -4261,7 +4326,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   ASSERT_TRUE(!peak5a.empty());
   std::vector<PAlloc> peak5b =
       AllocateVectorWithSpanAllocInfo(N / 4, peak5a.front().span_alloc_info);
-  Advance(absl::Minutes(2));
+  FakeClock::Advance(absl::Minutes(2));
   DeleteVector(peak4a);
   DeleteVector(peak4b);
   DeleteVector(peak5a);
@@ -4270,7 +4335,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   EXPECT_EQ(Length(0),
             ReleasePages(10 * N, SkipSubreleaseIntervals{
                                      .peak_interval = absl::Minutes(3)}));
-  Advance(absl::Minutes(3));
+  FakeClock::Advance(absl::Minutes(3));
   std::vector<PAlloc> half3 = AllocateVectorWithSpanAllocInfo(N / 2, info);
   DeleteVector(half2);
   DeleteVector(half3);
@@ -4278,7 +4343,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
   EXPECT_EQ(filler_.free_pages(), Length(0));
   EXPECT_EQ(Length(0), ReleasePages(10 * N));
-  Advance(absl::Minutes(30));
+  FakeClock::Advance(absl::Minutes(30));
   //  Ensures that the tracker is updated.
   auto tiny2 = Allocate(Length(1));
   Delete(tiny2);
@@ -4353,7 +4418,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
     GTEST_SKIP() << "Skipping test for kCoarseLongestFreeRange";
   }
   // Get lots of hugepages into the filler.
-  Advance(absl::Minutes(1));
+  FakeClock::Advance(absl::Minutes(1));
   std::vector<std::vector<PAlloc>> result;
   static_assert(kPagesPerHugePage > Length(10),
                 "Not enough pages per hugepage!");
@@ -4380,7 +4445,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
     EXPECT_EQ(HardReleasePages(Length(9)), Length(0));
   }
 
-  Advance(absl::Minutes(1));
+  FakeClock::Advance(absl::Minutes(1));
   SubreleaseStats subrelease = filler_.subrelease_stats();
   EXPECT_EQ(subrelease.total_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
@@ -4439,7 +4504,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
     EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
   }
 
-  Advance(absl::Minutes(10));  // This forces timeseries to wrap
+  FakeClock::Advance(absl::Minutes(10));  // This forces timeseries to wrap
   // Do some work
   for (int i = 0; i < 5; ++i) {
     result.push_back(AllocateVectorWithSpanAllocInfo(Length(1), kAllocInfo));
@@ -4494,7 +4559,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
 TEST_P(FillerTest, CheckSubreleaseStats_SpansAllocated) {
   randomize_density_ = false;
   // Get lots of hugepages into the filler.
-  Advance(absl::Minutes(1));
+  FakeClock::Advance(absl::Minutes(1));
   std::vector<std::vector<PAlloc>> result;
   std::vector<std::vector<PAlloc>> temporary;
   static_assert(kPagesPerHugePage > Length(10),
@@ -4520,7 +4585,7 @@ TEST_P(FillerTest, CheckSubreleaseStats_SpansAllocated) {
   EXPECT_EQ(HardReleasePages(Length(10)), Length(10));
   EXPECT_EQ(HardReleasePages(Length(9)), Length(9));
 
-  Advance(absl::Minutes(1));
+  FakeClock::Advance(absl::Minutes(1));
   SubreleaseStats subrelease = filler_.subrelease_stats();
   EXPECT_EQ(subrelease.total_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
@@ -4557,7 +4622,7 @@ TEST_P(FillerTest, CheckSubreleaseStats_SpansAllocated) {
   EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
   EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
 
-  Advance(absl::Minutes(10));  // This forces timeseries to wrap
+  FakeClock::Advance(absl::Minutes(10));  // This forces timeseries to wrap
   // Do some work
   for (int i = 0; i < 5; ++i) {
     result.push_back(AllocateVectorWithSpanAllocInfo(Length(1), kAllocInfo));
@@ -4676,9 +4741,9 @@ TEST_P(FillerTest, CheckBufferSize) {
 
   for (int i = 0; i < kEpochs; i += 2) {
     auto tiny = AllocateVector(Length(2));
-    Advance(kEpochLength);
+    FakeClock::Advance(kEpochLength);
     DeleteVector(tiny);
-    Advance(kEpochLength);
+    FakeClock::Advance(kEpochLength);
   }
 
   DeleteVector(big);
@@ -5031,6 +5096,7 @@ HugePageFiller: Since startup, 306 pages subreleased, 6 hugepages broken, (0 pag
 HugePageFiller: 0 hugepages became full after being previously released, out of which 0 pages are hugepage backed.
 HugePageFiller: Out of 0 eligible hugepages, 0 were attempted, and 0 were collapsed.
 HugePageFiller: Of the failed collapse operations, number of operations that failed per error type, ETYPE_NOMEM: 0, ETYPE_BUSY: 0, ETYPE_INVAL: 0, ETYPE_AGAIN: 0, ETYPE_OTHER: 0
+HugePageFiller: Latency of collapse operations: 0.000000 ms (total), 0.000000 us (maximum)
 HugePageFiller: In the previous treatment interval, subreleased 0 pages.
 
 HugePageFiller: fullness histograms
