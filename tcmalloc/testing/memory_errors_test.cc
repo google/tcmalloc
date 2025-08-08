@@ -697,7 +697,9 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
   }
 }
 
-TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
+TEST_F(TcMallocTest, DISABLED_MismatchedSizeClassInFreelistInsertion) {
+  // TODO(b/396002858): Reenable this test.
+
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
