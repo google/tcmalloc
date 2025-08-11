@@ -23,12 +23,12 @@ namespace tcmalloc {
 enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
-  TCMALLOC_COARSE_LFR_TRACKERS, // TODO(b/368054442): Complete experiment.
-  TEST_ONLY_L3_AWARE,  // TODO(b/239977380): Complete experiment.
-  TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS,  // TODO(b/368054442): Complete experiment.
-  TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S,  // TODO(b/319872040): Complete experiment.
+  TCMALLOC_COARSE_LFR_TRACKERS,  // TODO: b/368054442 - Complete experiment.
+  TEST_ONLY_L3_AWARE,  // TODO: b/239977380 - Complete experiment.
+  TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS,  // TODO: b/368054442 - Complete experiment.
+  TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S,  // TODO: b/319872040 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
-  TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2,  // TODO(b/358126781): Complete experiment.
+  TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2,  // TODO: b/358126781 - Complete experiment.
   TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE,
   // go/keep-sorted end
   kMaxExperimentID,
