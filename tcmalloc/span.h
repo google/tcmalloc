@@ -179,7 +179,10 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Returns index of the non-empty list to which this span belongs to.
   uint8_t nonempty_index() const { return nonempty_index_; }
   // Records an index of the non-empty list associated with this span.
-  void set_nonempty_index(uint8_t index) { nonempty_index_ = index; }
+  void set_nonempty_index(uint8_t index) {
+    nonempty_index_ = index;
+    TC_ASSERT_EQ(nonempty_index_, index);
+  }
 
   // ---------------------------------------------------------------------------
   // Freelist management.
@@ -486,6 +489,7 @@ inline void Span::set_first_page(PageId p) {
   TC_ASSERT_GT(p, PageId{0});
   TC_CHECK_LT(p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
   first_page_ = p.index();
+  TC_ASSERT_EQ(first_page_, p.index());
 }
 
 inline void* Span::start_address() const {

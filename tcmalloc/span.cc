@@ -66,7 +66,7 @@ SampledAllocation* Span::Unsample() {
   TC_CHECK_GT(pages_per_span, Length(0));
   TC_CHECK(sampled_ && large_or_sampled_state_.sampled_allocation);
   sampled_ = 0;
-  small_span_state_.num_pages = pages_per_span.raw_num();
+  large_or_sampled_state_.num_pages = pages_per_span.raw_num();
   SampledAllocation* sampled_allocation =
       large_or_sampled_state_.sampled_allocation;
   large_or_sampled_state_.sampled_allocation = nullptr;
@@ -292,6 +292,7 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
     cache_size++;
   }
   cache_size_ = cache_size;
+  TC_ASSERT_EQ(cache_size_, cache_size);
 
   // Now, build freelist and stack other objects onto freelist objects.
   // Note: we take freelist objects from the beginning and stacked objects
