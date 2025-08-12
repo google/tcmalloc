@@ -629,6 +629,16 @@ class HugePageFiller {
   void ForEachHugePage(const F& func)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  static constexpr int kMaxBackoffDelay = 128;
+
+  // Returns true if we should back off from MADV_COLLAPSE. In case of high
+  // collapse latency, this is used to reduce the frequency of collapse
+  // attempts.
+  bool ShouldBackoffFromCollapse();
+
+  // Based on the <latency>, updates the max backoff delay.
+  void UpdateMaxBackoffDelay(absl::Duration latency);
+
   // Iterates through all hugepage trackers and applies different treatments.
   // Treatments applied include:
   // 1. Attempt to collapse eligible memory into hugepages if
@@ -792,6 +802,8 @@ class HugePageFiller {
   MemoryModifyFunction& unback_without_lock_;
   MemoryModifyFunction& collapse_;
   MemoryTagFunction& set_anon_vma_name_;
+  int max_backoff_delay_ = 1;
+  int current_backoff_delay_ = 0;
   uintptr_t rng_ = 0;
 };
 
@@ -2280,6 +2292,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     }
   }
 
+  HugePageTreatmentStats GetStats() const { return treatment_stats_; }
+
   void UpdateHugePageTreatmentStats(HugePageTreatmentStats& stats) {
     stats += treatment_stats_;
     // TODO(b/425749361): Roll this up to the overloaded operator once we start
@@ -2339,10 +2353,37 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   bool enable_release_free_swap_;
 };
 
+// Returns true if backoff delay has reached the maximum threshold.
+template <class TrackerType>
+inline bool HugePageFiller<TrackerType>::ShouldBackoffFromCollapse() {
+  // TODO(b/287498389): In addition to latency, consider backing off if collapse
+  // fails too often.
+  ++current_backoff_delay_;
+  if (current_backoff_delay_ < max_backoff_delay_) {
+    return true;
+  }
+  current_backoff_delay_ = 0;
+  return false;
+}
+
+template <class TrackerType>
+void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
+    absl::Duration latency) {
+  // These latency thresholds are chosen empirically.
+  const bool increase = latency > absl::Milliseconds(50);
+  const bool decrease = latency < absl::Milliseconds(20);
+  if (increase) {
+    max_backoff_delay_ = std::min(max_backoff_delay_ << 1, kMaxBackoffDelay);
+  } else if (decrease) {
+    max_backoff_delay_ = std::max(max_backoff_delay_ >> 1, 1);
+  }
+}
+
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     bool enable_collapse, bool enable_release_free_swapped,
     PageFlagsBase* pageflags, Residency* residency) {
+  enable_collapse = enable_collapse && !ShouldBackoffFromCollapse();
   const bool collect_non_hugepage_trackers =
       enable_collapse || enable_release_free_swapped;
   SampledTrackerTreatment sampled_tracker_treatment(clock_, tag_,
@@ -2418,6 +2459,13 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   pageheap_lock.Unlock();
   sampled_tracker_treatment.Treat();
   unbacked_tracker_treatment.Treat();
+
+  HugePageTreatmentStats stats = unbacked_tracker_treatment.GetStats();
+  if (stats.collapse_attempted > 0) {
+    absl::Duration max_collapse_latency = absl::Milliseconds(
+        stats.collapse_time_max_cycles * 1000 / clock_.freq());
+    UpdateMaxBackoffDelay(max_collapse_latency);
+  }
 
   // Lock the pageheap lock and update residency information in the tracker.
   pageheap_lock.Lock();

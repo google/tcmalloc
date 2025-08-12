@@ -1677,6 +1677,79 @@ TEST_P(FillerTest, CollapseLatency) {
   DeleteVector(p1);
 }
 
+// Tests that, due to increased collapse latency, we exponentially backoff from
+// collapse.
+TEST_P(FillerTest, BackoffFromCollapse) {
+  const Length kAlloc = kPagesPerHugePage / 2;
+
+  constexpr size_t kMaxBackoffDelay =
+      HugePageFiller<PageTracker>::kMaxBackoffDelay;
+  bool expect_collapse = true;
+  int expected_collapse_count = 0;
+  int backoff_count = 0;
+  int max_backoff = 1;
+  absl::Duration total_latency = absl::ZeroDuration();
+  for (absl::Duration latency : {absl::Seconds(1), absl::Milliseconds(1)}) {
+    collapse_.SetLatency(latency);
+    bool backoff_increase = latency == absl::Seconds(1);
+    while (true) {
+      std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
+      ASSERT_TRUE(!p1.empty());
+
+      FakePageFlags pageflags;
+      FakeResidency residency;
+      for (const auto& pa : p1) {
+        pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                     /*is_hugepage_backed=*/false);
+        EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+        Bitmap<kMaxResidencyBits> unbacked, swapped;
+        unbacked.SetRange(/*index=*/0, /*n=*/1);
+        swapped.SetRange(/*index=*/0, /*n=*/1);
+        residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                               swapped);
+      }
+
+      ASSERT_EQ(filler_.size(), NHugePages(1));
+
+      TreatHugepageTrackers(/*enable_collapse=*/true,
+                            /*enable_release_free_swapped=*/false, &pageflags,
+                            &residency);
+      // We exponentially backoff from collapse, depending on the latency.
+      // If the latency is high, increase max_backoff periodically. In case it
+      // is low, periodically decrease max_backoff.
+      ++backoff_count;
+      expect_collapse = backoff_count >= max_backoff;
+      if (expect_collapse) {
+        ++expected_collapse_count;
+        max_backoff = backoff_increase
+                          ? std::min<size_t>(max_backoff * 2, kMaxBackoffDelay)
+                          : std::max<size_t>(max_backoff / 2, 1);
+        backoff_count = 0;
+      }
+
+      for (const auto& pa : p1) {
+        EXPECT_EQ(collapse_.TriedCollapse(pa.p.start_addr()), expect_collapse);
+        EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()),
+                  expect_collapse ? 1 : 0);
+      }
+      HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+      EXPECT_EQ(treatment_stats.collapse_eligible, expected_collapse_count);
+      EXPECT_EQ(treatment_stats.collapse_attempted, expected_collapse_count);
+      EXPECT_EQ(treatment_stats.collapse_succeeded, expected_collapse_count);
+      total_latency += expect_collapse ? latency : absl::ZeroDuration();
+      EXPECT_EQ(treatment_stats.collapse_time_total_cycles,
+                absl::ToDoubleSeconds(total_latency) * FakeClock::freq());
+      EXPECT_EQ(treatment_stats.collapse_time_max_cycles,
+                absl::ToDoubleSeconds(absl::Seconds(1)) * FakeClock::freq());
+
+      DeleteVector(p1);
+      if (backoff_increase && max_backoff >= kMaxBackoffDelay) break;
+      if (!backoff_increase && max_backoff <= 1) break;
+    }
+  }
+}
+
 // Don't collapse pages that are released.
 TEST_P(FillerTest, DontCollapseReleasedPages) {
   if (GetParam() == HugePageFillerSparseTrackerType::kCoarseLongestFreeRange) {

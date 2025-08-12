@@ -55,6 +55,7 @@ namespace {
 int64_t fake_clock = 0;
 bool unback_success = true;
 bool collapse_success = true;
+int collapse_latency = 0;
 int error_number = 0;
 bool is_hugepage_backed = true;
 Bitmap<kMaxResidencyBits> unbacked_bitmap;
@@ -137,6 +138,7 @@ class FakeResidency : public Residency {
 class MockCollapse final : public MemoryModifyFunction {
  public:
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+    fake_clock += collapse_latency;
     return {collapse_success, error_number};
   }
 };
@@ -556,6 +558,14 @@ void FuzzFiller(const std::string& s) {
             error_number = (value >> 3);
             break;
           }
+        }
+        break;
+      }
+      case 14: {
+        if (value & 0x1) {
+          collapse_latency = 0;
+        } else {
+          collapse_latency = value >> 1;
         }
         break;
       }
