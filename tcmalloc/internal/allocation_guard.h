@@ -57,15 +57,20 @@ class AllocationGuard {
 // debug mode.
 class ABSL_SCOPED_LOCKABLE AllocationGuardSpinLockHolder {
  public:
-  explicit AllocationGuardSpinLockHolder(absl::base_internal::SpinLock* l)
+  explicit AllocationGuardSpinLockHolder(absl::base_internal::SpinLock& l)
       ABSL_EXCLUSIVE_LOCK_FUNCTION(l)
-      : lock_holder_(l) {
+      : lock_holder_(&l) {
 #ifndef NDEBUG
-    if (l->IsCooperative()) {
+    if (l.IsCooperative()) {
       abort();
     }
 #endif  // NDEBUG
   }
+
+  ABSL_DEPRECATE_AND_INLINE()
+  explicit AllocationGuardSpinLockHolder(absl::base_internal::SpinLock* l)
+      ABSL_EXCLUSIVE_LOCK_FUNCTION(l)
+      : AllocationGuardSpinLockHolder(*l) {}
 
   inline ~AllocationGuardSpinLockHolder() ABSL_UNLOCK_FUNCTION() = default;
 
