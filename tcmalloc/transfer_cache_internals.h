@@ -492,9 +492,6 @@ void ResizeCaches(Manager &manager, int start_size_class) {
 template <typename Manager>
 void TryResizingCaches(Manager &manager) {
   // Resize transfer caches for each set of kNumBaseClasses.
-
-  // TODO(b/270726235): Revisit this once we start using expanded size classes
-  // more effectively.
   for (int i = 0; i < Manager::kNumaPartitions; ++i) {
     ResizeCaches(manager, i * Manager::kNumBaseClasses);
   }
