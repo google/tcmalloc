@@ -25,6 +25,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -1089,11 +1090,6 @@ class FillerTest
     pageheap_lock.Lock();
     filler_.TreatHugepageTrackers(enable_collapse, enable_release_free_swapped,
                                   pageflags, residency);
-    // In the single-threaded tests below, there should be no intervening Put
-    // operations that deallocate all the pages in the hugepages that are
-    // eligible to be collapsed. So, the fully freed tracker should be empty at
-    // the end of collapse operation.
-    EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
     pageheap_lock.Unlock();
   }
 
@@ -1103,6 +1099,25 @@ class FillerTest
 
   // Tests fragmentation
   void FragmentationTest();
+
+  // Returns true iff the filler returned an empty hugepage.
+  bool DeleteRaw(const PAlloc& p) {
+    PageTracker* pt;
+    {
+      PageHeapSpinLockHolder l;
+      pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info);
+    }
+    total_allocated_ -= p.n;
+    if (pt != nullptr) {
+      EXPECT_EQ(pt->longest_free_range(), kPagesPerHugePage);
+      EXPECT_TRUE(pt->empty());
+      --hp_contained_;
+      delete pt;
+      return true;
+    }
+
+    return false;
+  }
 
  private:
   PAlloc AllocateRaw(Length n, SpanAllocInfo span_alloc_info, bool donated) {
@@ -1135,25 +1150,6 @@ class FillerTest
 
     total_allocated_ += n;
     return ret;
-  }
-
-  // Returns true iff the filler returned an empty hugepage.
-  bool DeleteRaw(const PAlloc& p) {
-    PageTracker* pt;
-    {
-      PageHeapSpinLockHolder l;
-      pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info);
-    }
-    total_allocated_ -= p.n;
-    if (pt != nullptr) {
-      EXPECT_EQ(pt->longest_free_range(), kPagesPerHugePage);
-      EXPECT_TRUE(pt->empty());
-      --hp_contained_;
-      delete pt;
-      return true;
-    }
-
-    return false;
   }
 
   static int64_t clock_;
@@ -1399,6 +1395,71 @@ TEST_P(FillerTest, CheckAllocationsComeFromIntactHugepage) {
   Delete(p);
   DeleteVector(p1);
   DeleteVector(p3);
+}
+
+// Parallelizes collapse and background swapped-subrelease operation,
+// concurrently with deallocating certain allocations. By deallocating
+// concurrently, some trackers end up in fully freed lists. We want to make sure
+// that we handle this case correctly.
+TEST_P(FillerTest, DISABLED_ParallelCollapseRelease) {
+  std::atomic<bool> done(false);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  SpanAllocInfo info;
+  info.objects_per_span = 1;
+  info.density = AccessDensityPrediction::kSparse;
+  std::vector<PAlloc> allocated;
+  const Length kAlloc = kPagesPerHugePage / 2 + Length(1);
+  for (int i = 0; i < 1000; ++i) {
+    PAlloc p1 = AllocateWithSpanAllocInfo(kAlloc, info);
+    allocated.push_back(p1);
+    pageflags.MarkHugePageBacked(p1.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(p1.p.start_addr()));
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, /*n=*/128);
+    swapped.SetRange(/*index=*/128, /*n=*/128);
+    residency.SetUnbackedAndSwappedBitmaps(p1.p.start_addr(), unbacked,
+                                           swapped);
+  }
+
+  auto collase_function = [&]() {
+    absl::BitGen rng;
+    while (!done.load(std::memory_order_acquire)) {
+      TreatHugepageTrackers(/*enable_collapse=*/true,
+                            /*enable_release_free_swapped=*/true, &pageflags,
+                            &residency);
+    }
+  };
+  std::thread collapse_thread = std::thread(collase_function);
+
+  // Note that we need to use DeleteRaw here, since Delete checks for filler
+  // stats as well. As interleaving collapse operations might not delete all the
+  // fully freed trackers, and because CheckStats doesn't hold a lock, the
+  // intermediate stat check might fail. Instead, we check for stats in the end.
+  for (auto& p : allocated) {
+    DeleteRaw(p);
+  }
+
+  done = true;
+  collapse_thread.join();
+
+  while (true) {
+    PageTracker* pt;
+    {
+      PageHeapSpinLockHolder l;
+      pt = filler_.FetchFullyFreedTracker();
+    }
+    if (pt == nullptr) {
+      break;
+    }
+    EXPECT_EQ(pt->longest_free_range(), kPagesPerHugePage);
+    EXPECT_TRUE(pt->empty());
+    --hp_contained_;
+    delete pt;
+  }
+  CheckStats();
 }
 
 // Makes sure that we do not collapse the pages that are already hugepage
