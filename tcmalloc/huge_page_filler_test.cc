@@ -1401,7 +1401,7 @@ TEST_P(FillerTest, CheckAllocationsComeFromIntactHugepage) {
 // concurrently with deallocating certain allocations. By deallocating
 // concurrently, some trackers end up in fully freed lists. We want to make sure
 // that we handle this case correctly.
-TEST_P(FillerTest, DISABLED_ParallelCollapseRelease) {
+TEST_P(FillerTest, ParallelCollapseRelease) {
   std::atomic<bool> done(false);
 
   FakePageFlags pageflags;

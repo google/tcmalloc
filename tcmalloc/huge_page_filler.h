@@ -190,6 +190,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   double last_page_allocation_time() const {
     return last_page_allocation_time_;
   }
+  bool fully_freed() const { return longest_free_range() == kPagesPerHugePage; }
   Length free_pages() const;
   bool empty() const;
 
@@ -2281,8 +2282,13 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         continue;
       }
 
+      // It's possible that all the pages on the hugepage were freed when we had
+      // released the pageheap lock. Check that the longest free range is less
+      // than kPagesPerHugePage to make sure it's valid to release from that
+      // tracker.
       if (enable_release_free_swap_ &&
-          !residency_states_[i].bitmaps.swapped.IsZero()) {
+          !residency_states_[i].bitmaps.swapped.IsZero() &&
+          !tracker->fully_freed()) {
         Length released_length = page_filler_.HandleReleaseFree(tracker);
         if (released_length > Length(0)) {
           treatment_stats_.treated_pages_subreleased +=
@@ -2987,6 +2993,7 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
   TC_ASSERT_LT(longest, kPagesPerHugePage);
+
   if (pt->donated()) {
     donated_alloc_.Remove(pt, longest.raw_num());
     return;
