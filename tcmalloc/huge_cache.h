@@ -163,8 +163,7 @@ class HugeCache {
         off_peak_tracker_(clock, cache_time * 2),
         size_tracker_(clock, cache_time * 2),
         unback_(unback),
-        cache_time_(cache_time),
-        cachestats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)) {}
+        cache_time_(cache_time) {}
   // Allocate a usable set of <n> contiguous hugepages.  Try to give out
   // memory that's currently backed from the kernel if we have it available.
   // *from_released is set to false if the return range is already backed;
@@ -172,11 +171,7 @@ class HugeCache {
   HugeRange Get(HugeLength n, bool* from_released);
 
   // Deallocate <r> (assumed to be backed by the kernel.)
-  // If demand_based_unback is set, HugeCache will not try to shrink the cache
-  // here but unback in ReleaseCachedPagesByDemand() instead. The flag is
-  // designed to separate the normal (quick) unbacking from the demand-based
-  // unbacking.
-  void Release(HugeRange r, bool demand_based_unback);
+  void Release(HugeRange r);
 
   // As Release, but the range is assumed to _not_ be backed.
   void ReleaseUnbacked(HugeRange r);
@@ -185,15 +180,6 @@ class HugeCache {
   // the number of hugepages released. It also triggers cache shrinking if
   // the cache becomes too big.
   HugeLength ReleaseCachedPages(HugeLength n);
-
-  // Release to the system up to <n> hugepages of cache contents if recent
-  // demand allows; returns the number of hugepages released. The demand history
-  // is captured using the provided intervals, and the feature is disabled if
-  // either hit_limit is true or the intervals are not set. It also triggers
-  // cache shrinking if it has more than what demand needs.
-  HugeLength ReleaseCachedPagesByDemand(HugeLength n,
-                                        SkipSubreleaseIntervals intervals,
-                                        bool hit_limit);
 
   // Backed memory available.
   HugeLength size() const { return size_; }
@@ -228,12 +214,6 @@ class HugeCache {
   // Ensure the cache contains at most <target> hugepages,
   // returning the number removed.
   HugeLength ShrinkCache(HugeLength target);
-
-  // Calculates the desired releasing target according to the recent demand
-  // history, returns the updated (reduced) target if releasing the desired
-  // amount will cause possible future misses.
-  HugeLength GetDesiredReleaseablePages(HugeLength desired,
-                                        SkipSubreleaseIntervals intervals);
 
   HugeRange DoGet(HugeLength n, bool* from_released);
 
@@ -293,20 +273,6 @@ class HugeCache {
   // The fraction of the cache that we are happy to return at a time. We use
   // this to efficiently reduce the fragmenation.
   static constexpr double kFractionToReleaseFromCache = 0.2;
-
-  using StatsTrackerType = SubreleaseStatsTracker<600>;
-  StatsTrackerType::SubreleaseStats GetSubreleaseStats() const {
-    StatsTrackerType::SubreleaseStats stats;
-    stats.num_pages = usage().in_pages();
-    stats.free_pages = size().in_pages();
-    stats.huge_pages[StatsTrackerType::kRegular] = usage() + size();
-    stats.num_pages_subreleased = hugepage_release_stats_.num_pages_subreleased;
-    return stats;
-  }
-  // Tracks recent demand history and demand-based release stats.
-  void UpdateStatsTracker();
-  StatsTrackerType cachestats_tracker_;
-  SubreleaseStats hugepage_release_stats_;
 };
 
 }  // namespace tcmalloc_internal

@@ -259,24 +259,14 @@ void FuzzHPAA(const std::string& s) {
           // Release pages.  We divide up our random value by:
           //
           // value[7:0]  - Choose number of pages to release.
-          // value[8:9]  - Choose page release reason.
+          // value[8]    - Choose page release reason. ReleaseMemoryToSystem if
+          //               zero, else ProcessBackgroundActions.
           // value[63:9] - Reserved.
           Length desired(value & 0x00FF);
-          PageReleaseReason reason;
-          switch ((value >> 8) & 0x3) {
-            case 0:
-              reason = PageReleaseReason::kReleaseMemoryToSystem;
-              break;
-            case 1:
-              reason = PageReleaseReason::kProcessBackgroundActions;
-              break;
-            case 2:
-              reason = PageReleaseReason::kSoftLimitExceeded;
-              break;
-            case 3:
-              reason = PageReleaseReason::kHardLimitExceeded;
-              break;
-          }
+          const PageReleaseReason reason =
+              ((value & (uint64_t{1} << 8)) == 0)
+                  ? PageReleaseReason::kReleaseMemoryToSystem
+                  : PageReleaseReason::kProcessBackgroundActions;
           Length released;
           PageReleaseStats actual_stats;
           {
@@ -284,21 +274,14 @@ void FuzzHPAA(const std::string& s) {
             released = allocator.ReleaseAtLeastNPages(desired, reason);
             actual_stats = allocator.GetReleaseStats();
           }
+
           expected_stats.total += released;
-          switch (reason) {
-            case PageReleaseReason::kReleaseMemoryToSystem:
-              expected_stats.release_memory_to_system += released;
-              break;
-            case PageReleaseReason::kProcessBackgroundActions:
-              expected_stats.process_background_actions += released;
-              break;
-            case PageReleaseReason::kSoftLimitExceeded:
-              expected_stats.soft_limit_exceeded += released;
-              break;
-            case PageReleaseReason::kHardLimitExceeded:
-              expected_stats.hard_limit_exceeded += released;
-              break;
+          if (reason == PageReleaseReason::kReleaseMemoryToSystem) {
+            expected_stats.release_memory_to_system += released;
+          } else {
+            expected_stats.process_background_actions += released;
           }
+
           TC_CHECK_EQ(actual_stats, expected_stats);
 
           break;
@@ -393,11 +376,11 @@ void FuzzHPAA(const std::string& s) {
         case 7: {
           // Change a runtime parameter.
           //
-          // value[0:3] - Select parameter
-          // value[4:7] - Reserved
+          // value[0:2] - Select parameter
+          // value[3:7] - Reserved
           // value[8:63] - The value
           const uint64_t actual_value = value >> 8;
-          switch (value & 0xF) {
+          switch (value & 0x7) {
             case 0:
               forwarder.set_filler_skip_subrelease_short_interval(
                   absl::ZeroDuration());
@@ -431,37 +414,9 @@ void FuzzHPAA(const std::string& s) {
               size_t subprogram = std::min(size - i - 9, actual_value);
               reentrant.emplace_back(data + i + 9, subprogram);
               i += size;
-              break;
-            }
-            case 8: {
-              // Flips the settings used by demand-based release in HugeCache:
-              // actual_value[0] - release enabled
-              // actual_value[1:16] - interval_1
-              // actual_value[17:32] - interval_2
-              forwarder.set_huge_cache_demand_based_release(actual_value & 0x1);
-              if (forwarder.huge_cache_demand_based_release()) {
-                const uint64_t interval_1 = (actual_value >> 1) & 0xffff;
-                const uint64_t interval_2 = (actual_value >> 17) & 0xffff;
-                forwarder.set_cache_demand_release_long_interval(
-                    interval_1 >= interval_2 ? absl::Nanoseconds(interval_1)
-                                             : absl::Nanoseconds(interval_2));
-                forwarder.set_cache_demand_release_short_interval(
-                    interval_1 >= interval_2 ? absl::Nanoseconds(interval_2)
-                                             : absl::Nanoseconds(interval_1));
-              }
-              break;
-            }
-            case 9: {
-              forwarder.set_collapse_succeeds(actual_value & 0x1);
-              forwarder.set_error_number((actual_value >> 1) & 0xffff);
-              break;
-            }
-            case 10: {
-              allocator.TreatHugepageTrackers(actual_value & 0x1,
-                                              (actual_value >> 1) & 0x1);
-              break;
             }
           }
+
           break;
         }
       }

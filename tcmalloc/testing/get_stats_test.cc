@@ -268,7 +268,6 @@ TEST_F(GetStatsTest, Parameters) {
       absl::Milliseconds(180250));
   Parameters::set_cache_demand_release_long_interval(
       absl::Milliseconds(240375));
-  Parameters::set_huge_cache_demand_based_release(true);
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
 
   {
@@ -278,9 +277,6 @@ TEST_F(GetStatsTest, Parameters) {
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
     }
-    EXPECT_THAT(
-        buf,
-        HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter 50)"));
     EXPECT_THAT(

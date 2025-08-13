@@ -68,12 +68,6 @@ class FakeStaticForwarder {
   void set_filler_skip_subrelease_long_interval(absl::Duration value) {
     long_interval_ = value;
   }
-  void set_cache_demand_release_short_interval(absl::Duration value) {
-    cache_demand_release_short_interval_ = value;
-  }
-  void set_cache_demand_release_long_interval(absl::Duration value) {
-    cache_demand_release_long_interval_ = value;
-  }
   void set_release_partial_alloc_pages(bool value) {
     release_partial_alloc_pages_ = value;
   }
@@ -88,13 +82,6 @@ class FakeStaticForwarder {
   }
   void set_huge_region_demand_based_release(bool value) {
     huge_region_demand_based_release_ = value;
-  }
-
-  bool huge_cache_demand_based_release() const {
-    return huge_cache_demand_based_release_;
-  }
-  void set_huge_cache_demand_based_release(bool value) {
-    huge_cache_demand_based_release_ = value;
   }
 
   // Arena state.
@@ -208,7 +195,6 @@ class FakeStaticForwarder {
   bool collapse_succeeds_ = true;
   int error_number_ = 0;
   bool huge_region_demand_based_release_ = false;
-  bool huge_cache_demand_based_release_ = false;
   Arena arena_;
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;

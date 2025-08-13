@@ -769,11 +769,8 @@ returned to the OS. Because this defeats the primary goal of the hugepage-aware
 allocator, this is done rarely, and we only reuse partially-released hugepages
 for new allocations as a last resort.
 
-#### Demand-based skip subrelease {#demand-based-skip-subrelease}
-
 The final section shows a summary of the filler's state over the past 5 minute
-time period. The information is tracked by the demand-based skip subrelease
-mechanism.
+time period:
 
 ```
 HugePageFiller: time series over 5 min interval
@@ -889,11 +886,6 @@ The output shows the following information:
     compared to the peak cache size.
 *   The recent range is the minimum, current, maximum size of memory in MiB in
     the huge cache.
-
-Then, we report information related to demand-based skip release if it is
-enabled (`huge_cache_demand_based_release` is `true`). Please check
-[demand-based skip subrelease](#demand-based-skip-subrelease) for details as the
-mechanisms are fundamentally the same.
 
 ### Huge Allocator
 

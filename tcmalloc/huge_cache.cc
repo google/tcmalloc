@@ -198,11 +198,6 @@ void HugeCache::DecUsage(HugeLength n) {
 
 void HugeCache::UpdateSize(HugeLength size) { size_tracker_.Report(size); }
 
-void HugeCache::UpdateStatsTracker() {
-  cachestats_tracker_.Report(GetSubreleaseStats());
-  hugepage_release_stats_.reset();
-}
-
 HugeRange HugeCache::Get(HugeLength n, bool* from_released) {
   HugeRange r = DoGet(n, from_released);
   // failure to get a range should "never" "never" happen (VSS limits
@@ -212,11 +207,10 @@ HugeRange HugeCache::Get(HugeLength n, bool* from_released) {
 
   const bool miss = r.valid() && *from_released;
   if (miss) MaybeGrowCacheLimit(n);
-  UpdateStatsTracker();
   return r;
 }
 
-void HugeCache::Release(HugeRange r, bool demand_based_unback) {
+void HugeCache::Release(HugeRange r) {
   DecUsage(r.len());
 
   cache_.Insert(r);
@@ -226,25 +220,20 @@ void HugeCache::Release(HugeRange r, bool demand_based_unback) {
   } else {
     overflows_++;
   }
-  // Performs a (quick) unback if the demand-based release is disabled.
-  if (!demand_based_unback) {
-    // Shrink the limit, if we're going to do it, before we shrink to
-    // the max size.  (This could reduce the number of regions we break
-    // in half to avoid overshrinking.)
-    if ((clock_.now() - last_limit_change_) > (cache_time_ticks_ * 2)) {
-      total_fast_unbacked_ += MaybeShrinkCacheLimit();
-    }
-    total_fast_unbacked_ += ShrinkCache(limit());
+  // Shrink the limit, if we're going to do it, before we shrink to
+  // the max size.  (This could reduce the number of regions we break
+  // in half to avoid overshrinking.)
+  if ((clock_.now() - last_limit_change_) > (cache_time_ticks_ * 2)) {
+    total_fast_unbacked_ += MaybeShrinkCacheLimit();
   }
+  total_fast_unbacked_ += ShrinkCache(limit());
   UpdateSize(size());
-  UpdateStatsTracker();
 }
 
 void HugeCache::ReleaseUnbacked(HugeRange r) {
   DecUsage(r.len());
   // No point in trying to cache it, just hand it back.
   allocator_->Release(r);
-  UpdateStatsTracker();
 }
 
 HugeLength HugeCache::MaybeShrinkCacheLimit() {
@@ -312,85 +301,6 @@ HugeLength HugeCache::ReleaseCachedPages(HugeLength n) {
     released += ShrinkCache(target);
   }
   UpdateSize(size());
-  UpdateStatsTracker();
-  total_periodic_unbacked_ += released;
-  return released;
-}
-
-HugeLength HugeCache::GetDesiredReleaseablePages(
-    HugeLength desired, SkipSubreleaseIntervals intervals) {
-  TC_CHECK(intervals.SkipSubreleaseEnabled());
-  UpdateStatsTracker();
-  HugeLength required_by_demand;
-  if (intervals.IsPeakIntervalSet()) {
-    required_by_demand =
-        HLFromPages(cachestats_tracker_.GetRecentPeak(intervals.peak_interval));
-  } else {
-    required_by_demand = HLFromPages(cachestats_tracker_.GetRecentDemand(
-        intervals.short_interval, intervals.long_interval,
-        CapDemandInterval()));
-  }
-
-  HugeLength current = usage() + size();
-  if (required_by_demand != NHugePages(0)) {
-    HugeLength new_desired;
-    // We can only release if the current capacity is larger than the demand.
-    if (required_by_demand < current) {
-      new_desired = current - required_by_demand;
-    }
-    if (new_desired >= desired) {
-      return desired;
-    }
-    // Reports the amount of free hugepages that we didn't release due to this
-    // mechanism. As the initial release target is capped by the cache size,
-    // here we simply report the reduced amount. Note, only free pages in the
-    // smaller of the two (current and required_by_demand) are skipped, so we
-    // use that as the reporting peak.
-    HugeLength skipped = desired - new_desired;
-    cachestats_tracker_.ReportSkippedSubreleasePages(
-        skipped.in_pages(),
-        std::min(current.in_pages(), required_by_demand.in_pages()));
-    return new_desired;
-  }
-  return desired;
-}
-
-HugeLength HugeCache::ReleaseCachedPagesByDemand(
-    HugeLength n, SkipSubreleaseIntervals intervals, bool hit_limit) {
-  // We get here when one of the three happened: A) hit limit, B) background
-  // release, or C) ReleaseMemoryToSystem().
-  HugeLength release_target = std::min(n, size());
-
-  // For all those three reasons, we want to release as much as possible to be
-  // efficient. However, we do not want to release a large number of hugepages
-  // at once because that may impact applications' performance. So we release a
-  // fraction of the cache.
-  if (size() > MinCacheLimit()) {
-    HugeLength increased_release_target =
-        std::min(HugeLength(kFractionToReleaseFromCache * size().raw_num()),
-                 size() - MinCacheLimit());
-    release_target = std::max(release_target, increased_release_target);
-  }
-
-  if (release_target == NHugePages(0)) {
-    return NHugePages(0);
-  }
-  if (intervals.SkipSubreleaseEnabled() && !hit_limit) {
-    // This will reduce the target if the calculated (future) demand is higher
-    // than the current. In other words, we need to reserve some of the free
-    // hugepages to meet the future demand. It also makes sure we release the
-    // realized fragmentation.
-    release_target = GetDesiredReleaseablePages(release_target, intervals);
-  }
-  HugeLength released = ShrinkCache(size() - release_target);
-  hugepage_release_stats_.num_pages_subreleased += released.in_pages();
-  hugepage_release_stats_.set_limit_hit(hit_limit);
-  if (hugepage_release_stats_.limit_hit()) {
-    hugepage_release_stats_.total_pages_subreleased_due_to_limit +=
-        released.in_pages();
-  }
-  UpdateSize(size());
-  UpdateStatsTracker();
   total_periodic_unbacked_ += released;
   return released;
 }
@@ -502,17 +412,6 @@ void HugeCache::Print(Printer& out) {
       cache_min.in_mib(), size_.in_mib(), cache_max.in_mib());
 
   detailed_tracker_.Print(out);
-
-  // Release stats tracked by the demand-based release mechanism.
-  out.printf("\n");
-  out.printf(
-      "HugeCache: Since startup, %zu hugepages released, "
-      "(%zu hugepages due to reaching tcmalloc limit)\n",
-      HLFromPages(hugepage_release_stats_.total_pages_subreleased).raw_num(),
-      HLFromPages(hugepage_release_stats_.total_pages_subreleased_due_to_limit)
-          .raw_num());
-
-  cachestats_tracker_.Print(out, "HugeCache");
 }
 
 void HugeCache::PrintInPbtxt(PbtxtRegion& hpaa) {
@@ -572,18 +471,7 @@ void HugeCache::PrintInPbtxt(PbtxtRegion& hpaa) {
     usage_stats.PrintI64("current_bytes", size_.in_bytes());
     usage_stats.PrintI64("max_bytes", cache_max.in_bytes());
   }
-  hpaa.PrintI64(
-      "cache_num_hugepages_released",
-      HLFromPages(hugepage_release_stats_.total_pages_subreleased).raw_num());
-  hpaa.PrintI64(
-      "cache_num_hugepages_released_due_to_limit",
-      HLFromPages(hugepage_release_stats_.total_pages_subreleased_due_to_limit)
-          .raw_num());
   detailed_tracker_.PrintInPbtxt(hpaa);
-  cachestats_tracker_.PrintTimeseriesStatsInPbtxt(hpaa,
-                                                  "cache_stats_timeseries");
-  cachestats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
-                                                  "cache_skipped_subrelease");
 }
 
 }  // namespace tcmalloc_internal

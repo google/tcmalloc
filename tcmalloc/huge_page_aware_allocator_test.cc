@@ -408,97 +408,6 @@ TEST_P(HugePageAwareAllocatorTest, Multithreaded) {
   }
 }
 
-TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForUserRequestedRelease) {
-  // Tests that we can release when requested by the user, irrespective of
-  // whether the demand-based release is enabled or not. We do this by
-  // alternating the state of the demand-based release flag.
-  bool enabled = allocator_->forwarder().huge_cache_demand_based_release();
-  constexpr int kNumIterations = 100;
-  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  for (int i = 0; i < kNumIterations; ++i) {
-    // Ensure the HugeCache has some free items:
-    Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
-    EXPECT_EQ(
-        ReleasePages(kPagesPerHugePage,
-                     /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
-        kPagesPerHugePage);
-    enabled = !enabled;
-    allocator_->forwarder().set_huge_cache_demand_based_release(enabled);
-  }
-}
-
-TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForBackgroundActions) {
-  // Tests that the background release will be impacted by the demand-based
-  // release: when enabled, it will not release any pages due to the recent
-  // demand.
-  bool enabled = allocator_->forwarder().huge_cache_demand_based_release();
-  constexpr int kNumIterations = 100;
-  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  for (int i = 0; i < kNumIterations; ++i) {
-    Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
-    // Demand-based release would think releasing is not a good idea, hence we
-    // need to force a release later.
-    EXPECT_EQ(
-        ReleasePages(kPagesPerHugePage,
-                     /*reason=*/PageReleaseReason::kProcessBackgroundActions),
-        enabled ? Length(0) : kPagesPerHugePage);
-    if (enabled) {
-      EXPECT_EQ(ReleasePages(Length(1),
-                             /*reason=*/PageReleaseReason::kSoftLimitExceeded),
-                kPagesPerHugePage);
-    }
-    enabled = !enabled;
-    allocator_->forwarder().set_huge_cache_demand_based_release(enabled);
-  }
-}
-
-TEST_P(HugePageAwareAllocatorTest, ReleasingMemoryLimitHit) {
-  // Tests that we can release when the memory limit is hit, irrespective of
-  // whether the demand-based release is enabled or not. We test this by
-  // alternating the state of the demand-based release flag.
-  bool enabled = allocator_->forwarder().huge_cache_demand_based_release();
-  constexpr int kNumIterations = 100;
-  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  for (int i = 0; i < kNumIterations; ++i) {
-    Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
-    EXPECT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
-                  kPagesPerHugePage,
-                  /*reason=*/PageReleaseReason::kSoftLimitExceeded),
-              kPagesPerHugePage);
-    enabled = !enabled;
-    allocator_->forwarder().set_huge_cache_demand_based_release(enabled);
-  }
-}
-
-TEST_P(HugePageAwareAllocatorTest,
-       ReleasingLargeForBackgroundActionsWithZeroIntervals) {
-  // Tests that the configured intervals can be passed to HugeCache: release is
-  // not being impacted by demand-based release when the intervals are zero.
-  const bool old_enabled =
-      allocator_->forwarder().huge_cache_demand_based_release();
-  allocator_->forwarder().set_huge_cache_demand_based_release(/*value=*/true);
-  const absl::Duration old_cache_short_interval =
-      allocator_->forwarder().cache_demand_release_short_interval();
-  const absl::Duration old_cache_long_interval =
-      allocator_->forwarder().cache_demand_release_long_interval();
-  allocator_->forwarder().set_cache_demand_release_short_interval(
-      absl::ZeroDuration());
-  allocator_->forwarder().set_cache_demand_release_long_interval(
-      absl::ZeroDuration());
-  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
-  // There is no history to reference so release all.
-  EXPECT_EQ(
-      ReleasePages(kPagesPerHugePage,
-                   /*reason=*/PageReleaseReason::kProcessBackgroundActions),
-      kPagesPerHugePage);
-  allocator_->forwarder().set_huge_cache_demand_based_release(old_enabled);
-  allocator_->forwarder().set_cache_demand_release_short_interval(
-      old_cache_short_interval);
-  allocator_->forwarder().set_cache_demand_release_long_interval(
-      old_cache_long_interval);
-}
-
 TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
   const bool old_subrelease = allocator_->forwarder().hpaa_subrelease();
   allocator_->forwarder().set_hpaa_subrelease(/*value=*/true);
@@ -1773,8 +1682,6 @@ class GetReleaseStatsTest : public testing::Test {
         FakeHugePageAwareAllocator({.tag = MemoryTag::kNormal});
 
     allocator_->forwarder().set_hpaa_subrelease(/*value=*/false);
-    allocator_->forwarder().set_huge_cache_demand_based_release(
-        /*value=*/false);
     allocator_->forwarder().set_huge_region_demand_based_release(
         /*value=*/false);
     allocator_->forwarder().set_filler_skip_subrelease_short_interval(
