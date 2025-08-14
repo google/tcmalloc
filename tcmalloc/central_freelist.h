@@ -36,7 +36,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/parameters.h"
 #include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
@@ -74,10 +73,17 @@ class StaticForwarder {
 // Specifies number of nonempty_ lists that keep track of non-empty spans.
 static constexpr size_t kNumLists = 8;
 
+// Specifies number of nonempty_ lists that keep track of non-empty spans.
+// This is used for the TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1
+// experiment.
+static constexpr size_t kNumListsExtended = 32;
+static_assert(kNumLists <= kNumListsExtended);
+static_assert(1 << Span::kNonemptyIndexBits >= kNumListsExtended);
 // Specifies the threshold for number of objects per span. The threshold is
 // used to consider a span sparsely- vs. densely-accessed.
 static constexpr size_t kFewObjectsAllocMaxLimit = 16;
 
+enum class PriorityListLength : bool { kNormal = false, kExtended = true };
 // Data kept per size-class in central cache.
 template <typename ForwarderT>
 class CentralFreeList {
@@ -92,13 +98,15 @@ class CentralFreeList {
         first_nonempty_index_(0),
         pages_per_span_(0),
         nonempty_(),
+        num_priority_lists_(0),
         use_all_buckets_for_few_object_spans_(false),
         lifetime_bucket_bounds_() {}
 
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;
 
-  void Init(size_t size_class) ABSL_LOCKS_EXCLUDED(lock_);
+  void Init(size_t size_class, PriorityListLength priority_list_length)
+      ABSL_LOCKS_EXCLUDED(lock_);
 
   // These methods all do internal locking.
 
@@ -121,7 +129,7 @@ class CentralFreeList {
   size_t OverheadBytes() const;
 
   // Returns number of live spans currently in the nonempty_[n] list.
-  // REQUIRES: n >= 0 && n < kNumLists.
+  // REQUIRES: n >= 0 && n < num_priority_lists_.
   size_t NumSpansInList(int n) ABSL_LOCKS_EXCLUDED(lock_);
   SpanStats GetSpanStats() const;
 
@@ -139,6 +147,12 @@ class CentralFreeList {
   size_t NumSpansWith(uint16_t bitwidth) const;
 
   Forwarder& forwarder() { return forwarder_; }
+  // Returns the number of priority lists based on the `priority list length`.
+  static size_t NumPriorityLists(PriorityListLength priority_list_length) {
+    return priority_list_length == PriorityListLength::kExtended
+               ? kNumListsExtended
+               : kNumLists;
+  }
 
  private:
   // Release an object to spans.
@@ -276,10 +290,13 @@ class CentralFreeList {
 
   // Non-empty lists that distinguish spans based on the number of objects
   // allocated from them. As we prioritize spans, spans may be added to any of
-  // the kNumLists nonempty_ lists based on their allocated objects. If span
-  // prioritization is disabled, we add spans to the nonempty_[kNumlists-1]
-  // list, leaving other lists unused.
-  HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
+  // the num_priority_lists_ nonempty_ lists based on their allocated objects.
+  // If span prioritization is disabled, we add spans to the
+  // nonempty_[num_priority_lists_-1] list, leaving other lists unused.
+  HintedTrackerLists<Span, kNumListsExtended> nonempty_ ABSL_GUARDED_BY(lock_);
+
+  uint8_t num_priority_lists_ = 0;
+
   bool use_all_buckets_for_few_object_spans_;
 
   size_t lifetime_bucket_bounds_[kLifetimeBuckets];
@@ -289,8 +306,9 @@ class CentralFreeList {
 
 // Like a constructor and hence we disable thread safety analysis.
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::Init(size_t size_class)
-    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+inline void CentralFreeList<Forwarder>::Init(
+    size_t size_class,
+    PriorityListLength priority_list_length) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = size_class;
   object_size_ = forwarder_.class_to_size(size_class);
   if (object_size_ == 0) {
@@ -303,18 +321,22 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
   size_reciprocal_ = Span::CalcReciprocal(object_size_);
-  use_all_buckets_for_few_object_spans_ = objects_per_span_ <= 2 * kNumLists;
+  num_priority_lists_ = NumPriorityLists(priority_list_length);
+
+  use_all_buckets_for_few_object_spans_ =
+      objects_per_span_ <= 2 * num_priority_lists_;
 
   // Records nonempty_ list index associated with the span with
   // objects_per_span_ number of allocated objects. Refer to the comment in
   // IndexFor(...) below for a detailed description.
   first_nonempty_index_ =
       use_all_buckets_for_few_object_spans_
-          ? (kNumLists + 1 >= objects_per_span_
-                 ? kNumLists + 1 - objects_per_span_
+          ? (num_priority_lists_ + 1 >= objects_per_span_
+                 ? num_priority_lists_ + 1 - objects_per_span_
                  : 0)
-          : kNumLists -
-                std::min<size_t>(absl::bit_width(objects_per_span_), kNumLists);
+          : num_priority_lists_ -
+                std::min<size_t>(absl::bit_width(objects_per_span_),
+                                 num_priority_lists_);
 
   TC_ASSERT(absl::bit_width(objects_per_span_) <= kSpanUtilBucketCapacity);
 
@@ -369,9 +391,9 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
 
 template <class Forwarder>
 inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
-  // Scan nonempty_ lists in the range [first_nonempty_index_, kNumLists) and
-  // return the span from a non-empty list if one exists. If all the lists are
-  // empty, return nullptr.
+  // Scan nonempty_ lists in the range [first_nonempty_index_,
+  // num_priority_lists_) and return the span from a non-empty list if one
+  // exists. If all the lists are empty, return nullptr.
   return nonempty_.PeekLeast(GetFirstNonEmptyIndex());
 }
 
@@ -388,40 +410,40 @@ inline uint8_t CentralFreeList<Forwarder>::IndexFor(uint16_t allocated,
   // (i.e. when it is more likely to be freed), we would like to map it to a
   // higher index in the nonempty_ list.
   //
-  // The number of objects per span is less than or equal to 2 * kNumlists.
-  // We index such spans by just the number of allocated objects.  When the
-  // allocated objects are in the range [1, 8], then we map the spans to buckets
-  // 7, 6, ... 0 respectively.  When the allocated objects are more than
-  // kNumlists, then we map the span to bucket 0.
+  // The number of objects per span is less than or equal to 2 *
+  // num_priority_lists_. We index such spans by just the number of allocated
+  // objects.  When the allocated objects are in the range [1, 8], then we map
+  // the spans to buckets 7, 6, ... 0 respectively.  When the allocated objects
+  // are more than num_priority_lists_, then we map the span to bucket 0.
   ASSUME(allocated > 0);
   if (use_all_buckets_for_few_object_spans_) {
-    if (allocated <= kNumLists) {
-      return kNumLists - allocated;
+    if (allocated <= num_priority_lists_) {
+      return num_priority_lists_ - allocated;
     }
     return 0;
   }
-  // Depending on the number of kNumLists and the number of objects per span, we
-  // may have to clamp multiple buckets in index 0. It should be ok to do that
-  // because it is less beneficial to differentiate between spans that have 128
-  // vs 256 allocated objects, compared to those that have 16 vs 32 allocated
-  // objects.
+  // Depending on the number of num_priority_lists_ and the number of objects
+  // per span, we may have to clamp multiple buckets in index 0. It should be ok
+  // to do that because it is less beneficial to differentiate between spans
+  // that have 128 vs 256 allocated objects, compared to those that have 16 vs
+  // 32 allocated objects.
   //
-  // Consider objects_per_span = 1024 and kNumLists = 8. The following examples
-  // show spans with allocated objects in the range [a, b) indexed to the
-  // nonempty_[idx] list using a notation [a, b) -> idx.
-  // [1, 2) -> 7, [2, 4) -> 6, [4, 8) -> 5, [8, 16) -> 4, [16, 32) -> 3, [32,
-  // 64) -> 2, [64, 128) -> 1, [128, 1024) -> 0.
+  // Consider objects_per_span = 1024 and num_priority_lists_ = 8. The following
+  // examples show spans with allocated objects in the range [a, b) indexed to
+  // the nonempty_[idx] list using a notation [a, b) -> idx. [1, 2) -> 7, [2, 4)
+  // -> 6, [4, 8) -> 5, [8, 16) -> 4, [16, 32) -> 3, [32, 64) -> 2, [64, 128) ->
+  // 1, [128, 1024) -> 0.
   ASSUME(bitwidth > 0);
-  const uint8_t offset = std::min<size_t>(bitwidth, kNumLists);
-  const uint8_t index = kNumLists - offset;
-  ASSUME(index < kNumLists);
+  const uint8_t offset = std::min<size_t>(bitwidth, num_priority_lists_);
+  const uint8_t index = num_priority_lists_ - offset;
+  ASSUME(index < num_priority_lists_);
   return index;
 }
 
 template <class Forwarder>
 inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
   ASSUME(n >= 0);
-  ASSUME(n < kNumLists);
+  ASSUME(n < num_priority_lists_);
   AllocationGuardSpinLockHolder h(&lock_);
   return nonempty_.SizeOfList(n);
 }
@@ -649,9 +671,9 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer& out) {
   }
   out.printf("\n");
   out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
-  for (size_t i = 0; i < kNumLists; ++i) {
+  for (size_t i = 0; i < num_priority_lists_; ++i) {
     out.printf("%6zu: %zu", i, NumSpansInList(i));
-    if (i < kNumLists - 1) {
+    if (i < num_priority_lists_ - 1) {
       out.printf(",");
     }
   }
@@ -697,7 +719,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
     histogram.PrintI64("value", NumSpansWith(i));
   }
 
-  for (size_t i = 0; i < kNumLists; ++i) {
+  for (size_t i = 0; i < num_priority_lists_; ++i) {
     PbtxtRegion occupancy =
         region.CreateSubRegion("prioritization_list_occupancy");
     occupancy.PrintI64("list_index", i);

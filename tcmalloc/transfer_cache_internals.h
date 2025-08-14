@@ -31,6 +31,7 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
@@ -83,15 +84,20 @@ class TransferCache {
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
 
-  TransferCache(Manager *owner, int size_class)
-      : TransferCache(owner, size_class, CapacityNeeded(size_class)) {}
+  TransferCache(
+      Manager* owner, int size_class,
+      central_freelist_internal::PriorityListLength priority_list_length)
+      : TransferCache(owner, size_class, CapacityNeeded(size_class),
+                      priority_list_length) {}
 
   struct Capacity {
     int capacity;
     int max_capacity;
   };
 
-  TransferCache(Manager *owner, int size_class, Capacity capacity)
+  TransferCache(
+      Manager* owner, int size_class, Capacity capacity,
+      central_freelist_internal::PriorityListLength priority_list_length)
       : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         low_water_mark_(0),
         slot_info_(SizeInfo({0, capacity.capacity})),
@@ -99,7 +105,7 @@ class TransferCache {
         freelist_do_not_access_directly_(),
         owner_(owner),
         max_capacity_(capacity.max_capacity) {
-    freelist().Init(size_class);
+    freelist().Init(size_class, priority_list_length);
     slots_ = max_capacity_ != 0 ? reinterpret_cast<void **>(owner_->Alloc(
                                       max_capacity_ * sizeof(void *)))
                                 : nullptr;

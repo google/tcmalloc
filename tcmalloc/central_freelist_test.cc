@@ -325,13 +325,14 @@ INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
 
 namespace {
 
-using central_freelist_internal::kNumLists;
 using TypeParam = FakeCentralFreeListEnvironment<
     central_freelist_internal::CentralFreeList<MockStaticForwarder>>;
-using CentralFreeListTest = ::testing::TestWithParam<SizeClassInfo>;
+using CentralFreeListTest = ::testing::TestWithParam<
+    std::tuple<SizeClassInfo, central_freelist_internal::PriorityListLength>>;
 
 TEST_P(CentralFreeListTest, IsolatedSmoke) {
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
   absl::FixedArray<void*> batch(e.batch_size());
@@ -383,7 +384,8 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
 }
 
 TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   constexpr size_t kNumSpans = 10;
 
   // Request kNumSpans spans.
@@ -485,7 +487,8 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 TEST_P(CentralFreeListTest, SinglePopulate) {
   // Make sure that we allocate up to kObjectsPerSpan objects in both the span
   // prioritization states.
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   // Try to fetch sufficiently large number of objects at startup.
   const int num_objects_to_fetch = 10 * e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch, nullptr);
@@ -508,11 +511,12 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
 // each operation, the actual index is matched against the expected one.
 template <typename IndexingFunc>
 void TestIndexing(TypeParam& e, IndexingFunc f) {
-  TC_ASSERT_GT(kNumLists, 0);
+  size_t num_lists = e.num_priority_lists();
+  TC_ASSERT_GT(num_lists, 0);
   const int num_objects_to_fetch = e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch);
   size_t fetched = 0;
-  int expected_idx = kNumLists - 1;
+  int expected_idx = num_lists - 1;
 
   // Fetch one object at a time from a span and confirm that the span is moved
   // through the nonempty_ lists as we allocate more objects from it.
@@ -529,7 +533,7 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
     } else {
       expected_idx = f(fetched);
       TC_ASSERT_GE(expected_idx, 0);
-      TC_ASSERT_LT(expected_idx, kNumLists);
+      TC_ASSERT_LT(expected_idx, num_lists);
       // Check that the span exists in the corresponding nonempty_ list.
       EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
     }
@@ -545,7 +549,7 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
     // When allocated objects are more than the threshold, the span is indexed
     // to nonempty_ list 0.
     expected_idx = f(remaining);
-    EXPECT_LT(expected_idx, kNumLists);
+    EXPECT_LT(expected_idx, num_lists);
     EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
   }
 
@@ -556,25 +560,31 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
 }
 
 TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
-  if (e.objects_per_span() <= 2 * kNumLists) {
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  size_t num_lists = e.num_priority_lists();
+
+  if (e.objects_per_span() <= 2 * num_lists) {
     GTEST_SKIP()
         << "Skipping test as one hot encoding used for few object spans.";
   }
-  auto bitwidth_indexing = [](size_t allocated) {
+  auto bitwidth_indexing = [num_lists](size_t allocated) {
     size_t bitwidth = absl::bit_width(allocated);
-    return kNumLists - std::min(bitwidth, kNumLists);
+    return num_lists - std::min(bitwidth, num_lists);
   };
   TestIndexing(e, bitwidth_indexing);
 }
 
 TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
-  if (e.objects_per_span() > 2 * kNumLists) {
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  size_t num_lists = e.num_priority_lists();
+
+  if (e.objects_per_span() > 2 * num_lists) {
     GTEST_SKIP() << "Skipping test as one hot encoding not required.";
   }
-  auto direct_indexing = [](int allocated) {
-    if (allocated <= kNumLists) return kNumLists - allocated;
+  auto direct_indexing = [num_lists](int allocated) {
+    if (allocated <= num_lists) return num_lists - allocated;
     return 0UL;
   };
   TestIndexing(e, direct_indexing);
@@ -587,13 +597,15 @@ TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
 // objects are allocated from the span with a higher number of allocated objects
 // as enforced by our prioritization scheme.
 TEST_P(CentralFreeListTest, SpanPriority) {
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  size_t num_lists = e.num_priority_lists();
 
   // If the number of objects per span is less than 2, we do not use more than
   // one nonempty_ lists. So, we can not prioritize the spans based on how many
   // objects were allocated from them.
   const int objects_per_span = e.objects_per_span();
-  if (objects_per_span < 3 || kNumLists < 2) return;
+  if (objects_per_span < 3 || num_lists < 2) return;
 
   constexpr int kNumSpans = 2;
   // Track objects allocated per span.
@@ -632,7 +644,7 @@ TEST_P(CentralFreeListTest, SpanPriority) {
   }
 
   // Make sure we have kNumSpans in the expected second-last nonempty_ list.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), kNumSpans);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(num_lists - 2), kNumSpans);
 
   // Release an additional object from all but one spans so that they are
   // deprioritized for subsequent allocations.
@@ -653,8 +665,8 @@ TEST_P(CentralFreeListTest, SpanPriority) {
 
   // Make sure we have kNumSpans-1 spans in the last nonempty_ list and just one
   // span in the second-last list.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), kNumSpans - 1);
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(num_lists - 1), kNumSpans - 1);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(num_lists - 2), 1);
 
   // Allocate one object to ensure that it is being allocated from the span with
   // the highest number of allocated objects.
@@ -662,21 +674,21 @@ TEST_P(CentralFreeListTest, SpanPriority) {
   EXPECT_EQ(got, 1);
   // Number of spans in the last nonempty_ list should be unchanged (i.e.
   // kNumSpans-1).
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), kNumSpans - 1);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(num_lists - 1), kNumSpans - 1);
   if (e.objects_per_span() == 3) {
     // Since we allocated another object from the span that had two objects
     // allocated from it, so the span would no longer be there in the span list.
-    for (int i = kNumLists - 2; i >= 0; --i) {
+    for (int i = num_lists - 2; i >= 0; --i) {
       EXPECT_EQ(e.central_freelist().NumSpansInList(i), 0);
     }
-  } else if (e.objects_per_span() <= 2 * kNumLists) {
+  } else if (e.objects_per_span() <= 2 * num_lists) {
     // We should have only one span in the third-last nonempty_ list; this is
     // the span from which we should have allocated the last object.
-    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 3), 1);
+    EXPECT_EQ(e.central_freelist().NumSpansInList(num_lists - 3), 1);
   } else {
     // We should have only one span in the second-last nonempty_ list; this is
     // the span from which we should have allocated the last object.
-    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
+    EXPECT_EQ(e.central_freelist().NumSpansInList(num_lists - 2), 1);
   }
   // Return previously allocated object.
   e.central_freelist().InsertRange({batch, 1});
@@ -690,7 +702,8 @@ TEST_P(CentralFreeListTest, SpanPriority) {
 }
 
 TEST_P(CentralFreeListTest, SpanLifetime) {
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   // Skip the check for objects_per_span = 1 since such spans skip most of the
   // central freelist's logic.
   if (e.objects_per_span() == 1) {
@@ -761,7 +774,8 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
 }
 
 TEST_P(CentralFreeListTest, MultipleSpans) {
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   std::vector<void*> all_objects;
   constexpr size_t kNumSpans = 10;
 
@@ -842,7 +856,8 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
 }
 
 TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   ASSERT_GE(e.objects_per_span(), 1);
   auto test_function = [&](size_t num_objects,
                            AccessDensityPrediction density) {
@@ -869,7 +884,8 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
   // This test is primarily exercising Span itself to model how tcmalloc.cc uses
   // it, but this gives us a self-contained (and sanitizable) implementation of
   // the CentralFreeList.
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   // Allocate one object from the CFL to allocate a span.
   void* initial;
   int got = e.central_freelist().RemoveRange(absl::MakeSpan(&initial, 1));
@@ -901,10 +917,15 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
   e.central_freelist().InsertRange(absl::MakeSpan(&initial, 1));
 }
 
-INSTANTIATE_TEST_SUITE_P(CentralFreeList, CentralFreeListTest,
-                         // We skip the first size class since it is set to 0.
-                         testing::ValuesIn(kSizeClasses.classes.begin() + 1,
-                                           kSizeClasses.classes.end()));
+INSTANTIATE_TEST_SUITE_P(
+    CentralFreeList, CentralFreeListTest,
+    testing::Combine(
+        // We skip the first size class since it is set to 0.
+        testing::ValuesIn(kSizeClasses.classes.begin() + 1,
+                          kSizeClasses.classes.end()),
+        testing::Values(
+            central_freelist_internal::PriorityListLength::kNormal,
+            central_freelist_internal::PriorityListLength::kExtended)));
 
 }  // namespace
 }  // namespace tcmalloc_internal

@@ -23,6 +23,7 @@
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
@@ -291,6 +292,20 @@ bool Parameters::sparse_trackers_coarse_longest_free_range() {
     v.store(IsExperimentActive(
                 Experiment::TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS) ||
                 IsExperimentActive(Experiment::TCMALLOC_COARSE_LFR_TRACKERS),
+            std::memory_order_relaxed);
+  });
+  return v;
+}
+
+central_freelist_internal::PriorityListLength
+Parameters::priority_list_length() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<
+      central_freelist_internal::PriorityListLength>
+      v{central_freelist_internal::PriorityListLength::kNormal};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(central_freelist_internal::PriorityListLength{IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)},
             std::memory_order_relaxed);
   });
   return v;

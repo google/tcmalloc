@@ -260,6 +260,12 @@ test_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING"],
         "tags": ["noubsan"],
     },
+    {
+        "name": "tcmalloc_extended_priority_lists",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1"},
+    },
 ]
 
 def create_tcmalloc_library(

@@ -98,7 +98,7 @@ TEST(TCMallocVariant, KnownExperimentVariants) {
   }
   for (auto name : absl::StrSplit(env, ',')) {
     auto exp = FindExperimentByName(name);
-    EXPECT_TRUE(exp && IsExperimentActive(exp.value()));
+    EXPECT_TRUE(exp && IsExperimentActive(exp.value())) << name;
   }
 }
 

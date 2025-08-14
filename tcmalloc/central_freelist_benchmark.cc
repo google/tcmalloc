@@ -40,7 +40,7 @@ void BM_Populate(benchmark::State& state) {
   const int num_batches = num_objects / batch_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
-  cfl.Init(size_class);
+  cfl.Init(size_class, central_freelist_internal::PriorityListLength::kNormal);
 
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -90,7 +90,7 @@ void BM_MixAndReturn(benchmark::State& state) {
   const int num_batches = num_objects / batch_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
-  cfl.Init(size_class);
+  cfl.Init(size_class, central_freelist_internal::PriorityListLength::kNormal);
 
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -139,7 +139,7 @@ void BM_SpanReuse(benchmark::State& state) {
   const int num_batches = num_objects / batch_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
-  cfl.Init(size_class);
+  cfl.Init(size_class, central_freelist_internal::PriorityListLength::kNormal);
 
   // Array used to hold onto half of the objects
   std::vector<void*> held_objects(2 * num_objects);

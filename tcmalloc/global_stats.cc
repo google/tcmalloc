@@ -600,6 +600,9 @@ void DumpStats(Printer& out, int level) {
                Parameters::usermode_hugepage_collapse() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_release_free_swapped %d\n",
                Parameters::release_free_swapped() ? 1 : 0);
+    out.printf(
+        "PARAMETER tcmalloc_num_priority_lists %d\n",
+        CentralFreeList::NumPriorityLists(Parameters::priority_list_length()));
   }
 }
 
@@ -819,6 +822,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintRaw("madvise", MadviseString());
   region.PrintBool("tcmalloc_resize_size_class_max_capacity",
                    Parameters::resize_size_class_max_capacity());
+  region.PrintI64(
+      "tcmalloc_num_priority_lists",
+      CentralFreeList::NumPriorityLists(Parameters::priority_list_length()));
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

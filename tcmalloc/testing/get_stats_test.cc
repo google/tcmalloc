@@ -139,7 +139,12 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   // # TODO: b/425749361 - Update this to conditionally expect true.
   EXPECT_THAT(buf, HasSubstr("release_free_swapped: false"));
-
+  if (IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)) {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_num_priority_lists: 32"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_num_priority_lists: 8"));
+  }
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
 
@@ -220,6 +225,13 @@ TEST_F(GetStatsTest, Parameters) {
 
     // TODO: b/425749361 - Update this to conditionally expect true.
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 0)"));
+    if (IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)) {
+      EXPECT_THAT(buf,
+                  HasSubstr(R"(PARAMETER tcmalloc_num_priority_lists 32)"));
+    } else {
+      EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_num_priority_lists 8)"));
+    }
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));

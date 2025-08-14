@@ -18,6 +18,7 @@
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "benchmark/benchmark.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
@@ -45,7 +46,12 @@ void BM_CrossThread(benchmark::State& state) {
   void* batch[kMaxObjectsToMove];
 
   struct CrossThreadState {
-    CrossThreadState() : m{}, c{Cache(&m, 1), Cache(&m, 1)} {}
+    CrossThreadState()
+        : m{},
+          c{Cache(&m, 1,
+                  central_freelist_internal::PriorityListLength::kNormal),
+            Cache(&m, 1,
+                  central_freelist_internal::PriorityListLength::kNormal)} {}
     FakeTransferCacheManager m;
     Cache c[2];
   };

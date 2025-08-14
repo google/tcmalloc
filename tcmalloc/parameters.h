@@ -22,6 +22,7 @@
 
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
@@ -188,6 +189,8 @@ class Parameters {
   }
 
   static bool sparse_trackers_coarse_longest_free_range();
+
+  static central_freelist_internal::PriorityListLength priority_list_length();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
