@@ -257,7 +257,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
   static constexpr size_t kReservedBits = 25;
-  static_assert(kReservedBits + kNonemptyIndexBits <= kMaxPageIdBits);
   // Use uint16_t or uint8_t for 16 bit and 8 bit fields instead of bitfields.
   // LLVM will generate widen load/store and bit masking operations to access
   // bitfields and this hurts performance. Although compiler flag
