@@ -24,9 +24,11 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
@@ -90,7 +92,8 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
       benchmark::DoNotOptimize(ptr);
       ::operator delete(ptr);
 
-      const size_t start_memory = CurrentHeapSize();
+      const size_t start_memory =
+          tcmalloc_internal::kSanitizerPresent ? 0 : CurrentHeapSize();
 
       void* list = nullptr;
       for (size_t alloc = 0; alloc < total; alloc += size) {
@@ -101,12 +104,13 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
         list = object;
       }
 
-      const size_t peak_memory = CurrentHeapSize();
+      const size_t peak_memory =
+          tcmalloc_internal::kSanitizerPresent ? 0 : CurrentHeapSize();
 
       while (list != nullptr) {
         void** object = reinterpret_cast<void**>(list);
         list = *object;
-        ::operator delete(object);
+        sized_delete(object, size);
       }
 
       if (mask.Tampered()) {
@@ -131,6 +135,10 @@ TEST_P(SamplingMemoryTest, Overhead) {
   SetSamplingInterval(original);
 
   const ssize_t with_sampling = HeapGrowth(size);
+
+  if (tcmalloc_internal::kSanitizerPresent) {
+    return;
+  }
 
   // Allocating many MB's of memory should trigger some growth.
   EXPECT_NE(baseline, 0);

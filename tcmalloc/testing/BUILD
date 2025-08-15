@@ -222,13 +222,9 @@ create_tcmalloc_testsuite(
     name = "frag_test",
     srcs = ["frag_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -330,18 +326,14 @@ create_tcmalloc_testsuite(
     timeout = "long",
     srcs = ["sampling_memusage_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:affinity",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -418,14 +410,10 @@ create_tcmalloc_testsuite(
     srcs = ["sample_size_class_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:linked_list",
         "@com_google_googletest//:gtest_main",
     ],
@@ -491,13 +479,9 @@ create_tcmalloc_testsuite(
                 "//conditions:default": [],
             }),
     linkstatic = 1,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -618,15 +602,11 @@ create_tcmalloc_testsuite(
     srcs = ["get_stats_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         ":testutil",
         "//tcmalloc:experiment",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/strings",
@@ -969,16 +949,12 @@ create_tcmalloc_testsuite(
     name = "heap_profiling_test",
     srcs = ["heap_profiling_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         ":test_allocator_harness",
         ":thread_manager",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:malloc_hook",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:profile_builder",
         "//tcmalloc/internal:profile_cc_proto",

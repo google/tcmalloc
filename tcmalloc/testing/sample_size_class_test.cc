@@ -16,6 +16,7 @@
 #include <stdlib.h>
 
 #include "gtest/gtest.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
@@ -67,7 +68,8 @@ TEST(SampleSizeClassTest, Main) {
   // rounded up by tcmalloc.  If this changes, you may want to pick a
   // new kRequestSize.
   const size_t kRequestSize = 17;
-  const size_t kActualSize = 32;
+  const size_t kActualSize =
+      tcmalloc_internal::kSanitizerPresent ? kRequestSize : 32;
   {
     ScopedNeverSample never_sample;  // sampling can affect reported sizes
     void* p = malloc(kRequestSize);
@@ -91,7 +93,9 @@ TEST(SampleSizeClassTest, Main) {
   }
   const double finish = HeapProfileReport(kActualSize);
 
-  EXPECT_NEAR(allocated, finish - start, 0.05 * allocated);
+  if (!tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_NEAR(allocated, finish - start, 0.05 * allocated);
+  }
 
   void* ptr;
   while (objs.TryPop(&ptr)) {

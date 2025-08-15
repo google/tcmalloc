@@ -36,6 +36,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/internal/sampled_allocation.h"
@@ -108,6 +109,10 @@ TEST(HeapProfilingTest, Timestamp) {
 
   auto converted_or = tcmalloc_internal::MakeProfileProto(
       MallocExtension::SnapshotCurrent(ProfileType::kHeap));
+  if (tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_FALSE(converted_or.ok());
+    return;
+  }
   ASSERT_TRUE(converted_or.ok());
   const auto& converted = **converted_or;
 
@@ -135,8 +140,10 @@ TEST(HeapProfilingTest, AllocateDifferentSizes) {
         if (s.requested_size == requested_size2) requested_size2_count++;
       });
 
-  EXPECT_GT(requested_size1_count, 0);
-  EXPECT_EQ(requested_size2_count, 0);
+  if (!tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_GT(requested_size1_count, 0);
+    EXPECT_EQ(requested_size2_count, 0);
+  }
   requested_size1_count = 0;
 
   for (int i = 0; i < num_allocations; i++) {
@@ -156,8 +163,10 @@ TEST(HeapProfilingTest, AllocateDifferentSizes) {
         if (s.requested_size == requested_size2) requested_size2_count++;
       });
 
-  EXPECT_EQ(requested_size1_count, 0);
-  EXPECT_GT(requested_size2_count, 0);
+  if (!tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_EQ(requested_size1_count, 0);
+    EXPECT_GT(requested_size2_count, 0);
+  }
 
   for (int i = 0; i < num_allocations; i++) {
     ::operator delete(allocations2[i]);
@@ -192,6 +201,11 @@ TEST(HeapProfilingTest, CheckResidency) {
   // Collect the heap profile and look for residency info.
   auto converted_or = tcmalloc_internal::MakeProfileProto(
       MallocExtension::SnapshotCurrent(ProfileType::kHeap));
+  if (tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_FALSE(converted_or.ok());
+    return;
+  }
+
   ASSERT_TRUE(converted_or.ok());
   const auto& converted = **converted_or;
 

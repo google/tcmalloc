@@ -35,6 +35,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -63,6 +64,10 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   std::optional<size_t> fragmentation = MallocExtension::GetNumericProperty(
       "tcmalloc.sampled_internal_fragmentation");
+  if (tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_THAT(fragmentation, testing::Eq(std::nullopt));
+    return;
+  }
   ASSERT_THAT(fragmentation, testing::Ne(std::nullopt));
   EXPECT_GT(*fragmentation, 0);
 
@@ -184,10 +189,10 @@ TEST_F(GetStatsTest, Parameters) {
     return absl::StrContains(sv, "HugePageAwareAllocator");
   };
 
-  {
-    const std::string buf = MallocExtension::GetStats();
-    const std::string pbtxt = GetStatsInPbTxt();
+  std::string buf = MallocExtension::GetStats();
+  std::string pbtxt = GetStatsInPbTxt();
 
+  if (!tcmalloc_internal::kSanitizerPresent) {
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
     }
@@ -282,10 +287,10 @@ TEST_F(GetStatsTest, Parameters) {
       absl::Milliseconds(240375));
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
 
-  {
-    const std::string buf = MallocExtension::GetStats();
-    const std::string pbtxt = GetStatsInPbTxt();
+  buf = MallocExtension::GetStats();
+  pbtxt = GetStatsInPbTxt();
 
+  if (!tcmalloc_internal::kSanitizerPresent) {
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
     }

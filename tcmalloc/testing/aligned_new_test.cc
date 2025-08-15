@@ -25,6 +25,7 @@
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/debugging/leak_check.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
@@ -97,13 +98,15 @@ TYPED_TEST_P(AlignedNew, AlignedTest) {
     counts[{e.requested_size, e.requested_alignment}] += e.count;
   });
 
-  size_t expected_alignment = 0;
+  if (!tcmalloc_internal::kSanitizerPresent) {
+    size_t expected_alignment = 0;
 #if defined(__STDCPP_DEFAULT_NEW_ALIGNMENT__)
-  if (alignof(TypeParam) > __STDCPP_DEFAULT_NEW_ALIGNMENT__) {
-    expected_alignment = alignof(TypeParam);
-  }
+    if (alignof(TypeParam) > __STDCPP_DEFAULT_NEW_ALIGNMENT__) {
+      expected_alignment = alignof(TypeParam);
+    }
 #endif
-  EXPECT_GT((counts[{sizeof(TypeParam), expected_alignment}]), 0);
+    EXPECT_GT((counts[{sizeof(TypeParam), expected_alignment}]), 0);
+  }
 
   ASSERT_EQ(kAllocations, this->ptrs.size());
 }

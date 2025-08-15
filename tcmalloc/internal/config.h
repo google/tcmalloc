@@ -138,6 +138,13 @@ inline constexpr int kAddressBits = 8 * sizeof(void*);
 inline constexpr bool kSelSanPresent = false;
 #endif
 
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+inline constexpr bool kSanitizerPresent = true;
+#else
+inline constexpr bool kSanitizerPresent = false;
+#endif
+
 // Sanitizers constrain the memory layout which causes problems with the
 // enlarged tags required to represent NUMA partitions and for SelSan.
 #if defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)

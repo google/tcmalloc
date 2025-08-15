@@ -20,6 +20,7 @@
 
 #include "gtest/gtest.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
@@ -56,8 +57,10 @@ TEST(Fragmentation, Slack) {
   ASSERT_GE(slack_after, slack_before);
   size_t slack = slack_after - slack_before;
 
-  EXPECT_GT(double(slack), 0.9 * free_bytes);
-  EXPECT_LT(double(slack), 1.1 * free_bytes);
+  if (!tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_GT(double(slack), 0.9 * free_bytes);
+    EXPECT_LT(double(slack), 1.1 * free_bytes);
+  }
 
   // Free remaining allocations.
   for (int i = 1; i < saved.size(); i += 2) {
