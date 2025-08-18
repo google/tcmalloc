@@ -223,8 +223,6 @@ struct GetShiftMaxCapacity {
     // We decrement by 3 because of (1) cost of per-size-class header, (2) cost
     // of per-size-class padding pointer, (3) there are a lot of empty size
     // classes that have headers and whose max capacities can't be decremented.
-    // TODO(b/272085443): try using size_class_to_header_idx array to allow for
-    // not having headers for empty size classes.
     // TODO(b/219565872): try not doing prefetching for large size classes to
     // allow for not having padding pointers for large size classes.
     mc = std::max(mc - 3, 0);
