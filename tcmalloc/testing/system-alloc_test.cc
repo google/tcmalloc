@@ -117,7 +117,7 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
 
   NumaTopology<kNumaPartitions, kNumBaseClasses> topology_;
   SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>> allocator_{
-      topology_};
+      topology_, kMinMmapAlloc};
 };
 INSTANTIATE_TEST_SUITE_P(VariedAlignment, MmapAlignedTest,
                          testing::Values(kPageSize, kHugePageSize,

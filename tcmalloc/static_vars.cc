@@ -106,7 +106,7 @@ ABSL_CONST_INIT GwpAsanState Static::gwp_asan_state_;
 ABSL_CONST_INIT Static::PerSizeClassCounts Static::per_size_class_counts_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
     SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>>
-        Static::system_allocator_{numa_topology_};
+        Static::system_allocator_{numa_topology_, kMinMmapAlloc};
 
 // LINT.ThenChange(:static_vars_size)
 

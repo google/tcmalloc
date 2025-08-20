@@ -37,7 +37,6 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
@@ -85,9 +84,10 @@ struct MemoryModifyStatus {
 template <typename Topology>
 class SystemAllocator {
  public:
-  constexpr explicit SystemAllocator(
-      const Topology& topology ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : topology_(topology) {}
+  constexpr explicit SystemAllocator(const Topology& topology
+                                         ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                                     size_t min_mmap_size)
+      : topology_(topology), min_mmap_size_(min_mmap_size) {}
 
   // REQUIRES: "alignment" is a power of two or "0" to indicate default
   // alignment REQUIRES: "alignment" and "size" <= kTagMask
@@ -174,6 +174,7 @@ class SystemAllocator {
 
  private:
   const Topology& topology_;
+  const size_t min_mmap_size_;
 
   static constexpr size_t kNumaPartitions = Topology::kNumPartitions;
 
@@ -414,7 +415,7 @@ std::pair<void*, size_t> SystemAllocator<Topology>::AllocateFromRegion(
   // If we are dealing with large sizes, or large alignments we do not
   // want to throw away the existing reserved region, so instead we
   // return a new region specifically targeted for the request.
-  if (request_size > kMinMmapAlloc || alignment > kMinMmapAlloc) {
+  if (request_size > min_mmap_size_ || alignment > min_mmap_size_) {
     // Align on kHugePageSize boundaries to reduce external fragmentation for
     // future allocations.
     size_t size = RoundUp(request_size, kHugePageSize);
@@ -468,13 +469,13 @@ std::pair<void*, size_t> SystemAllocator<Topology>::AllocateFromRegion(
 
   // Allocation failed so we need to reserve more memory.
   // Reserve new region and try allocation again.
-  void* ptr = MmapAlignedLocked(kMinMmapAlloc, kMinMmapAlloc, tag);
+  void* ptr = MmapAlignedLocked(min_mmap_size_, min_mmap_size_, tag);
   if (!ptr) return {nullptr, 0};
 
   const auto region_type = TagToHint(tag);
-  region = region_factory_->Create(ptr, kMinMmapAlloc, region_type);
+  region = region_factory_->Create(ptr, min_mmap_size_, region_type);
   if (!region) {
-    munmap(ptr, kMinMmapAlloc);
+    munmap(ptr, min_mmap_size_);
     return {nullptr, 0};
   }
   return region->Alloc(request_size, alignment);
