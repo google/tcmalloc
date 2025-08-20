@@ -149,19 +149,13 @@ create_tcmalloc_testsuite(
     srcs = ["hooks_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    # Sanitizers have limited support for hooks.
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         ":malloc_hook_recorder",
         ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:malloc_hook",
         "//tcmalloc/internal:allocation_guard",
-        "//tcmalloc/internal:declarations",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:malloc_internal",

@@ -31,6 +31,7 @@
 #include "gtest/gtest.h"
 #include "absl/debugging/leak_check.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
@@ -41,34 +42,49 @@
 namespace tcmalloc {
 namespace {
 
+using tcmalloc_internal::kSanitizerPresent;
 using tcmalloc_testing::MallocHookRecorder;
 using testing::Contains;
 using testing::ElementsAre;
 using testing::HasSubstr;
+using testing::IsEmpty;
 using testing::Lt;
 using testing::SizeIs;
+using testing::UnorderedElementsAre;
 
 class TCMallocHookTest : public testing::Test {
  public:
   using Type = MallocHookRecorder::Type;
 
+  static constexpr HookMemoryMutable kDefaultMutability =
+      tcmalloc_internal::kSanitizerPresent ? HookMemoryMutable::kImmutable
+                                           : HookMemoryMutable::kMutable;
+
   MallocHookRecorder::CallEntry NewCall(
       const void* ptr, size_t requested_size, size_t allocated_size,
-      HookMemoryMutable is_mutable = HookMemoryMutable::kMutable) {
-    return {
-        MallocHookRecorder::kNew, ptr,        requested_size,
-        allocated_size,           is_mutable, MallocHookRecorder::kTCMalloc};
+      HookMemoryMutable is_mutable = kDefaultMutability) {
+    return {MallocHookRecorder::kNew,
+            ptr,
+            requested_size,
+            allocated_size,
+            is_mutable,
+            tcmalloc_internal::kSanitizerPresent
+                ? MallocHookRecorder::kOther
+                : MallocHookRecorder::kTCMalloc};
   }
   MallocHookRecorder::CallEntry DeleteCall(
       const void* ptr, std::optional<size_t> deallocated_size,
       size_t allocated_size,
-      HookMemoryMutable is_mutable = HookMemoryMutable::kMutable) {
+      HookMemoryMutable is_mutable = kDefaultMutability) {
     return {MallocHookRecorder::kDelete,
             ptr,
             deallocated_size,
             allocated_size,
             is_mutable,
-            MallocHookRecorder::kTCMalloc};
+            tcmalloc_internal::kSanitizerPresent ? MallocHookRecorder::kOther
+                                                 : MallocHookRecorder::kTCMalloc
+
+    };
   }
 
   std::vector<MallocHookRecorder::CallEntry> Log(bool include_mmap) {
@@ -109,8 +125,12 @@ TEST_F(TCMallocHookTest, FreeSizedInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   free_sized(p1, 15);
-  EXPECT_THAT(Log(false), ElementsAre(NewCall(copy_p1, 15, allocated_size),
-                                      DeleteCall(copy_p1, 15, allocated_size)));
+  EXPECT_THAT(Log(false),
+              ElementsAre(NewCall(copy_p1, 15, allocated_size),
+                          DeleteCall(copy_p1,
+                                     kSanitizerPresent ? std::nullopt
+                                                       : std::make_optional(15),
+                                     allocated_size)));
 }
 
 TEST_F(TCMallocHookTest, CallocInvokesHook) {
@@ -128,9 +148,14 @@ TEST_F(TCMallocHookTest, ReallocInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   void* p2 = realloc(p1, 30000);
+#if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p2, 30000, GetAllocatedSize(p2)),
                                       DeleteCall(copy_p1, std::nullopt,
                                                  p1_allocated_size)));
+#else
+  EXPECT_THAT(Log(false), IsEmpty());
+  (void)p1_allocated_size;
+#endif
   free(p2);
 }
 
@@ -142,9 +167,14 @@ TEST_F(TCMallocHookTest, ReallocShrinkInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   void* p2 = realloc(p1, 100);
+#if !defined(ABSL_HAVE_MEMORY_SANITIZER) && !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p2, 100, GetAllocatedSize(p2)),
                                       DeleteCall(copy_p1, std::nullopt,
                                                  p1_allocated_size)));
+#else
+  EXPECT_THAT(Log(false), IsEmpty());
+  (void)p1_allocated_size;
+#endif
   free(p2);
 }
 
@@ -156,18 +186,27 @@ TEST_F(TCMallocHookTest, ReallocPopInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   void* p2 = realloc(p1, 999);
+
+#if !defined(ABSL_HAVE_MEMORY_SANITIZER)
   EXPECT_THAT(
       Log(false),
       testing::AnyOf(
-          ElementsAre(DeleteCall(copy_p1, std::nullopt, p1_allocated_size,
-                                 HookMemoryMutable::kImmutable),
-                      NewCall(p2, 999, GetAllocatedSize(p2),
-                              HookMemoryMutable::kImmutable)),
+          // kImmutable indicates either:
+          // * TCMalloc did not move the allocation.  It invokes Delete->New.
+          // * A sanitizer is in the picture.  It uses New->Delete.
+          UnorderedElementsAre(
+              DeleteCall(copy_p1, std::nullopt, p1_allocated_size,
+                         HookMemoryMutable::kImmutable),
+              NewCall(p2, 999, GetAllocatedSize(p2),
+                      HookMemoryMutable::kImmutable)),
 
           ElementsAre(NewCall(p2, 999, GetAllocatedSize(p2),
                               HookMemoryMutable::kMutable),
                       DeleteCall(copy_p1, std::nullopt, p1_allocated_size,
                                  HookMemoryMutable::kMutable))));
+#else
+  (void)p1_allocated_size;
+#endif
   free(p2);
 }
 
@@ -180,9 +219,14 @@ TEST_F(TCMallocHookTest, BoundedReallocInvokesHook) {
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
   void* p2 = realloc(p1, 9000);
+#if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p2, 9000, GetAllocatedSize(p2)),
                                       DeleteCall(copy_p1, std::nullopt,
                                                  p1_allocated_size)));
+#else
+  EXPECT_THAT(Log(false), IsEmpty());
+  (void)p1_allocated_size;
+#endif
   free(p2);
 }
 
@@ -195,19 +239,31 @@ TEST_F(TCMallocHookTest, StrDupInvokesHook) {
 TEST_F(TCMallocHookTest, PosixMemalignInvokesHook) {
   void* p1;
   ASSERT_EQ(posix_memalign(&p1, sizeof(p1), 40), 0);
+#if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p1, 40, GetAllocatedSize(p1))));
+#else
+  EXPECT_THAT(Log(false), IsEmpty());
+#endif
   free(p1);
 }
 
 TEST_F(TCMallocHookTest, MemalignInvokesHook) {
   void* p1 = memalign(sizeof(p1) * 2, 50);
+#if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p1, 50, GetAllocatedSize(p1))));
+#else
+  EXPECT_THAT(Log(false), IsEmpty());
+#endif
   free(p1);
 }
 
 TEST_F(TCMallocHookTest, VallocInvokesHook) {
   void* p1 = valloc(60);
+#if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p1, 60, GetAllocatedSize(p1))));
+#else
+  EXPECT_THAT(Log(false), IsEmpty());
+#endif
   free(p1);
 }
 
@@ -215,8 +271,13 @@ TEST_F(TCMallocHookTest, VallocInvokesHook) {
 TEST_F(TCMallocHookTest, PvallocInvokesHook) {
   uint64_t pagesize = sysconf(_SC_PAGESIZE);
   void* p1 = pvalloc(70);
+#if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false),
               ElementsAre(NewCall(p1, pagesize, GetAllocatedSize(p1))));
+#else
+  EXPECT_THAT(Log(false), IsEmpty());
+  (void)pagesize;
+#endif
   free(p1);
 }
 #endif
@@ -266,12 +327,21 @@ TEST_F(TCMallocHookTest, SizedOperatorDeleteInvokesHook) {
   benchmark::DoNotOptimize(copy_p1);
 #ifdef __cpp_sized_deallocation
   ::operator delete(p1, 11);
-  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, 11, allocated_size)));
 #else
   ::operator delete(p1);
-  EXPECT_THAT(Log(false),
-              ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
 #endif
+
+  if (!tcmalloc_internal::kSanitizerPresent
+#ifndef __cpp_sized_deallocation
+      && false
+#endif
+  ) {
+    EXPECT_THAT(Log(false),
+                ElementsAre(DeleteCall(copy_p1, 11, allocated_size)));
+  } else {
+    EXPECT_THAT(Log(false),
+                ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
+  }
 }
 
 TEST_F(TCMallocHookTest, OperatorDeleteArrayInvokesHook) {
@@ -295,12 +365,21 @@ TEST_F(TCMallocHookTest, SizedOperatorDeleteArrayInvokesHook) {
   benchmark::DoNotOptimize(copy_p1);
 #ifdef __cpp_sized_deallocation
   ::operator delete[](p1, 13);
-  EXPECT_THAT(Log(false), ElementsAre(DeleteCall(copy_p1, 13, allocated_size)));
 #else
   ::operator delete[](p1);
-  EXPECT_THAT(Log(false),
-              ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
 #endif
+
+  if (!kSanitizerPresent
+#ifndef __cpp_sized_deallocation
+      && false
+#endif
+  ) {
+    EXPECT_THAT(Log(false),
+                ElementsAre(DeleteCall(copy_p1, 13, allocated_size)));
+  } else {
+    EXPECT_THAT(Log(false),
+                ElementsAre(DeleteCall(copy_p1, std::nullopt, allocated_size)));
+  }
 }
 
 TEST_F(TCMallocHookTest, NothrowOperatorDeleteInvokesHook) {
@@ -430,6 +509,10 @@ TEST(TCMallocTest, GetStatsReportsHooks) {
         HasSubstr(
             "MALLOC HOOKS: NEW=1 DELETE=1 SAMPLED_NEW=0 SAMPLED_DELETE=0"));
     return;
+  }
+
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizer present.";
   }
 
   // We do not have any hooks configured.
