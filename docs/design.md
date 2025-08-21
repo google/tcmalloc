@@ -70,7 +70,7 @@ There are two implementations of the TCMalloc front-end:
 The differences between per-thread and per-CPU modes are entirely confined to
 the implementations of malloc/new and free/delete.
 
-## Small and Large Object Allocation
+## Small and Large Object Allocation {#objects}
 
 Allocations of "small" objects are mapped onto one of
 [60-80 allocatable size-classes](https://github.com/google/tcmalloc/blob/master/tcmalloc/size_classes.cc).
