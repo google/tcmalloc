@@ -1738,6 +1738,77 @@ TEST_P(FillerTest, CollapseLatency) {
   DeleteVector(p1);
 }
 
+// Test that collapse mechanism backs off as soon as it encounters the first
+// operation with a high latency.
+TEST_P(FillerTest, EarlyBackoff) {
+  const Length kAlloc = kPagesPerHugePage - Length(1);
+
+  collapse_.SetLatency(absl::Seconds(1));
+
+  SpanAllocInfo info;
+  info.objects_per_span = 1;
+  info.density = AccessDensityPrediction::kSparse;
+  std::vector<PAlloc> p1 = AllocateVectorWithSpanAllocInfo(kAlloc, info);
+  std::vector<PAlloc> p2 =
+      AllocateVectorWithSpanAllocInfo(kAlloc - Length(1), info);
+  ASSERT_TRUE(!p1.empty());
+  ASSERT_TRUE(!p2.empty());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, /*n=*/1);
+    swapped.SetRange(/*index=*/0, /*n=*/1);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+
+  // Allocate a second hugepage with longer free range than p1. This ensures
+  // collapse mechanism will first attempt to collapse p1, and then p2.
+  for (const auto& pa : p2) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, /*n=*/1);
+    swapped.SetRange(/*index=*/0, /*n=*/1);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+
+  ASSERT_EQ(filler_.size(), NHugePages(2));
+
+  TreatHugepageTrackers(/*enable_collapse=*/true,
+                        /*enable_release_free_swapped=*/false, &pageflags,
+                        &residency);
+
+  // As latency of each collapse is high, p1 should have been collapsed, but
+  // p2 should have been skipped.
+  for (const auto& pa : p1) {
+    EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+  }
+
+  for (const auto& pa : p2) {
+    EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
+    EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 0);
+  }
+
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_eligible, 2);
+  EXPECT_EQ(treatment_stats.collapse_attempted, 1);
+  EXPECT_EQ(treatment_stats.collapse_succeeded, 1);
+
+  DeleteVector(p1);
+  DeleteVector(p2);
+}
+
 // Tests that, due to increased collapse latency, we exponentially backoff from
 // collapse.
 TEST_P(FillerTest, BackoffFromCollapse) {

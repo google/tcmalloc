@@ -407,6 +407,10 @@ enum class CollapseErrorType : size_t {
   kErrorTypes
 };
 
+inline bool CollapseExceedsLatencyThreshold(absl::Duration latency) {
+  return latency > absl::Milliseconds(30);
+}
+
 struct HugePageTreatmentStats {
   size_t collapse_eligible = 0;
   size_t collapse_attempted = 0;
@@ -2242,6 +2246,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     // aren't hugepage backed, and for which, the number of unbacked and swapped
     // pages are less than kMaxUnbackedPagesForCollapse and
     // kMaxSwappedPagesForCollapse respectively.
+    double max_collapse_cycles = 0;
     for (int i = 0; i < num_valid_trackers_; ++i) {
       PageTracker::HugePageResidencyState state;
       PageTracker* tracker = selected_trackers_[i];
@@ -2256,7 +2261,16 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       if (!is_hugepage) {
         residency_states_[i].bitmaps =
             res->GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
-        if (enable_collapse_) {
+
+        bool backoff = false;
+        if (treatment_stats_.collapse_time_max_cycles > max_collapse_cycles) {
+          max_collapse_cycles = treatment_stats_.collapse_time_max_cycles;
+          absl::Duration max_collapse_latency =
+              absl::Milliseconds(max_collapse_cycles * 1000 / clock_.freq());
+          backoff = CollapseExceedsLatencyThreshold(max_collapse_latency);
+        }
+
+        if (enable_collapse_ && !backoff) {
           size_t total_swapped_pages =
               residency_states_[i].bitmaps.swapped.CountBits();
           size_t total_unbacked_pages =
@@ -2377,7 +2391,7 @@ template <class TrackerType>
 void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
     absl::Duration latency) {
   // These latency thresholds are chosen empirically.
-  const bool increase = latency > absl::Milliseconds(30);
+  const bool increase = CollapseExceedsLatencyThreshold(latency);
   const bool decrease = latency < absl::Milliseconds(15);
   if (increase) {
     max_backoff_delay_ = std::min(max_backoff_delay_ << 1, kMaxBackoffDelay);
