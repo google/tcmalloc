@@ -2377,8 +2377,8 @@ template <class TrackerType>
 void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
     absl::Duration latency) {
   // These latency thresholds are chosen empirically.
-  const bool increase = latency > absl::Milliseconds(50);
-  const bool decrease = latency < absl::Milliseconds(20);
+  const bool increase = latency > absl::Milliseconds(30);
+  const bool decrease = latency < absl::Milliseconds(15);
   if (increase) {
     max_backoff_delay_ = std::min(max_backoff_delay_ << 1, kMaxBackoffDelay);
   } else if (decrease) {
