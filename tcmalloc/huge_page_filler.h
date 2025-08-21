@@ -419,6 +419,7 @@ struct HugePageTreatmentStats {
   // range of values.
   double collapse_time_total_cycles = 0;
   double collapse_time_max_cycles = 0;
+  size_t collapse_intervals_skipped = 0;
   static absl::string_view ErrorTypeToString(CollapseErrorType type) {
     switch (type) {
       case CollapseErrorType::kENoMem:
@@ -2389,7 +2390,10 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     bool enable_collapse, bool enable_release_free_swapped,
     PageFlagsBase* pageflags, Residency* residency) {
-  enable_collapse = enable_collapse && !ShouldBackoffFromCollapse();
+  if (enable_collapse && ShouldBackoffFromCollapse()) {
+    enable_collapse = false;
+    ++treatment_stats_.collapse_intervals_skipped;
+  }
   const bool collect_non_hugepage_trackers =
       enable_collapse || enable_release_free_swapped;
   SampledTrackerTreatment sampled_tracker_treatment(clock_, tag_,
@@ -2666,6 +2670,11 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
       treatment_stats_.collapse_time_max_cycles * 1000 * 1000 / clock_.freq());
 
   out.printf(
+      "HugePageFiller: Backoff delay for collapse currently is %d interval(s), "
+      "number of intervals skipped due to backoff is %d\n",
+      max_backoff_delay_, treatment_stats_.collapse_intervals_skipped);
+
+  out.printf(
       "HugePageFiller: In the previous treatment interval, "
       "subreleased %zu pages.\n",
       treatment_stats_.treated_pages_subreleased);
@@ -2846,6 +2855,11 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     huge_page_treatment_region.PrintI64(
         "collapse_max_time_us", treatment_stats_.collapse_time_max_cycles *
                                     1000 * 1000 / clock_.freq());
+    huge_page_treatment_region.PrintI64("collapse_backoff_delay",
+                                        max_backoff_delay_);
+    huge_page_treatment_region.PrintI64(
+        "collapse_intervals_skipped",
+        treatment_stats_.collapse_intervals_skipped);
 
     huge_page_treatment_region.PrintI64(
         "treated_pages_subreleased",

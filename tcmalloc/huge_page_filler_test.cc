@@ -1749,6 +1749,7 @@ TEST_P(FillerTest, BackoffFromCollapse) {
   int expected_collapse_count = 0;
   int backoff_count = 0;
   int max_backoff = 1;
+  int expected_collapse_intervals_skipped = 0;
   absl::Duration total_latency = absl::ZeroDuration();
   for (absl::Duration latency : {absl::Seconds(1), absl::Milliseconds(1)}) {
     collapse_.SetLatency(latency);
@@ -1787,6 +1788,8 @@ TEST_P(FillerTest, BackoffFromCollapse) {
                           ? std::min<size_t>(max_backoff * 2, kMaxBackoffDelay)
                           : std::max<size_t>(max_backoff / 2, 1);
         backoff_count = 0;
+      } else {
+        ++expected_collapse_intervals_skipped;
       }
 
       for (const auto& pa : p1) {
@@ -1798,6 +1801,8 @@ TEST_P(FillerTest, BackoffFromCollapse) {
       EXPECT_EQ(treatment_stats.collapse_eligible, expected_collapse_count);
       EXPECT_EQ(treatment_stats.collapse_attempted, expected_collapse_count);
       EXPECT_EQ(treatment_stats.collapse_succeeded, expected_collapse_count);
+      EXPECT_EQ(treatment_stats.collapse_intervals_skipped,
+                expected_collapse_intervals_skipped);
       total_latency += expect_collapse ? latency : absl::ZeroDuration();
       EXPECT_EQ(treatment_stats.collapse_time_total_cycles,
                 absl::ToDoubleSeconds(total_latency) * FakeClock::freq());
@@ -5231,6 +5236,7 @@ HugePageFiller: 0 hugepages became full after being previously released, out of 
 HugePageFiller: Out of 0 eligible hugepages, 0 were attempted, and 0 were collapsed.
 HugePageFiller: Of the failed collapse operations, number of operations that failed per error type, ETYPE_NOMEM: 0, ETYPE_BUSY: 0, ETYPE_INVAL: 0, ETYPE_AGAIN: 0, ETYPE_OTHER: 0
 HugePageFiller: Latency of collapse operations: 0.000000 ms (total), 0.000000 us (maximum)
+HugePageFiller: Backoff delay for collapse currently is 1 interval(s), number of intervals skipped due to backoff is 0
 HugePageFiller: In the previous treatment interval, subreleased 0 pages.
 
 HugePageFiller: fullness histograms
