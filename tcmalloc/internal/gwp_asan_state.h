@@ -161,6 +161,28 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
+  void RecordInvalidFree(std::align_val_t actual_alignment,
+                         std::align_val_t expected_alignment,
+                         absl::Span<void* const> allocation_stack,
+                         absl::Span<void* const> deallocation_stack) {
+    type_ = Type::kInvalidFree;
+
+    actual_alignment_ = actual_alignment;
+    expected_alignment_ = expected_alignment;
+
+    size_t allocation_stack_depth =
+        std::min<size_t>(kMaxStackDepth, allocation_stack.size());
+    memcpy(allocation_stack_, allocation_stack.data(),
+           sizeof(void*) * allocation_stack_depth);
+    allocation_stack_depth_ = allocation_stack_depth;
+
+    size_t deallocation_stack_depth =
+        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
+    memcpy(deallocation_stack_, deallocation_stack.data(),
+           sizeof(void*) * deallocation_stack_depth);
+    deallocation_stack_depth_ = deallocation_stack_depth;
+  }
+
   void RecordMismatchedFree(Profile::Sample::AllocationType alloc_type,
                             Profile::Sample::AllocationType dealloc_type,
                             absl::Span<void* const> allocation_stack,

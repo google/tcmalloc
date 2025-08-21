@@ -169,6 +169,22 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   TC_BUG("Attempted to free corrupted pointer %p", ptr);
 }
 
+[[noreturn]]
+ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
+    Static& state, std::align_val_t expected_alignment, void* ptr,
+    absl::Span<void*> allocation_stack) {
+  static void* stack[kMaxStackDepth];
+  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
+
+  RecordCrash("GWP-ASan", "invalid-free");
+  state.gwp_asan_state().RecordInvalidFree(
+      static_cast<std::align_val_t>(
+          1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
+      expected_alignment, allocation_stack, absl::MakeSpan(stack, depth));
+
+  TC_BUG("Attempted to free corrupted pointer %p", ptr);
+}
+
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedFree(
     Static& state, void* ptr, Profile::Sample::AllocationType alloc_type,
     Profile::Sample::AllocationType dealloc_type,

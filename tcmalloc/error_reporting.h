@@ -49,6 +49,11 @@ ABSL_ATTRIBUTE_NOINLINE void ReportDoubleFree(Static& state, void* ptr);
 ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
     Static& state, std::align_val_t expected_alignment, void* ptr);
 
+[[noreturn]]
+ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
+    Static& state, std::align_val_t expected_alignment, void* ptr,
+    absl::Span<void*> allocation_stack);
+
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
 

@@ -274,7 +274,8 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
         left_aligned ? static_cast<std::align_val_t>(page_size_)
                      : d.requested_alignment;
 
-    ReportCorruptedFree(tc_globals, expected_alignment, ptr);
+    ReportCorruptedFree(tc_globals, expected_alignment, ptr,
+                        {d.alloc_trace.stack, d.alloc_trace.depth});
   }
 
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);

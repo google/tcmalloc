@@ -347,6 +347,19 @@ void MaybeUnsampleAllocation(Static& state, Policy policy, void* ptr,
                        sampled_allocation->sampled_stack.depth));
   }
 
+  // Check pointer for misalignment.
+  //
+  // TODO(ckennelly): Eliminate redundant guarded check with
+  // InvokeHooksAndFreePages.
+  if (ABSL_PREDICT_FALSE(ptr != span.start_address()) &&
+      sampled_allocation->sampled_stack.guarded_status !=
+          Profile::Sample::GuardedStatus::Guarded) {
+    ReportCorruptedFree(
+        tc_globals, static_cast<std::align_val_t>(kPageSize), ptr,
+        absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                       sampled_allocation->sampled_stack.depth));
+  }
+
   // SampleifyAllocation turns alignment 1 into 0, turn it back for
   // SizeMap::SizeClass.
   const size_t alignment =
