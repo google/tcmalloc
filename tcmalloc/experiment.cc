@@ -126,8 +126,7 @@ void ParseExperiments(absl::string_view labels, F f) {
 
 const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
                               absl::string_view active,
-                              absl::string_view disabled,
-                              bool unset) {
+                              absl::string_view disabled, bool unset) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {

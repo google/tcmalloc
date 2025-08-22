@@ -200,8 +200,7 @@ class Static final {
 #if defined(__clang__)
   __attribute__((preserve_most))
 #endif
-  static void
-  SlowInitIfNecessary();
+  static void SlowInitIfNecessary();
 
   // These static variables require explicit initialization.  We cannot
   // count on their constructors to do any initialization because other
