@@ -1743,7 +1743,7 @@ TEST_P(FillerTest, CollapseLatency) {
 TEST_P(FillerTest, EarlyBackoff) {
   const Length kAlloc = kPagesPerHugePage - Length(1);
 
-  collapse_.SetLatency(absl::Seconds(1));
+  collapse_.SetLatency(kMaxCollapseLatencyThreshold + absl::Milliseconds(1));
 
   SpanAllocInfo info;
   info.objects_per_span = 1;
