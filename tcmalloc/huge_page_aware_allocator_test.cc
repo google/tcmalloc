@@ -59,6 +59,7 @@
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -67,7 +68,6 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {

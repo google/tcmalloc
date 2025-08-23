@@ -36,11 +36,11 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/mock_metadata_allocator.h"
 #include "tcmalloc/mock_virtual_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

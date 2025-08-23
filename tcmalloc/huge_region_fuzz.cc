@@ -29,9 +29,9 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {

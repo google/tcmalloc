@@ -59,10 +59,10 @@
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/residency.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 
 using tcmalloc::tcmalloc_internal::Length;
 

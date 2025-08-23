@@ -1028,6 +1028,56 @@ cc_test(
 )
 
 cc_library(
+    name = "system_allocator",
+    srcs = ["system_allocator.cc"],
+    hdrs = ["system_allocator.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":exponential_biased",
+        ":logging",
+        ":memory_tag",
+        ":numa",
+        ":optimization",
+        ":page_size",
+        ":util",
+        "//tcmalloc:experiment",
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "system_allocator_test",
+    srcs = ["system_allocator_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        ":numa",
+        ":proc_maps",
+        ":system_allocator",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "sysinfo",
     srcs = ["sysinfo.cc"],
     hdrs = ["sysinfo.h"],

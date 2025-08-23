@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/prefetch.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/metadata_allocator.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -45,7 +46,6 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
