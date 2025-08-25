@@ -362,10 +362,34 @@ void MaybeUnsampleAllocation(Static& state, Policy policy, void* ptr,
 
   // SampleifyAllocation turns alignment 1 into 0, turn it back for
   // SizeMap::SizeClass.
+  //
+  // TODO(b/404341539): Make requested_alignment an optional and
+  // std::align_val_t-typed.
   const size_t alignment =
       sampled_allocation->sampled_stack.requested_alignment != 0
           ? sampled_allocation->sampled_stack.requested_alignment
           : 1;
+
+  // TODO(b/404341539):
+  // * Handle situation where malloc is deallocated with free_aligned_sized, or
+  //   vice-versa.
+  if ((size.has_value() ||
+       policy.allocation_type() == Profile::Sample::AllocationType::New) &&
+      ABSL_PREDICT_FALSE(policy.align() != alignment)) {
+    ReportMismatchedFree(
+        state, ptr,
+        sampled_allocation->sampled_stack.requested_alignment != 0
+            ? std::make_optional(static_cast<std::align_val_t>(
+                  sampled_allocation->sampled_stack.requested_alignment))
+            : std::nullopt,
+        policy.has_explicit_alignment()
+            ? std::make_optional<std::align_val_t>(
+                  static_cast<std::align_val_t>(policy.align()))
+            : std::nullopt,
+        absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                       sampled_allocation->sampled_stack.depth));
+  }
+
   // How many allocations does this sample represent, given the sampling
   // frequency (weight) and its size.
   const double allocation_estimate =

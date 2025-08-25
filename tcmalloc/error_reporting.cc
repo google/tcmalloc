@@ -164,7 +164,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   state.gwp_asan_state().RecordInvalidFree(
       static_cast<std::align_val_t>(
           1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
-      expected_alignment, absl::MakeSpan(stack, depth));
+      expected_alignment, std::nullopt, absl::MakeSpan(stack, depth));
 
   TC_BUG("Attempted to free corrupted pointer %p", ptr);
 }
@@ -197,6 +197,22 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
       alloc_type, dealloc_type, allocation_stack, absl::MakeSpan(stack, depth));
 
   TC_BUG("Deallocating %p with %v, expected %v", ptr, dealloc_type, alloc_type);
+}
+
+[[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedFree(
+    Static& state, void* ptr, std::optional<std::align_val_t> alloc_align,
+    std::optional<std::align_val_t> dealloc_align,
+    absl::Span<void*> allocation_stack) {
+  void* stack[kMaxStackDepth];
+  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
+
+  RecordCrash("GWP-ASan", "invalid-free");
+  state.gwp_asan_state().RecordInvalidFree(dealloc_align, alloc_align,
+                                           allocation_stack,
+                                           absl::MakeSpan(stack, depth));
+
+  TC_BUG("Deallocating %p with alignment %v, expected %v", ptr,
+         FormatConvert(dealloc_align), FormatConvert(alloc_align));
 }
 
 }  // namespace tcmalloc::tcmalloc_internal

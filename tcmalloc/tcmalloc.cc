@@ -1460,9 +1460,6 @@ extern "C" void TCMallocInternalDelete(void* p) noexcept {
 
 extern "C" void TCMallocInternalDeleteAligned(
     void* p, std::align_val_t alignment) noexcept
-#if defined(NDEBUG)
-    TCMALLOC_ALIAS(TCMallocInternalDelete);
-#else
 {
   // Note: The aligned delete/delete[] implementations differ slightly from
   // their respective aliased implementations to take advantage of checking the
@@ -1470,7 +1467,6 @@ extern "C" void TCMallocInternalDeleteAligned(
   TC_ASSERT(CorrectAlignment(p, alignment));
   return do_free(p, CppPolicy().AlignAs(alignment));
 }
-#endif
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalDeleteSized(
     void* p, size_t size) noexcept {

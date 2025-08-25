@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "benchmark/benchmark.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/base/casts.h"
@@ -48,6 +49,7 @@ namespace tcmalloc {
 
 using tcmalloc_internal::kPageShift;
 using tcmalloc_internal::kPageSize;
+using tcmalloc_internal::kSanitizerPresent;
 using tcmalloc_internal::tc_globals;
 
 class GuardedAllocAlignmentTest : public testing::Test, ScopedAlwaysSample {
@@ -930,6 +932,146 @@ TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
           "(alloc-dealloc-mismatch \\(operator new vs free\\))|"
           "(Deallocating 0x[0-9a-f]+ with malloc, expected new"
           ")"));
+}
+
+TEST_F(TcMallocTest, DeleteWithoutAlignment) {
+  ScopedAlwaysSample always_sample;
+
+  constexpr size_t size = ABSL_CACHELINE_SIZE;
+  constexpr std::align_val_t align{ABSL_CACHELINE_SIZE};
+  void* newed_with_align = ::operator new(size, align);
+
+  // TODO(b/404341539): Change ??? to <nil> or similar.
+  EXPECT_DEATH(
+      { ::operator delete(newed_with_align); },
+      absl::StrCat(
+          // ASan
+          "(new-delete-type-mismatch on .*\\n(?:.*\\n)*.*alignment of the "
+          "allocated type:   ",
+          align,
+          " bytes;.*\\n(?:.*\\n)*.*alignment of the deallocated type: "
+          "default-aligned)|"
+          // GWP-ASan
+          "(Deallocating 0x[0-9a-f]+ with alignment "
+          "\\?\\?\\?, expected ",
+          align,
+          ")"));
+
+  ::operator delete(newed_with_align, align);
+}
+
+TEST_F(TcMallocTest, DeleteWithAlignment) {
+  ScopedAlwaysSample always_sample;
+
+  constexpr size_t size = ABSL_CACHELINE_SIZE;
+  constexpr std::align_val_t align{__STDCPP_DEFAULT_NEW_ALIGNMENT__};
+  void* newed_without_align = ::operator new(size);
+
+  EXPECT_DEATH(
+      { ::operator delete(newed_without_align, align); },
+      absl::StrCat(
+          // ASan
+          "(new-delete-type-mismatch on "
+          ".*\\n(?:.*\\n)*.*alignment of the allocated type:   "
+          "default-aligned;"
+          ".*\\n(?:.*\\n)*.*alignment of the deallocated type: ",
+          align, " bytes)|",
+          // GWP-ASan
+          "(Deallocating 0x[0-9a-f]+ with alignment ", align,
+          ", expected \\?\\?\\?"
+          ")"));
+
+  ::operator delete(newed_without_align);
+}
+
+TEST_F(TcMallocTest, DeleteWrongAlignment) {
+  ScopedAlwaysSample always_sample;
+
+  constexpr size_t size = ABSL_CACHELINE_SIZE;
+  constexpr std::align_val_t align{ABSL_CACHELINE_SIZE};
+  void* newed_with_align = ::operator new(size, align);
+
+  EXPECT_DEATH(
+      {
+        ::operator delete(newed_with_align,
+                          std::align_val_t{ABSL_CACHELINE_SIZE / 2});
+      },
+      // ASan
+      absl::StrCat(
+          "(new-delete-type-mismatch on .*\\n(?:.*\\n)*.*alignment of the "
+          "allocated type:   ",
+          align, " bytes;.*\\n(?:.*\\n)*.*alignment of the deallocated type: ",
+          ABSL_CACHELINE_SIZE / 2,
+          " bytes)|"
+          // GWP-ASan
+          "(Deallocating 0x[0-9a-f]+ with alignment ",
+          ABSL_CACHELINE_SIZE / 2, ", expected ", align,
+          ")"));
+
+  ::operator delete(newed_with_align, align);
+}
+
+TEST_F(TcMallocTest, FreeWithoutAlignment) {
+  if (kSanitizerPresent) {
+    // TODO(b/441095602): Remove this skip.
+    GTEST_SKIP() << "Skipping under sanitizers pending "
+                    "https://github.com/llvm/llvm-project/issues/144435";
+  }
+  ScopedAlwaysSample always_sample;
+
+  constexpr size_t size = ABSL_CACHELINE_SIZE;
+  constexpr size_t align = ABSL_CACHELINE_SIZE;
+  void* malloc_with_align = aligned_alloc(align, size);
+
+  EXPECT_DEATH(
+      { free_sized(malloc_with_align, size); },
+      // GWP-ASan
+      absl::StrCat(
+          "(Deallocating 0x[0-9a-f]+ with alignment \\?\\?\\?, expected ",
+          align,
+          ")"));
+
+  free_aligned_sized(malloc_with_align, align, size);
+}
+
+TEST_F(TcMallocTest, FreeWithSameAlignment) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers pending "
+                    "https://github.com/llvm/llvm-project/issues/144435";
+  }
+  ScopedAlwaysSample always_sample;
+
+  constexpr size_t size = ABSL_CACHELINE_SIZE;
+  constexpr size_t align = alignof(std::max_align_t);
+  void* malloc_with_align = aligned_alloc(align, size);
+  void* malloc_without_align = malloc(size);
+
+  // TODO(b/404341539): Distinguish this case and require free_align_sized.
+  free_sized(malloc_with_align, size);
+  free_aligned_sized(malloc_without_align, alignof(std::max_align_t), size);
+}
+
+TEST_F(TcMallocTest, FreeWithAlignment) {
+  if (kSanitizerPresent) {
+    // TODO(b/441095602): Remove this skip.
+    GTEST_SKIP() << "Skipping under sanitizers pending "
+                    "https://github.com/llvm/llvm-project/issues/144435";
+  }
+  ScopedAlwaysSample always_sample;
+
+  constexpr size_t size = ABSL_CACHELINE_SIZE;
+  constexpr size_t align = ABSL_CACHELINE_SIZE;
+  void* malloc_without_align = malloc(size);
+
+  EXPECT_DEATH(
+      { free_aligned_sized(malloc_without_align, align, size); },
+      // GWP-ASan
+      absl::StrCat(
+          "(Deallocating 0x[0-9a-f]+ with alignment ", align, ", expected ",
+          alignof(std::max_align_t),
+          ")"));
+
+  free_sized(malloc_without_align, size);
 }
 
 }  // namespace

@@ -84,12 +84,12 @@ class GwpAsanState {
     return maximum_;
   }
 
-  std::align_val_t actual_alignment() const {
+  std::optional<std::align_val_t> actual_alignment() const {
     TC_ASSERT_EQ(type_, Type::kInvalidFree);
     return actual_alignment_;
   }
 
-  std::align_val_t expected_alignment() const {
+  std::optional<std::align_val_t> expected_alignment() const {
     TC_ASSERT_EQ(type_, Type::kInvalidFree);
     return expected_alignment_;
   }
@@ -146,13 +146,25 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
-  void RecordInvalidFree(std::align_val_t actual_alignment,
-                         std::align_val_t expected_alignment,
-                         absl::Span<void* const> deallocation_stack) {
+  void RecordInvalidFree(
+      std::optional<std::align_val_t> actual_alignment,
+      std::optional<std::align_val_t> expected_alignment,
+      std::optional<absl::Span<void* const>> allocation_stack,
+      absl::Span<void* const> deallocation_stack) {
     type_ = Type::kInvalidFree;
 
     actual_alignment_ = actual_alignment;
     expected_alignment_ = expected_alignment;
+
+    if (allocation_stack.has_value()) {
+      size_t allocation_stack_depth =
+          std::min<size_t>(kMaxStackDepth, allocation_stack->size());
+      memcpy(allocation_stack_, allocation_stack->data(),
+             sizeof(void*) * allocation_stack_depth);
+      allocation_stack_depth_ = allocation_stack_depth;
+    } else {
+      allocation_stack_depth_ = std::nullopt;
+    }
 
     size_t deallocation_stack_depth =
         std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
@@ -208,8 +220,7 @@ class GwpAsanState {
  private:
   Type type_ = Type::kNone;
   size_t provided_min_ = 0, provided_max_ = 0, minimum_ = 0, maximum_ = 0;
-  std::align_val_t actual_alignment_ = static_cast<std::align_val_t>(0),
-                   expected_alignment_ = static_cast<std::align_val_t>(0);
+  std::optional<std::align_val_t> actual_alignment_, expected_alignment_;
 
   std::optional<Profile::Sample::AllocationType> alloc_type_, dealloc_type_;
 

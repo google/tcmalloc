@@ -82,7 +82,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void wrap_delete_aligned(void* ptr,
 #ifdef __cpp_sized_deallocation
   operator delete(ptr, size, std::align_val_t(64));
 #else
-  operator delete(ptr);
+  operator delete(ptr, std::align_val_t(64));
 #endif
 }
 
@@ -91,7 +91,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void wrap_delete_aligned_array(
 #ifdef __cpp_sized_deallocation
   operator delete[](ptr, size, std::align_val_t(64));
 #else
-  operator delete[](ptr);
+  operator delete[](ptr, std::align_val_t(64));
 #endif
 }
 
