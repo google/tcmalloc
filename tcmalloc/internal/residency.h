@@ -73,6 +73,8 @@ class ResidencyPageMap : public Residency {
   ResidencyPageMap();
   ~ResidencyPageMap() override;
 
+  static void operator delete(void*) { __builtin_trap(); }
+
   // Query a span of memory starting from `addr` for `size` bytes.
   //
   // We use std::optional for return value as std::optional guarantees that no

@@ -1246,6 +1246,8 @@ class SampledTrackerTreatment final : public HugePageTreatment {
       : clock_(clock), tag_(tag), set_anon_vma_name_(set_anon_vma_name) {}
   ~SampledTrackerTreatment() override = default;
 
+  static void operator delete(void*) { __builtin_trap(); }
+
   // Trying to apply treatments to the sampled trackers involves three
   // steps:
   // 1. Collect up to kTotalTrackersToScan trackers using
@@ -2184,6 +2186,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         enable_collapse_(enable_collapse),
         enable_release_free_swap_(enable_release_free_swap) {}
   ~HugePageUnbackedTrackerTreatment() override = default;
+
+  static void operator delete(void*) { __builtin_trap(); }
 
   // Trying to apply treatments to the non-hugepage backed pages involves three
   // steps:

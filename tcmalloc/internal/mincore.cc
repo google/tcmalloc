@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
 
@@ -36,6 +37,8 @@ class OsMInCore final : public MInCoreInterface {
   }
 
   ~OsMInCore() override = default;
+
+  static void operator delete(void*) { __builtin_trap(); }
 };
 
 // Returns the number of resident bytes for an range of memory of arbitrary

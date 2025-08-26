@@ -398,6 +398,7 @@ cc_library(
     deps = [
         ":config",
         ":page_size",
+        "@com_google_absl//absl/base:core_headers",
     ],
 )
 

@@ -155,6 +155,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   explicit HugePageAwareAllocator(const HugePageAwareAllocatorOptions& options);
   ~HugePageAwareAllocator() override = default;
 
+  static void operator delete(void*) { __builtin_trap(); }
+
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
@@ -271,6 +273,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~Unback() override = default;
 
+    static void operator delete(void*) { __builtin_trap(); }
+
     [[nodiscard]] MemoryModifyStatus operator()(Range r) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
 #ifndef NDEBUG
@@ -289,6 +293,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
     ~UnbackWithoutLock() override = default;
+
+    static void operator delete(void*) { __builtin_trap(); }
 
     [[nodiscard]] MemoryModifyStatus operator()(Range r) override
         ABSL_NO_THREAD_SAFETY_ANALYSIS {
@@ -312,6 +318,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~Collapse() override = default;
 
+    static void operator delete(void*) { __builtin_trap(); }
+
     [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
       MemoryModifyStatus ret = hpaa_.forwarder_.CollapsePages(r);
       return ret;
@@ -327,6 +335,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
     ~SetAnonVmaName() override = default;
+
+    static void operator delete(void*) { __builtin_trap(); }
+
     void operator()(Range r, std::optional<absl::string_view> name) override {
       hpaa_.forwarder_.SetAnonVmaName(r, name);
     }
@@ -352,6 +363,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~VirtualMemoryAllocator() override = default;
 
+    static void operator delete(void*) { __builtin_trap(); }
+
     [[nodiscard]] AddressRange operator()(size_t bytes, size_t align) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
       return hpaa_.AllocAndReport(bytes, align);
@@ -367,6 +380,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
     ~ArenaMetadataAllocator() override = default;
+
+    static void operator delete(void*) { __builtin_trap(); }
 
     [[nodiscard]] void* operator()(size_t bytes) override {
       return hpaa_.forwarder_.arena().Alloc(bytes);

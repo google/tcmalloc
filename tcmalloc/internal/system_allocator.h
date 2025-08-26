@@ -218,6 +218,8 @@ class SystemAllocator {
     std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override;
     ~MmapRegion() override = default;
 
+    static void operator delete(void*) { __builtin_trap(); }
+
    private:
     const uintptr_t start_;
     size_t free_size_;
@@ -228,6 +230,8 @@ class SystemAllocator {
    public:
     constexpr MmapRegionFactory() = default;
     ~MmapRegionFactory() override = default;
+
+    static void operator delete(void*) { __builtin_trap(); }
 
     AddressRegion* Create(void* start, size_t size, UsageHint hint) override;
     size_t GetStats(absl::Span<char> buffer) override;

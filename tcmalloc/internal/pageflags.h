@@ -85,6 +85,8 @@ class PageFlags final : public PageFlagsBase {
   PageFlags();
   ~PageFlags() override;
 
+  static void operator delete(void*) { __builtin_trap(); }
+
   // Query a span of memory starting from `addr` for `size` bytes. The memory
   // span must consist of only native-size pages and THP hugepages; the behavior
   // is undefined if we encounter other hugepages (such as hugetlbfs). We try to
