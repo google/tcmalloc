@@ -57,8 +57,8 @@
 #endif
 
 // When possible, name the text section as google_malloc.  This macro should not
-// be added to header files as that may move unrelated code to google_malloc
-// section.
+// be applied to header files (as in "GOOGLE_MALLOC_SECTION_BEGIN #include ...")
+// as that may move unrelated code to google_malloc section.
 #if defined(__clang__) && defined(__linux__)
 #define GOOGLE_MALLOC_SECTION_BEGIN \
   _Pragma("clang section text = \"google_malloc\"")
