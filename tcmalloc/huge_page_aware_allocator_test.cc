@@ -811,16 +811,7 @@ TEST_P(HugePageAwareAllocatorTest, SmallDonations) {
 
   RefreshStats();
   EXPECT_EQ(slack, kSlack);
-  // The filler is not able to use the already available hugepage since that
-  // page has a kSmallSize2 allocation.  The longest free range for this
-  // hugepage will be kPagesPerHugePage - kSmallSize2.  This means that hugepage
-  // will be in the final list.  Hugepages in that list are not used for
-  // allocations of size kLargeSize.
-  if (Parameters::sparse_trackers_coarse_longest_free_range()) {
-    EXPECT_EQ(donated_huge_pages, NHugePages(2));
-  } else {
-    EXPECT_EQ(donated_huge_pages, NHugePages(1));
-  }
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, kLargeSize);
 
   Delete(large2, kSpanInfo.objects_per_span);
@@ -1009,15 +1000,8 @@ TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   RefreshStats();
   // large contributes slack, but isn't donated.
   EXPECT_EQ(slack, kSmallSize);
-  // The hugepage used depends on whether coarse longest free range feature is
-  // enabled or not.
-  if (Parameters::sparse_trackers_coarse_longest_free_range()) {
-    EXPECT_EQ(donated_huge_pages, NHugePages(1));
-    EXPECT_TRUE(large->donated());
-  } else {
-    EXPECT_EQ(donated_huge_pages, NHugePages(0));
-    EXPECT_FALSE(large->donated());
-  }
+  EXPECT_EQ(donated_huge_pages, NHugePages(0));
+  EXPECT_FALSE(large->donated());
   EXPECT_EQ(abandoned_pages, Length(0));
 
   Delete(large, kSpanInfo.objects_per_span);

@@ -188,8 +188,6 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
 
-  static bool sparse_trackers_coarse_longest_free_range();
-
   static central_freelist_internal::PriorityListLength priority_list_length();
 
  private:

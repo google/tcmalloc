@@ -285,11 +285,6 @@ bool Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
 
-bool Parameters::sparse_trackers_coarse_longest_free_range() {
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  return v;
-}
-
 central_freelist_internal::PriorityListLength
 Parameters::priority_list_length() {
   ABSL_CONST_INIT static absl::once_flag flag;
