@@ -670,7 +670,7 @@ class HugePageFiller {
   // Returns index for sparse alloclists.
   size_t SparseListFor(Length longest, size_t chunk) const;
   // Returns index for dense alloclists.
-  size_t DenseListFor(Length longest, size_t chunk, size_t nallocs) const;
+  size_t DenseListFor(size_t chunk, size_t nallocs) const;
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
 
   // List of hugepages from which no pages have been released to the OS.
@@ -2897,8 +2897,7 @@ inline size_t HugePageFiller<TrackerType>::SparseListFor(
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::DenseListFor(const Length longest,
-                                                        const size_t chunk,
+inline size_t HugePageFiller<TrackerType>::DenseListFor(const size_t chunk,
                                                         size_t nallocs) const {
   TC_ASSERT_LE(nallocs, kPagesPerHugePage.raw_num());
   // For the dense tracker with hugepages sorted on allocs, the hugepages are
@@ -2916,7 +2915,7 @@ inline size_t HugePageFiller<TrackerType>::ListFor(
     case AccessDensityPrediction::kSparse:
       return SparseListFor(longest, chunk);
     case AccessDensityPrediction::kDense:
-      return DenseListFor(longest, chunk, nallocs);
+      return DenseListFor(chunk, nallocs);
     default:
       TC_BUG("bad density %v", density);
   }
