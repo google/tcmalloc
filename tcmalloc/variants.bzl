@@ -14,6 +14,10 @@
 
 """ Helper functions to simplify TCMalloc BUILD files """
 
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
 build_variants = [
     {
         "name": "8k_pages",
@@ -259,7 +263,7 @@ def create_tcmalloc_library(
         srcs,
         deps,
         **kwargs):
-    native.cc_library(
+    cc_library(
         name = name,
         srcs = srcs,
         copts = copts,
@@ -360,7 +364,7 @@ def create_tcmalloc_test(
         srcs,
         deps,
         **kwargs):
-    native.cc_test(
+    cc_test(
         name = name,
         srcs = srcs,
         copts = copts,
@@ -384,8 +388,7 @@ def create_tcmalloc_testsuite(name, srcs, **kwargs):
 def create_tcmalloc_benchmark(name, srcs, **kwargs):
     deps = kwargs.pop("deps")
     malloc = kwargs.pop("malloc", "//tcmalloc")
-
-    native.cc_binary(
+    cc_binary(
         name = name,
         srcs = srcs,
         malloc = malloc,
