@@ -1912,7 +1912,7 @@ class UsageInfo {
     out.printf("\n");
   }
 
-  void PrintLifetimeHisto(Printer& out, Histo h, Type type,
+  void PrintLifetimeHisto(Printer& out, LifetimeHisto h, Type type,
                           absl::string_view blurb) {
     out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
     for (size_t i = 0; i < kLifetimeBuckets; ++i) {
@@ -1959,7 +1959,8 @@ class UsageInfo {
     }
   }
 
-  void PrintLifetimeHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key) {
+  void PrintLifetimeHisto(PbtxtRegion& hpaa, LifetimeHisto h,
+                          absl::string_view key) {
     for (size_t i = 0; i < kLifetimeBuckets; ++i) {
       if (h[i] == 0) continue;
       auto hist = hpaa.CreateSubRegion(key);
