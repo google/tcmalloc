@@ -162,7 +162,8 @@ SizeClassConfiguration Static::size_class_configuration() {
   }
 
   if (IsExperimentActive(
-          Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2)) {
+          Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2) ||
+      IsExperimentActive(Experiment::TCMALLOC_REUSE_SIZE_CLASSES_V2)) {
     return SizeClassConfiguration::kReuseV2;
   }
 
