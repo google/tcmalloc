@@ -451,6 +451,418 @@ struct HugePageTreatmentStats {
   };
 };
 
+namespace huge_page_filler_internal {
+// Computes some histograms of fullness. Because nearly empty/full huge pages
+// are much more interesting, we calculate 4 buckets at each of the beginning
+// and end of size one, and then divide the overall space by 16 to have 16
+// (mostly) even buckets in the middle.
+class UsageInfo {
+ public:
+  enum Type {
+    kSparseRegular,
+    kDenseRegular,
+    kDonated,
+    kSparsePartialReleased,
+    kDensePartialReleased,
+    kSparseReleased,
+    kDenseReleased,
+    kNumTypes
+  };
+
+  static constexpr size_t kMaxSampledTrackers = 64;
+
+  UsageInfo() {
+    size_t i;
+    for (i = 0; i <= kBucketsAtBounds && i < kPagesPerHugePage.raw_num(); ++i) {
+      bucket_bounds_[buckets_size_] = i;
+      buckets_size_++;
+    }
+    // Histograms should have kBucketsAtBounds buckets at the start and at the
+    // end. Additionally kPagesPerHugePage - kBucketsAtBounds must not
+    // underflow. Hence the assert below.
+    static_assert(kPagesPerHugePage.raw_num() >= kBucketsAtBounds);
+    if (i < kPagesPerHugePage.raw_num() - kBucketsAtBounds) {
+      // Because kPagesPerHugePage is a power of two, it must be at least 16
+      // to get inside this "if".  The test fails if either (i=5 and
+      // kPagesPerHugePage=8), or kPagesPerHugePage <= kBucketsAtBounds.
+      TC_ASSERT_GE(kPagesPerHugePage, Length(16));
+      constexpr int step = kPagesPerHugePage.raw_num() / 16;
+      // We want to move in "step"-sized increments, aligned every "step".
+      // So first we have to round i up to the nearest step boundary. This
+      // logic takes advantage of step being a power of two, so step-1 is
+      // all ones in the low-order bits.
+      i = ((i - 1) | (step - 1)) + 1;
+      for (; i < kPagesPerHugePage.raw_num() - kBucketsAtBounds; i += step) {
+        bucket_bounds_[buckets_size_] = i;
+        buckets_size_++;
+      }
+      i = kPagesPerHugePage.raw_num() - kBucketsAtBounds;
+    }
+    for (; i < kPagesPerHugePage.raw_num(); ++i) {
+      bucket_bounds_[buckets_size_] = i;
+      buckets_size_++;
+    }
+
+    lifetime_bucket_bounds_[0] = 0;
+    lifetime_bucket_bounds_[1] = 1;
+    for (int i = 2; i <= kLifetimeBuckets; ++i) {
+      lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
+    }
+    TC_CHECK_LE(buckets_size_, kBucketCapacity);
+  }
+
+  template <class TrackerType>
+  bool IsHugepageBacked(const TrackerType& tracker, PageFlagsBase& pageflags) {
+    void* addr = tracker.location().start_addr();
+    // TODO(b/28093874): Investigate if pageflags may be queried without
+    // pageheap_lock.
+    const bool is_hugepage_backed = pageflags.IsHugepageBacked(addr);
+    return is_hugepage_backed;
+  }
+
+  // Reports the number of pages that were previously released, but later became
+  // full and are hugepage backed.
+  size_t HugepageBackedPreviouslyReleased() {
+    return hugepage_backed_previously_released_;
+  }
+
+  template <class TrackerType>
+  void Record(const TrackerType& pt, PageFlagsBase& pageflags, Type which,
+              double clock_now, double clock_frequency, size_t& num_selected) {
+    TC_ASSERT_LT(which, kNumTypes);
+    const Length free = kPagesPerHugePage - pt.used_pages();
+    const Length lf = pt.longest_free_range();
+    const size_t nalloc = pt.nallocs();
+    // This is a little annoying as our buckets *have* to differ;
+    // nalloc is in [1,256], free_pages and longest_free are in [0, 255].
+    free_page_histo_[which][BucketNum(free.raw_num())]++;
+    longest_free_histo_[which][BucketNum(lf.raw_num())]++;
+    nalloc_histo_[which][BucketNum(nalloc - 1)]++;
+
+    const double elapsed = std::max<double>(clock_now - pt.alloctime(), 0);
+    const absl::Duration lifetime =
+        absl::Milliseconds(elapsed * 1000 / clock_frequency);
+    ++lifetime_histo_[which][LifetimeBucketNum(lifetime)];
+
+    if (lifetime >= kLongLivedLifetime) {
+      ++long_lived_hps_histo_[which][BucketNum(nalloc - 1)];
+    }
+
+    if (free >= kLowOccupancyNumFreePages) {
+      ++low_occupancy_lifetime_histo_[which][LifetimeBucketNum(lifetime)];
+    }
+
+    if (IsHugepageBacked(pt, pageflags)) {
+      ++hugepage_backed_[which];
+      if (pt.was_released()) {
+        ++hugepage_backed_previously_released_;
+      }
+    }
+    ++total_pages_[which];
+
+    PageTracker::TrackerFeatures tracker_features = pt.features();
+    PageTracker::TagState tag_state = pt.GetTagState();
+
+    // Selecting the first 64 tagged trackers could yield unrepresentative data
+    // if we sample >> kMaxSampledTrackers, we expect this to be fine in the
+    // common case, at least for initial exploration.
+    if (tag_state.sampled_for_tagging && num_selected < kMaxSampledTrackers) {
+      tracker_features.is_valid = true;
+      tracker_features.reallocation_time =
+          (pt.last_page_allocation_time() - tracker_features.allocation_time) /
+          clock_frequency;
+      sampled_trackers_[which][num_selected] = tracker_features;
+      ++num_selected;
+    }
+  }
+
+  void Print(Printer& out) {
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintHisto(out, free_page_histo_[type], type,
+                 "hps with a<= # of free pages <b", 0);
+    }
+
+    // For donated huge pages, number of allocs=1 and longest free range =
+    // number of free pages, so it isn't useful to show the next two.
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      if (type == kDonated) continue;
+      PrintHisto(out, longest_free_histo_[type], type,
+                 "hps with a<= longest free range <b", 0);
+    }
+
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      if (type == kDonated) continue;
+      PrintHisto(out, nalloc_histo_[type], type,
+                 "hps with a<= # of allocations <b", 1);
+    }
+
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintLifetimeHisto(out, lifetime_histo_[type], type,
+                         "hps with lifetime a <= # hps < b");
+    }
+
+    out.printf(
+        "\nHugePageFiller: # of hps with >= %3zu free pages, with different "
+        "lifetimes.",
+        kLowOccupancyNumFreePages.raw_num());
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintLifetimeHisto(out, low_occupancy_lifetime_histo_[type], type,
+                         "hps with lifetime a <= # hps < b");
+    }
+
+    out.printf("\nHugePageFiller: # of hps with lifetime >= %3zu ms.",
+               absl::ToInt64Milliseconds(kLongLivedLifetime));
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintHisto(out, long_lived_hps_histo_[type], type,
+                 "hps with a <= # of allocations < b", 0);
+    }
+
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      out.printf(
+          "\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
+          hugepage_backed_[type], TypeToStr(type), total_pages_[type]);
+    }
+    out.printf("\n");
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintSampledTrackers(out, type);
+    }
+  }
+
+  void Print(PbtxtRegion& hpaa) {
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PbtxtRegion scoped = hpaa.CreateSubRegion("filler_tracker");
+      scoped.PrintRaw("type", AllocType(type));
+      scoped.PrintRaw("objects", ObjectType(type));
+      PrintHisto(scoped, free_page_histo_[i], "free_pages_histogram", 0);
+      PrintHisto(scoped, longest_free_histo_[i], "longest_free_range_histogram",
+                 0);
+      PrintHisto(scoped, nalloc_histo_[i], "allocations_histogram", 1);
+      PrintLifetimeHisto(scoped, lifetime_histo_[i], "lifetime_histogram");
+      PrintLifetimeHisto(scoped, low_occupancy_lifetime_histo_[i],
+                         "low_occupancy_lifetime_histogram");
+      PrintHisto(scoped, long_lived_hps_histo_[i],
+                 "long_lived_hugepages_histogram", 0);
+      PrintSampledTrackers(scoped, type, "sampled_trackers");
+      scoped.PrintI64("total_pages", total_pages_[type]);
+      scoped.PrintI64("num_pages_hugepage_backed", hugepage_backed_[type]);
+    }
+  }
+
+ private:
+  // Maximum number of buckets at the start and end.
+  static constexpr size_t kBucketsAtBounds = 8;
+  static constexpr size_t kLifetimeBuckets = 8;
+  // Threshold for a page to be long-lived, as a lifetime in milliseconds, for
+  // telemetry purposes only.
+  static constexpr absl::Duration kLongLivedLifetime =
+      absl::Milliseconds(100000);
+  // Threshold for a hugepage considered to have a low occupancy, for logging
+  // lifetime telemetry only.
+  static constexpr Length kLowOccupancyNumFreePages =
+      Length(kPagesPerHugePage.raw_num() - (kPagesPerHugePage.raw_num() >> 3));
+  // 16 buckets in the middle.
+  static constexpr size_t kBucketCapacity =
+      kBucketsAtBounds + 16 + kBucketsAtBounds;
+  using Histo = size_t[kBucketCapacity];
+  using LifetimeHisto = size_t[kLifetimeBuckets];
+  using SampledTrackers = PageTracker::TrackerFeatures[kMaxSampledTrackers];
+
+  int BucketNum(size_t page) {
+    auto it =
+        std::upper_bound(bucket_bounds_, bucket_bounds_ + buckets_size_, page);
+    TC_CHECK_NE(it, bucket_bounds_);
+    return it - bucket_bounds_ - 1;
+  }
+
+  int LifetimeBucketNum(absl::Duration duration) {
+    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+    auto it = std::upper_bound(lifetime_bucket_bounds_,
+                               lifetime_bucket_bounds_ + kLifetimeBuckets,
+                               duration_ms);
+    TC_CHECK_NE(it, lifetime_bucket_bounds_);
+    return it - lifetime_bucket_bounds_ - 1;
+  }
+
+  void PrintHisto(Printer& out, Histo h, Type type, absl::string_view blurb,
+                  size_t offset) {
+    out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
+    for (size_t i = 0; i < buckets_size_; ++i) {
+      if (i % 6 == 0) {
+        out.printf("\nHugePageFiller:");
+      }
+      out.printf(" <%3zu<=%6zu", bucket_bounds_[i] + offset, h[i]);
+    }
+    out.printf("\n");
+  }
+
+  void PrintLifetimeHisto(Printer& out, LifetimeHisto h, Type type,
+                          absl::string_view blurb) {
+    out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
+    for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+      if (i % 6 == 0) {
+        out.printf("\nHugePageFiller:");
+      }
+      out.printf(" < %3zu ms <= %6zu", lifetime_bucket_bounds_[i], h[i]);
+    }
+    out.printf("\n");
+  }
+
+  void PrintSampledTrackers(Printer& out, Type type) {
+    out.printf("\nHugePageFiller: Sampled Trackers for %s pages:",
+               TypeToStr(type));
+    for (size_t i = 0; i < kMaxSampledTrackers; ++i) {
+      if (sampled_trackers_[type][i].is_valid) {
+        out.printf(
+            "\nHugePageFiller: Allocations: %d, Longest Free Range: %d, "
+            "Objects: %d, Is Hugepage Backed?: %d, Density: %d, "
+            "Reallocation Time: %f",
+            sampled_trackers_[type][i].allocations,
+            sampled_trackers_[type][i].longest_free_range.raw_num(),
+            sampled_trackers_[type][i].objects,
+            sampled_trackers_[type][i].is_hugepage_backed,
+            sampled_trackers_[type][i].density,
+            sampled_trackers_[type][i].reallocation_time);
+        sampled_trackers_[type][i].is_valid = false;
+      }
+    }
+    out.printf("\n");
+  }
+
+  void PrintHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
+                  size_t offset) {
+    for (size_t i = 0; i < buckets_size_; ++i) {
+      if (h[i] == 0) continue;
+      auto hist = hpaa.CreateSubRegion(key);
+      hist.PrintI64("lower_bound", bucket_bounds_[i] + offset);
+      hist.PrintI64("upper_bound",
+                    (i == buckets_size_ - 1 ? bucket_bounds_[i]
+                                            : bucket_bounds_[i + 1] - 1) +
+                        offset);
+      hist.PrintI64("value", h[i]);
+    }
+  }
+
+  void PrintLifetimeHisto(PbtxtRegion& hpaa, LifetimeHisto h,
+                          absl::string_view key) {
+    for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+      if (h[i] == 0) continue;
+      auto hist = hpaa.CreateSubRegion(key);
+      hist.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
+      hist.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
+                                        ? lifetime_bucket_bounds_[i]
+                                        : lifetime_bucket_bounds_[i + 1]));
+      hist.PrintI64("value", h[i]);
+    }
+  }
+
+  void PrintSampledTrackers(PbtxtRegion& hpaa, Type type,
+                            absl::string_view key) {
+    for (size_t i = 0; i < kMaxSampledTrackers; ++i) {
+      if (sampled_trackers_[type][i].is_valid) {
+        auto sampled_tracker = hpaa.CreateSubRegion(key);
+        sampled_tracker.PrintI64("allocations",
+                                 sampled_trackers_[type][i].allocations);
+        sampled_tracker.PrintI64(
+            "longest_free_range",
+            sampled_trackers_[type][i].longest_free_range.raw_num());
+        sampled_tracker.PrintI64("objects", sampled_trackers_[type][i].objects);
+        sampled_tracker.PrintBool(
+            "is_hugepage_backed",
+            sampled_trackers_[type][i].is_hugepage_backed);
+        sampled_tracker.PrintBool("density",
+                                  sampled_trackers_[type][i].density);
+        sampled_tracker.PrintDouble(
+            "reallocation_time_sec",
+            sampled_trackers_[type][i].reallocation_time);
+        sampled_trackers_[type][i].is_valid = false;
+      }
+    }
+  }
+
+  absl::string_view TypeToStr(Type type) const {
+    TC_ASSERT_LT(type, kNumTypes);
+    switch (type) {
+      case kSparseRegular:
+        return "sparsely-accessed regular";
+      case kDenseRegular:
+        return "densely-accessed regular";
+      case kDonated:
+        return "donated";
+      case kSparsePartialReleased:
+        return "sparsely-accessed partial released";
+      case kDensePartialReleased:
+        return "densely-accessed partial released";
+      case kSparseReleased:
+        return "sparsely-accessed released";
+      case kDenseReleased:
+        return "densely-accessed released";
+      default:
+        TC_BUG("bad type %v", type);
+    }
+  }
+
+  absl::string_view AllocType(Type type) const {
+    TC_ASSERT_LT(type, kNumTypes);
+    switch (type) {
+      case kSparseRegular:
+      case kDenseRegular:
+        return "REGULAR";
+      case kDonated:
+        return "DONATED";
+      case kSparsePartialReleased:
+      case kDensePartialReleased:
+        return "PARTIAL";
+      case kSparseReleased:
+      case kDenseReleased:
+        return "RELEASED";
+      default:
+        TC_BUG("bad type %v", type);
+    }
+  }
+
+  absl::string_view ObjectType(Type type) const {
+    TC_ASSERT_LT(type, kNumTypes);
+    switch (type) {
+      case kSparseRegular:
+      case kDonated:
+      case kSparsePartialReleased:
+      case kSparseReleased:
+        return "SPARSELY_ACCESSED";
+      case kDenseRegular:
+      case kDensePartialReleased:
+      case kDenseReleased:
+        return "DENSELY_ACCESSED";
+      default:
+        TC_BUG("bad type %v", type);
+    }
+  }
+
+  // Arrays, because they are split per alloc type.
+  Histo free_page_histo_[kNumTypes]{};
+  Histo longest_free_histo_[kNumTypes]{};
+  Histo nalloc_histo_[kNumTypes]{};
+  LifetimeHisto lifetime_histo_[kNumTypes]{};
+  Histo long_lived_hps_histo_[kNumTypes]{};
+  LifetimeHisto low_occupancy_lifetime_histo_[kNumTypes]{};
+  SampledTrackers sampled_trackers_[kNumTypes]{};
+  size_t bucket_bounds_[kBucketCapacity];
+  size_t lifetime_bucket_bounds_[kLifetimeBuckets + 1];
+  size_t hugepage_backed_[kNumTypes] = {0};
+  size_t total_pages_[kNumTypes] = {0};
+  size_t hugepage_backed_previously_released_ = 0;
+  int buckets_size_ = 0;
+};
+}  // namespace huge_page_filler_internal
+
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
@@ -1658,418 +2070,6 @@ inline BackingStats HugePageFiller<TrackerType>::stats() const {
   s.unmapped_bytes = unmapped_pages().in_bytes();
   return s;
 }
-
-namespace huge_page_filler_internal {
-// Computes some histograms of fullness. Because nearly empty/full huge pages
-// are much more interesting, we calculate 4 buckets at each of the beginning
-// and end of size one, and then divide the overall space by 16 to have 16
-// (mostly) even buckets in the middle.
-class UsageInfo {
- public:
-  enum Type {
-    kSparseRegular,
-    kDenseRegular,
-    kDonated,
-    kSparsePartialReleased,
-    kDensePartialReleased,
-    kSparseReleased,
-    kDenseReleased,
-    kNumTypes
-  };
-
-  static constexpr size_t kMaxSampledTrackers = 64;
-
-  UsageInfo() {
-    size_t i;
-    for (i = 0; i <= kBucketsAtBounds && i < kPagesPerHugePage.raw_num(); ++i) {
-      bucket_bounds_[buckets_size_] = i;
-      buckets_size_++;
-    }
-    // Histograms should have kBucketsAtBounds buckets at the start and at the
-    // end. Additionally kPagesPerHugePage - kBucketsAtBounds must not
-    // underflow. Hence the assert below.
-    static_assert(kPagesPerHugePage.raw_num() >= kBucketsAtBounds);
-    if (i < kPagesPerHugePage.raw_num() - kBucketsAtBounds) {
-      // Because kPagesPerHugePage is a power of two, it must be at least 16
-      // to get inside this "if".  The test fails if either (i=5 and
-      // kPagesPerHugePage=8), or kPagesPerHugePage <= kBucketsAtBounds.
-      TC_ASSERT_GE(kPagesPerHugePage, Length(16));
-      constexpr int step = kPagesPerHugePage.raw_num() / 16;
-      // We want to move in "step"-sized increments, aligned every "step".
-      // So first we have to round i up to the nearest step boundary. This
-      // logic takes advantage of step being a power of two, so step-1 is
-      // all ones in the low-order bits.
-      i = ((i - 1) | (step - 1)) + 1;
-      for (; i < kPagesPerHugePage.raw_num() - kBucketsAtBounds; i += step) {
-        bucket_bounds_[buckets_size_] = i;
-        buckets_size_++;
-      }
-      i = kPagesPerHugePage.raw_num() - kBucketsAtBounds;
-    }
-    for (; i < kPagesPerHugePage.raw_num(); ++i) {
-      bucket_bounds_[buckets_size_] = i;
-      buckets_size_++;
-    }
-
-    lifetime_bucket_bounds_[0] = 0;
-    lifetime_bucket_bounds_[1] = 1;
-    for (int i = 2; i <= kLifetimeBuckets; ++i) {
-      lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
-    }
-    TC_CHECK_LE(buckets_size_, kBucketCapacity);
-  }
-
-  template <class TrackerType>
-  bool IsHugepageBacked(const TrackerType& tracker, PageFlagsBase& pageflags) {
-    void* addr = tracker.location().start_addr();
-    // TODO(b/28093874): Investigate if pageflags may be queried without
-    // pageheap_lock.
-    const bool is_hugepage_backed = pageflags.IsHugepageBacked(addr);
-    return is_hugepage_backed;
-  }
-
-  // Reports the number of pages that were previously released, but later became
-  // full and are hugepage backed.
-  size_t HugepageBackedPreviouslyReleased() {
-    return hugepage_backed_previously_released_;
-  }
-
-  template <class TrackerType>
-  void Record(const TrackerType& pt, PageFlagsBase& pageflags, Type which,
-              double clock_now, double clock_frequency, size_t& num_selected) {
-    TC_ASSERT_LT(which, kNumTypes);
-    const Length free = kPagesPerHugePage - pt.used_pages();
-    const Length lf = pt.longest_free_range();
-    const size_t nalloc = pt.nallocs();
-    // This is a little annoying as our buckets *have* to differ;
-    // nalloc is in [1,256], free_pages and longest_free are in [0, 255].
-    free_page_histo_[which][BucketNum(free.raw_num())]++;
-    longest_free_histo_[which][BucketNum(lf.raw_num())]++;
-    nalloc_histo_[which][BucketNum(nalloc - 1)]++;
-
-    const double elapsed = std::max<double>(clock_now - pt.alloctime(), 0);
-    const absl::Duration lifetime =
-        absl::Milliseconds(elapsed * 1000 / clock_frequency);
-    ++lifetime_histo_[which][LifetimeBucketNum(lifetime)];
-
-    if (lifetime >= kLongLivedLifetime) {
-      ++long_lived_hps_histo_[which][BucketNum(nalloc - 1)];
-    }
-
-    if (free >= kLowOccupancyNumFreePages) {
-      ++low_occupancy_lifetime_histo_[which][LifetimeBucketNum(lifetime)];
-    }
-
-    if (IsHugepageBacked(pt, pageflags)) {
-      ++hugepage_backed_[which];
-      if (pt.was_released()) {
-        ++hugepage_backed_previously_released_;
-      }
-    }
-    ++total_pages_[which];
-
-    PageTracker::TrackerFeatures tracker_features = pt.features();
-    PageTracker::TagState tag_state = pt.GetTagState();
-
-    // Selecting the first 64 tagged trackers could yield unrepresentative data
-    // if we sample >> kMaxSampledTrackers, we expect this to be fine in the
-    // common case, at least for initial exploration.
-    if (tag_state.sampled_for_tagging && num_selected < kMaxSampledTrackers) {
-      tracker_features.is_valid = true;
-      tracker_features.reallocation_time =
-          (pt.last_page_allocation_time() - tracker_features.allocation_time) /
-          clock_frequency;
-      sampled_trackers_[which][num_selected] = tracker_features;
-      ++num_selected;
-    }
-  }
-
-  void Print(Printer& out) {
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintHisto(out, free_page_histo_[type], type,
-                 "hps with a<= # of free pages <b", 0);
-    }
-
-    // For donated huge pages, number of allocs=1 and longest free range =
-    // number of free pages, so it isn't useful to show the next two.
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      if (type == kDonated) continue;
-      PrintHisto(out, longest_free_histo_[type], type,
-                 "hps with a<= longest free range <b", 0);
-    }
-
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      if (type == kDonated) continue;
-      PrintHisto(out, nalloc_histo_[type], type,
-                 "hps with a<= # of allocations <b", 1);
-    }
-
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintLifetimeHisto(out, lifetime_histo_[type], type,
-                         "hps with lifetime a <= # hps < b");
-    }
-
-    out.printf(
-        "\nHugePageFiller: # of hps with >= %3zu free pages, with different "
-        "lifetimes.",
-        kLowOccupancyNumFreePages.raw_num());
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintLifetimeHisto(out, low_occupancy_lifetime_histo_[type], type,
-                         "hps with lifetime a <= # hps < b");
-    }
-
-    out.printf("\nHugePageFiller: # of hps with lifetime >= %3zu ms.",
-               absl::ToInt64Milliseconds(kLongLivedLifetime));
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintHisto(out, long_lived_hps_histo_[type], type,
-                 "hps with a <= # of allocations < b", 0);
-    }
-
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      out.printf(
-          "\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
-          hugepage_backed_[type], TypeToStr(type), total_pages_[type]);
-    }
-    out.printf("\n");
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PrintSampledTrackers(out, type);
-    }
-  }
-
-  void Print(PbtxtRegion& hpaa) {
-    for (int i = 0; i < kNumTypes; ++i) {
-      const Type type = static_cast<Type>(i);
-      PbtxtRegion scoped = hpaa.CreateSubRegion("filler_tracker");
-      scoped.PrintRaw("type", AllocType(type));
-      scoped.PrintRaw("objects", ObjectType(type));
-      PrintHisto(scoped, free_page_histo_[i], "free_pages_histogram", 0);
-      PrintHisto(scoped, longest_free_histo_[i], "longest_free_range_histogram",
-                 0);
-      PrintHisto(scoped, nalloc_histo_[i], "allocations_histogram", 1);
-      PrintLifetimeHisto(scoped, lifetime_histo_[i], "lifetime_histogram");
-      PrintLifetimeHisto(scoped, low_occupancy_lifetime_histo_[i],
-                         "low_occupancy_lifetime_histogram");
-      PrintHisto(scoped, long_lived_hps_histo_[i],
-                 "long_lived_hugepages_histogram", 0);
-      PrintSampledTrackers(scoped, type, "sampled_trackers");
-      scoped.PrintI64("total_pages", total_pages_[type]);
-      scoped.PrintI64("num_pages_hugepage_backed", hugepage_backed_[type]);
-    }
-  }
-
- private:
-  // Maximum number of buckets at the start and end.
-  static constexpr size_t kBucketsAtBounds = 8;
-  static constexpr size_t kLifetimeBuckets = 8;
-  // Threshold for a page to be long-lived, as a lifetime in milliseconds, for
-  // telemetry purposes only.
-  static constexpr absl::Duration kLongLivedLifetime =
-      absl::Milliseconds(100000);
-  // Threshold for a hugepage considered to have a low occupancy, for logging
-  // lifetime telemetry only.
-  static constexpr Length kLowOccupancyNumFreePages =
-      Length(kPagesPerHugePage.raw_num() - (kPagesPerHugePage.raw_num() >> 3));
-  // 16 buckets in the middle.
-  static constexpr size_t kBucketCapacity =
-      kBucketsAtBounds + 16 + kBucketsAtBounds;
-  using Histo = size_t[kBucketCapacity];
-  using LifetimeHisto = size_t[kLifetimeBuckets];
-  using SampledTrackers = PageTracker::TrackerFeatures[kMaxSampledTrackers];
-
-  int BucketNum(size_t page) {
-    auto it =
-        std::upper_bound(bucket_bounds_, bucket_bounds_ + buckets_size_, page);
-    TC_CHECK_NE(it, bucket_bounds_);
-    return it - bucket_bounds_ - 1;
-  }
-
-  int LifetimeBucketNum(absl::Duration duration) {
-    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
-    auto it = std::upper_bound(lifetime_bucket_bounds_,
-                               lifetime_bucket_bounds_ + kLifetimeBuckets,
-                               duration_ms);
-    TC_CHECK_NE(it, lifetime_bucket_bounds_);
-    return it - lifetime_bucket_bounds_ - 1;
-  }
-
-  void PrintHisto(Printer& out, Histo h, Type type, absl::string_view blurb,
-                  size_t offset) {
-    out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
-    for (size_t i = 0; i < buckets_size_; ++i) {
-      if (i % 6 == 0) {
-        out.printf("\nHugePageFiller:");
-      }
-      out.printf(" <%3zu<=%6zu", bucket_bounds_[i] + offset, h[i]);
-    }
-    out.printf("\n");
-  }
-
-  void PrintLifetimeHisto(Printer& out, LifetimeHisto h, Type type,
-                          absl::string_view blurb) {
-    out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
-    for (size_t i = 0; i < kLifetimeBuckets; ++i) {
-      if (i % 6 == 0) {
-        out.printf("\nHugePageFiller:");
-      }
-      out.printf(" < %3zu ms <= %6zu", lifetime_bucket_bounds_[i], h[i]);
-    }
-    out.printf("\n");
-  }
-
-  void PrintSampledTrackers(Printer& out, Type type) {
-    out.printf("\nHugePageFiller: Sampled Trackers for %s pages:",
-               TypeToStr(type));
-    for (size_t i = 0; i < kMaxSampledTrackers; ++i) {
-      if (sampled_trackers_[type][i].is_valid) {
-        out.printf(
-            "\nHugePageFiller: Allocations: %d, Longest Free Range: %d, "
-            "Objects: %d, Is Hugepage Backed?: %d, Density: %d, "
-            "Reallocation Time: %f",
-            sampled_trackers_[type][i].allocations,
-            sampled_trackers_[type][i].longest_free_range.raw_num(),
-            sampled_trackers_[type][i].objects,
-            sampled_trackers_[type][i].is_hugepage_backed,
-            sampled_trackers_[type][i].density,
-            sampled_trackers_[type][i].reallocation_time);
-        sampled_trackers_[type][i].is_valid = false;
-      }
-    }
-    out.printf("\n");
-  }
-
-  void PrintHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
-                  size_t offset) {
-    for (size_t i = 0; i < buckets_size_; ++i) {
-      if (h[i] == 0) continue;
-      auto hist = hpaa.CreateSubRegion(key);
-      hist.PrintI64("lower_bound", bucket_bounds_[i] + offset);
-      hist.PrintI64("upper_bound",
-                    (i == buckets_size_ - 1 ? bucket_bounds_[i]
-                                            : bucket_bounds_[i + 1] - 1) +
-                        offset);
-      hist.PrintI64("value", h[i]);
-    }
-  }
-
-  void PrintLifetimeHisto(PbtxtRegion& hpaa, LifetimeHisto h,
-                          absl::string_view key) {
-    for (size_t i = 0; i < kLifetimeBuckets; ++i) {
-      if (h[i] == 0) continue;
-      auto hist = hpaa.CreateSubRegion(key);
-      hist.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
-      hist.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
-                                        ? lifetime_bucket_bounds_[i]
-                                        : lifetime_bucket_bounds_[i + 1]));
-      hist.PrintI64("value", h[i]);
-    }
-  }
-
-  void PrintSampledTrackers(PbtxtRegion& hpaa, Type type,
-                            absl::string_view key) {
-    for (size_t i = 0; i < kMaxSampledTrackers; ++i) {
-      if (sampled_trackers_[type][i].is_valid) {
-        auto sampled_tracker = hpaa.CreateSubRegion(key);
-        sampled_tracker.PrintI64("allocations",
-                                 sampled_trackers_[type][i].allocations);
-        sampled_tracker.PrintI64(
-            "longest_free_range",
-            sampled_trackers_[type][i].longest_free_range.raw_num());
-        sampled_tracker.PrintI64("objects", sampled_trackers_[type][i].objects);
-        sampled_tracker.PrintBool(
-            "is_hugepage_backed",
-            sampled_trackers_[type][i].is_hugepage_backed);
-        sampled_tracker.PrintBool("density",
-                                  sampled_trackers_[type][i].density);
-        sampled_tracker.PrintDouble(
-            "reallocation_time_sec",
-            sampled_trackers_[type][i].reallocation_time);
-        sampled_trackers_[type][i].is_valid = false;
-      }
-    }
-  }
-
-  absl::string_view TypeToStr(Type type) const {
-    TC_ASSERT_LT(type, kNumTypes);
-    switch (type) {
-      case kSparseRegular:
-        return "sparsely-accessed regular";
-      case kDenseRegular:
-        return "densely-accessed regular";
-      case kDonated:
-        return "donated";
-      case kSparsePartialReleased:
-        return "sparsely-accessed partial released";
-      case kDensePartialReleased:
-        return "densely-accessed partial released";
-      case kSparseReleased:
-        return "sparsely-accessed released";
-      case kDenseReleased:
-        return "densely-accessed released";
-      default:
-        TC_BUG("bad type %v", type);
-    }
-  }
-
-  absl::string_view AllocType(Type type) const {
-    TC_ASSERT_LT(type, kNumTypes);
-    switch (type) {
-      case kSparseRegular:
-      case kDenseRegular:
-        return "REGULAR";
-      case kDonated:
-        return "DONATED";
-      case kSparsePartialReleased:
-      case kDensePartialReleased:
-        return "PARTIAL";
-      case kSparseReleased:
-      case kDenseReleased:
-        return "RELEASED";
-      default:
-        TC_BUG("bad type %v", type);
-    }
-  }
-
-  absl::string_view ObjectType(Type type) const {
-    TC_ASSERT_LT(type, kNumTypes);
-    switch (type) {
-      case kSparseRegular:
-      case kDonated:
-      case kSparsePartialReleased:
-      case kSparseReleased:
-        return "SPARSELY_ACCESSED";
-      case kDenseRegular:
-      case kDensePartialReleased:
-      case kDenseReleased:
-        return "DENSELY_ACCESSED";
-      default:
-        TC_BUG("bad type %v", type);
-    }
-  }
-
-  // Arrays, because they are split per alloc type.
-  Histo free_page_histo_[kNumTypes]{};
-  Histo longest_free_histo_[kNumTypes]{};
-  Histo nalloc_histo_[kNumTypes]{};
-  LifetimeHisto lifetime_histo_[kNumTypes]{};
-  Histo long_lived_hps_histo_[kNumTypes]{};
-  LifetimeHisto low_occupancy_lifetime_histo_[kNumTypes]{};
-  SampledTrackers sampled_trackers_[kNumTypes]{};
-  size_t bucket_bounds_[kBucketCapacity];
-  size_t lifetime_bucket_bounds_[kLifetimeBuckets + 1];
-  size_t hugepage_backed_[kNumTypes] = {0};
-  size_t total_pages_[kNumTypes] = {0};
-  size_t hugepage_backed_previously_released_ = 0;
-  int buckets_size_ = 0;
-};
-}  // namespace huge_page_filler_internal
 
 template <class TrackerType>
 inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
