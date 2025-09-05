@@ -155,9 +155,10 @@ class CentralFreeList {
   }
 
  private:
-  // Release an object to spans.
+  // Release a batch of objects to a span.
+  //
   // Returns object's span if it become completely free.
-  Span* ReleaseToSpans(void* object, Span* span, size_t object_size,
+  Span* ReleaseToSpans(absl::Span<void*> batch, Span* span, size_t object_size,
                        uint32_t size_reciprocal)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
@@ -349,7 +350,8 @@ inline void CentralFreeList<Forwarder>::Init(
 
 template <class Forwarder>
 inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
-    void* object, Span* span, size_t object_size, uint32_t size_reciprocal) {
+    absl::Span<void*> batch, Span* span, size_t object_size,
+    uint32_t size_reciprocal) {
   if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
     const uint8_t index = GetFirstNonEmptyIndex();
     nonempty_.Add(span, index);
@@ -359,8 +361,8 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
-  if (ABSL_PREDICT_FALSE(!span->FreelistPushBatch({&object, 1}, object_size,
-                                                  size_reciprocal))) {
+  if (ABSL_PREDICT_FALSE(
+          !span->FreelistPushBatch(batch, object_size, size_reciprocal))) {
     // Update the histogram as the span is full and will be removed from the
     // nonempty_ list.
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
@@ -370,7 +372,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // As the objects are being added to the span, its utilization might change.
   // We remove the stale utilization from the histogram and add the new
   // utilization to the histogram after we release objects to the span.
-  uint16_t cur_allocated = prev_allocated - 1;
+  uint16_t cur_allocated = prev_allocated - batch.size();
   TC_ASSERT_EQ(cur_allocated, span->Allocated());
   const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
   if (cur_bitwidth != prev_bitwidth) {
@@ -482,8 +484,8 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     uint32_t size_reciprocal = size_reciprocal_;
     absl::base_internal::SpinLockHolder h(&lock_);
     for (int i = 0; i < batch.size(); ++i) {
-      Span* span =
-          ReleaseToSpans(batch[i], spans[i], object_size, size_reciprocal);
+      Span* span = ReleaseToSpans({&batch[i], 1}, spans[i], object_size,
+                                  size_reciprocal);
       if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
         free_count++;
