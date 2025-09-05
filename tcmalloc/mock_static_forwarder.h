@@ -163,7 +163,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
 
   MOCK_METHOD(size_t, class_to_size, (int size_class));
   MOCK_METHOD(Length, class_to_pages, (int size_class));
-  MOCK_METHOD(size_t, num_objects_to_move, ());
+  MOCK_METHOD(size_t, num_objects_to_move, (int size_class));
   MOCK_METHOD(void, Init,
               (size_t class_size, size_t pages, size_t num_objects_to_move));
   MOCK_METHOD(void, MapObjectsToSpans,
@@ -196,7 +196,7 @@ class FakeCentralFreeListEnvironment {
     return forwarder().class_to_pages(kSizeClass).in_bytes() /
            forwarder().class_to_size(kSizeClass);
   }
-  size_t batch_size() { return forwarder().num_objects_to_move(); }
+  size_t batch_size() { return forwarder().num_objects_to_move(kSizeClass); }
   size_t num_priority_lists() const {
     return CentralFreeList::NumPriorityLists(priority_list_length_);
   }
