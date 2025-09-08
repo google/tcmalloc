@@ -4022,7 +4022,7 @@ HugePageFiller: Allocations: 101, Longest Free Range: 155, Objects: 202, Is Huge
   }
 }
 
-TEST_F(FillerTest, LifetimeTelemetryTest) {
+TEST_F(FillerTest, LiveLifetimeTelemetryTest) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
@@ -4044,31 +4044,31 @@ TEST_F(FillerTest, LifetimeTelemetryTest) {
   }
   buffer.resize(strlen(buffer.c_str()));
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: # of sparsely-accessed regular hps with lifetime a <= # hps < b
+HugePageFiller: # of sparsely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of densely-accessed regular hps with lifetime a <= # hps < b
+HugePageFiller: # of densely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of donated hps with lifetime a <= # hps < b
+HugePageFiller: # of donated hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of sparsely-accessed partial released hps with lifetime a <= # hps < b
+HugePageFiller: # of sparsely-accessed partial released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of densely-accessed partial released hps with lifetime a <= # hps < b
+HugePageFiller: # of densely-accessed partial released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of sparsely-accessed released hps with lifetime a <= # hps < b
+HugePageFiller: # of sparsely-accessed released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of densely-accessed released hps with lifetime a <= # hps < b
+HugePageFiller: # of densely-accessed released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
@@ -4167,7 +4167,7 @@ HugePageFiller: <254<=     0 <255<=     0
   }
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: # of sparsely-accessed regular hps with lifetime a <= # hps < b
+HugePageFiller: # of sparsely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      1 < 1000000 ms <=      0
 )"));
@@ -4192,6 +4192,41 @@ HugePageFiller: <254<=     0 <255<=     0
 
   Delete(small_alloc);
   Delete(large_alloc);
+}
+
+TEST_F(FillerTest, CompletedLifetimeTelemetryTest) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (kPagesPerHugePage != Length(256)) {
+    GTEST_SKIP();
+  }
+
+  FakePageFlags pageflags;
+  const Length N = kPagesPerHugePage;
+  SpanAllocInfo info_sparsely_accessed = {1, AccessDensityPrediction::kSparse};
+  PAlloc alloc0 = AllocateWithSpanAllocInfo(N / 4, info_sparsely_accessed);
+  SpanAllocInfo info_densely_accessed = {1, AccessDensityPrediction::kDense};
+  PAlloc alloc1 = AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
+
+  FakeClock::Advance(absl::Seconds(101));
+  Delete(alloc0);
+  FakeClock::Advance(absl::Seconds(1001));
+  Delete(alloc1);
+  std::string buffer(1024 * 1024, '\0');
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, true, pageflags);
+  }
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: # of densely-accessed hps with completed lifetime a <= # hps < b
+HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
+HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      1
+
+HugePageFiller: # of sparsely-accessed hps with completed lifetime a <= # hps < b
+HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
+HugePageFiller: < 100000 ms <=      1 < 1000000 ms <=      0
+)"));
 }
 
 TEST_F(FillerTest, SkipSubreleaseDemandPeak) {
@@ -5322,31 +5357,31 @@ HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     1
 HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
 HugePageFiller: <255<=     0 <256<=     0
 
-HugePageFiller: # of sparsely-accessed regular hps with lifetime a <= # hps < b
+HugePageFiller: # of sparsely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      3 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of densely-accessed regular hps with lifetime a <= # hps < b
+HugePageFiller: # of densely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      6 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of donated hps with lifetime a <= # hps < b
+HugePageFiller: # of donated hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of sparsely-accessed partial released hps with lifetime a <= # hps < b
+HugePageFiller: # of sparsely-accessed partial released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of densely-accessed partial released hps with lifetime a <= # hps < b
+HugePageFiller: # of densely-accessed partial released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of sparsely-accessed released hps with lifetime a <= # hps < b
+HugePageFiller: # of sparsely-accessed released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      4 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
-HugePageFiller: # of densely-accessed released hps with lifetime a <= # hps < b
+HugePageFiller: # of densely-accessed released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
@@ -5457,6 +5492,14 @@ HugePageFiller: Sampled Trackers for densely-accessed partial released pages:
 HugePageFiller: Sampled Trackers for sparsely-accessed released pages:
 
 HugePageFiller: Sampled Trackers for densely-accessed released pages:
+
+HugePageFiller: # of densely-accessed hps with completed lifetime a <= # hps < b
+HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
+HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
+
+HugePageFiller: # of sparsely-accessed hps with completed lifetime a <= # hps < b
+HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
+HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: time series over 5 min interval
 

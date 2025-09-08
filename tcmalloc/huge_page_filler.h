@@ -542,7 +542,7 @@ class UsageInfo {
     const double elapsed = std::max<double>(clock_now - pt.alloctime(), 0);
     const absl::Duration lifetime =
         absl::Milliseconds(elapsed * 1000 / clock_frequency);
-    ++lifetime_histo_[which][LifetimeBucketNum(lifetime)];
+    ++live_lifetime_histo_[which][LifetimeBucketNum(lifetime)];
 
     if (lifetime >= kLongLivedLifetime) {
       ++long_lived_hps_histo_[which][BucketNum(nalloc - 1)];
@@ -601,8 +601,8 @@ class UsageInfo {
 
     for (int i = 0; i < kNumTypes; ++i) {
       const Type type = static_cast<Type>(i);
-      PrintLifetimeHisto(out, lifetime_histo_[type], type,
-                         "hps with lifetime a <= # hps < b");
+      PrintLifetimeHisto(out, live_lifetime_histo_[type], type,
+                         "hps with live lifetime a <= # hps < b");
     }
 
     out.printf(
@@ -646,7 +646,7 @@ class UsageInfo {
       PrintHisto(scoped, longest_free_histo_[i], "longest_free_range_histogram",
                  0);
       PrintHisto(scoped, nalloc_histo_[i], "allocations_histogram", 1);
-      PrintLifetimeHisto(scoped, lifetime_histo_[i], "lifetime_histogram");
+      PrintLifetimeHisto(scoped, live_lifetime_histo_[i], "lifetime_histogram");
       PrintLifetimeHisto(scoped, low_occupancy_lifetime_histo_[i],
                          "low_occupancy_lifetime_histogram");
       PrintHisto(scoped, long_lived_hps_histo_[i],
@@ -657,10 +657,13 @@ class UsageInfo {
     }
   }
 
+  // The declarations below are public so that they can be used elsewhere.
+  static constexpr size_t kLifetimeBuckets = 8;
+  using LifetimeHisto = size_t[kLifetimeBuckets];
+
  private:
   // Maximum number of buckets at the start and end.
   static constexpr size_t kBucketsAtBounds = 8;
-  static constexpr size_t kLifetimeBuckets = 8;
   // Threshold for a page to be long-lived, as a lifetime in milliseconds, for
   // telemetry purposes only.
   static constexpr absl::Duration kLongLivedLifetime =
@@ -673,7 +676,6 @@ class UsageInfo {
   static constexpr size_t kBucketCapacity =
       kBucketsAtBounds + 16 + kBucketsAtBounds;
   using Histo = size_t[kBucketCapacity];
-  using LifetimeHisto = size_t[kLifetimeBuckets];
   using SampledTrackers = PageTracker::TrackerFeatures[kMaxSampledTrackers];
 
   int BucketNum(size_t page) {
@@ -850,7 +852,7 @@ class UsageInfo {
   Histo free_page_histo_[kNumTypes]{};
   Histo longest_free_histo_[kNumTypes]{};
   Histo nalloc_histo_[kNumTypes]{};
-  LifetimeHisto lifetime_histo_[kNumTypes]{};
+  LifetimeHisto live_lifetime_histo_[kNumTypes]{};
   Histo long_lived_hps_histo_[kNumTypes]{};
   LifetimeHisto low_occupancy_lifetime_histo_[kNumTypes]{};
   SampledTrackers sampled_trackers_[kNumTypes]{};
@@ -1011,7 +1013,7 @@ class HugePageFiller {
   HugePageFillerStats GetStats() const;
   void Print(Printer& out, bool everything, PageFlagsBase& pageflags)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags) const
+  void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   template <typename F>
@@ -1132,6 +1134,26 @@ class HugePageFiller {
   void PrintAllocStatsInPbtxt(absl::string_view field, PbtxtRegion& hpaa,
                               const HugePageFillerStats& stats,
                               AccessDensityPrediction count) const;
+
+  static constexpr size_t kLifetimeBuckets =
+      huge_page_filler_internal::UsageInfo::kLifetimeBuckets;
+  using LifetimeHisto = huge_page_filler_internal::UsageInfo::LifetimeHisto;
+  void RecordLifetime(const TrackerType* pt);
+  void PrintLifetimeHisto(Printer& out, LifetimeHisto h,
+                          AccessDensityPrediction type,
+                          absl::string_view blurb) const;
+  void PrintLifetimeHistoInPbtxt(PbtxtRegion& hpaa, LifetimeHisto h,
+                                 absl::string_view key);
+
+  int LifetimeBucketNum(absl::Duration duration) {
+    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+    auto it = std::upper_bound(lifetime_bucket_bounds_,
+                               lifetime_bucket_bounds_ + kLifetimeBuckets,
+                               duration_ms);
+    TC_CHECK_NE(it, lifetime_bucket_bounds_);
+    return it - lifetime_bucket_bounds_ - 1;
+  }
+
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
   static bool CompareForSubrelease(const TrackerType* a, const TrackerType* b) {
@@ -1177,6 +1199,11 @@ class HugePageFiller {
   void UpdateFillerStatsTracker();
   using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
+
+  // Lifetime tracking for completely-freed hugepages
+  LifetimeHisto lifetime_histo_[AccessDensityPrediction::kPredictionCounts]{};
+  size_t lifetime_bucket_bounds_[kLifetimeBuckets + 1];
+
   Clock clock_;
   const MemoryTag tag_;
   // TODO(b/73749855):  Remove remaining uses of unback_.
@@ -1371,7 +1398,13 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
       unback_(unback),
       unback_without_lock_(unback_without_lock),
       collapse_(collapse),
-      set_anon_vma_name_(set_anon_vma_name) {}
+      set_anon_vma_name_(set_anon_vma_name) {
+  lifetime_bucket_bounds_[0] = 0;
+  lifetime_bucket_bounds_[1] = 1;
+  for (int i = 2; i <= kLifetimeBuckets; ++i) {
+    lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
+  }
+}
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
@@ -1514,6 +1547,53 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   return {pt, page_allocation.page, was_released};
 }
 
+template <class TrackerType>
+void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt) {
+  const double now = clock_.now();
+  const double frequency = clock_.freq();
+  const double elapsed = std::max<double>(now - pt->alloctime(), 0);
+  const absl::Duration lifetime =
+      absl::Milliseconds(elapsed * 1000 / frequency);
+  if (pt->HasDenseSpans()) {
+    ++lifetime_histo_[AccessDensityPrediction::kDense]
+                     [LifetimeBucketNum(lifetime)];
+  } else {
+    ++lifetime_histo_[AccessDensityPrediction::kSparse]
+                     [LifetimeBucketNum(lifetime)];
+  }
+}
+
+template <class TrackerType>
+void HugePageFiller<TrackerType>::PrintLifetimeHisto(
+    Printer& out, LifetimeHisto h, AccessDensityPrediction type,
+    absl::string_view blurb) const {
+  absl::string_view typestring = type == AccessDensityPrediction::kDense
+                                     ? "densely-accessed"
+                                     : "sparsely-accessed";
+  out.printf("\nHugePageFiller: # of %s %s", typestring, blurb);
+  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+    if (i % 6 == 0) {
+      out.printf("\nHugePageFiller:");
+    }
+    out.printf(" < %3zu ms <= %6zu", lifetime_bucket_bounds_[i], h[i]);
+  }
+  out.printf("\n");
+}
+
+template <class TrackerType>
+void HugePageFiller<TrackerType>::PrintLifetimeHistoInPbtxt(
+    PbtxtRegion& hpaa, LifetimeHisto h, absl::string_view key) {
+  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+    if (h[i] == 0) continue;
+    auto hist = hpaa.CreateSubRegion(key);
+    hist.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
+    hist.PrintI64("upper_bound",
+                  (i == kLifetimeBuckets - 1 ? lifetime_bucket_bounds_[i]
+                                             : lifetime_bucket_bounds_[i + 1]));
+    hist.PrintI64("value", h[i]);
+  }
+}
+
 // Marks r as usable by new allocations into *pt; returns pt if that hugepage is
 // now empty (nullptr otherwise.)
 //
@@ -1568,6 +1648,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     }
 
     if (!pt->DontFreeTracker()) {
+      RecordLifetime(pt);
       UpdateFillerStatsTracker();
       if (pt->GetTagState().sampled_for_tagging) {
         // Set the default region name if the tracked was sampled.
@@ -2651,7 +2732,12 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
   out.printf("\n");
   out.printf("HugePageFiller: fullness histograms\n");
   usage.Print(out);
-
+  PrintLifetimeHisto(out, lifetime_histo_[AccessDensityPrediction::kDense],
+                     AccessDensityPrediction::kDense,
+                     "hps with completed lifetime a <= # hps < b");
+  PrintLifetimeHisto(out, lifetime_histo_[AccessDensityPrediction::kSparse],
+                     AccessDensityPrediction::kSparse,
+                     "hps with completed lifetime a <= # hps < b");
   out.printf("\n");
   fillerstats_tracker_.Print(out, "HugePageFiller");
 }
@@ -2672,7 +2758,7 @@ inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::PrintInPbtxt(
-    PbtxtRegion& hpaa, PageFlagsBase& pageflags) const {
+    PbtxtRegion& hpaa, PageFlagsBase& pageflags) {
   const HugePageFillerStats stats = GetStats();
 
   // A donated alloc full list is impossible because it would have never been
@@ -2834,6 +2920,12 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
         "treated_pages_subreleased",
         treatment_stats_.treated_pages_subreleased);
   }
+  PrintLifetimeHistoInPbtxt(hpaa,
+                            lifetime_histo_[AccessDensityPrediction::kDense],
+                            "densely_accessed_completed_lifetime_histogram");
+  PrintLifetimeHistoInPbtxt(hpaa,
+                            lifetime_histo_[AccessDensityPrediction::kSparse],
+                            "sparsely_accessed_completed_lifetime_histogram");
   usage.Print(hpaa);
   fillerstats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
                                                    "filler_skipped_subrelease");
