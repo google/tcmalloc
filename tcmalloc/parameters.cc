@@ -240,7 +240,16 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
-ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(false);
+static std::atomic<bool>& release_free_swapped_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_SWAPPED)) {
+      v.store(true, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
 
 ABSL_CONST_INIT std::atomic<bool>
     Parameters::usermode_hugepage_collapse_enabled_{
@@ -285,6 +294,10 @@ bool Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
 
+bool Parameters::release_free_swapped() {
+  return release_free_swapped_enabled().load(std::memory_order_relaxed);
+}
+
 central_freelist_internal::PriorityListLength
 Parameters::priority_list_length() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -301,10 +314,6 @@ Parameters::priority_list_length() {
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
-}
-
-bool TCMalloc_Internal_GetReleaseFreeSwapped() {
-  return Parameters::release_free_swapped();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -647,8 +656,13 @@ void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v) {
                                          std::memory_order_relaxed);
 }
 
+bool TCMalloc_Internal_GetReleaseFreeSwapped() {
+  return Parameters::release_free_swapped();
+}
+
 void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
-  Parameters::release_free_swapped_.store(v, std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::release_free_swapped_enabled().store(
+      v, std::memory_order_relaxed);
 }
 
 }  // extern "C"

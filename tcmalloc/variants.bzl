@@ -254,6 +254,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1"},
     },
+    {
+        "name": "tcmalloc_release_free_swapped",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_FREE_SWAPPED"},
+    },
 ]
 
 def create_tcmalloc_library(
