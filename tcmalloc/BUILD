@@ -18,6 +18,9 @@
 # https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
 # how this malloc works.
 
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
 
@@ -48,7 +51,7 @@ cc_library(
     ],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
-        "//tcmalloc/testing:__pkg__",
+        "//tcmalloc:__subpackages__",
     ],
     deps = [
         ":malloc_extension",
@@ -91,6 +94,7 @@ tcmalloc_deps = [
     "//tcmalloc/internal:optimization",
     "//tcmalloc/internal:percpu",
     "//tcmalloc/internal:sampled_allocation",
+    "//tcmalloc/internal:system_allocator",
 ]
 
 # This library provides tcmalloc always
@@ -238,8 +242,6 @@ create_tcmalloc_libraries(
         "static_vars.cc",
         "static_vars.h",
         "stats.cc",
-        "system-alloc.cc",
-        "system-alloc.h",
         "thread_cache.cc",
         "thread_cache.h",
         "transfer_cache.cc",
@@ -283,7 +285,6 @@ create_tcmalloc_libraries(
         "stack_trace_table.h",
         "static_vars.h",
         "stats.h",
-        "system-alloc.h",
         "tcmalloc_policy.h",
         "thread_cache.h",
         "transfer_cache.h",
@@ -329,6 +330,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:sampled_allocation_recorder",
         "//tcmalloc/internal:stacktrace_filter",
         "//tcmalloc/internal:sysinfo",
+        "//tcmalloc/internal:system_allocator",
         "//tcmalloc/internal:timeseries_tracker",
         "//tcmalloc/internal:util",
         "//tcmalloc/selsan",
@@ -605,6 +607,7 @@ cc_library(
         ":common_8k_pages",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:system_allocator",
         "@com_google_absl//absl/base:core_headers",
     ],
 )
@@ -674,6 +677,7 @@ cc_test(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:pageflags",
+        "//tcmalloc/internal:system_allocator",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/time",
@@ -692,6 +696,7 @@ cc_test(
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:system_allocator",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
@@ -717,6 +722,7 @@ cc_test(
         "//tcmalloc/internal:pageflags",
         "//tcmalloc/internal:range_tracker",
         "//tcmalloc/internal:residency",
+        "//tcmalloc/internal:system_allocator",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
@@ -854,7 +860,7 @@ cc_test(
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/memory",
+        "//tcmalloc/internal:system_allocator",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
@@ -918,6 +924,7 @@ cc_test(
         "//tcmalloc/internal:pageflags",
         "//tcmalloc/internal:range_tracker",
         "//tcmalloc/internal:residency",
+        "//tcmalloc/internal:system_allocator",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
@@ -951,6 +958,7 @@ cc_test(
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:page_size",
         "//tcmalloc/internal:pageflags",
+        "//tcmalloc/internal:system_allocator",
         "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
@@ -976,10 +984,10 @@ cc_test(
         ":common_8k_pages",
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:system_allocator",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
-        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
@@ -1423,9 +1431,12 @@ cc_test(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/random",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",

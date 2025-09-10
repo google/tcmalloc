@@ -14,6 +14,10 @@
 
 """ Helper functions to simplify TCMalloc BUILD files """
 
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
 build_variants = [
     {
         "name": "8k_pages",
@@ -172,22 +176,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "sparse_trackers_coarse_longest_free_range_test",
-        "malloc": "//tcmalloc",
-        "deps": [
-            "//tcmalloc:common_8k_pages",
-        ],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_COARSE_LFR_TRACKERS"},
-    },
-    {
-        "name": "sparse_trackers_coarse_longest_free_range_exp",
-        "malloc": "//tcmalloc",
-        "deps": [
-            "//tcmalloc:common_8k_pages",
-        ],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_COARSE_LFR_TRACKERS"},
-    },
-    {
         "name": "256k_pages_pow2_sharded_transfer_cache",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": [
@@ -266,6 +254,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1"},
     },
+    {
+        "name": "tcmalloc_release_free_swapped",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_FREE_SWAPPED"},
+    },
 ]
 
 def create_tcmalloc_library(
@@ -275,7 +269,7 @@ def create_tcmalloc_library(
         srcs,
         deps,
         **kwargs):
-    native.cc_library(
+    cc_library(
         name = name,
         srcs = srcs,
         copts = copts,
@@ -376,7 +370,7 @@ def create_tcmalloc_test(
         srcs,
         deps,
         **kwargs):
-    native.cc_test(
+    cc_test(
         name = name,
         srcs = srcs,
         copts = copts,
@@ -400,8 +394,7 @@ def create_tcmalloc_testsuite(name, srcs, **kwargs):
 def create_tcmalloc_benchmark(name, srcs, **kwargs):
     deps = kwargs.pop("deps")
     malloc = kwargs.pop("malloc", "//tcmalloc")
-
-    native.cc_binary(
+    cc_binary(
         name = name,
         srcs = srcs,
         malloc = malloc,

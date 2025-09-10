@@ -58,7 +58,8 @@ bool HasBrittleTestFailures(Experiment exp) {
     return true;
   }
 
-  if (exp == Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2) {
+  if (exp == Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2 ||
+      exp == Experiment::TCMALLOC_REUSE_SIZE_CLASSES_V2) {
     return true;
   }
   if (exp == Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE) {
@@ -126,8 +127,7 @@ void ParseExperiments(absl::string_view labels, F f) {
 
 const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
                               absl::string_view active,
-                              absl::string_view disabled,
-                              bool unset) {
+                              absl::string_view disabled, bool unset) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {

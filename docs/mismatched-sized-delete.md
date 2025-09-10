@@ -4,7 +4,7 @@
 
 <!--*
 # Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'ckennelly' reviewed: '2024-12-05' }
+freshness: { owner: 'ckennelly' reviewed: '2025-08-19' }
 *-->
 
 TCMalloc or Address Sanitizer told me there was a mismatch in sized delete's
@@ -161,17 +161,6 @@ TCMalloc detects:
 ## Is aborting the right behavior?
 
 Yes.
-
-Consider a small (8 byte) object that is deallocated with "256KB+8 bytes" as the
-size argument. Purportedly large deallocations cause the owning span to be
-immediately freed to the page heap, even though other 1023 objects from that
-Span may be live. This memory might be wiped if the page is returned to the
-operating system with `madvise(MADV_DONTNEED)` or it might be reused to allocate
-another object. These can cause further memory corruption.
-
-Stopping the program immediately noisily helps to narrow the time window between
-the corruption event and the program crashing as a result of it (due to a wild
-pointer dereference, etc.).
 
 While we successfully detected the corruption for the deallocation in question
 and could try to recover within TCMalloc (consulting extra bookkeeping to get

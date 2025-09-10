@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/prefetch.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/metadata_allocator.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -45,7 +46,6 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -130,10 +130,6 @@ class StaticForwarder {
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionUsageOption use_huge_region_more_often = huge_region_option();
-  HugePageFillerSparseTrackerType sparse_tracker_type =
-      Parameters::sparse_trackers_coarse_longest_free_range()
-          ? HugePageFillerSparseTrackerType::kCoarseLongestFreeRange
-          : HugePageFillerSparseTrackerType::kExactLongestFreeRange;
   absl::Duration huge_cache_time = Parameters::huge_cache_release_time();
 };
 
@@ -154,6 +150,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
  public:
   explicit HugePageAwareAllocator(const HugePageAwareAllocatorOptions& options);
   ~HugePageAwareAllocator() override = default;
+
+  static void operator delete(void*) { __builtin_trap(); }
 
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
@@ -271,6 +269,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~Unback() override = default;
 
+    static void operator delete(void*) { __builtin_trap(); }
+
     [[nodiscard]] MemoryModifyStatus operator()(Range r) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
 #ifndef NDEBUG
@@ -289,6 +289,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
     ~UnbackWithoutLock() override = default;
+
+    static void operator delete(void*) { __builtin_trap(); }
 
     [[nodiscard]] MemoryModifyStatus operator()(Range r) override
         ABSL_NO_THREAD_SAFETY_ANALYSIS {
@@ -312,6 +314,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~Collapse() override = default;
 
+    static void operator delete(void*) { __builtin_trap(); }
+
     [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
       MemoryModifyStatus ret = hpaa_.forwarder_.CollapsePages(r);
       return ret;
@@ -327,6 +331,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
     ~SetAnonVmaName() override = default;
+
+    static void operator delete(void*) { __builtin_trap(); }
+
     void operator()(Range r, std::optional<absl::string_view> name) override {
       hpaa_.forwarder_.SetAnonVmaName(r, name);
     }
@@ -352,6 +359,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         : hpaa_(hpaa) {}
     ~VirtualMemoryAllocator() override = default;
 
+    static void operator delete(void*) { __builtin_trap(); }
+
     [[nodiscard]] AddressRange operator()(size_t bytes, size_t align) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
       return hpaa_.AllocAndReport(bytes, align);
@@ -367,6 +376,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
     ~ArenaMetadataAllocator() override = default;
+
+    static void operator delete(void*) { __builtin_trap(); }
 
     [[nodiscard]] void* operator()(size_t bytes) override {
       return hpaa_.forwarder_.arena().Alloc(bytes);
@@ -472,8 +483,8 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_without_lock_(*this),
       collapse_(*this),
       set_anon_vma_name_(*this),
-      filler_(options.sparse_tracker_type, tag_, unback_, unback_without_lock_,
-              collapse_, set_anon_vma_name_),
+      filler_(tag_, unback_, unback_without_lock_, collapse_,
+              set_anon_vma_name_),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),

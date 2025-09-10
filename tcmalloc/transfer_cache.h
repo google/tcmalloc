@@ -66,7 +66,7 @@ class StaticForwarder {
 
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
-  static void *Alloc(size_t size, std::align_val_t alignment = kAlignment);
+  static void* Alloc(size_t size, std::align_val_t alignment = kAlignment);
 };
 
 class ShardedStaticForwarder : public StaticForwarder {
@@ -113,8 +113,8 @@ class BackingTransferCache {
       central_freelist_internal::PriorityListLength priority_list_length) {
     size_class_ = size_class;
   }
-  void InsertRange(absl::Span<void *> batch) const;
-  [[nodiscard]] int RemoveRange(absl::Span<void *> batch) const;
+  void InsertRange(absl::Span<void*> batch) const;
+  [[nodiscard]] int RemoveRange(absl::Span<void*> batch) const;
   int size_class() const { return size_class_; }
 
  private:
@@ -126,8 +126,8 @@ class BackingTransferCache {
 template <typename Manager, typename CpuLayout, typename FreeList>
 class ShardedTransferCacheManagerBase {
  public:
-  constexpr ShardedTransferCacheManagerBase(Manager *owner,
-                                            CpuLayout *cpu_layout)
+  constexpr ShardedTransferCacheManagerBase(Manager* owner,
+                                            CpuLayout* cpu_layout)
       : owner_(owner), cpu_layout_(cpu_layout) {}
 
   // We enable generic sharded transfer cache only when the number of cache
@@ -141,7 +141,7 @@ class ShardedTransferCacheManagerBase {
   void Init() {
     owner_->Init();
     num_shards_ = cpu_layout_->NumShards();
-    shards_ = reinterpret_cast<Shard *>(owner_->Alloc(
+    shards_ = reinterpret_cast<Shard*>(owner_->Alloc(
         sizeof(Shard) * num_shards_, std::align_val_t{ABSL_CACHELINE_SIZE}));
     TC_ASSERT_NE(shards_, nullptr);
 
@@ -196,20 +196,20 @@ class ShardedTransferCacheManagerBase {
     return objects;
   }
 
-  [[nodiscard]] void *Pop(int size_class) {
+  [[nodiscard]] void* Pop(int size_class) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
-    void *batch[1];
+    void* batch[1];
     const int got =
         get_cache(size_class).RemoveRange(size_class, absl::MakeSpan(batch));
     return got == 1 ? batch[0] : nullptr;
   }
 
-  void Push(int size_class, void *ptr) {
+  void Push(int size_class, void* ptr) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
     get_cache(size_class).InsertRange(size_class, absl::MakeSpan(&ptr, 1));
   }
 
-  void Print(const StatsCounters<kNumClasses> &counts, Printer &out) const {
+  void Print(const StatsCounters<kNumClasses>& counts, Printer& out) const {
     out.printf("------------------------------------------------\n");
     out.printf("Cumulative sharded transfer cache stats.\n");
     out.printf("Used bytes, current capacity, and maximum allowed capacity\n");
@@ -253,8 +253,8 @@ class ShardedTransferCacheManagerBase {
     }
   }
 
-  void PrintInPbtxt(const StatsCounters<kNumClasses> &counts,
-                    PbtxtRegion &region) const {
+  void PrintInPbtxt(const StatsCounters<kNumClasses>& counts,
+                    PbtxtRegion& region) const {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       const TransferCacheStats stats = GetStats(size_class);
       PbtxtRegion entry = region.CreateSubRegion("sharded_transfer_cache");
@@ -278,7 +278,7 @@ class ShardedTransferCacheManagerBase {
     TransferCacheStats stats = {};
     for (int index = 0; index < num_shards_; ++index) {
       if (!shard_initialized(index)) continue;
-      Shard &shard = shards_[index];
+      Shard& shard = shards_[index];
       TransferCacheStats shard_stats =
           shard.transfer_caches[size_class].GetStats();
       stats.insert_hits += shard_stats.insert_hits;
@@ -294,11 +294,11 @@ class ShardedTransferCacheManagerBase {
     return stats;
   }
 
-  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void *> batch) {
+  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
     return get_cache(size_class).RemoveRange(size_class, batch);
   }
 
-  void InsertRange(int size_class, absl::Span<void *> batch) {
+  void InsertRange(int size_class, absl::Span<void*> batch) {
     get_cache(size_class).InsertRange(size_class, batch);
   }
 
@@ -309,7 +309,7 @@ class ShardedTransferCacheManagerBase {
     for (int shard = 0; shard < num_shards_; ++shard) {
       if (!shard_initialized(shard)) continue;
       for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-        TransferCache &cache = shards_[shard].transfer_caches[size_class];
+        TransferCache& cache = shards_[shard].transfer_caches[size_class];
         cache.TryPlunder(cache.freelist().size_class());
       }
     }
@@ -351,7 +351,7 @@ class ShardedTransferCacheManagerBase {
       // explicitly and atomically here.
       initialized.store(false, std::memory_order_release);
     }
-    TransferCache *transfer_caches = nullptr;
+    TransferCache* transfer_caches = nullptr;
     absl::once_flag once_flag;
     // We need to be able to tell whether a given shard is initialized, which
     // the `once_flag` API doesn't offer.
@@ -377,8 +377,8 @@ class ShardedTransferCacheManagerBase {
   }
 
   // Initializes all transfer caches in the given shard.
-  void InitShard(Shard &shard) {
-    TransferCache *new_caches = reinterpret_cast<TransferCache *>(
+  void InitShard(Shard& shard) {
+    TransferCache* new_caches = reinterpret_cast<TransferCache*>(
         owner_->Alloc(sizeof(TransferCache) * kNumClasses,
                       std::align_val_t{ABSL_CACHELINE_SIZE}));
     TC_ASSERT_NE(new_caches, nullptr);
@@ -399,22 +399,22 @@ class ShardedTransferCacheManagerBase {
 
   // Returns the cache shard corresponding to the given size class and the
   // current cpu's L3 node. The cache will be initialized if required.
-  TransferCache &get_cache(int size_class) {
+  TransferCache& get_cache(int size_class) {
     const uint8_t shard_index =
         cpu_layout_->CpuShard(cpu_layout_->CurrentCpu());
     TC_ASSERT_LT(shard_index, num_shards_);
-    Shard &shard = shards_[shard_index];
+    Shard& shard = shards_[shard_index];
     absl::base_internal::LowLevelCallOnce(
         &shard.once_flag, [this, &shard]() { InitShard(shard); });
     return shard.transfer_caches[size_class];
   }
 
-  Shard *shards_ = nullptr;
+  Shard* shards_ = nullptr;
   int num_shards_ = 0;
   std::atomic<int> active_shards_ = 0;
   bool active_for_class_[kNumClasses] = {false};
-  Manager *const owner_;
-  CpuLayout *const cpu_layout_;
+  Manager* const owner_;
+  CpuLayout* const cpu_layout_;
 };
 
 using ShardedTransferCacheManager =
@@ -433,16 +433,16 @@ class TransferCacheManager : public StaticForwarder {
  public:
   constexpr TransferCacheManager() = default;
 
-  TransferCacheManager(const TransferCacheManager &) = delete;
-  TransferCacheManager &operator=(const TransferCacheManager &) = delete;
+  TransferCacheManager(const TransferCacheManager&) = delete;
+  TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
   void Init() { InitCaches(); }
 
-  void InsertRange(int size_class, absl::Span<void *> batch) {
+  void InsertRange(int size_class, absl::Span<void*> batch) {
     cache_[size_class].tc.InsertRange(size_class, batch);
   }
 
-  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void *> batch) {
+  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
     return cache_[size_class].tc.RemoveRange(size_class, batch);
   }
 
@@ -456,7 +456,7 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.GetStats();
   }
 
-  CentralFreeList &central_freelist(int size_class) {
+  CentralFreeList& central_freelist(int size_class) {
     return cache_[size_class].tc.freelist();
   }
 
@@ -504,7 +504,7 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.FetchCommitIntervalMisses();
   }
 
-  void Print(const StatsCounters<kNumClasses> &counts, Printer &out) const {
+  void Print(const StatsCounters<kNumClasses>& counts, Printer& out) const {
     out.printf("------------------------------------------------\n");
     out.printf("Used bytes, current capacity, and maximum allowed capacity\n");
     out.printf("of the transfer cache freelists.\n");
@@ -541,8 +541,8 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  void PrintInPbtxt(const StatsCounters<kNumClasses> &counts,
-                    PbtxtRegion &region) const {
+  void PrintInPbtxt(const StatsCounters<kNumClasses>& counts,
+                    PbtxtRegion& region) const {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       PbtxtRegion entry = region.CreateSubRegion("transfer_cache");
       const TransferCacheStats tc_stats = GetStats(size_class);

@@ -23,7 +23,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/system-alloc.h"
+#include "tcmalloc/internal/system_allocator.h"
 
 namespace tcmalloc::tcmalloc_internal {
 

@@ -51,7 +51,7 @@ static bool CheckerIsActive() {
 }
 
 struct AllocatorArgs {
-  std::vector<void *> *arr;
+  std::vector<void*>* arr;
   size_t req_size;
   size_t req_alignment;
   size_t block_objects;
@@ -60,7 +60,7 @@ struct AllocatorArgs {
 };
 
 ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void AllocateBaseCase(
-    size_t offset, const AllocatorArgs &args) {
+    size_t offset, const AllocatorArgs& args) {
   size_t alloc_objects = args.m_dealloc_funcs * args.block_objects;
   for (size_t i = offset; i < offset + alloc_objects; ++i) {
     (*args.arr)[i] = operator new(
@@ -69,7 +69,7 @@ ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void AllocateBaseCase(
 }
 
 ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void AllocateRecursive(
-    size_t offset, size_t recursion_depth, const AllocatorArgs &args) {
+    size_t offset, size_t recursion_depth, const AllocatorArgs& args) {
   if (recursion_depth == 0) {
     AllocateBaseCase(offset, args);
   } else {
@@ -77,7 +77,7 @@ ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void AllocateRecursive(
   }
 }
 ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void DeallocBaseCase(
-    size_t offset, const AllocatorArgs &args) {
+    size_t offset, const AllocatorArgs& args) {
   for (size_t i = offset; i < offset + args.block_objects; ++i) {
     operator delete((*args.arr)[i],
                     static_cast<std::align_val_t>(args.req_alignment));
@@ -85,7 +85,7 @@ ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void DeallocBaseCase(
 }
 
 ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void DeallocRecursive(
-    size_t offset, size_t recursion_depth, const AllocatorArgs &args) {
+    size_t offset, size_t recursion_depth, const AllocatorArgs& args) {
   if (recursion_depth == 0) {
     DeallocBaseCase(offset, args);
   } else {
@@ -101,7 +101,7 @@ struct Params {
   size_t alignment;
 };
 
-void testEntry(Params &p, const tcmalloc::Profile::Sample &e) {
+void testEntry(Params& p, const tcmalloc::Profile::Sample& e) {
   if (e.requested_size == p.size && e.requested_alignment == p.alignment) {
     EXPECT_LE(e.avg_lifetime, p.duration);
     EXPECT_GE(e.avg_lifetime, p.sleep_time / 1000);
@@ -183,7 +183,7 @@ class DeallocationzTest : public ::testing::Test {
     // deallocation stack trace). This is important in the following
     // calculations.
     profile.Iterate(
-        [&p](const tcmalloc::Profile::Sample &entry) { testEntry(p, entry); });
+        [&p](const tcmalloc::Profile::Sample& entry) { testEntry(p, entry); });
 
     // for multi-threaded, t_threads must be > 2 (due to design of the test)
     if (t_threads_ > 2) {
@@ -284,7 +284,7 @@ class DeallocationzTest : public ::testing::Test {
       }
       offset += thread_objects;
     }
-    for (auto &thread : threads) thread.join();
+    for (auto& thread : threads) thread.join();
   }
 
   void Deallocate() {
@@ -327,10 +327,10 @@ class DeallocationzTest : public ::testing::Test {
             [=]() { Run(offset, rpc_id); });
       }
     }
-    for (auto &thread : threads) thread.join();
+    for (auto& thread : threads) thread.join();
   }
 
-  std::vector<void *> arr_;
+  std::vector<void*> arr_;
 
  protected:
   size_t req_size_;
@@ -419,7 +419,7 @@ TEST_F(DeallocationzTest, ConcurrentProfilerRequests) {
       });
     }
   }
-  for (auto &thread : threads) thread.join();
+  for (auto& thread : threads) thread.join();
 }
 
 TEST_F(DeallocationzTest, ConcurrentProfilerEnableDisable) {
@@ -496,7 +496,7 @@ TEST_F(DeallocationzTest, ObserveDeallocationButNotAllocation) {
   EXPECT_GT(std::move(token).Stop().Duration(), absl::ZeroDuration());
 }
 
-ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void *SingleAlloc(
+ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void* SingleAlloc(
     int depth, uintptr_t size) {
   if (depth == 0) {
     return ::operator new(size);
@@ -506,7 +506,7 @@ ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void *SingleAlloc(
 }
 
 ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void SingleDealloc(
-    int depth, void *ptr) {
+    int depth, void* ptr) {
   if (depth == 0) {
     ::operator delete(ptr);
   } else {
@@ -528,7 +528,7 @@ TEST(LifetimeProfiler, BasicCounterValues) {
   // Avoid unsample-related behavior
   tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
 
-  void *ptr = nullptr;
+  void* ptr = nullptr;
 
   auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
 
@@ -561,7 +561,7 @@ TEST(LifetimeProfiler, BasicCounterValues) {
 
   Counters counters;
 
-  auto evaluate_profile = [&counters](const tcmalloc::Profile::Sample &e) {
+  auto evaluate_profile = [&counters](const tcmalloc::Profile::Sample& e) {
     // Check how many times the stack contains SingleAlloc or SingleDealloc.
     int num_alloc = 0;
     int num_dealloc = 0;
@@ -645,7 +645,7 @@ TEST(LifetimeProfiler, RecordLiveAllocations) {
   constexpr int kAllocFrames = 2, kDeallocFrames = 3;
   constexpr absl::Duration kDuration = absl::Milliseconds(100);
 
-  void *ptr = SingleAlloc(kAllocFrames, kMallocSize);
+  void* ptr = SingleAlloc(kAllocFrames, kMallocSize);
   absl::SleepFor(kDuration);
 
   auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
@@ -656,7 +656,7 @@ TEST(LifetimeProfiler, RecordLiveAllocations) {
   int alloc_frames = 0;
   int dealloc_frames = 0;
   absl::Duration sample_lifetime;
-  profile.Iterate([&](const tcmalloc::Profile::Sample &sample) {
+  profile.Iterate([&](const tcmalloc::Profile::Sample& sample) {
     bool found_test_alloc = false;
     for (int i = 0; i < sample.depth; i++) {
       const int kMaxFunctionNameLength = 1024;
@@ -703,12 +703,12 @@ TEST(LifetimeProfiler, RecordCensoredAllocations) {
   constexpr absl::Duration kDuration = absl::Milliseconds(100);
 
   // Allocated prior to profiling.
-  void *ptr1 = SingleAlloc(kAllocFrames, kMallocSize1);
+  void* ptr1 = SingleAlloc(kAllocFrames, kMallocSize1);
 
   auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
 
   // Change the requested size so that it always shows up as a different sample.
-  void *ptr2 = SingleAlloc(kAllocFrames, kMallocSize2);
+  void* ptr2 = SingleAlloc(kAllocFrames, kMallocSize2);
 
   const tcmalloc::Profile profile = std::move(token).Stop();
   absl::SleepFor(kDuration);
@@ -720,7 +720,7 @@ TEST(LifetimeProfiler, RecordCensoredAllocations) {
   int sample_count = 0;
   int alloc_frames = 0;
   ASSERT_NO_FATAL_FAILURE(
-      profile.Iterate([&](const tcmalloc::Profile::Sample &sample) {
+      profile.Iterate([&](const tcmalloc::Profile::Sample& sample) {
         bool found_test_alloc = false;
         for (int i = 0; i < sample.depth; i++) {
           const int kMaxFunctionNameLength = 1024;

@@ -79,7 +79,7 @@ self:
   }
 #if defined(__x86_64__)
 #if defined(NDEBUG)
-  constexpr size_t kExpectedUsage = 12800;
+  constexpr size_t kExpectedUsage = 17000;
   constexpr size_t kUsageSlack = 50;
 #else
   constexpr size_t kExpectedUsage = 13500;

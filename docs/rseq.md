@@ -2,7 +2,7 @@
 
 <!--*
 # Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'ckennelly' reviewed: '2024-02-01' }
+freshness: { owner: 'ckennelly' reviewed: '2025-08-19' }
 *-->
 
 ## per-CPU Caches
@@ -105,15 +105,16 @@ restart:
   __rseq_abi.rseq_cs = &__rseq_cs_TcmallocSlab_Pop;
 start:
   // Actual sequence
-  uint64_t cpu_id = __rseq_abi.cpu_id;
-  Header* hdr = &slabs[cpu_id].header[size_class];
+  Slab* slab = tcmalloc_slabs;
+  if ((slabs & MASK) == 0) { return CacheSlab(); }
+  Header* hdr = &slab.header[size_class];
   uint64_t current = hdr->current;
-  void* ret = *(&slabs[cpu_id] + current * sizeof(void*) - sizeof(void*));
+  void* ret = *(&slab + current * sizeof(void*) - sizeof(void*));
   // The element before the array is specifically marked with the low bit set.
   if (ABSL_PREDICT_FALSE((uintptr_t)ret & 1)) {
     goto underflow;
   }
-  void* next = *(&slabs[cpu_id] + current * sizeof(void*) - 2 * sizeof(void*))
+  void* next = *(&slab + current * sizeof(void*) - 2 * sizeof(void*))
   --current;
   hdr->current = current;
 commit:
@@ -199,15 +200,16 @@ restart:
   __rseq_abi.rseq_cs = &__rseq_cs_TcmallocSlab_Push;
 start:
   // Actual sequence
-  uint64_t cpu_id = __rseq_abi.cpu_id;
-  Header* hdr = &slabs[cpu_id].header[size_class];
+  Slab* slab = tcmalloc_slabs;
+  if ((slabs & MASK) == 0) { return CacheSlab(); }
+  Header* hdr = &slab.header[size_class];
   uint64_t current = hdr->current;
   uint64_t end = hdr->end;
   if (ABSL_PREDICT_FALSE(current >= end)) {
     goto overflow;
   }
 
-  *(&slabs[cpu_id] + current * sizeof(void*) - sizeof(void*)) = item;
+  *(&slab + current * sizeof(void*) - sizeof(void*)) = item;
   current++;
   hdr->current = current;
 commit:

@@ -102,6 +102,7 @@
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sampled_allocation.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
@@ -118,7 +119,6 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/transfer_cache.h"
@@ -1460,9 +1460,6 @@ extern "C" void TCMallocInternalDelete(void* p) noexcept {
 
 extern "C" void TCMallocInternalDeleteAligned(
     void* p, std::align_val_t alignment) noexcept
-#if defined(NDEBUG)
-    TCMALLOC_ALIAS(TCMallocInternalDelete);
-#else
 {
   // Note: The aligned delete/delete[] implementations differ slightly from
   // their respective aliased implementations to take advantage of checking the
@@ -1470,7 +1467,6 @@ extern "C" void TCMallocInternalDeleteAligned(
   TC_ASSERT(CorrectAlignment(p, alignment));
   return do_free(p, CppPolicy().AlignAs(alignment));
 }
-#endif
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalDeleteSized(
     void* p, size_t size) noexcept {

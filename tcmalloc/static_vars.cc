@@ -44,6 +44,7 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sysinfo.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
@@ -54,7 +55,6 @@
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
-#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/transfer_cache.h"
 
@@ -106,7 +106,7 @@ ABSL_CONST_INIT GwpAsanState Static::gwp_asan_state_;
 ABSL_CONST_INIT Static::PerSizeClassCounts Static::per_size_class_counts_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
     SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>>
-        Static::system_allocator_{numa_topology_};
+        Static::system_allocator_{numa_topology_, kMinMmapAlloc};
 
 // LINT.ThenChange(:static_vars_size)
 
@@ -162,7 +162,8 @@ SizeClassConfiguration Static::size_class_configuration() {
   }
 
   if (IsExperimentActive(
-          Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2)) {
+          Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES_V2) ||
+      IsExperimentActive(Experiment::TCMALLOC_REUSE_SIZE_CLASSES_V2)) {
     return SizeClassConfiguration::kReuseV2;
   }
 

@@ -41,12 +41,12 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
-#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -274,7 +274,8 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
         left_aligned ? static_cast<std::align_val_t>(page_size_)
                      : d.requested_alignment;
 
-    ReportCorruptedFree(tc_globals, expected_alignment, ptr);
+    ReportCorruptedFree(tc_globals, expected_alignment, ptr,
+                        {d.alloc_trace.stack, d.alloc_trace.depth});
   }
 
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);

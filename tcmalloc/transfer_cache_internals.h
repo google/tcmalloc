@@ -106,13 +106,13 @@ class TransferCache {
         owner_(owner),
         max_capacity_(capacity.max_capacity) {
     freelist().Init(size_class, priority_list_length);
-    slots_ = max_capacity_ != 0 ? reinterpret_cast<void **>(owner_->Alloc(
-                                      max_capacity_ * sizeof(void *)))
+    slots_ = max_capacity_ != 0 ? reinterpret_cast<void**>(owner_->Alloc(
+                                      max_capacity_ * sizeof(void*)))
                                 : nullptr;
   }
 
-  TransferCache(const TransferCache &) = delete;
-  TransferCache &operator=(const TransferCache &) = delete;
+  TransferCache(const TransferCache&) = delete;
+  TransferCache& operator=(const TransferCache&) = delete;
 
   // Compute initial and max capacity that we should configure this cache for.
   static Capacity CapacityNeeded(size_t size_class) {
@@ -153,7 +153,7 @@ class TransferCache {
 
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
-  void InsertRange(int size_class, absl::Span<void *> batch)
+  void InsertRange(int size_class, absl::Span<void*> batch)
       ABSL_LOCKS_EXCLUDED(lock_) {
     const int N = batch.size();
     TC_ASSERT(0 < N && N <= kMaxObjectsToMove);
@@ -167,8 +167,8 @@ class TransferCache {
       if (got > 0) {
         info.used += got;
         SetSlotInfo(info);
-        void **entry = GetSlot(info.used - got);
-        memcpy(entry, batch.data(), sizeof(void *) * got);
+        void** entry = GetSlot(info.used - got);
+        memcpy(entry, batch.data(), sizeof(void*) * got);
         insert_hits_.LossyAdd(1);
         if (got == N) {
           return;
@@ -185,7 +185,7 @@ class TransferCache {
 
   // Returns the actual number of fetched elements and stores elements in the
   // batch.
-  [[nodiscard]] int RemoveRange(int size_class, const absl::Span<void *> batch)
+  [[nodiscard]] int RemoveRange(int size_class, const absl::Span<void*> batch)
       ABSL_LOCKS_EXCLUDED(lock_) {
     TC_ASSERT(!batch.empty());
     TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
@@ -198,8 +198,8 @@ class TransferCache {
       if (got) {
         info.used -= got;
         SetSlotInfo(info);
-        void **entry = GetSlot(info.used);
-        memcpy(batch.data(), entry, sizeof(void *) * got);
+        void** entry = GetSlot(info.used);
+        memcpy(batch.data(), entry, sizeof(void*) * got);
         remove_hits_.LossyAdd(1);
         remove_object_hits_.LossyAdd(got);
         low_water_mark_ = std::min(low_water_mark_, info.used);
@@ -232,9 +232,9 @@ class TransferCache {
       const size_t num_to_move = std::min({B, info.used, to_return});
       if (num_to_move == 0) break;
 
-      void *buf[kMaxObjectsToMove];
-      void **const entry = GetSlot(info.used - num_to_move);
-      memcpy(buf, entry, sizeof(void *) * num_to_move);
+      void* buf[kMaxObjectsToMove];
+      void** const entry = GetSlot(info.used - num_to_move);
+      memcpy(buf, entry, sizeof(void*) * num_to_move);
       info.used -= num_to_move;
       to_return -= num_to_move;
       low_water_mark_ = info.used;
@@ -316,7 +316,7 @@ class TransferCache {
   bool ShrinkCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     int N = Manager::num_objects_to_move(size_class);
 
-    void *to_free[kMaxObjectsToMove];
+    void* to_free[kMaxObjectsToMove];
     int num_to_free;
     {
       AllocationGuardSpinLockHolder h(&lock_);
@@ -340,7 +340,7 @@ class TransferCache {
       low_water_mark_ = std::min(low_water_mark_, info.used);
       // Our internal slot array may get overwritten as soon as we drop the
       // lock, so copy the items to free to an on stack buffer.
-      memcpy(to_free, GetSlot(info.used), sizeof(void *) * num_to_free);
+      memcpy(to_free, GetSlot(info.used), sizeof(void*) * num_to_free);
     }
 
     // Access the freelist without holding the lock.
@@ -350,7 +350,7 @@ class TransferCache {
 
   // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
   // that we are not holding lock_ when we access it.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList &freelist() ABSL_LOCKS_EXCLUDED(lock_) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList& freelist() ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
 
@@ -358,7 +358,7 @@ class TransferCache {
 
  private:
   // Returns first object of the i-th slot.
-  void **GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+  void** GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     return slots_ + i;
   }
 
@@ -398,11 +398,11 @@ class TransferCache {
 
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
-  void **slots_ ABSL_GUARDED_BY(lock_);
+  void** slots_ ABSL_GUARDED_BY(lock_);
 
   FreeList freelist_do_not_access_directly_;
 
-  Manager *const owner_;
+  Manager* const owner_;
 
   // Maximum size of the cache.
   const int32_t max_capacity_;
@@ -420,7 +420,7 @@ class TransferCache {
 } ABSL_CACHELINE_ALIGNED;
 
 template <typename Manager>
-void ResizeCaches(Manager &manager, int start_size_class) {
+void ResizeCaches(Manager& manager, int start_size_class) {
   TC_ASSERT_GE(start_size_class, 0);
   TC_ASSERT_LE(start_size_class + Manager::kNumBaseClasses,
                Manager::kNumClasses);
@@ -442,7 +442,7 @@ void ResizeCaches(Manager &manager, int start_size_class) {
 
   // Prioritize shrinking cache that had least number of misses.
   std::sort(misses.begin(), misses.end(),
-            [](const MissInfo &a, const MissInfo &b) {
+            [](const MissInfo& a, const MissInfo& b) {
               if (a.misses == b.misses) {
                 return a.size_class < b.size_class;
               }
@@ -496,7 +496,7 @@ void ResizeCaches(Manager &manager, int start_size_class) {
 }
 
 template <typename Manager>
-void TryResizingCaches(Manager &manager) {
+void TryResizingCaches(Manager& manager) {
   // Resize transfer caches for each set of kNumBaseClasses.
   for (int i = 0; i < Manager::kNumaPartitions; ++i) {
     ResizeCaches(manager, i * Manager::kNumBaseClasses);

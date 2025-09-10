@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
@@ -50,7 +51,6 @@
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/transfer_cache.h"
 
@@ -138,9 +138,6 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     // TODO(b/207622377):  Arena is thread-safe, but we take the pageheap_lock
     // to present a consistent view of memory usage.
     r->arena = tc_globals.arena().stats();
-    if (!report_residence) {
-      r->metadata_bytes += r->arena.bytes_nonresident;
-    }
 
     const PageReleaseStats release_stats =
         tc_globals.page_allocator().GetReleaseStats();
@@ -474,6 +471,13 @@ void DumpStats(Printer& out, int level) {
       tc_globals.central_freelist(size_class).PrintSpanUtilStats(out);
     }
 
+    out.printf("------------------------------------------------\n");
+    out.printf("Central cache freelist: Same-span returns\n");
+    out.printf("------------------------------------------------\n");
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      tc_globals.central_freelist(size_class).PrintSameSpanStats(out);
+    }
+
     out.printf("\n");
     out.printf("------------------------------------------------\n");
     out.printf("Central cache freelist: Span lifetime histogram\n");
@@ -591,9 +595,6 @@ void DumpStats(Printer& out, int level) {
                Parameters::resize_size_class_max_capacity() ? 1 : 0);
     out.printf(
         "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1\n");
-    out.printf(
-        "PARAMETER tcmalloc_sparse_trackers_coarse_longest_free_range %d\n",
-        Parameters::sparse_trackers_coarse_longest_free_range() ? 1 : 0);
     out.printf("PARAMETER min_hot_access_hint %d\n",
                static_cast<int>(Parameters::min_hot_access_hint()));
     out.printf("PARAMETER tcmalloc_usermode_hugepage_collapse %d\n",
@@ -706,6 +707,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
       tc_globals.central_freelist(size_class).PrintSpanUtilStatsInPbtxt(entry);
       tc_globals.central_freelist(size_class)
           .PrintSpanLifetimeStatsInPbtxt(entry);
+      tc_globals.central_freelist(size_class).PrintSameSpanStatsInPbtxt(entry);
     }
 
     tc_globals.transfer_cache().PrintInPbtxt(tc_globals.per_size_class_counts(),
@@ -808,8 +810,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("tcmalloc_use_wider_slabs",
                    tc_globals.cpu_cache().UseWiderSlabs());
   region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated", true);
-  region.PrintBool("tcmalloc_sparse_trackers_coarse_longest_free_range",
-                   Parameters::sparse_trackers_coarse_longest_free_range());
   region.PrintI64("min_hot_access_hint",
                   static_cast<int>(Parameters::min_hot_access_hint()));
   region.PrintBool("usermode_hugepage_collapse",

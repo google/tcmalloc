@@ -369,8 +369,8 @@ class DeallocationProfiler {
                              DeallocationSampleRecord>,
                    MyAllocator>>;
 
-  class DeallocationStackTraceTable final
-      : public tcmalloc_internal::ProfileBase {
+  class DeallocationStackTraceTable
+      final : public tcmalloc_internal::ProfileBase {
    public:
     // We define the dtor to ensure it is placed in the desired text section.
     ~DeallocationStackTraceTable() override = default;

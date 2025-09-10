@@ -16,6 +16,9 @@
 
 load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark")
 
@@ -398,6 +401,7 @@ cc_library(
     deps = [
         ":config",
         ":page_size",
+        "@com_google_absl//absl/base:core_headers",
     ],
 )
 
@@ -1023,6 +1027,56 @@ cc_test(
         ":stacktrace_filter",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "system_allocator",
+    srcs = ["system_allocator.cc"],
+    hdrs = ["system_allocator.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":exponential_biased",
+        ":logging",
+        ":memory_tag",
+        ":numa",
+        ":optimization",
+        ":page_size",
+        ":util",
+        "//tcmalloc:experiment",
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "system_allocator_test",
+    srcs = ["system_allocator_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        ":numa",
+        ":proc_maps",
+        ":system_allocator",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
     ],
 )

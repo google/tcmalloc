@@ -393,7 +393,7 @@ inline bool Span::FreelistPushBatch(absl::Span<void*> batch, size_t size,
                                     uint32_t reciprocal) {
   TC_ASSERT(!is_large_or_sampled());
   const auto allocated = allocated_.load(std::memory_order_relaxed);
-  TC_ASSERT_GT(allocated, 0);
+  TC_ASSERT_GE(allocated, batch.size());
   if (ABSL_PREDICT_FALSE(allocated == batch.size())) {
     return false;
   }

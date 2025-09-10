@@ -295,6 +295,10 @@ class TCMallocPolicy {
   }
 
   // Alignment policy
+  constexpr bool has_explicit_alignment() const {
+    return std::is_same<AlignAsPolicy, AlignPolicy>::value;
+  }
+
   constexpr size_t align() const { return align_.align(); }
 
   // NUMA partition

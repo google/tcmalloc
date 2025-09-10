@@ -24,8 +24,8 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/static_vars.h"
-#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

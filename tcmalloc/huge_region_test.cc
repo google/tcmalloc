@@ -41,9 +41,9 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {

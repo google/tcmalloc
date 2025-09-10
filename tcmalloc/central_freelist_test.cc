@@ -30,13 +30,17 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/algorithm/container.h"
+#include "absl/base/casts.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -915,6 +919,66 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
   cfl.Stop();
 
   e.central_freelist().InsertRange(absl::MakeSpan(&initial, 1));
+}
+
+TEST_P(CentralFreeListTest, SameSpans) {
+  const int num_to_move = std::get<0>(GetParam()).num_to_move;
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              num_to_move, std::get<1>(GetParam()));
+
+  // Roundtrip a batch.
+  void* batch[kMaxObjectsToMove];
+  const int got =
+      e.central_freelist().RemoveRange(absl::MakeSpan(batch, num_to_move));
+  ASSERT_GT(got, 0);
+
+  // The CFL checks for "spans" by page size, allowing the calculation to
+  // happen prior to looking up the actual spans.
+  //
+  // TODO(b/175159154):  Shift to using real spans, or use this to reduce how
+  // many spans we MapObjectsToSpans for.
+  absl::flat_hash_set<uintptr_t> pseudo_spans;
+  for (int i = 0; i < got; ++i) {
+    pseudo_spans.insert(absl::bit_cast<uintptr_t>(batch[i]) &
+                        ~(kPageSize - 1u));
+  }
+
+  e.central_freelist().InsertRange(absl::MakeSpan(batch, got));
+
+  // Check the stats after the first insertion.
+  {
+    std::string expected_stats =
+        absl::StrFormat("class %3d [ %8zu bytes ] :", e.kSizeClass,
+                        std::get<0>(GetParam()).size);
+    for (int i = 0; i < num_to_move; ++i) {
+      const bool first_batch =
+          e.objects_per_span() > 1 && i == got - pseudo_spans.size();
+      const int count = first_batch ? 1 : 0;
+      absl::StrAppendFormat(&expected_stats, " %6d", count);
+    }
+    absl::StrAppend(&expected_stats, "\n");
+
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    e.central_freelist().PrintSameSpanStats(printer);
+    buffer.resize(strlen(buffer.c_str()));
+    EXPECT_EQ(buffer, expected_stats) << got;
+  }
+  {
+    std::string expected_pbtxt =
+        e.objects_per_span() > 1
+            ? absl::StrFormat(" same_span_stats { lower_bound: %d value: 1}",
+                              got - pseudo_spans.size())
+            : "";
+
+    std::string buffer_pbtxt(1024 * 1024, '\0');
+    Printer printer_pbtxt(&*buffer_pbtxt.begin(), buffer_pbtxt.size());
+    PbtxtRegion region(printer_pbtxt,
+                       tcmalloc::tcmalloc_internal::PbtxtRegionType::kTop);
+    e.central_freelist().PrintSameSpanStatsInPbtxt(region);
+    buffer_pbtxt.resize(strlen(buffer_pbtxt.c_str()));
+    EXPECT_EQ(buffer_pbtxt, expected_pbtxt) << got;
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

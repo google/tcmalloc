@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/system-alloc.h"
+#include "tcmalloc/internal/system_allocator.h"
 
 #include <asm/unistd.h>
 #include <errno.h>
