@@ -199,7 +199,7 @@ static_assert(kMaxClass <= std::numeric_limits<CompactSizeClass>::max());
 // Actual numbers depends on a number of factors, see TransferCache::Init
 // for details.
 inline constexpr size_t kMinObjectsToMove = 2;
-inline constexpr size_t kMaxObjectsToMove = 128;
+inline constexpr size_t kMaxObjectsToMove = 32;
 
 inline constexpr size_t kPageSize = 1 << kPageShift;
 
