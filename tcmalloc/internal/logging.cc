@@ -51,7 +51,7 @@ namespace tcmalloc_internal {
 // Variables for storing crash output.  Allocated statically since we
 // may not be able to heap-allocate while crashing.
 ABSL_CONST_INIT static absl::base_internal::SpinLock crash_lock(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
 static bool crashed = false;
 
 static const size_t kStatsBufferSize = 16 << 10;

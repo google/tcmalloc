@@ -334,7 +334,7 @@ extern "C" void MallocExtension_Internal_SetRegionFactory(
 // kernel to release pages. To avoid confusing ourselves with
 // releaser handling, lets do separate lock just for release.
 ABSL_CONST_INIT static absl::base_internal::SpinLock release_lock(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
     size_t num_bytes) {

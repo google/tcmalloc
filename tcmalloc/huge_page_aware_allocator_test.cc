@@ -90,7 +90,7 @@ class HugePageAwareAllocatorTest
       // pageheap_lock while calling ReleasePages, so it might result in a
       // deadlock as RecordAllocation/RecordDeallocation may allocate.
       // This makes the release check a best effort.
-      if (!lock_.TryLock()) return ret;
+      if (!lock_.try_lock()) return ret;
 
       // Remove from the list of allocations, if the address was previously
       // allocated.
@@ -99,16 +99,16 @@ class HugePageAwareAllocatorTest
         *it = allocations_.back();
         allocations_.pop_back();
       }
-      lock_.Unlock();
+      lock_.unlock();
       return ret;
     }
 
     void RecordAllocation(uintptr_t start_addr) {
-      absl::base_internal::SpinLockHolder h(&lock_);
+      absl::base_internal::SpinLockHolder h(lock_);
       allocations_.push_back(start_addr);
     }
     void RecordDeallocation(uintptr_t start_addr) {
-      absl::base_internal::SpinLockHolder h(&lock_);
+      absl::base_internal::SpinLockHolder h(lock_);
       // Make sure the address was previously allocated and wasn't removed from
       // the list when it was released.
       auto it = std::find(allocations_.begin(), allocations_.end(), start_addr);
@@ -206,7 +206,7 @@ class HugePageAwareAllocatorTest
   }
 
   Span* New(Length n, SpanAllocInfo span_alloc_info) {
-    absl::base_internal::SpinLockHolder h(&lock_);
+    absl::base_internal::SpinLockHolder h(lock_);
     Span* span = AllocatorNew(n, span_alloc_info);
     TC_CHECK_NE(span, nullptr);
     EXPECT_GE(span->num_pages(), n);
@@ -221,7 +221,7 @@ class HugePageAwareAllocatorTest
   void Delete(Span* span, size_t objects_per_span) {
     Length n = span->num_pages();
     {
-      absl::base_internal::SpinLockHolder h(&lock_);
+      absl::base_internal::SpinLockHolder h(lock_);
       auto i = ids_.find(span);
       TC_CHECK(i != ids_.end());
       const size_t id = i->second;
@@ -1467,9 +1467,9 @@ TEST_F(StatTest, Basic) {
 
   {
     CheckStats();
-    pageheap_lock.Lock();
+    pageheap_lock.lock();
     auto final_stats = alloc_->stats();
-    pageheap_lock.Unlock();
+    pageheap_lock.unlock();
     ASSERT_EQ(final_stats.free_bytes + final_stats.unmapped_bytes,
               final_stats.system_bytes);
   }

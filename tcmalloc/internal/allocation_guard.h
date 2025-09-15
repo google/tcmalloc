@@ -59,7 +59,7 @@ class ABSL_SCOPED_LOCKABLE AllocationGuardSpinLockHolder {
  public:
   explicit AllocationGuardSpinLockHolder(absl::base_internal::SpinLock& l)
       ABSL_EXCLUSIVE_LOCK_FUNCTION(l)
-      : lock_holder_(&l) {
+      : lock_holder_(l) {
 #ifndef NDEBUG
     if (l.IsCooperative()) {
       abort();

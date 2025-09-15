@@ -42,7 +42,7 @@ class DeallocationProfilerList {
  private:
   DeallocationProfiler* first_ = nullptr;
   absl::base_internal::SpinLock profilers_lock_{
-      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
 };
 
 class DeallocationSample final

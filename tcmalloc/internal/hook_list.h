@@ -91,7 +91,7 @@ bool HookList<T>::Add(T value_as_t) {
   if (value_as_t == T()) {
     return false;
   }
-  absl::base_internal::SpinLockHolder l(&hooklist_spinlock_);
+  absl::base_internal::SpinLockHolder l(hooklist_spinlock_);
   // Find the first slot in data that is 0.
   int index = 0;
   while ((index < kHookListMaxValues) &&
@@ -114,7 +114,7 @@ bool HookList<T>::Remove(T value_as_t) {
   if (value_as_t == T()) {
     return false;
   }
-  absl::base_internal::SpinLockHolder l(&hooklist_spinlock_);
+  absl::base_internal::SpinLockHolder l(hooklist_spinlock_);
   int hooks_end = priv_end.load(std::memory_order_acquire);
   int index = 0;
   while (index < hooks_end &&

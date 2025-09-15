@@ -23,7 +23,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
 ABSL_CONST_INIT absl::base_internal::SpinLock HookListBase::hooklist_spinlock_{
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+    absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END

@@ -368,8 +368,8 @@ static void BM_get_stats_pageheap_lock(benchmark::State& state) {
     size_t end_counter;
     do {
       const auto start_ts = absl::Now();
-      tcmalloc_internal::pageheap_lock.Lock();
-      tcmalloc_internal::pageheap_lock.Unlock();
+      tcmalloc_internal::pageheap_lock.lock();
+      tcmalloc_internal::pageheap_lock.unlock();
       const auto end_ts = absl::Now();
       elapsed = end_ts - start_ts;
       end_counter = counter;
@@ -460,8 +460,8 @@ static void BM_get_stats_pbtxt_pageheap_lock(benchmark::State& state) {
     size_t end_counter;
     do {
       const auto start_ts = absl::Now();
-      tcmalloc_internal::pageheap_lock.Lock();
-      tcmalloc_internal::pageheap_lock.Unlock();
+      tcmalloc_internal::pageheap_lock.lock();
+      tcmalloc_internal::pageheap_lock.unlock();
       const auto end_ts = absl::Now();
       elapsed = end_ts - start_ts;
       end_counter = counter;

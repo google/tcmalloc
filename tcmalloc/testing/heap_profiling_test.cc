@@ -328,14 +328,14 @@ class HeapAllocHandleTest : public ::testing::TestWithParam<int64_t> {
   }
 
   static void MemoryAllocated(const MallocHook::SampledAlloc& sampled_alloc) {
-    absl::base_internal::SpinLockHolder h(&lock_);
+    absl::base_internal::SpinLockHolder h(lock_);
     alloc_handles_->insert(sampled_alloc.handle);
   }
 
   static void MemoryDeallocated(
       const
       MallocHook::SampledAlloc& sampled_alloc) {
-    absl::base_internal::SpinLockHolder h(&lock_);
+    absl::base_internal::SpinLockHolder h(lock_);
     alloc_handles_->erase(sampled_alloc.handle);
   }
 
@@ -344,7 +344,7 @@ class HeapAllocHandleTest : public ::testing::TestWithParam<int64_t> {
 };
 
 ABSL_CONST_INIT absl::base_internal::SpinLock HeapAllocHandleTest::lock_(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
 AllocHandles* HeapAllocHandleTest::alloc_handles_;
 
 // Verify that alloc handles in `tc_globals.sampled_allocation_recorder_` can be
@@ -361,7 +361,7 @@ TEST_P(HeapAllocHandleTest, VerifyAllocHandles) {
   // First insert existing live alloc handles to `alloc_handles_`.
   tcmalloc_internal::tc_globals.sampled_allocation_recorder().Iterate(
       [&](const tcmalloc_internal::SampledAllocation& sampled_allocation) {
-        absl::base_internal::SpinLockHolder h(&lock_);
+        absl::base_internal::SpinLockHolder h(lock_);
         alloc_handles_->insert(
             sampled_allocation.sampled_stack.sampled_alloc_handle);
       });
@@ -374,7 +374,7 @@ TEST_P(HeapAllocHandleTest, VerifyAllocHandles) {
   manager.Start(2, [&](int) {
     tcmalloc_internal::tc_globals.sampled_allocation_recorder().Iterate(
         [&](const tcmalloc_internal::SampledAllocation& sampled_allocation) {
-          absl::base_internal::SpinLockHolder h(&lock_);
+          absl::base_internal::SpinLockHolder h(lock_);
           ABSL_CHECK(alloc_handles_->contains(
               sampled_allocation.sampled_stack.sampled_alloc_handle));
         });

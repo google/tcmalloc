@@ -68,7 +68,7 @@ namespace tcmalloc_internal {
 // IF YOU ADD TO THIS LIST, ADD TO STATIC_VAR_SIZE TOO!
 // LINT.IfChange(static_vars)
 ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT Arena Static::arena_;
 ABSL_CONST_INIT SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT TransferCacheManager

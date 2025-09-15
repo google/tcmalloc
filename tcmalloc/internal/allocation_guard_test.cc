@@ -24,8 +24,7 @@ namespace tcmalloc::tcmalloc_internal {
 namespace {
 
 TEST(AllocationGuard, Noncooperative) {
-  absl::base_internal::SpinLock lock(absl::kConstInit,
-                                     absl::base_internal::SCHEDULE_KERNEL_ONLY);
+  absl::base_internal::SpinLock lock(absl::base_internal::SCHEDULE_KERNEL_ONLY);
   AllocationGuardSpinLockHolder h(lock);
 }
 

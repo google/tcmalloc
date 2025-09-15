@@ -98,7 +98,7 @@ class TransferCache {
   TransferCache(
       Manager* owner, int size_class, Capacity capacity,
       central_freelist_internal::PriorityListLength priority_list_length)
-      : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
+      : lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
         low_water_mark_(0),
         slot_info_(SizeInfo({0, capacity.capacity})),
         slots_(nullptr),
@@ -217,7 +217,7 @@ class TransferCache {
   // objects not used within a full cycle are unlikely to be used again.
   void TryPlunder(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     if (max_capacity_ == 0) return;
-    if (!lock_.TryLock()) return;
+    if (!lock_.try_lock()) return;
 
     int to_return = low_water_mark_;
     SizeInfo info = GetSlotInfo();
@@ -239,12 +239,12 @@ class TransferCache {
       to_return -= num_to_move;
       low_water_mark_ = info.used;
       SetSlotInfo(info);
-      lock_.Unlock();
+      lock_.unlock();
 
       freelist().InsertRange({buf, num_to_move});
-      if (!lock_.TryLock()) return;
+      if (!lock_.try_lock()) return;
     }
-    lock_.Unlock();
+    lock_.unlock();
   }
   // Returns the number of free objects in the transfer cache.
   size_t tc_length() const {

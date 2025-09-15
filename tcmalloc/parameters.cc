@@ -489,7 +489,7 @@ void TCMalloc_Internal_SetSelSanPercent(int v) {
 
 // update_lock guards changes via SetHeapSizeHardLimit.
 ABSL_CONST_INIT static absl::base_internal::SpinLock update_lock(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
   // limit == 0 implies no limit.

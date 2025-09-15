@@ -47,12 +47,12 @@ void MinimalFakeCentralFreeList::FreeBatch(absl::Span<void*> batch) {
 }
 
 void MinimalFakeCentralFreeList::InsertRange(absl::Span<void*> batch) {
-  absl::base_internal::SpinLockHolder h(&lock_);
+  absl::base_internal::SpinLockHolder h(lock_);
   FreeBatch(batch);
 }
 
 int MinimalFakeCentralFreeList::RemoveRange(absl::Span<void*> batch) {
-  absl::base_internal::SpinLockHolder h(&lock_);
+  absl::base_internal::SpinLockHolder h(lock_);
   AllocateBatch(batch);
   return batch.size();
 }

@@ -37,7 +37,7 @@ StackTrace PrepareStackTrace() {
 TEST(SampledAllocationTest, PrepareForSampling) {
   // PrepareForSampling() invoked in the constructor.
   SampledAllocation sampled_allocation(PrepareStackTrace());
-  absl::base_internal::SpinLockHolder sample_lock(&sampled_allocation.lock);
+  absl::base_internal::SpinLockHolder sample_lock(sampled_allocation.lock);
 
   // Now verify some fields.
   EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);

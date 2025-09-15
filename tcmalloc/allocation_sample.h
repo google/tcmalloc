@@ -82,7 +82,7 @@ class AllocationSampleList {
   // Guard against any concurrent modifications on the list of allocation
   // samples. Invoking `new` while holding this lock can lead to deadlock.
   absl::base_internal::SpinLock lock_{
-      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
   AllocationSample* first_ ABSL_GUARDED_BY(lock_) = nullptr;
 };
 

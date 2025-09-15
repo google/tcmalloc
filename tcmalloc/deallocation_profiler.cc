@@ -575,7 +575,7 @@ absl::base_internal::LowLevelAlloc::Arena*
     DeallocationProfiler::MyAllocator::arena_ = nullptr;
 uint32_t DeallocationProfiler::MyAllocator::refcount_ = 0;
 ABSL_CONST_INIT SpinLock DeallocationProfiler::MyAllocator::arena_lock_(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 void DeallocationProfiler::DeallocationStackTraceTable::StopAndRecord(
     const AllocsTable& allocs) {

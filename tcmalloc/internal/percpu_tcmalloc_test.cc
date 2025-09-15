@@ -584,7 +584,7 @@ void InitCpuOnce(Context& ctx, int cpu) {
     }
   }
   absl::base_internal::LowLevelCallOnce(&ctx.init[cpu], [&]() {
-    absl::MutexLock lock(&ctx.mutexes[cpu]);
+    absl::MutexLock lock(ctx.mutexes[cpu]);
     ctx.slab->InitCpu(cpu, ctx.GetMaxCapacityFunctor());
     ctx.has_init[cpu].store(true, std::memory_order_relaxed);
   });
@@ -694,7 +694,7 @@ void StressThread(size_t thread_id,
       }
     } else if (what < 60) {
       int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
-      absl::MutexLock lock(&ctx.mutexes[cpu]);
+      absl::MutexLock lock(ctx.mutexes[cpu]);
       size_t len = ctx.slab->Length(cpu, size_class);
       EXPECT_LE(len, kMaxStressCapacity);
       size_t cap = ctx.slab->Capacity(cpu, size_class);
@@ -707,7 +707,7 @@ void StressThread(size_t thread_id,
       // initialized core.
       InitCpuOnce(ctx, cpu);
 
-      absl::MutexLock lock(&ctx.mutexes[cpu]);
+      absl::MutexLock lock(ctx.mutexes[cpu]);
       size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
       ctx.slab->StopCpu(cpu);
       size_t total_shrunk = ctx.slab->ShrinkOtherCache(
@@ -744,7 +744,7 @@ void StressThread(size_t thread_id,
         // initialized core.
         InitCpuOnce(ctx, cpu);
 
-        absl::MutexLock lock(&ctx.mutexes[cpu]);
+        absl::MutexLock lock(ctx.mutexes[cpu]);
         ctx.slab->StopCpu(cpu);
         size_t grown = ctx.slab->GrowOtherCache(
             cpu, size_class, to_grow,
@@ -764,7 +764,7 @@ void StressThread(size_t thread_id,
       InitCpuOnce(ctx, cpu);
 
       {
-        absl::MutexLock lock(&ctx.mutexes[cpu]);
+        absl::MutexLock lock(ctx.mutexes[cpu]);
         std::optional<ScopedUnregisterRseq> scoped_rseq;
         if (unregister) {
           scoped_rseq.emplace();
@@ -800,7 +800,7 @@ void ResizeMaxCapacitiesThread(
   const size_t num_cpus = NumCPUs();
 
   while (!*ctx.stop) {
-    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Lock();
+    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].lock();
     PerSizeClassMaxCapacity new_max_capacity[2];
     int to_resize = GetResizedMaxCapacities(ctx, new_max_capacity);
     size_t old_slabs_idx = 0;
@@ -816,7 +816,7 @@ void ResizeMaxCapacitiesThread(
           return ctx.has_init[cpu].load(std::memory_order_relaxed);
         },
         drain_handler, new_max_capacity, to_resize);
-    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Unlock();
+    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].unlock();
     ASSERT_NE(old_slabs, nullptr);
     // We sometimes don't madvise away the old slabs in order to simulate
     // madvise failing.
@@ -900,7 +900,7 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
         --shift;
       }
     }
-    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Lock();
+    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].lock();
     void* slabs = AllocSlabs(allocator, shift);
     const auto [old_slabs, old_slabs_size] = ctx.slab->ResizeSlabs(
         ToShiftType(shift), slabs, ctx.GetMaxCapacityFunctor(),
@@ -908,7 +908,7 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
           return ctx.has_init[cpu].load(std::memory_order_relaxed);
         },
         drain_handler);
-    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Unlock();
+    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].unlock();
     ASSERT_NE(old_slabs, nullptr);
     // We sometimes don't madvise away the old slabs in order to simulate
     // madvise failing.

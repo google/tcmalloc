@@ -48,7 +48,7 @@ ABSL_CONST_INIT thread_local ThreadCache* ThreadCache::thread_local_data_
 ABSL_CONST_INIT bool ThreadCache::tsd_inited_ = false;
 pthread_key_t ThreadCache::heap_key_;
 ABSL_CONST_INIT absl::base_internal::SpinLock ThreadCache::threadcache_lock_(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 ThreadCache::ThreadCache(pthread_t tid) {
   threadcache_lock_.AssertHeld();

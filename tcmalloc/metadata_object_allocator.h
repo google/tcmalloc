@@ -126,7 +126,7 @@ class MetadataObjectAllocator {
   Arena* arena_;
 
   mutable absl::base_internal::SpinLock metadata_lock_{
-      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
   // Free list of already carved objects
   T* free_list_ ABSL_GUARDED_BY(metadata_lock_);

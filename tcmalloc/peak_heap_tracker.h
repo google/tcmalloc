@@ -40,8 +40,7 @@ class PeakHeapTracker {
   constexpr explicit PeakHeapTracker(
       MetadataObjectAllocator<SampledAllocation>& allocator
           ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : recorder_lock_(absl::kConstInit,
-                       absl::base_internal::SCHEDULE_KERNEL_ONLY),
+      : recorder_lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
         peak_heap_recorder_(allocator) {}
 
   // Possibly save high-water-mark allocation stack traces for peak-heap

@@ -179,7 +179,7 @@ class SystemAllocator {
   static constexpr size_t kNumaPartitions = Topology::kNumPartitions;
 
   mutable absl::base_internal::SpinLock spinlock_{
-      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
   uintptr_t rnd_ ABSL_GUARDED_BY(spinlock_) = 0;
   absl::once_flag rnd_flag_;

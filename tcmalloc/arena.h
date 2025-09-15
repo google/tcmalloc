@@ -88,7 +88,7 @@ class ABSL_CACHELINE_ALIGNED Arena {
   static constexpr int kAllocIncrement = 128 << 10;
 
   mutable absl::base_internal::SpinLock arena_lock_{
-      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
   // Free area from which to carve new objects
   char* free_area_ ABSL_GUARDED_BY(arena_lock_) = nullptr;

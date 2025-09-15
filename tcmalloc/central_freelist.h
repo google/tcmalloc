@@ -93,7 +93,7 @@ class CentralFreeList {
   using Forwarder = ForwarderT;
 
   constexpr CentralFreeList()
-      : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
+      : lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
         size_class_(0),
         object_size_(0),
         objects_per_span_(0),
@@ -526,7 +526,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     // Use local copy of variables to ensure that they are not reloaded.
     size_t object_size = object_size_;
     uint32_t size_reciprocal = size_reciprocal_;
-    absl::base_internal::SpinLockHolder h(&lock_);
+    absl::base_internal::SpinLockHolder h(lock_);
     num_same_spans_[same_span].LossyAdd(1);
     for (int i = 0; i < batch.size(); ++i) {
       Span* span = ReleaseToSpans({&batch[i], 1}, spans[i], object_size,
@@ -588,7 +588,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   // Use local copy of variable to ensure that it is not reloaded.
   size_t object_size = object_size_;
   int result = 0;
-  absl::base_internal::SpinLockHolder h(&lock_);
+  absl::base_internal::SpinLockHolder h(lock_);
 
   do {
     Span* span = FirstNonEmptySpan();
@@ -638,7 +638,7 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch)
   // Release central list lock while operating on pageheap
   // Note, this could result in multiple calls to populate each allocating
   // a new span and the pushing those partially full spans onto nonempty.
-  lock_.Unlock();
+  lock_.unlock();
 
   Span* span = AllocateSpan();
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
@@ -652,7 +652,7 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch)
   // This is a cheaper check than using FreelistEmpty().
   bool span_empty = result == objects_per_span_;
 
-  lock_.Lock();
+  lock_.lock();
 
   // Update the histogram once we populate the span.
   const uint16_t allocated = result;

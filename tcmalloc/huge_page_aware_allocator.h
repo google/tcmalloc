@@ -301,9 +301,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
 #endif  // NDEBUG
-      pageheap_lock.Unlock();
+      pageheap_lock.unlock();
       MemoryModifyStatus ret = hpaa_.forwarder_.ReleasePages(r);
-      pageheap_lock.Lock();
+      pageheap_lock.lock();
       return ret;
     }
 

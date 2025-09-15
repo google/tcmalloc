@@ -587,7 +587,7 @@ class CpuCache {
     // For cross-cpu operations. We can't allocate while holding one of these so
     // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock){
-        absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+        absl::base_internal::SCHEDULE_KERNEL_ONLY};
     PerClassResizeInfo per_class[kNumClasses];
     std::atomic<size_t> num_size_class_resizes;
     // Tracks number of underflows on allocate.
@@ -1567,7 +1567,7 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
 
   int64_t reused_bytes;
   ResizeSlabsInfo info;
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
   uint8_t new_resize_slab_offset =
       resize_slab_offset_.load(std::memory_order_relaxed) + 1;
   if (new_resize_slab_offset >= kResizeSlabCopies) {
@@ -1596,7 +1596,7 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
         [this](int cpu) { return HasPopulated(cpu); },
         DrainHandler<CpuCache>{*this, nullptr}, new_max_capacities, to_update);
   }
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
 
   MadviseAwaySlabs(info.old_slabs, info.old_slabs_size);
   const int64_t old_slabs_size = info.old_slabs_size;
@@ -2314,7 +2314,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // going over memory limit.
   forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
 
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
   ResizeSlabsInfo info;
   const uint8_t resize_offset =
       resize_slab_offset_.load(std::memory_order_relaxed);
@@ -2336,7 +2336,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
         [this](int cpu) { return HasPopulated(cpu); },
         DrainHandler<CpuCache>{*this, nullptr});
   }
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
 
   MadviseAwaySlabs(info.old_slabs, info.old_slabs_size);
   const int64_t old_slabs_size = info.old_slabs_size;

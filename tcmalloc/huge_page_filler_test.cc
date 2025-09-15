@@ -856,8 +856,8 @@ class BlockingUnback final : public MemoryModifyFunction {
       counter_->DecrementCount();
     }
 
-    mu_->Lock();
-    mu_->Unlock();
+    mu_->lock();
+    mu_->unlock();
     return {.success = success_, .error_number = 0};
   }
 
@@ -1086,11 +1086,11 @@ class FillerTest : public testing::Test {
     // pageheap lock is manually unlocked before the collapse operation, and the
     // scoped lock doesn't recognize the manual unlock. In tests, collapse
     // allocates, so we use manual lock and unlock here.
-    pageheap_lock.Lock();
+    pageheap_lock.lock();
     filler_.TreatHugepageTrackers(enable_collapse, enable_release_free_swapped,
                                   use_userspace_collapse_heuristics, pageflags,
                                   residency);
-    pageheap_lock.Unlock();
+    pageheap_lock.unlock();
   }
 
   // Generates an "interesting" pattern of allocations that highlights all the

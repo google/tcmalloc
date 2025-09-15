@@ -75,8 +75,7 @@ class GuardedPageAllocator {
   static constexpr size_t kGpaMaxPages = 512;
 
   constexpr GuardedPageAllocator()
-      : guarded_page_lock_(absl::kConstInit,
-                           absl::base_internal::SCHEDULE_KERNEL_ONLY),
+      : guarded_page_lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
         allocated_pages_(0),
         high_allocated_pages_(0),
         data_(nullptr),

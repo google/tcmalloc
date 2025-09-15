@@ -37,7 +37,7 @@
 namespace tcmalloc {
 
 ABSL_CONST_INIT static absl::base_internal::SpinLock envlock(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT int envcount ABSL_GUARDED_BY(envlock) = 0;
 constexpr size_t kNumEnvNames = 16;
 ABSL_CONST_INIT std::array<char[128], kNumEnvNames> envnames
@@ -59,7 +59,7 @@ const char* thread_safe_getenv(const char* env_var) {
   }
 
   {
-    absl::base_internal::SpinLockHolder l(&envlock);
+    absl::base_internal::SpinLockHolder l(envlock);
 
     int index;
     for (index = 0; index < envcount; index++) {
@@ -114,7 +114,7 @@ TEST(TCMallocVariant, KnownEnvironmentVariables) {
   }
 
   {
-    absl::base_internal::SpinLockHolder l(&envlock);
+    absl::base_internal::SpinLockHolder l(envlock);
 
     for (int i = 0; i < envcount; ++i) {
       strings[i].assign(envnames[i]);

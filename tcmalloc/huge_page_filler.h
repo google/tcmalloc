@@ -2564,7 +2564,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       },
       /*start=*/0);
 
-  pageheap_lock.Unlock();
+  pageheap_lock.unlock();
   sampled_tracker_treatment.Treat();
   unbacked_tracker_treatment.Treat();
 
@@ -2576,7 +2576,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   }
 
   // Lock the pageheap lock and update residency information in the tracker.
-  pageheap_lock.Lock();
+  pageheap_lock.lock();
   sampled_tracker_treatment.Restore();
   unbacked_tracker_treatment.Restore();
 

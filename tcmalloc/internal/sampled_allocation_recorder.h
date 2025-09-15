@@ -42,8 +42,7 @@ template <typename T>
 struct Sample {
   // Guards the ability to restore the sample to a pristine state.  This
   // prevents races with sampling and resurrecting an object.
-  absl::base_internal::SpinLock lock{absl::kConstInit,
-                                     absl::base_internal::SCHEDULE_KERNEL_ONLY};
+  absl::base_internal::SpinLock lock{absl::base_internal::SCHEDULE_KERNEL_ONLY};
   T* next = nullptr;
   T* dead ABSL_GUARDED_BY(lock) = nullptr;
 };
