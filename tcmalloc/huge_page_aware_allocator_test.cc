@@ -1547,6 +1547,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
   metadata.resize(kAllocThreads);
   allocator_->forwarder().set_collapse_succeeds(true);
   allocator_->forwarder().set_error_number(0);
+  bool use_userspace_collapse_heuristics = false;
 
   auto collase_func = [&](const std::atomic<bool>& done) {
     absl::BitGen rng;
@@ -1570,6 +1571,9 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
           allocator_->forwarder().set_error_number(error);
           break;
       }
+      use_userspace_collapse_heuristics = !use_userspace_collapse_heuristics;
+      allocator_->forwarder().set_use_userspace_collapse_heuristics(
+          use_userspace_collapse_heuristics);
       TreatHugepageTrackers(/*enable_collapse=*/true,
                             /*enable_release_free_swapped=*/false);
     }

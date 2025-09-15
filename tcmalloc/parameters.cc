@@ -240,6 +240,9 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
+ABSL_CONST_INIT std::atomic<bool>
+    Parameters::use_userspace_collapse_heuristics_(false);
+
 static std::atomic<bool>& release_free_swapped_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
@@ -314,6 +317,10 @@ Parameters::priority_list_length() {
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
+}
+
+bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
+  return Parameters::use_userspace_collapse_heuristics();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -662,6 +669,11 @@ bool TCMalloc_Internal_GetReleaseFreeSwapped() {
 
 void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
   tcmalloc::tcmalloc_internal::release_free_swapped_enabled().store(
+      v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {
+  Parameters::use_userspace_collapse_heuristics_.store(
       v, std::memory_order_relaxed);
 }
 

@@ -505,8 +505,10 @@ void FuzzFiller(const std::string& s) {
         FakeResidency residency;
         bool enable_collapse = value & 0x1;
         bool enable_release_free_swap = (value >> 1) & 0x1;
+        bool use_userspace_collapse_heuristics = (value >> 2) & 0x1;
         PageHeapSpinLockHolder l;
         filler.TreatHugepageTrackers(enable_collapse, enable_release_free_swap,
+                                     use_userspace_collapse_heuristics,
                                      &pageflags, &residency);
         CHECK(filler.FetchFullyFreedTracker() == nullptr);
         break;

@@ -367,11 +367,11 @@ void FuzzHPAA(const std::string& s) {
         case 7: {
           // Change a runtime parameter.
           //
-          // value[0:2] - Select parameter
-          // value[3:7] - Reserved
+          // value[0:3] - Select parameter
+          // value[4:7] - Reserved
           // value[8:63] - The value
           const uint64_t actual_value = value >> 8;
-          switch (value & 0x7) {
+          switch (value & 0xf) {
             case 0:
               forwarder.set_filler_skip_subrelease_short_interval(
                   absl::ZeroDuration());
@@ -405,9 +405,13 @@ void FuzzHPAA(const std::string& s) {
               size_t subprogram = std::min(size - i - 9, actual_value);
               reentrant.emplace_back(data + i + 9, subprogram);
               i += size;
+              break;
             }
+            case 8:
+              forwarder.set_use_userspace_collapse_heuristics(actual_value &
+                                                              0x1);
+              break;
           }
-
           break;
         }
       }

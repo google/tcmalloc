@@ -601,6 +601,8 @@ void DumpStats(Printer& out, int level) {
                Parameters::usermode_hugepage_collapse() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_release_free_swapped %d\n",
                Parameters::release_free_swapped() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_use_userspace_collapse_heuristics %d\n",
+               Parameters::use_userspace_collapse_heuristics() ? 1 : 0);
     out.printf(
         "PARAMETER tcmalloc_num_priority_lists %d\n",
         CentralFreeList::NumPriorityLists(Parameters::priority_list_length()));
@@ -815,6 +817,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("usermode_hugepage_collapse",
                    Parameters::usermode_hugepage_collapse());
   region.PrintBool("release_free_swapped", Parameters::release_free_swapped());
+  region.PrintBool("use_userspace_collapse_heuristics",
+                   Parameters::use_userspace_collapse_heuristics());
 
   region.PrintRaw(
       "size_class_config",

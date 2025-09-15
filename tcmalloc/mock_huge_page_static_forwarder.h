@@ -83,6 +83,12 @@ class FakeStaticForwarder {
   void set_huge_region_demand_based_release(bool value) {
     huge_region_demand_based_release_ = value;
   }
+  bool use_userspace_collapse_heuristics() const {
+    return use_userspace_collapse_heuristics_;
+  }
+  void set_use_userspace_collapse_heuristics(bool value) {
+    use_userspace_collapse_heuristics_ = value;
+  }
 
   // Arena state.
   Arena& arena() { return arena_; }
@@ -195,6 +201,7 @@ class FakeStaticForwarder {
   bool collapse_succeeds_ = true;
   int error_number_ = 0;
   bool huge_region_demand_based_release_ = false;
+  bool use_userspace_collapse_heuristics_ = false;
   Arena arena_;
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;

@@ -1047,6 +1047,7 @@ class HugePageFiller {
   // page, if `enable_release_free_swapped` is true.
   void TreatHugepageTrackers(bool enable_collapse,
                              bool enable_release_free_swapped,
+                             bool use_userspace_collapse_heuristics,
                              PageFlagsBase* pageflags = nullptr,
                              Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -2214,14 +2215,16 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   explicit HugePageUnbackedTrackerTreatment(
       Clock clock, PageFlagsBase* pageflags, Residency* residency,
       MemoryModifyFunction& collapse, HugePageFiller<TrackerType>& page_filler,
-      bool enable_collapse, bool enable_release_free_swap)
+      bool enable_collapse, bool enable_release_free_swap,
+      bool use_userspace_collapse_heuristics)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
         collapse_(collapse),
         page_filler_(page_filler),
         enable_collapse_(enable_collapse),
-        enable_release_free_swap_(enable_release_free_swap) {}
+        enable_release_free_swap_(enable_release_free_swap),
+        use_userspace_collapse_heuristics_(use_userspace_collapse_heuristics) {}
   ~HugePageUnbackedTrackerTreatment() override = default;
 
   static void operator delete(void*) { __builtin_trap(); }
@@ -2242,27 +2245,70 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   //    kMaxSwappedPagesForCollapse respectively.
   // 3. Acquire the pageheap lock and restore the recorded state using Restore
   //    (e.g. update the residency information in the trackers).
+  static bool CompareForHugePageTreatment(PageTracker* a, PageTracker* b) {
+    TC_ASSERT_NE(a, nullptr);
+    TC_ASSERT_NE(b, nullptr);
+    if (a->nobjects() > b->nobjects()) return true;
+    if (a->nobjects() < b->nobjects()) return false;
+
+    // All things considered equal, prefer collapsing dense spans.
+    if (!a->HasDenseSpans()) return false;
+    return !b->HasDenseSpans();
+  }
+
   void SelectEligibleTrackers(PageTracker& pt) override {
-    if (num_valid_trackers_ >= kTotalTrackersToScan) return;
+    if (num_valid_trackers_ >= kTotalTrackersToScan &&
+        !use_userspace_collapse_heuristics_) {
+      return;
+    }
+
+    auto PushCandidate = [&](PageTracker& pt) GOOGLE_MALLOC_SECTION {
+      if (num_valid_trackers_ < kTotalTrackersToScan) {
+        selected_trackers_[num_valid_trackers_] = &pt;
+        ++num_valid_trackers_;
+        pt.SetDontFreeTracker(/*value=*/true);
+        if (num_valid_trackers_ == kTotalTrackersToScan) {
+          std::make_heap(selected_trackers_.begin(),
+                         selected_trackers_.begin() + num_valid_trackers_,
+                         CompareForHugePageTreatment);
+        }
+        return;
+      }
+
+      if (CompareForHugePageTreatment(selected_trackers_[0], &pt)) {
+        return;
+      }
+      std::pop_heap(selected_trackers_.begin(),
+                    selected_trackers_.begin() + num_valid_trackers_,
+                    CompareForHugePageTreatment);
+      PageTracker* last = selected_trackers_[num_valid_trackers_ - 1];
+      TC_ASSERT_NE(last, nullptr);
+      pt.SetDontFreeTracker(/*value=*/true);
+      last->SetDontFreeTracker(/*value=*/false);
+      selected_trackers_[num_valid_trackers_ - 1] = &pt;
+      std::push_heap(selected_trackers_.begin(),
+                     selected_trackers_.begin() + num_valid_trackers_,
+                     CompareForHugePageTreatment);
+    };
 
     PageTracker::HugePageResidencyState state = pt.GetHugePageResidencyState();
     if (state.maybe_hugepage_backed) return;
 
     if (!state.entry_valid) {
-      selected_trackers_[num_valid_trackers_] = &pt;
-      ++num_valid_trackers_;
-      pt.SetDontFreeTracker(/*value=*/true);
+      PushCandidate(pt);
       return;
     }
     double elapsed = std::max<double>(clock_.now() - state.record_time, 0);
     if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * clock_.freq()) {
-      selected_trackers_[num_valid_trackers_] = &pt;
-      ++num_valid_trackers_;
-      pt.SetDontFreeTracker(/*value=*/true);
+      PushCandidate(pt);
     }
   }
 
   int num_valid_trackers() const override { return num_valid_trackers_; }
+
+  bool tracker_list_full() const {
+    return num_valid_trackers_ >= kTotalTrackersToScan;
+  }
 
   void Treat() ABSL_LOCKS_EXCLUDED(pageheap_lock) override {
     // Obtain residency information for the collected addresses.
@@ -2408,6 +2454,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   HugePageFiller<TrackerType>& page_filler_;
   bool enable_collapse_;
   bool enable_release_free_swap_;
+  bool use_userspace_collapse_heuristics_;
 };
 
 // Returns true if backoff delay has reached the maximum threshold.
@@ -2439,7 +2486,8 @@ void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     bool enable_collapse, bool enable_release_free_swapped,
-    PageFlagsBase* pageflags, Residency* residency) {
+    bool use_userspace_collapse_heuristics, PageFlagsBase* pageflags,
+    Residency* residency) {
   if (enable_collapse && ShouldBackoffFromCollapse()) {
     enable_collapse = false;
     ++treatment_stats_.collapse_intervals_skipped;
@@ -2450,7 +2498,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
                                                     set_anon_vma_name_);
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
-      enable_release_free_swapped);
+      enable_release_free_swapped, use_userspace_collapse_heuristics);
 
   // Collect up to kTotalTrackersToScan trackers from the regular sparse and
   // dense lists. if enable_release_free_swapped is true, we also collect
@@ -2475,7 +2523,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
         /*start=*/0);
   }
 
-  regular_alloc_[AccessDensityPrediction::kSparse].Iter(
+  regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
         sampled_tracker_treatment.SelectEligibleTrackers(pt);
         if (collect_non_hugepage_trackers) {
@@ -2484,7 +2532,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       },
       /*start=*/0);
 
-  regular_alloc_[AccessDensityPrediction::kDense].Iter(
+  regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
         sampled_tracker_treatment.SelectEligibleTrackers(pt);
         if (collect_non_hugepage_trackers) {

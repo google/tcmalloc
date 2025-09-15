@@ -83,6 +83,10 @@ class StaticForwarder {
 
   static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
 
+  static bool use_userspace_collapse_heuristics() {
+    return Parameters::use_userspace_collapse_heuristics();
+  }
+
   // Arena state.
   static Arena& arena();
 
@@ -1044,8 +1048,11 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
     bool enable_collapse, bool enable_release_free_swapped) {
+  const bool use_userspace_collapse_heuristics =
+      forwarder_.use_userspace_collapse_heuristics();
   PageHeapSpinLockHolder l;
-  filler_.TreatHugepageTrackers(enable_collapse, enable_release_free_swapped);
+  filler_.TreatHugepageTrackers(enable_collapse, enable_release_free_swapped,
+                                use_userspace_collapse_heuristics);
   FillerType::Tracker* pt;
   while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
     ReleaseHugepage(pt);
