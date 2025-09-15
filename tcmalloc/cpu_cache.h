@@ -1279,7 +1279,7 @@ std::pair<int, bool> CpuCache<Forwarder>::CacheCpuSlab() {
 
 template <class Forwarder>
 ABSL_ATTRIBUTE_NOINLINE void CpuCache<Forwarder>::Populate(int cpu) {
-  AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
+  AllocationGuardSpinLockHolder h(resize_[cpu].lock);
   if (resize_[cpu].populated.load(std::memory_order_relaxed)) {
     return;
   }
@@ -1675,7 +1675,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
       resize_[cpu].available.exchange(0, std::memory_order_relaxed);
   size_t num_resizes = 0;
   {
-    AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
+    AllocationGuardSpinLockHolder h(resize_[cpu].lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
     const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
     size_t size_classes_to_resize = 5;
@@ -1878,7 +1878,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
       }
     }
 
-    AllocationGuardSpinLockHolder h(&resize_[src_cpu].lock);
+    AllocationGuardSpinLockHolder h(resize_[src_cpu].lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, src_cpu);
     size_t source_size_class = resize_[src_cpu].next_steal;
     for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
@@ -2161,7 +2161,7 @@ struct DrainHandler {
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
-  AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
+  AllocationGuardSpinLockHolder h(resize_[cpu].lock);
 
   // If we haven't populated this core, freelist_.Drain() will touch the memory
   // (for writing) as part of its locking process.  Avoid faulting new pages as

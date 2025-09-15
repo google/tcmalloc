@@ -290,7 +290,7 @@ class ABSL_SCOPED_LOCKABLE PageHeapSpinLockHolder {
   ~PageHeapSpinLockHolder() ABSL_UNLOCK_FUNCTION() = default;
 
  private:
-  AllocationGuardSpinLockHolder lock_{&pageheap_lock};
+  AllocationGuardSpinLockHolder lock_{pageheap_lock};
 };
 
 // Evaluates a/b, avoiding division by zero.

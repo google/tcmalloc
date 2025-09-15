@@ -51,14 +51,14 @@ class AllocationSampleList {
   constexpr AllocationSampleList() = default;
 
   void Add(AllocationSample* as) {
-    AllocationGuardSpinLockHolder h(&lock_);
+    AllocationGuardSpinLockHolder h(lock_);
     as->next_ = first_;
     first_ = as;
   }
 
   // This list is very short and we're nowhere near a hot path, just walk
   void Remove(AllocationSample* as) {
-    AllocationGuardSpinLockHolder h(&lock_);
+    AllocationGuardSpinLockHolder h(lock_);
     AllocationSample** link = &first_;
     AllocationSample* cur = first_;
     while (cur != as) {
@@ -70,7 +70,7 @@ class AllocationSampleList {
   }
 
   void ReportMalloc(const struct StackTrace& sample) {
-    AllocationGuardSpinLockHolder h(&lock_);
+    AllocationGuardSpinLockHolder h(lock_);
     AllocationSample* cur = first_;
     while (cur != nullptr) {
       cur->mallocs_->AddTrace(1.0, sample);

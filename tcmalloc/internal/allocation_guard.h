@@ -67,11 +67,6 @@ class ABSL_SCOPED_LOCKABLE AllocationGuardSpinLockHolder {
 #endif  // NDEBUG
   }
 
-  ABSL_DEPRECATE_AND_INLINE()
-  explicit AllocationGuardSpinLockHolder(absl::base_internal::SpinLock* l)
-      ABSL_EXCLUSIVE_LOCK_FUNCTION(l)
-      : AllocationGuardSpinLockHolder(*l) {}
-
   inline ~AllocationGuardSpinLockHolder() ABSL_UNLOCK_FUNCTION() = default;
 
  private:

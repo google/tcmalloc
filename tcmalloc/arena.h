@@ -63,7 +63,7 @@ class ABSL_CACHELINE_ALIGNED Arena {
 
   // Updates the stats for allocated and non-resident bytes.
   void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident) {
-    AllocationGuardSpinLockHolder l(&arena_lock_);
+    AllocationGuardSpinLockHolder l(arena_lock_);
     TC_ASSERT_GE(static_cast<int64_t>(bytes_allocated_) + allocated, 0);
     bytes_allocated_ += allocated;
     TC_ASSERT_GE(static_cast<int64_t>(bytes_nonresident_) + nonresident, 0);
@@ -72,7 +72,7 @@ class ABSL_CACHELINE_ALIGNED Arena {
 
   // Returns statistics about memory allocated and managed by this Arena.
   ArenaStats stats() const {
-    AllocationGuardSpinLockHolder l(&arena_lock_);
+    AllocationGuardSpinLockHolder l(arena_lock_);
 
     ArenaStats s;
     s.bytes_allocated = bytes_allocated_;

@@ -35,7 +35,7 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
   size_t align = static_cast<size_t>(alignment);
   TC_ASSERT_GT(align, 0);
 
-  AllocationGuardSpinLockHolder l(&arena_lock_);
+  AllocationGuardSpinLockHolder l(arena_lock_);
 
   {  // First we need to move up to the correct alignment.
     const int misalignment = reinterpret_cast<uintptr_t>(free_area_) % align;

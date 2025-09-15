@@ -341,7 +341,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
   ABSL_CONST_INIT static ConstantRatePageAllocatorReleaser releaser
       ABSL_GUARDED_BY(release_lock);
 
-  const AllocationGuardSpinLockHolder rh(&release_lock);
+  const AllocationGuardSpinLockHolder rh(release_lock);
 
   return releaser.Release(num_bytes,
                           /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);

@@ -26,14 +26,14 @@ namespace {
 TEST(AllocationGuard, Noncooperative) {
   absl::base_internal::SpinLock lock(absl::kConstInit,
                                      absl::base_internal::SCHEDULE_KERNEL_ONLY);
-  AllocationGuardSpinLockHolder h(&lock);
+  AllocationGuardSpinLockHolder h(lock);
 }
 
 TEST(AllocationGuard, CooperativeDeathTest) {
   absl::base_internal::SpinLock lock;
 
   EXPECT_DEBUG_DEATH(
-      { AllocationGuardSpinLockHolder h(&lock); }, "SIGABRT received");
+      { AllocationGuardSpinLockHolder h(lock); }, "SIGABRT received");
 }
 
 }  // namespace

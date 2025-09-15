@@ -46,7 +46,7 @@ void PeakHeapTracker::MaybeSaveSample() {
     return;
   }
 
-  AllocationGuardSpinLockHolder h(&recorder_lock_);
+  AllocationGuardSpinLockHolder h(recorder_lock_);
 
   // double-check in case another allocation was sampled (or a sampled
   // allocation freed) while we were waiting for the lock
@@ -70,7 +70,7 @@ void PeakHeapTracker::MaybeSaveSample() {
 std::unique_ptr<ProfileBase> PeakHeapTracker::DumpSample() {
   auto profile = std::make_unique<StackTraceTable>(ProfileType::kPeakHeap);
 
-  AllocationGuardSpinLockHolder h(&recorder_lock_);
+  AllocationGuardSpinLockHolder h(recorder_lock_);
   profile->SetStartTime(last_peak_);
   peak_heap_recorder_.Iterate(
       [&profile](const SampledAllocation& peak_heap_record) {

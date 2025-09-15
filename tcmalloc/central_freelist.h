@@ -459,7 +459,7 @@ template <class Forwarder>
 inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
   ASSUME(n >= 0);
   ASSUME(n < num_priority_lists_);
-  AllocationGuardSpinLockHolder h(&lock_);
+  AllocationGuardSpinLockHolder h(lock_);
   return nonempty_.SizeOfList(n);
 }
 
@@ -744,7 +744,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
   LifetimeHistogram lifetime_histo{};
 
   {
-    AllocationGuardSpinLockHolder h(&lock_);
+    AllocationGuardSpinLockHolder h(lock_);
     nonempty_.Iter(
         [&](const Span& s) GOOGLE_MALLOC_SECTION {
           const double elapsed =
@@ -807,7 +807,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
   LifetimeHistogram lifetime_histo{};
 
   {
-    AllocationGuardSpinLockHolder h(&lock_);
+    AllocationGuardSpinLockHolder h(lock_);
     nonempty_.Iter(
         [&](const Span& s) GOOGLE_MALLOC_SECTION {
           const double elapsed =

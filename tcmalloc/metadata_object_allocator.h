@@ -78,7 +78,7 @@ class MetadataObjectAllocator {
   }
 
   AllocatorStats stats() const {
-    AllocationGuardSpinLockHolder l(&metadata_lock_);
+    AllocationGuardSpinLockHolder l(metadata_lock_);
 
     return stats_;
   }
@@ -88,7 +88,7 @@ class MetadataObjectAllocator {
                                                        std::align_val_t align) {
     TC_ASSERT_GE(static_cast<size_t>(align), alignof(T));
 
-    AllocationGuardSpinLockHolder l(&metadata_lock_);
+    AllocationGuardSpinLockHolder l(metadata_lock_);
 
     // Consult free list
     T* result = free_list_;
@@ -110,7 +110,7 @@ class MetadataObjectAllocator {
   }
 
   void LockAndDeleteMemory(T* p) ABSL_ATTRIBUTE_NONNULL() {
-    AllocationGuardSpinLockHolder l(&metadata_lock_);
+    AllocationGuardSpinLockHolder l(metadata_lock_);
 
     *(reinterpret_cast<void**>(p)) = free_list_;
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER

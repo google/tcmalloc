@@ -162,7 +162,7 @@ static void Crash(const char* filename, int line, const char* msg,
 
   bool first_crash = false;
   {
-    AllocationGuardSpinLockHolder l(&crash_lock);
+    AllocationGuardSpinLockHolder l(crash_lock);
     if (!crashed) {
       crashed = true;
       first_crash = true;

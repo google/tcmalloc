@@ -298,7 +298,7 @@ AddressRange SystemAllocator<Topology>::Allocate(size_t bytes, size_t alignment,
   // Discard requests that overflow
   if (bytes + alignment < bytes) return {nullptr, 0};
 
-  AllocationGuardSpinLockHolder lock_holder(&spinlock_);
+  AllocationGuardSpinLockHolder lock_holder(spinlock_);
 
   auto [result, actual_bytes] = AllocateFromRegion(bytes, alignment, tag);
 
@@ -312,14 +312,14 @@ AddressRange SystemAllocator<Topology>::Allocate(size_t bytes, size_t alignment,
 
 template <typename Topology>
 AddressRegionFactory* SystemAllocator<Topology>::GetRegionFactory() const {
-  AllocationGuardSpinLockHolder lock_holder(&spinlock_);
+  AllocationGuardSpinLockHolder lock_holder(spinlock_);
   return region_factory_;
 }
 
 template <typename Topology>
 void SystemAllocator<Topology>::SetRegionFactory(
     AddressRegionFactory* factory) {
-  AllocationGuardSpinLockHolder lock_holder(&spinlock_);
+  AllocationGuardSpinLockHolder lock_holder(spinlock_);
   DiscardMappedRegions();
   region_factory_ = factory;
 }
@@ -488,7 +488,7 @@ std::pair<void*, size_t> SystemAllocator<Topology>::AllocateFromRegion(
 template <typename Topology>
 void* SystemAllocator<Topology>::MmapAligned(size_t size, size_t alignment,
                                              const MemoryTag tag) {
-  AllocationGuardSpinLockHolder l(&spinlock_);
+  AllocationGuardSpinLockHolder l(spinlock_);
   return MmapAlignedLocked(size, alignment, tag);
 }
 

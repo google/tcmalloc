@@ -490,7 +490,7 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
   // Ensure that page allocator is set up.
   tc_globals.InitIfNecessary();
 
-  tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder l(&update_lock);
+  tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder l(update_lock);
 
   using tcmalloc::tcmalloc_internal::PageAllocator;
   const size_t old_limit =

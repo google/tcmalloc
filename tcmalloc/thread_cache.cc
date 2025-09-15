@@ -25,6 +25,7 @@
 #include "absl/base/optimization.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/metadata_object_allocator.h"
@@ -220,7 +221,7 @@ void ThreadCache::DeallocateSlow(void* ptr, FreeList* list, size_t size_class) {
 }
 
 void ThreadCache::IncreaseCacheLimit() {
-  AllocationGuardSpinLockHolder l(&threadcache_lock_);
+  AllocationGuardSpinLockHolder l(threadcache_lock_);
   IncreaseCacheLimitLocked();
 }
 
@@ -273,7 +274,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   }
 
   {
-    AllocationGuardSpinLockHolder l(&threadcache_lock_);
+    AllocationGuardSpinLockHolder l(threadcache_lock_);
     const pthread_t me = pthread_self();
 
     // This may be a recursive malloc call from pthread_setspecific()
@@ -361,7 +362,7 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
 
   // Remove from linked list
   {
-    AllocationGuardSpinLockHolder l(&threadcache_lock_);
+    AllocationGuardSpinLockHolder l(threadcache_lock_);
     if (heap->next_ != nullptr) heap->next_->prev_ = heap->prev_;
     if (heap->prev_ != nullptr) heap->prev_->next_ = heap->next_;
     if (thread_heaps_ == heap) thread_heaps_ = heap->next_;
@@ -401,7 +402,7 @@ void ThreadCache::RecomputePerThreadCacheSize() {
 
 AllocatorStats ThreadCache::GetStats(uint64_t* total_bytes,
                                      uint64_t* class_count) {
-  AllocationGuardSpinLockHolder l(&threadcache_lock_);
+  AllocationGuardSpinLockHolder l(threadcache_lock_);
 
   for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
     *total_bytes += h->size_;
@@ -418,7 +419,7 @@ void ThreadCache::set_overall_thread_cache_size(size_t new_size) {
   // Clip the value to a reasonable minimum
   if (new_size < kMinThreadCacheSize) new_size = kMinThreadCacheSize;
 
-  AllocationGuardSpinLockHolder l(&threadcache_lock_);
+  AllocationGuardSpinLockHolder l(threadcache_lock_);
   overall_thread_cache_size_.store(new_size, std::memory_order_relaxed);
 
   RecomputePerThreadCacheSize();

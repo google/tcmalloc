@@ -167,8 +167,8 @@ void SampleRecorder<T, Allocator>::PushDead(T* sample) {
     dispose(*sample);
   }
 
-  AllocationGuardSpinLockHolder graveyard_lock(&graveyard_.lock);
-  AllocationGuardSpinLockHolder sample_lock(&sample->lock);
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
+  AllocationGuardSpinLockHolder sample_lock(sample->lock);
   sample->dead = graveyard_.dead;
   graveyard_.dead = sample;
 }
@@ -176,7 +176,7 @@ void SampleRecorder<T, Allocator>::PushDead(T* sample) {
 template <typename T, typename Allocator>
 template <typename... Targs>
 T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
-  AllocationGuardSpinLockHolder graveyard_lock(&graveyard_.lock);
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
 
   // The list is circular, so eventually it collapses down to
   //   graveyard_.dead == &graveyard_
@@ -184,7 +184,7 @@ T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
   T* sample = graveyard_.dead;
   if (sample == &graveyard_) return nullptr;
 
-  AllocationGuardSpinLockHolder sample_lock(&sample->lock);
+  AllocationGuardSpinLockHolder sample_lock(sample->lock);
   graveyard_.dead = sample->dead;
   sample->dead = nullptr;
   sample->PrepareForSampling(std::forward<Targs>(args)...);
@@ -211,12 +211,12 @@ void SampleRecorder<T, Allocator>::Unregister(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::UnregisterAll() {
-  AllocationGuardSpinLockHolder graveyard_lock(&graveyard_.lock);
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   T* sample = all_.load(std::memory_order_acquire);
   auto* dispose = dispose_.load(std::memory_order_relaxed);
   while (sample != nullptr) {
     {
-      AllocationGuardSpinLockHolder sample_lock(&sample->lock);
+      AllocationGuardSpinLockHolder sample_lock(sample->lock);
       if (sample->dead == nullptr) {
         if (dispose) dispose(*sample);
         sample->dead = graveyard_.dead;
@@ -232,7 +232,7 @@ void SampleRecorder<T, Allocator>::Iterate(
     const absl::FunctionRef<void(const T& sample)>& f) {
   T* s = all_.load(std::memory_order_acquire);
   while (s != nullptr) {
-    AllocationGuardSpinLockHolder l(&s->lock);
+    AllocationGuardSpinLockHolder l(s->lock);
     if (s->dead == nullptr) {
       f(*s);
     }

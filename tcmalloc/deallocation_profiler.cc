@@ -319,7 +319,7 @@ class DeallocationProfiler {
     // determined by how long at least one emitted Profile remains alive.
     struct LowLevelArenaReference {
       LowLevelArenaReference() {
-        AllocationGuardSpinLockHolder h(&arena_lock_);
+        AllocationGuardSpinLockHolder h(arena_lock_);
         if ((refcount_++) == 0) {
           TC_CHECK_EQ(arena_, nullptr);
           arena_ = absl::base_internal::LowLevelAlloc::NewArena(0);
@@ -327,7 +327,7 @@ class DeallocationProfiler {
       }
 
       ~LowLevelArenaReference() {
-        AllocationGuardSpinLockHolder h(&arena_lock_);
+        AllocationGuardSpinLockHolder h(arena_lock_);
         if ((--refcount_) == 0) {
           TC_CHECK(absl::base_internal::LowLevelAlloc::DeleteArena(arena_));
           arena_ = nullptr;
@@ -525,7 +525,7 @@ class DeallocationProfiler {
 };
 
 void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
-  AllocationGuardSpinLockHolder h(&profilers_lock_);
+  AllocationGuardSpinLockHolder h(profilers_lock_);
   profiler->next_ = first_;
   first_ = profiler;
 
@@ -539,7 +539,7 @@ void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
 
 // This list is very short and we're nowhere near a hot path, just walk
 void DeallocationProfilerList::Remove(DeallocationProfiler* profiler) {
-  AllocationGuardSpinLockHolder h(&profilers_lock_);
+  AllocationGuardSpinLockHolder h(profilers_lock_);
   DeallocationProfiler** link = &first_;
   DeallocationProfiler* cur = first_;
   while (cur != profiler) {
@@ -552,7 +552,7 @@ void DeallocationProfilerList::Remove(DeallocationProfiler* profiler) {
 
 void DeallocationProfilerList::ReportMalloc(
     const tcmalloc_internal::StackTrace& stack_trace) {
-  AllocationGuardSpinLockHolder h(&profilers_lock_);
+  AllocationGuardSpinLockHolder h(profilers_lock_);
   DeallocationProfiler* cur = first_;
   while (cur != nullptr) {
     cur->ReportMalloc(stack_trace);
@@ -562,7 +562,7 @@ void DeallocationProfilerList::ReportMalloc(
 
 void DeallocationProfilerList::ReportFree(
     tcmalloc_internal::AllocHandle handle) {
-  AllocationGuardSpinLockHolder h(&profilers_lock_);
+  AllocationGuardSpinLockHolder h(profilers_lock_);
   DeallocationProfiler* cur = first_;
   while (cur != nullptr) {
     cur->ReportFree(handle);

@@ -72,7 +72,7 @@ void GuardedPageAllocator::Init(size_t max_allocated_pages,
 }
 
 void GuardedPageAllocator::Destroy() {
-  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
+  AllocationGuardSpinLockHolder h(guarded_page_lock_);
   if (initialized_) {
     size_t len = pages_end_addr_ - pages_base_addr_;
     int err = munmap(reinterpret_cast<void*>(pages_base_addr_), len);
@@ -181,7 +181,7 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   if (size > 0) {
     if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
       TC_ASSERT(false, "mprotect(.., PROT_READ|PROT_WRITE) failed");
-      AllocationGuardSpinLockHolder h(&guarded_page_lock_);
+      AllocationGuardSpinLockHolder h(guarded_page_lock_);
       failed_allocations_.LossyAdd(1);
       successful_allocations_.LossyAdd(-1);
       FreeSlot(free_slot);
@@ -278,7 +278,7 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
                         {d.alloc_trace.stack, d.alloc_trace.depth});
   }
 
-  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
+  AllocationGuardSpinLockHolder h(guarded_page_lock_);
   FreeSlot(slot);
 }
 
@@ -381,7 +381,7 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) {
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages
 // we can return from Allocate with guard pages before and after them.
 void GuardedPageAllocator::MapPages() {
-  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
+  AllocationGuardSpinLockHolder h(guarded_page_lock_);
   TC_ASSERT(!first_page_addr_);
   TC_ASSERT_EQ(page_size_ % GetPageSize(), 0);
   size_t len = (2 * total_pages_ + 1) * page_size_;
@@ -417,7 +417,7 @@ void GuardedPageAllocator::MapPages() {
 
 // Selects a random slot in O(1) time.
 ssize_t GuardedPageAllocator::ReserveFreeSlot() {
-  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
+  AllocationGuardSpinLockHolder h(guarded_page_lock_);
   if (!initialized_ || !allow_allocations_) return -1;
   if (GetNumAvailablePages() == 0) {
     skipped_allocations_noslots_.Add(1);
