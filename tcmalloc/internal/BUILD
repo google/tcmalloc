@@ -19,7 +19,7 @@ load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
-load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
+load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark")
 
 package(default_visibility = ["//visibility:private"])
@@ -836,7 +836,7 @@ cc_library(
 cc_test(
     name = "profile_builder_fuzz",
     srcs = ["profile_builder_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/profile_builder_fuzz/*"]),
     deps = [
         ":profile_builder",
@@ -1105,7 +1105,7 @@ cc_library(
 cc_test(
     name = "sysinfo_fuzz",
     srcs = ["sysinfo_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     deps = [
         ":cpu_utils",
         ":sysinfo",

@@ -21,7 +21,7 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
-load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
+load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
 
 package(default_visibility = ["//visibility:private"])
@@ -665,7 +665,7 @@ cc_test(
     name = "huge_page_aware_allocator_fuzz",
     srcs = ["huge_page_aware_allocator_fuzz.cc"],
     args = ["--fuzztest_stack_limit_kb=2048"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/huge_page_aware_allocator_fuzz/*"]),
     deps = [
         ":common_8k_pages",
@@ -687,7 +687,7 @@ cc_test(
     name = "huge_region_fuzz",
     srcs = ["huge_region_fuzz.cc"],
     args = ["--fuzztest_stack_limit_kb=2048"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/huge_region_fuzz/*"]),
     deps = [
         ":common_8k_pages",
@@ -706,7 +706,7 @@ cc_test(
     name = "huge_page_filler_fuzz",
     srcs = ["huge_page_filler_fuzz.cc"],
     args = ["--fuzztest_stack_limit_kb=2048"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/huge_page_filler_fuzz/*"]),
     deps = [
         ":common_8k_pages",
@@ -734,7 +734,7 @@ cc_test(
 cc_test(
     name = "span_fuzz",
     srcs = ["span_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/span_fuzz/*"]),
     deps = [
         ":common_8k_pages",
@@ -749,7 +749,7 @@ cc_test(
 cc_test(
     name = "sizemap_fuzz",
     srcs = ["sizemap_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/sizemap_fuzz/*"]),
     deps = [
         ":common_8k_pages",
@@ -765,7 +765,7 @@ cc_test(
 cc_test(
     name = "central_freelist_fuzz",
     srcs = ["central_freelist_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/central_freelist_fuzz/*"]),
     deps = [
         ":common_8k_pages",
@@ -781,7 +781,7 @@ cc_test(
 cc_test(
     name = "transfer_cache_fuzz",
     srcs = ["transfer_cache_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/transfer_cache_fuzz/*"]),
     deps = [
         ":common_8k_pages",
@@ -1075,7 +1075,7 @@ create_tcmalloc_testsuite(
 cc_test(
     name = "malloc_extension_fuzz",
     srcs = ["malloc_extension_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/malloc_extension_fuzz/*"]),
     deps = [
         ":malloc_extension",
@@ -1346,7 +1346,7 @@ cc_test(
 cc_test(
     name = "experiment_fuzz",
     srcs = ["experiment_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     deps = [
         ":experiment",
         "@com_google_absl//absl/strings",
