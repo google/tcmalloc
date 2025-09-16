@@ -63,7 +63,7 @@ void Filler(absl::Barrier* fill, absl::Barrier* filled) {
     if (size > (32 << 10)) size = 0;
 
     if ((i % (kAllocationsPerThread / 10)) == 0) {
-      absl::MutexLock l(&max_lock);
+      absl::MutexLock l(max_lock);
       const size_t cache_size = CurrentThreadCacheSize();
       if (cache_size > max_cache_size) {
         max_cache_size = cache_size;

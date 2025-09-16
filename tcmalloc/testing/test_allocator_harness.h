@@ -87,7 +87,7 @@ class AllocatorHarness {
         sized_delete(o.ptr, o.size);
       }
 
-      absl::MutexLock m(&state.lock);
+      absl::MutexLock m(state.lock);
       for (auto& o : state.inbound) {
         sized_delete(o.ptr, o.size);
       }
@@ -100,7 +100,7 @@ class AllocatorHarness {
 
     std::vector<Object> tmp;
     {
-      absl::MutexLock m(&state.lock);
+      absl::MutexLock m(state.lock);
       tmp.swap(state.inbound);
     }
 
@@ -117,7 +117,7 @@ class AllocatorHarness {
 
       bool success = false;
       {
-        absl::MutexLock m(&lock_);
+        absl::MutexLock m(lock_);
         if (bytes_available_ >= size) {
           bytes_available_ -= size;
           success = true;
@@ -150,7 +150,7 @@ class AllocatorHarness {
 
       sized_delete(to_delete.ptr, to_delete.size);
 
-      absl::MutexLock m(&lock_);
+      absl::MutexLock m(lock_);
       bytes_available_ += to_delete.size;
       return;
     } else if (coin < 0.92) {
@@ -168,7 +168,7 @@ class AllocatorHarness {
       Object to_transfer = state.RemoveRandomObject();
 
       auto& remote_state = state_[thread];
-      absl::MutexLock m(&remote_state.lock);
+      absl::MutexLock m(remote_state.lock);
       remote_state.inbound.push_back(std::move(to_transfer));
     }
   }
