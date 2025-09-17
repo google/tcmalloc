@@ -258,6 +258,8 @@ class SystemAllocator {
 
 namespace system_allocator_internal {
 
+bool preferential_collapse();
+
 // Check that no bit is set at position ADDRESS_BITS or higher.
 template <int ADDRESS_BITS>
 void CheckAddressBits(uintptr_t ptr) {
@@ -364,7 +366,8 @@ std::pair<void*, size_t> SystemAllocator<Topology>::MmapRegion::Alloc(
   // (kInfrequentAllocation), we want as granular of access telemetry as
   // possible; this hint means we can get 4kiB granularity instead of 2MiB.
   if (hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess ||
-      hint_ == AddressRegionFactory::UsageHint::kInfrequentAllocation) {
+      hint_ == AddressRegionFactory::UsageHint::kInfrequentAllocation ||
+      system_allocator_internal::preferential_collapse()) {
     // This is only advisory, so ignore the error.
     ErrnoRestorer errno_restorer;
     (void)madvise(result_ptr, actual_size, MADV_NOHUGEPAGE);
@@ -649,6 +652,11 @@ MemoryModifyStatus SystemAllocator<Topology>::Collapse(void* start,
   constexpr int kMaxAttempts = 3;
   ErrnoRestorer errno_restorer;
   do {
+    // Enable THP for the range before attempting to collapse the memory. This
+    // memory was previously madvise'd MADV_NOHUGEPAGE when it was allocated.
+    if (system_allocator_internal::preferential_collapse()) {
+      ret = madvise(start, length, MADV_HUGEPAGE);
+    }
     ret = madvise(start, length, MADV_COLLAPSE);
     ++attempts;
   } while (ret == -1 && errno == EAGAIN && attempts < kMaxAttempts);

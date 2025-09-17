@@ -162,6 +162,7 @@ void FuzzFiller(const std::string& s) {
   MockUnback unback;
   MockCollapse collapse;
   MockSetAnonVmaName set_anon_vma_name;
+  bool preferential_collapse;
   fake_clock = 0;
   unback_success = true;
   absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -176,8 +177,8 @@ void FuzzFiller(const std::string& s) {
 
   // We interpret data as a small DSL for exploring the state space of
   // HugePageFiller.
-  //
-  // [0-2] - Reserved.
+  // [0] - Whether to enable preferential userspace collapse.
+  // [1-2] - Reserved.
   //
   // Afterwards, we read 5 bytes at a time until the buffer is exhausted.
   // [i + 0]        - Specifies an operation to perform on the filler (allocate,
@@ -187,12 +188,15 @@ void FuzzFiller(const std::string& s) {
   //                  For example, this input can provide a Length to
   //                  allocate, or the index of the previous allocation to
   //                  deallocate.
+  preferential_collapse = data[0] & 0x1;
   data += kInitBytes;
   size -= kInitBytes;
 
-  HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
-                                     MemoryTag::kNormal, unback, unback,
-                                     collapse, set_anon_vma_name);
+  HugePageFiller<PageTracker> filler(
+      Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal, unback,
+      unback, collapse, set_anon_vma_name,
+      HugePageFillerOptions{.use_preferential_collapse =
+                                preferential_collapse});
 
   std::vector<PageTracker*> trackers;
   absl::flat_hash_map<PageTracker*,

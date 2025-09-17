@@ -31,7 +31,10 @@
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/types/span.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
@@ -48,6 +51,20 @@
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal::system_allocator_internal {
+
+bool preferential_collapse() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static bool preferential_collapse = false;
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (!IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_PREFERENTIAL_COLLAPSE)) {
+      preferential_collapse = false;
+      return;
+    }
+  });
+
+  return preferential_collapse;
+}
 
 // Structure for discovering alignment
 union MemoryAligner {
