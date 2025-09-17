@@ -242,6 +242,17 @@ test_variants = [
         "env": {"GLIBC_TUNABLES": "glibc.pthread.rseq=0"},
     },
     {
+        "name": "mm_vcpu_cpu_caches",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {
+            "BORG_EXPERIMENTS": "TEST_ONLY_MM_VCPU",
+            "GLIBC_TUNABLES": "glibc.pthread.rseq=0",
+        },
+    },
+    {
         "name": "legacy_locking",
         "malloc": "//tcmalloc:tcmalloc_legacy_locking",
         "deps": ["//tcmalloc:common_legacy_locking"],

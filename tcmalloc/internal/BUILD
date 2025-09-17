@@ -680,6 +680,7 @@ cc_library(
         ":optimization",
         ":sysinfo",
         ":util",
+        "//tcmalloc:experiment",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
     ],

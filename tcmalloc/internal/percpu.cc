@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <sched.h>
 #include <stdint.h>
+#include <sys/auxv.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -31,6 +32,8 @@
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"  // IWYU pragma: keep
 #include "absl/base/optimization.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/linux_syscall_support.h"
@@ -64,6 +67,8 @@ ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
 
 extern "C" thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_INITIAL_EXEC;
 
+ABSL_CONST_INIT RseqVcpuMode vcpu_mode = RseqVcpuMode::kNone;
+
 static bool InitThreadPerCpu() {
   // If we're already registered, there's nothing further for us to do.
   if (IsFastNoInit()) {
@@ -87,7 +92,7 @@ static bool InitThreadPerCpu() {
 }
 
 bool UsingRseqVirtualCpus() {
-  return false;
+  return GetRseqVcpuMode() == RseqVcpuMode::kMM;
 }
 
 static int UserVirtualCpuId() {
@@ -106,13 +111,13 @@ int VirtualCpu::Synchronize() {
     }
   }
 
-  if (UsingVirtualCpus()) {
-    if (UsingRseqVirtualCpus())
-      vcpu = __rseq_abi.vcpu_id;
-    else
-      vcpu = UserVirtualCpuId();
-  } else {
-    vcpu = GetRealCpuUnsafe();
+  switch (GetRseqVcpuMode()) {
+    case RseqVcpuMode::kMM:
+      vcpu = __rseq_abi.mm_cid;
+      break;
+    case RseqVcpuMode::kNone:
+      vcpu = GetRealCpuUnsafe();
+      break;
   }
 
   TC_CHECK_GE(vcpu, kCpuIdInitialized);
@@ -164,6 +169,18 @@ static void InitPerCpu() {
         0 == syscall(__NR_membarrier,
                      kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ, 0, 0),
         std::memory_order_relaxed);
+
+    if (IsExperimentActive(Experiment::TEST_ONLY_MM_VCPU)) {
+      auto auxv = getauxval(AT_RSEQ_FEATURE_SIZE);
+      // mm_cid support was introduced in Linux 6.3
+      // (https://github.com/torvalds/linux/commit/f7b01bb0b57f994a44ea6368536b59062b796381).
+      // This auxv value is populated as of
+      // https://github.com/torvalds/linux/commit/317c8194e6aeb8b3b573ad139fc2a0635856498e
+      // in the same series.
+      if (auxv >= offsetof(kernel_rseq, mm_cid) + sizeof(__rseq_abi.mm_cid)) {
+        vcpu_mode = RseqVcpuMode::kMM;
+      }
+    }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   }
 }

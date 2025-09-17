@@ -285,6 +285,8 @@ static absl::string_view PerCpuTypeString(RseqVcpuMode mode) {
   switch (mode) {
     case RseqVcpuMode::kNone:
       return "NONE";
+    case RseqVcpuMode::kMM:
+      return "MM";
   }
 
   ASSUME(false);

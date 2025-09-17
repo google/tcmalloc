@@ -30,7 +30,8 @@ struct kernel_rseq {
   unsigned cpu_id;
   unsigned long long rseq_cs;
   unsigned flags;
-  unsigned padding[2];
+  unsigned node_id;
+  unsigned mm_cid;
   // This is a prototype extension to the rseq() syscall.  Since a process may
   // run on only a few cores at a time, we can use a dense set of "v(irtual)
   // cpus."  This can reduce cache requirements, as we only need N caches for
@@ -67,6 +68,10 @@ static_assert(sizeof(kernel_rseq_cs) == (4 * sizeof(unsigned long long)),
 
 #ifndef KPF_ZERO_PAGE
 #define KPF_ZERO_PAGE 24
+#endif
+
+#ifndef AT_RSEQ_FEATURE_SIZE
+#define AT_RSEQ_FEATURE_SIZE 27
 #endif
 
 #endif  // TCMALLOC_INTERNAL_LINUX_SYSCALL_SUPPORT_H_

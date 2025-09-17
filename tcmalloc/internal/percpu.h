@@ -174,8 +174,8 @@ ABSL_CONST_INIT thread_local volatile uintptr_t tcmalloc_slabs
     ABSL_ATTRIBUTE_WEAK = {};
 ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
     ABSL_ATTRIBUTE_WEAK = {
-        0,      static_cast<unsigned>(kCpuIdUninitialized),   0, 0,
-        {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
+        0, static_cast<unsigned>(kCpuIdUninitialized),   0, 0, 0,
+        0, {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
 ABSL_CONST_INIT thread_local volatile int tcmalloc_cached_vcpu
     ABSL_ATTRIBUTE_WEAK = kCpuIdUninitialized;
@@ -199,8 +199,13 @@ size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
 // increase the visibility of functions embedded into the root-namespace (by
 // virtue of C linkage) in the supported case.
 
-enum class RseqVcpuMode { kNone };
-inline RseqVcpuMode GetRseqVcpuMode() { return RseqVcpuMode::kNone; }
+enum class RseqVcpuMode { kNone, kMM };
+
+extern RseqVcpuMode vcpu_mode;
+
+inline RseqVcpuMode GetRseqVcpuMode() {
+  return vcpu_mode;
+}
 
 // Return whether we are using any kind of virtual CPUs.
 inline bool UsingVirtualCpus() {
