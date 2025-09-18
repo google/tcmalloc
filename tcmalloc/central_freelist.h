@@ -29,6 +29,7 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/numeric/bits.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/hinted_tracker_lists.h"
@@ -249,6 +250,8 @@ class CentralFreeList {
 
   static constexpr size_t kLifetimeBuckets = 8;
   using LifetimeHistogram = size_t[kLifetimeBuckets];
+
+  StatsCounter completed_spans_[kLifetimeBuckets];
 
   int LifetimeBucketNum(absl::Duration duration) {
     int64_t duration_ms = absl::ToInt64Milliseconds(duration);
@@ -549,6 +552,17 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
 template <class Forwarder>
 void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
+  // Size classes with 1 object per span skip CentralFreeList entirely.
+  if (objects_per_span_ > 1) {
+    for (Span* span : spans) {
+      uint64_t now = forwarder_.clock_now();
+      double frequency = forwarder_.clock_frequency();
+      const double elapsed = std::max<double>(now - span->AllocTime(), 0);
+      const absl::Duration lifetime =
+          absl::Milliseconds(elapsed * 1000 / frequency);
+      completed_spans_[LifetimeBucketNum(lifetime)].LossyAdd(1);
+    }
+  }
   if (ABSL_PREDICT_TRUE(!selsan::IsEnabled())) {
     return forwarder_.DeallocateSpans(objects_per_span_, spans);
   }
@@ -755,9 +769,22 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
         0);
   }
 
-  out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  out.printf("class %3d [ %8zu bytes ] live spans: ", size_class_,
+             object_size_);
   for (size_t i = 0; i < kLifetimeBuckets; ++i) {
     out.printf("%3zu ms < %6zu", lifetime_bucket_bounds_[i], lifetime_histo[i]);
+    if (i < kLifetimeBuckets - 1) {
+      out.printf(",");
+    }
+  }
+  out.printf("\n");
+
+  out.printf("class %3d [ %8zu bytes ] completed spans: ", size_class_,
+             object_size_);
+  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+    out.printf("%3zu ms < %6zu", lifetime_bucket_bounds_[i],
+               completed_spans_[i].value());
+
     if (i < kLifetimeBuckets - 1) {
       out.printf(",");
     }
@@ -824,6 +851,15 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
                                            ? lifetime_bucket_bounds_[i]
                                            : lifetime_bucket_bounds_[i + 1]));
     histogram.PrintI64("value", lifetime_histo[i]);
+  }
+  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+    PbtxtRegion histogram =
+        region.CreateSubRegion("span_completed_lifetime_histogram");
+    histogram.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
+    histogram.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
+                                           ? lifetime_bucket_bounds_[i]
+                                           : lifetime_bucket_bounds_[i + 1]));
+    histogram.PrintI64("value", completed_spans_[i].value());
   }
 }
 
