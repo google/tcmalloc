@@ -232,7 +232,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static constexpr size_t kMaxNumPageBits = 6;
   static constexpr Length kLargeSpanLength = Length((1 << kMaxNumPageBits) - 1);
 
-  uint64_t AllocTime(size_t size) const;
+  uint64_t AllocTime() const;
 
   // Returns true if Span will use bitmap for objects of size <size>.
   static bool UseBitmapForSize(size_t size);
@@ -357,7 +357,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   friend class SpanTestPeer;
 };
 
-inline uint64_t Span::AllocTime(size_t size) const {
+inline uint64_t Span::AllocTime() const {
   if (is_large_or_sampled()) return 0;
   return small_span_state_.alloc_time;
 }

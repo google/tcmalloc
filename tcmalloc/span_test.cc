@@ -168,7 +168,7 @@ TEST_P(SpanTest, FreelistBasic) {
 
 TEST_P(SpanTest, AllocTime) {
   Span& span_ = raw_span_.span();
-  EXPECT_EQ(span_.AllocTime(size_), kSpanAllocTime);
+  EXPECT_EQ(span_.AllocTime(), kSpanAllocTime);
 }
 
 TEST_P(SpanTest, FreelistRandomized) {
@@ -201,7 +201,7 @@ TEST_P(SpanTest, FreelistRandomized) {
     }
   }
 
-  EXPECT_TRUE(span_.AllocTime(size_) == kSpanAllocTime);
+  EXPECT_EQ(span_.AllocTime(), kSpanAllocTime);
   // Now pop everything what's there.
   for (;;) {
     size_t n =
