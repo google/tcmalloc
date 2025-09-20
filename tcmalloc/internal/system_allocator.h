@@ -15,8 +15,8 @@
 // Routine that uses sbrk/mmap to allocate memory from the system.
 // Useful for implementing malloc.
 
-#ifndef TCMALLOC_SYSTEM_ALLOC_H_
-#define TCMALLOC_SYSTEM_ALLOC_H_
+#ifndef TCMALLOC_INTERNAL_SYSTEM_ALLOCATOR_H_
+#define TCMALLOC_INTERNAL_SYSTEM_ALLOCATOR_H_
 
 #include <asm/unistd.h>
 
@@ -919,4 +919,4 @@ inline bool SystemAllocator<Topology>::ReleasePages(void* start,
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_SYSTEM_ALLOC_H_
+#endif  // TCMALLOC_INTERNAL_SYSTEM_ALLOCATOR_H_
