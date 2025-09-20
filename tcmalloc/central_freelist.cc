@@ -137,6 +137,7 @@ static void ReturnAllocsToPageHeap(
 void StaticForwarder::DeallocateSpans(size_t objects_per_span,
                                       absl::Span<Span*> free_spans) {
   TC_ASSERT_NE(free_spans.size(), 0);
+  TC_ASSERT_LE(free_spans.size(), kMaxObjectsToMove);
   const MemoryTag tag = GetMemoryTag(free_spans[0]->start_address());
   // Unregister size class doesn't require holding any locks.
   for (Span* const free_span : free_spans) {

@@ -190,8 +190,11 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(objects_per_span_,
-                                     absl::MakeSpan(free_spans));
+    auto span_span = absl::MakeSpan(free_spans);
+    for (int i = 0; i < spans.size(); i += kMaxObjectsToMove) {
+      StaticForwarder::DeallocateSpans(objects_per_span_,
+                                       span_span.subspan(i, kMaxObjectsToMove));
+    }
   }
 
   void Grow() {
@@ -255,8 +258,11 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(objects_per_span_,
-                                     absl::MakeSpan(free_spans));
+    auto span_span = absl::MakeSpan(free_spans);
+    for (int i = 0; i < spans.size(); i += kMaxObjectsToMove) {
+      StaticForwarder::DeallocateSpans(objects_per_span_,
+                                       span_span.subspan(i, kMaxObjectsToMove));
+    }
   }
 
   void Shuffle(absl::BitGen& rng) {
