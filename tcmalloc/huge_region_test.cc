@@ -383,7 +383,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         f.r.n = Length(n);
         bool from_released;
         {
-          absl::MutexLock l(&mu);
+          absl::MutexLock l(mu);
           if (!region_.MaybeGet(f.r.n, &f.r.p, &from_released)) {
             break;
           }
@@ -397,7 +397,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         }
 
         {
-          absl::MutexLock l(&state_mu);
+          absl::MutexLock l(state_mu);
           allocs.push_back(f);
         }
         break;
@@ -406,7 +406,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         FuzzAlloc f;
 
         {
-          absl::MutexLock l(&state_mu);
+          absl::MutexLock l(state_mu);
           if (allocs.empty()) {
             break;
           }
@@ -424,12 +424,12 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
           TC_CHECK_EQ(old_val, f.tid);
         }
 
-        absl::MutexLock l(&mu);
+        absl::MutexLock l(mu);
         region_.Put(f.r, false);
         break;
       }
       case 2: {
-        absl::MutexLock l(&state_mu);
+        absl::MutexLock l(state_mu);
         if (allocs.empty()) {
           break;
         }
@@ -449,7 +449,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         const Length to_release = Length(
             absl::Uniform(rngs[tid], 0u, region_.size().in_pages().raw_num()));
 
-        absl::MutexLock l(&mu);
+        absl::MutexLock l(mu);
         region_.Release(to_release);
 
         break;

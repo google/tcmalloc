@@ -58,7 +58,7 @@ TEST(AllocationSample, Threaded) {
 
     // Do our test bookkeeping separately, so we don't synchronize list
     // externally.
-    absl::MutexLock l(&global.mu);
+    absl::MutexLock l(global.mu);
     if (global.samplers.empty()) {
       return ret;
     }
@@ -83,7 +83,7 @@ TEST(AllocationSample, Threaded) {
       // Do our test bookkeeping separately, so we don't synchronize list
       // externally.
       {
-        absl::MutexLock l(&global.mu);
+        absl::MutexLock l(global.mu);
         if (global.samplers.size() < kMaxSamplers) {
           // Add to the list.
           global.samplers.push_back(std::move(sampler));

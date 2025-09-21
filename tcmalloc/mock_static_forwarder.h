@@ -62,7 +62,7 @@ class FakeStaticForwarder {
   [[nodiscard]] Span* MapObjectToSpan(const void* object) {
     const PageId page = PageIdContaining(object);
 
-    absl::MutexLock l(&mu_);
+    absl::MutexLock l(mu_);
     auto it = map_.lower_bound(page);
     if (it->first != page && it != map_.begin()) {
       --it;
@@ -83,7 +83,7 @@ class FakeStaticForwarder {
 
     auto* span = new Span(Range(page, pages_per_span));
 
-    absl::MutexLock l(&mu_);
+    absl::MutexLock l(mu_);
     SpanInfo info;
     info.span = span;
     SpanAllocInfo span_alloc_info = {
@@ -96,7 +96,7 @@ class FakeStaticForwarder {
 
   void DeallocateSpans(size_t, absl::Span<Span*> free_spans) {
     {
-      absl::MutexLock l(&mu_);
+      absl::MutexLock l(mu_);
       for (Span* span : free_spans) {
         auto it = map_.find(span->first_page());
         EXPECT_NE(it, map_.end());

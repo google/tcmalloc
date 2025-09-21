@@ -1712,17 +1712,17 @@ class CpuCacheEnvironment {
         benchmark::DoNotOptimize(cache_.Capacity(cpu));
         break;
       case 10: {
-        absl::MutexLock lock(&background_mutex_);
+        absl::MutexLock lock(background_mutex_);
         cache_.ShuffleCpuCaches();
         break;
       }
       case 11: {
-        absl::MutexLock lock(&background_mutex_);
+        absl::MutexLock lock(background_mutex_);
         cache_.TryReclaimingCaches();
         break;
       }
       case 12: {
-        absl::MutexLock lock(&background_mutex_);
+        absl::MutexLock lock(background_mutex_);
         cache_.Reclaim(cpu);
         break;
       }

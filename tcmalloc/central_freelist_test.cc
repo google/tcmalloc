@@ -165,7 +165,7 @@ class StaticForwarderEnvironment {
     std::vector<std::unique_ptr<SpanData>> spans;
 
     {
-      absl::MutexLock l(&mu_);
+      absl::MutexLock l(mu_);
       if (data_.empty()) {
         return;
       }
@@ -218,7 +218,7 @@ class StaticForwarderEnvironment {
     StaticForwarder::MapObjectsToSpans({&d->batch[0], 1}, &got, size_class_);
     EXPECT_EQ(span, got);
 
-    absl::MutexLock l(&mu_);
+    absl::MutexLock l(mu_);
     spans_allocated_++;
     data_.push_back(std::move(d));
   }
@@ -228,7 +228,7 @@ class StaticForwarderEnvironment {
     std::vector<std::unique_ptr<SpanData>> spans;
 
     {
-      absl::MutexLock l(&mu_);
+      absl::MutexLock l(mu_);
       if (data_.empty()) {
         return;
       }
@@ -267,12 +267,12 @@ class StaticForwarderEnvironment {
 
   void Shuffle(absl::BitGen& rng) {
     // Shuffle the shared vector.
-    absl::MutexLock l(&mu_);
+    absl::MutexLock l(mu_);
     absl::c_shuffle(data_, rng);
   }
 
   int64_t BytesAllocated() {
-    absl::MutexLock l(&mu_);
+    absl::MutexLock l(mu_);
     return pages_per_span_.in_bytes() * spans_allocated_;
   }
 
