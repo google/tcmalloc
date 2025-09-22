@@ -50,7 +50,8 @@ void FuzzCFL(const std::string& s) {
   // is 2^18.  So we use the first 24 bits to set object_size.
   //
   // TODO(b/271282540): Convert these to strongly typed fuzztest parameters.
-  const size_t object_size = data[0] | (data[1] << 8) | (data[2] << 16);
+  size_t object_size = data[0] | (data[1] << 8) | (data[2] << 16);
+  object_size = object_size % (kMaxSize + 1);
   const size_t num_pages = data[3];
   const size_t num_objects_to_move = data[4];
   // data[5]: priority list length.
