@@ -112,7 +112,7 @@ extern template class MinMaxTracker<600>;
 class HugeCache {
  public:
   // For use in production
-  HugeCache(HugeAllocator* allocator,
+  HugeCache(HugeAllocator& allocator ABSL_ATTRIBUTE_LIFETIME_BOUND,
             MetadataAllocator& meta_allocate ABSL_ATTRIBUTE_LIFETIME_BOUND,
             MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
             absl::Duration cache_time)
@@ -147,11 +147,11 @@ class HugeCache {
   // capture the empirical dynamics we've seen.  See "Beyond Malloc
   // Efficiency..." (https://research.google/pubs/pub50370/) for more
   // information.
-  HugeCache(HugeAllocator* allocator,
+  HugeCache(HugeAllocator& allocator ABSL_ATTRIBUTE_LIFETIME_BOUND,
             MetadataAllocator& meta_allocate ABSL_ATTRIBUTE_LIFETIME_BOUND,
             MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
             absl::Duration cache_time, Clock clock)
-      : allocator_(allocator),
+      : allocator_(&allocator),
         cache_(meta_allocate),
         clock_(clock),
         cache_time_ticks_(clock_.freq() * absl::ToDoubleSeconds(cache_time)),
@@ -168,7 +168,7 @@ class HugeCache {
   // memory that's currently backed from the kernel if we have it available.
   // *from_released is set to false if the return range is already backed;
   // otherwise, it is set to true (and the caller should back it.)
-  HugeRange Get(HugeLength n, bool* from_released);
+  HugeRange Get(HugeLength n, bool* /*absl_nonnull*/ from_released);
 
   // Deallocate <r> (assumed to be backed by the kernel.)
   void Release(HugeRange r);

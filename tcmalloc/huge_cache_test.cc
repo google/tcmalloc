@@ -88,7 +88,7 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
   FakeVirtualAllocator vm_allocator_;
   FakeMetadataAllocator metadata_allocator_;
   HugeAllocator alloc_{vm_allocator_, metadata_allocator_};
-  HugeCache cache_{&alloc_, metadata_allocator_, mock_unback_, GetCacheTime(),
+  HugeCache cache_{alloc_, metadata_allocator_, mock_unback_, GetCacheTime(),
                    Clock{.now = FakeClock, .freq = GetFakeClockFrequency}};
 };
 

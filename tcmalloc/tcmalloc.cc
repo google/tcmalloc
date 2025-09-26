@@ -401,7 +401,7 @@ extern "C" void MallocExtension_Internal_GetProperties(
   TCMallocStats stats;
   // Include residency stats to avoid overestimating reported memory usage from
   // returned slabs, see b/372229857#comment10.
-  ExtractTCMallocStats(&stats, /*report_residence*/ true);
+  ExtractTCMallocStats(stats, /*report_residence*/ true);
 
   const uint64_t virtual_memory_used = VirtualMemoryUsed(stats);
   const uint64_t physical_memory_used = PhysicalMemoryUsed(stats);
@@ -946,7 +946,7 @@ inline int do_mallopt(int cmd, int value) {
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 inline struct mallinfo do_mallinfo() {
   TCMallocStats stats;
-  ExtractTCMallocStats(&stats, false);
+  ExtractTCMallocStats(stats, false);
 
   // Just some of the fields are filled in.
   struct mallinfo info;
@@ -968,7 +968,7 @@ inline struct mallinfo do_mallinfo() {
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO2
 inline struct mallinfo2 do_mallinfo2() {
   TCMallocStats stats;
-  ExtractTCMallocStats(&stats, false);
+  ExtractTCMallocStats(stats, false);
 
   // Just some of the fields are filled in.
   struct mallinfo2 info;
@@ -1056,7 +1056,7 @@ ABSL_ATTRIBUTE_NOINLINE static
     typename Policy::pointer_type slow_alloc_small(size_t size,
                                                    uint32_t size_class,
                                                    Policy policy) {
-  size_t weight = GetThreadSampler()->RecordedAllocationFast(size);
+  size_t weight = GetThreadSampler().RecordedAllocationFast(size);
   if (ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
@@ -1072,7 +1072,7 @@ ABSL_ATTRIBUTE_NOINLINE static
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
     size_t size, Policy policy) {
-  size_t weight = GetThreadSampler()->RecordAllocation(size);
+  size_t weight = GetThreadSampler().RecordAllocation(size);
   __sized_ptr_t res = do_malloc_pages(size, weight, policy);
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
 
@@ -1105,7 +1105,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
   // - no new/delete hooks need to be invoked
   // - no need to initialize thread globals, data or caches.
   // The method updates 'bytes until next sample' thread sampler counters.
-  if (ABSL_PREDICT_FALSE(!GetThreadSampler()->TryRecordAllocationFast(size))) {
+  if (ABSL_PREDICT_FALSE(!GetThreadSampler().TryRecordAllocationFast(size))) {
     SLOW_PATH_BARRIER();
     return slow_alloc_small(size, size_class, policy);
   }
@@ -1315,8 +1315,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   // are both all sampled and expensive to allocate and copy, so don't
   // reallocate them if not necessary. The use of kMaxSize here as a notion of
   // "very large" is somewhat arbitrary.
-  const bool will_sample = new_size <= kMaxSize &&
-                           GetThreadSampler()->WillRecordAllocation(new_size);
+  const bool will_sample =
+      new_size <= kMaxSize && GetThreadSampler().WillRecordAllocation(new_size);
 
   // We could avoid doing this calculation in some scenarios by using if
   // statements to check old_size with new_size, but we chose to unconditionally

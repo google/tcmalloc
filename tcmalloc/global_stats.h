@@ -61,7 +61,7 @@ struct TCMallocStats {
   TCMallocStats() = default;
 };
 
-void ExtractTCMallocStats(TCMallocStats* r, bool report_residence);
+void ExtractTCMallocStats(TCMallocStats& r, bool report_residence);
 
 uint64_t InUseByApp(const TCMallocStats& stats);
 uint64_t VirtualMemoryUsed(const TCMallocStats& stats);
@@ -77,7 +77,8 @@ size_t SlackBytes(const BackingStats& stats);
 void DumpStats(Printer& out, int level);
 void DumpStatsInPbtxt(Printer& out, int level);
 
-bool GetNumericProperty(const char* name_data, size_t name_size, size_t* value);
+bool GetNumericProperty(const char* /*absl_nonnull*/ name_data, size_t name_size,
+                        size_t* /*absl_nonnull*/ value);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

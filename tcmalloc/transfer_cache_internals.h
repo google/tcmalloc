@@ -28,6 +28,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
@@ -153,7 +154,7 @@ class TransferCache {
 
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
-  void InsertRange(int size_class, absl::Span<void*> batch)
+  void InsertRange(int size_class, absl::Span<void* /*absl_nonnull*/> batch)
       ABSL_LOCKS_EXCLUDED(lock_) {
     const int N = batch.size();
     TC_ASSERT(0 < N && N <= kMaxObjectsToMove);

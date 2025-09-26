@@ -18,6 +18,7 @@
 #include <cstddef>
 
 #include "absl/base/attributes.h"
+#include "absl/base/nullability.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -34,7 +35,7 @@ class MetadataAllocator {
   MetadataAllocator& operator=(MetadataAllocator&&) = delete;
 
   // Allocates bytes suitable for metadata.
-  [[nodiscard]] virtual void* operator()(size_t bytes) = 0;
+  [[nodiscard]] virtual void* /*absl_nonnull*/ operator()(size_t bytes) = 0;
 };
 
 }  // namespace tcmalloc::tcmalloc_internal

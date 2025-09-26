@@ -91,7 +91,8 @@ constexpr inline uint8_t kTotalPossibleSlabs =
 // testing.
 class StaticForwarder {
  public:
-  [[nodiscard]] static void* Alloc(size_t size, std::align_val_t alignment)
+  [[nodiscard]] static void* /*absl_nonnull*/ Alloc(size_t size,
+                                                std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(tc_globals.IsInited());
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
@@ -99,8 +100,8 @@ class StaticForwarder {
     PageHeapSpinLockHolder l;
     return tc_globals.arena().Alloc(size, alignment);
   }
-  [[nodiscard]] static void* AllocReportedImpending(size_t size,
-                                                    std::align_val_t alignment)
+  [[nodiscard]] static void* /*absl_nonnull*/ AllocReportedImpending(
+      size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(tc_globals.IsInited());
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
@@ -320,26 +321,26 @@ class CpuCache {
 
   // Allocate an object of the given size class.
   // Returns nullptr when allocation fails.
-  [[nodiscard]] void* Allocate(size_t size_class);
+  [[nodiscard]] void* /*absl_nullable*/ Allocate(size_t size_class);
   // Separate allocation fast/slow paths.
   // The fast path succeeds iff the thread has already cached the slab pointer
   // (done by AllocateSlow) and there is an available object in the slab.
-  [[nodiscard]] void* AllocateFast(size_t size_class);
-  [[nodiscard]] void* AllocateSlow(size_t size_class);
+  [[nodiscard]] void* /*absl_nullable*/ AllocateFast(size_t size_class);
+  [[nodiscard]] void* /*absl_nullable*/ AllocateSlow(size_t size_class);
   // A slightly faster version of AllocateSlow that may be called only
   // when it's known that no hooks are installed.
-  [[nodiscard]] void* AllocateSlowNoHooks(size_t size_class);
+  [[nodiscard]] void* /*absl_nullable*/ AllocateSlowNoHooks(size_t size_class);
 
   // Free an object of the given class.
-  void Deallocate(void* ptr, size_t size_class);
+  void Deallocate(void* /*absl_nonnull*/ ptr, size_t size_class);
   // Separate deallocation fast/slow paths.
   // The fast path succeeds iff the thread has already cached the slab pointer
   // (done by DeallocateSlow) and there is free space in the slab.
-  bool DeallocateFast(void* ptr, size_t size_class);
-  void DeallocateSlow(void* ptr, size_t size_class);
+  bool DeallocateFast(void* /*absl_nonnull*/ ptr, size_t size_class);
+  void DeallocateSlow(void* /*absl_nonnull*/ ptr, size_t size_class);
   // A slightly faster version of DeallocateSlow that may be called only
   // when it's known that no hooks are installed.
-  void DeallocateSlowNoHooks(void* ptr, size_t size_class);
+  void DeallocateSlowNoHooks(void* /*absl_nonnull*/ ptr, size_t size_class);
 
   // Force all Allocate/DeallocateFast to fail in the current thread
   // if malloc hooks are installed.
@@ -621,9 +622,10 @@ class CpuCache {
                                           absl::Span<void*> batch);
 
   // Releases free batch of objects to the backing transfer cache.
-  void ReleaseToBackingCache(size_t size_class, absl::Span<void*> batch);
+  void ReleaseToBackingCache(size_t size_class,
+                             absl::Span<void* /*absl_nonnull*/> batch);
 
-  [[nodiscard]] void* Refill(int cpu, size_t size_class);
+  [[nodiscard]] void* /*absl_nullable*/ Refill(int cpu, size_t size_class);
   std::pair<int, bool> CacheCpuSlab();
   void Populate(int cpu);
 

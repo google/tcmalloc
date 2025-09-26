@@ -60,11 +60,12 @@ class StaticForwarder {
 
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
-  static void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
+  static void MapObjectsToSpans(absl::Span<void*> batch,
+                                Span** /*absl_nonnull*/ spans,
                                 int expected_size_class);
-  [[nodiscard]] static Span* AllocateSpan(int size_class,
-                                          size_t objects_per_span,
-                                          Length pages_per_span)
+  [[nodiscard]] static Span* /*absl_nullable*/ AllocateSpan(int size_class,
+                                                        size_t objects_per_span,
+                                                        Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
   static void DeallocateSpans(size_t objects_per_span,
                               absl::Span<Span*> free_spans)
@@ -113,7 +114,8 @@ class CentralFreeList {
 
   // Insert batch into the central freelist.
   // REQUIRES: batch.size() > 0 && batch.size() <= kMaxObjectsToMove.
-  void InsertRange(absl::Span<void*> batch) ABSL_LOCKS_EXCLUDED(lock_);
+  void InsertRange(absl::Span<void* /*absl_nonnull*/> batch)
+      ABSL_LOCKS_EXCLUDED(lock_);
 
   // Fill a prefix of batch[0..N-1] with up to N elements removed from central
   // freelist.  Return the number of elements removed.
@@ -159,8 +161,10 @@ class CentralFreeList {
   // Release a batch of objects to a span.
   //
   // Returns object's span if it become completely free.
-  Span* ReleaseToSpans(absl::Span<void*> batch, Span* span, size_t object_size,
-                       uint32_t size_reciprocal)
+  Span* /*absl_nullable*/ ReleaseToSpans(absl::Span<void* /*absl_nonnull*/> batch,
+                                     Span* /*absl_nonnull*/ span,
+                                     size_t object_size,
+                                     uint32_t size_reciprocal)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Populate cache by fetching from the page heap.
@@ -173,13 +177,13 @@ class CentralFreeList {
   Span* AllocateSpan();
 
   // Deallocate spans to the forwarder.
-  void DeallocateSpans(absl::Span<Span*> spans);
+  void DeallocateSpans(absl::Span<Span* /*absl_nonnull*/> spans);
 
   // Parses nonempty_ lists and returns span from the list with the lowest
   // possible index.
   // Returns the span if one exists in the nonempty_ lists. Else, returns
   // nullptr.
-  Span* FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  Span* /*absl_nullable*/ FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Returns first index to the nonempty_ lists that may record spans.
   uint8_t GetFirstNonEmptyIndex() const;

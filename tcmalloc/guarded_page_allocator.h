@@ -139,15 +139,17 @@ class GuardedPageAllocator {
 
   // Deallocates memory pointed to by ptr.  ptr must have been previously
   // returned by a call to Allocate.
-  void Deallocate(void* ptr) ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
+  void Deallocate(void* /*absl_nonnull*/ ptr)
+      ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Returns the size requested when ptr was allocated.  ptr must have been
   // previously returned by a call to Allocate.
-  size_t GetRequestedSize(const void* ptr) const;
+  size_t GetRequestedSize(const void* /*absl_nonnull*/ ptr) const;
 
   // Returns ptr's offset from the beginning of its allocation along with the
   // allocation's size.
-  std::pair<off_t, size_t> GetAllocationOffsetAndSize(const void* ptr) const;
+  std::pair<off_t, size_t> GetAllocationOffsetAndSize(
+      const void* /*absl_nonnull*/ ptr) const;
 
   // Records stack traces in alloc_trace and dealloc_trace for the page nearest
   // to ptr.  alloc_trace is the trace at the time the page was allocated.  If
@@ -159,7 +161,7 @@ class GuardedPageAllocator {
   //
   // Requires that ptr points to memory mapped by this class.
   GuardedAllocationsErrorType GetStackTraces(
-      const void* ptr, GuardedAllocationsStackTrace** alloc_trace,
+      const void* /*absl_nonnull*/ ptr, GuardedAllocationsStackTrace** alloc_trace,
       GuardedAllocationsStackTrace** dealloc_trace) const;
 
   // Writes a human-readable summary of GuardedPageAllocator's internal state to
@@ -170,7 +172,7 @@ class GuardedPageAllocator {
 
   // Returns true if ptr points to memory managed by this class.
   inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
-  PointerIsMine(const void* ptr) const {
+  PointerIsMine(const void* /*absl_nullable*/ ptr) const {
     uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
     return pages_base_addr_ <= addr && addr < pages_end_addr_;
   }
@@ -261,7 +263,8 @@ class GuardedPageAllocator {
   // If slot is marked for right alignment, moves the allocation in *ptr to the
   // right end of the slot, maintaining the specified size and alignment.  Magic
   // bytes are written in any alignment padding.
-  void MaybeRightAlign(size_t slot, size_t size, size_t alignment, void** ptr);
+  void MaybeRightAlign(size_t slot, size_t size, size_t alignment,
+                       void** /*absl_nonnull*/ ptr);
 
   uintptr_t SlotToAddr(size_t slot) const;
   size_t AddrToSlot(uintptr_t addr) const;

@@ -20,6 +20,7 @@
 #include <optional>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
@@ -84,11 +85,13 @@ static absl::string_view MadviseString() {
 // The boolean report_residence determines whether residence information
 // should be captured or not. Residence info requires a potentially
 // costly OS call, and is not necessary in all situations.
-void ExtractStats(TCMallocStats* r, uint64_t* class_count,
-                  SpanStats* span_stats, SmallSpanStats* small_spans,
-                  LargeSpanStats* large_spans, bool report_residence) {
-  r->central_bytes = 0;
-  r->transfer_bytes = 0;
+void ExtractStats(TCMallocStats& r, uint64_t* /*absl_nullable*/ class_count,
+                  SpanStats* /*absl_nullable*/ span_stats,
+                  SmallSpanStats* /*absl_nullable*/ small_spans,
+                  LargeSpanStats* /*absl_nullable*/ large_spans,
+                  bool report_residence) {
+  r.central_bytes = 0;
+  r.transfer_bytes = 0;
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     const size_t length = tc_globals.central_freelist(size_class).length();
     const size_t tc_length = tc_globals.transfer_cache().tc_length(size_class);
@@ -97,8 +100,8 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     const size_t cache_overhead =
         tc_globals.central_freelist(size_class).OverheadBytes();
     const size_t size = tc_globals.sizemap().class_to_size(size_class);
-    r->central_bytes += (size * length) + cache_overhead;
-    r->transfer_bytes += (size * tc_length);
+    r.central_bytes += (size * length) + cache_overhead;
+    r.transfer_bytes += (size * tc_length);
     if (class_count) {
       // Sum the lengths of all per-class freelists, except the per-thread
       // freelists, which get counted when we call GetThreadStats(), below.
@@ -115,19 +118,19 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   }
 
   // Add stats from per-thread heaps
-  r->thread_bytes = 0;
+  r.thread_bytes = 0;
 
-  r->span_stats = tc_globals.span_allocator().stats();
-  r->stack_stats = tc_globals.sampledallocation_allocator().stats();
-  r->linked_sample_stats = tc_globals.linked_sample_allocator().stats();
-  r->tc_stats = ThreadCache::GetStats(&r->thread_bytes, class_count);
+  r.span_stats = tc_globals.span_allocator().stats();
+  r.stack_stats = tc_globals.sampledallocation_allocator().stats();
+  r.linked_sample_stats = tc_globals.linked_sample_allocator().stats();
+  r.tc_stats = ThreadCache::GetStats(&r.thread_bytes, class_count);
 
   {  // scope
     PageHeapSpinLockHolder l;
-    r->metadata_bytes = tc_globals.metadata_bytes();
-    r->pagemap_bytes = tc_globals.pagemap().bytes();
-    r->pageheap = tc_globals.page_allocator().stats();
-    r->peak_stats = tc_globals.page_allocator().peak_stats();
+    r.metadata_bytes = tc_globals.metadata_bytes();
+    r.pagemap_bytes = tc_globals.pagemap().bytes();
+    r.pageheap = tc_globals.page_allocator().stats();
+    r.peak_stats = tc_globals.page_allocator().peak_stats();
     if (small_spans != nullptr) {
       tc_globals.page_allocator().GetSmallSpanStats(small_spans);
     }
@@ -137,36 +140,36 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
 
     // TODO(b/207622377):  Arena is thread-safe, but we take the pageheap_lock
     // to present a consistent view of memory usage.
-    r->arena = tc_globals.arena().stats();
+    r.arena = tc_globals.arena().stats();
 
     const PageReleaseStats release_stats =
         tc_globals.page_allocator().GetReleaseStats();
 
-    r->num_released_total = release_stats.total;
-    r->num_released_release_memory_to_system =
+    r.num_released_total = release_stats.total;
+    r.num_released_release_memory_to_system =
         release_stats.release_memory_to_system;
-    r->num_released_process_background_actions =
+    r.num_released_process_background_actions =
         release_stats.process_background_actions;
-    r->num_released_soft_limit_exceeded = release_stats.soft_limit_exceeded;
-    r->num_released_hard_limit_exceeded = release_stats.hard_limit_exceeded;
+    r.num_released_soft_limit_exceeded = release_stats.soft_limit_exceeded;
+    r.num_released_hard_limit_exceeded = release_stats.hard_limit_exceeded;
 
-    r->per_cpu_bytes = 0;
-    r->sharded_transfer_bytes = 0;
-    r->percpu_metadata_bytes_res = 0;
-    r->percpu_metadata_bytes = 0;
+    r.per_cpu_bytes = 0;
+    r.sharded_transfer_bytes = 0;
+    r.percpu_metadata_bytes_res = 0;
+    r.percpu_metadata_bytes = 0;
     if (UsePerCpuCache(tc_globals)) {
-      r->per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
-      r->sharded_transfer_bytes =
+      r.per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
+      r.sharded_transfer_bytes =
           tc_globals.sharded_transfer_cache().TotalBytes();
 
       if (report_residence) {
         auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
-        r->percpu_metadata_bytes_res = percpu_metadata.resident_size;
-        r->percpu_metadata_bytes = percpu_metadata.virtual_size;
+        r.percpu_metadata_bytes_res = percpu_metadata.resident_size;
+        r.percpu_metadata_bytes = percpu_metadata.virtual_size;
 
-        TC_ASSERT_GE(r->metadata_bytes, r->percpu_metadata_bytes);
-        r->metadata_bytes = r->metadata_bytes - r->percpu_metadata_bytes +
-                            r->percpu_metadata_bytes_res;
+        TC_ASSERT_GE(r.metadata_bytes, r.percpu_metadata_bytes);
+        r.metadata_bytes = r.metadata_bytes - r.percpu_metadata_bytes +
+                           r.percpu_metadata_bytes_res;
       }
     }
   }
@@ -175,15 +178,15 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   // constants.
   if (report_residence) {
     auto resident_bytes = tc_globals.pagemap_residence();
-    r->pagemap_root_bytes_res = resident_bytes;
-    TC_ASSERT_GE(r->metadata_bytes, r->pagemap_bytes);
-    r->metadata_bytes = r->metadata_bytes - r->pagemap_bytes + resident_bytes;
+    r.pagemap_root_bytes_res = resident_bytes;
+    TC_ASSERT_GE(r.metadata_bytes, r.pagemap_bytes);
+    r.metadata_bytes = r.metadata_bytes - r.pagemap_bytes + resident_bytes;
   } else {
-    r->pagemap_root_bytes_res = 0;
+    r.pagemap_root_bytes_res = 0;
   }
 }
 
-void ExtractTCMallocStats(TCMallocStats* r, bool report_residence) {
+void ExtractTCMallocStats(TCMallocStats& r, bool report_residence) {
   ExtractStats(r, nullptr, nullptr, nullptr, nullptr, report_residence);
 }
 
@@ -298,9 +301,9 @@ void DumpStats(Printer& out, int level) {
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
   if (level >= 2) {
-    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, true);
+    ExtractStats(stats, class_count, span_stats, nullptr, nullptr, true);
   } else {
-    ExtractTCMallocStats(&stats, true);
+    ExtractTCMallocStats(stats, true);
   }
 
   static const double MiB = 1048576.0;
@@ -609,9 +612,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
   if (level >= 2) {
-    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, true);
+    ExtractStats(stats, class_count, span_stats, nullptr, nullptr, true);
   } else {
-    ExtractTCMallocStats(&stats, true);
+    ExtractTCMallocStats(stats, true);
   }
 
   const uint64_t bytes_in_use_by_app = InUseByApp(stats);
@@ -840,14 +843,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "generic.virtual_memory_used") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = VirtualMemoryUsed(stats);
     return true;
   }
 
   if (name == "generic.physical_memory_used") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = PhysicalMemoryUsed(stats);
     return true;
   }
@@ -855,21 +858,21 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "generic.current_allocated_bytes" ||
       name == "generic.bytes_in_use_by_app") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = InUseByApp(stats);
     return true;
   }
 
   if (name == "generic.peak_memory_usage") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = static_cast<uint64_t>(stats.peak_stats.backed_bytes);
     return true;
   }
 
   if (name == "generic.realized_fragmentation") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = static_cast<uint64_t>(
         100. * safe_div(stats.peak_stats.backed_bytes -
                             stats.peak_stats.sampled_application_bytes,
@@ -887,21 +890,21 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.central_cache_free") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = stats.central_bytes;
     return true;
   }
 
   if (name == "tcmalloc.cpu_free") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = stats.per_cpu_bytes;
     return true;
   }
 
   if (name == "tcmalloc.sharded_transfer_cache_free") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = stats.sharded_transfer_bytes;
     return true;
   }
@@ -944,42 +947,42 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.current_total_thread_cache_bytes" ||
       name == "tcmalloc.thread_cache_free") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = stats.thread_bytes;
     return true;
   }
 
   if (name == "tcmalloc.thread_cache_count") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = stats.tc_stats.in_use;
     return true;
   }
 
   if (name == "tcmalloc.local_bytes") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = LocalBytes(stats);
     return true;
   }
 
   if (name == "tcmalloc.external_fragmentation_bytes") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = ExternalBytes(stats);
     return true;
   }
 
   if (name == "tcmalloc.metadata_bytes") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, true);
+    ExtractTCMallocStats(stats, true);
     *value = stats.metadata_bytes;
     return true;
   }
 
   if (name == "tcmalloc.transfer_cache_free") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = stats.transfer_bytes;
     return true;
   }
@@ -1033,7 +1036,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.required_bytes") {
     TCMallocStats stats;
-    ExtractTCMallocStats(&stats, false);
+    ExtractTCMallocStats(stats, false);
     *value = RequiredBytes(stats);
     return true;
   }

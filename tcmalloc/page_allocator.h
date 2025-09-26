@@ -53,19 +53,21 @@ class PageAllocator {
   //
   // Any address in the returned Span is guaranteed to satisfy
   // GetMemoryTag(addr) == "tag".
-  Span* New(Length n, SpanAllocInfo span_alloc_info, MemoryTag tag)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  Span* /*absl_nullable*/ New(Length n, SpanAllocInfo span_alloc_info,
+                          MemoryTag tag) ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  Span* NewAligned(Length n, Length align, SpanAllocInfo span_alloc_info,
-                   MemoryTag tag) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  Span* /*absl_nullable*/ NewAligned(Length n, Length align,
+                                 SpanAllocInfo span_alloc_info, MemoryTag tag)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() with the same value of
   //           "tag" and has not yet been deleted.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  void Delete(Span* span, MemoryTag tag, SpanAllocInfo span_alloc_info)
+  void Delete(Span* /*absl_nonnull*/ span, MemoryTag tag,
+              SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 

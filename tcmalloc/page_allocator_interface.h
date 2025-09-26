@@ -39,13 +39,13 @@ class PageAllocatorInterface {
   // Allocate a run of "n" pages. These pages would be allocated to a total of
   // 'objects_per_span' objects. Returns zero if out of memory.  Caller should
   // not pass "n == 0" -- instead, n should have been rounded up already.
-  virtual Span* New(Length n, SpanAllocInfo span_alloc_info)
+  virtual Span* /*absl_nullable*/ New(Length n, SpanAllocInfo span_alloc_info)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  virtual Span* NewAligned(Length n, Length align,
-                           SpanAllocInfo span_alloc_info)
+  virtual Span* /*absl_nullable*/ NewAligned(Length n, Length align,
+                                         SpanAllocInfo span_alloc_info)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Delete the span "[p, p+n-1]".
@@ -54,7 +54,7 @@ class PageAllocatorInterface {
   //
   // TODO(b/175334169): Prefer the AllocationState-ful API.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  virtual void Delete(Span* span, SpanAllocInfo span_alloc_info)
+  virtual void Delete(Span* /*absl_nonnull*/ span, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 

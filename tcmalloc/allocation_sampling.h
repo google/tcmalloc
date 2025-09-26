@@ -64,17 +64,17 @@ extern "C" ABSL_CONST_INIT thread_local Sampler tcmalloc_sampler
 ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 
-inline Sampler* GetThreadSampler() {
+inline Sampler& GetThreadSampler() {
   static_assert(sizeof(Sampler) == TCMALLOC_SAMPLER_SIZE,
                 "update TCMALLOC_SAMPLER_SIZE");
   static_assert(alignof(Sampler) == TCMALLOC_SAMPLER_ALIGN,
                 "update TCMALLOC_SAMPLER_ALIGN");
   static_assert(Sampler::HotDataOffset() == TCMALLOC_SAMPLER_HOT_OFFSET,
                 "update TCMALLOC_SAMPLER_HOT_OFFSET");
-  return &tcmalloc_sampler;
+  return tcmalloc_sampler;
 }
 
-void FreeProxyObject(Static& state, void* ptr, size_t size_class);
+void FreeProxyObject(Static& state, void* /*absl_nonnull*/ ptr, size_t size_class);
 
 // Performs sampling for already occurred allocation of object.
 //
@@ -100,9 +100,9 @@ void FreeProxyObject(Static& state, void* ptr, size_t size_class);
 // stacktrace struct, this function simply cheats and returns original
 // object. As if no sampling was requested.
 template <typename Policy>
-ABSL_ATTRIBUTE_NOINLINE sized_ptr_t
-SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
-                    size_t weight, size_t size_class, void* obj, Span* span) {
+ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
+    Static& state, Policy policy, size_t requested_size, size_t weight,
+    size_t size_class, void* /*absl_nullable*/ obj, Span* /*absl_nullable*/ span) {
   TC_CHECK((size_class != 0 && obj != nullptr && span == nullptr) ||
            (size_class == 0 && obj == nullptr && span != nullptr));
 
@@ -255,7 +255,7 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
           capacity};
 }
 
-void MaybeUnsampleAllocation(Static& state, void* ptr,
+void MaybeUnsampleAllocation(Static& state, void* /*absl_nonnull*/ ptr,
                              std::optional<size_t> size, Span& span,
                              Profile::Sample::AllocationType type);
 
@@ -293,8 +293,9 @@ static inline Profile::Sample::AllocationType SimplifyType(
 }
 
 template <typename Policy>
-void MaybeUnsampleAllocation(Static& state, Policy policy, void* ptr,
-                             std::optional<size_t> size, Span& span) {
+void MaybeUnsampleAllocation(Static& state, Policy policy,
+                             void* /*absl_nonnull*/ ptr, std::optional<size_t> size,
+                             Span& span) {
   // No pageheap_lock required. The sampled span should be unmarked and have its
   // state cleared only once. External synchronization when freeing is required;
   // otherwise, concurrent writes here would likely report a double-free.

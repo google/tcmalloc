@@ -33,16 +33,18 @@ class AllocationSampleList;
 
 class AllocationSample final : public AllocationProfilingTokenBase {
  public:
-  AllocationSample(AllocationSampleList* list, absl::Time start);
+  AllocationSample(AllocationSampleList* /*absl_nonnull*/ list
+                       TCMALLOC_CAPTURED_BY_THIS,
+                   absl::Time start);
   ~AllocationSample() override;
 
   Profile Stop() && override;
 
  private:
-  AllocationSampleList* list_;
+  AllocationSampleList* /*absl_nonnull*/ list_;
   std::unique_ptr<StackTraceTable> mallocs_;
   absl::Time start_;
-  AllocationSample* next_ = nullptr;
+  AllocationSample* /*absl_nullable*/ next_ = nullptr;
   friend class AllocationSampleList;
 };
 
@@ -50,14 +52,14 @@ class AllocationSampleList {
  public:
   constexpr AllocationSampleList() = default;
 
-  void Add(AllocationSample* as) {
+  void Add(AllocationSample* /*absl_nonnull*/ as TCMALLOC_CAPTURED_BY_THIS) {
     AllocationGuardSpinLockHolder h(lock_);
     as->next_ = first_;
     first_ = as;
   }
 
   // This list is very short and we're nowhere near a hot path, just walk
-  void Remove(AllocationSample* as) {
+  void Remove(AllocationSample* /*absl_nonnull*/ as) {
     AllocationGuardSpinLockHolder h(lock_);
     AllocationSample** link = &first_;
     AllocationSample* cur = first_;
@@ -83,7 +85,7 @@ class AllocationSampleList {
   // samples. Invoking `new` while holding this lock can lead to deadlock.
   absl::base_internal::SpinLock lock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
-  AllocationSample* first_ ABSL_GUARDED_BY(lock_) = nullptr;
+  AllocationSample* /*absl_nullable*/ first_ ABSL_GUARDED_BY(lock_) = nullptr;
 };
 
 }  // namespace tcmalloc::tcmalloc_internal
