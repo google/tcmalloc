@@ -21,12 +21,14 @@
 #include <stdlib.h>
 
 #include <new>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/nullability.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -52,12 +54,16 @@ class PageAllocatorTest : public testing::Test {
     tc_globals.InitIfNecessary();
 
     before_ = MallocExtension::GetRegionFactory();
-    extra_ = new ExtraRegionFactory(before_);
-    MallocExtension::SetRegionFactory(extra_);
+    if (before_ != nullptr) {
+      extra_.emplace(before_);
+      MallocExtension::SetRegionFactory(&*extra_);
+    }
   }
   void TearDown() override {
-    MallocExtension::SetRegionFactory(before_);
-    delete extra_;
+    if (before_ != nullptr) {
+      MallocExtension::SetRegionFactory(before_);
+    }
+    extra_.reset();
   }
 
   Span* New(Length n, SpanAllocInfo span_alloc_info,
@@ -94,8 +100,8 @@ class PageAllocatorTest : public testing::Test {
   }
 
   PageAllocator allocator_;
-  ExtraRegionFactory* extra_;
-  AddressRegionFactory* before_;
+  std::optional<ExtraRegionFactory> extra_;
+  AddressRegionFactory* /*absl_nullable*/ before_;
 };
 
 // We've already tested in stats_test that PageAllocInfo keeps good stats;

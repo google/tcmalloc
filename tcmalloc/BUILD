@@ -1121,6 +1121,7 @@ cc_test(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:pageflags",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_googletest//:gtest_main",
     ],
 )
