@@ -101,7 +101,7 @@ class PageAllocatorTest : public testing::Test {
 
   PageAllocator allocator_;
   std::optional<ExtraRegionFactory> extra_;
-  AddressRegionFactory* /*absl_nullable*/ before_;
+  AddressRegionFactory* absl_nullable before_;
 };
 
 // We've already tested in stats_test that PageAllocInfo keeps good stats;

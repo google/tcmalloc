@@ -70,7 +70,7 @@ constexpr hot_cold_t kDefaultMinHotAccessHint =
 }  // namespace tcmalloc
 
 inline bool AbslParseFlag(absl::string_view text,
-                          tcmalloc::hot_cold_t* /*absl_nonnull*/ hotness,
+                          tcmalloc::hot_cold_t* absl_nonnull hotness,
                           std::string* /* error */) {
   uint32_t value;
   if (!absl::SimpleAtoi(text, &value)) {
@@ -267,7 +267,7 @@ class Profile final {
 
     // The start address of the sampled allocation, used to calculate the
     // residency info for the objects represented by this sampled allocation.
-    void* /*absl_nonnull*/ span_start_address;
+    void* absl_nonnull span_start_address;
   };
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;
@@ -300,7 +300,7 @@ class AddressRegion {
   //
   // Alloc must return memory located within the address range given in the call
   // to AddressRegionFactory::Create that created this AddressRegion.
-  virtual std::pair<void* /*absl_nullable*/, size_t> Alloc(size_t size,
+  virtual std::pair<void* absl_nullable, size_t> Alloc(size_t size,
                                                        size_t alignment) = 0;
 };
 
@@ -334,7 +334,7 @@ class AddressRegionFactory {
   // start_addr with mmap(PROT_NONE) prior to calling this function (so it is
   // safe for Create() to mmap(MAP_FIXED) over the specified address range).
   // start_addr and size are always page-aligned.
-  virtual AddressRegion* /*absl_nonnull*/ Create(void* /*absl_nonnull*/ start_addr,
+  virtual AddressRegion* absl_nonnull Create(void* absl_nonnull start_addr,
                                              size_t size, UsageHint hint) = 0;
 
   // Gets a human-readable description of the current state of the allocator.
@@ -359,7 +359,7 @@ class AddressRegionFactory {
   // useful for creating AddressRegions inside Create().
   //
   // This memory is never freed, so allocate sparingly.
-  [[nodiscard]] static void* /*absl_nonnull*/ MallocInternal(size_t size);
+  [[nodiscard]] static void* absl_nonnull MallocInternal(size_t size);
 };
 
 class MallocExtension final {
@@ -442,7 +442,7 @@ class MallocExtension final {
 
   // Gets the region factory used by the malloc extension instance. Returns null
   // for malloc implementations that do not support pluggable region factories.
-  static AddressRegionFactory* /*absl_nullable*/ GetRegionFactory();
+  static AddressRegionFactory* absl_nullable GetRegionFactory();
 
   // Sets the region factory to the specified.
   //
@@ -453,7 +453,7 @@ class MallocExtension final {
   // It's up to users whether to fall back (recommended) to the default region
   // factory (use GetRegionFactory() above) or not. The caller is responsible to
   // any necessary locking.
-  static void SetRegionFactory(AddressRegionFactory* /*absl_nonnull*/ a);
+  static void SetRegionFactory(AddressRegionFactory* absl_nonnull a);
 
   // Tries to release at least num_bytes of free memory back to the OS for
   // reuse.
@@ -601,7 +601,7 @@ class MallocExtension final {
   // some offset from that -- and should not have been freed yet.  p may be
   // null.
   [[nodiscard]] static std::optional<size_t> GetAllocatedSize(
-      const void* /*absl_nullable*/ p);
+      const void* absl_nullable p);
 
   // Returns
   // * kOwned if TCMalloc allocated the memory pointed to by p, or
@@ -613,7 +613,7 @@ class MallocExtension final {
   // for instance, you should not pass in a pointer after having called free()
   // on it).
   enum class Ownership { kUnknown = 0, kOwned, kNotOwned };
-  static Ownership GetOwnership(const void* /*absl_nullable*/ p);
+  static Ownership GetOwnership(const void* absl_nullable p);
 
   // Type used by GetProperties.  See comment on GetProperties.
   struct Property {
@@ -922,7 +922,7 @@ enum class MadvisePreference {
 };
 
 inline bool AbslParseFlag(absl::string_view text,
-                          MadvisePreference* /*absl_nonnull*/ preference,
+                          MadvisePreference* absl_nonnull preference,
                           std::string* /* error */) {
   if (text == "NEVER") {
     *preference = MadvisePreference::kNever;

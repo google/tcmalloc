@@ -37,11 +37,11 @@ class DeallocationProfilerList {
   void ReportMalloc(const tcmalloc_internal::StackTrace& stack_trace);
   void ReportFree(tcmalloc_internal::AllocHandle handle);
   void Add(
-      DeallocationProfiler* /*absl_nonnull*/ profiler TCMALLOC_CAPTURED_BY_THIS);
-  void Remove(DeallocationProfiler* /*absl_nonnull*/ profiler);
+      DeallocationProfiler* absl_nonnull profiler TCMALLOC_CAPTURED_BY_THIS);
+  void Remove(DeallocationProfiler* absl_nonnull profiler);
 
  private:
-  DeallocationProfiler* /*absl_nullable*/ first_ = nullptr;
+  DeallocationProfiler* absl_nullable first_ = nullptr;
   absl::base_internal::SpinLock profilers_lock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
 };
@@ -49,7 +49,7 @@ class DeallocationProfilerList {
 class DeallocationSample final
     : public tcmalloc_internal::AllocationProfilingTokenBase {
  public:
-  explicit DeallocationSample(DeallocationProfilerList* /*absl_nonnull*/ list);
+  explicit DeallocationSample(DeallocationProfilerList* absl_nonnull list);
   // We define the dtor to ensure it is placed in the desired text section.
   ~DeallocationSample() override;
 

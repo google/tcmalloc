@@ -103,12 +103,12 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   // Allocator/deallocator for spans. Note that these functions are defined
   // in static_vars.h, which is weird: see there for why.
-  static Span* /*absl_nonnull*/ New(Range r)
+  static Span* absl_nonnull New(Range r)
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       ABSL_LOCKS_EXCLUDED(pageheap_lock)
 #endif
           ;
-  static void Delete(Span* /*absl_nonnull*/ span);
+  static void Delete(Span* absl_nonnull span);
 
   // ---------------------------------------------------------------------------
   // Support for sampled allocations.
@@ -118,13 +118,13 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Mark this span in the "SAMPLED" state. It will store the corresponding
   // sampled allocation and update some global counters on the total size of
   // sampled allocations.
-  void Sample(SampledAllocation* /*absl_nonnull*/ sampled_allocation);
+  void Sample(SampledAllocation* absl_nonnull sampled_allocation);
 
   // Unmark this span from its "SAMPLED" state. It will return the sampled
   // allocation previously passed to Span::Sample() or nullptr if this is a
   // non-sampling span. It will also update the global counters on the total
   // size of sampled allocations.
-  [[nodiscard]] SampledAllocation* /*absl_nullable*/ Unsample();
+  [[nodiscard]] SampledAllocation* absl_nullable Unsample();
 
   // Returns the sampled allocation of the span.
   // pageheap_lock is not required, but caller either needs to hold the lock or
@@ -198,7 +198,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // just return false.
   //
   // If the freelist becomes full, we do not push the object onto the freelist.
-  [[nodiscard]] bool FreelistPushBatch(absl::Span<void* /*absl_nonnull*/> batch,
+  [[nodiscard]] bool FreelistPushBatch(absl::Span<void* absl_nonnull> batch,
                                        size_t size, uint32_t reciprocal);
 
   // Pops up to N objects from the freelist and returns them in the batch array.

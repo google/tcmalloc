@@ -66,7 +66,7 @@ class StaticForwarder {
 
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
-  static void* /*absl_nonnull*/ Alloc(size_t size,
+  static void* absl_nonnull Alloc(size_t size,
                                   std::align_val_t alignment = kAlignment);
 };
 
@@ -197,7 +197,7 @@ class ShardedTransferCacheManagerBase {
     return objects;
   }
 
-  [[nodiscard]] void* /*absl_nullable*/ Pop(int size_class) {
+  [[nodiscard]] void* absl_nullable Pop(int size_class) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
     void* batch[1];
     const int got =
@@ -205,7 +205,7 @@ class ShardedTransferCacheManagerBase {
     return got == 1 ? batch[0] : nullptr;
   }
 
-  void Push(int size_class, void* /*absl_nonnull*/ ptr) {
+  void Push(int size_class, void* absl_nonnull ptr) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
     get_cache(size_class).InsertRange(size_class, absl::MakeSpan(&ptr, 1));
   }

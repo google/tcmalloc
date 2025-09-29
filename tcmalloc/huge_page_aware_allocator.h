@@ -160,12 +160,12 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
-  Span* /*absl_nullable*/ New(Length n, SpanAllocInfo span_alloc_info)
+  Span* absl_nullable New(Length n, SpanAllocInfo span_alloc_info)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  Span* /*absl_nullable*/ NewAligned(Length n, Length align,
+  Span* absl_nullable NewAligned(Length n, Length align,
                                  SpanAllocInfo span_alloc_info)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 

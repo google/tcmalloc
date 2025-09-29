@@ -35,7 +35,7 @@ class MetadataAllocator {
   MetadataAllocator& operator=(MetadataAllocator&&) = delete;
 
   // Allocates bytes suitable for metadata.
-  [[nodiscard]] virtual void* /*absl_nonnull*/ operator()(size_t bytes) = 0;
+  [[nodiscard]] virtual void* absl_nonnull operator()(size_t bytes) = 0;
 };
 
 }  // namespace tcmalloc::tcmalloc_internal

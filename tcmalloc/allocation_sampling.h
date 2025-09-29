@@ -74,7 +74,7 @@ inline Sampler& GetThreadSampler() {
   return tcmalloc_sampler;
 }
 
-void FreeProxyObject(Static& state, void* /*absl_nonnull*/ ptr, size_t size_class);
+void FreeProxyObject(Static& state, void* absl_nonnull ptr, size_t size_class);
 
 // Performs sampling for already occurred allocation of object.
 //
@@ -102,7 +102,7 @@ void FreeProxyObject(Static& state, void* /*absl_nonnull*/ ptr, size_t size_clas
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     Static& state, Policy policy, size_t requested_size, size_t weight,
-    size_t size_class, void* /*absl_nullable*/ obj, Span* /*absl_nullable*/ span) {
+    size_t size_class, void* absl_nullable obj, Span* absl_nullable span) {
   TC_CHECK((size_class != 0 && obj != nullptr && span == nullptr) ||
            (size_class == 0 && obj == nullptr && span != nullptr));
 
@@ -255,7 +255,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
           capacity};
 }
 
-void MaybeUnsampleAllocation(Static& state, void* /*absl_nonnull*/ ptr,
+void MaybeUnsampleAllocation(Static& state, void* absl_nonnull ptr,
                              std::optional<size_t> size, Span& span,
                              Profile::Sample::AllocationType type);
 
@@ -294,7 +294,7 @@ static inline Profile::Sample::AllocationType SimplifyType(
 
 template <typename Policy>
 void MaybeUnsampleAllocation(Static& state, Policy policy,
-                             void* /*absl_nonnull*/ ptr, std::optional<size_t> size,
+                             void* absl_nonnull ptr, std::optional<size_t> size,
                              Span& span) {
   // No pageheap_lock required. The sampled span should be unmarked and have its
   // state cleared only once. External synchronization when freeing is required;

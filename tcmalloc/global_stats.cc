@@ -85,10 +85,10 @@ static absl::string_view MadviseString() {
 // The boolean report_residence determines whether residence information
 // should be captured or not. Residence info requires a potentially
 // costly OS call, and is not necessary in all situations.
-void ExtractStats(TCMallocStats& r, uint64_t* /*absl_nullable*/ class_count,
-                  SpanStats* /*absl_nullable*/ span_stats,
-                  SmallSpanStats* /*absl_nullable*/ small_spans,
-                  LargeSpanStats* /*absl_nullable*/ large_spans,
+void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
+                  SpanStats* absl_nullable span_stats,
+                  SmallSpanStats* absl_nullable small_spans,
+                  LargeSpanStats* absl_nullable large_spans,
                   bool report_residence) {
   r.central_bytes = 0;
   r.transfer_bytes = 0;

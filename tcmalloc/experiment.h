@@ -50,7 +50,7 @@ constexpr size_t kNumExperiments =
 // buffer must be sized for kMaxExperimentID entries.
 //
 // This is exposed for testing purposes only.
-const bool* /*absl_nonnull*/ SelectExperiments(bool* /*absl_nonnull*/ buffer,
+const bool* absl_nonnull SelectExperiments(bool* absl_nonnull buffer,
                                            absl::string_view test_target,
                                            absl::string_view active,
                                            absl::string_view disabled,

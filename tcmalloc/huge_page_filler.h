@@ -216,8 +216,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   // collapse was successful.
   MemoryModifyStatus Collapse(MemoryModifyFunction& collapse);
 
-  void AddSpanStats(SmallSpanStats* /*absl_nullable*/ small,
-                    LargeSpanStats* /*absl_nullable*/ large) const;
+  void AddSpanStats(SmallSpanStats* absl_nullable small,
+                    LargeSpanStats* absl_nullable large) const;
   bool HasDenseSpans() const { return has_dense_spans_; }
   void SetHasDenseSpans() { has_dense_spans_ = true; }
 
@@ -875,7 +875,7 @@ class HugePageFiller {
   typedef TrackerType Tracker;
 
   struct TryGetResult {
-    TrackerType* /*absl_nullable*/ pt;
+    TrackerType* absl_nullable pt;
     PageId page;
     bool from_released;
   };
@@ -897,17 +897,17 @@ class HugePageFiller {
   //
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, Range{p, n}} was the result of a previous TryGet.
-  TrackerType* /*absl_nullable*/ Put(TrackerType* /*absl_nonnull*/ pt, Range r,
+  TrackerType* absl_nullable Put(TrackerType* absl_nonnull pt, Range r,
                                  SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
   // marked as having come from the tail of a multi-hugepage allocation, which
   // causes it to be treated slightly differently.
-  void Contribute(TrackerType* /*absl_nonnull*/ pt TCMALLOC_CAPTURED_BY_THIS,
+  void Contribute(TrackerType* absl_nonnull pt TCMALLOC_CAPTURED_BY_THIS,
                   bool donated, SpanAllocInfo span_alloc_info);
 
-  TrackerType* /*absl_nullable*/ FetchFullyFreedTracker()
+  TrackerType* absl_nullable FetchFullyFreedTracker()
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   HugeLength size() const { return size_; }
@@ -1115,12 +1115,12 @@ class HugePageFiller {
   Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
-  void RemoveFromFillerList(TrackerType* /*absl_nonnull*/ pt);
+  void RemoveFromFillerList(TrackerType* absl_nonnull pt);
   // Put pt in the appropriate PageTrackerList.
-  void AddToFillerList(TrackerType* /*absl_nonnull*/ pt);
+  void AddToFillerList(TrackerType* absl_nonnull pt);
   // Like AddToFillerList(), but for use when donating from the tail of a
   // multi-hugepage allocation.
-  void DonateToFillerList(TrackerType* /*absl_nonnull*/ pt);
+  void DonateToFillerList(TrackerType* absl_nonnull pt);
 
   void PrintAllocStatsInPbtxt(absl::string_view field, PbtxtRegion& hpaa,
                               const HugePageFillerStats& stats,
@@ -1147,8 +1147,8 @@ class HugePageFiller {
 
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
-  static bool CompareForSubrelease(const TrackerType* /*absl_nonnull*/ a,
-                                   const TrackerType* /*absl_nonnull*/ b) {
+  static bool CompareForSubrelease(const TrackerType* absl_nonnull a,
+                                   const TrackerType* absl_nonnull b) {
     TC_ASSERT_NE(a, nullptr);
     TC_ASSERT_NE(b, nullptr);
 
@@ -1175,7 +1175,7 @@ class HugePageFiller {
 
   // Release desired pages from the page trackers in candidates.  Returns the
   // number of pages released.
-  Length ReleaseCandidates(absl::Span<TrackerType* /*absl_nonnull*/> candidates,
+  Length ReleaseCandidates(absl::Span<TrackerType* absl_nonnull> candidates,
                            Length target)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -3143,7 +3143,7 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
 }
 
 template <class TrackerType>
-inline TrackerType* /*absl_nullable*/
+inline TrackerType* absl_nullable
 HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
   if (fully_freed_trackers_.empty()) {
     return nullptr;

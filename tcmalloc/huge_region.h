@@ -80,8 +80,8 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
   // Returns false if no range available.
-  bool MaybeGet(Length n, PageId* /*absl_nonnull*/ p,
-                bool* /*absl_nonnull*/ from_released);
+  bool MaybeGet(Length n, PageId* absl_nonnull p,
+                bool* absl_nonnull from_released);
 
   // Return r for new allocations.
   // If release=true, release any hugepages made empty as a result.
@@ -167,8 +167,8 @@ class HugeRegionSet {
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
   // Returns false if no range available.
-  bool MaybeGet(Length n, PageId* /*absl_nonnull*/ page,
-                bool* /*absl_nonnull*/ from_released);
+  bool MaybeGet(Length n, PageId* absl_nonnull page,
+                bool* absl_nonnull from_released);
 
   // Return an allocation to a region (if one matches!)
   bool MaybePut(Range r);
@@ -207,7 +207,7 @@ class HugeRegionSet {
   }
 
  private:
-  void Fix(Region* /*absl_nonnull*/ r) {
+  void Fix(Region* absl_nonnull r) {
     // We've changed r's fragmentation--move it through the list to the
     // correct home (if needed).
     Rise(r);
@@ -215,7 +215,7 @@ class HugeRegionSet {
   }
 
   // Check if r has to move forward in the list.
-  void Rise(Region* /*absl_nonnull*/ r) {
+  void Rise(Region* absl_nonnull r) {
     auto prev = list_.at(r);
     --prev;
     if (prev == list_.end()) return;           // we're at the front
@@ -231,7 +231,7 @@ class HugeRegionSet {
   }
 
   // Check if r has to move backward in the list.
-  void Fall(Region* /*absl_nonnull*/ r) {
+  void Fall(Region* absl_nonnull r) {
     auto next = list_.at(r);
     ++next;
     if (next == list_.end()) return;          // we're at the back
@@ -247,7 +247,7 @@ class HugeRegionSet {
   }
 
   // Add r in its sorted place.
-  void AddToList(Region* /*absl_nonnull*/ r) {
+  void AddToList(Region* absl_nonnull r) {
     for (Region* curr : list_) {
       if (r->BetterToAllocThan(curr)) {
         list_.prepend(curr, r);

@@ -44,21 +44,21 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   // Allocate an object of the given size class.
   // Returns nullptr when allocation fails.
-  void* /*absl_nullable*/ Allocate(size_t size_class);
+  void* absl_nullable Allocate(size_t size_class);
 
-  void Deallocate(void* /*absl_nonnull*/ ptr, size_t size_class);
+  void Deallocate(void* absl_nonnull ptr, size_t size_class);
 
   static void InitTSD();
-  static ThreadCache* /*absl_nonnull*/ GetCache();
-  static ThreadCache* /*absl_nullable*/ GetCacheIfPresent();
+  static ThreadCache* absl_nonnull GetCache();
+  static ThreadCache* absl_nullable GetCacheIfPresent();
   static void BecomeIdle();
 
   // Adds to *total_bytes the total number of bytes used by all thread heaps.
   // Also, if class_count is not NULL, it must be an array of size kNumClasses,
   // and this function will increment each element of class_count by the number
   // of items in all thread-local freelists of the corresponding size class.
-  static AllocatorStats GetStats(uint64_t* /*absl_nonnull*/ total_bytes,
-                                 uint64_t* /*absl_nullable*/ class_count)
+  static AllocatorStats GetStats(uint64_t* absl_nonnull total_bytes,
+                                 uint64_t* absl_nullable class_count)
       ABSL_LOCKS_EXCLUDED(threadcache_lock_);
 
   // Sets the total thread cache size to new_size, recomputing the

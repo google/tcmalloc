@@ -38,7 +38,7 @@ class HintedTrackerLists {
 
   // Removes a TrackerType from the first non-empty freelist with index at
   // least n and returns it. Returns nullptr if there is none.
-  TrackerType* /*absl_nullable*/ GetLeast(const size_t n) {
+  TrackerType* absl_nullable GetLeast(const size_t n) {
     TC_ASSERT_LT(n, N);
     size_t i = nonempty_.FindSet(n);
     if (i == N) {
@@ -58,7 +58,7 @@ class HintedTrackerLists {
   //
   // Unlike GetLeast, this does not remove the pointer from the list when it is
   // found.
-  TrackerType* /*absl_nullable*/ PeekLeast(const size_t n) {
+  TrackerType* absl_nullable PeekLeast(const size_t n) {
     TC_ASSERT_LT(n, N);
     size_t i = nonempty_.FindSet(n);
     if (i == N) {
@@ -70,7 +70,7 @@ class HintedTrackerLists {
 
   // Adds pointer <pt> to the nonempty_[i] list.
   // REQUIRES: i < N && pt != nullptr.
-  void Add(TrackerType* /*absl_nonnull*/ pt TCMALLOC_CAPTURED_BY_THIS,
+  void Add(TrackerType* absl_nonnull pt TCMALLOC_CAPTURED_BY_THIS,
            const size_t i) {
     TC_ASSERT_LT(i, N);
     TC_ASSERT_NE(pt, nullptr);
@@ -81,7 +81,7 @@ class HintedTrackerLists {
 
   // Removes pointer <pt> from the nonempty_[i] list.
   // REQUIRES: i < N && pt != nullptr.
-  void Remove(TrackerType* /*absl_nonnull*/ pt, const size_t i) {
+  void Remove(TrackerType* absl_nonnull pt, const size_t i) {
     TC_ASSERT_LT(i, N);
     TC_ASSERT_NE(pt, nullptr);
     if (lists_[i].remove(pt)) {

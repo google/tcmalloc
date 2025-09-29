@@ -168,7 +168,7 @@ class HugeCache {
   // memory that's currently backed from the kernel if we have it available.
   // *from_released is set to false if the return range is already backed;
   // otherwise, it is set to true (and the caller should back it.)
-  HugeRange Get(HugeLength n, bool* /*absl_nonnull*/ from_released);
+  HugeRange Get(HugeLength n, bool* absl_nonnull from_released);
 
   // Deallocate <r> (assumed to be backed by the kernel.)
   void Release(HugeRange r);

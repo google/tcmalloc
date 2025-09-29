@@ -545,7 +545,7 @@ class PageMap {
   // Return the descriptor and sizeclass for the specified page.
   // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] inline std::pair<Span* /*absl_nullable*/, CompactSizeClass>
+  [[nodiscard]] inline std::pair<Span* absl_nullable, CompactSizeClass>
   GetExistingDescriptorAndSizeClass(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return map_.get_existing_with_sizeclass(p.index());
@@ -554,7 +554,7 @@ class PageMap {
   // Return the descriptor for the specified page.
   // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] inline Span* /*absl_nullable*/ GetExistingDescriptor(PageId p) const
+  [[nodiscard]] inline Span* absl_nullable GetExistingDescriptor(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return map_.get_existing(p.index());
   }
