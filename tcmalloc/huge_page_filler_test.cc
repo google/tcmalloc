@@ -5373,6 +5373,95 @@ TEST_P(FillerTest, CheckFillerStats_SpansAllocated) {
   }
 }
 
+TEST_P(FillerTest, ResidencyTelemetry) {
+  if (kPagesPerHugePage != Length(256)) {
+    // The output is hardcoded on this assumption, and dynamically calculating
+    // it would be way too much of a pain.
+    return;
+  }
+
+  const Length kAlloc = kPagesPerHugePage / 2;
+
+  SpanAllocInfo sparsely_accessed_info = {1, AccessDensityPrediction::kSparse};
+  std::vector<PAlloc> p1 = AllocateVectorWithSpanAllocInfo(
+      kAlloc - Length(1), sparsely_accessed_info);
+  ASSERT_TRUE(!p1.empty());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, kMaxResidencyBits / 2);
+    swapped.SetRange(/*index=*/0, kMaxResidencyBits / 2);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  TreatHugepageTrackers(/*enable_collapse=*/true,
+                        /*enable_release_free_swapped=*/false,
+                        /*use_userspace_collapse_heuristics=*/false, &pageflags,
+                        &residency);
+  for (const auto& pa : p1) {
+    EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
+  }
+
+  std::string buffer_text(1024 * 1024, '\0');
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer_text.begin(), buffer_text.size());
+    filler_.Print(printer, /*everything=*/true, pageflags);
+  }
+  buffer_text.resize(strlen(buffer_text.c_str()));
+  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     1 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+)"));
+
+  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     1 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+)"));
+
+  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
+HugePageFiller: 1 of sparsely-accessed regular pages treated out of 1.
+)"));
+
+  std::string buffer_pbtxt(1024 * 1024, '\0');
+  Printer printer(&*buffer_pbtxt.begin(), buffer_pbtxt.size());
+  {
+    PageHeapSpinLockHolder l;
+    PbtxtRegion region(printer, kTop);
+    filler_.PrintInPbtxt(region, pageflags);
+  }
+  buffer_pbtxt.erase(printer.SpaceRequired());
+
+  EXPECT_THAT(
+      buffer_pbtxt,
+      testing::HasSubstr(
+          "unbacked_histogram { lower_bound: 232 upper_bound: 263 value: 1}"));
+  EXPECT_THAT(
+      buffer_pbtxt,
+      testing::HasSubstr(
+          "swapped_histogram { lower_bound: 232 upper_bound: 263 value: 1}"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_treated: 1"));
+  DeleteVector(p1);
+}
+
 TEST_P(FillerTest, PrintHugepageBackedStats) {
   const Length kAlloc = kPagesPerHugePage / 2;
   randomize_density_ = false;
@@ -5513,7 +5602,24 @@ HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
 
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of sparsely-accessed regular pages hugepage backed out of 3.
+HugePageFiller: 0 of sparsely-accessed regular pages treated out of 3.
 
 HugePageFiller: Sampled Trackers for sparsely-accessed regular pages:
 
@@ -5559,7 +5665,24 @@ HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
 
+HugePageFiller: # of densely-accessed regular hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed regular hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of densely-accessed regular pages hugepage backed out of 6.
+HugePageFiller: 0 of densely-accessed regular pages treated out of 6.
 
 HugePageFiller: Sampled Trackers for densely-accessed regular pages:
 
@@ -5589,7 +5712,24 @@ HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
 
+HugePageFiller: # of donated hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of donated hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of donated pages hugepage backed out of 1.
+HugePageFiller: 0 of donated pages treated out of 1.
 
 HugePageFiller: Sampled Trackers for donated pages:
 
@@ -5635,7 +5775,24 @@ HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
 
+HugePageFiller: # of sparsely-accessed partial released hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed partial released hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of sparsely-accessed partial released pages hugepage backed out of 0.
+HugePageFiller: 0 of sparsely-accessed partial released pages treated out of 0.
 
 HugePageFiller: Sampled Trackers for sparsely-accessed partial released pages:
 
@@ -5681,7 +5838,24 @@ HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
 
+HugePageFiller: # of densely-accessed partial released hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed partial released hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of densely-accessed partial released pages hugepage backed out of 0.
+HugePageFiller: 0 of densely-accessed partial released pages treated out of 0.
 
 HugePageFiller: Sampled Trackers for densely-accessed partial released pages:
 
@@ -5727,7 +5901,24 @@ HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
 
+HugePageFiller: # of sparsely-accessed released hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of sparsely-accessed released hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of sparsely-accessed released pages hugepage backed out of 4.
+HugePageFiller: 0 of sparsely-accessed released pages treated out of 4.
 
 HugePageFiller: Sampled Trackers for sparsely-accessed released pages:
 
@@ -5773,7 +5964,24 @@ HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
 
+HugePageFiller: # of densely-accessed released hps with a <= # of unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
+HugePageFiller: # of densely-accessed released hps with a <= # of swapped < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of densely-accessed released pages hugepage backed out of 1.
+HugePageFiller: 0 of densely-accessed released pages treated out of 1.
 
 HugePageFiller: Sampled Trackers for densely-accessed released pages:
 

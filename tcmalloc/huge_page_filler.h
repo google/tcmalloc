@@ -51,6 +51,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/residency.h"
@@ -234,6 +235,8 @@ class PageTracker : public TList<PageTracker>::Elem {
     // This records the trackers that are currently being collapsed. This is
     // used to avoid subreleasing the pages that are being collapsed.
     bool being_collapsed = false;
+    // Records swap and unbacked bitmaps for this hugepage.
+    Residency::SinglePageBitmaps bitmaps;
   };
 
   void SetHugePageResidencyState(const HugePageResidencyState& state) {
@@ -505,6 +508,45 @@ class UsageInfo {
       buckets_size_++;
     }
 
+    // Native page Histograms bounds
+    const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
+    const int kStep = kNativePagesInHugePage / kBucketsInBetween;
+    // Ensure that the number of native page buckets is at least the number of
+    // buckets at a bound.
+    TC_ASSERT_GE(kNativePagesInHugePage, kBucketsAtBounds);
+    // First kBucketsAtBounds buckets have a step size of 1
+    for (int i = 0; i <= kBucketsAtBounds &&
+                    native_page_buckets_size_ < kNativePagesInHugePage;
+         ++i) {
+      native_page_bucket_bounds_[native_page_buckets_size_] = i;
+      ++native_page_buckets_size_;
+    }
+
+    // All the buckets in between should increment with a step of
+    // kNativePagesInHugePage / kBucketsInBetween
+    for (int i = 0; i < kNativePagesInHugePage - kBucketsAtBounds; ++i) {
+      int bound =
+          native_page_bucket_bounds_[native_page_buckets_size_ - 1] + kStep;
+      // We break early so that we can log histogram at the end with step 1
+      if (bound >= kNativePagesInHugePage - kBucketsAtBounds) {
+        break;
+      }
+      native_page_bucket_bounds_[native_page_buckets_size_] = bound;
+      ++native_page_buckets_size_;
+    }
+
+    // End kBucketBoundsBuckets have a step size of 1
+    for (int i = 0; i < kBucketsAtBounds; ++i) {
+      int end_bound = kNativePagesInHugePage - kBucketsAtBounds + i;
+      // Prevent duplicate end bounds from being added to the histogram
+      if (native_page_bucket_bounds_[native_page_buckets_size_ - 1] >=
+          end_bound) {
+        continue;
+      }
+      native_page_bucket_bounds_[native_page_buckets_size_] = end_bound;
+      ++native_page_buckets_size_;
+    }
+
     lifetime_bucket_bounds_[0] = 0;
     lifetime_bucket_bounds_[1] = 1;
     for (int i = 2; i <= kLifetimeBuckets; ++i) {
@@ -531,13 +573,14 @@ class UsageInfo {
   // Maximum number of buckets at the start and end.
   static constexpr size_t kBucketsAtBounds = 8;
   // 16 buckets in the middle.
+  static constexpr size_t kBucketsInBetween = 16;
   static constexpr size_t kBucketCapacity =
-      kBucketsAtBounds + 16 + kBucketsAtBounds;
+      kBucketsAtBounds + kBucketsInBetween + kBucketsAtBounds;
 
   static constexpr size_t kLifetimeBuckets = 8;
-  using LifetimeHisto = size_t[kLifetimeBuckets];
+  using LifetimeHisto = uint32_t[kLifetimeBuckets];
 
-  using Histo = size_t[kBucketCapacity];
+  using Histo = uint32_t[kBucketCapacity];
   using SampledTrackers = PageTracker::TrackerFeatures[kMaxSampledTrackers];
 
   struct UsageInfoRecords {
@@ -548,7 +591,10 @@ class UsageInfo {
     Histo long_lived_hps_histo{};
     LifetimeHisto low_occupancy_lifetime_histo{};
     SampledTrackers sampled_trackers{};
+    Histo unbacked_histo{};
+    Histo swapped_histo{};
 
+    size_t treated_hugepages{};
     size_t hugepage_backed{};
     size_t total_pages{};
   };
@@ -586,6 +632,19 @@ class UsageInfo {
       }
     }
     ++records.total_pages;
+
+    PageTracker::HugePageResidencyState hugepage_residency_state =
+        pt.GetHugePageResidencyState();
+    if (hugepage_residency_state.entry_valid &&
+        !hugepage_residency_state.maybe_hugepage_backed) {
+      Residency::SinglePageBitmaps bitmaps = hugepage_residency_state.bitmaps;
+      ++records
+            .unbacked_histo[NativePageBucketNum(bitmaps.unbacked.CountBits())];
+      ++records.swapped_histo[NativePageBucketNum(bitmaps.swapped.CountBits())];
+    }
+    if (hugepage_residency_state.entry_valid) {
+      ++records.treated_hugepages;
+    }
 
     PageTracker::TrackerFeatures tracker_features = pt.features();
     PageTracker::TagState tag_state = pt.GetTagState();
@@ -633,8 +692,17 @@ class UsageInfo {
     PrintHisto(out, records.long_lived_hps_histo, type,
                "hps with a <= # of allocations < b", 0);
 
+    PrintNativePageHisto(out, records.unbacked_histo, type,
+                         "hps with a <= # of unbacked < b", 0);
+    PrintNativePageHisto(out, records.swapped_histo, type,
+                         "hps with a <= # of swapped < b", 0);
+
     out.printf("\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
                records.hugepage_backed, TypeToStr(type), records.total_pages);
+
+    out.printf("\nHugePageFiller: %zu of %s pages treated out of %zu.",
+               records.treated_hugepages, TypeToStr(type), records.total_pages);
+
     out.printf("\n");
     PrintSampledTrackers(out, type, records);
   }
@@ -653,9 +721,13 @@ class UsageInfo {
                        "low_occupancy_lifetime_histogram");
     PrintHisto(scoped, records.long_lived_hps_histo,
                "long_lived_hugepages_histogram", 0);
+    PrintNativePageHisto(scoped, records.unbacked_histo, "unbacked_histogram",
+                         0);
+    PrintNativePageHisto(scoped, records.swapped_histo, "swapped_histogram", 0);
     PrintSampledTrackers(scoped, type, "sampled_trackers", records);
     scoped.PrintI64("total_pages", records.total_pages);
     scoped.PrintI64("num_pages_hugepage_backed", records.hugepage_backed);
+    scoped.PrintI64("num_pages_treated", records.treated_hugepages);
   }
 
  private:
@@ -682,6 +754,41 @@ class UsageInfo {
                                duration_ms);
     TC_CHECK_NE(it, lifetime_bucket_bounds_);
     return it - lifetime_bucket_bounds_ - 1;
+  }
+
+  int NativePageBucketNum(size_t page) {
+    auto it =
+        std::upper_bound(native_page_bucket_bounds_,
+                         native_page_bucket_bounds_ + buckets_size_, page);
+    TC_CHECK_NE(it, native_page_bucket_bounds_);
+    return it - native_page_bucket_bounds_ - 1;
+  }
+
+  void PrintNativePageHisto(Printer& out, Histo h, Type type,
+                            absl::string_view blurb, size_t offset) {
+    out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
+    for (size_t i = 0; i < native_page_buckets_size_; ++i) {
+      if (i % 6 == 0) {
+        out.printf("\nHugePageFiller:");
+      }
+      out.printf(" <%3zu<=%6zu", native_page_bucket_bounds_[i] + offset, h[i]);
+    }
+    out.printf("\n");
+  }
+
+  void PrintNativePageHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
+                            size_t offset) {
+    for (size_t i = 0; i < buckets_size_; ++i) {
+      if (h[i] == 0) continue;
+      auto hist = hpaa.CreateSubRegion(key);
+      hist.PrintI64("lower_bound", native_page_bucket_bounds_[i] + offset);
+      hist.PrintI64(
+          "upper_bound",
+          (i == buckets_size_ - 1 ? native_page_bucket_bounds_[i]
+                                  : native_page_bucket_bounds_[i + 1] - 1) +
+              offset);
+      hist.PrintI64("value", h[i]);
+    }
   }
 
   void PrintHisto(Printer& out, Histo h, Type type, absl::string_view blurb,
@@ -842,9 +949,11 @@ class UsageInfo {
 
   // Arrays, because they are split per alloc type.
   size_t bucket_bounds_[kBucketCapacity];
+  size_t native_page_bucket_bounds_[kBucketCapacity];
   size_t lifetime_bucket_bounds_[kLifetimeBuckets + 1];
   size_t hugepage_backed_previously_released_ = 0;
   int buckets_size_ = 0;
+  int native_page_buckets_size_ = 0;
 };
 }  // namespace huge_page_filler_internal
 
@@ -2344,16 +2453,14 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       // information.
       state.maybe_hugepage_backed = is_hugepage;
       if (!is_hugepage) {
-        residency_states_[i].bitmaps =
+        state.bitmaps =
             res->GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
 
         const bool backoff =
             treatment_stats_.collapse_time_max_cycles > max_collapse_cycles;
         if (enable_collapse_ && !backoff) {
-          size_t total_swapped_pages =
-              residency_states_[i].bitmaps.swapped.CountBits();
-          size_t total_unbacked_pages =
-              residency_states_[i].bitmaps.unbacked.CountBits();
+          size_t total_swapped_pages = state.bitmaps.swapped.CountBits();
+          size_t total_unbacked_pages = state.bitmaps.unbacked.CountBits();
           if (total_swapped_pages < kMaxSwappedPagesForCollapse &&
               total_unbacked_pages < kMaxUnbackedPagesForCollapse) {
             state.maybe_hugepage_backed = TryUserspaceCollapse(tracker);
@@ -2381,7 +2488,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       // than kPagesPerHugePage to make sure it's valid to release from that
       // tracker.
       if (enable_release_free_swap_ &&
-          !residency_states_[i].bitmaps.swapped.IsZero() &&
+          !residency_states_[i].tracker_state.bitmaps.swapped.IsZero() &&
           !tracker->fully_freed()) {
         Length released_length = page_filler_.HandleReleaseFree(tracker);
         if (released_length > Length(0)) {
@@ -2441,10 +2548,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   struct ResidencyState {
     PageTracker* tracker;
     PageTracker::HugePageResidencyState tracker_state;
-    // We're storing the bitmaps here in `Treat()` since we don't hold the
-    // page_heap lock. We use the swapped bitmap in `Restore()` knowing the
-    // information could be stale at that point.
-    Residency::SinglePageBitmaps bitmaps;
   };
   std::array<ResidencyState, kTotalTrackersToScan> residency_states_;
   HugePageTreatmentStats treatment_stats_;
