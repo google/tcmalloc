@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "absl/base/nullability.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
