@@ -264,13 +264,11 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
 
   for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
     size_t max_size_in_class = class_to_size_[c];
-    if (max_size_in_class == 0 || !Span::IsNonIntrusive(max_size_in_class)) {
+    if (max_size_in_class == 0) {
       next_size = max_size_in_class + static_cast<size_t>(kAlignment);
       continue;
     }
 
-    TC_CHECK(Span::IsNonIntrusive(max_size_in_class), "size=%v",
-             max_size_in_class);
     cold_sizes_[cold_sizes_count_] = c;
     ++cold_sizes_count_;
 

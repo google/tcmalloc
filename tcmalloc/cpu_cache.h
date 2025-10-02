@@ -877,8 +877,8 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
         : forwarder_.reuse_size_classes_v2() ? 326 * kWiderSlabMultiplier
                                              : 123 * kWiderSlabMultiplier;
     const uint16_t kLargeInterestingObjectDepth =
-        forwarder_.reuse_size_classes() ? 46 * kWiderSlabMultiplier
-                                        : 28 * kWiderSlabMultiplier;
+        forwarder_.reuse_size_classes() ? 26 * kWiderSlabMultiplier
+                                        : 18 * kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     if (absl::c_binary_search(cold, size_class)) {

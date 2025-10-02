@@ -181,8 +181,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
       {64 * 1024, 64, std::nullopt, true, false},
       {512 * 1024, 0, std::nullopt, true, true},
       {1024 * 1024, 128, std::nullopt, true, true},
-      // As an implementation detail, 32 is not allocated to a cold size class.
-      {32, 0, tcmalloc::hot_cold_t{0}, true, true},
+      {32, 0, tcmalloc::hot_cold_t{0}, false, true},
       {64, 0, tcmalloc::hot_cold_t{255}, true, true},
       {8192, 0, tcmalloc::hot_cold_t{0}, false, true},
   };
