@@ -294,6 +294,14 @@ class PageTracker : public TList<PageTracker>::Elem {
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
                       std::optional<absl::string_view> name);
 
+  struct NativePageResidencyInfo {
+    size_t n_free_swapped;
+    size_t n_free_unbacked;
+  };
+
+  NativePageResidencyInfo CountInfoInHugePage(
+      Residency::SinglePageBitmaps bitmaps) const;
+
  private:
   HugePage location_;
 
@@ -593,6 +601,8 @@ class UsageInfo {
     SampledTrackers sampled_trackers{};
     Histo unbacked_histo{};
     Histo swapped_histo{};
+    Histo free_unbacked_histo{};
+    Histo free_swapped_histo{};
 
     size_t treated_hugepages{};
     size_t hugepage_backed{};
@@ -641,7 +651,13 @@ class UsageInfo {
       ++records
             .unbacked_histo[NativePageBucketNum(bitmaps.unbacked.CountBits())];
       ++records.swapped_histo[NativePageBucketNum(bitmaps.swapped.CountBits())];
+
+      PageTracker::NativePageResidencyInfo info =
+          pt.CountInfoInHugePage(bitmaps);
+      ++records.free_unbacked_histo[NativePageBucketNum(info.n_free_unbacked)];
+      ++records.free_swapped_histo[NativePageBucketNum(info.n_free_swapped)];
     }
+
     if (hugepage_residency_state.entry_valid) {
       ++records.treated_hugepages;
     }
@@ -696,6 +712,10 @@ class UsageInfo {
                          "hps with a <= # of unbacked < b", 0);
     PrintNativePageHisto(out, records.swapped_histo, type,
                          "hps with a <= # of swapped < b", 0);
+    PrintNativePageHisto(out, records.free_unbacked_histo, type,
+                         "hps with a <= # of free AND unbacked < b", 0);
+    PrintNativePageHisto(out, records.free_swapped_histo, type,
+                         "hps with a <= # of free AND swapped < b", 0);
 
     out.printf("\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
                records.hugepage_backed, TypeToStr(type), records.total_pages);
@@ -724,6 +744,10 @@ class UsageInfo {
     PrintNativePageHisto(scoped, records.unbacked_histo, "unbacked_histogram",
                          0);
     PrintNativePageHisto(scoped, records.swapped_histo, "swapped_histogram", 0);
+    PrintNativePageHisto(scoped, records.free_unbacked_histo,
+                         "free_unbacked_histogram", 0);
+    PrintNativePageHisto(scoped, records.free_swapped_histo,
+                         "free_swapped_histogram", 0);
     PrintSampledTrackers(scoped, type, "sampled_trackers", records);
     scoped.PrintI64("total_pages", records.total_pages);
     scoped.PrintI64("num_pages_hugepage_backed", records.hugepage_backed);
@@ -1347,6 +1371,59 @@ inline typename PageTracker::PageAllocation PageTracker::Get(
 inline void PageTracker::SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
                                         std::optional<absl::string_view> name) {
   set_anon_vma_name(Range(location_.first_page(), kPagesPerHugePage), name);
+}
+
+inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
+    Residency::SinglePageBitmaps bitmaps) const {
+  // TODO(b/424551232): Add support for the scenario when native page size is
+  // larger than TCMalloc page size.
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
+  if (kNativePagesInHugePage < kPagesPerHugePage.raw_num()) {
+    return {.n_free_swapped = 0, .n_free_unbacked = 0};
+  }
+  TC_ASSERT_LE(kNativePagesInHugePage, kMaxResidencyBits);
+
+  Bitmap<kMaxResidencyBits> unbacked = bitmaps.unbacked;
+  Bitmap<kMaxResidencyBits> swapped = bitmaps.swapped;
+  Bitmap<kPagesPerHugePage.raw_num()> free = free_.bits();
+
+  TC_ASSERT_EQ(kNativePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
+  const int shift = kNativePagesInHugePage / kPagesPerHugePage.raw_num();
+  const int shift_bits = absl::bit_width<uint8_t>(shift - 1);
+  TC_ASSERT_LT((kNativePagesInHugePage - 1) >> shift_bits,
+               kPagesPerHugePage.raw_num());
+
+  size_t swapped_idx = 0;
+  size_t n_free_unbacked = 0;
+  size_t n_free_swapped = 0;
+  while (swapped_idx < kNativePagesInHugePage) {
+    swapped_idx = swapped.FindSet(swapped_idx);
+    if (swapped_idx >= kNativePagesInHugePage) {
+      break;
+    }
+    // Compute the number of free pages that are swapped.
+    // In free bitmap, 1 means used and 0 means free
+    const int scaled_idx = swapped_idx >> shift_bits;
+    if (!free.GetBit(scaled_idx)) {
+      ++n_free_swapped;
+    }
+    ++swapped_idx;
+  }
+
+  size_t unbacked_idx = 0;
+  while (unbacked_idx < kNativePagesInHugePage) {
+    unbacked_idx = unbacked.FindSet(unbacked_idx);
+    if (unbacked_idx >= kNativePagesInHugePage) {
+      break;
+    }
+    // Compute the number of free pages that are unbacked
+    const int scaled_idx = unbacked_idx >> shift_bits;
+    if (!free.GetBit(scaled_idx)) {
+      ++n_free_unbacked;
+    }
+    ++unbacked_idx;
+  }
+  return {.n_free_swapped = n_free_swapped, .n_free_unbacked = n_free_unbacked};
 }
 
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
