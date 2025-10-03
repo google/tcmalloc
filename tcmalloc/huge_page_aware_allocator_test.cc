@@ -128,8 +128,10 @@ class HugePageAwareAllocatorTest
  protected:
   HugePageAwareAllocatorTest() {
     before_ = MallocExtension::GetRegionFactory();
-    extra_ = new ExtraRegionFactory(before_);
-    MallocExtension::SetRegionFactory(extra_);
+    if (before_ != nullptr) {
+      extra_ = new ExtraRegionFactory(before_);
+      MallocExtension::SetRegionFactory(extra_);
+    }
 
     HugePageAwareAllocatorOptions options;
     options.tag = MemoryTag::kNormal;
@@ -153,8 +155,10 @@ class HugePageAwareAllocatorTest
       TC_CHECK_EQ(stats.free_bytes + stats.unmapped_bytes, stats.system_bytes);
     }
 
-    MallocExtension::SetRegionFactory(before_);
-    delete extra_;
+    if (before_ != nullptr) {
+      MallocExtension::SetRegionFactory(before_);
+      delete extra_;
+    }
   }
 
   void CheckStats() {
@@ -305,8 +309,8 @@ class HugePageAwareAllocatorTest
   // TODO(b/242550501):  Replace this with one templated with a different
   // forwarder, as to facilitate mocks.
   std::optional<MockedHugePageAwareAllocator> allocator_;
-  ExtraRegionFactory* extra_;
-  AddressRegionFactory* before_;
+  ExtraRegionFactory* extra_ = nullptr;
+  AddressRegionFactory* before_ = nullptr;
   absl::base_internal::SpinLock lock_;
   absl::flat_hash_map<Span*, size_t> ids_;
   size_t next_id_{0};
@@ -1664,7 +1668,9 @@ class GetReleaseStatsTest : public testing::Test {
  public:
   void SetUp() override {
     // Use SetUp instead of a constructor so that we can make assertions.
-    MallocExtension::SetRegionFactory(&factory_);
+    if (previous_factory_ != nullptr) {
+      MallocExtension::SetRegionFactory(&factory_);
+    }
 
     allocator_ = new (allocator_storage_.data())
         FakeHugePageAwareAllocator({.tag = MemoryTag::kNormal});
@@ -1690,7 +1696,9 @@ class GetReleaseStatsTest : public testing::Test {
         Length(std::numeric_limits<size_t>::max()),
         /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
 
-    MallocExtension::SetRegionFactory(previous_factory_);
+    if (previous_factory_ != nullptr) {
+      MallocExtension::SetRegionFactory(previous_factory_);
+    }
   };
 
   FakeHugePageAwareAllocator& allocator() { return *allocator_; }
