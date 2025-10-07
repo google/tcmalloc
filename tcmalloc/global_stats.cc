@@ -21,11 +21,11 @@
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
