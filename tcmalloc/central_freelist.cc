@@ -74,15 +74,17 @@ Length StaticForwarder::class_to_pages(int size_class) {
 
 void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                                         int expected_size_class) {
-  // TODO(b/396002858): Resume using expected_size_class or remove it.
-  (void)expected_size_class;
-
   // Prefetch Span objects to reduce cache misses.
   for (int i = 0; i < batch.size(); ++i) {
     const PageId p = PageIdContaining(batch[i]);
-    Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
+    auto [span, page_size_class] =
+        tc_globals.pagemap().GetExistingDescriptorAndSizeClass(p);
     if (ABSL_PREDICT_FALSE(span == nullptr)) {
       ReportDoubleFree(tc_globals, batch[i]);
+    }
+    if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
+      ReportMismatchedSizeClass(tc_globals, span, page_size_class,
+                                expected_size_class);
     }
     span->Prefetch();
     spans[i] = span;
