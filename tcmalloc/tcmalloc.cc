@@ -824,7 +824,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // The optimized path doesn't work with non-normal objects (sampled, cold),
   // whose deletions trigger more operations and require to visit metadata.
   if (ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
-    if (ABSL_PREDICT_TRUE(ptr == nullptr)) {
+    if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
     }
     if (ABSL_PREDICT_TRUE(IsSelSanMemory(ptr))) {
