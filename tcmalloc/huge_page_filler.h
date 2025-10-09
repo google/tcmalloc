@@ -3245,6 +3245,12 @@ template <class TrackerType>
 inline size_t HugePageFiller<TrackerType>::IndexFor(
     const TrackerType& pt) const {
   TC_ASSERT(!pt.empty());
+  // For dense hugepages, the first dimension that we manage trackers along is
+  // nallocs. This is different from tracking for sparse spans -- the first
+  // dimension is the longest-free-range and the second one uses nallocs. So,
+  // for dense spans, there is no need to distribute them using nallocs again.
+  if (pt.HasDenseSpans()) return 0;
+
   // Prefer to allocate from hugepages with many allocations already present;
   // spaced logarithmically.
   const size_t na = pt.nallocs();
