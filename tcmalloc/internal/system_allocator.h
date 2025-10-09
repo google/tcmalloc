@@ -365,8 +365,10 @@ std::pair<void*, size_t> SystemAllocator<Topology>::MmapRegion::Alloc(
   // For cold regions (kInfrequentAccess) and sampled regions
   // (kInfrequentAllocation), we want as granular of access telemetry as
   // possible; this hint means we can get 4kiB granularity instead of 2MiB.
-  if (hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess ||
-      hint_ == AddressRegionFactory::UsageHint::kInfrequentAllocation ||
+  if (((hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess ||
+        hint_ == AddressRegionFactory::UsageHint::kInfrequentAllocation) &&
+       !IsExperimentActive(
+           Experiment::TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE)) ||
       system_allocator_internal::preferential_collapse()) {
     // This is only advisory, so ignore the error.
     ErrnoRestorer errno_restorer;
