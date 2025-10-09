@@ -380,6 +380,7 @@ class TcmallocSlab {
   std::atomic<bool>* stopped_ = nullptr;
   // begins_[size_class] is offset of the size_class region in the slabs area.
   std::atomic<uint16_t>* begins_ = nullptr;
+  int num_cpus_ = 0;
 };
 
 // RAII for StopCpu/StartCpu.
@@ -1040,10 +1041,11 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Init(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, void* slabs,
     absl::FunctionRef<size_t(size_t)> capacity, Shift shift) {
-  stopped_ = new (alloc(sizeof(stopped_[0]) * NumCPUs(),
+  num_cpus_ = NumCPUs();
+  stopped_ = new (alloc(sizeof(stopped_[0]) * num_cpus_,
                         std::align_val_t{ABSL_CACHELINE_SIZE}))
       std::atomic<bool>[NumCPUs()];
-  for (int cpu = NumCPUs() - 1; cpu >= 0; cpu--) {
+  for (int cpu = num_cpus_ - 1; cpu >= 0; cpu--) {
     stopped_[cpu].store(false, std::memory_order_relaxed);
   }
   begins_ = static_cast<std::atomic<uint16_t>*>(alloc(
@@ -1144,6 +1146,8 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
     tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
     CompilerBarrier();
     vcpu = VirtualCpu::Synchronize();
+    TC_ASSERT_GE(vcpu, 0);
+    TC_ASSERT_LT(vcpu, num_cpus_);
     auto slabs_and_shift = slabs_and_shift_.load(std::memory_order_relaxed);
     const auto [slabs, shift] = slabs_and_shift.Get();
     void* start = CpuMemoryStart(slabs, shift, vcpu);
@@ -1248,7 +1252,7 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
         begins_[size_class].load(std::memory_order_relaxed);
   }
 
-  const int num_cpus = NumCPUs();
+  const int num_cpus = num_cpus_;
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
     stopped_[cpu].store(true, std::memory_order_relaxed);
@@ -1299,7 +1303,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   }
 
   TC_ASSERT_NE(new_shift, old_shift);
-  const int num_cpus = NumCPUs();
+  const int num_cpus = num_cpus_;
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
     stopped_[cpu].store(true, std::memory_order_relaxed);
@@ -1329,14 +1333,14 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
 template <size_t NumClasses>
 void* TcmallocSlab<NumClasses>::Destroy(
     absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
-  free(stopped_, sizeof(stopped_[0]) * NumCPUs(),
+  free(stopped_, sizeof(stopped_[0]) * num_cpus_,
        std::align_val_t{ABSL_CACHELINE_SIZE});
   stopped_ = nullptr;
   free(begins_, sizeof(begins_[0]) * NumClasses,
        std::align_val_t{ABSL_CACHELINE_SIZE});
   begins_ = nullptr;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  free(slabs, GetSlabsAllocSize(shift, NumCPUs()), kPhysicalPageAlign);
+  free(slabs, GetSlabsAllocSize(shift, num_cpus_), kPhysicalPageAlign);
   slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
   return slabs;
 }
@@ -1396,7 +1400,7 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, DrainHandler drain_handler) {
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::StopCpu(int cpu) {
-  TC_ASSERT(cpu >= 0 && cpu < NumCPUs(), "cpu=%d", cpu);
+  TC_ASSERT(cpu >= 0 && cpu < num_cpus_, "cpu=%d", cpu);
   TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
   stopped_[cpu].store(true, std::memory_order_relaxed);
   FenceCpu(cpu);
@@ -1404,7 +1408,7 @@ void TcmallocSlab<NumClasses>::StopCpu(int cpu) {
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::StartCpu(int cpu) {
-  TC_ASSERT(cpu >= 0 && cpu < NumCPUs(), "cpu=%d", cpu);
+  TC_ASSERT(cpu >= 0 && cpu < num_cpus_, "cpu=%d", cpu);
   TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
   stopped_[cpu].store(false, std::memory_order_release);
 }
@@ -1413,8 +1417,8 @@ template <size_t NumClasses>
 PerCPUMetadataState TcmallocSlab<NumClasses>::MetadataMemoryUsage() const {
   PerCPUMetadataState result;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  size_t slabs_size = GetSlabsAllocSize(shift, NumCPUs());
-  size_t stopped_size = NumCPUs() * sizeof(stopped_[0]);
+  size_t slabs_size = GetSlabsAllocSize(shift, num_cpus_);
+  size_t stopped_size = num_cpus_ * sizeof(stopped_[0]);
   size_t begins_size = NumClasses * sizeof(begins_[0]);
   result.virtual_size = stopped_size + slabs_size + begins_size;
   result.resident_size = MInCore::residence(slabs, slabs_size);
