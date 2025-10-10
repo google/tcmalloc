@@ -437,25 +437,6 @@ TEST_F(GetStatsTest, StackDepth) {
   ASSERT_EQ(pthread_attr_destroy(&thread_attributes), 0);
 }
 
-TEST_F(GetStatsTest, SelSan) {
-  std::string buf = MallocExtension::GetStats();
-  std::string pbtxt = GetStatsInPbTxt();
-#ifndef TCMALLOC_INTERNAL_SELSAN
-  std::transform(buf.begin(), buf.end(), buf.begin(), tolower);
-  std::transform(pbtxt.begin(), pbtxt.end(), pbtxt.begin(), tolower);
-  EXPECT_THAT(buf, Not(HasSubstr("selsan")));
-  EXPECT_THAT(pbtxt, Not(HasSubstr("selsan")));
-#else   // #ifndef TCMALLOC_INTERNAL_SELSAN
-  EXPECT_THAT(buf, ContainsRegex(R"(
-SelSan Status
-------------------------------------------------
-Enabled: (0|1)
-)"));
-  EXPECT_THAT(pbtxt,
-              ContainsRegex(R"(selsan { status: SELSAN_(ENABLED|DISABLED)})"));
-#endif  // #ifndef TCMALLOC_INTERNAL_SELSAN
-}
-
 TEST_F(GetStatsTest, RequiredBufferSizes) {
   if (&MallocExtension_Internal_GetStatsInPbtxt == nullptr) {
     GTEST_SKIP() << "Not linked against malloc";

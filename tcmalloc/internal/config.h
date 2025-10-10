@@ -133,13 +133,6 @@ inline constexpr int kAddressBits = 48;
 inline constexpr int kAddressBits = 8 * sizeof(void*);
 #endif
 
-#ifdef TCMALLOC_INTERNAL_SELSAN
-// TODO(b/404529382): add tcmalloc test suite and remove maybe_unused annotation
-[[maybe_unused]] inline constexpr bool kSelSanPresent = true;
-#else
-inline constexpr bool kSelSanPresent = false;
-#endif
-
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
 inline constexpr bool kSanitizerPresent = true;
@@ -148,9 +141,8 @@ inline constexpr bool kSanitizerPresent = false;
 #endif
 
 // Sanitizers constrain the memory layout which causes problems with the
-// enlarged tags required to represent NUMA partitions and for SelSan.
+// enlarged tags required to represent NUMA partitions.
 #if defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
-static_assert(!kSelSanPresent, "MSan/TSan are incompatible with SelSan.");
 inline constexpr bool kSanitizerAddressSpace = true;
 #else
 inline constexpr bool kSanitizerAddressSpace = false;

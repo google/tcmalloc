@@ -32,7 +32,6 @@
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
@@ -44,9 +43,6 @@ namespace central_freelist_internal {
 static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
   if (IsExpandedSizeClass(size_class)) {
     return MemoryTag::kCold;
-  }
-  if (selsan::IsEnabled()) {
-    return MemoryTag::kSelSan;
   }
   if (!tc_globals.numa_topology().numa_aware()) {
     return MemoryTag::kNormal;

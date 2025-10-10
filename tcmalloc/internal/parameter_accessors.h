@@ -53,8 +53,6 @@ ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetStats(char* buffer,
                                                       size_t buffer_length);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetGuardedSamplingInterval(
     int64_t v);
-ABSL_ATTRIBUTE_WEAK int TCMalloc_Internal_GetSelSanPercent();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetSelSanPercent(int v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHPAASubrelease(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(
