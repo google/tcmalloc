@@ -200,17 +200,20 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   //
   // If the freelist becomes full, we do not push the object onto the freelist.
   [[nodiscard]] bool FreelistPushBatch(absl::Span<void* absl_nonnull> batch,
-                                       size_t size, uint32_t reciprocal);
+                                       size_t size,
+                                       uint32_t reciprocal) __restrict__;
 
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
-  [[nodiscard]] size_t FreelistPopBatch(absl::Span<void*> batch, size_t size);
+  [[nodiscard]] size_t FreelistPopBatch(absl::Span<void*> batch,
+                                        size_t size) __restrict__;
 
   // Initialize freelist to contain all objects in the span.
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
   [[nodiscard]] int BuildFreelist(size_t size, size_t count,
-                                  absl::Span<void*> batch, uint64_t alloc_time);
+                                  absl::Span<void*> batch,
+                                  uint64_t alloc_time) __restrict__;
 
   // Prefetch cacheline containing most important span information.
   void Prefetch();
@@ -336,22 +339,23 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Helper function for converting a pointer to an index.
   static ObjIdx OffsetToIdx(uintptr_t offset, uint32_t reciprocal);
 
-  size_t ListPopBatch(void** __restrict batch, size_t N, size_t size);
+  size_t ListPopBatch(void** __restrict batch, size_t N,
+                      size_t size) __restrict__;
 
-  bool ListPushBatch(absl::Span<void*> batch, size_t size);
+  bool ListPushBatch(absl::Span<void*> batch, size_t size) __restrict__;
 
   // For spans containing 64 or fewer objects, indicate that the object at the
   // index has been returned. Always returns true.
   bool BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                       uint32_t reciprocal);
+                       uint32_t reciprocal) __restrict__;
 
   // A bitmap is used to indicate object availability for spans containing
   // 64 or fewer objects.
-  void BuildBitmap(size_t size, size_t count);
+  void BuildBitmap(size_t size, size_t count) __restrict__;
 
   // For spans with 64 or fewer objects populate batch with up to N objects.
   // Returns number of objects actually popped.
-  size_t BitmapPopBatch(absl::Span<void*> batch, size_t size);
+  size_t BitmapPopBatch(absl::Span<void*> batch, size_t size) __restrict__;
 
   // Friend class to enable more indepth testing of bitmap code.
   friend class SpanTestPeer;
@@ -390,7 +394,7 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
 }
 
 inline bool Span::FreelistPushBatch(absl::Span<void*> batch, size_t size,
-                                    uint32_t reciprocal) {
+                                    uint32_t reciprocal) __restrict__ {
   TC_ASSERT(!is_large_or_sampled());
   const auto allocated = allocated_.load(std::memory_order_relaxed);
   TC_ASSERT_GE(allocated, batch.size());
@@ -406,7 +410,8 @@ inline bool Span::FreelistPushBatch(absl::Span<void*> batch, size_t size,
   return ListPushBatch(batch, size);
 }
 
-inline bool Span::ListPushBatch(absl::Span<void*> batch, size_t size) {
+inline bool Span::ListPushBatch(absl::Span<void*> batch,
+                                size_t size) __restrict__ {
   if (cache_size_ < kCacheSize) {
     auto cache_writes = std::min(kCacheSize - cache_size_, batch.size());
     for (int i = 0; i < cache_writes; ++i) {
@@ -457,7 +462,7 @@ inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
 }
 
 inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                                  uint32_t reciprocal) {
+                                  uint32_t reciprocal) __restrict__ {
   size_t before = small_span_state_.bitmap.CountBits();
   for (void* ptr : batch) {
     // TODO(djgove) Conversions to offsets can be computed outside of lock.

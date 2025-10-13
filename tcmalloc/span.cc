@@ -145,7 +145,7 @@ void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
   return reinterpret_cast<ObjIdx*>(off);
 }
 
-size_t Span::BitmapPopBatch(absl::Span<void*> batch, size_t size) {
+size_t Span::BitmapPopBatch(absl::Span<void*> batch, size_t size) __restrict__ {
   size_t before = small_span_state_.bitmap.CountBits();
   size_t count = 0;
   // Want to fill the batch either with batch.size() objects, or the number of
@@ -164,7 +164,8 @@ size_t Span::BitmapPopBatch(absl::Span<void*> batch, size_t size) {
   return count;
 }
 
-size_t Span::FreelistPopBatch(const absl::Span<void*> batch, size_t size) {
+size_t Span::FreelistPopBatch(const absl::Span<void*> batch,
+                              size_t size) __restrict__ {
   TC_ASSERT(!is_large_or_sampled());
   // Handle spans with bitmap.size() or fewer objects using a bitmap. We expect
   // spans to frequently hold smaller objects.
@@ -174,7 +175,8 @@ size_t Span::FreelistPopBatch(const absl::Span<void*> batch, size_t size) {
   return ListPopBatch(batch.data(), batch.size(), size);
 }
 
-size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
+size_t Span::ListPopBatch(void** __restrict batch, size_t N,
+                          size_t size) __restrict__ {
   size_t result = 0;
 
   // Pop from cache.
@@ -237,7 +239,7 @@ uint32_t Span::CalcReciprocal(size_t size) {
   return kBitmapScalingDenominator / size;
 }
 
-void Span::BuildBitmap(size_t size, size_t count) {
+void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
   // We are using a bitmap to indicate whether objects are used or not. The
   // maximum capacity for the bitmap is bitmap.size() objects.
   TC_ASSERT_LE(count, small_span_state_.bitmap.size());
@@ -249,7 +251,7 @@ void Span::BuildBitmap(size_t size, size_t count) {
 }
 
 int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
-                        uint64_t alloc_time) {
+                        uint64_t alloc_time) __restrict__ {
   TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
