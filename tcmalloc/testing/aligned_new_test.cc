@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <new>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -91,18 +92,20 @@ TYPED_TEST_P(AlignedNew, AlignedTest) {
   // __STDCPP_DEFAULT_NEW_ALIGNMENT__.
   //
   // (size, alignment) -> count
-  using CountMap = absl::flat_hash_map<std::pair<size_t, size_t>, size_t>;
+  using CountMap =
+      absl::flat_hash_map<std::pair<size_t, std::align_val_t>, size_t>;
   CountMap counts;
 
   profile.Iterate([&](const Profile::Sample& e) {
-    counts[{e.requested_size, e.requested_alignment}] += e.count;
+    counts[{e.requested_size,
+            e.requested_alignment.value_or(std::align_val_t{0})}] += e.count;
   });
 
   if (!tcmalloc_internal::kSanitizerPresent) {
-    size_t expected_alignment = 0;
+    std::align_val_t expected_alignment{0};
 #if defined(__STDCPP_DEFAULT_NEW_ALIGNMENT__)
     if (alignof(TypeParam) > __STDCPP_DEFAULT_NEW_ALIGNMENT__) {
-      expected_alignment = alignof(TypeParam);
+      expected_alignment = static_cast<std::align_val_t>(alignof(TypeParam));
     }
 #endif
     EXPECT_GT((counts[{sizeof(TypeParam), expected_alignment}]), 0);

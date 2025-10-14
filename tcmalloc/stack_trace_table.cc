@@ -18,6 +18,8 @@
 #include <string.h>
 
 #include <cstdint>
+#include <new>
+#include <optional>
 
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/common.h"
@@ -78,7 +80,13 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   }
   s->sample.sum = s->sample.count * allocated_size;
   s->sample.requested_size = requested_size;
-  s->sample.requested_alignment = t.requested_alignment;
+  // TODO(b/404341539): Propagate type to StackTrace.
+  if (t.requested_alignment > 0) {
+    s->sample.requested_alignment =
+        static_cast<std::align_val_t>(t.requested_alignment);
+  } else {
+    s->sample.requested_alignment = std::nullopt;
+  }
   s->sample.requested_size_returning = t.requested_size_returning;
   s->sample.allocated_size = allocated_size;
   s->sample.alloc_handle = t.sampled_alloc_handle;

@@ -584,7 +584,10 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
     // The following three fields are common across profiles.
     add_positive_label(bytes_id, bytes_id, entry.allocated_size);
     add_positive_label(request_id, bytes_id, entry.requested_size);
-    add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
+    if (entry.requested_alignment.has_value()) {
+      add_positive_label(alignment_id, bytes_id,
+                         static_cast<size_t>(*entry.requested_alignment));
+    }
 
     // The following fields are specific to lifetime (deallocation) profiler.
     add_positive_label(callstack_pair_id, count_id, entry.profile_id);
@@ -792,7 +795,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
     add_positive_label(bytes_id, bytes_id, entry.allocated_size);
     add_positive_label(request_id, bytes_id, entry.requested_size);
-    add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
+    if (entry.requested_alignment.has_value()) {
+      add_positive_label(alignment_id, bytes_id,
+                         static_cast<size_t>(*entry.requested_alignment));
+    }
     add_positive_label(size_returning_id, 0, entry.requested_size_returning);
     add_positive_label(stale_scan_period_id, seconds_id,
                        data.stale_scan_period.value_or(0));

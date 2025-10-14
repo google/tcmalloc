@@ -53,7 +53,7 @@ static bool CheckerIsActive() {
 struct AllocatorArgs {
   std::vector<void*>* arr;
   size_t req_size;
-  size_t req_alignment;
+  std::align_val_t req_alignment;
   size_t block_objects;
   size_t m_dealloc_funcs;
   size_t n_alloc_funcs;
@@ -63,8 +63,7 @@ ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void AllocateBaseCase(
     size_t offset, const AllocatorArgs& args) {
   size_t alloc_objects = args.m_dealloc_funcs * args.block_objects;
   for (size_t i = offset; i < offset + alloc_objects; ++i) {
-    (*args.arr)[i] = operator new(
-        args.req_size, static_cast<std::align_val_t>(args.req_alignment));
+    (*args.arr)[i] = operator new(args.req_size, args.req_alignment);
   }
 }
 
@@ -79,8 +78,7 @@ ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void AllocateRecursive(
 ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void DeallocBaseCase(
     size_t offset, const AllocatorArgs& args) {
   for (size_t i = offset; i < offset + args.block_objects; ++i) {
-    operator delete((*args.arr)[i],
-                    static_cast<std::align_val_t>(args.req_alignment));
+    operator delete((*args.arr)[i], args.req_alignment);
   }
 }
 
@@ -98,7 +96,7 @@ struct Params {
   absl::Duration duration;
   absl::Duration sleep_time;
   size_t size;
-  size_t alignment;
+  std::align_val_t alignment;
 };
 
 void testEntry(Params& p, const tcmalloc::Profile::Sample& e) {
@@ -134,7 +132,6 @@ void testEntry(Params& p, const tcmalloc::Profile::Sample& e) {
     LOG(INFO) << "e.count:" << e.count;
     LOG(INFO) << "e.allocated_size:" << e.allocated_size;
     LOG(INFO) << "e.requested_size:" << e.requested_size;
-    LOG(INFO) << "e.requested_alignment" << e.requested_alignment;
     LOG(INFO) << "e.avg_lifetime:" << e.avg_lifetime;
     LOG(INFO) << "e.min_lifetime:" << e.min_lifetime;
     LOG(INFO) << "e.max_lifetime:" << e.max_lifetime;
@@ -334,7 +331,7 @@ class DeallocationzTest : public ::testing::Test {
 
  protected:
   size_t req_size_;
-  size_t req_alignment_;
+  std::align_val_t req_alignment_;
   size_t block_objects_;
   size_t m_dealloc_funcs_;
   size_t n_alloc_funcs_;
@@ -350,7 +347,7 @@ TEST_F(DeallocationzTest, SingleThreaded) {
   t_threads_ = 1;
   sleep_time_ = absl::Seconds(5);
   req_size_ = 1024 * 1024;
-  req_alignment_ = 64;
+  req_alignment_ = std::align_val_t{64};
   Run();
 }
 
@@ -363,7 +360,7 @@ TEST_F(DeallocationzTest, MultiThreaded) {
   t_threads_ = 4;
   sleep_time_ = absl::Seconds(9);
   req_size_ = 1024 * 1024;
-  req_alignment_ = 64;
+  req_alignment_ = std::align_val_t{64};
   Run();
 }
 
@@ -432,7 +429,7 @@ TEST_F(DeallocationzTest, ConcurrentProfilerEnableDisable) {
   t_threads_ = 1;
   sleep_time_ = absl::ZeroDuration();
   req_size_ = 1024 * 1024;
-  req_alignment_ = 64;
+  req_alignment_ = std::align_val_t{64};
 
   std::atomic<bool> completed = false;
   std::thread profiler_thread([&]() {
@@ -467,7 +464,7 @@ TEST_F(DeallocationzTest, ObserveAllocationButNotDeallocation) {
   t_threads_ = 1;
   sleep_time_ = absl::ZeroDuration();
   req_size_ = 1024 * 1024;
-  req_alignment_ = 64;
+  req_alignment_ = std::align_val_t{64};
 
   auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
   RunAlloc();
@@ -488,7 +485,7 @@ TEST_F(DeallocationzTest, ObserveDeallocationButNotAllocation) {
   t_threads_ = 1;
   sleep_time_ = absl::ZeroDuration();
   req_size_ = 1024 * 1024;
-  req_alignment_ = 64;
+  req_alignment_ = std::align_val_t{64};
 
   RunAlloc();
   auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();

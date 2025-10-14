@@ -148,7 +148,7 @@ class Profile final {
     size_t requested_size;
     // The requested alignment if specified.  malloc() implicitly aligns to
     // alignof(std::max_align_t) and this value is used.
-    size_t requested_alignment;
+    std::optional<std::align_val_t> requested_alignment;
     // The actual size allocated considering size, implicit/explicit alignment,
     // GWP-ASan.
     size_t allocated_size;

@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <initializer_list>
+#include <new>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -42,7 +44,7 @@ struct AllocationEntry {
   int64_t sum;
   int count;
   size_t requested_size;
-  size_t requested_alignment;
+  std::optional<std::align_val_t> requested_alignment;
   size_t allocated_size;
   MallocHook::AllocHandle alloc_handle;
   uint8_t access_hint;
@@ -160,7 +162,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .sum = 1024,
       .count = 1,
       .requested_size = 512,
-      .requested_alignment = 16,
+      .requested_alignment = std::align_val_t{16},
       .allocated_size = 1024,
       .alloc_handle = AllocHandle{1},
       .access_hint = 3,
@@ -185,7 +187,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .sum = 512,
       .count = 1,
       .requested_size = 375,
-      .requested_alignment = 0,
+      .requested_alignment = std::nullopt,
       .allocated_size = 512,
       .alloc_handle = AllocHandle{2},
       .access_hint = 254,
@@ -221,7 +223,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .sum = t1_sampled_weight * 1024,
       .count = t1_sampled_weight,
       .requested_size = 512,
-      .requested_alignment = 16,
+      .requested_alignment = std::align_val_t{16},
       .allocated_size = 1024,
       .alloc_handle = AllocHandle{1},
       .access_hint = 3,
@@ -294,7 +296,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .sum = 17,
       .count = 1,
       .requested_size = 13,
-      .requested_alignment = 0,
+      .requested_alignment = std::nullopt,
       .allocated_size = 17,
       .alloc_handle = AllocHandle{3},
       .access_hint = 3,
@@ -332,7 +334,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .sum = 1024,
       .count = 1,
       .requested_size = 512,
-      .requested_alignment = 32,
+      .requested_alignment = std::align_val_t{32},
       .allocated_size = 1024,
       .alloc_handle = AllocHandle{4},
       .access_hint = 3,
@@ -370,7 +372,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .sum = 1024,
       .count = 1,
       .requested_size = 512,
-      .requested_alignment = 32,
+      .requested_alignment = std::align_val_t{32},
       .allocated_size = 1024,
       .alloc_handle = AllocHandle{5},
       .access_hint = 4,

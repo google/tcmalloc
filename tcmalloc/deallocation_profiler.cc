@@ -22,6 +22,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <new>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -671,7 +672,12 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
       const auto bucketize = internal::LifetimeNsToBucketedDuration;
       Profile::Sample sample;
       sample.sum = sum, sample.requested_size = k.alloc.requested_size,
-      sample.requested_alignment = k.alloc.requested_alignment,
+      // TODO(b/404341539): Propagate type to StackTrace.
+          sample.requested_alignment =
+              k.alloc.requested_alignment > 0
+                  ? std::make_optional(static_cast<std::align_val_t>(
+                        k.alloc.requested_alignment))
+                  : std::nullopt,
       sample.allocated_size = allocated_size, sample.profile_id = pair_id++,
       // Set the is_censored flag so that when we create a proto
       // sample later we can treat the *_lifetime accordingly.

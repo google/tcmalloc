@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <new>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -336,7 +337,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.sum = 1234;
     sample.count = 2;
     sample.requested_size = 2;
-    sample.requested_alignment = 4;
+    sample.requested_alignment = std::align_val_t{4};
     sample.requested_size_returning = true;
     sample.allocated_size = 16;
 
@@ -385,7 +386,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.sum = 2345;
     sample.count = 5;
     sample.requested_size = 4;
-    sample.requested_alignment = 0;
+    sample.requested_alignment = std::nullopt;
     sample.requested_size_returning = false;
     sample.allocated_size = 8;
     sample.span_start_address = ptr1;
@@ -427,7 +428,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.sum = 2345;
     sample.count = 8;
     sample.requested_size = 16;
-    sample.requested_alignment = 0;
+    sample.requested_alignment = std::nullopt;
     sample.requested_size_returning = true;
     sample.allocated_size = 16;
     // This stack is mostly artificial, but we include a real symbol from the
@@ -451,7 +452,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.sum = 1235;
     sample.count = 2;
     sample.requested_size = 2;
-    sample.requested_alignment = 4;
+    sample.requested_alignment = std::align_val_t{4};
     sample.requested_size_returning = true;
     sample.allocated_size = 16;
 
@@ -729,7 +730,7 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
     sample.sum = 1234;
     sample.count = 2;
     sample.requested_size = 2;
-    sample.requested_alignment = 4;
+    sample.requested_alignment = std::align_val_t{4};
     sample.requested_size_returning = true;
     sample.allocated_size = 16;
 
@@ -749,7 +750,7 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
     sample.sum = 2345;
     sample.count = 5;
     sample.requested_size = 4;
-    sample.requested_alignment = 0;
+    sample.requested_alignment = std::nullopt;
     sample.requested_size_returning = false;
     sample.allocated_size = 8;
 
@@ -814,7 +815,7 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
         .count = 2,
         // Common information we retain in the lifetime profile.
         .requested_size = 2,
-        .requested_alignment = 4,
+        .requested_alignment = std::align_val_t{4},
         .allocated_size = 16,
         // Lifetime specific information in each sample.
         .profile_id = 33,

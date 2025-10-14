@@ -167,7 +167,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   // (object size, object alignment, keep objects)
   struct Requests {
     size_t size;
-    size_t alignment;
+    std::optional<std::align_val_t> alignment;
     std::optional<tcmalloc::hot_cold_t> hot_cold;
     bool expected_hot;
     bool keep;
@@ -175,15 +175,15 @@ TEST(AllocationSampleTest, SampleAccuracy) {
     void* list = nullptr;
   };
   std::vector<Requests> sizes = {
-      {8, 0, std::nullopt, true, false},
-      {16, 16, std::nullopt, true, true},
-      {1024, 0, std::nullopt, true, false},
-      {64 * 1024, 64, std::nullopt, true, false},
-      {512 * 1024, 0, std::nullopt, true, true},
-      {1024 * 1024, 128, std::nullopt, true, true},
-      {32, 0, tcmalloc::hot_cold_t{0}, false, true},
-      {64, 0, tcmalloc::hot_cold_t{255}, true, true},
-      {8192, 0, tcmalloc::hot_cold_t{0}, false, true},
+      {8, std::nullopt, std::nullopt, true, false},
+      {16, std::align_val_t{16}, std::nullopt, true, true},
+      {1024, std::nullopt, std::nullopt, true, false},
+      {64 * 1024, std::align_val_t{64}, std::nullopt, true, false},
+      {512 * 1024, std::nullopt, std::nullopt, true, true},
+      {1024 * 1024, std::align_val_t{128}, std::nullopt, true, true},
+      {32, std::nullopt, tcmalloc::hot_cold_t{0}, false, true},
+      {64, std::nullopt, tcmalloc::hot_cold_t{255}, true, true},
+      {8192, std::nullopt, tcmalloc::hot_cold_t{0}, false, true},
   };
   absl::btree_set<size_t> sizes_expected;
   for (auto s : sizes) {
@@ -196,8 +196,8 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   for (auto& s : sizes) {
     for (size_t bytes = 0; bytes < kTotalPerSize; bytes += s.size) {
       void* obj;
-      if (s.alignment > 0) {
-        obj = operator new(s.size, static_cast<std::align_val_t>(s.alignment));
+      if (s.alignment.has_value()) {
+        obj = operator new(s.size, *s.alignment);
       } else if (s.hot_cold.has_value()) {
         obj = operator new(s.size, *s.hot_cold);
       } else {
@@ -205,8 +205,8 @@ TEST(AllocationSampleTest, SampleAccuracy) {
       }
       if (s.keep) {
         tcmalloc_internal::SLL_Push(&s.list, obj);
-      } else if (s.alignment > 0) {
-        operator delete(obj, static_cast<std::align_val_t>(s.alignment));
+      } else if (s.alignment.has_value()) {
+        operator delete(obj, *s.alignment);
       } else {
         sized_delete(obj, s.size);
       }
@@ -218,7 +218,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   absl::flat_hash_map<size_t, size_t> m;
 
   // size -> alignment request
-  absl::flat_hash_map<size_t, size_t> alignment;
+  absl::flat_hash_map<size_t, std::optional<std::align_val_t>> alignment;
 
   // size -> access_hint
   absl::flat_hash_map<size_t, hot_cold_t> access_hint;
@@ -267,8 +267,8 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   for (auto& s : sizes) {
     while (s.list != nullptr) {
       void* obj = tcmalloc_internal::SLL_Pop(&s.list);
-      if (s.alignment > 0) {
-        operator delete(obj, static_cast<std::align_val_t>(s.alignment));
+      if (s.alignment.has_value()) {
+        operator delete(obj, *s.alignment);
       } else {
         operator delete(obj);
       }
