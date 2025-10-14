@@ -139,15 +139,9 @@ GuardedAllocationsErrorType RefineErrorTypeBasedOnContext(
   return RefineErrorTypeBasedOnWriteFlag(error, write_flag);
 }
 
-// This is overridden by selsan, if it's linked in.
-ABSL_ATTRIBUTE_WEAK void SelsanTrapHandler(void* info, void* ctx) {}
-
 // A SEGV handler that prints stack traces for the allocation and deallocation
 // of relevant memory as well as the location of the memory error.
 void SegvHandler(int signo, siginfo_t* info, void* context) {
-  if (signo == SIGTRAP) {
-    SelsanTrapHandler(info, context);
-  }
   if (signo != SIGSEGV) return;
   void* fault = info->si_addr;
   if (!tc_globals.guardedpage_allocator().PointerIsMine(fault)) return;

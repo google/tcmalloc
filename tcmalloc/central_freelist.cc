@@ -32,7 +32,6 @@
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
@@ -44,9 +43,6 @@ namespace central_freelist_internal {
 static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
   if (IsExpandedSizeClass(size_class)) {
     return MemoryTag::kCold;
-  }
-  if (selsan::IsEnabled()) {
-    return MemoryTag::kSelSan;
   }
   if (!tc_globals.numa_topology().numa_aware()) {
     return MemoryTag::kNormal;
@@ -74,15 +70,17 @@ Length StaticForwarder::class_to_pages(int size_class) {
 
 void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                                         int expected_size_class) {
-  // TODO(b/396002858): Resume using expected_size_class or remove it.
-  (void)expected_size_class;
-
   // Prefetch Span objects to reduce cache misses.
   for (int i = 0; i < batch.size(); ++i) {
     const PageId p = PageIdContaining(batch[i]);
-    Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
+    auto [span, page_size_class] =
+        tc_globals.pagemap().GetExistingDescriptorAndSizeClass(p);
     if (ABSL_PREDICT_FALSE(span == nullptr)) {
       ReportDoubleFree(tc_globals, batch[i]);
+    }
+    if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
+      ReportMismatchedSizeClass(tc_globals, span, page_size_class,
+                                expected_size_class);
     }
     span->Prefetch();
     spans[i] = span;

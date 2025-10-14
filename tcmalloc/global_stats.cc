@@ -21,11 +21,11 @@
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
@@ -46,7 +46,6 @@
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 #include "tcmalloc/stack_trace_table.h"
@@ -500,11 +499,7 @@ void DumpStats(Printer& out, int level) {
     }
     tc_globals.page_allocator().Print(out, MemoryTag::kSampled, pageflags);
     tc_globals.page_allocator().Print(out, MemoryTag::kCold, pageflags);
-    if (selsan::IsEnabled()) {
-      tc_globals.page_allocator().Print(out, MemoryTag::kSelSan, pageflags);
-    }
     tc_globals.guardedpage_allocator().Print(out);
-    selsan::PrintTextStats(out);
 
     out.printf("------------------------------------------------\n");
     out.printf("Configured limits and related statistics\n");
@@ -729,10 +724,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled,
                                            pageflags);
   tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold, pageflags);
-  if (selsan::IsEnabled()) {
-    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSelSan,
-                                             pageflags);
-  }
   // We do not collect tracking information in pbtxt.
 
   size_t soft_limit_bytes =
@@ -772,7 +763,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
     auto gwp_asan = region.CreateSubRegion("gwp_asan");
     tc_globals.guardedpage_allocator().PrintInPbtxt(gwp_asan);
   }
-  selsan::PrintPbtxtStats(region);
 
   region.PrintI64("memory_release_failures",
                   tc_globals.system_allocator().release_errors());

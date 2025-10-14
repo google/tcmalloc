@@ -28,7 +28,6 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
-#include "tcmalloc/selsan/selsan.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -254,13 +253,12 @@ inline constexpr Length operator-(PageId lhs, PageId rhs) {
 
 TCMALLOC_ATTRIBUTE_CONST
 inline PageId PageIdContaining(const void* p) {
-  TC_ASSERT_EQ(selsan::RemoveTag(p), p);
   return PageId(reinterpret_cast<uintptr_t>(p) >> kPageShift);
 }
 
 TCMALLOC_ATTRIBUTE_CONST
 inline PageId PageIdContainingTagged(const void* p) {
-  return PageIdContaining(selsan::RemoveTag(p));
+  return PageIdContaining(p);
 }
 
 TCMALLOC_ATTRIBUTE_CONST

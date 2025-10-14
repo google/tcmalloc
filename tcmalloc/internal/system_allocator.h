@@ -185,7 +185,6 @@ class SystemAllocator {
   absl::once_flag rnd_flag_;
 
   uintptr_t next_sampled_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
-  uintptr_t next_selsan_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
   std::array<uintptr_t, kNumaPartitions> next_normal_addr_
       ABSL_GUARDED_BY(spinlock_) = {0};
   uintptr_t next_cold_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
@@ -206,7 +205,6 @@ class SystemAllocator {
   std::array<AddressRegion*, kNumaPartitions> normal_region_
       ABSL_GUARDED_BY(spinlock_){{nullptr}};
   AddressRegion* sampled_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
-  AddressRegion* selsan_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
   AddressRegion* cold_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
   AddressRegion* metadata_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
 
@@ -330,7 +328,6 @@ template <typename Topology>
 void SystemAllocator<Topology>::DiscardMappedRegions() {
   std::fill(normal_region_.begin(), normal_region_.end(), nullptr);
   sampled_region_ = nullptr;
-  selsan_region_ = nullptr;
   cold_region_ = nullptr;
   metadata_region_ = nullptr;
 }
@@ -365,7 +362,9 @@ std::pair<void*, size_t> SystemAllocator<Topology>::MmapRegion::Alloc(
   // For cold regions (kInfrequentAccess) and sampled regions
   // (kInfrequentAllocation), we want as granular of access telemetry as
   // possible; this hint means we can get 4kiB granularity instead of 2MiB.
-  if (hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess ||
+  if ((hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess &&
+       !IsExperimentActive(
+           Experiment::TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE)) ||
       hint_ == AddressRegionFactory::UsageHint::kInfrequentAllocation ||
       system_allocator_internal::preferential_collapse()) {
     // This is only advisory, so ignore the error.
@@ -456,8 +455,6 @@ std::pair<void*, size_t> SystemAllocator<Topology>::AllocateFromRegion(
             return &normal_region_[1];
           case MemoryTag::kSampled:
             return &sampled_region_;
-          case MemoryTag::kSelSan:
-            return &selsan_region_;
           case MemoryTag::kCold:
             return &cold_region_;
           case MemoryTag::kMetadata:
@@ -510,8 +507,6 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
         switch (tag) {
           case MemoryTag::kSampled:
             return &next_sampled_addr_;
-          case MemoryTag::kSelSan:
-            return &next_selsan_addr_;
           case MemoryTag::kNormalP0:
             numa_partition = 0;
             return &next_normal_addr_[0];
@@ -732,11 +727,6 @@ AddressRegionFactory::UsageHint SystemAllocator<Topology>::TagToHint(
     case MemoryTag::kNormalP1:
       if (topology_.numa_aware()) {
         return UsageHint::kNormalNumaAwareS1;
-      }
-      return UsageHint::kNormal;
-    case MemoryTag::kSelSan:
-      if (topology_.numa_aware()) {
-        return UsageHint::kNormalNumaAwareS0;
       }
       return UsageHint::kNormal;
     case MemoryTag::kSampled:

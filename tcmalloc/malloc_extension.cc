@@ -43,8 +43,7 @@
      defined(ABSL_HAVE_THREAD_SANITIZER) ||    \
      defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
      defined(ABSL_HAVE_DATAFLOW_SANITIZER) ||  \
-     defined(ABSL_HAVE_LEAK_SANITIZER)) &&     \
-    !defined(TCMALLOC_INTERNAL_SELSAN)
+     defined(ABSL_HAVE_LEAK_SANITIZER))
 #define TCMALLOC_UNDER_SANITIZERS 1
 static constexpr size_t kTerabyte = (size_t)(1ULL << 40);
 
@@ -661,17 +660,6 @@ std::optional<size_t> MallocExtension::GetNumericProperty(
   // LINT.ThenChange(:SanitizerGetProperties)
 #endif  // TCMALLOC_UNDER_SANITIZERS
   return std::nullopt;
-}
-
-size_t MallocExtension::GetEstimatedAllocatedSize(size_t size,
-                                                  hot_cold_t hot_cold) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetEstimatedAllocatedSize != nullptr) {
-    return MallocExtension_Internal_GetEstimatedAllocatedSize(size, hot_cold);
-  }
-#endif
-  // Fall-through to assuming that the hot/cold hint doesn't affect the
-  return nallocx(size, 0);
 }
 
 size_t MallocExtension::GetEstimatedAllocatedSize(size_t size) {

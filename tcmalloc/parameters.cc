@@ -36,7 +36,6 @@
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator.h"
-#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/thread_cache.h"
 
@@ -477,14 +476,6 @@ bool TCMalloc_Internal_GetPerCpuCachesEnabled() {
 
 void TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v) {
   Parameters::guarded_sampling_interval_.store(v, std::memory_order_relaxed);
-}
-
-int TCMalloc_Internal_GetSelSanPercent() {
-  return tcmalloc::tcmalloc_internal::selsan::SamplingPercent();
-}
-
-void TCMalloc_Internal_SetSelSanPercent(int v) {
-  tcmalloc::tcmalloc_internal::selsan::SetSamplingPercent(v);
 }
 
 // update_lock guards changes via SetHeapSizeHardLimit.

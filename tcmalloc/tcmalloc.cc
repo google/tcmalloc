@@ -115,7 +115,6 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/segv_handler.h"
-#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
@@ -353,13 +352,12 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
 // stack spills. ABSL_ATTRIBUTE_ALWAYS_INLINE does not work on
 // size_class_with_alignment, compiler barks that it can't inline the function
 // somewhere.
-static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags,
-                                                   hot_cold_t hot_cold) {
+static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
   tc_globals.InitIfNecessary();
   size_t align = static_cast<size_t>(1ull << (flags & 0x3f));
   size_t size_class;
   if (ABSL_PREDICT_TRUE(tc_globals.sizemap().GetSizeClass(
-          CppPolicy().AlignAs(align).AccessAs(hot_cold), size, &size_class))) {
+          CppPolicy().AlignAs(align), size, &size_class))) {
     TC_ASSERT_NE(size_class, 0);
     return tc_globals.sizemap().class_to_size(size_class);
   } else {
@@ -374,7 +372,7 @@ static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags,
 // http://www.unix.com/man-page/freebsd/3/nallocx/
 extern "C" size_t nallocx(size_t size, int flags) noexcept {
   if (ABSL_PREDICT_FALSE(!tc_globals.IsInited() || flags != 0)) {
-    return nallocx_slow(size, flags, hot_cold_t{255});
+    return nallocx_slow(size, flags);
   }
   size_t size_class;
   if (ABSL_PREDICT_TRUE(
@@ -384,11 +382,6 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept {
   } else {
     return BytesToLengthCeil(size).in_bytes();
   }
-}
-
-extern "C" size_t MallocExtension_Internal_GetEstimatedAllocatedSize(
-    size_t bytes, tcmalloc::hot_cold_t hot_cold) {
-  return nallocx_slow(bytes, 0, hot_cold);
 }
 
 extern "C" MallocExtension::Ownership MallocExtension_Internal_GetOwnership(
@@ -589,7 +582,7 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
     void* ptr, std::optional<size_t> size, size_t size_class) {
   if (!IsExpandedSizeClass(size_class)) {
-    TC_ASSERT(IsNormalMemory(ptr) || IsSelSanMemory(ptr), "ptr=%p", ptr);
+    TC_ASSERT(IsNormalMemory(ptr), "ptr=%p", ptr);
   } else {
     TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold, "ptr=%p", ptr);
   }
@@ -607,31 +600,6 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
     FreeSmallSlow(ptr, size, size_class);
   }
 }
-
-namespace selsan {
-// Returns best-effort info (start/size) about a heap object that contains ptr.
-// If a non-heap pointer is passed, returns {} (but must not crash).
-std::pair<void*, size_t> HeapObjectInfo(void* ptr) {
-  PageId page = PageIdContaining(ptr);
-  Span* span = tc_globals.pagemap().GetDescriptor(page);
-  if (span == nullptr) {
-    return {};
-  }
-  size_t size_class = tc_globals.pagemap().sizeclass(page);
-  if (size_class == 0) {
-    return {};
-  }
-  uintptr_t span_start = reinterpret_cast<uintptr_t>(span->start_address());
-  size_t obj_size = tc_globals.sizemap().class_to_size(size_class);
-  uintptr_t obj_start =
-      span_start +
-      (reinterpret_cast<uintptr_t>(ptr) - span_start) / obj_size * obj_size;
-  if (obj_start + obj_size > span_start + span->bytes_in_span()) {
-    obj_start -= obj_size;
-  }
-  return {reinterpret_cast<void*>(obj_start), obj_size};
-}
-}  // namespace selsan
 
 namespace {
 
@@ -761,18 +729,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
   // TODO(b/404341539):  Improve the bound.
   TC_ASSERT(CorrectAlignment(ptr, static_cast<std::align_val_t>(1)));
 
-  if (!kSelSanPresent || ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
-    if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
-      return;
-    }
-    if (ABSL_PREDICT_TRUE(IsSelSanMemory(ptr))) {
-      size_t size_class =
-          tc_globals.pagemap().sizeclass(PageIdContainingTagged(ptr));
-      size_t size = tc_globals.sizemap().class_to_size(size_class);
-      ptr = selsan::UpdateTag(ptr, size);
-      FreeSmall(ptr, std::nullopt, size_class);
-      return;
-    }
+  if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
+    return;
   }
   TC_ASSERT_NE(ptr, nullptr);
 
@@ -824,16 +782,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // The optimized path doesn't work with non-normal objects (sampled, cold),
   // whose deletions trigger more operations and require to visit metadata.
   if (ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
-    if (ABSL_PREDICT_TRUE(ptr == nullptr)) {
-      return;
-    }
-    if (ABSL_PREDICT_TRUE(IsSelSanMemory(ptr))) {
-      TC_ASSERT(CorrectSize(ptr, size, policy));
-      size_t size_class = tc_globals.sizemap().SizeClass(
-          policy.InSameNumaPartitionAs(ptr), size);
-      size = tc_globals.sizemap().class_to_size(size_class);
-      ptr = selsan::UpdateTag(ptr, size);
-      FreeSmall(ptr, size, size_class);
+    if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
     }
     // Outline cold path to avoid putting cold size lookup on the fast path.

@@ -57,12 +57,12 @@ void* MetaDataAlloc(size_t bytes);
 // size class into a single word.
 class PackedSpanAndSizeclass {
  public:
-  void set(Span* span, CompactSizeClass sizeclass) {
+  void set(Span* absl_nullable span, CompactSizeClass sizeclass) {
     packed_value_ = (static_cast<uintptr_t>(sizeclass) << kSizeclassShift) |
                     reinterpret_cast<uintptr_t>(span);
   }
 
-  Span* span() const {
+  Span* absl_nullable span() const {
     return reinterpret_cast<Span*>(packed_value_ & kSpanMask);
   }
   CompactSizeClass sizeclass() const {
@@ -107,10 +107,12 @@ class PageMap2 {
     PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
     void* hugepage[kLeafHugepages];
 
-    Span* span(int i) const { return span_and_sizeclass[i].span(); }
+    Span* absl_nullable span(int i) const {
+      return span_and_sizeclass[i].span();
+    }
   };
 
-  Leaf* root_[kRootLength];  // Top-level node
+  Leaf* absl_nullable root_[kRootLength];  // Top-level node
   size_t bytes_used_;
 
  public:
@@ -119,7 +121,7 @@ class PageMap2 {
   constexpr PageMap2() : root_{}, bytes_used_(0) {}
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  void* get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  Span* absl_nullable get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     if ((k >> BITS) > 0 || root_[i1] == nullptr) {
@@ -150,8 +152,9 @@ class PageMap2 {
   //
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
-  std::pair<Span*, int> get_existing_with_sizeclass(Number k) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED {
+  std::pair<Span* absl_nullable, int> get_existing_with_sizeclass(
+      Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS
+      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     TC_ASSERT_EQ(k >> BITS, 0);
@@ -169,7 +172,8 @@ class PageMap2 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // Requires that the span is known to already exist.
-  Span* get_existing(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  Span* absl_nullable get_existing(Number k) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     TC_ASSERT_EQ(k >> BITS, 0);
@@ -311,15 +315,17 @@ class PageMap3 {
     PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
     void* hugepage[kLeafHugepages];
 
-    Span* span(int i) const { return span_and_sizeclass[i].span(); }
+    Span* absl_nullable span(int i) const {
+      return span_and_sizeclass[i].span();
+    }
   };
 
   struct Node {
     // Mid-level structure that holds pointers to leafs
-    Leaf* leafs[kMidLength];
+    Leaf* absl_nullable leafs[kMidLength];
   };
 
-  Node* root_[kRootLength];  // Top-level node
+  Node* absl_nullable root_[kRootLength];  // Top-level node
   size_t bytes_used_;
 
  public:
@@ -328,7 +334,7 @@ class PageMap3 {
   constexpr PageMap3() : root_{}, bytes_used_(0) {}
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  void* get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  Span* absl_nullable get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -366,8 +372,9 @@ class PageMap3 {
   //
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
-  std::pair<Span*, int> get_existing_with_sizeclass(Number k) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED {
+  std::pair<Span* absl_nullable, int> get_existing_with_sizeclass(
+      Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS
+      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -388,7 +395,8 @@ class PageMap3 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // Requires that the span is known to already exist.
-  Span* get_existing(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  Span* absl_nullable get_existing(Number k) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -537,9 +545,9 @@ class PageMap {
   // Return the descriptor for the specified page.  Returns NULL if
   // this PageId was not allocated previously.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] inline Span* GetDescriptor(PageId p) const
+  [[nodiscard]] inline Span* absl_nullable GetDescriptor(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return reinterpret_cast<Span*>(map_.get(p.index()));
+    return map_.get(p.index());
   }
 
   // Return the descriptor and sizeclass for the specified page.

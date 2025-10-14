@@ -37,7 +37,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
@@ -322,9 +321,6 @@ inline void CentralFreeList<Forwarder>::Init(
   if (object_size_ == 0) {
     return;
   }
-  if (selsan::IsEnabled()) {
-    object_size_ = selsan::RoundUpObjectSize(object_size_);
-  }
   pages_per_span_ = forwarder_.class_to_pages(size_class);
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
@@ -462,12 +458,6 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   TC_CHECK(!batch.empty());
   TC_CHECK_LE(batch.size(), kMaxObjectsToMove);
 
-  if (selsan::IsEnabled()) {
-    for (auto& ptr : batch) {
-      ptr = selsan::ResetTag(ptr, object_size_);
-    }
-  }
-
   Span* spans[kMaxObjectsToMove];
   // First, map objects to spans and prefetch spans outside of our mutex
   // (to reduce critical section size and cache misses).
@@ -522,26 +512,7 @@ void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
       completed_spans_[LifetimeBucketNum(lifetime)].LossyAdd(1);
     }
   }
-  if (ABSL_PREDICT_TRUE(!selsan::IsEnabled())) {
-    return forwarder_.DeallocateSpans(objects_per_span_, spans);
-  }
-  Span* selsan_spans[kMaxObjectsToMove];
-  size_t selsan_count = 0;
-  size_t normal_count = 0;
-  for (Span* span : spans) {
-    if (IsSelSanMemory(span->start_address())) {
-      selsan_spans[selsan_count++] = span;
-    } else {
-      spans[normal_count++] = span;
-    }
-  }
-
-  if (normal_count) {
-    forwarder_.DeallocateSpans(objects_per_span_, {spans.data(), normal_count});
-  }
-  if (selsan_count) {
-    forwarder_.DeallocateSpans(objects_per_span_, {selsan_spans, selsan_count});
-  }
+  return forwarder_.DeallocateSpans(objects_per_span_, spans);
 }
 
 template <class Forwarder>

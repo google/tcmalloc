@@ -38,10 +38,6 @@ enum class MemoryTag : uint8_t {
   kCold = 0x2,
   // Metadata
   kMetadata = 0x3,
-  // SelSan sampled spans, kept separately because we need to quickly
-  // distinguish them from the rest during delete and they also consume
-  // shadow memory. 0xfe is an arbitrary value that shouldn't be used.
-  kSelSan = kSelSanPresent ? 0x1 : 0xfe,
 };
 
 inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
@@ -64,20 +60,6 @@ inline bool IsNormalMemory(const void* ptr) {
                     GetMemoryTag(ptr) == MemoryTag::kNormalP1),
             "ptr=%p res=%d tag=%d", ptr, res,
             static_cast<int>(GetMemoryTag(ptr)));
-  return res;
-}
-
-inline bool IsSelSanMemory(const void* ptr) {
-  // This is a faster way to check for SelSan memory provided we already know
-  // it's not a normal memory, and assuming it's not kMetadata (both assumptions
-  // are checked by the assert below). A straightforward comparison with kSelSan
-  // leads to extraction/check of 2 bits (these use 2 8-byte immediates);
-  // this check can be done with a single BT instruction.
-  // kSelSanPresent part allows to optimize away branches in non SelSan build.
-  bool res =
-      kSelSanPresent && (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
-                         static_cast<uintptr_t>(MemoryTag::kSelSan)) != 0;
-  TC_ASSERT_EQ(res, GetMemoryTag(ptr) == MemoryTag::kSelSan);
   return res;
 }
 

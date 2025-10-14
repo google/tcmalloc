@@ -48,11 +48,9 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
   const auto& classes = kSizeClasses.classes;
   std::vector<size_t> allowed_alloc_size;
   std::vector<size_t> expected_cold_size_classes;
-  for (int i = 0; i < classes.size(); ++i) {
-    if (Span::IsNonIntrusive(classes[i].size)) {
-      allowed_alloc_size.push_back(classes[i].size);
-      expected_cold_size_classes.push_back(i + kExpandedClassesStart);
-    }
+  for (int i = 1; i < classes.size(); ++i) {
+    allowed_alloc_size.push_back(classes[i].size);
+    expected_cold_size_classes.push_back(i + kExpandedClassesStart);
   }
 
   SizeMap size_map;
@@ -77,39 +75,9 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
   const auto& classes = kSizeClasses.classes;
   size_map.Init(classes);
 
-  size_t min_alloc_for_cold = 0;
-  for (int i = 0; i < classes.size(); ++i) {
-    if (Span::IsNonIntrusive(classes[i].size)) {
-      min_alloc_for_cold = classes[i].size;
-      break;
-    }
-  }
-
-  size_t size_before_min_alloc_for_cold = 0;
-  auto it = std::lower_bound(classes.begin(), classes.end(), min_alloc_for_cold,
-                             [](const SizeClassInfo& lhs, const size_t rhs) {
-                               return lhs.size < rhs;
-                             });
-  ASSERT_NE(it, classes.begin());
-  size_before_min_alloc_for_cold = (--it)->size;
-
-  // Confirm that small sizes are allocated as "hot".
-  for (int request_size = 0; request_size <= size_before_min_alloc_for_cold;
-       ++request_size) {
-    // Cold allocation is not numa-aware. They always point to the first
-    // partition.
-    EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
-              size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) -
-                  (tc_globals.numa_topology().GetCurrentPartition() == 0
-                       ? 0
-                       : kNumBaseClasses))
-        << request_size;
-  }
-
-  // Confirm that large sizes are allocated as cold as requested.
+  // Confirm that sizes are allocated as cold as requested.
   size_t max_size = classes[classes.size() - 1].size;
-  for (int request_size = size_before_min_alloc_for_cold + 1;
-       request_size <= max_size; ++request_size) {
+  for (int request_size = 1; request_size <= max_size; ++request_size) {
     EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
               size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
                   (tc_globals.numa_topology().GetCurrentPartition() == 0

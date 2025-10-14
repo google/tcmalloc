@@ -26,7 +26,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 
@@ -48,10 +47,6 @@ PageAllocator::PageAllocator() {
   }
   sampled_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
       HugePageAwareAllocatorOptions{MemoryTag::kSampled});
-  if (selsan::IsEnabled()) {
-    selsan_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-        HugePageAwareAllocatorOptions{MemoryTag::kSelSan});
-  }
   if (has_cold_impl_) {
     cold_impl_ = new (&choices_[part++].hpaa)
         HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kCold});
@@ -167,14 +162,6 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
     }
     if (has_cold_impl_) {
       ret += static_cast<HugePageAwareAllocator*>(cold_impl_)
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
-                                                         release_reason);
-      if (ret >= pages) {
-        return true;
-      }
-    }
-    if (selsan_impl_) {
-      ret += static_cast<HugePageAwareAllocator*>(selsan_impl_)
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
                                                          release_reason);
       if (ret >= pages) {
