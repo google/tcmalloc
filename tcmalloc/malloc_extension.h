@@ -35,6 +35,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
+#include "absl/base/nullability.h"
 #include "absl/functional/function_ref.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -267,7 +268,7 @@ class Profile final {
 
     // The start address of the sampled allocation, used to calculate the
     // residency info for the objects represented by this sampled allocation.
-    void* absl_nonnull span_start_address;
+    void* absl_nullable span_start_address;
   };
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;
