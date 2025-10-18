@@ -508,14 +508,6 @@ class MallocExtension final {
   // The old names to get and set profile sampling intervals used "rate" to
   // refer to intervals. Use of the below is deprecated to avoid confusion.
   ABSL_DEPRECATE_AND_INLINE()
-  static int64_t GetProfileSamplingRate() {
-    return GetProfileSamplingInterval();
-  }
-  ABSL_DEPRECATE_AND_INLINE()
-  static void SetProfileSamplingRate(int64_t rate) {
-    SetProfileSamplingInterval(rate);
-  }
-  ABSL_DEPRECATE_AND_INLINE()
   static int64_t GetGuardedSamplingRate() {
     return GetGuardedSamplingInterval();
   }
