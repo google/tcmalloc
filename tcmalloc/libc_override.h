@@ -33,6 +33,7 @@
 #include <new>
 
 #include "tcmalloc/alloc_at_least.h"
+#include "tcmalloc/malloc_extension.h"  // IWYU pragma: keep
 #include "tcmalloc/tcmalloc.h"  // IWYU pragma: keep
 
 #define TCMALLOC_ALIAS(tc_fn) \
@@ -216,6 +217,109 @@ alloc_result_t alloc_at_least(size_t min_size) TCMALLOC_NOTHROW
 alloc_result_t aligned_alloc_at_least(size_t alignment,
                                       size_t min_size) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalAlignedAllocAtLeast);
+
+//
+// Partitioned Variants for Clang's -fsanitize=alloc-token.
+//
+#ifdef __SANITIZE_ALLOC_TOKEN__
+#define DEFINE_ALLOC_TOKEN_NEW(id)                                          \
+  void* __alloc_token_##id##__Znwm(size_t)                                  \
+      TCMALLOC_ALIAS(TCMallocInternalNew);                                  \
+  void* __alloc_token_##id##__Znam(size_t)                                  \
+      TCMALLOC_ALIAS(TCMallocInternalNewArray);                             \
+  void* __alloc_token_##id##__ZnwmRKSt9nothrow_t(size_t,                    \
+                                                 const std::nothrow_t&)     \
+      TCMALLOC_ALIAS(TCMallocInternalNewNothrow);                           \
+  void* __alloc_token_##id##__ZnamRKSt9nothrow_t(size_t,                    \
+                                                 const std::nothrow_t&)     \
+      TCMALLOC_ALIAS(TCMallocInternalNewArrayNothrow);                      \
+  void* __alloc_token_##id##__ZnwmSt11align_val_t(size_t, std::align_val_t) \
+      TCMALLOC_ALIAS(TCMallocInternalNewAligned);                           \
+  void* __alloc_token_##id##__ZnamSt11align_val_t(size_t, std::align_val_t) \
+      TCMALLOC_ALIAS(TCMallocInternalNewArrayAligned);                      \
+  void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t(            \
+      size_t, std::align_val_t, const std::nothrow_t&)                      \
+      TCMALLOC_ALIAS(TCMallocInternalNewAlignedNothrow);                    \
+  void* __alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t(            \
+      size_t, std::align_val_t, const std::nothrow_t&)                      \
+      TCMALLOC_ALIAS(TCMallocInternalNewArrayAlignedNothrow);
+
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
+#define DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)                                                   \
+  void* __alloc_token_##id##__Znwm12__hot_cold_t(size_t, __hot_cold_t)                         \
+      TCMALLOC_ALIAS(_Znwm12__hot_cold_t);                                                     \
+  void* __alloc_token_##id##__ZnwmRKSt9nothrow_t12__hot_cold_t(                                \
+      size_t, const std::nothrow_t&,                                                           \
+      __hot_cold_t) noexcept TCMALLOC_ALIAS(_ZnwmRKSt9nothrow_t12__hot_cold_t);                \
+  void* __alloc_token_##id##__ZnwmSt11align_val_t12__hot_cold_t(                               \
+      size_t, std::align_val_t, __hot_cold_t)                                                  \
+      TCMALLOC_ALIAS(_ZnwmSt11align_val_t12__hot_cold_t);                                      \
+  void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t(                 \
+      size_t, std::align_val_t, const std::nothrow_t&,                                         \
+      __hot_cold_t) noexcept TCMALLOC_ALIAS(_ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t); \
+  void* __alloc_token_##id##__Znam12__hot_cold_t(size_t, __hot_cold_t)                         \
+      TCMALLOC_ALIAS(_Znam12__hot_cold_t);                                                     \
+  void* __alloc_token_##id##__ZnamRKSt9nothrow_t12__hot_cold_t(                                \
+      size_t, const std::nothrow_t&,                                                           \
+      __hot_cold_t) noexcept TCMALLOC_ALIAS(_ZnamRKSt9nothrow_t12__hot_cold_t);                \
+  void* __alloc_token_##id##__ZnamSt11align_val_t12__hot_cold_t(                               \
+      size_t, std::align_val_t, __hot_cold_t)                                                  \
+      TCMALLOC_ALIAS(_ZnamSt11align_val_t12__hot_cold_t);                                      \
+  void* __alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t(                 \
+      size_t, std::align_val_t, const std::nothrow_t&,                                         \
+      __hot_cold_t) noexcept TCMALLOC_ALIAS(_ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t); \
+  __sized_ptr_t __alloc_token_##id##___size_returning_new(size_t)                              \
+      TCMALLOC_ALIAS(__size_returning_new);                                                    \
+  __sized_ptr_t __alloc_token_##id##___size_returning_new_aligned(                             \
+      size_t, std::align_val_t) TCMALLOC_ALIAS(__size_returning_new_aligned);                  \
+  __sized_ptr_t __alloc_token_##id##___size_returning_new_hot_cold(                            \
+      size_t, __hot_cold_t) TCMALLOC_ALIAS(__size_returning_new_hot_cold);                     \
+  __sized_ptr_t __alloc_token_##id##___size_returning_new_aligned_hot_cold(                    \
+      size_t, std::align_val_t, __hot_cold_t)                                                  \
+      TCMALLOC_ALIAS(__size_returning_new_aligned_hot_cold);
+#else
+#define ALLOC_TOKEN_NEW_EXTENSION(id)
+#endif  // TCMALLOC_INTERNAL_METHODS_ONLY
+
+#define DEFINE_ALLOC_TOKEN_STDLIB(id)                                \
+  void* __alloc_token_##id##_malloc(size_t)                          \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalMalloc);       \
+  void* __alloc_token_##id##_realloc(void*, size_t)                  \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalRealloc);      \
+  void* __alloc_token_##id##_reallocarray(void*, size_t, size_t)     \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalReallocArray); \
+  void* __alloc_token_##id##_calloc(size_t, size_t)                  \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalCalloc);       \
+  void* __alloc_token_##id##_memalign(size_t, size_t)                \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalMemalign);     \
+  void* __alloc_token_##id##_aligned_alloc(size_t, size_t)           \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalAlignedAlloc); \
+  void* __alloc_token_##id##_valloc(size_t)                          \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalValloc);       \
+  void* __alloc_token_##id##_pvalloc(size_t)                         \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalPvalloc);      \
+  int __alloc_token_##id##_posix_memalign(void**, size_t, size_t)    \
+      TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalPosixMemalign);
+
+#define DEFINE_ALLOC_TOKEN_VARIANTS(id) \
+  DEFINE_ALLOC_TOKEN_NEW(id)            \
+  DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)  \
+  DEFINE_ALLOC_TOKEN_STDLIB(id)
+
+#ifndef ALLOC_TOKEN_MAX
+#error "Define ALLOC_TOKEN_MAX to match -falloc-token-max=<max number of IDs>"
+#endif
+static_assert(ALLOC_TOKEN_MAX == 2);
+DEFINE_ALLOC_TOKEN_VARIANTS(0)
+DEFINE_ALLOC_TOKEN_VARIANTS(1)
+#ifdef ALLOC_TOKEN_FALLBACK
+// Define the functions for the fallback token ID if overridden with -mllvm
+// -alloc-token-fallback=N; should fall outside the range of normal token IDs.
+static_assert(ALLOC_TOKEN_FALLBACK >= ALLOC_TOKEN_MAX);
+DEFINE_ALLOC_TOKEN_VARIANTS(ALLOC_TOKEN_FALLBACK)
+#endif
+
+#endif  // __SANITIZE_ALLOC_TOKEN__
 
 }  // extern "C"
 
