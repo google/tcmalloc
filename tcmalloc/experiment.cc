@@ -17,8 +17,8 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -30,14 +30,11 @@
 #include "absl/functional/function_ref.h"
 #include "absl/hash/hash.h"
 #include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
-#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -179,7 +176,9 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
   // It would be nice to print what experiments we enable, but printing even
   // to stderr breaks some tests that capture subprocess output.
   if (unset && !test_target.empty()) {
-    TC_CHECK(active.empty() && disabled.empty());
+    // TODO: b/454666418 - Replace with TC_CHECK when the synchronization
+    // experimentation is finished.
+    assert(active.empty() && disabled.empty());
     uint64_t seed =
         static_cast<uint64_t>(absl::base_internal::CycleClock::Now());
     const size_t target_hash = absl::HashOf(test_target, seed);
@@ -209,7 +208,9 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
     // experiment.
     if (num_enabled_experiments == 0 &&
         experiment_id != Experiment::kMaxExperimentID) {
-      TC_CHECK(!buffer[static_cast<int>(experiment_id)]);
+      // TODO: b/454666418 - Replace with TC_CHECK when the synchronization
+      // experimentation is finished.
+      assert(!buffer[static_cast<int>(experiment_id)]);
       buffer[static_cast<int>(experiment_id)] = true;
     }
   }
@@ -220,8 +221,10 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
 }  // namespace tcmalloc_internal
 
 bool IsExperimentActive(Experiment exp) {
-  TC_ASSERT_GE(static_cast<int>(exp), 0);
-  TC_ASSERT_LT(exp, Experiment::kMaxExperimentID);
+  // TODO: b/454666418 - Replace with TC_CHECK when the synchronization
+  // experimentation is finished.
+  assert(static_cast<int>(exp) >= 0);
+  assert(exp < Experiment::kMaxExperimentID);
 
   return tcmalloc_internal::GetSelectedExperiments()[static_cast<int>(exp)];
 }
