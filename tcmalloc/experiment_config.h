@@ -24,7 +24,6 @@ enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
   TCMALLOC_RELEASE_FREE_SWAPPED,  // TODO: b/438767733 - Complete experiment.
-  TCMALLOC_REUSE_SIZE_CLASSES_V2,  // TODO: b/358126781 - Complete experiment.
   TEST_ONLY_L3_AWARE,  // TODO: b/239977380 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
   TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1,  // TODO: b/437412600 - Complete experiment.
@@ -48,7 +47,6 @@ struct ExperimentConfig {
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::TCMALLOC_RELEASE_FREE_SWAPPED, "TCMALLOC_RELEASE_FREE_SWAPPED"},
-    {Experiment::TCMALLOC_REUSE_SIZE_CLASSES_V2, "TCMALLOC_REUSE_SIZE_CLASSES_V2"},
     {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
     {Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1, "TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1"},

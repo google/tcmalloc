@@ -196,9 +196,7 @@ TEST(TcmallocTest, Realloc) {
   // Test that realloc doesn't always reallocate and copy memory.
   constexpr int kLargeSize = (1 << 20) - (1 << 10);
   ASSERT_GT(kLargeSize, tcmalloc_internal::kMaxSize);
-  // Select start sizes such that start_size and start_size + delta are expected
-  // to be allocated from the same size class.
-  constexpr int start_sizes[] = {100, 1000, 20000, 100000, kLargeSize};
+  constexpr int start_sizes[] = {100, 1000, 10000, 100000, kLargeSize};
   constexpr int deltas[] = {1,   -2, 4,    -8,      16,
                             -32, 64, -128, 1 << 10, -(2 << 10)};
 
@@ -254,9 +252,7 @@ TEST(TcmallocTest, ReallocArray) {
   // to us here.
   ScopedNeverSample never_sample;
 
-  // Select start sizes such that start_size and start_size + delta are expected
-  // to be allocated from the same size class.
-  constexpr int start_sizes[] = {100, 1000, 20000, 100000};
+  constexpr int start_sizes[] = {100, 1000, 10000, 100000};
   constexpr int deltas[] = {1, -2, 4, -8, 16, -32, 64, -128};
 
   for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
