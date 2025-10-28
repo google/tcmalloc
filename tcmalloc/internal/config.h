@@ -56,13 +56,19 @@
 #undef TCMALLOC_HAVE_STRUCT_MALLINFO2
 #endif
 
-// When possible, name the text section as google_malloc.  This macro should not
-// be applied to header files (as in "GOOGLE_MALLOC_SECTION_BEGIN #include ...")
-// as that may move unrelated code to google_malloc section.
+// When possible, name the text section as google_malloc and the bss section as
+// google_malloc_metadata.  This macro should not be applied to header files (as
+// in "GOOGLE_MALLOC_SECTION_BEGIN #include ...") as that may move unrelated
+// code to google_malloc section.  We separate the google_malloc_data /
+// google_malloc_bss sections to group the metadata together and prevent
+// it from being in .lbss, which is an otherwise cold section.
 #if defined(__clang__) && defined(__linux__)
-#define GOOGLE_MALLOC_SECTION_BEGIN \
-  _Pragma("clang section text = \"google_malloc\"")
-#define GOOGLE_MALLOC_SECTION_END _Pragma("clang section text = \"\"")
+#define GOOGLE_MALLOC_SECTION_BEGIN                          \
+  _Pragma("clang section text = \"google_malloc\"")          \
+      _Pragma("clang section data = \"google_malloc_data\"") \
+          _Pragma("clang section bss = \"google_malloc_bss\"")
+#define GOOGLE_MALLOC_SECTION_END \
+  _Pragma("clang section text = \"\" data = \"\" bss = \"\"")
 // For inline lambdas, which aren't covered
 #define GOOGLE_MALLOC_SECTION __attribute__((section("google_malloc")))
 #else
