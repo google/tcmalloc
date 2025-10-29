@@ -116,19 +116,7 @@ TEST_F(GetStatsTest, Pbtxt) {
       buf,
       HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
 #endif
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  EXPECT_THAT(buf,
-              HasSubstr("tcmalloc_cache_demand_release_short_interval_ns: 0"));
-  EXPECT_THAT(buf,
-              HasSubstr("tcmalloc_cache_demand_release_long_interval_ns: 0"));
-#else
-  EXPECT_THAT(
-      buf, HasSubstr(
-               "tcmalloc_cache_demand_release_short_interval_ns: 10000000000"));
-  EXPECT_THAT(
-      buf,
-      HasSubstr("tcmalloc_cache_demand_release_long_interval_ns: 30000000000"));
-#endif
+
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
@@ -182,12 +170,6 @@ TEST_F(GetStatsTest, Parameters) {
   const absl::Duration old_skip_subrelease_long =
       Parameters::filler_skip_subrelease_long_interval();
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
-  const absl::Duration old_cache_demand_release_short =
-      Parameters::cache_demand_release_short_interval();
-  Parameters::set_cache_demand_release_short_interval(absl::Seconds(4));
-  const absl::Duration old_cache_demand_release_long =
-      Parameters::cache_demand_release_long_interval();
-  Parameters::set_cache_demand_release_long_interval(absl::Seconds(5));
 
   auto using_hpaa = [](absl::string_view sv) {
     return absl::StrContains(sv, "HugePageAwareAllocator");
@@ -271,14 +253,6 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_skip_subrelease_long_interval_ns: 3000000000)"));
-    EXPECT_THAT(
-        pbtxt,
-        HasSubstr(
-            R"(tcmalloc_cache_demand_release_short_interval_ns: 4000000000)"));
-    EXPECT_THAT(
-        pbtxt,
-        HasSubstr(
-            R"(tcmalloc_cache_demand_release_long_interval_ns: 5000000000)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
   }
 
@@ -292,10 +266,6 @@ TEST_F(GetStatsTest, Parameters) {
       absl::Milliseconds(120250));
   Parameters::set_filler_skip_subrelease_long_interval(
       absl::Milliseconds(180375));
-  Parameters::set_cache_demand_release_short_interval(
-      absl::Milliseconds(180250));
-  Parameters::set_cache_demand_release_long_interval(
-      absl::Milliseconds(240375));
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
 
   buf = MallocExtension::GetStats();
@@ -325,14 +295,7 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(
             R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3m0.375s)"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr(
-            R"(PARAMETER tcmalloc_cache_demand_release_short_interval 3m0.25s)"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr(
-            R"(PARAMETER tcmalloc_cache_demand_release_long_interval 4m0.375s)"));
+
     if (using_hpaa(buf)) {
       EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
     }
@@ -352,14 +315,6 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_skip_subrelease_long_interval_ns: 180375000000)"));
-    EXPECT_THAT(
-        pbtxt,
-        HasSubstr(
-            R"(tcmalloc_cache_demand_release_short_interval_ns: 180250000000)"));
-    EXPECT_THAT(
-        pbtxt,
-        HasSubstr(
-            R"(tcmalloc_cache_demand_release_long_interval_ns: 240375000000)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
   }
 
@@ -373,10 +328,6 @@ TEST_F(GetStatsTest, Parameters) {
       old_skip_subrelease_short);
   Parameters::set_filler_skip_subrelease_long_interval(
       old_skip_subrelease_long);
-  Parameters::set_cache_demand_release_short_interval(
-      old_cache_demand_release_short);
-  Parameters::set_cache_demand_release_long_interval(
-      old_cache_demand_release_long);
 }
 
 TEST_F(GetStatsTest, StackDepth) {

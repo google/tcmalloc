@@ -132,42 +132,6 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   return v;
 }
 
-static std::atomic<int64_t>& cache_demand_release_short_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    // clang-format off
-    v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-                absl::ZeroDuration()
-#else
-                absl::Seconds(10)
-#endif
-                    ),
-            std::memory_order_relaxed);
-    // clang-format on
-  });
-  return v;
-}
-
-static std::atomic<int64_t>& cache_demand_release_long_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    // clang-format off
-    v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-                absl::ZeroDuration()
-#else
-                absl::Seconds(30)
-#endif
-                    ),
-            std::memory_order_relaxed);
-    // clang-format on
-  });
-  return v;
-}
-
 uint64_t Parameters::heap_size_hard_limit() {
   return tc_globals.page_allocator().limit(PageAllocator::kHard);
 }
@@ -282,16 +246,6 @@ absl::Duration Parameters::filler_skip_subrelease_long_interval() {
       skip_subrelease_long_interval_ns().load(std::memory_order_relaxed));
 }
 
-absl::Duration Parameters::cache_demand_release_short_interval() {
-  return absl::Nanoseconds(
-      cache_demand_release_short_interval_ns().load(std::memory_order_relaxed));
-}
-
-absl::Duration Parameters::cache_demand_release_long_interval() {
-  return absl::Nanoseconds(
-      cache_demand_release_long_interval_ns().load(std::memory_order_relaxed));
-}
-
 bool Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
@@ -399,26 +353,6 @@ void MallocExtension_Internal_GetSkipSubreleaseLongInterval(
 void MallocExtension_Internal_SetSkipSubreleaseLongInterval(
     absl::Duration value) {
   Parameters::set_filler_skip_subrelease_long_interval(value);
-}
-
-void MallocExtension_Internal_GetCacheDemandReleaseShortInterval(
-    absl::Duration* ret) {
-  *ret = Parameters::cache_demand_release_short_interval();
-}
-
-void MallocExtension_Internal_SetCacheDemandReleaseShortInterval(
-    absl::Duration value) {
-  Parameters::set_cache_demand_release_short_interval(value);
-}
-
-void MallocExtension_Internal_GetCacheDemandReleaseLongInterval(
-    absl::Duration* ret) {
-  *ret = Parameters::cache_demand_release_long_interval();
-}
-
-void MallocExtension_Internal_SetCacheDemandReleaseLongInterval(
-    absl::Duration value) {
-  Parameters::set_cache_demand_release_long_interval(value);
 }
 
 tcmalloc::MallocExtension::BytesPerSecond
@@ -592,27 +526,6 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration v) {
   tcmalloc::tcmalloc_internal::skip_subrelease_long_interval_ns().store(
-      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_GetHugeCacheDemandReleaseShortInterval(
-    absl::Duration* v) {
-  *v = Parameters::cache_demand_release_short_interval();
-}
-
-void TCMalloc_Internal_SetHugeCacheDemandReleaseShortInterval(
-    absl::Duration v) {
-  tcmalloc::tcmalloc_internal::cache_demand_release_short_interval_ns().store(
-      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_GetHugeCacheDemandReleaseLongInterval(
-    absl::Duration* v) {
-  *v = Parameters::cache_demand_release_long_interval();
-}
-
-void TCMalloc_Internal_SetHugeCacheDemandReleaseLongInterval(absl::Duration v) {
-  tcmalloc::tcmalloc_internal::cache_demand_release_long_interval_ns().store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 

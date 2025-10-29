@@ -34,10 +34,6 @@ TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration* v);
-ABSL_ATTRIBUTE_WEAK void
-TCMalloc_Internal_GetHugeCacheDemandReleaseShortInterval(absl::Duration* v);
-ABSL_ATTRIBUTE_WEAK void
-TCMalloc_Internal_GetHugeCacheDemandReleaseLongInterval(absl::Duration* v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHugeRegionDemandBasedRelease();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetUsermodeHugepageCollapse();
@@ -84,10 +80,6 @@ TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration v);
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(absl::Duration v);
-ABSL_ATTRIBUTE_WEAK void
-TCMalloc_Internal_SetHugeCacheDemandReleaseShortInterval(absl::Duration v);
-ABSL_ATTRIBUTE_WEAK void
-TCMalloc_Internal_SetHugeCacheDemandReleaseLongInterval(absl::Duration v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     bool v);

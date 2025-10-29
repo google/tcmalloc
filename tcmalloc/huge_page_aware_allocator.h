@@ -66,12 +66,6 @@ class StaticForwarder {
   static absl::Duration filler_skip_subrelease_long_interval() {
     return Parameters::filler_skip_subrelease_long_interval();
   }
-  static absl::Duration cache_demand_release_short_interval() {
-    return Parameters::cache_demand_release_short_interval();
-  }
-  static absl::Duration cache_demand_release_long_interval() {
-    return Parameters::cache_demand_release_long_interval();
-  }
 
   static bool release_partial_alloc_pages() {
     return Parameters::release_partial_alloc_pages();

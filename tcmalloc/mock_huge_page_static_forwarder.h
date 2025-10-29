@@ -53,12 +53,6 @@ class FakeStaticForwarder {
   absl::Duration filler_skip_subrelease_long_interval() {
     return long_interval_;
   }
-  absl::Duration cache_demand_release_short_interval() {
-    return cache_demand_release_short_interval_;
-  }
-  absl::Duration cache_demand_release_long_interval() {
-    return cache_demand_release_long_interval_;
-  }
   bool release_partial_alloc_pages() { return release_partial_alloc_pages_; }
   bool hpaa_subrelease() const { return hpaa_subrelease_; }
 
