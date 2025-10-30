@@ -137,7 +137,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   }
   EXPECT_THAT(buf, HasSubstr("use_userspace_collapse_heuristics: false"));
   if (IsExperimentActive(
-          Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)) {
+          Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1) ||
+      IsExperimentActive(Experiment::TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)) {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_num_priority_lists: 32"));
   } else {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_num_priority_lists: 8"));
@@ -224,7 +225,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_use_userspace_collapse_heuristics 0)"));
     if (IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)) {
+            Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1) ||
+        IsExperimentActive(Experiment::TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)) {
       EXPECT_THAT(buf,
                   HasSubstr(R"(PARAMETER tcmalloc_num_priority_lists 32)"));
     } else {
