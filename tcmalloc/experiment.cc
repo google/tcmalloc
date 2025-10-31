@@ -65,7 +65,7 @@ bool HasBrittleTestFailures(Experiment exp) {
   return false;
 }
 
-bool IsCompilerExperiment(Experiment exp) {
+bool IsCompilerExperiment(Experiment exp ABSL_ATTRIBUTE_UNUSED) {
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT
   return exp == Experiment::NPX_COMPILER_EXPERIMENT;
 #else
