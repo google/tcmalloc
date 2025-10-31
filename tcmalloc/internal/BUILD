@@ -66,7 +66,6 @@ cc_library(
     ],
     deps = [
         ":config",
-        "//tcmalloc:experiment",
         "//tcmalloc:malloc_hook",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
