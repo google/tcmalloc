@@ -202,6 +202,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     pagemap_.MapRootWithSmallPages();
     guardedpage_allocator_.Init(/*max_allocated_pages=*/64,
                                 /*total_pages=*/128);
+
     inited_.store(true, std::memory_order_release);
   }
 }
