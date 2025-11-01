@@ -799,12 +799,11 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
   EXPECT_EQ(converted.time_nanos(), absl::ToUnixNanos(start_time));
 }
 
-TEST(ProfileBuilderTest, LifetimeProfile) {
-  const absl::Time start_time = absl::Now();
-  constexpr absl::Duration kDuration = absl::Milliseconds(1500);
+perftools::profiles::Profile MakeTestLifetimeProfile(absl::Time start_time,
+                                                     absl::Duration duration) {
   auto fake_profile = std::make_unique<FakeProfile>();
   fake_profile->SetType(ProfileType::kLifetimes);
-  fake_profile->SetDuration(kDuration);
+  fake_profile->SetDuration(duration);
   fake_profile->SetStartTime(start_time);
 
   std::vector<Profile::Sample> samples;
@@ -866,8 +865,14 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
   fake_profile->SetSamples(std::move(samples));
   Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
   auto converted_or = MakeProfileProto(profile);
-  ASSERT_TRUE(converted_or.ok());
-  const perftools::profiles::Profile& converted = **converted_or;
+  CHECK_OK(converted_or.status());
+  return **converted_or;
+}
+
+TEST(ProfileBuilderTest, LifetimeProfile) {
+  const absl::Time start_time = absl::Now();
+  constexpr absl::Duration kDuration = absl::Milliseconds(1500);
+  const auto converted = MakeTestLifetimeProfile(start_time, kDuration);
   const auto& string_table = converted.string_table();
 
   // Checks for lifetime (deallocation) profile specific fields.
@@ -962,6 +967,70 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
 
   // Period not set
   EXPECT_EQ(converted.period(), 0);
+}
+
+TEST(ProfileBuilderTest, SameTags) {
+  const absl::Time start_time = absl::Now();
+  constexpr absl::Duration kDuration = absl::Milliseconds(1500);
+
+  const auto heap =
+      MakeTestProfile(start_time, absl::ZeroDuration(), ProfileType::kHeap);
+  const auto peakheap =
+      MakeTestProfile(start_time, absl::ZeroDuration(), ProfileType::kPeakHeap);
+  const auto fragmentation = MakeTestProfile(start_time, absl::ZeroDuration(),
+                                             ProfileType::kFragmentation);
+  const auto allocation =
+      MakeTestProfile(start_time, kDuration, ProfileType::kAllocations);
+  const auto lifetime = MakeTestLifetimeProfile(start_time, kDuration);
+
+  auto ExtractTags = [&](const perftools::profiles::Profile& proto) {
+    absl::flat_hash_set<std::string> tags;
+    for (const auto& s : proto.sample()) {
+      for (const auto& l : s.label()) {
+        tags.insert(proto.string_table(l.key()));
+      }
+    }
+
+    return tags;
+  };
+
+  auto heap_tags = ExtractTags(heap);
+  auto peakheap_tags = ExtractTags(peakheap);
+  auto fragmentation_tags = ExtractTags(fragmentation);
+  auto allocation_tags = ExtractTags(allocation);
+  EXPECT_THAT(heap_tags, testing::Contains("stale_scan_period"));
+  heap_tags.erase("stale_scan_period");
+
+  EXPECT_THAT(heap_tags, testing::ContainerEq(allocation_tags));
+  EXPECT_THAT(heap_tags, testing::ContainerEq(peakheap_tags));
+  EXPECT_THAT(heap_tags, testing::ContainerEq(fragmentation_tags));
+
+  const absl::flat_hash_set<absl::string_view> lifetime_only_tags = {
+      "callstack-pair-id", "stddev_lifetime", "active thread", "min_lifetime",
+      "active NUMA",       "active CPU",      "active L3",     "active vCPU",
+      "max_lifetime",      "avg_lifetime",
+  };
+
+  auto lifetime_tags = ExtractTags(lifetime);
+  EXPECT_THAT(lifetime_tags, testing::IsSupersetOf(lifetime_only_tags));
+  for (const auto tag : lifetime_only_tags) {
+    lifetime_tags.erase(tag);
+  }
+
+  // TODO(b/454685302): Enable these.
+  const absl::flat_hash_set<absl::string_view> lifetime_missing_tags = {
+      "allocation type",
+      "access_hint",
+      "access_allocated",
+      "size_returning",
+      "guarded_status",
+  };
+  EXPECT_THAT(allocation_tags, testing::IsSupersetOf(lifetime_missing_tags));
+  for (const auto tag : lifetime_missing_tags) {
+    allocation_tags.erase(tag);
+  }
+
+  EXPECT_THAT(allocation_tags, testing::ContainerEq(lifetime_tags));
 }
 
 TEST(BuildId, CorruptImage_b180635896) {
