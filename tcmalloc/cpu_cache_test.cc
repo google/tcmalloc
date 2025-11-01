@@ -1176,7 +1176,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
   forwarder.dynamic_slab_enabled_ = true;
   forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
   SizeMap size_map;
-  size_map.Init(size_map.CurrentClasses().classes);
+  ASSERT_TRUE(size_map.Init(size_map.CurrentClasses().classes));
   forwarder.size_map_ = size_map;
 
   cache.Activate();
@@ -1231,7 +1231,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
   int n_threads = NumCPUs();
 
   SizeMap size_map;
-  size_map.Init(size_map.CurrentClasses().classes);
+  ASSERT_TRUE(size_map.Init(size_map.CurrentClasses().classes));
   for (bool initially_enabled : {false, true}) {
     for (DynamicSlab initial_dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
@@ -1287,7 +1287,7 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   cache.Activate();
 
   SizeMap size_map;
-  size_map.Init(size_map.CurrentClasses().classes);
+  ASSERT_TRUE(size_map.Init(size_map.CurrentClasses().classes));
   forwarder.size_map_ = size_map;
 
   std::vector<std::thread> threads;
@@ -1332,7 +1332,7 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   cache.Activate();
 
   SizeMap size_map;
-  size_map.Init(size_map.CurrentClasses().classes);
+  ASSERT_TRUE(size_map.Init(size_map.CurrentClasses().classes));
   forwarder.size_map_ = size_map;
 
   std::vector<std::thread> threads;

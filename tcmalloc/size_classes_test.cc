@@ -351,8 +351,8 @@ TEST(SizeMapTest, GetSizeClass) {
   // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
-    size_t size_class;
-    if (m.GetSizeClass(CppPolicy(), size, &size_class)) {
+    if (auto [is_small, size_class] = m.GetSizeClass(CppPolicy(), size);
+        is_small) {
       EXPECT_EQ(size_class % kNumBaseClasses, 0) << size;
       EXPECT_LT(size_class, kExpandedClassesStart) << size;
     } else {
@@ -363,12 +363,12 @@ TEST(SizeMapTest, GetSizeClass) {
   }
 
   // After m.Init(), GetSizeClass should return a size class.
-  m.Init(kSizeClasses.classes);
+  EXPECT_TRUE(m.Init(kSizeClasses.classes));
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
-    size_t size_class;
-    if (m.GetSizeClass(CppPolicy(), size, &size_class)) {
+    if (auto [is_small, size_class] = m.GetSizeClass(CppPolicy(), size);
+        is_small) {
       const size_t mapped_size = m.class_to_size(size_class);
       // The size class needs to hold size.
       ASSERT_GE(mapped_size, size);
@@ -390,8 +390,9 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
-    size_t size_class;
-    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &size_class)) {
+    if (auto [is_small, size_class] =
+            m.GetSizeClass(CppPolicy().AlignAs(alignment), size);
+        is_small) {
       EXPECT_EQ(size_class % kNumBaseClasses, 0) << size << " " << alignment;
       EXPECT_LT(size_class, kExpandedClassesStart) << size << " " << alignment;
     } else if (alignment <= kPageSize) {
@@ -403,13 +404,14 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
   }
 
   // After m.Init(), GetSizeClass should return a size class.
-  m.Init(kSizeClasses.classes);
+  EXPECT_TRUE(m.Init(kSizeClasses.classes));
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
-    size_t size_class;
-    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &size_class)) {
+    if (auto [is_small, size_class] =
+            m.GetSizeClass(CppPolicy().AlignAs(alignment), size);
+        is_small) {
       const size_t mapped_size = m.class_to_size(size_class);
       // The size class needs to hold size.
       ASSERT_GE(mapped_size, size);
@@ -441,7 +443,7 @@ TEST(SizeMapTest, SizeClass) {
   // After m.Init(), SizeClass should return a size class.
   //
   // TODO(ckennelly): Parameterize this and other tests to vary size class sets.
-  m.Init(kSizeClasses.classes);
+  EXPECT_TRUE(m.Init(kSizeClasses.classes));
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
@@ -456,7 +458,7 @@ TEST(SizeMapTest, SizeClass) {
 TEST(SizeMapTest, ValidateConditionsForSeparateAllocsInHugePageFiller) {
   SizeMap m;
   // After m.Init(), SizeClass should return a size class.
-  m.Init(kSizeClasses.classes);
+  EXPECT_TRUE(m.Init(kSizeClasses.classes));
 
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     size_t object_size = m.class_to_size(size_class);

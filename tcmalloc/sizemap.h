@@ -186,12 +186,18 @@ class SizeMap {
   constexpr SizeMap() = default;
 
   // Initialize the mapping arrays.  Returns true on success.
-  bool Init(absl::Span<const SizeClassInfo> size_classes);
+  [[nodiscard]] bool Init(absl::Span<const SizeClassInfo> size_classes);
+
+  struct SizeMapResult {
+    bool is_small;
+    size_t size_class;
+  };
 
   // Returns the size class for size `size` respecting the alignment
   // & access requirements of `policy`.
   //
-  // Returns true on success. Returns false if either:
+  // Returns true for `is_small` for size class-ful allocations. Returns false
+  // if either:
   // - the size exceeds the maximum size class size.
   // - the align size is greater or equal to the default page size
   // - no matching properly aligned size class is available
@@ -210,25 +216,25 @@ class SizeMap {
   // regression.
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
-  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool
-  GetSizeClass(Policy policy, size_t size, size_t* size_class) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+      ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMapResult GetSizeClass(
+          Policy policy, size_t size) const {
     const size_t align = policy.align();
     TC_ASSERT(absl::has_single_bit(align));
 
     if (ABSL_PREDICT_FALSE(align > kPageSize)) {
-      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
-      return false;
+      return {false};
     }
 
     size_t idx;
     if (ABSL_PREDICT_FALSE(!ClassIndexMaybe(size, idx))) {
-      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
-      return false;
+      return {false};
     }
+    size_t size_class;
     if (kHasExpandedClasses && policy.is_cold()) {
-      *size_class = class_array_[idx + kClassArraySize];
+      size_class = class_array_[idx + kClassArraySize];
     } else {
-      *size_class = class_array_[idx] + policy.scaled_numa_partition();
+      size_class = class_array_[idx] + policy.scaled_numa_partition();
     }
 
     // Don't search for suitably aligned class for operator new
@@ -239,7 +245,7 @@ class SizeMap {
     // than kAlignment, this is just an unnecessary check that always fails.
     if (__builtin_constant_p(align) &&
         align <= static_cast<size_t>(kAlignment)) {
-      return true;
+      return {true, size_class};
     }
 
     // Predict that size aligned allocs most often directly map to a proper
@@ -249,23 +255,21 @@ class SizeMap {
     static_assert((kMaxSize % kPageSize) == 0, "the loop below won't work");
     // Profiles say we usually get the right class based on the size,
     // so avoid the loop overhead on the fast path.
-    if (ABSL_PREDICT_FALSE(class_to_size(*size_class) & (align - 1))) {
+    if (ABSL_PREDICT_FALSE(class_to_size(size_class) & (align - 1))) {
       do {
-        ++*size_class;
-      } while (ABSL_PREDICT_FALSE(class_to_size(*size_class) & (align - 1)));
+        ++size_class;
+      } while (ABSL_PREDICT_FALSE(class_to_size(size_class) & (align - 1)));
     }
-    return true;
+    return {true, size_class};
   }
 
   // Returns size class for given size, or 0 if this instance has not been
   // initialized yet. REQUIRES: size <= kMaxSize.
   template <typename Policy>
-  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t SizeClass(Policy policy,
-                                                       size_t size) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t SizeClass(
+      Policy policy, size_t size) const {
     ASSUME(size <= kMaxSize);
-    size_t ret = 0;
-    GetSizeClass(policy, size, &ret);
-    return ret;
+    return GetSizeClass(policy, size).size_class;
   }
 
   // Get the byte-size for a specified class. REQUIRES: size_class <=
@@ -325,8 +329,8 @@ class SizeMap {
     return {cold_sizes_, cold_sizes_count_};
   }
 
-  static bool IsValidSizeClass(size_t size, size_t num_pages,
-                               size_t num_objects_to_move);
+  [[nodiscard]] static bool IsValidSizeClass(size_t size, size_t num_pages,
+                                             size_t num_objects_to_move);
 };
 
 }  // namespace tcmalloc_internal

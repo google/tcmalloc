@@ -54,7 +54,7 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
   }
 
   SizeMap size_map;
-  size_map.Init(classes);
+  EXPECT_TRUE(size_map.Init(classes));
   for (const size_t request_size : allowed_alloc_size) {
     EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
               size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
@@ -73,7 +73,7 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
 
   SizeMap size_map;
   const auto& classes = kSizeClasses.classes;
-  size_map.Init(classes);
+  EXPECT_TRUE(size_map.Init(classes));
 
   // Confirm that sizes are allocated as cold as requested.
   size_t max_size = classes[classes.size() - 1].size;
@@ -90,7 +90,7 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
 TEST(SizeMapTest, ClassToSizeRange) {
   SizeMap size_map;
   const auto& classes = kSizeClasses.classes;
-  size_map.Init(classes);
+  EXPECT_TRUE(size_map.Init(classes));
 
   // A few simple ones to spot check.
   EXPECT_THAT(size_map.class_to_size_range(0), Pair(0, 0));

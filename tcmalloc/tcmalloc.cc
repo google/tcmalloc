@@ -355,9 +355,9 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
 static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
   tc_globals.InitIfNecessary();
   size_t align = static_cast<size_t>(1ull << (flags & 0x3f));
-  size_t size_class;
-  if (ABSL_PREDICT_TRUE(tc_globals.sizemap().GetSizeClass(
-          CppPolicy().AlignAs(align), size, &size_class))) {
+  const auto [is_small, size_class] =
+      tc_globals.sizemap().GetSizeClass(CppPolicy().AlignAs(align), size);
+  if (ABSL_PREDICT_TRUE(is_small)) {
     TC_ASSERT_NE(size_class, 0);
     return tc_globals.sizemap().class_to_size(size_class);
   } else {
@@ -374,9 +374,9 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept {
   if (ABSL_PREDICT_FALSE(!tc_globals.IsInited() || flags != 0)) {
     return nallocx_slow(size, flags);
   }
-  size_t size_class;
-  if (ABSL_PREDICT_TRUE(
-          tc_globals.sizemap().GetSizeClass(CppPolicy(), size, &size_class))) {
+  const auto [is_small, size_class] =
+      tc_globals.sizemap().GetSizeClass(CppPolicy(), size);
+  if (ABSL_PREDICT_TRUE(is_small)) {
     TC_ASSERT_NE(size_class, 0);
     return tc_globals.sizemap().class_to_size(size_class);
   } else {
@@ -756,9 +756,9 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
   TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold);
-  size_t size_class;
-  if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
-          policy.AccessAsCold(), size, &size_class))) {
+  const auto [is_small, size_class] =
+      tc_globals.sizemap().GetSizeClass(policy.AccessAsCold(), size);
+  if (ABSL_PREDICT_FALSE(!is_small)) {
     // We couldn't calculate the size class, which means size > kMaxSize.
     TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
@@ -798,9 +798,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
   TC_ASSERT_NE(ptr, nullptr);
 
-  size_t size_class;
-  if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
-          policy.InSameNumaPartitionAs(ptr), size, &size_class))) {
+  const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
+      policy.InSameNumaPartitionAs(ptr), size);
+  if (ABSL_PREDICT_FALSE(!is_small)) {
     // We couldn't calculate the size class, which means size > kMaxSize.
     TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
@@ -823,8 +823,11 @@ bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
   if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
     // For guarded allocations we recorded the actual requested size.
     minimum_size = maximum_size = actual;
-  } else if (tc_globals.sizemap().GetSizeClass(policy, size, &size_class)) {
-    size = maximum_size = tc_globals.sizemap().class_to_size(size_class);
+  } else if (auto [is_small, sc] =
+                 tc_globals.sizemap().GetSizeClass(policy, size);
+             is_small) {
+    size = maximum_size = tc_globals.sizemap().class_to_size(sc);
+    size_class = sc;
   } else {
     size = maximum_size = BytesToLengthCeil(size).in_bytes();
     minimum_size = maximum_size - (kPageSize - 1u);
@@ -837,9 +840,11 @@ bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
   // Nonetheless, it is permitted to pass a size anywhere in [requested, actual]
   // to sized delete.
   if (actual > size && !IsNormalMemory(ptr)) {
-    if (tc_globals.sizemap().GetSizeClass(policy.AccessAsCold(), size,
-                                          &size_class)) {
-      size = maximum_size = tc_globals.sizemap().class_to_size(size_class);
+    if (auto [is_small, sc] =
+            tc_globals.sizemap().GetSizeClass(policy.AccessAsCold(), size);
+        is_small) {
+      size = maximum_size = tc_globals.sizemap().class_to_size(sc);
+      size_class = sc;
       if (ABSL_PREDICT_TRUE(actual == size)) {
         return true;
       }
@@ -963,7 +968,9 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
   if (ABSL_PREDICT_FALSE(size_class == 0)) {
     // This happens on the first call then the size class table is not inited.
     TC_ASSERT(tc_globals.IsInited());
-    tc_globals.sizemap().GetSizeClass(policy, size, &size_class);
+    auto ret = tc_globals.sizemap().GetSizeClass(policy, size);
+    size_class = ret.size_class;
+    TC_CHECK(ret.is_small);
   }
   void* res;
   // If we are here because of sampling, try AllocateFast first.
@@ -1042,8 +1049,8 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
   // path. If malloc is not yet initialized, we may end up with size_class == 0
   // (regardless of size), but in this case should also delegate to the slow
   // path by the fast path check further down.
-  size_t size_class;
-  bool is_small = tc_globals.sizemap().GetSizeClass(policy, size, &size_class);
+  const auto [is_small, size_class] =
+      tc_globals.sizemap().GetSizeClass(policy, size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     SLOW_PATH_BARRIER();
     TCMALLOC_MUSTTAIL return slow_alloc_large(size, policy);
@@ -1272,10 +1279,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   // calculate the actual size for readability purposes.
   bool changes_correct_size;
   {
-    size_t new_size_class;
     size_t actual_new_size;
-    if (tc_globals.sizemap().GetSizeClass(MallocPolicy(), new_size,
-                                          &new_size_class)) {
+    const auto [is_small, new_size_class] =
+        tc_globals.sizemap().GetSizeClass(MallocPolicy(), new_size);
+    if (is_small) {
       actual_new_size = tc_globals.sizemap().class_to_size(new_size_class);
     } else {
       actual_new_size = BytesToLengthCeil(new_size).in_bytes();
