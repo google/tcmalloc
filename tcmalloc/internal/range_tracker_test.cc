@@ -104,15 +104,18 @@ TEST_F(BitmapTest, CheckIsZero) {
   for (size_t i = 0; i < map.size(); ++i) {
     map.Clear();
     EXPECT_EQ(map.IsZero(), true);
-    map.SetBit(i);
+    EXPECT_EQ(map.SetBit(i), false);
     EXPECT_EQ(map.IsZero(), false);
+    EXPECT_EQ(map.SetBit(i), true);
+    EXPECT_TRUE(map.ClearBit(i));
+    EXPECT_FALSE(map.ClearBit(i));
   }
 }
 
 TEST_F(BitmapTest, CheckClearLowestBit) {
   Bitmap<253> map;
   for (size_t i = 0; i < map.size(); ++i) {
-    map.SetBit(i);
+    EXPECT_EQ(map.SetBit(i), false);
   }
   for (size_t i = 0; i < map.size(); ++i) {
     size_t index = map.FindSet(0);
@@ -125,7 +128,7 @@ TEST_F(BitmapTest, GetBitOneSet) {
   const size_t N = 251;
   for (size_t s = 0; s < N; s++) {
     Bitmap<N> map;
-    map.SetBit(s);
+    EXPECT_EQ(map.SetBit(s), false);
     for (size_t i = 0; i < map.size(); ++i) {
       EXPECT_EQ(map.GetBit(i), i == s ? 1 : 0);
     }
@@ -163,18 +166,18 @@ TEST_F(BitmapTest, FindClear) {
   EXPECT_THAT(FindClearResults(map), ElementsAre(253));
   EXPECT_THAT(FindClearResultsBackwards(map), ElementsAre(-1));
 
-  map.ClearBit(7);
-  map.ClearBit(14);
-  map.ClearBit(15);
-  map.ClearBit(63);
-  map.ClearBit(128);
+  EXPECT_TRUE(map.ClearBit(7));
+  EXPECT_TRUE(map.ClearBit(14));
+  EXPECT_TRUE(map.ClearBit(15));
+  EXPECT_TRUE(map.ClearBit(63));
+  EXPECT_TRUE(map.ClearBit(128));
   EXPECT_THAT(FindClearResults(map), ElementsAre(7, 14, 15, 63, 128, 253));
   EXPECT_THAT(FindClearResultsBackwards(map),
               ElementsAre(128, 63, 15, 14, 7, -1));
-  map.ClearBit(195);
-  map.ClearBit(196);
-  map.ClearBit(251);
-  map.ClearBit(252);
+  EXPECT_TRUE(map.ClearBit(195));
+  EXPECT_TRUE(map.ClearBit(196));
+  EXPECT_TRUE(map.ClearBit(251));
+  EXPECT_TRUE(map.ClearBit(252));
   EXPECT_THAT(FindClearResults(map),
               ElementsAre(7, 14, 15, 63, 128, 195, 196, 251, 252));
   EXPECT_THAT(FindClearResultsBackwards(map),

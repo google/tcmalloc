@@ -41,8 +41,10 @@ class Bitmap {
   size_t size() const { return N; }
   bool GetBit(size_t i) const;
 
-  void SetBit(size_t i);
-  void ClearBit(size_t i);
+  // Sets the bit at index `i`.  Returns the previous value of that bit.
+  bool SetBit(size_t i);
+  // Clears the bit at index `i`.  Returns the previous value of that bit.
+  bool ClearBit(size_t i);
 
   // Returns the number of set bits [index, ..., index + n - 1].
   size_t CountBits(size_t index, size_t n) const;
@@ -345,21 +347,27 @@ inline bool Bitmap<N>::GetBit(size_t i) const {
 }
 
 template <size_t N>
-inline void Bitmap<N>::SetBit(size_t i) {
+inline bool Bitmap<N>::SetBit(size_t i) {
   TC_ASSERT_LT(i, N);
   size_t word = i / kWordSize;
   size_t offset = i % kWordSize;
   ASSUME(word < kWords);
-  bits_[word] |= (size_t{1} << offset);
+  size_t mask = size_t{1} << offset;
+  bool old = bits_[word] & mask;
+  bits_[word] |= mask;
+  return old;
 }
 
 template <size_t N>
-inline void Bitmap<N>::ClearBit(size_t i) {
+inline bool Bitmap<N>::ClearBit(size_t i) {
   TC_ASSERT_LT(i, N);
   size_t word = i / kWordSize;
   size_t offset = i % kWordSize;
   ASSUME(word < kWords);
-  bits_[word] &= ~(size_t{1} << offset);
+  size_t mask = size_t{1} << offset;
+  bool old = bits_[word] & mask;
+  bits_[word] &= ~mask;
+  return old;
 }
 
 template <size_t N>
