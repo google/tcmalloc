@@ -135,11 +135,14 @@ class CentralFreeList {
   size_t NumSpansInList(int n) ABSL_LOCKS_EXCLUDED(lock_);
   SpanStats GetSpanStats() const;
 
-  // Reports span utilization and lifetime histogram stats.
+  // Reports span utilization, lifetime histogram stats, and number of spans
+  // used to fill a batch.
   void PrintSpanUtilStats(Printer& out);
   void PrintSpanLifetimeStats(Printer& out);
+  void PrintNumSpansUsed(Printer& out);
   void PrintSpanUtilStatsInPbtxt(PbtxtRegion& region);
   void PrintSpanLifetimeStatsInPbtxt(PbtxtRegion& region);
+  void PrintNumSpansUsedInPbtxt(PbtxtRegion& region);
 
   // Get number of spans in the histogram bucket. We record spans in the
   // histogram indexed by absl::bit_width(allocated). So, instead of using the
@@ -249,6 +252,9 @@ class CentralFreeList {
   using LifetimeHistogram = size_t[kLifetimeBuckets];
 
   StatsCounter completed_spans_[kLifetimeBuckets];
+
+  // Tracks the number of spans used to fill a batch in RemoveRange
+  StatsCounters<kMaxObjectsToMove> span_allocations_tracker_;
 
   int LifetimeBucketNum(absl::Duration duration) {
     int64_t duration_ms = absl::ToInt64Milliseconds(duration);
@@ -532,9 +538,11 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   // Use local copy of variable to ensure that it is not reloaded.
   size_t object_size = object_size_;
   int result = 0;
+  size_t num_spans = 0;
   absl::base_internal::SpinLockHolder h(lock_);
 
   do {
+    num_spans++;
     Span* span = FirstNonEmptySpan();
     if (ABSL_PREDICT_FALSE(!span)) {
       result += Populate(batch.subspan(result));
@@ -572,6 +580,10 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
     }
     result += here;
   } while (result < batch.size());
+  TC_ASSERT_GT(num_spans, 0);
+  TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
+  TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
+  span_allocations_tracker_[num_spans - 1].LossyAdd(1);
   UpdateObjectCounts(-result);
   return result;
 }
@@ -714,6 +726,18 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
 }
 
 template <class Forwarder>
+inline void CentralFreeList<Forwarder>::PrintNumSpansUsed(Printer& out) {
+  out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  for (size_t i = 1; i <= kMaxObjectsToMove; ++i) {
+    out.printf("%zu : %8zu", i, span_allocations_tracker_[i - 1].value());
+    if (i < kMaxObjectsToMove) {
+      out.printf(",");
+    }
+  }
+  out.printf("\n");
+}
+
+template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
     PbtxtRegion& region) {
   for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
@@ -728,6 +752,18 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
         region.CreateSubRegion("prioritization_list_occupancy");
     occupancy.PrintI64("list_index", i);
     occupancy.PrintI64("value", NumSpansInList(i));
+  }
+}
+
+template <class Forwarder>
+inline void CentralFreeList<Forwarder>::PrintNumSpansUsedInPbtxt(
+    PbtxtRegion& region) {
+  for (size_t i = 1; i <= kMaxObjectsToMove; ++i) {
+    PbtxtRegion span_allocations_tracker =
+        region.CreateSubRegion("span_allocations_tracker");
+    span_allocations_tracker.PrintI64("num_spans", i);
+    span_allocations_tracker.PrintI64("value",
+                                      span_allocations_tracker_[i - 1].value());
   }
 }
 

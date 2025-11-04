@@ -484,6 +484,17 @@ void DumpStats(Printer& out, int level) {
       tc_globals.central_freelist(size_class).PrintSpanLifetimeStats(out);
     }
 
+    out.printf("\n");
+    out.printf("------------------------------------------------\n");
+    out.printf("Central cache freelist: Number of spans used histogram\n");
+    out.printf(
+        "Number of spans used to fill a batch of allocations, from 0 to "
+        "N\n");
+    out.printf("------------------------------------------------\n");
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      tc_globals.central_freelist(size_class).PrintNumSpansUsed(out);
+    }
+
     tc_globals.transfer_cache().Print(tc_globals.per_size_class_counts(), out);
     tc_globals.sharded_transfer_cache().Print(
         tc_globals.per_size_class_counts(), out);
@@ -694,6 +705,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
       tc_globals.central_freelist(size_class).PrintSpanUtilStatsInPbtxt(entry);
       tc_globals.central_freelist(size_class)
           .PrintSpanLifetimeStatsInPbtxt(entry);
+      tc_globals.central_freelist(size_class).PrintNumSpansUsedInPbtxt(entry);
     }
 
     tc_globals.transfer_cache().PrintInPbtxt(tc_globals.per_size_class_counts(),

@@ -37,6 +37,7 @@
 #include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
@@ -497,7 +498,7 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
               std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   // Try to fetch sufficiently large number of objects at startup.
-  const int num_objects_to_fetch = 10 * e.objects_per_span();
+  const int num_objects_to_fetch = kMaxObjectsToMove;
   std::vector<void*> objects(num_objects_to_fetch, nullptr);
   const size_t got = e.central_freelist().RemoveRange(
       absl::MakeSpan(objects.data(), num_objects_to_fetch));
@@ -815,6 +816,76 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
   e.central_freelist().InsertRange({batch, 1});
   e.forwarder().AdvanceClock(absl::Seconds(1000));
   CheckLifetimeStats(e, {.completed = {{100000, 1}}});
+}
+
+TEST_P(CentralFreeListTest, SpanAllocationTracker) {
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+
+  const int objects_per_span = e.objects_per_span();
+  if (objects_per_span == 1) return;
+
+  constexpr int kNumSpans = 5;
+  // Track objects allocated per span.
+  absl::FixedArray<std::vector<void*>> objects(kNumSpans);
+  void* batch[kMaxObjectsToMove];
+
+  const size_t to_fetch = objects_per_span;
+  // Allocate all objects from kNumSpans.
+  for (int span = 0; span < kNumSpans; ++span) {
+    size_t fetched = 0;
+    while (fetched < to_fetch) {
+      const size_t n = to_fetch - fetched;
+      int got = e.central_freelist().RemoveRange(
+          absl::MakeSpan(batch, std::min(n, e.batch_size())));
+      for (int i = 0; i < got; ++i) {
+        objects[span].push_back(batch[i]);
+      }
+      fetched += got;
+    }
+  }
+
+  // Perform deallocations so that each span contains only one free object.
+  for (int span = 0; span < kNumSpans; ++span) {
+    batch[0] = objects[span][0];
+    e.central_freelist().InsertRange({batch, 1});
+    objects[span].erase(objects[span].begin(), objects[span].begin() + 1);
+  }
+
+  // Calculate the expected number of allocations served by 1 span. These all
+  // come from the case where there are no non-empty spans and a new span has to
+  // be allocated.
+  int single_spans = objects_per_span / e.batch_size();
+  if (objects_per_span % e.batch_size() != 0) {
+    single_spans++;
+  }
+  single_spans *= kNumSpans;
+
+  // Check txt stats
+  int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, kNumSpans));
+  EXPECT_EQ(got, kNumSpans);
+  std::string buffer(1024 * 1024, '\0');
+  Printer printer(&*buffer.begin(), buffer.size());
+  e.central_freelist().PrintNumSpansUsed(printer);
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(
+      buffer,
+      testing::AllOf(
+          testing::HasSubstr(absl::StrFormat("%v :        1", kNumSpans)),
+          testing::ContainsRegex(absl::StrFormat("1 : *%v", single_spans))));
+
+  // Check pbtxt stats
+  std::string buffer_pbtxt(1024 * 1024, '\0');
+  Printer printer_pbtxt(&*buffer_pbtxt.begin(), buffer_pbtxt.size());
+  PbtxtRegion region(printer_pbtxt,
+                     tcmalloc::tcmalloc_internal::PbtxtRegionType::kTop);
+  e.central_freelist().PrintNumSpansUsedInPbtxt(region);
+  buffer_pbtxt.resize(strlen(buffer_pbtxt.c_str()));
+  EXPECT_THAT(buffer_pbtxt,
+              testing::AllOf(testing::HasSubstr(absl::StrFormat(
+                                 "{ num_spans: %v value: 1}", kNumSpans)),
+                             testing::HasSubstr(absl::StrFormat(
+                                 "{ num_spans: 1 value: %v}", single_spans))));
 }
 
 TEST_P(CentralFreeListTest, MultipleSpans) {
