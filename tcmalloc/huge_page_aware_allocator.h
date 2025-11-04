@@ -71,9 +71,6 @@ class StaticForwarder {
     return Parameters::release_partial_alloc_pages();
   }
 
-  static bool huge_region_demand_based_release() {
-    return Parameters::huge_region_demand_based_release();
-  }
 
   static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
 
@@ -1003,19 +1000,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // the experiment is enabled. We can also explore releasing only a desired
   // number of pages.
   if (regions_.UseHugeRegionMoreOften()) {
-    if (forwarder_.huge_region_demand_based_release()) {
-      Length desired = released > num_pages ? Length(0) : num_pages - released;
-      released += regions_.ReleasePagesByPeakDemand(
-          desired,
-          SkipSubreleaseIntervals{
-              .short_interval =
-                  forwarder_.filler_skip_subrelease_short_interval(),
-              .long_interval =
-                  forwarder_.filler_skip_subrelease_long_interval()},
-          /*hit_limit*/ false);
-    } else {
-      released += regions_.ReleasePages(kFractionToReleaseFromRegion);
-    }
+    released += regions_.ReleasePages(kFractionToReleaseFromRegion);
   }
 
   // This is our long term plan but in current state will lead to insufficient
@@ -1216,13 +1201,7 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += cache_.ReleaseCachedPages(HLFromPages(n)).in_pages();
 
   // We try to release as many free hugepages from HugeRegion as possible.
-  if (forwarder_.huge_region_demand_based_release()) {
-    released += regions_.ReleasePagesByPeakDemand(
-        n - released, SkipSubreleaseIntervals{}, /*hit_limit=*/true);
-  } else {
-    released += regions_.ReleasePages(/*release_fraction=*/1.0);
-  }
-
+  released += regions_.ReleasePages(/*release_fraction=*/1.0);
   if (released >= n) {
     info_.RecordRelease(n, released, reason);
     return released;

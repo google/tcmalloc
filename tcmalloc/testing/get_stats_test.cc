@@ -118,8 +118,6 @@ TEST_F(GetStatsTest, Pbtxt) {
 #endif
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
-  EXPECT_THAT(buf,
-              HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
   EXPECT_THAT(
       buf,
       HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
@@ -232,9 +230,6 @@ TEST_F(GetStatsTest, Parameters) {
     } else {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_num_priority_lists 8)"));
     }
-    EXPECT_THAT(
-        buf,
-        HasSubstr(R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_release_pages_from_huge_region 1)"));

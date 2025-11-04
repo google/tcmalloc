@@ -975,7 +975,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
-        "//tcmalloc/internal:clock",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:system_allocator",
         "//tcmalloc/testing:thread_manager",
