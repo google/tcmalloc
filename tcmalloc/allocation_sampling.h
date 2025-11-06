@@ -122,6 +122,8 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   stack_trace.requested_size_returning = policy.size_returning();
   stack_trace.access_hint = static_cast<uint8_t>(policy.access());
   stack_trace.weight = weight;
+  // TODO: b/446814339 - Complete populating this.
+  stack_trace.token_id = TokenId::kNoAllocToken;
 
   // How many allocations does this sample represent, given the sampling
   // frequency (weight) and its size.
