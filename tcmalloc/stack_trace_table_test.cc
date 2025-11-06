@@ -48,7 +48,6 @@ struct AllocationEntry {
   size_t allocated_size;
   MallocHook::AllocHandle alloc_handle;
   uint8_t access_hint;
-  TokenId token_id;
   bool cold_allocated;
   int depth;
   void* stack[64];
@@ -153,7 +152,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t1.allocated_size = static_cast<uintptr_t>(1024);
   t1.sampled_alloc_handle = AllocHandle{1};
   t1.access_hint = 3;
-  t1.token_id = TokenId::kAllocToken0;
   t1.cold_allocated = true;
   t1.depth = static_cast<uintptr_t>(2);
   t1.stack[0] = reinterpret_cast<void*>(1);
@@ -168,7 +166,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .allocated_size = 1024,
       .alloc_handle = AllocHandle{1},
       .access_hint = 3,
-      .token_id = TokenId::kAllocToken0,
       .cold_allocated = true,
       .depth = 2,
       .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
@@ -180,7 +177,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t2.allocated_size = static_cast<uintptr_t>(512);
   t2.sampled_alloc_handle = AllocHandle{2};
   t2.access_hint = 254;
-  t2.token_id = TokenId::kNoAllocToken;
   t2.cold_allocated = false;
   t2.depth = static_cast<uintptr_t>(2);
   t2.stack[0] = reinterpret_cast<void*>(2);
@@ -195,7 +191,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .allocated_size = 512,
       .alloc_handle = AllocHandle{2},
       .access_hint = 254,
-      .token_id = TokenId::kNoAllocToken,
       .cold_allocated = false,
       .depth = 2,
       .stack = {reinterpret_cast<void*>(2), reinterpret_cast<void*>(1)},
@@ -232,7 +227,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .allocated_size = 1024,
       .alloc_handle = AllocHandle{1},
       .access_hint = 3,
-      .token_id = TokenId::kAllocToken0,
       .cold_allocated = true,
       .depth = 2,
       .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
@@ -292,7 +286,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t3.allocated_size = static_cast<uintptr_t>(17);
   t3.sampled_alloc_handle = AllocHandle{3};
   t3.access_hint = 3;
-  t3.token_id = TokenId::kAllocToken1;
   t3.cold_allocated = false;
   t3.depth = static_cast<uintptr_t>(2);
   t3.stack[0] = reinterpret_cast<void*>(1);
@@ -307,7 +300,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .allocated_size = 17,
       .alloc_handle = AllocHandle{3},
       .access_hint = 3,
-      .token_id = TokenId::kAllocToken1,
       .cold_allocated = false,
       .depth = 2,
       .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
@@ -332,7 +324,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t4.allocated_size = static_cast<uintptr_t>(1024);
   t4.sampled_alloc_handle = AllocHandle{4};
   t4.access_hint = 3;
-  t4.token_id = TokenId::kAllocToken0;
   t4.cold_allocated = false;
   t4.depth = static_cast<uintptr_t>(2);
   t4.stack[0] = reinterpret_cast<void*>(1);
@@ -347,7 +338,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .allocated_size = 1024,
       .alloc_handle = AllocHandle{4},
       .access_hint = 3,
-      .token_id = TokenId::kAllocToken0,
       .cold_allocated = false,
       .depth = 2,
       .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
@@ -372,7 +362,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t5.allocated_size = static_cast<uintptr_t>(1024);
   t5.sampled_alloc_handle = AllocHandle{5};
   t5.access_hint = 4;
-  t5.token_id = TokenId::kAllocToken0;
   t5.cold_allocated = true;
   t5.depth = static_cast<uintptr_t>(2);
   t5.stack[0] = reinterpret_cast<void*>(1);
@@ -387,7 +376,6 @@ TEST(StackTraceTableTest, StackTraceTable) {
       .allocated_size = 1024,
       .alloc_handle = AllocHandle{5},
       .access_hint = 4,
-      .token_id = TokenId::kAllocToken0,
       .cold_allocated = true,
       .depth = 2,
       .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},

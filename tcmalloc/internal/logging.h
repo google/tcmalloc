@@ -88,8 +88,6 @@ struct StackTrace {
   // Timestamp of allocation.
   absl::Time allocation_time;
 
-  TokenId token_id;
-
   Profile::Sample::GuardedStatus guarded_status;
 
   // How the memory was allocated (new/malloc/etc.)
