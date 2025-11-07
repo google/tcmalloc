@@ -1616,11 +1616,15 @@ TEST(HotColdTest, SampleHasRuntimeHint) {
 
   std::vector<hot_cold_t> hints;
   profile.Iterate([&](const Profile::Sample& sample) {
+    // Filter out allocations that can't be ours.
+    if (sample.requested_size != kSmall && sample.requested_size != kLarge) {
+      return;
+    }
+
     hints.push_back(sample.access_hint);
   });
 
-  ASSERT_THAT(hints, testing::SizeIs(ptrs.size()));
-  EXPECT_THAT(hints, testing::UnorderedElementsAreArray({
+  EXPECT_THAT(hints, testing::IsSupersetOf({
                          static_cast<hot_cold_t>(1),
                          static_cast<hot_cold_t>(2),
                          static_cast<hot_cold_t>(3),
