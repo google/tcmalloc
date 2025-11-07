@@ -355,6 +355,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[4] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
     sample.access_hint = hot_cold_t{254};
     sample.access_allocated = Profile::Sample::Access::Cold;
+    sample.token_id = TokenId{0};
     sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
     sample.type = Profile::Sample::AllocationType::New;
     samples.push_back(sample);
@@ -401,6 +402,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[3] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{1};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    sample.token_id = TokenId{0};
     sample.guarded_status = Profile::Sample::GuardedStatus::NoAvailableSlots;
     sample.type = Profile::Sample::AllocationType::Malloc;
 
@@ -440,6 +442,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[2] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{0};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    sample.token_id = TokenId{0};
     sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
     sample.type = Profile::Sample::AllocationType::AlignedMalloc;
   }
@@ -470,6 +473,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[4] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
     sample.access_hint = hot_cold_t{253};
     sample.access_allocated = Profile::Sample::Access::Cold;
+    sample.token_id = TokenId{1};
     sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
     sample.type = Profile::Sample::AllocationType::New;
     samples.push_back(sample);
@@ -595,10 +599,13 @@ TEST(ProfileConverterTest, HeapProfile) {
     }
   }
 
-  EXPECT_THAT(label_to_units,
-              IsSupersetOf({Pair("bytes", "bytes"), Pair("request", "bytes"),
-                            Pair("alignment", "bytes"),
-                            Pair("access_hint", "access_hint")}));
+  EXPECT_THAT(label_to_units, IsSupersetOf({
+                                  Pair("bytes", "bytes"),
+                                  Pair("request", "bytes"),
+                                  Pair("alignment", "bytes"),
+                                  Pair("access_hint", "access_hint"),
+                                  Pair("token_id", "token_id"),
+                              }));
 
   EXPECT_THAT(
       label_to_units,
@@ -612,37 +619,42 @@ TEST(ProfileConverterTest, HeapProfile) {
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "RateLimited"),
+              Pair("token_id", 0), Pair("size_returning", 1),
+              Pair("guarded_status", "RateLimited"),
               Pair("allocation type", "new")),
-          UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
+          UnorderedElementsAre(
+              Pair("bytes", 8), Pair("request", 4),
+              Pair("stale_scan_period", 10),
+              Pair("access_hint", 1), Pair("access_allocated", "hot"),
+              Pair("token_id", 0), Pair("guarded_status", "NoAvailableSlots"),
+              Pair("allocation type", "malloc")),
+          UnorderedElementsAre(Pair("bytes", 16), Pair("request", 16),
                                Pair("stale_scan_period", 10),
-                               Pair("access_hint", 1),
+                               Pair("access_hint", 0),
                                Pair("access_allocated", "hot"),
-                               Pair("guarded_status", "NoAvailableSlots"),
-                               Pair("allocation type", "malloc")),
-          UnorderedElementsAre(
-              Pair("bytes", 16), Pair("request", 16),
-              Pair("stale_scan_period", 10),
-              Pair("access_hint", 0), Pair("access_allocated", "hot"),
-              Pair("size_returning", 1), Pair("guarded_status", "RateLimited"),
-              Pair("allocation type", "aligned malloc")),
+                               Pair("token_id", 0), Pair("size_returning", 1),
+                               Pair("guarded_status", "RateLimited"),
+                               Pair("allocation type", "aligned malloc")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "RateLimited"),
+              Pair("token_id", 1), Pair("size_returning", 1),
+              Pair("guarded_status", "RateLimited"),
               Pair("allocation type", "new")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "Filtered"),
+              Pair("token_id", 1), Pair("size_returning", 1),
+              Pair("guarded_status", "Filtered"),
               Pair("allocation type", "new")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "Guarded"),
+              Pair("token_id", 1), Pair("size_returning", 1),
+              Pair("guarded_status", "Guarded"),
               Pair("allocation type", "new"))));
 
   EXPECT_THAT(extracted_samples,
@@ -743,6 +755,7 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
     sample.stack[2] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
     sample.access_hint = hot_cold_t{254};
     sample.access_allocated = Profile::Sample::Access::Cold;
+    sample.token_id = TokenId{0};
   }
 
   {
@@ -762,6 +775,7 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
     sample.stack[1] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{1};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    sample.token_id = TokenId{0};
   }
 
   fake_profile->SetSamples(std::move(samples));
@@ -782,13 +796,14 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "NotAttempted"),
+              Pair("token_id", 0), Pair("size_returning", 1),
+              Pair("guarded_status", "NotAttempted"),
               Pair("allocation type", "new")),
-          UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
-                               Pair("access_hint", 1),
-                               Pair("access_allocated", "hot"),
-                               Pair("guarded_status", "NotAttempted"),
-                               Pair("allocation type", "new"))));
+          UnorderedElementsAre(
+              Pair("bytes", 8), Pair("request", 4),
+              Pair("access_hint", 1), Pair("access_allocated", "hot"),
+              Pair("token_id", 0), Pair("guarded_status", "NotAttempted"),
+              Pair("allocation type", "new"))));
 
   ASSERT_GE(converted.sample().size(), 2);
   ASSERT_GE(converted.sample(0).location_id().size(), 2);
@@ -1023,6 +1038,7 @@ TEST(ProfileBuilderTest, SameTags) {
       "access_hint",
       "access_allocated",
       "size_returning",
+      "token_id",
       "guarded_status",
   };
   EXPECT_THAT(allocation_tags, testing::IsSupersetOf(lifetime_missing_tags));
