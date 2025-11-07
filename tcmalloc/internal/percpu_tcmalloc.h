@@ -232,19 +232,21 @@ class TcmallocSlab {
   // operate on non-current cpu's slab (GrowOtherCache/ShrinkOtherCache/
   // Drain/Resize). Local operations always use a restartable sequence
   // that aborts if the slab pointer (tcamlloc_slab) is uncached.
+  //
   // Caching of the slab pointer after rescheduling checks if
-  // stopped_[cpu] is unset. Remote operations set stopped_[cpu]
+  // state_[cpu].stopped is unset. Remote operations set state_[cpu].stopped
   // and then execute Fence, this ensures that any local operation
   // on the cpu will abort without changing any state and that the
-  // slab pointer won't be cached on the cpu. This part uses relaxed atomic
-  // operations on stopped_[cpu] because the Fence provides all necessary
-  // synchronization between remote and local threads. When a remote operation
-  // finishes, it unsets stopped_[cpu] using release memory ordering.
-  // This ensures that any new local operation on the cpu that observes
-  // unset stopped_[cpu] with acquire memory ordering, will also see all
-  // side-effects of the remote operation, and won't interfere with it.
-  // StopCpu/StartCpu implement the corresponding parts of the remote
-  // synchronization protocol.
+  // slab pointer won't be cached on the cpu.
+  //
+  // This part uses relaxed atomic operations on state_[cpu].stopped because the
+  // Fence provides all necessary synchronization between remote and local
+  // threads.  When a remote operation finishes, it unsets state_[cpu].stopped
+  // using release memory ordering.  This ensures that any new local operation
+  // on the cpu that observes unset state_[cpu].stopped with acquire memory
+  // ordering, will also see all side-effects of the remote operation, and won't
+  // interfere with it.  StopCpu/StartCpu implement the corresponding parts of
+  // the remote synchronization protocol.
   void StopCpu(int cpu);
   void StartCpu(int cpu);
 
@@ -375,12 +377,18 @@ class TcmallocSlab {
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
   std::atomic<SlabsAndShift> slabs_and_shift_{};
-  // Remote Cpu operation (Resize/Drain/Grow/Shrink) is running so any local
-  // operations (Push/Pop) should fail.
-  std::atomic<bool>* stopped_ = nullptr;
+
+  size_t num_cpus() const { return state_.size(); }
+
+  struct CpuState {
+    // Remote Cpu operation (Resize/Drain/Grow/Shrink) is running so any local
+    // operations (Push/Pop) should fail.
+    std::atomic<bool> stopped{false};
+  };
+  absl::Span<CpuState> state_ = {};
+
   // begins_[size_class] is offset of the size_class region in the slabs area.
   std::atomic<uint16_t>* begins_ = nullptr;
-  int num_cpus_ = 0;
 };
 
 // RAII for StopCpu/StartCpu.
@@ -1041,13 +1049,11 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Init(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, void* slabs,
     absl::FunctionRef<size_t(size_t)> capacity, Shift shift) {
-  num_cpus_ = NumCPUs();
-  stopped_ = new (alloc(sizeof(stopped_[0]) * num_cpus_,
-                        std::align_val_t{ABSL_CACHELINE_SIZE}))
-      std::atomic<bool>[NumCPUs()];
-  for (int cpu = num_cpus_ - 1; cpu >= 0; cpu--) {
-    stopped_[cpu].store(false, std::memory_order_relaxed);
-  }
+  const size_t num_cpus = NumCPUs();
+  state_ = absl::MakeSpan(new (alloc(sizeof(state_[0]) * num_cpus,
+                                     std::align_val_t{ABSL_CACHELINE_SIZE}))
+                              CpuState[num_cpus](),
+                          num_cpus);
   begins_ = static_cast<std::atomic<uint16_t>*>(alloc(
       sizeof(begins_[0]) * NumClasses, std::align_val_t{ABSL_CACHELINE_SIZE}));
   InitSlabs(slabs, shift, capacity);
@@ -1096,7 +1102,7 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpuImpl(
     void* slabs, Shift shift, int cpu,
     absl::FunctionRef<size_t(size_t)> capacity) {
-  TC_CHECK(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_CHECK(state_[cpu].stopped.load(std::memory_order_relaxed));
   TC_CHECK_LE((1 << ToUint8(shift)), (1 << 16) * sizeof(void*));
 
   // Initialize prefetch target and compute the offsets for the
@@ -1147,7 +1153,7 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
     CompilerBarrier();
     vcpu = VirtualCpu::Synchronize();
     TC_ASSERT_GE(vcpu, 0);
-    TC_ASSERT_LT(vcpu, num_cpus_);
+    TC_ASSERT_LT(vcpu, num_cpus());
     auto slabs_and_shift = slabs_and_shift_.load(std::memory_order_relaxed);
     const auto [slabs, shift] = slabs_and_shift.Get();
     void* start = CpuMemoryStart(slabs, shift, vcpu);
@@ -1158,28 +1164,36 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
     }
     // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may
     // cache the offset with the shift that won't match slabs pointer used
-    // by Push/Pop operations later. To avoid this, we check stopped_ after
-    // the calculation. Coupled with setting of stopped_ and a Fence
-    // in ResizeSlabs, this prevents possibility of mismatching shift/slabs.
+    // by Push/Pop operations later. To avoid this, we check
+    // state_[vcpu].stopped after the calculation. Coupled with setting of
+    // stopped_ and a Fence in ResizeSlabs, this prevents possibility of
+    // mismatching shift/slabs.
     CompilerBarrier();
-    if (stopped_[vcpu].load(std::memory_order_acquire)) {
+    if (state_[vcpu].stopped.load(std::memory_order_acquire)) {
       tcmalloc_slabs = 0;
       return {-1, true};
     }
     // Ensure that we've cached the current slabs pointer.
     // Without this check the following bad interleaving is possible.
-    // Thread 1 executes ResizeSlabs, stops all CPUs and executes Fence.
-    // Now thread 2 executes CacheCpuSlabSlow, reads old slabs and caches
-    // the pointer. Now thread 1 stores the new slabs pointer and resets
-    // stopped_[cpu]. Now thread 2 resumes, checks that stopped_[cpu] is not
-    // set and proceeds with using the old slabs pointer. Since we use
-    // acquire/release on stopped_[cpu], if this thread observes reset
-    // stopped_[cpu], it's also guaranteed to observe the new value of slabs
-    // and retry. In the very unlikely case that slabs are resized twice in
-    // between (to new slabs and then back to old slabs), the check below will
-    // not lead to a retry, but changing slabs back also implies another Fence,
-    // so this thread won't have old slabs cached already (Fence invalidates
-    // the cached pointer).
+    //
+    // Thread 1: Executes ResizeSlabs, stops all CPUs and executes Fence.
+    //
+    // Thread 2: Executes CacheCpuSlabSlow, reads old slabs and caches
+    //           the pointer.
+    //
+    // Thread 1: Stores the new slabs pointer and resets state_[cpu].stopped.
+    //
+    // Thread 2: Resumes, checks that state_[cpu].stopped is not set and
+    //           proceeds with using the old slabs pointer. Since we use
+    //           acquire/release on state_[cpu].stopped, if this thread observes
+    //           reset state_[cpu].stopped, it's also guaranteed to observe the
+    //           new value of slabs and retry.
+    //
+    // In the very unlikely case that slabs are resized twice in between (to new
+    // slabs and then back to old slabs), the check below will not lead to a
+    // retry, but changing slabs back also implies another Fence, so this thread
+    // won't have old slabs cached already (Fence invalidates the cached
+    // pointer).
     if (slabs_and_shift != slabs_and_shift_.load(std::memory_order_relaxed)) {
       continue;
     }
@@ -1191,7 +1205,7 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
                                         DrainHandler drain_handler) {
-  TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
     uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1252,10 +1266,10 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
         begins_[size_class].load(std::memory_order_relaxed);
   }
 
-  const int num_cpus = num_cpus_;
-  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
-    TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
-    stopped_[cpu].store(true, std::memory_order_relaxed);
+  const int n_cpus = num_cpus();
+  for (auto& state : state_) {
+    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
+    state.stopped.store(true, std::memory_order_relaxed);
   }
   FenceAllCpus();
 
@@ -1267,23 +1281,23 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   }
 
   // Phase 3: Initialize slabs.
-  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
     if (!populated(cpu)) continue;
     InitCpuImpl(new_slabs, shift, cpu, capacity);
   }
   InitSlabs(new_slabs, shift, capacity);
 
   // Phase 4: Re-start all CPUs.
-  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
-    stopped_[cpu].store(false, std::memory_order_release);
+  for (auto& state : state_) {
+    state.stopped.store(false, std::memory_order_release);
   }
 
   // Phase 5: Return pointers from the old slab to the TransferCache.
-  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
     if (!populated(cpu)) continue;
     DrainOldSlabs(old_slabs, shift, cpu, old_begins, drain_handler);
   }
-  return {old_slabs, GetSlabsAllocSize(shift, num_cpus)};
+  return {old_slabs, GetSlabsAllocSize(shift, n_cpus)};
 }
 
 template <size_t NumClasses>
@@ -1303,10 +1317,10 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   }
 
   TC_ASSERT_NE(new_shift, old_shift);
-  const int num_cpus = num_cpus_;
-  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
-    TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
-    stopped_[cpu].store(true, std::memory_order_relaxed);
+  const int n_cpus = num_cpus();
+  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
+    TC_CHECK(!state_[cpu].stopped.load(std::memory_order_relaxed));
+    state_[cpu].stopped.store(true, std::memory_order_relaxed);
     if (populated(cpu)) {
       InitCpuImpl(new_slabs, new_shift, cpu, capacity);
     }
@@ -1317,30 +1331,33 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   InitSlabs(new_slabs, new_shift, capacity);
 
   // Phase 3: Re-start all CPUs.
-  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
-    stopped_[cpu].store(false, std::memory_order_release);
+  for (auto& state : state_) {
+    state.stopped.store(false, std::memory_order_release);
   }
 
   // Phase 4: Return pointers from the old slab to the TransferCache.
-  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
     if (!populated(cpu)) continue;
     DrainOldSlabs(old_slabs, old_shift, cpu, old_begins, drain_handler);
   }
 
-  return {old_slabs, GetSlabsAllocSize(old_shift, num_cpus)};
+  return {old_slabs, GetSlabsAllocSize(old_shift, n_cpus)};
 }
 
 template <size_t NumClasses>
 void* TcmallocSlab<NumClasses>::Destroy(
     absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
-  free(stopped_, sizeof(stopped_[0]) * num_cpus_,
+  const size_t n_cpus = num_cpus();
+
+  free(state_.data(), sizeof(state_[0]) * n_cpus,
        std::align_val_t{ABSL_CACHELINE_SIZE});
-  stopped_ = nullptr;
+  state_ = {};
+
   free(begins_, sizeof(begins_[0]) * NumClasses,
        std::align_val_t{ABSL_CACHELINE_SIZE});
   begins_ = nullptr;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  free(slabs, GetSlabsAllocSize(shift, num_cpus_), kPhysicalPageAlign);
+  free(slabs, GetSlabsAllocSize(shift, n_cpus), kPhysicalPageAlign);
   slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
   return slabs;
 }
@@ -1349,7 +1366,7 @@ template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::GrowOtherCache(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
-  TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t max_cap = max_capacity(ToUint8(shift));
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1364,7 +1381,7 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
 template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     int cpu, size_t size_class, size_t len, ShrinkHandler shrink_handler) {
-  TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1400,27 +1417,28 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, DrainHandler drain_handler) {
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::StopCpu(int cpu) {
-  TC_ASSERT(cpu >= 0 && cpu < num_cpus_, "cpu=%d", cpu);
-  TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
-  stopped_[cpu].store(true, std::memory_order_relaxed);
+  TC_ASSERT(cpu >= 0 && cpu < num_cpus(), "cpu=%d", cpu);
+  TC_CHECK(!state_[cpu].stopped.load(std::memory_order_relaxed));
+  state_[cpu].stopped.store(true, std::memory_order_relaxed);
   FenceCpu(cpu);
 }
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::StartCpu(int cpu) {
-  TC_ASSERT(cpu >= 0 && cpu < num_cpus_, "cpu=%d", cpu);
-  TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
-  stopped_[cpu].store(false, std::memory_order_release);
+  TC_ASSERT(cpu >= 0 && cpu < num_cpus(), "cpu=%d", cpu);
+  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
+  state_[cpu].stopped.store(false, std::memory_order_release);
 }
 
 template <size_t NumClasses>
 PerCPUMetadataState TcmallocSlab<NumClasses>::MetadataMemoryUsage() const {
   PerCPUMetadataState result;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  size_t slabs_size = GetSlabsAllocSize(shift, num_cpus_);
-  size_t stopped_size = num_cpus_ * sizeof(stopped_[0]);
+  const size_t n_cpus = num_cpus();
+  size_t slabs_size = GetSlabsAllocSize(shift, n_cpus);
+  size_t state_size = n_cpus * sizeof(state_[0]);
   size_t begins_size = NumClasses * sizeof(begins_[0]);
-  result.virtual_size = stopped_size + slabs_size + begins_size;
+  result.virtual_size = state_size + slabs_size + begins_size;
   result.resident_size = MInCore::residence(slabs, slabs_size);
   return result;
 }
