@@ -200,16 +200,8 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
-static std::atomic<bool>& use_userspace_collapse_heuristics_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TCMALLOC_COLLAPSE_HEURISTICS)) {
-      v.store(true, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
+ABSL_CONST_INIT std::atomic<bool>
+    Parameters::use_userspace_collapse_heuristics_(false);
 
 static std::atomic<bool>& release_free_swapped_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -255,11 +247,6 @@ bool Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
 
-bool Parameters::use_userspace_collapse_heuristics() {
-  return use_userspace_collapse_heuristics_enabled().load(
-      std::memory_order_relaxed);
-}
-
 bool Parameters::release_free_swapped() {
   return release_free_swapped_enabled().load(std::memory_order_relaxed);
 }
@@ -284,6 +271,10 @@ Parameters::priority_list_length() {
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
+}
+
+bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
+  return Parameters::use_userspace_collapse_heuristics();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -577,13 +568,9 @@ void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
       v, std::memory_order_relaxed);
 }
 
-bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
-  return Parameters::use_userspace_collapse_heuristics();
-}
-
 void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {
-  tcmalloc::tcmalloc_internal::use_userspace_collapse_heuristics_enabled()
-      .store(v, std::memory_order_relaxed);
+  Parameters::use_userspace_collapse_heuristics_.store(
+      v, std::memory_order_relaxed);
 }
 
 }  // extern "C"

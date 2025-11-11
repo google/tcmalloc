@@ -133,11 +133,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   } else {
     EXPECT_THAT(buf, HasSubstr("release_free_swapped: false"));
   }
-  if (IsExperimentActive(Experiment::TCMALLOC_COLLAPSE_HEURISTICS)) {
-    EXPECT_THAT(buf, HasSubstr("use_userspace_collapse_heuristics: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("use_userspace_collapse_heuristics: false"));
-  }
+  EXPECT_THAT(buf, HasSubstr("use_userspace_collapse_heuristics: false"));
   if (IsExperimentActive(
           Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1) ||
       IsExperimentActive(Experiment::TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)) {
@@ -223,17 +219,9 @@ TEST_F(GetStatsTest, Parameters) {
       EXPECT_THAT(buf,
                   HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 0)"));
     }
-    if (IsExperimentActive(Experiment::TCMALLOC_COLLAPSE_HEURISTICS)) {
-      EXPECT_THAT(
-          buf,
-          HasSubstr(
-              R"(PARAMETER tcmalloc_use_userspace_collapse_heuristics 1)"));
-    } else {
-      EXPECT_THAT(
-          buf,
-          HasSubstr(
-              R"(PARAMETER tcmalloc_use_userspace_collapse_heuristics 0)"));
-    }
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_use_userspace_collapse_heuristics 0)"));
     if (IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1) ||
         IsExperimentActive(Experiment::TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)) {
