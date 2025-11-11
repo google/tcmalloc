@@ -82,12 +82,6 @@ enum class TokenId : uint8_t {
 #endif
   // Allocations without alloc-token instrumentation (pointerful).
   kNoAllocToken = 10,
-  // Allocations whose partition is assigned at runtime to partition 0
-  // (pointerless)
-  kRuntimePartitionId0 = 128,
-  // Allocations whose partition is assigned at runtime to partition 1
-  // (pointerful)
-  kRuntimePartitionId1 = 129,
 };
 
 constexpr hot_cold_t kDefaultMinHotAccessHint =
