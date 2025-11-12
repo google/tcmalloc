@@ -83,7 +83,7 @@ int VirtualCpu::TestSynchronize() { return ScopedFakeCpuId::test_vcpu_; }
 
 std::string GetStatsInPbTxt() {
   // When huge page telemetry is enabled, the output can become very large.
-  const int buffer_length = 3 << 20;
+  const int buffer_length = 3 << 21;
   std::string buf;
   if (&MallocExtension_Internal_GetStatsInPbtxt == nullptr) {
     return buf;
