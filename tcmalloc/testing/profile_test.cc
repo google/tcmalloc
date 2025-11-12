@@ -42,9 +42,14 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+extern "C" {
+void* __alloc_token_0__ZnwmRKSt9nothrow_t(size_t size, std::nothrow_t);
+void* __alloc_token_1__ZnwmRKSt9nothrow_t(size_t size, std::nothrow_t);
+}
+
 TEST(ProfileTest, HeapProfile) {
 #if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_MEMORY_SANITIZER || \
-    ABSL_HAVE_THREAD_SANITIZER
+    ABSL_HAVE_THREAD_SANITIZER || defined(__SANITIZE_ALLOC_TOKEN__)
   GTEST_SKIP() << "Skipping heap profile test under sanitizers.";
 #endif
 
@@ -61,10 +66,14 @@ TEST(ProfileTest, HeapProfile) {
   // fast path of the first `emplace_back` is taken. We reserve enough space for
   // all insertions so that all `emplace_back` calls go through the fast path
   // and there is only one stack trace for tcmalloc.
-  allocs.reserve(3 * kAllocs);
+  allocs.reserve(5 * kAllocs);
   for (int i = 0; i < kAllocs; i++) {
     allocs.emplace_back(::operator new(alloc_size), deleter);
     allocs.emplace_back(::operator new(alloc_size, std::nothrow), deleter);
+    allocs.emplace_back(
+        __alloc_token_0__ZnwmRKSt9nothrow_t(alloc_size, std::nothrow), deleter);
+    allocs.emplace_back(
+        __alloc_token_1__ZnwmRKSt9nothrow_t(alloc_size, std::nothrow), deleter);
     allocs.emplace_back(__size_returning_new(alloc_size).p, deleter);
   }
 
@@ -94,7 +103,7 @@ TEST(ProfileTest, HeapProfile) {
   // Look for "request", "size_returning", "allocation_type", "new", "malloc",
   // "aligned_malloc" strings in string table.
   std::optional<int> request_id, size_returning_id, allocation_type_id, new_id,
-      malloc_id, aligned_malloc_id;
+      malloc_id, aligned_malloc_id, token_id;
   for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
     if (converted.string_table(i) == "request") {
       request_id = i;
@@ -108,6 +117,8 @@ TEST(ProfileTest, HeapProfile) {
       malloc_id = i;
     } else if (converted.string_table(i) == "aligned malloc") {
       aligned_malloc_id = i;
+    } else if (converted.string_table(i) == "token_id") {
+      token_id = i;
     }
   }
 
@@ -117,7 +128,9 @@ TEST(ProfileTest, HeapProfile) {
   EXPECT_TRUE(new_id.has_value());
   EXPECT_TRUE(malloc_id.has_value());
   EXPECT_TRUE(aligned_malloc_id.has_value());
+  EXPECT_TRUE(token_id.has_value());
 
+  absl::flat_hash_map<int, int> token_count;
   size_t count = 0, bytes = 0, samples = 0, size_returning_samples = 0,
          new_samples = 0, malloc_samples = 0, aligned_malloc_samples = 0;
   for (const auto& sample : converted.sample()) {
@@ -158,6 +171,8 @@ TEST(ProfileTest, HeapProfile) {
                          << converted.string_table(label.str()) << " ("
                          << label.str() << ")";
           }
+        } else if (label.key() == token_id) {
+          token_count[label.num()]++;
         }
       }
     }
@@ -170,11 +185,15 @@ TEST(ProfileTest, HeapProfile) {
   // profile.proto.  Since all of the calls to operator new(alloc_size) are
   // similar in these dimensions, we expect to see only 2 samples, one for
   // ::operator new and one for __size_returning_new.
-  EXPECT_EQ(samples, 5);
+  EXPECT_EQ(samples, 7);
   EXPECT_EQ(size_returning_samples, 1);
-  EXPECT_EQ(new_samples, 3);
+  EXPECT_EQ(new_samples, 5);
   EXPECT_EQ(malloc_samples, 1);
   EXPECT_EQ(aligned_malloc_samples, 1);
+
+  EXPECT_EQ(token_count[static_cast<int>(TokenId::kAllocToken0)], 1);
+  EXPECT_EQ(token_count[static_cast<int>(TokenId::kAllocToken1)], 1);
+  EXPECT_EQ(token_count[static_cast<int>(TokenId::kNoAllocToken)], 5);
 
   // Dump the profile in case of failures so that it's possible to debug.
   // Since SCOPED_TRACE attaches output to every failure, we use ASSERTs below.

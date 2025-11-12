@@ -943,6 +943,7 @@ inline struct mallinfo2 do_mallinfo2() {
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
+using tcmalloc::TokenId;
 using tcmalloc::tcmalloc_internal::CppPolicy;
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 using tcmalloc::tcmalloc_internal::do_mallinfo;
@@ -1259,7 +1260,8 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
 }
 
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
-                                                            size_t new_size) {
+                                                            size_t new_size,
+                                                            TokenId token_id) {
   tc_globals.InitIfNecessary();
   // Get the size of the old entry
   const auto [old_size, was_sampled] = GetSizeAndSampled(old_ptr);
@@ -1293,7 +1295,13 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   if (changes_correct_size || was_sampled || will_sample ||
       tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
     // Need to reallocate.
-    void* new_ptr = fast_alloc(new_size, MallocPolicy());
+    void* new_ptr = fast_alloc(
+        new_size,
+        MallocPolicy().InPartitionWithToken(
+            // TODO: b/446814339 - Rename NumaPartitionFromPointer to
+            // PartitionFromPointer.
+            tcmalloc::tcmalloc_internal::NumaPartitionFromPointer(old_ptr),
+            token_id));
     if (new_ptr == nullptr) {
       return nullptr;
     }
@@ -1326,7 +1334,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
     do_free(ptr, MallocPolicy());
     return nullptr;
   }
-  return do_realloc(ptr, size);
+  return do_realloc(ptr, size, TokenId::kNoAllocToken);
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
@@ -1342,7 +1350,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
     do_free(ptr, MallocPolicy());
     return nullptr;
   }
-  return do_realloc(ptr, size);
+  return do_realloc(ptr, size, TokenId::kNoAllocToken);
 }
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
@@ -1415,8 +1423,7 @@ extern "C" void TCMallocInternalDelete(void* p) noexcept {
 }
 
 extern "C" void TCMallocInternalDeleteAligned(
-    void* p, std::align_val_t alignment) noexcept
-{
+    void* p, std::align_val_t alignment) noexcept {
   // Note: The aligned delete/delete[] implementations differ slightly from
   // their respective aliased implementations to take advantage of checking the
   // passed-in alignment.
@@ -1674,5 +1681,228 @@ ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, std::align_val_t align,
                     CppPolicy().Nothrow().AlignAs(align).AccessAs(hot_cold));
 }
 #endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
+
+//
+// Partitioned Variants for Clang's -fsanitize=alloc-token.
+//
+#define DEFINE_ALLOC_TOKEN_NEW(id)                                             \
+  void* __alloc_token_##id##__Znwm(size_t size) {                              \
+    return fast_alloc(size, CppPolicy().WithSecurityToken<TokenId{id}>());     \
+  }                                                                            \
+  void* __alloc_token_##id##__Znam(size_t)                                     \
+      TCMALLOC_ALIAS(__alloc_token_##id##__Znwm);                              \
+  void* __alloc_token_##id##__ZnwmRKSt9nothrow_t(                              \
+      size_t size, const std::nothrow_t&) noexcept {                           \
+    return fast_alloc(size,                                                    \
+                      CppPolicy().WithSecurityToken<TokenId{id}>().Nothrow()); \
+  }                                                                            \
+  void* __alloc_token_##id##__ZnamRKSt9nothrow_t(size_t,                       \
+                                                 const std::nothrow_t&)        \
+      TCMALLOC_ALIAS(__alloc_token_##id##__ZnwmRKSt9nothrow_t);                \
+  void* __alloc_token_##id##__ZnwmSt11align_val_t(                             \
+      size_t size, std::align_val_t alignment) {                               \
+    TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));           \
+    return fast_alloc(                                                         \
+        size,                                                                  \
+        CppPolicy().WithSecurityToken<TokenId{id}>().AlignAs(alignment));      \
+  }                                                                            \
+  void* __alloc_token_##id##__ZnamSt11align_val_t(size_t, std::align_val_t)    \
+      TCMALLOC_ALIAS(__alloc_token_##id##__ZnwmSt11align_val_t);               \
+  void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t(               \
+      size_t size, std::align_val_t alignment,                                 \
+      const std::nothrow_t&) noexcept {                                        \
+    TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));           \
+    return fast_alloc(                                                         \
+        size, CppPolicy().WithSecurityToken<TokenId{id}>().Nothrow().AlignAs(  \
+                  alignment));                                                 \
+  }                                                                            \
+  void* __alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t(               \
+      size_t, std::align_val_t,                                                \
+      const std::                                                              \
+          nothrow_t&) noexcept TCMALLOC_ALIAS(__alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t);
+
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
+#define DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)                                                                        \
+  void* __alloc_token_##id##__Znwm12__hot_cold_t(size_t size,                                                       \
+                                                 __hot_cold_t hot_cold) {                                           \
+    return fast_alloc(                                                                                              \
+        size,                                                                                                       \
+        CppPolicy().WithSecurityToken<TokenId{id}>().AccessAs(hot_cold));                                           \
+  }                                                                                                                 \
+  void* __alloc_token_##id##__ZnwmRKSt9nothrow_t12__hot_cold_t(                                                     \
+      size_t size, const std::nothrow_t&, __hot_cold_t hot_cold) noexcept {                                         \
+    return fast_alloc(                                                                                              \
+        size, CppPolicy().WithSecurityToken<TokenId{id}>().Nothrow().AccessAs(                                      \
+                  hot_cold));                                                                                       \
+  }                                                                                                                 \
+  void* __alloc_token_##id##__ZnwmSt11align_val_t12__hot_cold_t(                                                    \
+      size_t size, std::align_val_t align, __hot_cold_t hot_cold) {                                                 \
+    TC_ASSERT(absl::has_single_bit(static_cast<size_t>(align)));                                                    \
+    return fast_alloc(                                                                                              \
+        size,                                                                                                       \
+        CppPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align).AccessAs(                                       \
+            hot_cold));                                                                                             \
+  }                                                                                                                 \
+  void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t(                                      \
+      size_t size, std::align_val_t align, const std::nothrow_t&,                                                   \
+      __hot_cold_t hot_cold) noexcept {                                                                             \
+    TC_ASSERT(absl::has_single_bit(static_cast<size_t>(align)));                                                    \
+    return fast_alloc(size, CppPolicy()                                                                             \
+                                .WithSecurityToken<TokenId{id}>()                                                   \
+                                .Nothrow()                                                                          \
+                                .AlignAs(align)                                                                     \
+                                .AccessAs(hot_cold));                                                               \
+  }                                                                                                                 \
+  void* __alloc_token_##id##__Znam12__hot_cold_t(size_t, __hot_cold_t)                                              \
+      TCMALLOC_ALIAS(__alloc_token_##id##__Znwm12__hot_cold_t);                                                     \
+  void* __alloc_token_##id##__ZnamRKSt9nothrow_t12__hot_cold_t(                                                     \
+      size_t, const std::nothrow_t&,                                                                                \
+      __hot_cold_t) noexcept TCMALLOC_ALIAS(__alloc_token_##id##__ZnwmRKSt9nothrow_t12__hot_cold_t);                \
+  void* __alloc_token_##id##__ZnamSt11align_val_t12__hot_cold_t(                                                    \
+      size_t, std::align_val_t, __hot_cold_t)                                                                       \
+      TCMALLOC_ALIAS(__alloc_token_##id##__ZnwmSt11align_val_t12__hot_cold_t);                                      \
+  void* __alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t(                                      \
+      size_t, std::align_val_t, const std::nothrow_t&,                                                              \
+      __hot_cold_t) noexcept TCMALLOC_ALIAS(__alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t); \
+  __sized_ptr_t __alloc_token_##id##___size_returning_new(size_t size) {                                            \
+    return fast_alloc(                                                                                              \
+        size, CppPolicy().WithSecurityToken<TokenId{id}>().SizeReturning());                                        \
+  }                                                                                                                 \
+  __sized_ptr_t __alloc_token_##id##___size_returning_new_aligned(                                                  \
+      size_t size, std::align_val_t alignment) {                                                                    \
+    TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));                                                \
+    return fast_alloc(size, CppPolicy()                                                                             \
+                                .WithSecurityToken<TokenId{id}>()                                                   \
+                                .AlignAs(alignment)                                                                 \
+                                .SizeReturning());                                                                  \
+  }                                                                                                                 \
+  __sized_ptr_t __alloc_token_##id##___size_returning_new_hot_cold(                                                 \
+      size_t size, __hot_cold_t hot_cold) {                                                                         \
+    return fast_alloc(size, CppPolicy()                                                                             \
+                                .WithSecurityToken<TokenId{id}>()                                                   \
+                                .AccessAs(hot_cold)                                                                 \
+                                .SizeReturning());                                                                  \
+  }                                                                                                                 \
+  __sized_ptr_t __alloc_token_##id##___size_returning_new_aligned_hot_cold(                                         \
+      size_t size, std::align_val_t alignment, __hot_cold_t hot_cold) {                                             \
+    TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));                                                \
+    return fast_alloc(size, CppPolicy()                                                                             \
+                                .WithSecurityToken<TokenId{id}>()                                                   \
+                                .AlignAs(alignment)                                                                 \
+                                .AccessAs(hot_cold)                                                                 \
+                                .SizeReturning());                                                                  \
+  }
+#else
+#define DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)
+#endif  // TCMALLOC_INTERNAL_METHODS_ONLY
+
+#define DEFINE_ALLOC_TOKEN_STDLIB(id)                                          \
+  void* __alloc_token_##id##_malloc(size_t size) noexcept {                    \
+    return fast_alloc(size, MallocPolicy().WithSecurityToken<TokenId{id}>());  \
+  }                                                                            \
+  void* __alloc_token_##id##_realloc(void* ptr, size_t size) noexcept {        \
+    if (ptr == nullptr) {                                                      \
+      return fast_alloc(size,                                                  \
+                        MallocPolicy().WithSecurityToken<TokenId{id}>());      \
+    }                                                                          \
+    if (size == 0) {                                                           \
+      do_free(ptr, MallocPolicy().WithSecurityToken<TokenId{id}>());           \
+      return nullptr;                                                          \
+    }                                                                          \
+    return do_realloc(ptr, size, TokenId{id});                                 \
+  }                                                                            \
+  void* __alloc_token_##id##_reallocarray(void* ptr, size_t n,                 \
+                                          size_t elem_size) noexcept {         \
+    size_t size;                                                               \
+    if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {           \
+      return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());     \
+    }                                                                          \
+    if (ptr == nullptr) {                                                      \
+      return fast_alloc(size,                                                  \
+                        MallocPolicy().WithSecurityToken<TokenId{id}>());      \
+    }                                                                          \
+    if (size == 0) {                                                           \
+      do_free(ptr, MallocPolicy().WithSecurityToken<TokenId{id}>());           \
+      return nullptr;                                                          \
+    }                                                                          \
+    return do_realloc(ptr, size, TokenId{id});                                 \
+  }                                                                            \
+  void* __alloc_token_##id##_calloc(size_t n, size_t elem_size) noexcept {     \
+    size_t size;                                                               \
+    if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {           \
+      return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());     \
+    }                                                                          \
+    void* result =                                                             \
+        fast_alloc(size, MallocPolicy().WithSecurityToken<TokenId{id}>());     \
+    if (ABSL_PREDICT_TRUE(result != nullptr)) {                                \
+      memset(result, 0, size);                                                 \
+    }                                                                          \
+    return result;                                                             \
+  }                                                                            \
+  void* __alloc_token_##id##_memalign(size_t align, size_t size) noexcept {    \
+    TC_ASSERT(absl::has_single_bit(align));                                    \
+    return fast_alloc(                                                         \
+        size, MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align)); \
+  }                                                                            \
+  void* __alloc_token_##id##_aligned_alloc(size_t align,                       \
+                                           size_t size) noexcept {             \
+    if (ABSL_PREDICT_FALSE(!absl::has_single_bit(align))) {                    \
+      errno = EINVAL;                                                          \
+      return nullptr;                                                          \
+    }                                                                          \
+    return fast_alloc(                                                         \
+        size, MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align)); \
+  }                                                                            \
+  void* __alloc_token_##id##_valloc(size_t size) noexcept {                    \
+    return fast_alloc(size,                                                    \
+                      MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs( \
+                          GetPageSize()));                                     \
+  }                                                                            \
+  void* __alloc_token_##id##_pvalloc(size_t size) noexcept {                   \
+    size_t page_size = GetPageSize();                                          \
+    if (size == 0) {                                                           \
+      size = page_size;                                                        \
+    }                                                                          \
+    size = (size + page_size - 1) & ~(page_size - 1);                          \
+    return fast_alloc(                                                         \
+        size,                                                                  \
+        MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(page_size));   \
+  }                                                                            \
+  int __alloc_token_##id##_posix_memalign(void** result_ptr, size_t align,     \
+                                          size_t size) noexcept {              \
+    TC_ASSERT_NE(result_ptr, nullptr);                                         \
+    if (ABSL_PREDICT_FALSE(((align % sizeof(void*)) != 0) ||                   \
+                           !absl::has_single_bit(align))) {                    \
+      return EINVAL;                                                           \
+    }                                                                          \
+    void* result = fast_alloc(                                                 \
+        size, MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align)); \
+    if (ABSL_PREDICT_FALSE(result == nullptr)) {                               \
+      return ENOMEM;                                                           \
+    }                                                                          \
+    *result_ptr = result;                                                      \
+    return 0;                                                                  \
+  }
+
+#define DEFINE_ALLOC_TOKEN_VARIANTS(id) \
+  DEFINE_ALLOC_TOKEN_NEW(id)            \
+  DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)  \
+  DEFINE_ALLOC_TOKEN_STDLIB(id)
+
+#ifdef __SANITIZE_ALLOC_TOKEN__
+#ifndef ALLOC_TOKEN_MAX
+#error "Define ALLOC_TOKEN_MAX to match -falloc-token-max=<max number of IDs>"
+#endif
+static_assert(ALLOC_TOKEN_MAX == 2);
+#endif  // __SANITIZE_ALLOC_TOKEN__
+
+DEFINE_ALLOC_TOKEN_VARIANTS(0)
+DEFINE_ALLOC_TOKEN_VARIANTS(1)
+#ifdef ALLOC_TOKEN_FALLBACK
+// Define the functions for the fallback token ID if overridden with -mllvm
+// -alloc-token-fallback=N; should fall outside the range of normal token IDs.
+static_assert(ALLOC_TOKEN_FALLBACK >= ALLOC_TOKEN_MAX);
+DEFINE_ALLOC_TOKEN_VARIANTS(ALLOC_TOKEN_FALLBACK)
+#endif
 
 GOOGLE_MALLOC_SECTION_END
