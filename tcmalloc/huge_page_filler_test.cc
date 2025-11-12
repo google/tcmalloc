@@ -5461,6 +5461,14 @@ HugePageFiller: <510<=     0 <511<=     0
 HugePageFiller: 1 of sparsely-accessed regular pages treated out of 1.
 )"));
 
+  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
+HugePageFiller: 130 of sparsely-accessed regular free native pages are swapped.
+)"));
+
+  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
+HugePageFiller: 130 of sparsely-accessed regular free native pages are unbacked.
+)"));
+
   std::string buffer_pbtxt(1024 * 1024, '\0');
   Printer printer(&*buffer_pbtxt.begin(), buffer_pbtxt.size());
   {
@@ -5484,6 +5492,8 @@ HugePageFiller: 1 of sparsely-accessed regular pages treated out of 1.
   EXPECT_THAT(buffer_pbtxt,
               testing::HasSubstr("free_swapped_histogram { lower_bound: 104 "
                                  "upper_bound: 135 value: 1}"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_swapped: 130"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_unbacked: 130"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_treated: 1"));
   DeleteVector(p1);
 }
@@ -5660,6 +5670,8 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: 0 of sparsely-accessed regular free native pages are swapped.
+HugePageFiller: 0 of sparsely-accessed regular free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed regular pages hugepage backed out of 3.
 HugePageFiller: 0 of sparsely-accessed regular pages treated out of 3.
 
@@ -5739,6 +5751,8 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: 0 of densely-accessed regular free native pages are swapped.
+HugePageFiller: 0 of densely-accessed regular free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed regular pages hugepage backed out of 6.
 HugePageFiller: 0 of densely-accessed regular pages treated out of 6.
 
@@ -5802,6 +5816,8 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: 0 of donated free native pages are swapped.
+HugePageFiller: 0 of donated free native pages are unbacked.
 HugePageFiller: 0 of donated pages hugepage backed out of 1.
 HugePageFiller: 0 of donated pages treated out of 1.
 
@@ -5881,6 +5897,8 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: 0 of sparsely-accessed partial released free native pages are swapped.
+HugePageFiller: 0 of sparsely-accessed partial released free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed partial released pages hugepage backed out of 0.
 HugePageFiller: 0 of sparsely-accessed partial released pages treated out of 0.
 
@@ -5960,6 +5978,8 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: 0 of densely-accessed partial released free native pages are swapped.
+HugePageFiller: 0 of densely-accessed partial released free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed partial released pages hugepage backed out of 0.
 HugePageFiller: 0 of densely-accessed partial released pages treated out of 0.
 
@@ -6039,6 +6059,8 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: 0 of sparsely-accessed released free native pages are swapped.
+HugePageFiller: 0 of sparsely-accessed released free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed released pages hugepage backed out of 4.
 HugePageFiller: 0 of sparsely-accessed released pages treated out of 4.
 
@@ -6118,6 +6140,8 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: 0 of densely-accessed released free native pages are swapped.
+HugePageFiller: 0 of densely-accessed released free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed released pages hugepage backed out of 1.
 HugePageFiller: 0 of densely-accessed released pages treated out of 1.
 

@@ -607,6 +607,8 @@ class UsageInfo {
     size_t treated_hugepages{};
     size_t hugepage_backed{};
     size_t total_pages{};
+    Length num_free_swapped{};
+    Length num_free_unbacked{};
   };
 
   template <class TrackerType>
@@ -656,6 +658,8 @@ class UsageInfo {
           pt.CountInfoInHugePage(bitmaps);
       ++records.free_unbacked_histo[NativePageBucketNum(info.n_free_unbacked)];
       ++records.free_swapped_histo[NativePageBucketNum(info.n_free_swapped)];
+      records.num_free_swapped += Length(info.n_free_swapped);
+      records.num_free_unbacked += Length(info.n_free_unbacked);
     }
 
     if (hugepage_residency_state.entry_valid) {
@@ -717,6 +721,10 @@ class UsageInfo {
     PrintNativePageHisto(out, records.free_swapped_histo, type,
                          "hps with a <= # of free AND swapped < b", 0);
 
+    out.printf("\nHugePageFiller: %zu of %s free native pages are swapped.",
+               records.num_free_swapped.raw_num(), TypeToStr(type));
+    out.printf("\nHugePageFiller: %zu of %s free native pages are unbacked.",
+               records.num_free_unbacked.raw_num(), TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
                records.hugepage_backed, TypeToStr(type), records.total_pages);
 
@@ -752,6 +760,10 @@ class UsageInfo {
     scoped.PrintI64("total_pages", records.total_pages);
     scoped.PrintI64("num_pages_hugepage_backed", records.hugepage_backed);
     scoped.PrintI64("num_pages_treated", records.treated_hugepages);
+    scoped.PrintI64("num_pages_free_swapped",
+                    records.num_free_swapped.raw_num());
+    scoped.PrintI64("num_pages_free_unbacked",
+                    records.num_free_unbacked.raw_num());
   }
 
  private:
