@@ -28,35 +28,35 @@ namespace tcmalloc::tcmalloc_internal {
     size_t requested_size, std::optional<size_t> allocated_size);
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
-    Static& state, void* ptr, size_t size, size_t minimum_size,
+    Static& state, const void* ptr, size_t size, size_t minimum_size,
     size_t maximum_size);
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedFree(
-    Static& state, void* ptr, Profile::Sample::AllocationType alloc_type,
+    Static& state, const void* ptr, Profile::Sample::AllocationType alloc_type,
     Profile::Sample::AllocationType dealloc_type,
     absl::Span<void*> allocation_stack);
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedFree(
-    Static& state, void* ptr, std::optional<std::align_val_t> alloc_align,
+    Static& state, const void* ptr, std::optional<std::align_val_t> alloc_align,
     std::optional<std::align_val_t> dealloc_align,
     absl::Span<void*> allocation_stack);
 
 [[noreturn]]
 ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedSizeClass(Static& state,
-                                                       void* object,
+                                                       const void* object,
                                                        int page_size_class,
                                                        int object_size_class);
 
 [[noreturn]]
-ABSL_ATTRIBUTE_NOINLINE void ReportDoubleFree(Static& state, void* ptr);
+ABSL_ATTRIBUTE_NOINLINE void ReportDoubleFree(Static& state, const void* ptr);
 
 [[noreturn]]
 ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
-    Static& state, std::align_val_t expected_alignment, void* ptr);
+    Static& state, std::align_val_t expected_alignment, const void* ptr);
 
 [[noreturn]]
 ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
-    Static& state, std::align_val_t expected_alignment, void* ptr,
+    Static& state, std::align_val_t expected_alignment, const void* ptr,
     absl::Span<void*> allocation_stack);
 
 }  // namespace tcmalloc::tcmalloc_internal
