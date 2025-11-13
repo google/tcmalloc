@@ -87,7 +87,7 @@ static size_t SanitizerVirtualMemoryOverhead() { return 20 * kTerabyte; }
 
 static size_t SanitizerMemoryUsageMultiplier() { return 1; }
 
-static size_t SanitizerStackSizeMultiplier() { return 1; }
+static size_t SanitizerStackSizeMultiplier() { return 3; }
 #endif
 
 #if defined(ABSL_HAVE_DATAFLOW_SANITIZER)
