@@ -271,12 +271,6 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_COLLAPSE_HEURISTICS"},
     },
-    {
-        "name": "tcmalloc_release_free_swapped",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_FREE_SWAPPED"},
-    },
 ]
 
 def create_tcmalloc_library(

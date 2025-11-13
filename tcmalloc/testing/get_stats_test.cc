@@ -128,11 +128,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: false"));
 #endif
 
-  if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_SWAPPED)) {
-    EXPECT_THAT(buf, HasSubstr("release_free_swapped: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("release_free_swapped: false"));
-  }
+  EXPECT_THAT(buf, HasSubstr("release_free_swapped: false"));
+
   if (IsExperimentActive(Experiment::TCMALLOC_COLLAPSE_HEURISTICS)) {
     EXPECT_THAT(buf, HasSubstr("use_userspace_collapse_heuristics: true"));
   } else {
@@ -216,13 +213,8 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 0)"));
 #endif
-    if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_SWAPPED)) {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 1)"));
-    } else {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 0)"));
-    }
+    EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 0)"));
+
     if (IsExperimentActive(Experiment::TCMALLOC_COLLAPSE_HEURISTICS)) {
       EXPECT_THAT(
           buf,

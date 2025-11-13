@@ -200,22 +200,13 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
+ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(false);
+
 static std::atomic<bool>& use_userspace_collapse_heuristics_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     if (IsExperimentActive(Experiment::TCMALLOC_COLLAPSE_HEURISTICS)) {
-      v.store(true, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
-
-static std::atomic<bool>& release_free_swapped_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_SWAPPED)) {
       v.store(true, std::memory_order_relaxed);
     }
   });
@@ -258,10 +249,6 @@ bool Parameters::usermode_hugepage_collapse() {
 bool Parameters::use_userspace_collapse_heuristics() {
   return use_userspace_collapse_heuristics_enabled().load(
       std::memory_order_relaxed);
-}
-
-bool Parameters::release_free_swapped() {
-  return release_free_swapped_enabled().load(std::memory_order_relaxed);
 }
 
 central_freelist_internal::PriorityListLength
@@ -573,8 +560,7 @@ bool TCMalloc_Internal_GetReleaseFreeSwapped() {
 }
 
 void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
-  tcmalloc::tcmalloc_internal::release_free_swapped_enabled().store(
-      v, std::memory_order_relaxed);
+  Parameters::release_free_swapped_.store(v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
