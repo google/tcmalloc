@@ -200,7 +200,8 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
-ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(false);
+// TODO: b/425749361 - Remove this opt out.
+ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
 
 static std::atomic<bool>& use_userspace_collapse_heuristics_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
