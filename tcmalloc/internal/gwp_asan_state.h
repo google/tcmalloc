@@ -146,6 +146,16 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
+  void RecordInvalidFree(absl::Span<void* const> deallocation_stack) {
+    type_ = Type::kInvalidFree;
+
+    size_t deallocation_stack_depth =
+        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
+    memcpy(deallocation_stack_, deallocation_stack.data(),
+           sizeof(void*) * deallocation_stack_depth);
+    deallocation_stack_depth_ = deallocation_stack_depth;
+  }
+
   void RecordInvalidFree(
       std::optional<std::align_val_t> actual_alignment,
       std::optional<std::align_val_t> expected_alignment,

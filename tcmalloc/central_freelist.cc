@@ -72,11 +72,14 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                                         int expected_size_class) {
   // Prefetch Span objects to reduce cache misses.
   for (int i = 0; i < batch.size(); ++i) {
-    const PageId p = PageIdContaining(batch[i]);
+    void* ptr = batch[i];
+    const PageId p = PageIdContaining(ptr);
     auto [span, page_size_class] =
         tc_globals.pagemap().GetExistingDescriptorAndSizeClass(p);
     if (ABSL_PREDICT_FALSE(span == nullptr)) {
-      ReportDoubleFree(tc_globals, batch[i]);
+      ReportCorruptedFree(tc_globals, ptr);
+    } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
+      ReportDoubleFree(tc_globals, ptr);
     }
     if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
       ReportMismatchedSizeClass(tc_globals, span, page_size_class,

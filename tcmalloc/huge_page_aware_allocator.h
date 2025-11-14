@@ -93,7 +93,8 @@ class StaticForwarder {
   static void* GetHugepage(HugePage p);
   [[nodiscard]] static bool Ensure(Range r)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  static void Set(PageId page, Span* span);
+  static void ClearSpan(PageId page);
+  static void SetSpan(PageId page, Span* absl_nonnull span);
   static void SetHugepage(HugePage p, void* pt);
 
   // SpanAllocator state.
@@ -553,7 +554,7 @@ HugePageAwareAllocator<Forwarder>::Finalize(Range r)
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // TODO(b/175334169): Lift Span creation out of LockAndAlloc.
   Span* ret = forwarder_.NewSpan(r);
-  forwarder_.Set(r.p, ret);
+  forwarder_.SetSpan(r.p, ret);
   TC_ASSERT(!ret->sampled());
   return ret;
 #else
@@ -775,7 +776,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
   }
 
   Span* s = forwarder_.NewSpan(f.r);
-  forwarder_.Set(f.r.p, s);
+  forwarder_.SetSpan(f.r.p, s);
   TC_ASSERT(!s->sampled());
   s->set_donated(f.donated);
   return s;
@@ -842,8 +843,8 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
   info_.RecordFree(Range(p, n));
 
   // Clear the descriptor of the page so a second pass through the same page
-  // could trigger the check on `span != nullptr` in do_free_pages.
-  forwarder_.Set(p, nullptr);
+  // could trigger the check in InvokeHooksAndFreePages.
+  forwarder_.ClearSpan(p);
 
   const bool might_abandon = s.donated;
 
