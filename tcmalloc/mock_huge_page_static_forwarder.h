@@ -110,8 +110,7 @@ class FakeStaticForwarder {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return true;
   }
-  void ClearSpan(PageId page) {}
-  void SetSpan(PageId page, Span* span) {}
+  void Set(PageId page, Span* span) {}
   void SetHugepage(HugePage p, void* pt) { trackers_[p] = pt; }
 
   // SpanAllocator state.

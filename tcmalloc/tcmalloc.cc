@@ -283,12 +283,9 @@ MallocExtension_Internal_StartLifetimeProfiling() {
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {
   const PageId p = PageIdContainingTagged(ptr);
-  Span* span = tc_globals.pagemap().GetDescriptor(p);
-  if (span != nullptr && span != &tc_globals.invalid_span()) {
-    return MallocExtension::Ownership::kOwned;
-  } else {
-    return MallocExtension::Ownership::kNotOwned;
-  }
+  return tc_globals.pagemap().GetDescriptor(p)
+             ? MallocExtension::Ownership::kOwned
+             : MallocExtension::Ownership::kNotOwned;
 }
 
 extern "C" bool MallocExtension_Internal_GetNumericProperty(
@@ -525,6 +522,11 @@ inline size_t GetLargeSize(const void* ptr, const Span& span) {
   return GetLargeSizeAndSampled(ptr, span).size;
 }
 
+inline SizeAndSampled GetLargeSizeAndSampled(const void* ptr, const PageId p) {
+  return GetLargeSizeAndSampled(ptr,
+                                *tc_globals.pagemap().GetExistingDescriptor(p));
+}
+
 inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
   if (ptr == nullptr) return SizeAndSampled{0, false};
   const PageId p = PageIdContainingTagged(ptr);
@@ -533,10 +535,6 @@ inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
   if (size_class != 0) {
     return SizeAndSampled{tc_globals.sizemap().class_to_size(size_class),
                           false};
-  } else if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    ReportCorruptedFree(tc_globals, ptr);
-  } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
-    ReportDoubleFree(tc_globals, ptr);
   } else {
     return GetLargeSizeAndSampled(ptr, *span);
   }
@@ -646,16 +644,13 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   const PageId p = PageIdContaining(ptr);
 
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
-  // We have two potential failure modes here:
-  // * span is nullptr:  We are freeing a pointer to a page which we have never
-  //                     allocated as part of the first page of a Span (an
-  //                     interior pointer, it's corrupted, etc.) or our data
-  //                     structures are corrupt.
-  // * span is invalid:  We double-freed the span.  In the page heap, we set the
-  //                     descriptor on Delete(span) to a sentinel.
+  // This check failing most likely means we double-freed the span.  In the
+  // page heap, we clear the descriptor on Delete(span).
+  //
+  // We may also encounter this if we free a pointer that was never allocated
+  // (it's corrupted, it's an interior pointer to another allocation separated
+  // by more than kPageSize from the true pointer, etc.).
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    ReportCorruptedFree(tc_globals, ptr);
-  } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
     ReportDoubleFree(tc_globals, ptr);
   }
 

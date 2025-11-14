@@ -596,7 +596,9 @@ class PageMap {
          i = map_.get_next_set_page(i.value())) {
       PageId page_id = PageId{i.value()};
       Span* s = GetDescriptor(page_id);
-      if (s == nullptr || s == &tc_globals.invalid_span()) {
+      if (s == nullptr) {
+        // The value returned by get_next_set_page should belong to a Span.
+        TC_ASSERT_EQ(i, 0);
         continue;
       }
       // Free'd up Span that's not yet removed from PageMap.

@@ -47,7 +47,6 @@
 
 namespace tcmalloc {
 
-using tcmalloc_internal::kMaxSize;
 using tcmalloc_internal::kPageShift;
 using tcmalloc_internal::kPageSize;
 using tcmalloc_internal::kSanitizerPresent;
@@ -1071,42 +1070,6 @@ TEST_F(TcMallocTest, FreeWithAlignment) {
           ")"));
 
   free_sized(malloc_without_align, size);
-}
-
-TEST_F(TcMallocTest, InteriorPointer) {
-  if (kPageSize == 4096) {
-    // TODO(b/457842787):  Include small-but-slow.
-    GTEST_SKIP() << "Skipping under small-but-slow";
-  }
-  ScopedNeverSample never_sample;
-
-  char* ptr = static_cast<char*>(::operator new(kMaxSize + 1));
-
-  EXPECT_DEATH(
-      { ::operator delete(ptr + kPageSize); },
-      absl::StrCat(
-          "(Attempted to free corrupted pointer 0x[0-9a-f]+: It was "
-          "never allocated or TCMalloc metadata has been corrupted",
-          ")|(attempting free on address which was not malloc\\(\\)-ed)"));
-
-  ::operator delete(ptr);
-}
-
-// TODO(b/457842787): Enable this.
-TEST_F(TcMallocTest, DISABLED_NeverAllocatedPointer) {
-  void* ptr = absl::bit_cast<void*>(uintptr_t{0xDEADBEEF});
-
-  EXPECT_DEATH(
-      { ::operator delete(ptr); },
-      absl::StrCat("(Attempted to free corrupted pointer 0xDEADBEEF: It was "
-                   "never allocated or TCMalloc metadata has been corrupted",
-                   ")"));
-
-  EXPECT_DEATH(
-      { ::operator delete(ptr, kMaxSize + 1); },
-      absl::StrCat("(Attempted to free corrupted pointer 0xDEADBEEF: It was "
-                   "never allocated or TCMalloc metadata has been corrupted",
-                   ")"));
 }
 
 }  // namespace
