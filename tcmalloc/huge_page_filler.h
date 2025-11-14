@@ -296,7 +296,9 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   struct NativePageResidencyInfo {
     size_t n_free_swapped;
+    size_t n_used_swapped;
     size_t n_free_unbacked;
+    size_t n_used_unbacked;
   };
 
   NativePageResidencyInfo CountInfoInHugePage(
@@ -608,7 +610,9 @@ class UsageInfo {
     size_t hugepage_backed{};
     size_t total_pages{};
     Length num_free_swapped{};
+    Length num_used_swapped{};
     Length num_free_unbacked{};
+    Length num_used_unbacked{};
   };
 
   template <class TrackerType>
@@ -659,7 +663,9 @@ class UsageInfo {
       ++records.free_unbacked_histo[NativePageBucketNum(info.n_free_unbacked)];
       ++records.free_swapped_histo[NativePageBucketNum(info.n_free_swapped)];
       records.num_free_swapped += Length(info.n_free_swapped);
+      records.num_used_swapped += Length(info.n_used_swapped);
       records.num_free_unbacked += Length(info.n_free_unbacked);
+      records.num_used_unbacked += Length(info.n_used_unbacked);
     }
 
     if (hugepage_residency_state.entry_valid) {
@@ -723,8 +729,12 @@ class UsageInfo {
 
     out.printf("\nHugePageFiller: %zu of %s free native pages are swapped.",
                records.num_free_swapped.raw_num(), TypeToStr(type));
+    out.printf("\nHugePageFiller: %zu of %s used native pages are swapped.",
+               records.num_used_swapped.raw_num(), TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s free native pages are unbacked.",
                records.num_free_unbacked.raw_num(), TypeToStr(type));
+    out.printf("\nHugePageFiller: %zu of %s used native pages are unbacked.",
+               records.num_used_unbacked.raw_num(), TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
                records.hugepage_backed, TypeToStr(type), records.total_pages);
 
@@ -762,8 +772,12 @@ class UsageInfo {
     scoped.PrintI64("num_pages_treated", records.treated_hugepages);
     scoped.PrintI64("num_pages_free_swapped",
                     records.num_free_swapped.raw_num());
+    scoped.PrintI64("num_pages_used_swapped",
+                    records.num_used_swapped.raw_num());
     scoped.PrintI64("num_pages_free_unbacked",
                     records.num_free_unbacked.raw_num());
+    scoped.PrintI64("num_pages_used_unbacked",
+                    records.num_used_unbacked.raw_num());
   }
 
  private:
@@ -1407,7 +1421,9 @@ inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
 
   size_t swapped_idx = 0;
   size_t n_free_unbacked = 0;
+  size_t n_used_unbacked = 0;
   size_t n_free_swapped = 0;
+  size_t n_used_swapped = 0;
   while (swapped_idx < kNativePagesInHugePage) {
     swapped_idx = swapped.FindSet(swapped_idx);
     if (swapped_idx >= kNativePagesInHugePage) {
@@ -1418,6 +1434,8 @@ inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
     const int scaled_idx = swapped_idx >> shift_bits;
     if (!free.GetBit(scaled_idx)) {
       ++n_free_swapped;
+    } else {
+      ++n_used_swapped;
     }
     ++swapped_idx;
   }
@@ -1432,10 +1450,15 @@ inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
     const int scaled_idx = unbacked_idx >> shift_bits;
     if (!free.GetBit(scaled_idx)) {
       ++n_free_unbacked;
+    } else {
+      ++n_used_unbacked;
     }
     ++unbacked_idx;
   }
-  return {.n_free_swapped = n_free_swapped, .n_free_unbacked = n_free_unbacked};
+  return {.n_free_swapped = n_free_swapped,
+          .n_used_swapped = n_used_swapped,
+          .n_free_unbacked = n_free_unbacked,
+          .n_used_unbacked = n_used_unbacked};
 }
 
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
