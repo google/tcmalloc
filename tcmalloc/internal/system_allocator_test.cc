@@ -116,7 +116,7 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
   static constexpr size_t kNumaPartitions = 2;
   static constexpr size_t kNumBaseClasses = 50;
   NumaTopology<kNumaPartitions, kNumBaseClasses> topology_;
-  SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>> allocator_{
+  SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>, 1> allocator_{
       topology_, kMinMmapAlloc};
 };
 

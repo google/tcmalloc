@@ -345,6 +345,14 @@ class TCMallocPolicy {
     return numa_.scaled_partition();
   }
 
+  // Security partition (0 or 1)
+  constexpr size_t partition() const {
+    if constexpr (kSecurityPartitions == 1) {
+      return 0;
+    }
+    return partition_.partition();
+  }
+
   // The token ID is used to determine the security partition.
   constexpr TokenId token_id() const { return partition_.token_id(); }
 
@@ -433,15 +441,18 @@ class TCMallocPolicy {
         align_, access_, numa_, partition_);
   }
 
-  // Returns this policy with a fixed NUMA partition.
+  // Returns this policy with a fixed NUMA/type partition.
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
                            SizeReturningPolicy, FixedNumaPartitionPolicy,
-                           PartitionPolicy>
-  InNumaPartition(size_t partition) const {
+                           SecurityPartitionPolicy>
+  InPartition(size_t partition) const {
+    const size_t numa_partition = partition % kNumaPartitions;
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
                           SizeReturningPolicy, FixedNumaPartitionPolicy,
-                          PartitionPolicy>(
-        align_, FixedNumaPartitionPolicy{partition}, partition_);
+                          SecurityPartitionPolicy>(
+        align_, FixedNumaPartitionPolicy{numa_partition},
+        SecurityPartitionPolicy{(partition - numa_partition) /
+                                kNumaPartitions});
   }
 
   // Returns this policy with a fixed partition and token ID.
@@ -472,10 +483,10 @@ class TCMallocPolicy {
         align_, numa_, ConstSecurityPartitionPolicy<kTokenId>());
   }
 
-  // Returns this policy with a fixed NUMA/security partition matching that of
-  // the previously allocated `ptr`.
-  constexpr auto InSameNumaPartitionAs(void* ptr) const {
-    return InNumaPartition(NumaPartitionFromPointer(ptr));
+  // Returns this policy with a fixed NUMA/type partition matching that of the
+  // previously allocated `ptr`.
+  constexpr auto InSamePartitionAs(void* ptr) const {
+    return InPartition(PartitionFromPointer(ptr));
   }
 
  private:

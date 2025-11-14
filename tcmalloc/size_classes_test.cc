@@ -147,15 +147,15 @@ TEST_F(RunTimeSizeClassesTest, Distinguishable) {
   // finer (otherwise they would map to the same entry in the lookup table).
   //
   // We don't check expanded size classes which are intentionally duplicated.
-  for (int partition = 0; partition < kNumaPartitions; partition++) {
+  for (int partition = 0; partition < kNormalPartitions; partition++) {
     for (int c = (partition * kNumBaseClasses) + 1;
          c < (partition + 1) * kNumBaseClasses; c++) {
       const size_t max_size_in_class = m_.class_to_size(c);
       if (max_size_in_class == 0) {
         continue;
       }
-      const int class_index = m_.SizeClass(
-          CppPolicy().InNumaPartition(partition), max_size_in_class);
+      const int class_index =
+          m_.SizeClass(CppPolicy().InPartition(partition), max_size_in_class);
 
       EXPECT_EQ(c, class_index) << max_size_in_class;
     }
@@ -264,7 +264,8 @@ TEST_F(RunTimeSizeClassesTest, ExpandedSizeClasses) {
   // Verify that none of the default size classes are considered expanded size
   // classes.
   for (int i = 0; i < kNumClasses; i++) {
-    EXPECT_EQ(i < (kNumBaseClasses * kNumaPartitions), !IsExpandedSizeClass(i))
+    EXPECT_EQ(i < (kNumBaseClasses * kNormalPartitions),
+              !IsExpandedSizeClass(i))
         << i;
   }
 }

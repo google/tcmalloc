@@ -428,7 +428,7 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   state.deallocation_samples.ReportFree(sampled_alloc_handle);
 
   if (proxy) {
-    const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
+    const auto policy = CppPolicy().InSamePartitionAs(proxy);
     size_t size_class;
     if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
       size_class = state.sizemap().SizeClass(

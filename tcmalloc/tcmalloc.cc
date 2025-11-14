@@ -611,8 +611,9 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
   MemoryTag tag = MemoryTag::kNormal;
   if (policy.is_cold()) {
     tag = MemoryTag::kCold;
-  } else if (tc_globals.numa_topology().numa_aware()) {
-    tag = NumaNormalTag(policy.numa_partition());
+  } else if (tc_globals.numa_topology().numa_aware() ||
+             tc_globals.multiple_non_numa_partitions()) {
+    tag = MultiNormalTag(policy.partition());
   }
   Span* span = tc_globals.page_allocator().NewAligned(
       num_pages, BytesToLengthCeil(policy.align()),
@@ -798,8 +799,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
   TC_ASSERT_NE(ptr, nullptr);
 
-  const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
-      policy.InSameNumaPartitionAs(ptr), size);
+  const auto [is_small, size_class] =
+      tc_globals.sizemap().GetSizeClass(policy.InSamePartitionAs(ptr), size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     // We couldn't calculate the size class, which means size > kMaxSize.
     TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
@@ -1298,9 +1299,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
     void* new_ptr = fast_alloc(
         new_size,
         MallocPolicy().InPartitionWithToken(
-            // TODO: b/446814339 - Rename NumaPartitionFromPointer to
-            // PartitionFromPointer.
-            tcmalloc::tcmalloc_internal::NumaPartitionFromPointer(old_ptr),
+            tcmalloc::tcmalloc_internal::PartitionFromPointer(old_ptr),
             token_id));
     if (new_ptr == nullptr) {
       return nullptr;

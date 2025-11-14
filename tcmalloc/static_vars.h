@@ -103,8 +103,10 @@ class Static final {
   static NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
     return numa_topology_;
   }
+  static bool multiple_non_numa_partitions() { return kSecurityPartitions > 1; }
 
-  static SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>>&
+  static SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
+                         kNormalPartitions>&
   system_allocator() {
     return system_allocator_;
   }
@@ -242,7 +244,7 @@ class Static final {
   static PageMap pagemap_;
 
   ABSL_CONST_INIT static SystemAllocator<
-      NumaTopology<kNumaPartitions, kNumBaseClasses>>
+      NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>
       system_allocator_;
 
   // Manages sampled allocations and allows iteration over samples free from the

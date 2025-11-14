@@ -171,14 +171,21 @@ inline constexpr size_t kDefaultProfileSamplingInterval = 1 << 21;
 // Disable NUMA awareness under Sanitizers to avoid failing to mmap memory.
 #if defined(TCMALLOC_INTERNAL_NUMA_AWARE)
 inline constexpr size_t kNumaPartitions = kSanitizerAddressSpace ? 1 : 2;
+inline constexpr size_t kSecurityPartitions = 1;
 #else
 inline constexpr size_t kNumaPartitions = 1;
+inline constexpr size_t kSecurityPartitions = 1;
 #endif
+
+inline constexpr size_t kNormalPartitions =
+    kNumaPartitions * kSecurityPartitions;
+static_assert(kNormalPartitions <= 2,
+              "Error: There can be at most 2 normal partitions.");
 
 // We have copies of kNumBaseClasses size classes for each NUMA node, followed
 // by any expanded classes.
 inline constexpr size_t kExpandedClassesStart =
-    kNumBaseClasses * kNumaPartitions;
+    kNumBaseClasses * kNormalPartitions;
 inline constexpr size_t kNumClasses =
     kExpandedClassesStart + (kHasExpandedClasses ? kNumBaseClasses : 0);
 
@@ -253,8 +260,8 @@ inline AllocationAccess AccessFromPointer(void* ptr) {
              : AllocationAccess::kHot;
 }
 
-inline MemoryTag NumaNormalTag(size_t numa_partition) {
-  switch (numa_partition) {
+inline MemoryTag MultiNormalTag(size_t partition) {
+  switch (partition) {
     case 0:
       return MemoryTag::kNormalP0;
     case 1:
@@ -265,8 +272,8 @@ inline MemoryTag NumaNormalTag(size_t numa_partition) {
   }
 }
 
-inline size_t NumaPartitionFromPointer(void* ptr) {
-  if constexpr (kNumaPartitions == 1) {
+inline size_t PartitionFromPointer(void* ptr) {
+  if constexpr (kNormalPartitions == 1) {
     return 0;
   }
 

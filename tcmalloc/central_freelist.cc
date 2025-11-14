@@ -47,7 +47,7 @@ static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
   if (!tc_globals.numa_topology().numa_aware()) {
     return MemoryTag::kNormal;
   }
-  return NumaNormalTag(size_class / kNumBaseClasses);
+  return MultiNormalTag(size_class / kNumBaseClasses);
 }
 
 static AccessDensityPrediction AccessDensity(int objects_per_span) {

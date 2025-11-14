@@ -105,8 +105,8 @@ void FuzzHPAA(const std::string& s) {
   constexpr int kTagSize = sizeof(kTagOptions) / sizeof(MemoryTag);
   static_assert(kTagSize > 0);
   MemoryTag tag = kTagOptions[static_cast<uint8_t>(data[0]) % kTagSize];
-  // Use kNormalP1 memory tag only if we have more than one NUMA partitions.
-  tag = (kNumaPartitions == 1 && tag == MemoryTag::kNormalP1)
+  // Use kNormalP1 memory tag only if we have more than one partitions.
+  tag = (kNormalPartitions == 1 && tag == MemoryTag::kNormalP1)
             ? MemoryTag::kNormalP0
             : tag;
 

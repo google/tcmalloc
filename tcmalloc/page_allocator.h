@@ -153,9 +153,9 @@ class PageAllocator {
 
   ABSL_ATTRIBUTE_RETURNS_NONNULL Interface* impl(MemoryTag tag) const;
 
-  size_t active_numa_partitions() const;
+  size_t active_partitions() const;
 
-  static constexpr size_t kNumHeaps = kNumaPartitions + 2;
+  static constexpr size_t kNumHeaps = kNormalPartitions + 2;
 
   union Choices {
     Choices() : dummy(0) {}
@@ -163,7 +163,7 @@ class PageAllocator {
     int dummy;
     HugePageAwareAllocator hpaa;
   } choices_[kNumHeaps];
-  std::array<Interface*, kNumaPartitions> normal_impl_;
+  std::array<Interface*, kNormalPartitions> normal_impl_;
   Interface* sampled_impl_;
   Interface* cold_impl_;
   Algorithm alg_;
@@ -235,7 +235,7 @@ inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
 
 inline BackingStats PageAllocator::stats() const {
   BackingStats ret = normal_impl_[0]->stats();
-  for (int partition = 1; partition < active_numa_partitions(); partition++) {
+  for (int partition = 1; partition < active_partitions(); partition++) {
     ret += normal_impl_[partition]->stats();
   }
   ret += sampled_impl_->stats();
@@ -247,7 +247,7 @@ inline BackingStats PageAllocator::stats() const {
 
 inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
   SmallSpanStats normal, sampled;
-  for (int partition = 0; partition < active_numa_partitions(); partition++) {
+  for (int partition = 0; partition < active_partitions(); partition++) {
     SmallSpanStats part_stats;
     normal_impl_[partition]->GetSmallSpanStats(&part_stats);
     normal += part_stats;
@@ -263,7 +263,7 @@ inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
 
 inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
   LargeSpanStats normal, sampled;
-  for (int partition = 0; partition < active_numa_partitions(); partition++) {
+  for (int partition = 0; partition < active_partitions(); partition++) {
     LargeSpanStats part_stats;
     normal_impl_[partition]->GetLargeSpanStats(&part_stats);
     normal += part_stats;
@@ -283,7 +283,7 @@ inline void PageAllocator::TreatHugepageTrackers(
     cold_impl_->TreatHugepageTrackers(/*enable_collapse=*/false,
                                       enable_release_free_swapped);
   }
-  for (int partition = 0; partition < active_numa_partitions(); partition++) {
+  for (int partition = 0; partition < active_partitions(); partition++) {
     normal_impl_[partition]->TreatHugepageTrackers(enable_collapse,
                                                    enable_release_free_swapped);
   }
@@ -297,7 +297,7 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
   if (has_cold_impl_) {
     released = cold_impl_->ReleaseAtLeastNPages(num_pages, reason);
   }
-  for (int partition = 0; partition < active_numa_partitions(); partition++) {
+  for (int partition = 0; partition < active_partitions(); partition++) {
     released += normal_impl_[partition]->ReleaseAtLeastNPages(
         num_pages > released ? num_pages - released : Length(0), reason);
   }
@@ -313,7 +313,7 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
   if (has_cold_impl_) {
     stats += cold_impl_->GetReleaseStats();
   }
-  for (int partition = 0; partition < active_numa_partitions(); partition++) {
+  for (int partition = 0; partition < active_partitions(); partition++) {
     stats += normal_impl_[partition]->GetReleaseStats();
   }
 

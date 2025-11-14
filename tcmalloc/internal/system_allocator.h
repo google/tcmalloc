@@ -81,7 +81,7 @@ struct MemoryModifyStatus {
   int error_number;
 };
 
-template <typename Topology>
+template <typename Topology, size_t NormalPartitions>
 class SystemAllocator {
  public:
   constexpr explicit SystemAllocator(const Topology& topology
@@ -176,7 +176,8 @@ class SystemAllocator {
   const Topology& topology_;
   const size_t min_mmap_size_;
 
-  static constexpr size_t kNumaPartitions = Topology::kNumPartitions;
+  static constexpr size_t kNumPartitions =
+      std::max(Topology::kNumPartitions, NormalPartitions);
 
   mutable absl::base_internal::SpinLock spinlock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
@@ -185,7 +186,7 @@ class SystemAllocator {
   absl::once_flag rnd_flag_;
 
   uintptr_t next_sampled_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
-  std::array<uintptr_t, kNumaPartitions> next_normal_addr_
+  std::array<uintptr_t, kNumPartitions> next_normal_addr_
       ABSL_GUARDED_BY(spinlock_) = {0};
   uintptr_t next_cold_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
   uintptr_t next_metadata_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
@@ -202,7 +203,7 @@ class SystemAllocator {
                                               MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
 
-  std::array<AddressRegion*, kNumaPartitions> normal_region_
+  std::array<AddressRegion*, kNumPartitions> normal_region_
       ABSL_GUARDED_BY(spinlock_){{nullptr}};
   AddressRegion* sampled_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
   AddressRegion* cold_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
@@ -288,9 +289,9 @@ int MapFixedNoReplaceFlagAvailable();
 
 }  // namespace system_allocator_internal
 
-template <typename Topology>
-AddressRange SystemAllocator<Topology>::Allocate(size_t bytes, size_t alignment,
-                                                 const MemoryTag tag) {
+template <typename Topology, size_t NormalPartitions>
+AddressRange SystemAllocator<Topology, NormalPartitions>::Allocate(
+    size_t bytes, size_t alignment, const MemoryTag tag) {
   // If default alignment is set request the minimum alignment provided by
   // the system.
   alignment = std::max(alignment, GetPageSize());
@@ -310,30 +311,32 @@ AddressRange SystemAllocator<Topology>::Allocate(size_t bytes, size_t alignment,
   return {result, actual_bytes};
 }
 
-template <typename Topology>
-AddressRegionFactory* SystemAllocator<Topology>::GetRegionFactory() const {
+template <typename Topology, size_t NormalPartitions>
+AddressRegionFactory*
+SystemAllocator<Topology, NormalPartitions>::GetRegionFactory() const {
   AllocationGuardSpinLockHolder lock_holder(spinlock_);
   return region_factory_;
 }
 
-template <typename Topology>
-void SystemAllocator<Topology>::SetRegionFactory(
+template <typename Topology, size_t NormalPartitions>
+void SystemAllocator<Topology, NormalPartitions>::SetRegionFactory(
     AddressRegionFactory* factory) {
   AllocationGuardSpinLockHolder lock_holder(spinlock_);
   DiscardMappedRegions();
   region_factory_ = factory;
 }
 
-template <typename Topology>
-void SystemAllocator<Topology>::DiscardMappedRegions() {
+template <typename Topology, size_t NormalPartitions>
+void SystemAllocator<Topology, NormalPartitions>::DiscardMappedRegions() {
   std::fill(normal_region_.begin(), normal_region_.end(), nullptr);
   sampled_region_ = nullptr;
   cold_region_ = nullptr;
   metadata_region_ = nullptr;
 }
 
-template <typename Topology>
-std::pair<void*, size_t> SystemAllocator<Topology>::MmapRegion::Alloc(
+template <typename Topology, size_t NormalPartitions>
+std::pair<void*, size_t>
+SystemAllocator<Topology, NormalPartitions>::MmapRegion::Alloc(
     size_t request_size, size_t alignment) {
   using system_allocator_internal::RoundUp;
 
@@ -375,8 +378,9 @@ std::pair<void*, size_t> SystemAllocator<Topology>::MmapRegion::Alloc(
   return {result_ptr, actual_size};
 }
 
-template <typename Topology>
-AddressRegion* SystemAllocator<Topology>::MmapRegionFactory::Create(
+template <typename Topology, size_t NormalPartitions>
+AddressRegion*
+SystemAllocator<Topology, NormalPartitions>::MmapRegionFactory::Create(
     void* start, size_t size, UsageHint hint) {
   void* region_space = MallocInternal(sizeof(MmapRegion));
   if (!region_space) return nullptr;
@@ -385,8 +389,8 @@ AddressRegion* SystemAllocator<Topology>::MmapRegionFactory::Create(
       MmapRegion(reinterpret_cast<uintptr_t>(start), size, hint);
 }
 
-template <typename Topology>
-size_t SystemAllocator<Topology>::MmapRegionFactory::GetStats(
+template <typename Topology, size_t NormalPartitions>
+size_t SystemAllocator<Topology, NormalPartitions>::MmapRegionFactory::GetStats(
     absl::Span<char> buffer) {
   Printer printer(buffer.data(), buffer.size());
   size_t allocated = bytes_reserved_.load(std::memory_order_relaxed);
@@ -397,8 +401,9 @@ size_t SystemAllocator<Topology>::MmapRegionFactory::GetStats(
   return printer.SpaceRequired();
 }
 
-template <typename Topology>
-size_t SystemAllocator<Topology>::MmapRegionFactory::GetStatsInPbtxt(
+template <typename Topology, size_t NormalPartitions>
+size_t
+SystemAllocator<Topology, NormalPartitions>::MmapRegionFactory::GetStatsInPbtxt(
     absl::Span<char> buffer) {
   Printer printer(buffer.data(), buffer.size());
   size_t allocated = bytes_reserved_.load(std::memory_order_relaxed);
@@ -407,8 +412,9 @@ size_t SystemAllocator<Topology>::MmapRegionFactory::GetStatsInPbtxt(
   return printer.SpaceRequired();
 }
 
-template <typename Topology>
-std::pair<void*, size_t> SystemAllocator<Topology>::AllocateFromRegion(
+template <typename Topology, size_t NormalPartitions>
+std::pair<void*, size_t>
+SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
     size_t request_size, size_t alignment, const MemoryTag tag) {
   using system_allocator_internal::RoundUp;
 
@@ -485,17 +491,16 @@ std::pair<void*, size_t> SystemAllocator<Topology>::AllocateFromRegion(
   return region->Alloc(request_size, alignment);
 }
 
-template <typename Topology>
-void* SystemAllocator<Topology>::MmapAligned(size_t size, size_t alignment,
-                                             const MemoryTag tag) {
+template <typename Topology, size_t NormalPartitions>
+void* SystemAllocator<Topology, NormalPartitions>::MmapAligned(
+    size_t size, size_t alignment, const MemoryTag tag) {
   AllocationGuardSpinLockHolder l(spinlock_);
   return MmapAlignedLocked(size, alignment, tag);
 }
 
-template <typename Topology>
-void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
-                                                   size_t alignment,
-                                                   const MemoryTag tag) {
+template <typename Topology, size_t NormalPartitions>
+void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
+    size_t size, size_t alignment, const MemoryTag tag) {
   using system_allocator_internal::MapFixedNoReplaceFlagAvailable;
 
   TC_ASSERT_LE(size, kTagMask);
@@ -511,7 +516,7 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
             numa_partition = 0;
             return &next_normal_addr_[0];
           case MemoryTag::kNormalP1:
-            numa_partition = 1;
+            numa_partition = topology_.numa_aware() ? 1 : 0;
             return &next_normal_addr_[1];
           case MemoryTag::kCold:
             return &next_cold_addr_;
@@ -589,9 +594,9 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
   return nullptr;
 }
 
-template <typename Topology>
-MemoryModifyStatus SystemAllocator<Topology>::Release(void* start,
-                                                      size_t length) {
+template <typename Topology, size_t NormalPartitions>
+MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
+    void* start, size_t length) {
   bool result = false;
 
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
@@ -639,9 +644,9 @@ MemoryModifyStatus SystemAllocator<Topology>::Release(void* start,
   return {result, errno};
 }
 
-template <typename Topology>
-MemoryModifyStatus SystemAllocator<Topology>::Collapse(void* start,
-                                                       size_t length) {
+template <typename Topology, size_t NormalPartitions>
+MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Collapse(
+    void* start, size_t length) {
   int ret = -1;
   int attempts = 0;
   constexpr int kMaxAttempts = 3;
@@ -658,8 +663,8 @@ MemoryModifyStatus SystemAllocator<Topology>::Collapse(void* start,
   return {ret == 0, errno};
 }
 
-template <typename Topology>
-void SystemAllocator<Topology>::SetAnonVmaName(
+template <typename Topology, size_t NormalPartitions>
+void SystemAllocator<Topology, NormalPartitions>::SetAnonVmaName(
     void* start, size_t length, std::optional<absl::string_view> name) {
 #ifdef __linux__
   // Make a best-effort attempt to name the allocated region based on its
@@ -685,9 +690,9 @@ void SystemAllocator<Topology>::SetAnonVmaName(
 // Bind the memory region spanning `size` bytes starting from `base` to NUMA
 // nodes assigned to `partition`. Returns zero upon success, or a standard
 // error code upon failure.
-template <typename Topology>
-void SystemAllocator<Topology>::BindMemory(void* const base, const size_t size,
-                                           const size_t partition) const {
+template <typename Topology, size_t NormalPartitions>
+void SystemAllocator<Topology, NormalPartitions>::BindMemory(
+    void* const base, const size_t size, const size_t partition) const {
   // If NUMA awareness is unavailable or disabled, or the user requested that
   // we don't bind memory then do nothing.
   const NumaBindMode bind_mode = topology_.bind_mode();
@@ -714,9 +719,9 @@ void SystemAllocator<Topology>::BindMemory(void* const base, const size_t size,
          nodemask);
 }
 
-template <typename Topology>
-AddressRegionFactory::UsageHint SystemAllocator<Topology>::TagToHint(
-    MemoryTag tag) const {
+template <typename Topology, size_t NormalPartitions>
+AddressRegionFactory::UsageHint
+SystemAllocator<Topology, NormalPartitions>::TagToHint(MemoryTag tag) const {
   using UsageHint = AddressRegionFactory::UsageHint;
   switch (tag) {
     case MemoryTag::kNormal:
@@ -741,10 +746,9 @@ AddressRegionFactory::UsageHint SystemAllocator<Topology>::TagToHint(
   __builtin_unreachable();
 }
 
-template <typename Topology>
-uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
-                                                    size_t alignment,
-                                                    const MemoryTag tag) {
+template <typename Topology, size_t NormalPartitions>
+uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
+    size_t size, size_t alignment, const MemoryTag tag) {
   // Rely on kernel's mmap randomization to seed our RNG.
   absl::base_internal::LowLevelCallOnce(
       &rnd_flag_, [&]() GOOGLE_MALLOC_SECTION {
@@ -826,9 +830,9 @@ uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
   return addr;
 }
 
-template <typename Topology>
-inline bool SystemAllocator<Topology>::ReleasePages(void* start,
-                                                    size_t length) const {
+template <typename Topology, size_t NormalPartitions>
+inline bool SystemAllocator<Topology, NormalPartitions>::ReleasePages(
+    void* start, size_t length) const {
   // TODO(b/424551232): madvise rounds up length to the multiple of page size.
   // If TCMalloc's page size is lower than the system's page size, madvise may
   // corrupt the in-use memory. Check that the requested size and start address

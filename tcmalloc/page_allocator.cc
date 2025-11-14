@@ -168,7 +168,7 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
         return true;
       }
     }
-    for (int partition = 0; partition < active_numa_partitions(); partition++) {
+    for (int partition = 0; partition < active_partitions(); partition++) {
       ret += static_cast<HugePageAwareAllocator*>(normal_impl_[partition])
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
                                                          release_reason);
@@ -185,7 +185,7 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
   return (pages <= ret);
 }
 
-size_t PageAllocator::active_numa_partitions() const {
+size_t PageAllocator::active_partitions() const {
   return tc_globals.numa_topology().active_partitions();
 }
 
