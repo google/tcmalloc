@@ -65,9 +65,10 @@ std::unique_ptr<const ProfileBase> DumpFragmentationProfile(Static& state) {
         // co-residents.
         const PageId p = PageIdContaining(t.proxy);
         Span* span = state.pagemap().GetDescriptor(p);
-        if (span == nullptr) {
+        if (span == nullptr || span == &state.invalid_span()) {
           // Avoid crashes in production mode code, but report in tests.
           TC_ASSERT_NE(span, nullptr);
+          TC_ASSERT_NE(span, &state.invalid_span());
           return;
         }
 

@@ -82,6 +82,19 @@ typedef TList<Span> SpanList;
 
 class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
  public:
+  constexpr Span()
+      : embed_count_(0),
+        freelist_(0),
+        allocated_(std::numeric_limits<uint16_t>::max()),
+        cache_size_(0),
+        nonempty_index_(0),
+        is_donated_(0),
+        first_page_(0),
+        reserved_(0),
+        is_large_span_(0),
+        sampled_(0),
+        large_or_sampled_state_{0, nullptr} {}
+
   explicit Span(Range r)
       : embed_count_(0),
         freelist_(0),

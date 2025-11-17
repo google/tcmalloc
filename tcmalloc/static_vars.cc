@@ -107,7 +107,8 @@ ABSL_CONST_INIT Static::PerSizeClassCounts Static::per_size_class_counts_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT SystemAllocator<
     NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>
     Static::system_allocator_{numa_topology_, kMinMmapAlloc};
-
+// TODO(b/457842787): Move this to rodata or a similar section.
+constexpr Span Static::invalid_span_;
 // LINT.ThenChange(:static_vars_size)
 
 ABSL_CONST_INIT Static tc_globals;
@@ -134,7 +135,8 @@ size_t Static::metadata_bytes() {
       sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
       sizeof(guardedpage_allocator_) + sizeof(numa_topology_) +
       sizeof(CacheTopology::Instance()) + sizeof(gwp_asan_state_) +
-      sizeof(per_size_class_counts_) + sizeof(system_allocator_);
+      sizeof(per_size_class_counts_) + sizeof(system_allocator_) +
+      sizeof(invalid_span_);
   // LINT.ThenChange(:static_vars)
 
   const size_t allocated = arena().stats().bytes_allocated +

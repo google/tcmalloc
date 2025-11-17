@@ -197,6 +197,8 @@ class Static final {
 
   static SizeClassConfiguration size_class_configuration();
 
+  static const Span& invalid_span() { return invalid_span_; }
+
  private:
 #if defined(__clang__)
   __attribute__((preserve_most))
@@ -245,6 +247,8 @@ class Static final {
   ABSL_CONST_INIT static SystemAllocator<
       NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>
       system_allocator_;
+
+  static inline constexpr Span invalid_span_ = {};
 
   // Manages sampled allocations and allows iteration over samples free from the
   // global pageheap_lock.

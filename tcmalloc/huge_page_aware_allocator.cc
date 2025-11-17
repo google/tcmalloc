@@ -18,6 +18,7 @@
 #include <optional>
 
 #include "absl/base/attributes.h"
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/error_reporting.h"
@@ -117,7 +118,11 @@ void* StaticForwarder::GetHugepage(HugePage p) {
 
 bool StaticForwarder::Ensure(Range r) { return tc_globals.pagemap().Ensure(r); }
 
-void StaticForwarder::Set(PageId page, Span* span) {
+void StaticForwarder::ClearSpan(PageId page) {
+  tc_globals.pagemap().Set(page, const_cast<Span*>(&tc_globals.invalid_span()));
+}
+
+void StaticForwarder::SetSpan(PageId page, Span* absl_nonnull span) {
   tc_globals.pagemap().Set(page, span);
 }
 

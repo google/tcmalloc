@@ -51,6 +51,10 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedSizeClass(Static& state,
 ABSL_ATTRIBUTE_NOINLINE void ReportDoubleFree(Static& state, const void* ptr);
 
 [[noreturn]]
+ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(Static& state,
+                                                 const void* ptr);
+
+[[noreturn]]
 ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
     Static& state, std::align_val_t expected_alignment, const void* ptr);
 

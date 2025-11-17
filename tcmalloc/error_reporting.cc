@@ -156,6 +156,21 @@ ABSL_ATTRIBUTE_NOINLINE void ReportDoubleFree(Static& state, const void* ptr) {
 }
 
 [[noreturn]]
+ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(Static& state,
+                                                 const void* ptr) {
+  static void* stack[kMaxStackDepth];
+  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
+
+  RecordCrash("GWP-ASan", "invalid-free");
+  state.gwp_asan_state().RecordInvalidFree(absl::MakeSpan(stack, depth));
+
+  TC_BUG(
+      "Attempted to free corrupted pointer %p: It was never allocated or "
+      "TCMalloc metadata has been corrupted",
+      ptr);
+}
+
+[[noreturn]]
 ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
     Static& state, std::align_val_t expected_alignment, const void* ptr) {
   static void* stack[kMaxStackDepth];
