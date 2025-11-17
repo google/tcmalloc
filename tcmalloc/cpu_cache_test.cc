@@ -164,7 +164,6 @@ class TestStaticForwarder {
   }
 
   bool reuse_size_classes() const { return true; }
-  bool reuse_size_classes_v2() const { return false; }
 
   size_t class_to_size(int size_class) const {
     if (size_map_.has_value()) {
