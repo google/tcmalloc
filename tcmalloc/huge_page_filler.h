@@ -609,6 +609,7 @@ class UsageInfo {
     size_t treated_hugepages{};
     size_t hugepage_backed{};
     size_t total_pages{};
+    Length num_free_non_hugepage_backed{};
     Length num_free_swapped{};
     Length num_used_swapped{};
     Length num_free_unbacked{};
@@ -653,6 +654,7 @@ class UsageInfo {
         pt.GetHugePageResidencyState();
     if (hugepage_residency_state.entry_valid &&
         !hugepage_residency_state.maybe_hugepage_backed) {
+      records.num_free_non_hugepage_backed += free;
       Residency::SinglePageBitmaps bitmaps = hugepage_residency_state.bitmaps;
       ++records
             .unbacked_histo[NativePageBucketNum(bitmaps.unbacked.CountBits())];
@@ -737,6 +739,10 @@ class UsageInfo {
                records.num_used_unbacked.raw_num(), TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
                records.hugepage_backed, TypeToStr(type), records.total_pages);
+    out.printf(
+        "\nHugePageFiller: Of the non-hugepage backed pages of type %s, "
+        "%zu tcmalloc pages are free.",
+        TypeToStr(type), records.num_free_non_hugepage_backed.raw_num());
 
     out.printf("\nHugePageFiller: %zu of %s pages treated out of %zu.",
                records.treated_hugepages, TypeToStr(type), records.total_pages);
@@ -769,6 +775,8 @@ class UsageInfo {
     PrintSampledTrackers(scoped, type, "sampled_trackers", records);
     scoped.PrintI64("total_pages", records.total_pages);
     scoped.PrintI64("num_pages_hugepage_backed", records.hugepage_backed);
+    scoped.PrintI64("num_free_pages_non_hugepage_backed",
+                    records.num_free_non_hugepage_backed.raw_num());
     scoped.PrintI64("num_pages_treated", records.treated_hugepages);
     scoped.PrintI64("num_pages_free_swapped",
                     records.num_free_swapped.raw_num());
