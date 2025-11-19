@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <memory>
 #include <new>
 #include <string>
 #include <tuple>
@@ -52,28 +53,24 @@ class RawSpan {
     auto npages = Length(tc_globals.sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
-    // Dynamically allocate so ASan can flag if we run out of bounds.
-    buf_ = ::operator new(sizeof(Span), std::align_val_t(alignof(Span)));
-
     int res = posix_memalign(&mem_, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
 
-    span_ = new (buf_) Span(Range(PageIdContaining(mem_), npages));
+    // Dynamically allocate so ASan can flag if we run out of bounds.
+    span_ = std::make_unique<Span>(Range(PageIdContaining(mem_), npages));
     TC_CHECK_EQ(
         span_->BuildFreelist(size, objects_per_span, {}, kSpanAllocTime), 0);
   }
 
   ~RawSpan() {
     free(mem_);
-    ::operator delete(buf_, std::align_val_t(alignof(Span)));
   }
 
   Span& span() { return *span_; }
 
  private:
-  void* buf_ = nullptr;
   void* mem_ = nullptr;
-  Span* span_;
+  std::unique_ptr<Span> span_;
 };
 
 class SpanTest : public testing::TestWithParam<size_t> {

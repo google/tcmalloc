@@ -62,8 +62,9 @@ void FuzzSpan(const std::string& s) {
   int res = posix_memalign(&mem, kPageSize, pages.in_bytes());
   TC_CHECK_EQ(res, 0);
 
-  void* buf = ::operator new(sizeof(Span), std::align_val_t(alignof(Span)));
-  Span* span = new (buf) Span(Range(PageIdContaining(mem), pages));
+  // Heap allocated, despite not being moved, to aid sanitizers in detecting
+  // out-of-bound accesses.
+  auto span = std::make_unique<Span>(Range(PageIdContaining(mem), pages));
 
   std::vector<void*> ptrs;
   ptrs.resize(initial_objects_at_build);
@@ -105,7 +106,6 @@ void FuzzSpan(const std::string& s) {
   TC_CHECK_EQ(span->AllocTime(), alloc_time);
 
   free(mem);
-  ::operator delete(buf, std::align_val_t(alignof(Span)));
 }
 
 FUZZ_TEST(SpanTest, FuzzSpan)
