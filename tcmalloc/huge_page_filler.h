@@ -610,6 +610,9 @@ class UsageInfo {
     size_t hugepage_backed{};
     size_t total_pages{};
     Length num_free_non_hugepage_backed{};
+    Length num_free_hugepage_backed{};
+    Length num_used_non_hugepage_backed{};
+    Length num_used_hugepage_backed{};
     Length num_free_swapped{};
     Length num_used_swapped{};
     Length num_free_unbacked{};
@@ -652,26 +655,30 @@ class UsageInfo {
 
     PageTracker::HugePageResidencyState hugepage_residency_state =
         pt.GetHugePageResidencyState();
-    if (hugepage_residency_state.entry_valid &&
-        !hugepage_residency_state.maybe_hugepage_backed) {
-      records.num_free_non_hugepage_backed += free;
-      Residency::SinglePageBitmaps bitmaps = hugepage_residency_state.bitmaps;
-      ++records
-            .unbacked_histo[NativePageBucketNum(bitmaps.unbacked.CountBits())];
-      ++records.swapped_histo[NativePageBucketNum(bitmaps.swapped.CountBits())];
-
-      PageTracker::NativePageResidencyInfo info =
-          pt.CountInfoInHugePage(bitmaps);
-      ++records.free_unbacked_histo[NativePageBucketNum(info.n_free_unbacked)];
-      ++records.free_swapped_histo[NativePageBucketNum(info.n_free_swapped)];
-      records.num_free_swapped += Length(info.n_free_swapped);
-      records.num_used_swapped += Length(info.n_used_swapped);
-      records.num_free_unbacked += Length(info.n_free_unbacked);
-      records.num_used_unbacked += Length(info.n_used_unbacked);
-    }
-
     if (hugepage_residency_state.entry_valid) {
       ++records.treated_hugepages;
+      if (hugepage_residency_state.maybe_hugepage_backed) {
+        records.num_free_hugepage_backed += free;
+        records.num_used_hugepage_backed += pt.used_pages();
+      } else {
+        records.num_free_non_hugepage_backed += free;
+        records.num_used_non_hugepage_backed += pt.used_pages();
+        Residency::SinglePageBitmaps bitmaps = hugepage_residency_state.bitmaps;
+        ++records.unbacked_histo[NativePageBucketNum(
+            bitmaps.unbacked.CountBits())];
+        ++records
+              .swapped_histo[NativePageBucketNum(bitmaps.swapped.CountBits())];
+
+        PageTracker::NativePageResidencyInfo info =
+            pt.CountInfoInHugePage(bitmaps);
+        ++records
+              .free_unbacked_histo[NativePageBucketNum(info.n_free_unbacked)];
+        ++records.free_swapped_histo[NativePageBucketNum(info.n_free_swapped)];
+        records.num_free_swapped += Length(info.n_free_swapped);
+        records.num_used_swapped += Length(info.n_used_swapped);
+        records.num_free_unbacked += Length(info.n_free_unbacked);
+        records.num_used_unbacked += Length(info.n_used_unbacked);
+      }
     }
 
     PageTracker::TrackerFeatures tracker_features = pt.features();
@@ -741,8 +748,14 @@ class UsageInfo {
                records.hugepage_backed, TypeToStr(type), records.total_pages);
     out.printf(
         "\nHugePageFiller: Of the non-hugepage backed pages of type %s, "
-        "%zu tcmalloc pages are free.",
-        TypeToStr(type), records.num_free_non_hugepage_backed.raw_num());
+        "%zu tcmalloc pages are free, %zu tcmalloc pages are used.",
+        TypeToStr(type), records.num_free_non_hugepage_backed.raw_num(),
+        records.num_used_non_hugepage_backed.raw_num());
+    out.printf(
+        "\nHugePageFiller: Of the hugepage backed pages of type %s, "
+        "%zu tcmalloc pages are free, %zu tcmalloc pages are used.",
+        TypeToStr(type), records.num_free_hugepage_backed.raw_num(),
+        records.num_used_hugepage_backed.raw_num());
 
     out.printf("\nHugePageFiller: %zu of %s pages treated out of %zu.",
                records.treated_hugepages, TypeToStr(type), records.total_pages);
@@ -777,6 +790,12 @@ class UsageInfo {
     scoped.PrintI64("num_pages_hugepage_backed", records.hugepage_backed);
     scoped.PrintI64("num_free_pages_non_hugepage_backed",
                     records.num_free_non_hugepage_backed.raw_num());
+    scoped.PrintI64("num_used_pages_non_hugepage_backed",
+                    records.num_used_non_hugepage_backed.raw_num());
+    scoped.PrintI64("num_free_pages_hugepage_backed",
+                    records.num_free_hugepage_backed.raw_num());
+    scoped.PrintI64("num_used_pages_hugepage_backed",
+                    records.num_used_hugepage_backed.raw_num());
     scoped.PrintI64("num_pages_treated", records.treated_hugepages);
     scoped.PrintI64("num_pages_free_swapped",
                     records.num_free_swapped.raw_num());

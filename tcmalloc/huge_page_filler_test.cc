@@ -5384,8 +5384,11 @@ TEST_P(FillerTest, ResidencyTelemetry) {
 
   SpanAllocInfo sparsely_accessed_info = {1, AccessDensityPrediction::kSparse};
   std::vector<PAlloc> p1 = AllocateVectorWithSpanAllocInfo(
-      kAlloc - Length(1), sparsely_accessed_info);
+      kAlloc + Length(1), sparsely_accessed_info);
+  std::vector<PAlloc> p2 = AllocateVectorWithSpanAllocInfo(
+      kAlloc + Length(2), sparsely_accessed_info);
   ASSERT_TRUE(!p1.empty());
+  ASSERT_TRUE(!p2.empty());
 
   FakePageFlags pageflags;
   FakeResidency residency;
@@ -5401,7 +5404,13 @@ TEST_P(FillerTest, ResidencyTelemetry) {
                                            swapped);
   }
 
-  ASSERT_EQ(filler_.size(), NHugePages(1));
+  for (const auto& pa : p2) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/true);
+    EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+  }
+
+  ASSERT_EQ(filler_.size(), NHugePages(2));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
                         /*use_userspace_collapse_heuristics=*/false, &pageflags,
@@ -5458,28 +5467,31 @@ HugePageFiller: <510<=     0 <511<=     0
 )"));
 
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 1 of sparsely-accessed regular pages treated out of 1.
+HugePageFiller: 2 of sparsely-accessed regular pages treated out of 2.
 )"));
 
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 0 of sparsely-accessed regular pages hugepage backed out of 1.
+HugePageFiller: 1 of sparsely-accessed regular pages hugepage backed out of 2.
 )"));
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed regular, 129 tcmalloc pages are free.
-)"));
-
-  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 130 of sparsely-accessed regular free native pages are swapped.
+HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed regular, 127 tcmalloc pages are free, 129 tcmalloc pages are used.
 )"));
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 126 of sparsely-accessed regular used native pages are swapped.
+HugePageFiller: Of the hugepage backed pages of type sparsely-accessed regular, 126 tcmalloc pages are free, 130 tcmalloc pages are used.
 )"));
 
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 130 of sparsely-accessed regular free native pages are unbacked.
+HugePageFiller: 126 of sparsely-accessed regular free native pages are swapped.
 )"));
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 126 of sparsely-accessed regular used native pages are unbacked.
+HugePageFiller: 130 of sparsely-accessed regular used native pages are swapped.
+)"));
+
+  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
+HugePageFiller: 126 of sparsely-accessed regular free native pages are unbacked.
+)"));
+  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
+HugePageFiller: 130 of sparsely-accessed regular used native pages are unbacked.
 )"));
 
   std::string buffer_pbtxt(1024 * 1024, '\0');
@@ -5506,13 +5518,20 @@ HugePageFiller: 126 of sparsely-accessed regular used native pages are unbacked.
               testing::HasSubstr("free_swapped_histogram { lower_bound: 104 "
                                  "upper_bound: 135 value: 1}"));
   EXPECT_THAT(buffer_pbtxt,
-              testing::HasSubstr("num_free_pages_non_hugepage_backed: 129"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_swapped: 130"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_swapped: 126"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_unbacked: 130"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_unbacked: 126"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_treated: 1"));
+              testing::HasSubstr("num_free_pages_non_hugepage_backed: 127"));
+  EXPECT_THAT(buffer_pbtxt,
+              testing::HasSubstr("num_used_pages_non_hugepage_backed: 129"));
+  EXPECT_THAT(buffer_pbtxt,
+              testing::HasSubstr("num_free_pages_hugepage_backed: 126"));
+  EXPECT_THAT(buffer_pbtxt,
+              testing::HasSubstr("num_used_pages_hugepage_backed: 130"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_swapped: 126"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_swapped: 130"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_unbacked: 126"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_unbacked: 130"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_treated: 2"));
   DeleteVector(p1);
+  DeleteVector(p2);
 }
 
 TEST_P(FillerTest, PrintHugepageBackedStats) {
@@ -5692,7 +5711,8 @@ HugePageFiller: 0 of sparsely-accessed regular used native pages are swapped.
 HugePageFiller: 0 of sparsely-accessed regular free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed regular used native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed regular pages hugepage backed out of 3.
-HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed regular, 0 tcmalloc pages are free.
+HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed regular, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
+HugePageFiller: Of the hugepage backed pages of type sparsely-accessed regular, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: 0 of sparsely-accessed regular pages treated out of 3.
 
 HugePageFiller: Sampled Trackers for sparsely-accessed regular pages:
@@ -5776,7 +5796,8 @@ HugePageFiller: 0 of densely-accessed regular used native pages are swapped.
 HugePageFiller: 0 of densely-accessed regular free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed regular used native pages are unbacked.
 HugePageFiller: 0 of densely-accessed regular pages hugepage backed out of 6.
-HugePageFiller: Of the non-hugepage backed pages of type densely-accessed regular, 0 tcmalloc pages are free.
+HugePageFiller: Of the non-hugepage backed pages of type densely-accessed regular, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
+HugePageFiller: Of the hugepage backed pages of type densely-accessed regular, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: 0 of densely-accessed regular pages treated out of 6.
 
 HugePageFiller: Sampled Trackers for densely-accessed regular pages:
@@ -5844,7 +5865,8 @@ HugePageFiller: 0 of donated used native pages are swapped.
 HugePageFiller: 0 of donated free native pages are unbacked.
 HugePageFiller: 0 of donated used native pages are unbacked.
 HugePageFiller: 0 of donated pages hugepage backed out of 1.
-HugePageFiller: Of the non-hugepage backed pages of type donated, 0 tcmalloc pages are free.
+HugePageFiller: Of the non-hugepage backed pages of type donated, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
+HugePageFiller: Of the hugepage backed pages of type donated, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: 0 of donated pages treated out of 1.
 
 HugePageFiller: Sampled Trackers for donated pages:
@@ -5928,7 +5950,8 @@ HugePageFiller: 0 of sparsely-accessed partial released used native pages are sw
 HugePageFiller: 0 of sparsely-accessed partial released free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed partial released used native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed partial released pages hugepage backed out of 0.
-HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed partial released, 0 tcmalloc pages are free.
+HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed partial released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
+HugePageFiller: Of the hugepage backed pages of type sparsely-accessed partial released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: 0 of sparsely-accessed partial released pages treated out of 0.
 
 HugePageFiller: Sampled Trackers for sparsely-accessed partial released pages:
@@ -6012,7 +6035,8 @@ HugePageFiller: 0 of densely-accessed partial released used native pages are swa
 HugePageFiller: 0 of densely-accessed partial released free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed partial released used native pages are unbacked.
 HugePageFiller: 0 of densely-accessed partial released pages hugepage backed out of 0.
-HugePageFiller: Of the non-hugepage backed pages of type densely-accessed partial released, 0 tcmalloc pages are free.
+HugePageFiller: Of the non-hugepage backed pages of type densely-accessed partial released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
+HugePageFiller: Of the hugepage backed pages of type densely-accessed partial released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: 0 of densely-accessed partial released pages treated out of 0.
 
 HugePageFiller: Sampled Trackers for densely-accessed partial released pages:
@@ -6096,7 +6120,8 @@ HugePageFiller: 0 of sparsely-accessed released used native pages are swapped.
 HugePageFiller: 0 of sparsely-accessed released free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed released used native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed released pages hugepage backed out of 4.
-HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed released, 0 tcmalloc pages are free.
+HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
+HugePageFiller: Of the hugepage backed pages of type sparsely-accessed released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: 0 of sparsely-accessed released pages treated out of 4.
 
 HugePageFiller: Sampled Trackers for sparsely-accessed released pages:
@@ -6180,7 +6205,8 @@ HugePageFiller: 0 of densely-accessed released used native pages are swapped.
 HugePageFiller: 0 of densely-accessed released free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed released used native pages are unbacked.
 HugePageFiller: 0 of densely-accessed released pages hugepage backed out of 1.
-HugePageFiller: Of the non-hugepage backed pages of type densely-accessed released, 0 tcmalloc pages are free.
+HugePageFiller: Of the non-hugepage backed pages of type densely-accessed released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
+HugePageFiller: Of the hugepage backed pages of type densely-accessed released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: 0 of densely-accessed released pages treated out of 1.
 
 HugePageFiller: Sampled Trackers for densely-accessed released pages:
