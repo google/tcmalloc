@@ -124,7 +124,8 @@ class PageMap2 {
   Span* absl_nullable get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
-    if ((k >> BITS) > 0 || root_[i1] == nullptr) {
+    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
+        ABSL_PREDICT_FALSE(root_[i1] == nullptr)) {
       return nullptr;
     }
     return root_[i1]->span(i2);
@@ -338,8 +339,9 @@ class PageMap3 {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
-    if ((k >> BITS) > 0 || root_[i1] == nullptr ||
-        root_[i1]->leafs[i2] == nullptr) {
+    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
+        ABSL_PREDICT_FALSE(root_[i1] == nullptr) ||
+        ABSL_PREDICT_FALSE(root_[i1]->leafs[i2] == nullptr)) {
       return nullptr;
     }
     return root_[i1]->leafs[i2]->span(i3);

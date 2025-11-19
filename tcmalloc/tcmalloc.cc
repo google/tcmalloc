@@ -645,7 +645,11 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     void* ptr, std::optional<size_t> size, Policy policy) {
   const PageId p = PageIdContaining(ptr);
 
-  Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
+  // We use GetDescriptor rather than GetExistingDescriptor here, since `ptr`
+  // could be potentially corrupted and this is off the fast path.  Most of the
+  // cost of the lookup comes from pointer chasing, so the well-predicted
+  // branches have minimal cost anyways.
+  Span* span = tc_globals.pagemap().GetDescriptor(p);
   // We have two potential failure modes here:
   // * span is nullptr:  We are freeing a pointer to a page which we have never
   //                     allocated as part of the first page of a Span (an

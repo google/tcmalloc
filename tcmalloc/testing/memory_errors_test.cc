@@ -1092,21 +1092,51 @@ TEST_F(TcMallocTest, InteriorPointer) {
   ::operator delete(ptr);
 }
 
-// TODO(b/457842787): Enable this.
-TEST_F(TcMallocTest, DISABLED_NeverAllocatedPointer) {
+TEST_F(TcMallocTest, NeverAllocatedPointer) {
   void* ptr = absl::bit_cast<void*>(uintptr_t{0xDEADBEEF});
 
-  EXPECT_DEATH(
-      { ::operator delete(ptr); },
-      absl::StrCat("(Attempted to free corrupted pointer 0xDEADBEEF: It was "
-                   "never allocated or TCMalloc metadata has been corrupted",
-                   ")"));
+  // TODO(b/457842787): Exercise `operator delete(ptr)` too.  Unsized delete
+  // accesses PageMap::sizeclass, which does not check for null leaves.
 
   EXPECT_DEATH(
       { ::operator delete(ptr, kMaxSize + 1); },
-      absl::StrCat("(Attempted to free corrupted pointer 0xDEADBEEF: It was "
-                   "never allocated or TCMalloc metadata has been corrupted",
-                   ")"));
+      absl::StrCat(
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+          "(attempting free on address which was not malloc)|"
+#endif
+          "(Attempted to free corrupted pointer 0xdeadbeef: It was "
+          "never allocated or TCMalloc metadata has been corrupted",
+          ")"));
+}
+
+TEST_F(TcMallocTest, NeverAllocatedPointerHighBits) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  // TODO(b/462125445): Enable this under ASan.
+  GTEST_SKIP() << "Skipping under address sanitizer";
+#endif
+
+  // Exercises an address that cannot be addressed by the PageMap.
+  constexpr uintptr_t kAddress = uintptr_t{0xDEADBEEF0000000};
+  static_assert(absl::bit_width(kAddress) > tcmalloc_internal::kAddressBits);
+  void* ptr = absl::bit_cast<void*>(kAddress);
+
+  // TODO(b/406313446): Exercise `operator delete(ptr)` too.  Unsized delete
+  // accesses PageMap::sizeclass, which suppresses bounds checks under
+  // -fsanitize=array-bounds, so this can fail in unusual ways.
+
+  // TODO(b/457842787): Exercise sized delete with a <=kMaxSized object.  This
+  // is contingent on the pointer appearing sampled so that our slow path
+  // inspects it.
+
+  EXPECT_DEATH(
+      { ::operator delete(ptr, kMaxSize + 1); },
+      absl::StrCat(
+#ifndef NDEBUG
+          "(CHECK in get_existing_with_sizeclass)|"
+#endif
+          "(Attempted to free corrupted pointer 0xdeadbeef0000000: It was "
+          "never allocated or TCMalloc metadata has been corrupted",
+          ")"));
 }
 
 }  // namespace
