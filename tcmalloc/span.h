@@ -577,6 +577,92 @@ inline bool Span::UseBitmapForSize(size_t size) {
 // callers care about, while use of bitmap is an implementation detail.
 inline bool Span::IsNonIntrusive(size_t size) { return UseBitmapForSize(size); }
 
+inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
+                                   size_t size) __restrict__ {
+  size_t before = small_span_state_.bitmap.CountBits();
+  size_t count = 0;
+  // Want to fill the batch either with batch.size() objects, or the number of
+  // objects remaining in the span.
+  while (!small_span_state_.bitmap.IsZero() && count < batch.size()) {
+    size_t offset = small_span_state_.bitmap.FindSet(0);
+    TC_ASSERT_LT(offset, small_span_state_.bitmap.size());
+    batch[count] = BitmapIdxToPtr(offset, size);
+    small_span_state_.bitmap.ClearLowestBit();
+    count++;
+  }
+
+  TC_ASSERT_EQ(small_span_state_.bitmap.CountBits() + count, before);
+  allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
+                   std::memory_order_relaxed);
+  return count;
+}
+
+inline size_t Span::FreelistPopBatch(const absl::Span<void*> batch,
+                                     size_t size) __restrict__ {
+  TC_ASSERT(!is_large_or_sampled());
+  // Handle spans with bitmap.size() or fewer objects using a bitmap. We expect
+  // spans to frequently hold smaller objects.
+  if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
+    return BitmapPopBatch(batch, size);
+  }
+  return ListPopBatch(batch.data(), batch.size(), size);
+}
+
+inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
+                                 size_t size) __restrict__ {
+  size_t result = 0;
+
+  // Pop from cache.
+  auto csize = cache_size_;
+  ASSUME(csize <= kCacheSize);
+  auto cache_reads = csize < N ? csize : N;
+  const uintptr_t span_start = first_page().start_uintptr();
+  for (; result < cache_reads; result++) {
+    batch[result] =
+        IdxToPtr(small_span_state_.cache[csize - result - 1], size, span_start);
+  }
+
+  // Store this->cache_size_ one time.
+  cache_size_ = csize - result;
+
+  while (result < N) {
+    if (freelist_ == kListEnd) {
+      break;
+    }
+
+    ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
+    uint16_t embed_count = embed_count_;
+
+    size_t iter = embed_count;
+    if (result + embed_count > N) {
+      iter = N - result;
+    }
+    for (size_t i = 0; i < iter; i++) {
+      // Pop from the first object on freelist.
+      batch[result + i] = IdxToPtr(host[embed_count - i], size, span_start);
+    }
+    embed_count -= iter;
+    result += iter;
+
+    if (result == N) {
+      embed_count_ = embed_count;
+      break;
+    }
+
+    // The first object on the freelist is empty, pop it.
+    TC_ASSERT_EQ(embed_count, 0);
+
+    batch[result] = host;
+    result++;
+
+    freelist_ = host[0];
+    embed_count_ = size / sizeof(ObjIdx) - 1;
+  }
+  allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
+                   std::memory_order_relaxed);
+  return result;
+}
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
