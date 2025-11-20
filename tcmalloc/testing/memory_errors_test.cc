@@ -1093,6 +1093,11 @@ TEST_F(TcMallocTest, InteriorPointer) {
 }
 
 TEST_F(TcMallocTest, NeverAllocatedPointer) {
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) && defined(__aarch64__)
+  // TODO(b/462125445): Enable this under ASan.
+  GTEST_SKIP() << "Skipping under address sanitizer";
+#endif
+
   void* ptr = absl::bit_cast<void*>(uintptr_t{0xDEADBEEF});
 
   // TODO(b/457842787): Exercise `operator delete(ptr)` too.  Unsized delete
