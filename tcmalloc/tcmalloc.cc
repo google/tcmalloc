@@ -1800,9 +1800,6 @@ ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, std::align_val_t align,
                                 .AccessAs(hot_cold)                                                                 \
                                 .SizeReturning());                                                                  \
   }
-#else
-#define DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)
-#endif  // TCMALLOC_INTERNAL_METHODS_ONLY
 
 #define DEFINE_ALLOC_TOKEN_STDLIB(id)                                          \
   void* __alloc_token_##id##_malloc(size_t size) noexcept {                    \
@@ -1914,5 +1911,6 @@ static_assert(ALLOC_TOKEN_FALLBACK >= ALLOC_TOKEN_MAX);
 DEFINE_ALLOC_TOKEN_VARIANTS(ALLOC_TOKEN_FALLBACK)
 #endif
 }  // extern "C"
+#endif  // TCMALLOC_INTERNAL_METHODS_ONLY
 
 GOOGLE_MALLOC_SECTION_END
