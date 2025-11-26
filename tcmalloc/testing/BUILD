@@ -55,6 +55,7 @@ cc_library(
         "//tcmalloc/internal:percpu",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
 )

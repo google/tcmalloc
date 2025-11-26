@@ -12,23 +12,174 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <setjmp.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <random>
+#include <type_traits>
+#include <variant>
 #include <vector>
 
+#include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
+
+struct Alloc {
+  uint8_t count;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Alloc& a) {
+    absl::Format(&sink, "Alloc(%d)", a.count);
+  }
+};
+
+struct Shuffle {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Shuffle& s) {
+    absl::Format(&sink, "Shuffle");
+  }
+};
+
+struct Dealloc {
+  uint8_t count;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Dealloc& d) {
+    absl::Format(&sink, "Dealloc(%d)", d.count);
+  }
+};
+
+struct DeallocNoRemove {
+  uint8_t count;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const DeallocNoRemove& d) {
+    absl::Format(&sink, "DeallocNoRemove(%d)", d.count);
+  }
+};
+
+using Instruction = std::variant<Alloc, Shuffle, Dealloc, DeallocNoRemove>;
+
+void FuzzSpanInstructions(size_t object_size_direct, size_t num_pages_direct,
+                          uint8_t num_objects_to_move,
+                          std::vector<Instruction> instructions) {
+  GTEST_SKIP() << "Skipping";
+  std::vector<void*> live_ptrs;
+  std::vector<void*> batch;
+  std::mt19937 rng;
+
+  LongJmpScope scope;
+  if (setjmp(scope.buf_)) {
+    return;
+  }
+
+  // Truncate ranges to better explore state space.
+  const size_t object_size =
+      std::max(sizeof(void*), (object_size_direct % kMaxSize) &
+                                  ~(static_cast<size_t>(kAlignment) - 1u));
+  const size_t num_pages = 1 + (num_pages_direct % 64);
+  const size_t num_to_move = 1 + (num_objects_to_move % kMaxObjectsToMove);
+
+  if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_to_move)) {
+    return;
+  }
+
+  const auto pages = Length(num_pages);
+  const size_t objects_per_span = pages.in_bytes() / object_size;
+  const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
+
+  void* mem;
+  int res = posix_memalign(&mem, kPageSize, pages.in_bytes());
+  TC_CHECK_EQ(res, 0);
+
+  auto span = std::make_unique<Span>(Range(PageIdContaining(mem), pages));
+
+  TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {},
+                                  /*alloc_time=*/0),
+              0);
+
+  live_ptrs.reserve(objects_per_span);
+  batch.resize(kMaxObjectsToMove);
+  bool did_double_free = false;
+
+  for (const auto& instruction : instructions) {
+    std::visit(
+        [&](auto&& arg) {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, Alloc>) {
+            size_t n = std::min<size_t>(arg.count, num_to_move);
+            if (span->FreelistEmpty(object_size)) {
+              n = 0;
+            }
+            if (n == 0) {
+              return;
+            }
+
+            size_t popped = span->FreelistPopBatch(
+                absl::MakeSpan(batch.data(), n), object_size);
+            live_ptrs.insert(live_ptrs.end(), batch.data(),
+                             batch.data() + popped);
+          } else if constexpr (std::is_same_v<T, Shuffle>) {
+            std::shuffle(live_ptrs.begin(), live_ptrs.end(), rng);
+          } else if constexpr (std::is_same_v<T, Dealloc> ||
+                               std::is_same_v<T, DeallocNoRemove>) {
+            size_t n = std::min<size_t>(arg.count, num_to_move);
+            n = std::min(n, live_ptrs.size());
+            if (n == 0) {
+              return;
+            }
+
+            (void)span->FreelistPushBatch(
+                {live_ptrs.data() + live_ptrs.size() - n, n}, object_size,
+                size_reciprocal);
+
+            if constexpr (!std::is_same_v<T, DeallocNoRemove>) {
+              live_ptrs.resize(live_ptrs.size() - n);
+            } else {
+              // double free: don't remove from live_ptrs
+              did_double_free = true;
+
+              // TODO(b/457842787): Detect the double free immediately.
+            }
+          }
+        },
+        instruction);
+  }
+
+  for (int i = 0; i < live_ptrs.size();) {
+    size_t limit = std::min<size_t>(live_ptrs.size() - i, num_objects_to_move);
+
+    (void)span->FreelistPushBatch({live_ptrs.data() + i, limit}, object_size,
+                                  size_reciprocal);
+
+    i += limit;
+  }
+
+  free(mem);
+
+  // We expect to have crashed when draining `live_ptrs` if there was a double
+  // free.
+  EXPECT_FALSE(did_double_free);
+}
+
+FUZZ_TEST(SpanTest, FuzzSpanInstructions);
+
+TEST(SpanTest, FuzzSpanInstructionsDoubleFreeDuringFullDrain) {
+  FuzzSpanInstructions(0, 0, 1, {Alloc{1}, DeallocNoRemove{58}, Dealloc{3}});
+}
 
 void FuzzSpan(const std::string& s) {
   // Extract fuzz input into 6 integers.

@@ -732,9 +732,11 @@ cc_test(
     srcs = ["span_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/span_fuzz/*"]),
+    tags = ["notap"],
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",

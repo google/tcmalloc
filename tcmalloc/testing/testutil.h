@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_TESTING_TESTUTIL_H_
 #define TCMALLOC_TESTING_TESTUTIL_H_
 
+#include <setjmp.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -25,6 +26,7 @@
 
 #include "benchmark/benchmark.h"
 #include "absl/base/attributes.h"
+#include "absl/strings/match.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
@@ -288,6 +290,37 @@ class ScopedFakeCpuId {
 // See "Evaluating the Anderson-Darling Distribution" by
 // Marsaglia and Marsaglia for details.
 double AndersonDarlingTest(absl::Span<const double> random_sample);
+
+// Allows program state to be recorded with `setjmp` into `buf`.  It installs a
+// hook into TCMalloc's logging library that `longjmp`'s back when a CHECK
+// failure is triggered.
+//
+// This enables fuzzing to verify errors are correctly detected and handled
+// gracefully without resorting to death tests.
+//
+// TODO(b/276896007): Remove this facility when fuzztest supports EXPECT_DEATH.
+class LongJmpScope {
+ public:
+  LongJmpScope() {
+    previous_ =
+        std::exchange(tcmalloc_internal::log_message_writer, &FuzzLogWriter);
+  }
+  ~LongJmpScope() { tcmalloc_internal::log_message_writer = previous_; }
+
+  inline static jmp_buf buf_;
+
+ private:
+  static void FuzzLogWriter(const char* msg, int len) {
+    if (!absl::StrContains(absl::string_view(msg, len), "CHECK")) {
+      return;
+    }
+
+    tcmalloc_internal::log_message_writer = previous_;
+    longjmp(buf_, 1);
+  }
+
+  inline static void (*previous_)(const char*, int) = nullptr;
+};
 
 }  // namespace tcmalloc
 
