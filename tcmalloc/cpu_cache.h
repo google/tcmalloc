@@ -36,6 +36,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/functional/function_ref.h"
+#include "absl/numeric/bits.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
@@ -180,19 +181,24 @@ class StaticForwarder {
   }
 
   static bool UseWiderSlabs() {
-    // We use wider 512KiB slab only when NUMA partitioning is not enabled. NUMA
-    // increases shift by 1 by itself, so we can not increase it further.
-    return !numa_topology().numa_aware();
+    // We use wider 512KiB slab only when partitioning is not enabled. NUMA
+    // and security partitions increase shift by 1 by itself, so we can not
+    // increase it further.
+    return tc_globals.active_partitions() == 1;
   }
 
   static bool HaveHooks() { return tc_globals.HaveHooks(); }
 };
 
 template <typename NumaTopology>
-uint8_t NumaShift(const NumaTopology& topology) {
-  return topology.numa_aware()
-             ? absl::bit_ceil(topology.active_partitions() - 1)
-             : 0;
+uint8_t PartitionShift(const NumaTopology& topology) {
+  TC_ASSERT(
+      !(topology.numa_aware() && tc_globals.multiple_non_numa_partitions()),
+      "NUMA-awareness should never be enabled with non-NUMA partitions.");
+  if (tc_globals.active_partitions() > 1) {
+    return absl::bit_ceil(tc_globals.active_partitions() - 1);
+  }
+  return 0;
 }
 
 // Translates from a shift value to the offset of that shift in arrays of
@@ -960,12 +966,12 @@ inline void CpuCache<Forwarder>::Activate() {
                               : kMaxBasePerCpuShift;
 
   const auto& topology = forwarder_.numa_topology();
-  const uint8_t numa_shift = NumaShift(topology);
+  const uint8_t partition_shift = PartitionShift(topology);
   const uint8_t wider_slab_shift = UseWiderSlabs() ? 1 : 0;
 
-  shift_bounds_.initial_shift += numa_shift + wider_slab_shift;
-  shift_bounds_.max_shift += numa_shift + wider_slab_shift;
-  per_cpu_shift += numa_shift + wider_slab_shift;
+  shift_bounds_.initial_shift += partition_shift + wider_slab_shift;
+  shift_bounds_.max_shift += partition_shift + wider_slab_shift;
+  per_cpu_shift += partition_shift + wider_slab_shift;
 
   TC_CHECK_LE(shift_bounds_.initial_shift, shift_bounds_.max_shift);
   TC_CHECK_GE(per_cpu_shift, shift_bounds_.initial_shift);
@@ -973,12 +979,11 @@ inline void CpuCache<Forwarder>::Activate() {
   TC_CHECK_EQ(shift_bounds_.max_shift - shift_bounds_.initial_shift + 1,
               kNumPossiblePerCpuShifts);
 
-  // Deal with size classes that correspond only to NUMA partitions that are in
-  // use. If NUMA awareness is disabled then we may have a smaller shift than
-  // would suffice for all of the unused size classes.
-  for (int size_class = 0;
-       size_class < topology.active_partitions() * kNumBaseClasses;
-       ++size_class) {
+  // Deal with size classes that correspond only to partitions that are in
+  // use. If NUMA awareness and security partitions are disabled then we may
+  // have a smaller shift than would suffice for all of the unused size classes.
+  const int num_size_classes = tc_globals.active_partitions() * kNumBaseClasses;
+  for (int size_class = 0; size_class < num_size_classes; ++size_class) {
     max_capacity_[size_class].store(MaxCapacity(size_class),
                                     std::memory_order_relaxed);
   }

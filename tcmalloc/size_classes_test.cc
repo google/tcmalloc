@@ -147,7 +147,8 @@ TEST_F(RunTimeSizeClassesTest, Distinguishable) {
   // finer (otherwise they would map to the same entry in the lookup table).
   //
   // We don't check expanded size classes which are intentionally duplicated.
-  for (int partition = 0; partition < kNormalPartitions; partition++) {
+  const size_t num_partitions = tc_globals.active_partitions();
+  for (int partition = 0; partition < num_partitions; partition++) {
     for (int c = (partition * kNumBaseClasses) + 1;
          c < (partition + 1) * kNumBaseClasses; c++) {
       const size_t max_size_in_class = m_.class_to_size(c);

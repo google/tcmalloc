@@ -41,7 +41,7 @@ PageAllocator::PageAllocator() {
 
   normal_impl_[0] = new (&choices_[part++].hpaa)
       HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
-  if (tc_globals.numa_topology().numa_aware()) {
+  if (tc_globals.active_partitions() > 1) {
     normal_impl_[1] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
         HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
@@ -186,7 +186,7 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
 }
 
 size_t PageAllocator::active_partitions() const {
-  return tc_globals.numa_topology().active_partitions();
+  return tc_globals.active_partitions();
 }
 
 }  // namespace tcmalloc_internal

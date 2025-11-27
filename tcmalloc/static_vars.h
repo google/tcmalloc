@@ -104,6 +104,11 @@ class Static final {
   }
   static bool multiple_non_numa_partitions() { return kSecurityPartitions > 1; }
 
+  static size_t active_partitions() {
+    return multiple_non_numa_partitions() ? kNormalPartitions
+                                          : numa_topology().active_partitions();
+  }
+
   static SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
                          kNormalPartitions>&
   system_allocator() {

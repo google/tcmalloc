@@ -613,8 +613,7 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
   MemoryTag tag = MemoryTag::kNormal;
   if (policy.is_cold()) {
     tag = MemoryTag::kCold;
-  } else if (tc_globals.numa_topology().numa_aware() ||
-             tc_globals.multiple_non_numa_partitions()) {
+  } else if (tc_globals.active_partitions() > 1) {
     tag = MultiNormalTag(policy.partition());
   }
   Span* span = tc_globals.page_allocator().NewAligned(

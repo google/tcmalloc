@@ -44,7 +44,7 @@ static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
   if (IsExpandedSizeClass(size_class)) {
     return MemoryTag::kCold;
   }
-  if (!tc_globals.numa_topology().numa_aware()) {
+  if (tc_globals.active_partitions() == 1) {
     return MemoryTag::kNormal;
   }
   return MultiNormalTag(size_class / kNumBaseClasses);

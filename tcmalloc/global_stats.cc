@@ -503,8 +503,7 @@ void DumpStats(Printer& out, int level) {
 
     PageFlags pageflags;
     tc_globals.page_allocator().Print(out, MemoryTag::kNormal, pageflags);
-    if (tc_globals.numa_topology().active_partitions() > 1 ||
-        tc_globals.multiple_non_numa_partitions()) {
+    if (tc_globals.active_partitions() > 1) {
       tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1, pageflags);
     }
     tc_globals.page_allocator().Print(out, MemoryTag::kSampled, pageflags);
@@ -720,8 +719,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   PageFlags pageflags;
   tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormal,
                                            pageflags);
-  if (tc_globals.numa_topology().active_partitions() > 1 ||
-      tc_globals.multiple_non_numa_partitions()) {
+  if (tc_globals.active_partitions() > 1) {
     tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormalP1,
                                              pageflags);
   }
