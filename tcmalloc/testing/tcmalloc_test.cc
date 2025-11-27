@@ -1217,7 +1217,23 @@ TEST(SizedDeleteTest, SizedOperatorDelete) {
   }
 }
 
-TEST(HotColdTest, HotColdNew) {
+// Helper to test pointerless & pointer-containing allocation partitioning with
+// the alloc-token instrumentation as we "ignore" the cold hints for
+// pointer-containing allocations provided heap partitioning is enabled.
+template <typename T>
+class HotColdTest : public ::testing::Test {
+ public:
+};
+using PointerlessContainingTypes = ::testing::Types<char*>;
+TYPED_TEST_SUITE(HotColdTest, PointerlessContainingTypes);
+
+template <typename T>
+static bool IsHot(uint8_t label,
+                  tcmalloc::hot_cold_t threshold = kDefaultMinHotAccessHint) {
+  return static_cast<tcmalloc::hot_cold_t>(label) >= threshold;
+}
+
+TYPED_TEST(HotColdTest, HotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
 
   absl::flat_hash_set<uintptr_t> hot;
@@ -1240,7 +1256,8 @@ TEST(HotColdTest, HotColdNew) {
     uint8_t label = absl::Uniform<uint8_t>(rng, 0, 127);
     label |= uint8_t{128};
 
-    void* ptr = ::operator new(size, static_cast<tcmalloc::hot_cold_t>(label));
+    void* ptr = ::operator new(sizeof(TypeParam) * 0 + size,
+                               static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
@@ -1267,7 +1284,8 @@ TEST(HotColdTest, HotColdNew) {
     uint8_t label = absl::Uniform<uint8_t>(rng, 0, 127);
     label &= ~uint8_t{128};
 
-    void* ptr = ::operator new(size, static_cast<tcmalloc::hot_cold_t>(label));
+    void* ptr = ::operator new(sizeof(TypeParam) * 0 + size,
+                               static_cast<tcmalloc::hot_cold_t>(label));
     ptrs.emplace_back(SizedPtr{ptr, size});
   }
 
@@ -1293,7 +1311,7 @@ TEST(HotColdTest, HotColdNew) {
   }
 }
 
-TEST(HotColdTest, NothrowHotColdNew) {
+TYPED_TEST(HotColdTest, NothrowHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1315,12 +1333,12 @@ TEST(HotColdTest, NothrowHotColdNew) {
     const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
-    void* ptr = ::operator new(size, std::nothrow,
+    void* ptr = ::operator new(sizeof(TypeParam) * 0 + size, std::nothrow,
                                static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
+    if (IsHot<TypeParam>(label)) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1336,7 +1354,7 @@ TEST(HotColdTest, NothrowHotColdNew) {
   }
 }
 
-TEST(HotColdTest, AlignedNothrowHotColdNew) {
+TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1361,12 +1379,13 @@ TEST(HotColdTest, AlignedNothrowHotColdNew) {
         static_cast<std::align_val_t>(1 << absl::Uniform(rng, 0, 6));
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
-    void* ptr = ::operator new(size, alignment, std::nothrow,
-                               static_cast<tcmalloc::hot_cold_t>(label));
+    void* ptr =
+        ::operator new(sizeof(TypeParam) * 0 + size, alignment, std::nothrow,
+                       static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
+    if (IsHot<TypeParam>(label)) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1382,7 +1401,7 @@ TEST(HotColdTest, AlignedNothrowHotColdNew) {
   }
 }
 
-TEST(HotColdTest, ArrayNothrowHotColdNew) {
+TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1404,12 +1423,12 @@ TEST(HotColdTest, ArrayNothrowHotColdNew) {
     const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
-    void* ptr = ::operator new[](size, std::nothrow,
+    void* ptr = ::operator new[](sizeof(TypeParam) * 0 + size, std::nothrow,
                                  static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
+    if (IsHot<TypeParam>(label)) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1425,7 +1444,7 @@ TEST(HotColdTest, ArrayNothrowHotColdNew) {
   }
 }
 
-TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
+TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1450,12 +1469,13 @@ TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
         static_cast<std::align_val_t>(1 << absl::Uniform(rng, 0, 6));
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
-    void* ptr = ::operator new[](size, alignment, std::nothrow,
-                                 static_cast<tcmalloc::hot_cold_t>(label));
+    void* ptr =
+        ::operator new[](sizeof(TypeParam) * 0 + size, alignment, std::nothrow,
+                         static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
+    if (IsHot<TypeParam>(label)) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1471,7 +1491,7 @@ TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
   }
 }
 
-TEST(HotColdTest, SizeReturningHotColdNew) {
+TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1495,10 +1515,10 @@ TEST(HotColdTest, SizeReturningHotColdNew) {
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
     auto [ptr, actual] = __size_returning_new_hot_cold(
-        requested, static_cast<hot_cold_t>(label));
+        sizeof(TypeParam) * 0 + requested, static_cast<hot_cold_t>(label));
     ASSERT_GE(actual, requested);
 
-    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
+    if (IsHot<TypeParam>(label)) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;
@@ -1530,7 +1550,7 @@ TEST(HotColdTest, SizeReturningHotColdNew) {
 
 // Test that setting the min_hot_access_hint parameter has the expected effect
 // on treatment of the allocated data as cold.
-TEST(HotColdTest, HotColdNewMinHotFlag) {
+TYPED_TEST(HotColdTest, HotColdNewMinHotFlag) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1557,14 +1577,14 @@ TEST(HotColdTest, HotColdNewMinHotFlag) {
     const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
-    void* ptr = ::operator new(size, static_cast<tcmalloc::hot_cold_t>(label));
+    void* ptr = ::operator new(sizeof(TypeParam) * 0 + size,
+                               static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
     // The hotness threshold should have been set to kNonDefaultMinHotAccessHint
     // above via SetFlag.
-    if (static_cast<tcmalloc::hot_cold_t>(label) >=
-        kNonDefaultMinHotAccessHint) {
+    if (IsHot<TypeParam>(label, /*threshold=*/kNonDefaultMinHotAccessHint)) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1583,7 +1603,7 @@ TEST(HotColdTest, HotColdNewMinHotFlag) {
   Parameters::set_min_hot_access_hint(kDefaultMinHotAccessHint);
 }
 
-TEST(HotColdTest, SampleHasRuntimeHint) {
+TYPED_TEST(HotColdTest, SampleHasRuntimeHint) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1596,14 +1616,18 @@ TEST(HotColdTest, SampleHasRuntimeHint) {
   ScopedAlwaysSample always_sample;
   auto token = MallocExtension::StartAllocationProfiling();
   {
-    ptrs[0] = operator new(kLarge, static_cast<hot_cold_t>(1));
-    ptrs[1] = operator new(kSmall, static_cast<hot_cold_t>(2));
-    ptrs[2] = operator new(kLarge, std::nothrow, static_cast<hot_cold_t>(3));
-    ptrs[3] = operator new(kSmall, std::nothrow, static_cast<hot_cold_t>(4));
-    ptrs[4] = operator new(kLarge, std::align_val_t{8}, std::nothrow,
-                           static_cast<hot_cold_t>(5));
-    ptrs[5] = operator new(kSmall, std::align_val_t{8}, std::nothrow,
-                           static_cast<hot_cold_t>(6));
+    ptrs[0] = operator new(sizeof(TypeParam) * 0 + kLarge,
+                           static_cast<hot_cold_t>(1));
+    ptrs[1] = operator new(sizeof(TypeParam) * 0 + kSmall,
+                           static_cast<hot_cold_t>(2));
+    ptrs[2] = operator new(sizeof(TypeParam) * 0 + kLarge, std::nothrow,
+                           static_cast<hot_cold_t>(3));
+    ptrs[3] = operator new(sizeof(TypeParam) * 0 + kSmall, std::nothrow,
+                           static_cast<hot_cold_t>(4));
+    ptrs[4] = operator new(sizeof(TypeParam) * 0 + kLarge, std::align_val_t{8},
+                           std::nothrow, static_cast<hot_cold_t>(5));
+    ptrs[5] = operator new(sizeof(TypeParam) * 0 + kSmall, std::align_val_t{8},
+                           std::nothrow, static_cast<hot_cold_t>(6));
   }
   auto profile = std::move(token).Stop();
 
