@@ -148,6 +148,32 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "memory_errors_fuzz",
+    srcs = ["memory_errors_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    malloc = "//tcmalloc/internal:system_malloc",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notap",
+        "notsan",
+        "noubsan",
+    ],
+    visibility = ["//visibility:private"],
+    deps = [
+        ":testutil",
+        "//tcmalloc:common_8k_pages",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep
+        "//tcmalloc/internal:memory_tag",
+        "@com_google_absl//absl/base",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:init_fuzztest",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
 create_tcmalloc_testsuite(
     name = "hooks_test",
     srcs = ["hooks_test.cc"],

@@ -119,6 +119,8 @@ ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMemoryLimit(
 
 ABSL_ATTRIBUTE_WEAK size_t
 MallocExtension_Internal_GetAllocatedSize(const void* ptr);
+ABSL_ATTRIBUTE_WEAK size_t
+MallocExtension_Internal_GetEstimatedAllocatedSize(size_t size);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_MarkThreadBusy();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_MarkThreadIdle();
 

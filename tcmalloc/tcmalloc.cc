@@ -1110,6 +1110,21 @@ extern "C" size_t MallocExtension_Internal_GetAllocatedSize(const void* ptr) {
   return GetSize(ptr);
 }
 
+extern "C" size_t MallocExtension_Internal_GetEstimatedAllocatedSize(
+    size_t size) {
+  if (ABSL_PREDICT_FALSE(!tc_globals.IsInited())) {
+    return tcmalloc::tcmalloc_internal::nallocx_slow(size, 0);
+  }
+  const auto [is_small, size_class] =
+      tc_globals.sizemap().GetSizeClass(CppPolicy(), size);
+  if (ABSL_PREDICT_TRUE(is_small)) {
+    TC_ASSERT_NE(size_class, 0);
+    return tc_globals.sizemap().class_to_size(size_class);
+  } else {
+    return tcmalloc::tcmalloc_internal::BytesToLengthCeil(size).in_bytes();
+  }
+}
+
 extern "C" void MallocExtension_Internal_MarkThreadBusy() {
   tc_globals.InitIfNecessary();
 
