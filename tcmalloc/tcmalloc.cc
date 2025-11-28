@@ -765,8 +765,8 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
   TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold);
-  const auto [is_small, size_class] =
-      tc_globals.sizemap().GetSizeClass(policy.AccessAsCold(), size);
+  const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
+      policy.InSamePartitionAs(ptr).AccessAsCold(), size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     // We couldn't calculate the size class, which means size > kMaxSize.
     TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
@@ -801,7 +801,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
   // Mismatched-size-delete error detection for sampled memory is performed in
   // the slow path above in all builds.
-  TC_ASSERT(CorrectSize(ptr, size, policy));
+  TC_ASSERT(CorrectSize(ptr, size, policy.InSamePartitionAs(ptr)));
 
   // At this point, since ptr's tag bit is 1, it means that it
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
@@ -1306,8 +1306,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   bool changes_correct_size;
   {
     size_t actual_new_size;
-    const auto [is_small, new_size_class] =
-        tc_globals.sizemap().GetSizeClass(MallocPolicy(), new_size);
+    const auto [is_small, new_size_class] = tc_globals.sizemap().GetSizeClass(
+        MallocPolicy().InSamePartitionAs(old_ptr), new_size);
     if (is_small) {
       actual_new_size = tc_globals.sizemap().class_to_size(new_size_class);
     } else {
