@@ -281,6 +281,17 @@ static absl::string_view SizeClassConfigurationString(
   return "SIZE_CLASS_UNKNOWN";
 }
 
+static absl::string_view HeapPartitioningModeString() {
+  if (kSecurityPartitions == 1 && tc_globals.active_partitions() == 1) {
+    return "PARTITIONING_MODE_DISABLED";
+  } else if (kSecurityPartitions == 1 && tc_globals.active_partitions() > 1) {
+    return "PARTITIONING_MODE_NUMA";
+  } else if (tc_globals.active_partitions() > 1) {
+    return "PARTITIONING_MODE_SECURITY";
+  }
+  return "PARTITIONING_MODE_UNKNOWN";
+}
+
 static absl::string_view PerCpuTypeString(RseqVcpuMode mode) {
   switch (mode) {
     case RseqVcpuMode::kNone:
@@ -554,6 +565,9 @@ void DumpStats(Printer& out, int level) {
         "MiB)\n",
         stats.num_released_hard_limit_exceeded.in_pages().raw_num(),
         stats.num_released_hard_limit_exceeded.in_mib());
+    out.printf("Number of active %s partitions: %llu\n",
+               kSecurityPartitions > 1 ? "security" : "NUMA",
+               tc_globals.active_partitions());
 
     out.printf("------------------------------------------------\n");
     out.printf("Parameters\n");
@@ -578,6 +592,8 @@ void DumpStats(Printer& out, int level) {
                Parameters::release_pages_from_huge_region() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
+    out.printf("PARAMETER heap_partitioning %d\n",
+               tc_globals.multiple_non_numa_partitions() ? 1 : 0);
 
     out.printf(
         "PARAMETER size_class_config %s\n",
@@ -792,6 +808,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   region.PrintBool("tcmalloc_use_wider_slabs",
                    tc_globals.cpu_cache().UseWiderSlabs());
+  region.PrintI64("active_partitions", tc_globals.active_partitions());
+  region.PrintRaw("heap_partitioning", HeapPartitioningModeString());
   region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated", true);
   region.PrintI64("min_hot_access_hint",
                   static_cast<int>(Parameters::min_hot_access_hint()));
