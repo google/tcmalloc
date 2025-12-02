@@ -205,7 +205,7 @@ class CentralFreeList {
   // the map.
   void RecordSpanUtil(uint8_t bitwidth, bool increase)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    ASSUME(bitwidth > 0);
+    TC_ASSERT_GT(bitwidth, 0);
     // Updates to objects_to_span_ are guarded by lock_, so writes may be
     // performed using LossyAdd.
     objects_to_spans_[bitwidth - 1].LossyAdd(increase ? 1 : -1);
@@ -348,7 +348,7 @@ inline void CentralFreeList<Forwarder>::Init(
                 std::min<size_t>(absl::bit_width(objects_per_span_),
                                  num_priority_lists_);
 
-  TC_ASSERT(absl::bit_width(objects_per_span_) <= kSpanUtilBucketCapacity);
+  TC_ASSERT_LE(absl::bit_width(objects_per_span_), kSpanUtilBucketCapacity);
 
   lifetime_bucket_bounds_[0] = 0;
   lifetime_bucket_bounds_[1] = 1;
