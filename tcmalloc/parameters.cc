@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 
 #include "absl/base/attributes.h"
@@ -51,6 +52,9 @@ static constexpr T DefaultOrDebugValue(T default_val, T debug_val) {
   return debug_val;
 #endif
 }
+
+extern "C" ABSL_ATTRIBUTE_WEAK void
+tcmalloc_flag_enable_heap_partitioning_default_on();
 
 // As decide_subrelease() is determined at runtime, we cannot require constant
 // initialization for the atomic.  This avoids an initialization order fiasco.
@@ -214,6 +218,26 @@ static std::atomic<bool>& use_userspace_collapse_heuristics_enabled() {
   return v;
 }
 
+static std::atomic<bool>& heap_partitioning_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (kSecurityPartitions == 1) {
+      return;
+    }
+    const char* hp = thread_safe_getenv("TCMALLOC_HEAP_PARTITIONING");
+    if (hp == nullptr &&
+        tcmalloc_flag_enable_heap_partitioning_default_on != nullptr) {
+      v.store(true, std::memory_order_relaxed);
+    }
+    if (hp != nullptr) {
+      bool off = std::strcmp(hp, "false") == 0 || std::strcmp(hp, "0") == 0;
+      v.store(!off, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 ABSL_CONST_INIT std::atomic<bool>
     Parameters::usermode_hugepage_collapse_enabled_{
         // This feature causes very long delays in the tail in non-optimized
@@ -250,6 +274,10 @@ bool Parameters::usermode_hugepage_collapse() {
 bool Parameters::use_userspace_collapse_heuristics() {
   return use_userspace_collapse_heuristics_enabled().load(
       std::memory_order_relaxed);
+}
+
+bool Parameters::heap_partitioning() {
+  return heap_partitioning_enabled().load(std::memory_order_relaxed);
 }
 
 central_freelist_internal::PriorityListLength
@@ -571,6 +599,10 @@ bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
 void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {
   tcmalloc::tcmalloc_internal::use_userspace_collapse_heuristics_enabled()
       .store(v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetHeapPartitioning() {
+  return Parameters::heap_partitioning();
 }
 
 }  // extern "C"

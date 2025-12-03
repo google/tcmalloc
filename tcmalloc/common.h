@@ -174,7 +174,7 @@ inline constexpr size_t kNumaPartitions = kSanitizerAddressSpace ? 1 : 2;
 inline constexpr size_t kSecurityPartitions = 1;
 #else
 inline constexpr size_t kNumaPartitions = 1;
-inline constexpr size_t kSecurityPartitions = 1;
+inline constexpr size_t kSecurityPartitions = kSanitizerAddressSpace ? 1 : 2;
 #endif
 
 inline constexpr size_t kNormalPartitions =
