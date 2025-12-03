@@ -38,7 +38,6 @@
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/parameters.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -500,11 +499,7 @@ void ResizeCaches(Manager& manager, int start_size_class) {
 template <typename Manager>
 void TryResizingCaches(Manager& manager) {
   // Resize transfer caches for each set of kNumBaseClasses.
-  const size_t num_partitions =
-      Parameters::heap_partitioning()
-          ? Manager::kNormalPartitions
-          : Manager::kNormalPartitions / Manager::kSecurityPartitions;
-  for (int i = 0; i < num_partitions; ++i) {
+  for (int i = 0; i < Manager::kNormalPartitions; ++i) {
     ResizeCaches(manager, i * Manager::kNumBaseClasses);
   }
   if (Manager::kHasExpandedClasses) {

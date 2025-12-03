@@ -247,84 +247,38 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     }
   }
 
-  int cold_block_offset = 0;
-  bool heap_partitioning_active = tc_globals.multiple_non_numa_partitions();
-  if (kSecurityPartitions > 1) {
-    cold_block_offset++;
-    // Point all lookups in first upper register of class_array_ to the normal
-    // size classes. We only overwrite the lookups if heap partitioning is
-    // active with the dedicated size classes.
-    std::copy(&class_array_[0], &class_array_[kClassArraySize],
-              &class_array_[kClassArraySize]);
-    if (heap_partitioning_active) {
-      for (int c = kNumBaseClasses; c < kExpandedClassesStart; ++c) {
-        const int max_size_in_class = class_to_size_[c];
-
-        for (int s = next_size; s <= max_size_in_class;
-             s += static_cast<size_t>(kAlignment)) {
-          class_array_[ClassIndex(s) + kClassArraySize] = c;
-        }
-        next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-        if (next_size > kMaxSize) {
-          break;
-        }
-      }
-    }
+  if (!ColdFeatureActive()) {
+    return true;
   }
 
-  if (ColdFeatureActive()) {
-    memset(cold_sizes_, 0, sizeof(cold_sizes_));
-    cold_block_offset++;
-    cold_sizes_count_ = 0;
-    // Point all lookups in the first or second upper register of class_array_
-    // (allocations seeking cold memory, with hints for partition 0, i.e.,
-    // pointerless allocations) to the lower size classes.  This gives us an
-    // easy fallback for sizes that are too small for moving to cold memory (due
-    // to intrusive span metadata).
-    std::copy(&class_array_[0], &class_array_[kClassArraySize],
-              &class_array_[kClassArraySize * cold_block_offset]);
+  memset(cold_sizes_, 0, sizeof(cold_sizes_));
+  cold_sizes_count_ = 0;
+  // Point all lookups in the upper register of class_array_ (allocations
+  // seeking cold memory) to the lower size classes.  This gives us an easy
+  // fallback for sizes that are too small for moving to cold memory (due to
+  // intrusive span metadata).
+  std::copy(&class_array_[0], &class_array_[kClassArraySize],
+            &class_array_[kClassArraySize]);
 
-    for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
-      size_t max_size_in_class = class_to_size_[c];
-      if (max_size_in_class == 0) {
-        next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-        continue;
-      }
-
-      cold_sizes_[cold_sizes_count_] = c;
-      ++cold_sizes_count_;
-
-      for (int s = next_size; s <= max_size_in_class;
-           s += static_cast<size_t>(kAlignment)) {
-        class_array_[ClassIndex(s) + kClassArraySize * cold_block_offset] = c;
-      }
+  for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
+    size_t max_size_in_class = class_to_size_[c];
+    if (max_size_in_class == 0) {
       next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-      if (next_size > kMaxSize) {
-        break;
-      }
+      continue;
     }
-    if (kSecurityPartitions > 1) {
-      TC_ASSERT_EQ(cold_block_offset, 2);
-      if (heap_partitioning_active) {
-        // Point all lookups in the third upper register of class_array_
-        // (allocations seeking cold memory, with hints for partition 1, i.e.,
-        // pointer-containing allocations) to the same classes as the hot
-        // partition 1.
-        std::copy(&class_array_[kClassArraySize],
-                  &class_array_[kClassArraySize * 2],
-                  &class_array_[kClassArraySize * 3]);
-      } else {
-        // Point all lookups in the third upper register of class_array_
-        // (allocations seeking cold memory, with hints for partition 1, i.e.,
-        // pointer-containing allocations) to the same classes for the cold
-        // allocations with a hint for partition 0.
-        std::copy(&class_array_[kClassArraySize * 2],
-                  &class_array_[kClassArraySize * 3],
-                  &class_array_[kClassArraySize * 3]);
-      }
+
+    cold_sizes_[cold_sizes_count_] = c;
+    ++cold_sizes_count_;
+
+    for (int s = next_size; s <= max_size_in_class;
+         s += static_cast<size_t>(kAlignment)) {
+      class_array_[ClassIndex(s) + kClassArraySize] = c;
+    }
+    next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+    if (next_size > kMaxSize) {
+      break;
     }
   }
-
   return true;
 }
 

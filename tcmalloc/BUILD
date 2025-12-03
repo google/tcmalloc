@@ -348,16 +348,6 @@ create_tcmalloc_libraries(
     alwayslink = 1,
 )
 
-# If this is linked in, heap partitioning will be enabled by default.
-cc_library(
-    name = "tcmalloc_enable_heap_partitioning_default_on",
-    linkopts = ["-Wl,--defsym=tcmalloc_flag_enable_heap_partitioning_default_on=1"],
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
-    alwayslink = 1,
-)
-
 # TEMPORARY. WILL BE REMOVED.
 # Add a dep to this if you want your binary to use hugepage-aware
 # allocator.
@@ -1126,27 +1116,6 @@ cc_test(
         ":page_allocator_test_util",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:memory_tag",
-        "//tcmalloc/internal:pageflags",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:nullability",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "page_allocator_test_partitioned",
-    srcs = ["page_allocator_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    env = {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"},
-    linkstatic = 1,
-    deps = [
-        ":common_8k_pages",
-        ":malloc_extension",
-        ":page_allocator_test_util",
-        "//tcmalloc/internal:config",
-        "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:pageflags",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:nullability",
@@ -1227,7 +1196,6 @@ create_tcmalloc_testsuite(
     deps = [
         ":size_class_info",
         "//tcmalloc/internal:config",
-        "//tcmalloc/internal:parameter_accessors",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/types:span",
@@ -1576,9 +1544,7 @@ create_tcmalloc_testsuite(
     srcs = ["sizemap_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":malloc_extension",
         ":size_class_info",
-        "//tcmalloc/internal:parameter_accessors",
         "@com_google_googletest//:gtest_main",
     ],
 )

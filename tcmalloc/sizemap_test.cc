@@ -21,8 +21,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/parameter_accessors.h"
-#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
@@ -58,12 +56,8 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
   SizeMap size_map;
   EXPECT_TRUE(size_map.Init(classes));
   for (const size_t request_size : allowed_alloc_size) {
-    EXPECT_EQ(size_map.SizeClass(
-                  CppPolicy().WithSecurityToken<TokenId{0}>().AccessAsCold(),
-                  request_size),
-              size_map.SizeClass(
-                  CppPolicy().WithSecurityToken<TokenId{0}>().AccessAsHot(),
-                  request_size) +
+    EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
+              size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
                   (tc_globals.numa_topology().GetCurrentPartition() == 0
                        ? kExpandedClassesStart
                        : kNumBaseClasses));
@@ -84,12 +78,8 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
   // Confirm that sizes are allocated as cold as requested.
   size_t max_size = classes[classes.size() - 1].size;
   for (int request_size = 1; request_size <= max_size; ++request_size) {
-    EXPECT_EQ(size_map.SizeClass(
-                  CppPolicy().WithSecurityToken<TokenId{0}>().AccessAsCold(),
-                  request_size),
-              size_map.SizeClass(
-                  CppPolicy().WithSecurityToken<TokenId{0}>().AccessAsHot(),
-                  request_size) +
+    EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
+              size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
                   (tc_globals.numa_topology().GetCurrentPartition() == 0
                        ? kExpandedClassesStart
                        : kNumBaseClasses))
@@ -116,59 +106,6 @@ TEST(SizeMapTest, ClassToSizeRange) {
     EXPECT_THAT(size_map.class_to_size_range(kExpandedClassesStart + 2),
                 Pair(9, 16));
   }
-}
-
-TEST(SizeMapTest, HeapPartitioning) {
-  if (kSecurityPartitions == 1) {
-    GTEST_SKIP() << "Heap partitioning is not compiled in.";
-  }
-  const auto& classes = kSizeClasses.classes;
-
-  SizeMap size_map;
-  EXPECT_TRUE(size_map.Init(classes));
-
-  size_t offset =
-      tc_globals.multiple_non_numa_partitions() ? kNumBaseClasses : 0;
-
-  for (size_t i = 1; i < classes.size(); ++i) {
-    EXPECT_EQ(size_map.SizeClass(CppPolicy().WithSecurityToken<TokenId{0}>(),
-                                 classes[i].size) +
-                  offset,
-              size_map.SizeClass(
-                  CppPolicy().WithSecurityToken<TokenId::kAllocToken1>(),
-                  classes[i].size));
-  }
-}
-
-TEST(SizeMapTest, PointerPartitionNoCold) {
-  if (kPageShift <= 12) {
-    GTEST_SKIP() << "cold size classes are not activated on the small page";
-  }
-  if (!TCMalloc_Internal_GetHeapPartitioning()) {
-    GTEST_SKIP() << "Heap partitioning is not compiled in.";
-  }
-  const auto& classes = kSizeClasses.classes;
-  std::vector<size_t> allowed_alloc_size;
-  std::vector<size_t> expected_cold_size_classes;
-  for (int i = 1; i < classes.size(); ++i) {
-    allowed_alloc_size.push_back(classes[i].size);
-    expected_cold_size_classes.push_back(i + kExpandedClassesStart);
-  }
-
-  SizeMap size_map;
-  EXPECT_TRUE(size_map.Init(classes));
-  for (const size_t request_size : allowed_alloc_size) {
-    EXPECT_EQ(size_map.SizeClass(CppPolicy()
-                                     .WithSecurityToken<TokenId::kAllocToken1>()
-                                     .AccessAsCold(),
-                                 request_size),
-              size_map.SizeClass(CppPolicy()
-                                     .WithSecurityToken<TokenId::kAllocToken1>()
-                                     .AccessAsHot(),
-                                 request_size));
-  }
-  EXPECT_THAT(size_map.ColdSizeClasses(),
-              ElementsAreArray(expected_cold_size_classes));
 }
 
 }  // namespace tcmalloc::tcmalloc_internal

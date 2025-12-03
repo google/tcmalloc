@@ -102,10 +102,7 @@ class Static final {
   static NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
     return numa_topology_;
   }
-
-  static bool multiple_non_numa_partitions() {
-    return Parameters::heap_partitioning();
-  }
+  static bool multiple_non_numa_partitions() { return kSecurityPartitions > 1; }
 
   static size_t active_partitions() {
     return multiple_non_numa_partitions() ? kNormalPartitions

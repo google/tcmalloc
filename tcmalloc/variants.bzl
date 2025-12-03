@@ -125,14 +125,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "partitioned_enabled_runtime",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"TCMALLOC_HEAP_PARTITIONING": "true"},
-        # sanitizers disable heap partitioning & the environment variable is ignored.
-        "tags": ["noubsan", "noasan", "nomsan", "notsan"],
-    },
-    {
         "name": "numa_aware_disabled",
         "malloc": "//tcmalloc:tcmalloc_numa_aware",
         "deps": [

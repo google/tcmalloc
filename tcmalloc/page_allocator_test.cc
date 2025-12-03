@@ -23,7 +23,6 @@
 #include <new>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "gmock/gmock.h"
@@ -33,12 +32,10 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_allocator_test_util.h"
-#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
@@ -112,53 +109,44 @@ class PageAllocatorTest : public testing::Test {
 TEST_F(PageAllocatorTest, Record) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/7,
                                        AccessDensityPrediction::kSparse};
-  std::vector<MemoryTag> tags = {MemoryTag::kNormal};
-  if (tc_globals.multiple_non_numa_partitions()) {
-    tags.push_back(MemoryTag::kNormalP1);
+  for (int i = 0; i < 15; ++i) {
+    Delete(New(Length(1), kSpanInfo), kSpanInfo);
   }
 
-  std::vector<std::pair<Span*, MemoryTag>> spans;
-  for (auto tag : tags) {
-    for (int i = 0; i < 15; ++i) {
-      Delete(New(Length(1), kSpanInfo, tag), kSpanInfo, tag);
-    }
+  std::vector<Span*> spans;
+  for (int i = 0; i < 20; ++i) {
+    spans.push_back(New(Length(2), kSpanInfo));
+  }
 
-    for (int i = 0; i < 20; ++i) {
-      spans.push_back(std::make_pair(New(Length(2), kSpanInfo, tag), tag));
-    }
-
-    for (int i = 0; i < 25; ++i) {
-      Delete(NewAligned(Length(3), Length(2), kSpanInfo, tag), kSpanInfo, tag);
-    }
+  for (int i = 0; i < 25; ++i) {
+    Delete(NewAligned(Length(3), Length(2), kSpanInfo), kSpanInfo);
   }
   {
     PageHeapSpinLockHolder l;
-    for (auto tag : tags) {
-      auto info = allocator_.info(tag);
+    auto info = allocator_.info(MemoryTag::kNormal);
 
-      ASSERT_EQ(15, info.counts_for(Length(1)).nalloc);
-      ASSERT_EQ(15, info.counts_for(Length(1)).nfree);
+    ASSERT_EQ(15, info.counts_for(Length(1)).nalloc);
+    ASSERT_EQ(15, info.counts_for(Length(1)).nfree);
 
-      ASSERT_EQ(20, info.counts_for(Length(2)).nalloc);
-      ASSERT_EQ(0, info.counts_for(Length(2)).nfree);
+    ASSERT_EQ(20, info.counts_for(Length(2)).nalloc);
+    ASSERT_EQ(0, info.counts_for(Length(2)).nfree);
 
-      ASSERT_EQ(25, info.counts_for(Length(3)).nalloc);
-      ASSERT_EQ(25, info.counts_for(Length(3)).nfree);
+    ASSERT_EQ(25, info.counts_for(Length(3)).nalloc);
+    ASSERT_EQ(25, info.counts_for(Length(3)).nfree);
 
-      for (auto i = Length(4); i <= kMaxPages; ++i) {
-        ASSERT_EQ(0, info.counts_for(i).nalloc);
-        ASSERT_EQ(0, info.counts_for(i).nfree);
-      }
+    for (auto i = Length(4); i <= kMaxPages; ++i) {
+      ASSERT_EQ(0, info.counts_for(i).nalloc);
+      ASSERT_EQ(0, info.counts_for(i).nfree);
+    }
 
-      const Length absurd =
-          Length(uintptr_t{1} << (kAddressBits - 1 - kPageShift));
-      for (Length i = kMaxPages + Length(1); i < absurd; i *= 2) {
-        ASSERT_EQ(0, info.counts_for(i).nalloc);
-        ASSERT_EQ(0, info.counts_for(i).nfree);
-      }
+    const Length absurd =
+        Length(uintptr_t{1} << (kAddressBits - 1 - kPageShift));
+    for (Length i = kMaxPages + Length(1); i < absurd; i *= 2) {
+      ASSERT_EQ(0, info.counts_for(i).nalloc);
+      ASSERT_EQ(0, info.counts_for(i).nfree);
     }
   }
-  for (auto& [s, tag] : spans) Delete(s, kSpanInfo, tag);
+  for (auto s : spans) Delete(s, kSpanInfo);
 }
 
 // And that we call the print method properly.

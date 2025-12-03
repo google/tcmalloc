@@ -611,8 +611,7 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
-  if (policy.is_cold() &&
-      (!Parameters::heap_partitioning() || policy.partition() == 0)) {
+  if (policy.is_cold()) {
     tag = MemoryTag::kCold;
   } else if (tc_globals.active_partitions() > 1) {
     tag = MultiNormalTag(policy.partition());
