@@ -796,12 +796,7 @@ TEST_F(TcMallocTest, CorruptedPointer) {
       tcmalloc::hot_cold_t{255},
   };
 
-  for (const bool sampled : {true
-#ifndef NDEBUG
-                             ,
-                             false
-#endif
-       }) {
+  for (const bool sampled : {true, false}) {
     SCOPED_TRACE(absl::StrCat("sampled=", sampled));
 
     for (const bool guarded : {true, false}) {
@@ -813,6 +808,10 @@ TEST_F(TcMallocTest, CorruptedPointer) {
       for (const size_t size : kSizes) {
         for (const size_t misalignment : kMisalignment) {
           if (misalignment >= size) {
+            continue;
+          }
+          if (!sampled && misalignment >= static_cast<size_t>(
+                                              tcmalloc_internal::kAlignment)) {
             continue;
           }
 
@@ -837,8 +836,8 @@ TEST_F(TcMallocTest, CorruptedPointer) {
                   }
                 },
                 absl::StrCat(
-                    "attempting free on address which was not "
-                    "malloc|alloc-dealloc-mismatch.*INVALID|"
+                    "(attempting free on address which was not "
+                    "malloc)|(alloc-dealloc-mismatch.*INVALID)|"
                     "(Attempted to free corrupted pointer"
                     ")"));
           }
@@ -846,54 +845,6 @@ TEST_F(TcMallocTest, CorruptedPointer) {
       }
     }
   }
-}
-
-TEST_F(TcMallocTest, CorruptedPointerFixed) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
-  GTEST_SKIP() << "Skipped under sanitizers";
-#endif
-#ifndef NDEBUG
-  GTEST_SKIP() << "Skipping with debug assertions";
-#endif
-
-  constexpr size_t kSizes[] = {
-      8u, 64u, 1024u, tcmalloc_internal::kPageSize, tcmalloc_internal::kMaxSize,
-  };
-
-  constexpr uintptr_t kAlignmentMask =
-      ~(static_cast<uintptr_t>(tcmalloc_internal::kAlignment) - 1u);
-
-  constexpr size_t kMisalignment[] = {
-      1, 2, 3, 4, static_cast<size_t>(tcmalloc_internal::kAlignment) - 1u,
-  };
-
-  // Sampled deallocations will detect misalignment.
-  ScopedNeverSample never_sample;
-
-  int same_pointers = 0;
-  for (const size_t size : kSizes) {
-    for (const size_t misalignment : kMisalignment) {
-      ASSERT_EQ(misalignment & kAlignmentMask, 0);
-      char* p = static_cast<char*>(::operator new(size));
-      const uintptr_t pu = absl::bit_cast<uintptr_t>(p);
-      sized_delete(p + misalignment, size);
-
-      char* q = static_cast<char*>(::operator new(size));
-      const uintptr_t qu = absl::bit_cast<uintptr_t>(q);
-      sized_delete(q, size);
-
-      // We generally expect back to back deallocation-allocation to produce the
-      // same pointer, but we might end up sampling in between, migrating across
-      // cores, etc.
-      if ((pu & kAlignmentMask) == (qu & kAlignmentMask)) {
-        same_pointers++;
-        EXPECT_EQ(pu, qu);
-      }
-    }
-  }
-
-  // We should have gotten some back to back allocations.
-  EXPECT_GT(same_pointers, 0);
 }
 
 TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
@@ -1129,9 +1080,15 @@ TEST_F(TcMallocTest, NeverAllocatedPointerHighBits) {
   // accesses PageMap::sizeclass, which suppresses bounds checks under
   // -fsanitize=array-bounds, so this can fail in unusual ways.
 
-  // TODO(b/457842787): Exercise sized delete with a <=kMaxSized object.  This
-  // is contingent on the pointer appearing sampled so that our slow path
-  // inspects it.
+  EXPECT_DEATH(
+      { ::operator delete(ptr, 8); },
+      absl::StrCat(
+#ifndef NDEBUG
+          "(CHECK in get_existing_with_sizeclass)|"
+#endif
+          "(Attempted to free corrupted pointer 0xdeadbeef0000000: It was "
+          "never allocated or TCMalloc metadata has been corrupted",
+          ")"));
 
   EXPECT_DEATH(
       { ::operator delete(ptr, kMaxSize + 1); },

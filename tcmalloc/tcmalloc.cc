@@ -97,6 +97,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/overflow.h"
 #include "tcmalloc/internal/page_size.h"
@@ -589,9 +590,6 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
     TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold, "ptr=%p", ptr);
   }
 
-  ptr = absl::bit_cast<void*>(absl::bit_cast<uintptr_t>(ptr) &
-                              ~(static_cast<uintptr_t>(kAlignment) - 1u));
-
   // DeallocateFast may fail if:
   //  - the cpu cache is full
   //  - the cpu cache is not initialized
@@ -722,17 +720,6 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align);
 
 bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
-// Helper for the object deletion (free, delete, etc.).  Inputs:
-//   ptr is object to be freed
-//   size_class is the size class of that object, or 0 if it's unknown
-//   have_size_class is true iff size_class is known and is non-0.
-//
-// Note that since have_size_class is compile-time constant, genius compiler
-// would not need it. Since it would be able to somehow infer that
-// GetSizeClass never produces 0 size_class, and so it
-// would know that places that call this function with explicit 0 is
-// "have_size_class-case" and others are "!have_size_class-case". But we
-// certainly don't have such compiler. See also do_free_with_size below.
 template <typename Policy>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
   // TODO(b/404341539):  Improve the bound.
@@ -756,14 +743,35 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
   }
 }
 
+static constexpr uintptr_t kBadDeallocationHighMask =
+    ~((uintptr_t{1} << kAddressBits) - 1u);
+static constexpr uintptr_t kBadAlignmentMask =
+    static_cast<uintptr_t>(kAlignment) - 1u;
+// kNormalMask covers both kNormal and kNormalP1 because they share an
+// overlapping tag bit.  This is the same property IsNormalMemory relies on.
+static constexpr uintptr_t kNormalMask =
+    static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift;
+static_assert((static_cast<uintptr_t>(MemoryTag::kNormal) &
+               static_cast<uintptr_t>(MemoryTag::kNormalP1)) != 0);
+
+static constexpr uintptr_t kNormalOrBadDeallocationMask =
+    kBadDeallocationHighMask | kNormalMask | kBadAlignmentMask;
+
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
                                                     Policy policy) {
   TC_ASSERT_NE(ptr, nullptr);
+
   if (GetMemoryTag(ptr) == MemoryTag::kSampled) {
     // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
+
+  const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
+  if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
+    ReportCorruptedFree(tc_globals, ptr);
+  }
+
   TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold);
   const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
       policy.InSamePartitionAs(ptr).AccessAsCold(), size);
@@ -773,6 +781,21 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
+
+  // We do this check here at the cost of an extra branch, rather than combining
+  // it with kBadDeallocationHighMask.
+  //
+  // >kMaxSize objects may be sampled and this is handled by
+  // InvokeHooksAndFreePages.  By failing there, we can provide a richer error
+  // report by consulting our sampled object information and include the
+  // deallocation stack.
+  //
+  // If we get here, the object is small and this is the last line of defense
+  // before it gets stored into a cache.
+  if (ABSL_PREDICT_FALSE(uptr & kBadAlignmentMask)) {
+    ReportCorruptedFree(tc_globals, kAlignment, ptr);
+  }
+
   FreeSmall(ptr, size, size_class);
 }
 
@@ -790,7 +813,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   //
   // The optimized path doesn't work with non-normal objects (sampled, cold),
   // whose deletions trigger more operations and require to visit metadata.
-  if (ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
+  const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
+
+  if (ABSL_PREDICT_FALSE((uptr & kNormalOrBadDeallocationMask) !=
+                         kNormalMask)) {
     if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
     }
