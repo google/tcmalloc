@@ -57,6 +57,23 @@ TEST(MemoryErrorsFuzzTest, WildPointerUnsizedDeleteRegression) {
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerUnsizedDelete);
 
+void WildPointerRealloc(uintptr_t ptr, size_t new_size) {
+  GTEST_SKIP() << "Skipping";
+
+  LongJmpScope scope;
+  if (setjmp(scope.buf_)) {
+    return;
+  }
+
+  void* new_ptr = TCMallocInternalRealloc(absl::bit_cast<void*>(ptr), new_size);
+  // We should have caught the error and not reached this point unless ptr was
+  // nullptr.
+  EXPECT_EQ(ptr, 0);
+  TCMallocInternalFree(new_ptr);
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerRealloc);
+
 void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
   GTEST_SKIP() << "Skipping";
 
