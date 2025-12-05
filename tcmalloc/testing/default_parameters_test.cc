@@ -31,7 +31,11 @@ constexpr int64_t kDefaultProfileSamplingInterval =
     2 << 20
 #endif
     ;
+#ifdef NDEBUG
+constexpr int64_t kDefaultGuardedSampleParameter = 50;
+#else
 constexpr int64_t kDefaultGuardedSampleParameter = 5;
+#endif
 constexpr int64_t kDefaultGuardedSamplingInterval =
     kDefaultGuardedSampleParameter * kDefaultProfileSamplingInterval;
 constexpr absl::Duration kDefaultSkipSubreleaseShortInterval =
