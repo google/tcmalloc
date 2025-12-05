@@ -188,6 +188,12 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
+        "name": "pgho_experiment",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_PGHO_EXPERIMENT"},
+    },
+    {
         "name": "flat_cpu_caches",
         "malloc": "//tcmalloc",
         "deps": [

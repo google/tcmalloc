@@ -1311,6 +1311,11 @@ TYPED_TEST(HotColdTest, HotColdNew) {
   }
 }
 
+hot_cold_t MinHotAccessHint() {
+  return static_cast<tcmalloc::hot_cold_t>(
+      TCMalloc_Internal_GetMinHotAccessHint());
+}
+
 TYPED_TEST(HotColdTest, NothrowHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
@@ -1338,7 +1343,7 @@ TYPED_TEST(HotColdTest, NothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (IsHot<TypeParam>(label)) {
+    if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1385,7 +1390,7 @@ TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (IsHot<TypeParam>(label)) {
+    if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1428,7 +1433,7 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (IsHot<TypeParam>(label)) {
+    if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1475,7 +1480,7 @@ TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (IsHot<TypeParam>(label)) {
+    if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1518,7 +1523,7 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
         sizeof(TypeParam) * 0 + requested, static_cast<hot_cold_t>(label));
     ASSERT_GE(actual, requested);
 
-    if (IsHot<TypeParam>(label)) {
+    if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;

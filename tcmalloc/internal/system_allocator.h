@@ -366,8 +366,8 @@ SystemAllocator<Topology, NormalPartitions>::MmapRegion::Alloc(
   // (kInfrequentAllocation), we want as granular of access telemetry as
   // possible; this hint means we can get 4kiB granularity instead of 2MiB.
   if ((hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess &&
-       !IsExperimentActive(
-           Experiment::TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE)) ||
+       !IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE) &&
+       !IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)) ||
       hint_ == AddressRegionFactory::UsageHint::kInfrequentAllocation ||
       system_allocator_internal::preferential_collapse()) {
     // This is only advisory, so ignore the error.
