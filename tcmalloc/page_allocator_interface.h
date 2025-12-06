@@ -17,6 +17,8 @@
 
 #include <stddef.h>
 
+#include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
