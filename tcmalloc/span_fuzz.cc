@@ -181,20 +181,8 @@ TEST(SpanTest, FuzzSpanInstructionsDoubleFreeDuringFullDrain) {
   FuzzSpanInstructions(0, 0, 1, {Alloc{1}, DeallocNoRemove{58}, Dealloc{3}});
 }
 
-void FuzzSpan(const std::string& s) {
-  // Extract fuzz input into 6 integers.
-  //
-  // TODO(b/271282540): Strongly type input.
-  size_t state[6];
-  if (s.size() != sizeof(state)) {
-    return;
-  }
-  memcpy(state, s.data(), sizeof(state));
-
-  const size_t object_size = state[0];
-  const size_t num_pages = state[1];
-  const size_t num_to_move = state[2];
-
+void FuzzSpan(size_t object_size, size_t num_pages, size_t num_to_move,
+              size_t initial_objects_at_build, uint64_t alloc_time) {
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_to_move)) {
     // Invalid size class configuration, but ValidSizeClass detected that.
     return;
@@ -202,11 +190,8 @@ void FuzzSpan(const std::string& s) {
 
   const auto pages = Length(num_pages);
   const size_t objects_per_span = pages.in_bytes() / object_size;
-  const size_t initial_objects_at_build =
-      std::min(objects_per_span, state[3] >> 4);
-
-  // state[4] reserved.
-  const uint64_t alloc_time = state[5];
+  initial_objects_at_build =
+      std::min(objects_per_span, initial_objects_at_build);
   const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
 
   void* mem;
@@ -259,8 +244,39 @@ void FuzzSpan(const std::string& s) {
   free(mem);
 }
 
-FUZZ_TEST(SpanTest, FuzzSpan)
-    ;
+TEST(SpanTest, Regression1) { FuzzSpan(2560, 40, 6, 16, 0); }
+
+TEST(SpanTest, Fuzz6321706670620672) { FuzzSpan(262144, 32, 32, 1, 0); }
+
+TEST(SpanTest, Crash01d72a40d5815461b92d3f7c0f6377fd441b0034) {
+  FuzzSpan(2560, 0, 9, 16, 0);
+}
+
+TEST(SpanTest, Crash32697afd59029eb8356fee8ba568e7f6b58d728f) {
+  FuzzSpan(2560, 24, 6, 16, 0);
+}
+
+TEST(SpanTest, Crash42b80edf9551d1095aebb6724c070ee43d490125) {
+  FuzzSpan(2560, 18, 0, 16, 0);
+}
+
+TEST(SpanTest, Crash500955af6568b0ed234bd40d6a01af496ba15eb2) {
+  FuzzSpan(2560, 18, 6, 16, 0);
+}
+
+TEST(SpanTest, Crash6ef2b6ae2246d1bda0190983b1007df2699e7738) {
+  FuzzSpan(41984, 2, 39, 60, 0);
+}
+
+TEST(SpanTest, Crash746940d0368bfe3e4a94b60659eeb6cb87106618) {
+  FuzzSpan(0, 1, 0, 1, 0);
+}
+
+TEST(SpanTest, Testcase5877384059617280) {
+  FuzzSpan(8, 1, 8, 1024, 13683181415406439436ull);
+}
+
+FUZZ_TEST(SpanTest, FuzzSpan);
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

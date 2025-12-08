@@ -721,7 +721,6 @@ cc_test(
     name = "span_fuzz",
     srcs = ["span_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
-    data = glob(["testdata/span_fuzz/*"]),
     tags = ["notap"],
     deps = [
         ":common_8k_pages",
