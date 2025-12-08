@@ -31,7 +31,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/mock_metadata_allocator.h"
+#include "tcmalloc/internal/mock_metadata_allocator.h"
 #include "tcmalloc/mock_virtual_allocator.h"
 
 namespace tcmalloc {

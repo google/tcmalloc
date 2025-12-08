@@ -21,7 +21,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/size_class_info.h"
+#include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"

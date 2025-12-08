@@ -21,7 +21,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "tcmalloc/mock_metadata_allocator.h"
+#include "tcmalloc/internal/mock_metadata_allocator.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

@@ -24,8 +24,8 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/metadata_allocator.h"
 #include "tcmalloc/internal/system_allocator.h"
-#include "tcmalloc/metadata_allocator.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

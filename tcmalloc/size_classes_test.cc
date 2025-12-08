@@ -22,7 +22,7 @@
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/size_class_info.h"
+#include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"

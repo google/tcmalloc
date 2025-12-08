@@ -472,6 +472,34 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "metadata_allocator",
+    hdrs = ["metadata_allocator.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+    ],
+)
+
+cc_library(
+    name = "mock_metadata_allocator",
+    testonly = 1,
+    hdrs = ["mock_metadata_allocator.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":metadata_allocator",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
 create_tcmalloc_benchmark(
     name = "mincore_benchmark",
     srcs = ["mincore_benchmark.cc"],
@@ -515,6 +543,19 @@ cc_test(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "size_class_info",
+    hdrs = ["size_class_info.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/types:span",
     ],
 )
 

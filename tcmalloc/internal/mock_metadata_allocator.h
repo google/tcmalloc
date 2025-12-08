@@ -19,7 +19,7 @@
 #include <vector>
 
 #include "absl/base/attributes.h"
-#include "tcmalloc/metadata_allocator.h"
+#include "tcmalloc/internal/metadata_allocator.h"
 
 namespace tcmalloc::tcmalloc_internal {
 

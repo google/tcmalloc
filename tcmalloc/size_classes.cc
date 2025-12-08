@@ -15,7 +15,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/size_class_info.h"
+#include "tcmalloc/internal/size_class_info.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

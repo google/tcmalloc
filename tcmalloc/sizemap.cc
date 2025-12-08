@@ -27,8 +27,8 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sampled_allocation.h"
+#include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 

@@ -19,7 +19,7 @@
 #include "absl/log/check.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/size_class_info.h"
+#include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/tcmalloc_policy.h"
 

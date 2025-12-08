@@ -169,16 +169,6 @@ cc_library(
     alwayslink = 1,
 )
 
-cc_library(
-    name = "size_class_info",
-    hdrs = ["size_class_info.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        "//tcmalloc/internal:config",
-        "@com_google_absl//absl/types:span",
-    ],
-)
-
 create_tcmalloc_libraries(
     name = "common",
     srcs = [
@@ -293,8 +283,6 @@ create_tcmalloc_libraries(
         ":malloc_extension",
         ":malloc_hook",
         ":malloc_tracing_extension",
-        ":metadata_allocator",
-        ":size_class_info",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:atomic_stats_counter",
         "//tcmalloc/internal:cache_topology",
@@ -309,6 +297,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_stats",
         "//tcmalloc/internal:memory_tag",
+        "//tcmalloc/internal:metadata_allocator",
         "//tcmalloc/internal:mincore",
         "//tcmalloc/internal:numa",
         "//tcmalloc/internal:optimization",
@@ -322,6 +311,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:residency",
         "//tcmalloc/internal:sampled_allocation",
         "//tcmalloc/internal:sampled_allocation_recorder",
+        "//tcmalloc/internal:size_class_info",
         "//tcmalloc/internal:stacktrace_filter",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/internal:system_allocator",
@@ -751,7 +741,7 @@ cc_test(
     data = glob(["testdata/sizemap_fuzz/*"]),
     deps = [
         ":common_8k_pages",
-        ":size_class_info",
+        "//tcmalloc/internal:size_class_info",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
@@ -849,11 +839,11 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
-        ":mock_metadata_allocator",
         ":mock_virtual_allocator",
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:mock_metadata_allocator",
         "//tcmalloc/internal:system_allocator",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
@@ -868,10 +858,10 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
-        ":mock_metadata_allocator",
         ":mock_virtual_allocator",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:mock_metadata_allocator",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
@@ -1083,28 +1073,6 @@ cc_test(
     ],
 )
 
-cc_library(
-    name = "metadata_allocator",
-    hdrs = ["metadata_allocator.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        "//tcmalloc/internal:config",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/base:nullability",
-    ],
-)
-
-cc_library(
-    name = "mock_metadata_allocator",
-    testonly = 1,
-    hdrs = ["mock_metadata_allocator.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":metadata_allocator",
-        "@com_google_absl//absl/base:core_headers",
-    ],
-)
-
 cc_test(
     name = "page_allocator_test",
     srcs = ["page_allocator_test.cc"],
@@ -1194,8 +1162,8 @@ create_tcmalloc_testsuite(
     srcs = ["size_classes_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":size_class_info",
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:size_class_info",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/types:span",
@@ -1257,7 +1225,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
-        ":mock_metadata_allocator",
+        "//tcmalloc/internal:mock_metadata_allocator",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1370,12 +1338,12 @@ cc_test(
     deps = [
         ":common_8k_pages",
         ":mock_transfer_cache",
-        ":size_class_info",
         "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:percpu",
         "//tcmalloc/internal:percpu_tcmalloc",
+        "//tcmalloc/internal:size_class_info",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/testing:testutil",
         "//tcmalloc/testing:thread_manager",
@@ -1418,8 +1386,8 @@ cc_test(
     deps = [
         ":common_8k_pages",
         ":mock_static_forwarder",
-        ":size_class_info",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:size_class_info",
         "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/algorithm:container",
@@ -1544,7 +1512,7 @@ create_tcmalloc_testsuite(
     srcs = ["sizemap_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":size_class_info",
+        "//tcmalloc/internal:size_class_info",
         "@com_google_googletest//:gtest_main",
     ],
 )
