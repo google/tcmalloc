@@ -436,6 +436,21 @@ inline bool Span::ListPushBatch(absl::Span<void*> batch,
     batch.remove_prefix(cache_writes);
   }
 
+  if (batch.empty()) {
+    return true;
+  }
+
+  // Avoid loading first_page_, since we can infer it from the pointer.  It is
+  // uniform across all objects in batch.
+  const uintptr_t start =
+      reinterpret_cast<uintptr_t>(batch[0]) & ~(kPageSize - 1);
+#ifndef NDEBUG
+  for (int i = 1; i < batch.size(); ++i) {
+    TC_ASSERT_EQ(start,
+                 reinterpret_cast<uintptr_t>(batch[i]) & ~(kPageSize - 1));
+  }
+#endif
+
   for (void* ptr : batch) {
     const ObjIdx idx = PtrToIdx(ptr, size);
 
@@ -443,8 +458,6 @@ inline bool Span::ListPushBatch(absl::Span<void*> batch,
         // -1 because the first slot is used by freelist link.
         ABSL_PREDICT_TRUE(embed_count_ != size / sizeof(ObjIdx) - 1)) {
       // Push onto the first object on freelist.
-      // Avoid loading first_page_, we we can infer it from the pointer;
-      uintptr_t start = reinterpret_cast<uintptr_t>(ptr) & ~(kPageSize - 1);
       ObjIdx* __restrict host = IdxToPtr(freelist_, size, start);
       embed_count_++;
       host[embed_count_] = idx;
