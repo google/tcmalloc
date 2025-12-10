@@ -138,6 +138,7 @@ void MismatchedSizedDelete(size_t allocated, size_t deallocated) {
 
 TEST(MemoryErrorsFuzzTest, MismatchedSizedDeleteRegression) {
   MismatchedSizedDelete(7947537452012049129, 0);
+  MismatchedSizedDelete(549755813888, 15561727408584254371ull);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedSizedDelete);

@@ -45,20 +45,8 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
 
   size_t maximum_size;
   if (allocated_size.value_or(requested_size) != requested_size) {
-    TC_LOG(
-        "Mismatched-size-delete "
-        "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
-        "of %v bytes (expected %v - %v bytes) at:",
-        size, requested_size, *allocated_size);
-
     maximum_size = *allocated_size;
   } else {
-    TC_LOG(
-        "Mismatched-size-delete "
-        "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
-        "of %v bytes (expected %v bytes) at:",
-        size, requested_size);
-
     maximum_size = requested_size;
   }
   static void* stack[kMaxStackDepth];
@@ -70,7 +58,20 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
       size, size, requested_size, maximum_size,
       absl::MakeSpan(alloc.sampled_stack.stack, alloc.sampled_stack.depth),
       absl::MakeSpan(stack, depth));
-  abort();
+
+  if (allocated_size.value_or(requested_size) != requested_size) {
+    TC_BUG(
+        "Mismatched-size-delete "
+        "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
+        "of %v bytes (expected %v - %v bytes) at:",
+        size, requested_size, *allocated_size);
+  } else {
+    TC_BUG(
+        "Mismatched-size-delete "
+        "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
+        "of %v bytes (expected %v bytes) at:",
+        size, requested_size);
+  }
 }
 
 [[noreturn]]
@@ -93,12 +94,6 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(Static& state,
 
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
 
-  TC_LOG(
-      "Mismatched-size-delete "
-      "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
-      "of %v bytes (expected between [%v, %v] bytes) for %p at:",
-      size, minimum_size, maximum_size, ptr);
-
   static void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
   PrintStackTrace(stack, depth);
@@ -108,7 +103,11 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(Static& state,
                                         /*provided_max=*/size, minimum_size,
                                         maximum_size, std::nullopt,
                                         absl::MakeSpan(stack, depth));
-  abort();
+  TC_BUG(
+      "Mismatched-size-delete "
+      "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
+      "of %v bytes (expected between [%v, %v] bytes) for %p at:",
+      size, minimum_size, maximum_size, ptr);
 }
 
 [[noreturn]]
@@ -123,6 +122,15 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedSizeClass(Static& state,
 
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
   TC_LOG(
+      "NOTE: The blamed stack trace that is about to crash is not likely the "
+      "root cause of the issue. We are detecting the invalid deletion at a "
+      "later point in time and different code location.");
+  RecordCrash("GWP-ASan", "mismatched-size-class");
+
+  state.gwp_asan_state().RecordMismatch(object_min_size, object_max_size,
+                                        page_min_size, page_max_size,
+                                        std::nullopt, std::nullopt);
+  TC_BUG(
       "Mismatched-size-class "
       "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
       "discovered for pointer %p: this pointer was recently freed "
@@ -132,16 +140,6 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedSizeClass(Static& state,
       "of an application bug such as buffer overrun/underrun, use-after-free "
       "or double-free.",
       object, object_min_size, object_max_size, page_min_size, page_max_size);
-  TC_LOG(
-      "NOTE: The blamed stack trace that is about to crash is not likely the "
-      "root cause of the issue. We are detecting the invalid deletion at a "
-      "later point in time and different code location.");
-  RecordCrash("GWP-ASan", "mismatched-size-class");
-
-  state.gwp_asan_state().RecordMismatch(object_min_size, object_max_size,
-                                        page_min_size, page_max_size,
-                                        std::nullopt, std::nullopt);
-  abort();
 }
 
 [[noreturn]]
