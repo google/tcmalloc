@@ -533,13 +533,6 @@ class MallocExtension final {
   // ActivateGuardedSampling).
   static void SetGuardedSamplingInterval(int64_t interval);
 
-  // The old names to get and set profile sampling intervals used "rate" to
-  // refer to intervals. Use of the below is deprecated to avoid confusion.
-  ABSL_DEPRECATE_AND_INLINE()
-  static void SetGuardedSamplingRate(int64_t rate) {
-    SetGuardedSamplingInterval(rate);
-  }
-
   // Switches TCMalloc to guard sampled allocations for underflow, overflow, and
   // use-after-free according to the guarded sample parameter value.
   static void ActivateGuardedSampling();
