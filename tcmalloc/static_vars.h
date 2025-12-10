@@ -30,6 +30,7 @@
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/deallocation_profiler.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
@@ -57,22 +58,21 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-class CpuCache;
 class PageMap;
 class ThreadCache;
 
 using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
     SampledAllocation, MetadataObjectAllocator<SampledAllocation>>;
 
-enum class SizeClassConfiguration {
-  kPow2Only = 2,
-  kLegacy = 4,
-  kReuse = 6,
-};
-
 class Static final {
  public:
   constexpr Static() = default;
+
+  // Non-copyable/movable.
+  Static(const Static&) = delete;
+  Static(Static&&) = delete;
+  Static& operator=(const Static&) = delete;
+  Static& operator=(Static&&) = delete;
 
   // True if InitIfNecessary() has run to completion.
   static bool IsInited();
@@ -95,7 +95,7 @@ class Static final {
 
   static SizeMap& sizemap() { return sizemap_; }
 
-  static CpuCache& cpu_cache() { return cpu_cache_; }
+  auto& cpu_cache() { return cpu_cache_; }
 
   static PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
 
@@ -220,7 +220,7 @@ class Static final {
   TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT static TransferCacheManager
       transfer_cache_;
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
-  static CpuCache cpu_cache_;
+  ABSL_CONST_INIT static CpuCache<Static> cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static MetadataObjectAllocator<SampledAllocation>
       sampledallocation_allocator_;

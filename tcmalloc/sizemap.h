@@ -42,8 +42,13 @@ extern const SizeClasses kSizeClasses;
 // Experimental size classes:
 extern const SizeClasses kExperimentalPow2SizeClasses;
 extern const SizeClasses kLegacySizeClasses;
-extern const SizeClasses kLowFragSizeClasses;
 extern const SizeClasses kReuseSizeClasses;
+
+enum class SizeClassConfiguration {
+  kPow2Only = 2,
+  kLegacy = 4,
+  kReuse = 6,
+};
 
 // Size-class information + mapping
 class SizeMap {

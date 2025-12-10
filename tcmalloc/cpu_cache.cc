@@ -29,6 +29,7 @@
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/thread_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

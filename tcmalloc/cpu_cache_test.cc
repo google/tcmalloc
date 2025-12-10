@@ -165,6 +165,11 @@ class TestStaticForwarder {
 
   bool reuse_size_classes() const { return true; }
 
+  const SizeMap& sizemap() const {
+    TC_CHECK(size_map_.has_value());
+    return *size_map_;
+  }
+
   size_t class_to_size(int size_class) const {
     if (size_map_.has_value()) {
       return size_map_->class_to_size(size_class);
@@ -223,6 +228,16 @@ class TestStaticForwarder {
 
   bool HaveHooks() const {
     // TODO(b/242550501): Test other states.
+    return false;
+  }
+
+  auto active_partitions() const {
+    // TODO(b/446814339): Test other states.
+    return 1u;
+  }
+
+  bool multiple_non_numa_partitions() const {
+    // TODO(b/446814339): Test other states.
     return false;
   }
 

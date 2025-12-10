@@ -53,10 +53,10 @@
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal/util.h"
+#include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/static_vars.h"
-#include "tcmalloc/thread_cache.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/transfer_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -90,45 +90,48 @@ constexpr inline uint8_t kTotalPossibleSlabs =
 //
 // This is a class, rather than namespaced globals, so that it can be mocked for
 // testing.
+template <typename State>
 class StaticForwarder {
  public:
-  [[nodiscard]] static void* absl_nonnull Alloc(size_t size,
-                                                std::align_val_t alignment)
+  constexpr explicit StaticForwarder(State& state) : state_(state) {}
+
+  [[nodiscard]] void* absl_nonnull Alloc(size_t size,
+                                         std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(tc_globals.IsInited());
+    TC_ASSERT(state_.IsInited());
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
-    return tc_globals.arena().Alloc(size, alignment);
+    return state_.arena().Alloc(size, alignment);
   }
-  [[nodiscard]] static void* absl_nonnull AllocReportedImpending(
+  [[nodiscard]] void* absl_nonnull AllocReportedImpending(
       size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(tc_globals.IsInited());
+    TC_ASSERT(state_.IsInited());
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     // Negate previous update to allocated that accounted for this allocation.
-    tc_globals.arena().UpdateAllocatedAndNonresident(
-        -static_cast<int64_t>(size), 0);
-    return tc_globals.arena().Alloc(size, alignment);
+    state_.arena().UpdateAllocatedAndNonresident(-static_cast<int64_t>(size),
+                                                 0);
+    return state_.arena().Alloc(size, alignment);
   }
 
-  static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
+  void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
     TC_ASSERT(false);
   }
 
-  static void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
-                                                 int64_t nonresident)
+  void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
+                                          int64_t nonresident)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(tc_globals.IsInited());
+    TC_ASSERT(state_.IsInited());
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     if (allocated > 0) {
-      tc_globals.page_allocator().ShrinkToUsageLimit(Length(allocated));
+      state_.page_allocator().ShrinkToUsageLimit(Length(allocated));
     }
-    tc_globals.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
+    state_.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
 
   static bool per_cpu_caches_dynamic_slab_enabled() {
@@ -143,63 +146,62 @@ class StaticForwarder {
     return Parameters::per_cpu_caches_dynamic_slab_shrink_threshold();
   }
 
-  static bool reuse_size_classes() {
-    return tc_globals.size_class_configuration() ==
-           SizeClassConfiguration::kReuse;
+  bool reuse_size_classes() const {
+    return state_.size_class_configuration() == SizeClassConfiguration::kReuse;
   }
 
-  static size_t class_to_size(int size_class) {
-    return tc_globals.sizemap().class_to_size(size_class);
+  size_t class_to_size(int size_class) const {
+    return state_.sizemap().class_to_size(size_class);
   }
 
-  static absl::Span<const size_t> cold_size_classes() {
-    return tc_globals.sizemap().ColdSizeClasses();
+  absl::Span<const size_t> cold_size_classes() const {
+    return state_.sizemap().ColdSizeClasses();
   }
 
-  static size_t num_objects_to_move(int size_class) {
-    return tc_globals.sizemap().num_objects_to_move(size_class);
+  size_t num_objects_to_move(int size_class) const {
+    return state_.sizemap().num_objects_to_move(size_class);
   }
 
-  static const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
-    return tc_globals.numa_topology();
+  const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
+    return state_.numa_topology();
   }
 
-  static ShardedTransferCacheManager& sharded_transfer_cache() {
-    return tc_globals.sharded_transfer_cache();
+  ShardedTransferCacheManager& sharded_transfer_cache() {
+    return state_.sharded_transfer_cache();
   }
 
-  static TransferCacheManager& transfer_cache() {
-    return tc_globals.transfer_cache();
+  const ShardedTransferCacheManager& sharded_transfer_cache() const {
+    return state_.sharded_transfer_cache();
   }
 
-  static bool UseGenericShardedCache() {
-    return tc_globals.sharded_transfer_cache().UseGenericCache();
+  TransferCacheManager& transfer_cache() { return state_.transfer_cache(); }
+
+  bool UseGenericShardedCache() const {
+    return state_.sharded_transfer_cache().UseGenericCache();
   }
 
-  static bool UseShardedCacheForLargeClassesOnly() {
-    return tc_globals.sharded_transfer_cache().UseCacheForLargeClassesOnly();
+  bool UseShardedCacheForLargeClassesOnly() const {
+    return state_.sharded_transfer_cache().UseCacheForLargeClassesOnly();
   }
 
-  static bool UseWiderSlabs() {
+  bool UseWiderSlabs() const {
     // We use wider 512KiB slab only when partitioning is not enabled. NUMA
     // and security partitions increase shift by 1 by itself, so we can not
     // increase it further.
-    return tc_globals.active_partitions() == 1;
+    return state_.active_partitions() == 1;
   }
 
-  static bool HaveHooks() { return tc_globals.HaveHooks(); }
+  bool HaveHooks() const { return state_.HaveHooks(); }
+
+  auto active_partitions() const { return state_.active_partitions(); }
+
+  bool multiple_non_numa_partitions() const {
+    return state_.multiple_non_numa_partitions();
+  }
+
+ private:
+  State& state_;
 };
-
-template <typename NumaTopology>
-uint8_t PartitionShift(const NumaTopology& topology) {
-  TC_ASSERT(
-      !(topology.numa_aware() && tc_globals.multiple_non_numa_partitions()),
-      "NUMA-awareness should never be enabled with non-NUMA partitions.");
-  if (tc_globals.active_partitions() > 1) {
-    return absl::bit_ceil(tc_globals.active_partitions() - 1);
-  }
-  return 0;
-}
 
 // Translates from a shift value to the offset of that shift in arrays of
 // possible shift values.
@@ -310,7 +312,9 @@ class CpuCache {
   // Sets the lower limit on the capacity that can be stolen from the cpu cache.
   static constexpr double kCacheCapacityThreshold = 0.20;
 
-  constexpr CpuCache() = default;
+  template <typename... Args>
+  explicit constexpr CpuCache(Args&&... u)
+      : forwarder_(std::forward<Args>(u)...){};
 
   // tcmalloc explicitly initializes its global state (to be safe for
   // use in global constructors) so our constructor must be trivial;
@@ -710,6 +714,8 @@ class CpuCache {
   // madvise-away slab memory, pointed to by <slab_addr> of size <slab_size>.
   void MadviseAwaySlabs(void* slab_addr, size_t slab_size);
 
+  uint8_t PartitionShift() const;
+
   Freelist freelist_;
 
   // Tracking data for each CPU's cache resizing efforts.
@@ -965,8 +971,7 @@ inline void CpuCache<Forwarder>::Activate() {
                               ? kInitialBasePerCpuShift
                               : kMaxBasePerCpuShift;
 
-  const auto& topology = forwarder_.numa_topology();
-  const uint8_t partition_shift = PartitionShift(topology);
+  const uint8_t partition_shift = PartitionShift();
   const uint8_t wider_slab_shift = UseWiderSlabs() ? 1 : 0;
 
   shift_bounds_.initial_shift += partition_shift + wider_slab_shift;
@@ -982,7 +987,7 @@ inline void CpuCache<Forwarder>::Activate() {
   // Deal with size classes that correspond only to partitions that are in
   // use. If NUMA awareness and security partitions are disabled then we may
   // have a smaller shift than would suffice for all of the unused size classes.
-  const int num_size_classes = tc_globals.active_partitions() * kNumBaseClasses;
+  const int num_size_classes = forwarder_.active_partitions() * kNumBaseClasses;
   for (int size_class = 0; size_class < num_size_classes; ++size_class) {
     max_capacity_[size_class].store(MaxCapacity(size_class),
                                     std::memory_order_relaxed);
@@ -1023,14 +1028,17 @@ inline void CpuCache<Forwarder>::Activate() {
     resize_[cpu].capacity.store(max_cache_size, std::memory_order_relaxed);
   }
 
-  void* slabs =
-      AllocOrReuseSlabs(&forwarder_.Alloc,
-                        subtle::percpu::ToShiftType(per_cpu_shift), num_cpus,
-                        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
-                        /*resize_offset=*/0)
-          .first;
+  auto Alloc = [&](size_t size, std::align_val_t alignment) {
+    return forwarder_.Alloc(size, alignment);
+  };
+
+  void* slabs = AllocOrReuseSlabs(
+                    Alloc, subtle::percpu::ToShiftType(per_cpu_shift), num_cpus,
+                    ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
+                    /*resize_offset=*/0)
+                    .first;
   freelist_.Init(
-      &forwarder_.Alloc, slabs,
+      Alloc, slabs,
       GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
       subtle::percpu::ToShiftType(per_cpu_shift));
 }
@@ -2670,6 +2678,17 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
 }
 
 template <class Forwarder>
+inline uint8_t CpuCache<Forwarder>::PartitionShift() const {
+  TC_ASSERT(!(forwarder_.numa_topology().numa_aware() &&
+              forwarder_.multiple_non_numa_partitions()),
+            "NUMA-awareness should never be enabled with non-NUMA partitions.");
+  if (forwarder_.active_partitions() > 1) {
+    return absl::bit_ceil(forwarder_.active_partitions() - 1);
+  }
+  return 0;
+}
+
+template <class Forwarder>
 inline void CpuCache<Forwarder>::PerClassResizeInfo::Init() {
   state_.store(0, std::memory_order_relaxed);
 }
@@ -2761,10 +2780,12 @@ void CpuCache<Forwarder>::PerClassResizeInfo::UpdateIntervalMisses(
 
 }  // namespace cpu_cache_internal
 
-// Static forward declares CpuCache to avoid a cycle in headers.  Make
-// "CpuCache" be non-templated to avoid breaking that forward declaration.
-class CpuCache final
-    : public cpu_cache_internal::CpuCache<cpu_cache_internal::StaticForwarder> {
+template <typename State>
+class CpuCache final : public cpu_cache_internal::CpuCache<
+                           cpu_cache_internal::StaticForwarder<State>> {
+ public:
+  using cpu_cache_internal::CpuCache<
+      cpu_cache_internal::StaticForwarder<State>>::CpuCache;
 };
 
 template <typename State>
@@ -2791,7 +2812,7 @@ inline bool UsePerCpuCache(State& state) {
   // onto the slow path until this occurs.  See fast_alloc's use of
   // TryRecordAllocationFast.
   if (ABSL_PREDICT_TRUE(subtle::percpu::IsFast())) {
-    ThreadCache::BecomeIdle();
+    MallocExtension_Internal_MarkThreadIdle();
     return true;
   }
 

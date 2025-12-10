@@ -75,7 +75,8 @@ TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT TransferCacheManager
     Static::transfer_cache_;
 ABSL_CONST_INIT ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
-ABSL_CONST_INIT CpuCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
+ABSL_CONST_INIT CpuCache<Static> ABSL_CACHELINE_ALIGNED Static::cpu_cache_{
+    tc_globals};
 ABSL_CONST_INIT MetadataObjectAllocator<SampledAllocation>
     Static::sampledallocation_allocator_{arena_};
 ABSL_CONST_INIT MetadataObjectAllocator<Span> Static::span_allocator_{arena_};

@@ -40,7 +40,7 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
     return;
   }
 
-  CpuCache& cache = tc_globals.cpu_cache();
+  auto& cache = tc_globals.cpu_cache();
 
   absl::Notification done;
 
