@@ -47,7 +47,10 @@ class AllocationGuard {
 
  private:
   static void Hook(const MallocHook::NewInfo& info) {
-    if (disallowed_ > 0) abort();
+    if (disallowed_ > 0) {
+      (void)MallocHook::RemoveNewHook(Hook);
+      abort();
+    }
   }
 
   ABSL_CONST_INIT static thread_local int disallowed_;
