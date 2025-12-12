@@ -734,6 +734,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     goto overflow_label;
   }
 #endif
+
+  PrefetchSlabMemory(reinterpret_cast<uintptr_t>(region_start) +
+                     scratch * sizeof(void*));
   return true;
 overflow_label:
   return false;
@@ -937,6 +940,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   }
 #endif
   TSANAcquire(result);
+  PrefetchSlabMemory(reinterpret_cast<uintptr_t>(region_start) +
+                     (scratch - 2) * sizeof(void*));
   PrefetchNextObject(prefetch);
   return AssumeNotNull(result);
 underflow_path:
