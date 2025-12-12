@@ -57,7 +57,8 @@ bool preferential_collapse() {
   ABSL_CONST_INIT static bool preferential_collapse = false;
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     if (!IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_PREFERENTIAL_COLLAPSE)) {
+            Experiment::TEST_ONLY_TCMALLOC_PREFERENTIAL_COLLAPSE) &&
+        !IsExperimentActive(Experiment::TCMALLOC_PREFERENTIAL_COLLAPSE)) {
       preferential_collapse = false;
       return;
     }
