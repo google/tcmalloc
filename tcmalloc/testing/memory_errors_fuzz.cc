@@ -53,6 +53,9 @@ void WildPointerUnsizedDelete(uintptr_t ptr) {
 
 TEST(MemoryErrorsFuzzTest, WildPointerUnsizedDeleteRegression) {
   WildPointerUnsizedDelete(0);
+  WildPointerUnsizedDelete(1);
+  WildPointerUnsizedDelete(5351867499084745203ull);
+  WildPointerUnsizedDelete(5351867499084745200ull);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerUnsizedDelete);

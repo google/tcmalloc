@@ -184,14 +184,7 @@ class PageMap2 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // REQUIRES: Must be a valid page number previously Ensure()d.
-  //
-  // clang does not correctly optimize out the array bounds check,
-  // leading to high overhead. Disable UBSan to avoid the performance
-  // regression.
-  // TODO(b/323587189): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
-  // optimizes out the array bounds check.
   CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
-      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
       sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);

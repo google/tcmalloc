@@ -720,29 +720,6 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align);
 
 bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
-template <typename Policy>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
-  // TODO(b/404341539):  Improve the bound.
-  TC_ASSERT(CorrectAlignment(ptr, static_cast<std::align_val_t>(1)));
-
-  if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
-    return;
-  }
-  TC_ASSERT_NE(ptr, nullptr);
-
-  // ptr must be a result of a previous malloc/memalign/... call, and
-  // therefore static initialization must have already occurred.
-  TC_ASSERT(tc_globals.IsInited());
-
-  size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
-  if (ABSL_PREDICT_TRUE(size_class != 0)) {
-    FreeSmall(ptr, std::nullopt, size_class);
-  } else {
-    SLOW_PATH_BARRIER();
-    InvokeHooksAndFreePages(ptr, std::nullopt, policy);
-  }
-}
-
 static constexpr uintptr_t kBadDeallocationHighMask =
     ~((uintptr_t{1} << kAddressBits) - 1u);
 static constexpr uintptr_t kBadAlignmentMask =
@@ -756,6 +733,72 @@ static_assert((static_cast<uintptr_t>(MemoryTag::kNormal) &
 
 static constexpr uintptr_t kNormalOrBadDeallocationMask =
     kBadDeallocationHighMask | kNormalMask | kBadAlignmentMask;
+
+template <typename Policy>
+ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
+                                                              Policy policy) {
+  const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
+
+  if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
+    ReportCorruptedFree(tc_globals, ptr);
+  }
+  // kNormal allocations should not be misaligned.  GWP-ASan may deliberately
+  // misalign small allocations, but they will appear as kSampled.
+  if (ABSL_PREDICT_FALSE(uptr & kBadAlignmentMask) &&
+      GetMemoryTag(ptr) != MemoryTag::kSampled) {
+    ReportCorruptedFree(tc_globals, kAlignment, ptr);
+  }
+
+  // TODO(b/457842787): Use an alternative sizeclass() method that checks for
+  // nullptr in leaves or otherwise intercept nullptr SIGSEGV if here.
+  size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
+  if (ABSL_PREDICT_TRUE(size_class != 0)) {
+    FreeSmall(ptr, std::nullopt, size_class);
+  } else {
+    SLOW_PATH_BARRIER();
+    InvokeHooksAndFreePages(ptr, std::nullopt, policy);
+  }
+}
+
+template <typename Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
+  // TODO(b/404341539):  Improve the bound.
+  TC_ASSERT(CorrectAlignment(ptr, static_cast<std::align_val_t>(1)));
+
+  // We need to check for nullptr to avoid a PageMap walk that will not find a
+  // leaf successfully (and segfault).  We overload this check because most
+  // objects will be tagged kNormal/kNormalP1, allowing us to keep most
+  // deallocations on the fast path with only 1 branch.
+  //
+  // For more rare cases (actual bugs, non-normal, etc.), we can go to a
+  // slightly slower path to handle those, in order to look for clearly
+  // erroneous pointers.
+  const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
+  if (ABSL_PREDICT_FALSE((uptr & kNormalOrBadDeallocationMask) !=
+                         kNormalMask)) {
+    if (ABSL_PREDICT_TRUE(ptr == nullptr)) {
+      return;
+    }
+
+    do_unsized_free_irregular(ptr, policy);
+    return;
+  }
+  TC_ASSERT_NE(ptr, nullptr);
+
+  // ptr must be a result of a previous malloc/memalign/... call, and
+  // therefore static initialization must have already occurred.
+  TC_ASSERT(tc_globals.IsInited());
+
+  // TODO(b/457842787): Use an alternative sizeclass() method that checks for
+  // nullptr in leaves or otherwise intercept nullptr SIGSEGV if here.
+  size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
+  if (ABSL_PREDICT_TRUE(size_class != 0)) {
+    FreeSmall(ptr, std::nullopt, size_class);
+  } else {
+    SLOW_PATH_BARRIER();
+    InvokeHooksAndFreePages(ptr, std::nullopt, policy);
+  }
+}
 
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,

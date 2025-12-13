@@ -847,6 +847,21 @@ TEST_F(TcMallocTest, CorruptedPointer) {
   }
 }
 
+TEST_F(TcMallocTest, CorruptedPointerEdgeCases) {
+  EXPECT_DEATH(
+      {
+        ScopedProfileSamplingInterval sampling(0);
+
+        for (size_t i = 0; i < 10000; ++i) {
+          char* ptr = static_cast<char*>(::operator new(8, hot_cold_t{0}));
+          ::operator delete(ptr + 1);
+        }
+      },
+      absl::StrCat("(attempting free on address which was not "
+                   "malloc)|(alloc-dealloc-mismatch.*INVALID)|"
+                   "(Attempted to free corrupted pointer)"));
+}
+
 TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
   ScopedAlwaysSample always_sample;
 
@@ -1076,9 +1091,15 @@ TEST_F(TcMallocTest, NeverAllocatedPointerHighBits) {
   static_assert(absl::bit_width(kAddress) > tcmalloc_internal::kAddressBits);
   void* ptr = absl::bit_cast<void*>(kAddress);
 
-  // TODO(b/406313446): Exercise `operator delete(ptr)` too.  Unsized delete
-  // accesses PageMap::sizeclass, which suppresses bounds checks under
-  // -fsanitize=array-bounds, so this can fail in unusual ways.
+  EXPECT_DEATH(
+      { ::operator delete(ptr); },
+      absl::StrCat(
+#ifndef NDEBUG
+          "(CHECK in get_existing_with_sizeclass)|"
+#endif
+          "(Attempted to free corrupted pointer 0xdeadbeef0000000: It was "
+          "never allocated or TCMalloc metadata has been corrupted",
+          ")"));
 
   EXPECT_DEATH(
       { ::operator delete(ptr, 8); },
