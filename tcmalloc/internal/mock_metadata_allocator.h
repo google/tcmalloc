@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_MOCK_METADATA_ALLOCATOR_H_
-#define TCMALLOC_MOCK_METADATA_ALLOCATOR_H_
+#ifndef TCMALLOC_INTERNAL_MOCK_METADATA_ALLOCATOR_H_
+#define TCMALLOC_INTERNAL_MOCK_METADATA_ALLOCATOR_H_
 
 #include <cstdlib>
 #include <vector>
@@ -43,4 +43,4 @@ class FakeMetadataAllocator final : public MetadataAllocator {
 
 }  // namespace tcmalloc::tcmalloc_internal
 
-#endif  // TCMALLOC_MOCK_METADATA_ALLOCATOR_H_
+#endif  // TCMALLOC_INTERNAL_MOCK_METADATA_ALLOCATOR_H_

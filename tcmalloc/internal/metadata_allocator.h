@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_METADATA_ALLOCATOR_H_
-#define TCMALLOC_METADATA_ALLOCATOR_H_
+#ifndef TCMALLOC_INTERNAL_METADATA_ALLOCATOR_H_
+#define TCMALLOC_INTERNAL_METADATA_ALLOCATOR_H_
 
 #include <cstddef>
 
@@ -41,4 +41,4 @@ class MetadataAllocator {
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_METADATA_ALLOCATOR_H_
+#endif  // TCMALLOC_INTERNAL_METADATA_ALLOCATOR_H_
