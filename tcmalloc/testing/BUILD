@@ -166,8 +166,10 @@ cc_test(
         "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:memory_tag",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/numeric:bits",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:init_fuzztest",
         "@com_google_googletest//:gtest",

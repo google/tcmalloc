@@ -1339,6 +1339,32 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewAlignedNothrow(
   return fast_alloc(size, CppPolicy().Nothrow().AlignAs(alignment));
 }
 
+extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewHotCold(
+    size_t size, tcmalloc::hot_cold_t hot_cold) {
+  return fast_alloc(size, CppPolicy().AccessAs(hot_cold));
+}
+
+extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewAlignedHotCold(
+    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold) {
+  TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
+  return fast_alloc(size, CppPolicy().AlignAs(alignment).AccessAs(hot_cold));
+}
+
+extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewHotColdNothrow(
+    size_t size, const std::nothrow_t&,
+    tcmalloc::hot_cold_t hot_cold) noexcept {
+  return fast_alloc(size, CppPolicy().Nothrow().AccessAs(hot_cold));
+}
+
+extern "C" ABSL_CACHELINE_ALIGNED void*
+TCMallocInternalNewAlignedHotColdNothrow(
+    size_t size, std::align_val_t alignment, const std::nothrow_t&,
+    tcmalloc::hot_cold_t hot_cold) noexcept {
+  TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
+  return fast_alloc(
+      size, CppPolicy().AlignAs(alignment).Nothrow().AccessAs(hot_cold));
+}
+
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
     size_t n, size_t elem_size) noexcept {
   size_t size;
@@ -1565,6 +1591,24 @@ extern "C" void* TCMallocInternalNewArrayNothrow(
 extern "C" void* TCMallocInternalNewArrayAlignedNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t& nt) noexcept
     TCMALLOC_ALIAS(TCMallocInternalNewAlignedNothrow);
+
+extern "C" void* TCMallocInternalNewArrayHotCold(size_t size,
+                                                 tcmalloc::hot_cold_t hot_cold)
+    TCMALLOC_ALIAS(TCMallocInternalNewHotCold);
+
+extern "C" void* TCMallocInternalNewArrayAlignedHotCold(
+    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold)
+    TCMALLOC_ALIAS(TCMallocInternalNewAlignedHotCold);
+
+extern "C" void* TCMallocInternalNewArrayHotColdNothrow(
+    size_t size, const std::nothrow_t& nt,
+    tcmalloc::hot_cold_t hot_cold) noexcept
+    TCMALLOC_ALIAS(TCMallocInternalNewHotColdNothrow);
+
+extern "C" void* TCMallocInternalNewArrayAlignedHotColdNothrow(
+    size_t size, std::align_val_t alignment, const std::nothrow_t& nt,
+    tcmalloc::hot_cold_t hot_cold) noexcept
+    TCMALLOC_ALIAS(TCMallocInternalNewAlignedHotColdNothrow);
 
 extern "C" void TCMallocInternalDeleteArray(void* p) noexcept
     TCMALLOC_ALIAS(TCMallocInternalDelete);

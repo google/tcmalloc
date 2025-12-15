@@ -14,19 +14,24 @@
 
 #include <setjmp.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <optional>
 
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "fuzztest/init_fuzztest.h"
 #include "absl/base/casts.h"
+#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal_malloc_extension.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/tcmalloc.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -145,6 +150,77 @@ TEST(MemoryErrorsFuzzTest, MismatchedSizedDeleteRegression) {
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedSizedDelete);
+
+void MisalignedPointer(size_t size, std::optional<hot_cold_t> hot_cold,
+                       std::optional<std::align_val_t> alignment,
+                       std::align_val_t misalignment, bool sized) {
+  GTEST_SKIP() << "Skipping";
+
+  if (alignment.has_value() &&
+      !absl::has_single_bit(static_cast<size_t>(*alignment))) {
+    // Ill-formed alignment.
+    return;
+  }
+
+  void* ptr;
+  if (hot_cold.has_value()) {
+    if (alignment.has_value()) {
+      ptr = TCMallocInternalNewAlignedHotColdNothrow(size, *alignment,
+                                                     std::nothrow, *hot_cold);
+    } else {
+      ptr = TCMallocInternalNewHotColdNothrow(size, std::nothrow, *hot_cold);
+    }
+  } else {
+    if (alignment.has_value()) {
+      ptr = TCMallocInternalNewAlignedNothrow(size, *alignment, std::nothrow);
+    } else {
+      ptr = TCMallocInternalNewNothrow(size, std::nothrow);
+    }
+  }
+  if (ptr == nullptr) {
+    return;
+  }
+
+  misalignment =
+      std::min(misalignment,
+               static_cast<std::align_val_t>(
+                   static_cast<size_t>(alignment.value_or(kAlignment)) - 1u));
+  char* misaligned =
+      static_cast<char*>(ptr) + static_cast<size_t>(misalignment);
+
+  LongJmpScope scope;
+  if (setjmp(scope.buf_)) {
+    return;
+  }
+
+  if (alignment.has_value()) {
+    if (sized) {
+      TCMallocInternalDeleteSizedAligned(misaligned, size, *alignment);
+    } else {
+      TCMallocInternalDeleteAligned(misaligned, *alignment);
+    }
+  } else {
+    if (sized) {
+      TCMallocInternalDeleteSized(misaligned, size);
+    } else {
+      TCMallocInternalDelete(misaligned);
+    }
+  }
+  EXPECT_EQ(misalignment, std::align_val_t{0});
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, MisalignedPointer)
+    .WithDomains(
+        fuzztest::Arbitrary<size_t>(),
+        fuzztest::OptionalOf(
+            fuzztest::Map([](uint8_t v) { return static_cast<hot_cold_t>(v); },
+                          fuzztest::Arbitrary<uint8_t>())),
+        fuzztest::OptionalOf(fuzztest::Map(
+            [](size_t v) { return static_cast<std::align_val_t>(1ULL << v); },
+            fuzztest::InRange<size_t>(0, kHugePageShift))),
+        fuzztest::Map([](size_t v) { return static_cast<std::align_val_t>(v); },
+                      fuzztest::Arbitrary<size_t>()),
+        fuzztest::Arbitrary<bool>());
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

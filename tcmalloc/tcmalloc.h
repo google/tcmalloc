@@ -120,6 +120,19 @@ ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewNothrow(
 ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewAlignedNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewHotCold(
+    size_t size, tcmalloc::hot_cold_t hot_cold)
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewAlignedHotCold(
+    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold)
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewHotColdNothrow(
+    size_t size, const std::nothrow_t&, tcmalloc::hot_cold_t hot_cold) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewAlignedHotColdNothrow(
+    size_t size, std::align_val_t alignment, const std::nothrow_t&,
+    tcmalloc::hot_cold_t hot_cold) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
 ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDelete(void* p) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteAligned(
@@ -148,6 +161,25 @@ ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayNothrow(
 ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayAlignedNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
+
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayHotCold(
+    size_t size, tcmalloc::hot_cold_t hot_cold)
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayAlignedHotCold(
+    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold)
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayHotColdNothrow(
+    size_t size, const std::nothrow_t& nt,
+    tcmalloc::hot_cold_t hot_cold) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayAlignedHotColdNothrow(
+    size_t size, std::align_val_t alignment, const std::nothrow_t& nt,
+    tcmalloc::hot_cold_t hot_cold) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+
 ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArray(void* p) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArrayAligned(
