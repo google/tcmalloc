@@ -163,7 +163,8 @@ class CentralFreeList {
   // Release a batch of objects to a span.
   //
   // Returns object's span if it become completely free.
-  Span* absl_nullable ReleaseToSpans(absl::Span<void* absl_nonnull> batch,
+  template <typename T>
+  Span* absl_nullable ReleaseToSpans(absl::Span<T> batch,
                                      Span* absl_nonnull span,
                                      size_t object_size,
                                      uint32_t size_reciprocal)
@@ -358,8 +359,9 @@ inline void CentralFreeList<Forwarder>::Init(
 }
 
 template <class Forwarder>
+template <typename T>
 inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
-    absl::Span<void*> batch, Span* span, size_t object_size,
+    absl::Span<T> batch, Span* span, size_t object_size,
     uint32_t size_reciprocal) {
   if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
     const uint8_t index = GetFirstNonEmptyIndex();
@@ -475,6 +477,22 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     return;
   }
 
+  // Use local copy of variables to ensure that they are not reloaded.
+  const size_t object_size = object_size_;
+  const uint32_t size_reciprocal = size_reciprocal_;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  Span::ObjIdx idx[kMaxObjectsToMove];
+  if (Span::UseBitmapForSize(object_size)) {
+    for (int i = 0; i < batch.size(); ++i) {
+      idx[i] = spans[i]->BitmapPtrToIdx(batch[i], object_size, size_reciprocal);
+    }
+  } else {
+    for (int i = 0; i < batch.size(); ++i) {
+      idx[i] = spans[i]->PtrToIdx(batch[i], object_size);
+    }
+  }
+#endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
+
   // Safe to store free spans into freed up space in span array.
   Span** free_spans = spans;
   int free_count = 0;
@@ -482,13 +500,15 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // Then, release all individual objects into spans under our mutex
   // and collect spans that become completely free.
   {
-    // Use local copy of variables to ensure that they are not reloaded.
-    size_t object_size = object_size_;
-    uint32_t size_reciprocal = size_reciprocal_;
     absl::base_internal::SpinLockHolder h(lock_);
     for (int i = 0; i < batch.size(); ++i) {
-      Span* span = ReleaseToSpans({&batch[i], 1}, spans[i], object_size,
-                                  size_reciprocal);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const absl::Span<void*> b{&batch[i], 1};
+#else
+      const absl::Span<Span::ObjIdx> b{&idx[i], 1};
+#endif
+
+      Span* span = ReleaseToSpans(b, spans[i], object_size, size_reciprocal);
       if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
         free_count++;
@@ -539,6 +559,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   size_t object_size = object_size_;
   int result = 0;
   size_t num_spans = 0;
+
   absl::base_internal::SpinLockHolder h(lock_);
 
   do {
@@ -580,11 +601,13 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
     }
     result += here;
   } while (result < batch.size());
+
   TC_ASSERT_GT(num_spans, 0);
   TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
   TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
   span_allocations_tracker_[num_spans - 1].LossyAdd(1);
   UpdateObjectCounts(-result);
+
   return result;
 }
 

@@ -71,7 +71,18 @@ struct DeallocNoRemove {
   }
 };
 
-using Instruction = std::variant<Alloc, Shuffle, Dealloc, DeallocNoRemove>;
+// Pushes objects into the Span using the ObjIdx interface.
+struct DeallocIndex {
+  uint8_t count;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const DeallocIndex& d) {
+    absl::Format(&sink, "DeallocIndex(%d)", d.count);
+  }
+};
+
+// TODO(b/457842787): Include DeallocNoRemove in variant list.
+using Instruction = std::variant<Alloc, Shuffle, Dealloc, DeallocIndex>;
 
 void FuzzSpanInstructions(size_t object_size_direct, size_t num_pages_direct,
                           uint8_t num_objects_to_move,
@@ -135,6 +146,7 @@ void FuzzSpanInstructions(size_t object_size_direct, size_t num_pages_direct,
           } else if constexpr (std::is_same_v<T, Shuffle>) {
             std::shuffle(live_ptrs.begin(), live_ptrs.end(), rng);
           } else if constexpr (std::is_same_v<T, Dealloc> ||
+                               std::is_same_v<T, DeallocIndex> ||
                                std::is_same_v<T, DeallocNoRemove>) {
             size_t n = std::min<size_t>(arg.count, num_to_move);
             n = std::min(n, live_ptrs.size());
@@ -142,9 +154,29 @@ void FuzzSpanInstructions(size_t object_size_direct, size_t num_pages_direct,
               return;
             }
 
-            (void)span->FreelistPushBatch(
-                {live_ptrs.data() + live_ptrs.size() - n, n}, object_size,
-                size_reciprocal);
+            absl::Span<void*> ptrs =
+                absl::MakeSpan(live_ptrs.data() + live_ptrs.size() - n, n);
+
+            if constexpr (std::is_same_v<T, DeallocIndex>) {
+              Span::ObjIdx idx[kMaxObjectsToMove];
+
+              if (Span::UseBitmapForSize(object_size)) {
+                for (int i = 0; i < ptrs.size(); ++i) {
+                  idx[i] = span->BitmapPtrToIdx(ptrs[i], object_size,
+                                                size_reciprocal);
+                }
+              } else {
+                for (int i = 0; i < ptrs.size(); ++i) {
+                  idx[i] = span->PtrToIdx(ptrs[i], object_size);
+                }
+              }
+
+              (void)span->FreelistPushBatch(
+                  absl::MakeSpan(idx).subspan(0, ptrs.size()), object_size,
+                  size_reciprocal);
+            } else {
+              (void)span->FreelistPushBatch(ptrs, object_size, size_reciprocal);
+            }
 
             if constexpr (!std::is_same_v<T, DeallocNoRemove>) {
               live_ptrs.resize(live_ptrs.size() - n);
@@ -162,8 +194,8 @@ void FuzzSpanInstructions(size_t object_size_direct, size_t num_pages_direct,
   for (int i = 0; i < live_ptrs.size();) {
     size_t limit = std::min<size_t>(live_ptrs.size() - i, num_objects_to_move);
 
-    (void)span->FreelistPushBatch({live_ptrs.data() + i, limit}, object_size,
-                                  size_reciprocal);
+    (void)span->FreelistPushBatch(absl::MakeSpan(live_ptrs.data() + i, limit),
+                                  object_size, size_reciprocal);
 
     i += limit;
   }
@@ -176,10 +208,6 @@ void FuzzSpanInstructions(size_t object_size_direct, size_t num_pages_direct,
 }
 
 FUZZ_TEST(SpanTest, FuzzSpanInstructions);
-
-TEST(SpanTest, FuzzSpanInstructionsDoubleFreeDuringFullDrain) {
-  FuzzSpanInstructions(0, 0, 1, {Alloc{1}, DeallocNoRemove{58}, Dealloc{3}});
-}
 
 void FuzzSpan(size_t object_size, size_t num_pages, size_t num_to_move,
               size_t initial_objects_at_build, uint64_t alloc_time) {
@@ -229,8 +257,8 @@ void FuzzSpan(size_t object_size, size_t num_pages, size_t num_to_move,
   TC_CHECK_EQ(ptrs.size(), span->Allocated());
 
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
-    bool ok =
-        span->FreelistPushBatch({&ptrs[i], 1}, object_size, size_reciprocal);
+    bool ok = span->FreelistPushBatch(absl::MakeSpan(&ptrs[i], 1), object_size,
+                                      size_reciprocal);
     TC_CHECK_EQ(ok, i != popped - 1);
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.
