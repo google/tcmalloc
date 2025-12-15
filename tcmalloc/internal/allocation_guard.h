@@ -29,15 +29,16 @@ namespace tcmalloc::tcmalloc_internal {
 class AllocationGuard {
  public:
   AllocationGuard() {
-#ifndef NDEBUG
+#if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     if (disallowed_ == 0) {
       (void)MallocHook::AddNewHook(Hook);
     }
     ++disallowed_;
 #endif
   }
+
   ~AllocationGuard() {
-#ifndef NDEBUG
+#if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     --disallowed_;
     if (disallowed_ == 0) {
       (void)MallocHook::RemoveNewHook(Hook);
@@ -47,13 +48,17 @@ class AllocationGuard {
 
  private:
   static void Hook(const MallocHook::NewInfo& info) {
+#ifndef NDEBUG
     if (disallowed_ > 0) {
       (void)MallocHook::RemoveNewHook(Hook);
       abort();
     }
+#endif
   }
 
+#ifndef NDEBUG
   ABSL_CONST_INIT static thread_local int disallowed_;
+#endif
 };
 
 // A SpinLockHolder that also enforces no allocations while the lock is held in
