@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
@@ -350,6 +351,19 @@ TEST(SpanAllocatorTest, Alignment) {
     }
   }
 }
+
+#ifdef __clang__
+TEST(SpanDeathTest, InvalidSpan) {
+  const Span* invalid_span = &Static::invalid_span();
+  benchmark::DoNotOptimize(invalid_span);
+  Span& span = const_cast<Span&>(*invalid_span);
+
+  void* batch[1];
+  EXPECT_DEATH((void)span.FreelistPushBatch(absl::MakeSpan(batch, 1), 8, 0),
+               "");
+  EXPECT_DEATH((void)span.FreelistPopBatch(absl::MakeSpan(batch, 1), 8), "");
+}
+#endif  // __clang__
 
 }  // namespace
 }  // namespace tcmalloc_internal

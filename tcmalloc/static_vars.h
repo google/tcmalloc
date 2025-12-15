@@ -202,7 +202,7 @@ class Static final {
 
   static SizeClassConfiguration size_class_configuration();
 
-  static const Span& invalid_span() { return invalid_span_; }
+  static const Span& invalid_span() { return kInvalidSpan; }
 
  private:
 #if defined(__clang__)
@@ -253,7 +253,8 @@ class Static final {
       NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>
       system_allocator_;
 
-  static inline constexpr Span invalid_span_ = {};
+  static ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro) constexpr Span
+      kInvalidSpan{};
 
   // Manages sampled allocations and allows iteration over samples free from the
   // global pageheap_lock.
