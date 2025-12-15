@@ -1381,7 +1381,9 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
                                                             size_t new_size,
                                                             TokenId token_id) {
-  tc_globals.InitIfNecessary();
+  // ptr must be a result of a previous malloc/memalign/... call, and
+  // therefore static initialization must have already occurred.
+  TC_ASSERT(tc_globals.IsInited());
   // Get the size of the old entry
   const auto [old_size, was_sampled] = GetSizeAndSampled(old_ptr);
 
