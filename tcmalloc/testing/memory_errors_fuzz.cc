@@ -96,9 +96,7 @@ void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
 
   // The pointer must either be non-normal or larger than kMaxSize.  We don't
   // expect to have lightweight checks otherwise.
-  if (auto tag = GetMemoryTag(absl::bit_cast<void*>(ptr));
-      tag != MemoryTag::kNormal && tag != MemoryTag::kNormalP1 &&
-      size <= kMaxSize) {
+  if (IsNormalMemory(absl::bit_cast<void*>(ptr)) && size <= kMaxSize) {
     return;
   }
 
@@ -115,6 +113,7 @@ void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
 TEST(MemoryErrorsFuzzTest, WildPointerSizedDeleteRegression) {
   WildPointerSizedDelete(18446744073709551615ull, 18446744073709551615ull);
   WildPointerSizedDelete(0, 18446744073709551615ull);
+  WildPointerSizedDelete(17592186048512ull, 0);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerSizedDelete);
