@@ -153,11 +153,21 @@ class PageMap2 {
   //
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
+  template <bool check_bounds>
   std::pair<Span* absl_nullable, int> get_existing_with_sizeclass(
       Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS
-      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED {
+#ifdef __clang__
+      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+#endif  // __clang__
+  {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
+    if constexpr (check_bounds) {
+      if (ABSL_PREDICT_FALSE((k >> BITS > 0)) ||
+          ABSL_PREDICT_FALSE(root_[i1] == nullptr)) {
+        return std::make_pair(nullptr, 0);
+      }
+    }
     TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
     // This is a static_assert to ensure that the index into root_ is within
@@ -367,12 +377,23 @@ class PageMap3 {
   //
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
+  template <bool check_bounds>
   std::pair<Span* absl_nullable, int> get_existing_with_sizeclass(
       Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS
-      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED {
+#ifdef __clang__
+      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+#endif  // __clang__
+  {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
+    if constexpr (check_bounds) {
+      if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
+          ABSL_PREDICT_FALSE(root_[i1] == nullptr) ||
+          ABSL_PREDICT_FALSE(root_[i1]->leafs[i2] == nullptr)) {
+        return std::make_pair(nullptr, 0);
+      }
+    }
     TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
     TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
@@ -545,13 +566,18 @@ class PageMap {
     return map_.get(p.index());
   }
 
+  [[nodiscard]] inline std::pair<Span* absl_nullable, CompactSizeClass>
+  GetDescriptorAndSizeClass(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return map_.get_existing_with_sizeclass<true>(p.index());
+  }
+
   // Return the descriptor and sizeclass for the specified page.
   // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   [[nodiscard]] inline std::pair<Span* absl_nullable, CompactSizeClass>
   GetExistingDescriptorAndSizeClass(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return map_.get_existing_with_sizeclass(p.index());
+    return map_.get_existing_with_sizeclass<false>(p.index());
   }
 
   // Return the descriptor for the specified page.

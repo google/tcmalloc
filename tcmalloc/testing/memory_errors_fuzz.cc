@@ -80,6 +80,10 @@ void WildPointerRealloc(uintptr_t ptr, size_t new_size) {
   TCMallocInternalFree(new_ptr);
 }
 
+TEST(MemoryErrorsFuzzTest, WildPointerReallocRegression) {
+  WildPointerRealloc(4406726867650173363ull, 1);
+}
+
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerRealloc);
 
 void WildPointerSizedDelete(uintptr_t ptr, size_t size) {

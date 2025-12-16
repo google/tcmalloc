@@ -90,7 +90,7 @@ TEST_P(PageMapTest, Sequential) {
 
     // Test size class handling
     ASSERT_EQ(0, map->sizeclass(i));
-    ASSERT_EQ(map->get_existing_with_sizeclass(i),
+    ASSERT_EQ(map->get_existing_with_sizeclass<false>(i),
               (std::pair<Span*, int>(span(i), 0)));
     map->set_with_sizeclass(i, span(i), sc(i));
     ASSERT_EQ(sc(i), map->sizeclass(i));
@@ -98,7 +98,7 @@ TEST_P(PageMapTest, Sequential) {
   for (intptr_t i = 0; i < limit; i++) {
     ASSERT_EQ(map->get(i), span(i));
     ASSERT_EQ(map->sizeclass(i), sc(i));
-    ASSERT_EQ(map->get_existing_with_sizeclass(i),
+    ASSERT_EQ(map->get_existing_with_sizeclass<false>(i),
               (std::pair<Span*, int>(span(i), sc(i))));
   }
 }

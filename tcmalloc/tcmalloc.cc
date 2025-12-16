@@ -530,7 +530,7 @@ inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
   if (ptr == nullptr) return SizeAndSampled{0, false};
   const PageId p = PageIdContainingTagged(ptr);
   const auto [span, size_class] =
-      tc_globals.pagemap().GetExistingDescriptorAndSizeClass(p);
+      tc_globals.pagemap().GetDescriptorAndSizeClass(p);
   if (size_class != 0) {
     return SizeAndSampled{tc_globals.sizemap().class_to_size(size_class),
                           false};
@@ -1449,6 +1449,9 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
   if (ptr == nullptr) {
     return fast_alloc(size, MallocPolicy());
   }
+  // TODO(b/457842787): Consider checking pointer MSB here, since do_free will
+  // do it too and it protects the PageMap walk done in do_realloc ->
+  // GetSizeAndSampled.
   if (size == 0) {
     do_free(ptr, MallocPolicy());
     return nullptr;
