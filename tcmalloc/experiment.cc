@@ -58,6 +58,9 @@ bool HasBrittleTestFailures(Experiment exp) {
   if (exp == Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE) {
     return true;
   }
+  if (exp == Experiment::TEST_ONLY_DISABLE_STACK_TRACING) {
+    return true;
+  }
 
   return false;
 }
