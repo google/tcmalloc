@@ -1553,7 +1553,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
   allocator_->forwarder().set_error_number(0);
   bool use_userspace_collapse_heuristics = false;
 
-  auto collase_func = [&](const std::atomic<bool>& done) {
+  auto collapse_func = [&](const std::atomic<bool>& done) {
     absl::BitGen rng;
     while (!done.load(std::memory_order_acquire)) {
       allocator_->forwarder().set_collapse_succeeds(absl::Bernoulli(rng, 0.5));
@@ -1607,7 +1607,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
 
   std::atomic<bool> done(false);
 
-  std::thread collapse_thread = std::thread(collase_func, std::ref(done));
+  std::thread collapse_thread = std::thread(collapse_func, std::ref(done));
   std::vector<std::thread> alloc_threads;
   for (int i = 0; i < kAllocThreads; ++i) {
     alloc_threads.push_back(std::thread(alloc_func, i, std::ref(done)));

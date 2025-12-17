@@ -1549,7 +1549,7 @@ TEST_P(FillerTest, ParallelCollapseRelease) {
                                            swapped);
   }
 
-  auto collase_function = [&]() {
+  auto collapse_function = [&]() {
     absl::BitGen rng;
     while (!done.load(std::memory_order_acquire)) {
       TreatHugepageTrackers(/*enable_collapse=*/true,
@@ -1558,7 +1558,7 @@ TEST_P(FillerTest, ParallelCollapseRelease) {
                             &pageflags, &residency);
     }
   };
-  std::thread collapse_thread = std::thread(collase_function);
+  std::thread collapse_thread = std::thread(collapse_function);
 
   // Note that we need to use DeleteRaw here, since Delete checks for filler
   // stats as well. As interleaving collapse operations might not delete all the
