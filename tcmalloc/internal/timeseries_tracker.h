@@ -45,6 +45,7 @@ class TimeSeriesTracker {
 
   explicit constexpr TimeSeriesTracker(Clock clock, absl::Duration w)
       : window_(w), epoch_length_(window_ / kEpochs), clock_(clock) {
+    TC_ASSERT_GT(w, absl::ZeroDuration());
     // See comment in GetCurrentEpoch().
     auto d = static_cast<uint64_t>(absl::ToDoubleSeconds(epoch_length_) *
                                    clock.freq());
