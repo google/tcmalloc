@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_MOCK_STATIC_FORWARDER_H_
 #define TCMALLOC_MOCK_STATIC_FORWARDER_H_
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -40,12 +41,14 @@ class FakeStaticForwarder {
     num_objects_to_move_ = num_objects_to_move;
     clock_ = 1234;
   }
-  uint64_t clock_now() const { return clock_; }
+  uint64_t clock_now() const { return clock_.load(std::memory_order_relaxed); }
   double clock_frequency() const {
     return absl::ToDoubleNanoseconds(absl::Seconds(2));
   }
   void AdvanceClock(absl::Duration d) {
-    clock_ += absl::ToDoubleSeconds(d) * clock_frequency();
+    clock_.fetch_add(
+        static_cast<int64_t>(absl::ToDoubleSeconds(d) * clock_frequency()),
+        std::memory_order_relaxed);
   }
 
   size_t class_to_size(int size_class) const { return class_size_; }
@@ -121,7 +124,7 @@ class FakeStaticForwarder {
   size_t class_size_;
   Length pages_;
   size_t num_objects_to_move_;
-  uint64_t clock_;
+  std::atomic<uint64_t> clock_;
 };
 
 class RawMockStaticForwarder : public FakeStaticForwarder {
