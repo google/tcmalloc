@@ -77,6 +77,34 @@ BENCHMARK(BM_Populate)
     ->DenseRange(4096, 28 * 1024, 4096)
     ->DenseRange(32 * 1024, 256 * 1024, 32 * 1024);
 
+void BM_Multithreaded(benchmark::State& state) {
+  const size_t object_size = state.range(0);
+  const size_t size_class =
+      tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
+  const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
+
+  // TODO(b/73749855): Use mocked page heap to avoid interacting with the real
+  // one.
+  static CentralFreeList cfl;
+  if (state.thread_index() == 0) {
+    cfl.Init(size_class,
+             central_freelist_internal::PriorityListLength::kNormal);
+  }
+
+  std::vector<void*> batch(batch_size);
+  for (auto s : state) {
+    size_t got = cfl.RemoveRange(absl::MakeSpan(batch));
+    benchmark::DoNotOptimize(batch);
+    cfl.InsertRange({batch.data(), got});
+  }
+}
+BENCHMARK(BM_Multithreaded)
+    ->ThreadRange(2, 64)
+    ->DenseRange(8, 64, 16)
+    ->DenseRange(64, 1024, 64)
+    ->DenseRange(4096, 28 * 1024, 4096)
+    ->DenseRange(32 * 1024, 256 * 1024, 32 * 1024);
+
 // This benchmark fills a large array with objects, shuffles the objects
 // and then returns them.
 // This should be relatively representative of what happens at runtime.
