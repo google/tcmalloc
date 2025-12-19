@@ -531,12 +531,16 @@ class SubreleaseStatsTracker {
       short_interval = std::min(short_interval, long_interval);
     }
     last_skip_subrelease_intervals_.short_interval =
-        std::min(short_interval, window_);
+        std::max(std::min(short_interval, window_), absl::ZeroDuration());
     last_skip_subrelease_intervals_.long_interval =
-        std::min(long_interval, window_);
+        std::max(std::min(long_interval, window_), absl::ZeroDuration());
     Length short_term_fluctuation_pages, long_term_trend_pages;
-    int short_epochs = std::min<int>(short_interval / epoch_length_, kEpochs);
-    int long_epochs = std::min<int>(long_interval / epoch_length_, kEpochs);
+    int64_t short_epochs =
+        std::min<int64_t>(short_interval / epoch_length_, kEpochs);
+    TC_ASSERT_GE(short_epochs, 0);
+    int64_t long_epochs =
+        std::min<int64_t>(long_interval / epoch_length_, kEpochs);
+    TC_ASSERT_GE(long_epochs, 0);
 
     tracker_.IterBackwards(
         [&](size_t offset, const SubreleaseStatsEntry& e) {

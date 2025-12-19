@@ -159,6 +159,7 @@ void TimeSeriesTracker<T, S, kEpochs>::IterBackwards(
   // -1 means that we are outputting all epochs.
   num_epochs = (num_epochs == -1) ? kEpochs : num_epochs;
   size_t j = current_epoch_;
+  TC_ASSERT_GE(num_epochs, 0);
   TC_ASSERT_LE(num_epochs, kEpochs);
   for (size_t offset = 0; offset < num_epochs; ++offset) {
     f(offset, entries_[j]);

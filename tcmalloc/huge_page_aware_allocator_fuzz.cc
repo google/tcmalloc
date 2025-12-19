@@ -778,5 +778,23 @@ TEST(HugePageAwareAllocatorTest, FuzzHPAARegression2) {
   FuzzHPAA(options, instructions);
 }
 
+TEST(HugePageAwareAllocatorTest, b470332457) {
+  // Regression found in b/470332457.
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormalP1,
+          .use_huge_region_more_often =
+              HugeRegionUsageOption::kUseForAllLargeAllocs,
+          .huge_cache_time_ns = 3600000000000},
+      {Instruction{.instr = GatherStatsPbtxt{}},
+       Instruction{.instr = PrintStats{.everything = false}},
+       Instruction{
+           .instr = ChangeParam{.op =
+                                    SetFillerSkipSubreleaseLongInterval{
+                                        .duration_ns = 7795569869804108969}}},
+       Instruction{.instr = ReleasePages{.desired = 9223372036854775807,
+                                         .release_memory_to_system = false}}});
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
