@@ -25,6 +25,12 @@
 // Offset from __rseq_abi to the cached slabs address.
 #define TCMALLOC_RSEQ_SLABS_OFFSET -4
 
+// Offset from __rseq_abi to the rseq_cs field.
+#define TCMALLOC_RSEQ_CS_OFFSET 8
+
+// Offset from __rseq_abi to the sampler.
+#define TCMALLOC_RSEQ_SAMPLER_OFFSET 40
+
 // The bit denotes that tcmalloc_rseq.slabs contains valid slabs offset.
 #define TCMALLOC_CACHED_SLABS_BIT 63
 #define TCMALLOC_CACHED_SLABS_MASK (1ul << TCMALLOC_CACHED_SLABS_BIT)
@@ -163,6 +169,11 @@ extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 extern "C" ABSL_CONST_INIT thread_local volatile int tcmalloc_cached_vcpu
     ABSL_ATTRIBUTE_INITIAL_EXEC;
+// Note that for builds with RSEQ enabled, we declare the sampler here so that
+// we can reference its address in percpu_tcmalloc.h without creating a
+// circular dependency with the Sampler definition.
+extern "C" ABSL_CONST_INIT thread_local char tcmalloc_sampler
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
 
 // Provide weak definitions here to enable more efficient codegen.
 // If compiler sees only extern declaration when generating accesses,
@@ -233,6 +244,19 @@ inline int GetRealCpu() {
 #endif  // TCMALLOC_HAVE_SCHED_GETCPU
 
   return cpu;
+}
+
+// We want to be able to get the address of the sampler in percpu so that we
+// can calculate the address of other thread local variables relative to it.
+// We just return a void* here since percpu doesn't know about the Sampler
+// type and we need to avoid a circular dependency between percpu and
+// the Sampler.
+inline void* GetThreadSamplerAddress() {
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  return &tcmalloc_sampler;
+#else
+  return nullptr;
+#endif
 }
 
 // Static accessors functions for any kind of vCPU IDs, which transparently

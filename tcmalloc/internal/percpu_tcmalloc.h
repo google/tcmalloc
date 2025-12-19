@@ -470,8 +470,8 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
   "_%=\n"                                              \
   "add %[scratch], %[scratch], :lo12:__rseq_cs_" #name \
   "_%=\n"                                              \
-  "str %[scratch], %[rseq_cs_addr]\n"
-#endif
+  "str %[scratch], [%[sampler_addr], %c[rseq_cs_offset]]\n"
+#endif  // defined(__aarch64__)
 
 #if !defined(__clang_major__) || __clang_major__ >= 9
 #define TCMALLOC_RSEQ_RELOC ".reloc 0, " TCMALLOC_RSEQ_RELOC_TYPE ", 1f\n"
@@ -531,7 +531,23 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
   ".popsection\n"                   /* Prepare */                             \
   "3:\n" TCMALLOC_RSEQ_SET_CS(name) /* Start */                               \
       "4:\n"
-
+#ifdef __aarch64__
+// Note that we calculate thread local variable offsets relative to the address
+// of the sampler. The sampler is already accessed first on the path to Pop(),
+// and calculating the address of other thread local variables relative to it is
+// faster than doing independent TLS references for Arm.
+#define TCMALLOC_RSEQ_INPUTS                                                 \
+  [sampler_addr] "r"(subtle::percpu::GetThreadSamplerAddress()),             \
+      [rseq_sig] "n"(                                                        \
+          TCMALLOC_PERCPU_RSEQ_SIGNATURE), /* Also pass common consts, there \
+                                              is no cost to passing unused   \
+                                              consts. */                     \
+      [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),                     \
+      [rseq_slabs_offset] "n"(TCMALLOC_RSEQ_SAMPLER_OFFSET +                 \
+                              TCMALLOC_RSEQ_SLABS_OFFSET),                   \
+      [rseq_cs_offset] "n"(TCMALLOC_RSEQ_SAMPLER_OFFSET +                    \
+                           TCMALLOC_RSEQ_CS_OFFSET)
+#else
 #define TCMALLOC_RSEQ_INPUTS                                                 \
   [rseq_cs_addr] "m"(__rseq_abi.rseq_cs),                                    \
       [rseq_slabs_addr] "m"(*reinterpret_cast<volatile char*>(               \
@@ -541,9 +557,8 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
           TCMALLOC_PERCPU_RSEQ_SIGNATURE), /* Also pass common consts, there \
                                               is no cost to passing unused   \
                                               consts. */                     \
-      [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),                     \
-      [cached_slabs_mask_neg] "n"(~TCMALLOC_CACHED_SLABS_MASK)
-
+      [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT)
+#endif
 // Store v to p (*p = v) if the current thread wasn't rescheduled
 // (still has the slab pointer cached). Otherwise returns false.
 template <typename T>
@@ -572,7 +587,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
     asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
             R"(
         mov %[scratch], #0
-        ldr %[tmp], %[rseq_slabs_addr]
+        ldr %[tmp], [%[sampler_addr], #%c[rseq_slabs_offset]]
         tbz %[tmp], #%c[cached_slabs_bit], 5f
         mov %[scratch], #1
         str %[v], %[p]
@@ -586,7 +601,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
     asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
             R"(
         mov %[scratch], #0
-        ldr %[tmp], %[rseq_slabs_addr]
+        ldr %[tmp], [%[sampler_addr], #%c[rseq_slabs_offset]]
         tbz %[tmp], #%c[cached_slabs_bit], 5f
         mov %[scratch], #1
         str %w[v], %[p]
@@ -673,7 +688,7 @@ overflow_label:
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
-  uintptr_t region_start, scratch, end_ptr, end;
+  uintptr_t region_start, scratch, scratch_ptr, end;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
 #else
@@ -682,22 +697,21 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #endif
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
       // region_start = tcmalloc_slabs;
-      "ldr %[region_start], %[rseq_slabs_addr]\n"
+      "ldr %[region_start], [%[sampler_addr], #%c[rseq_slabs_offset]]\n"
   // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-  // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
+  // region_start is unmasked on aarch64, since Top Byte Ignore is enabled in
+  // user space by default
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbz %[region_start], #%c[cached_slabs_bit], %l[overflow_label]\n"
-      "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
 #else
       "subs %[region_start], %[region_start], %[cached_slabs_mask]\n"
       "b.ls 5f\n"
 #endif
-      // end_ptr = &(slab_headers[0]->end)
-      "add %[end_ptr], %[region_start], #2\n"
       // scratch = slab_headers[size_class]->current (current index)
-      "ldrh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "add %[scratch_ptr], %[region_start], %[size_class], LSL #2\n"
+      "ldrh %w[scratch], [%[scratch_ptr]]\n"
       // end = slab_headers[size_class]->end (end index)
-      "ldrh %w[end], [%[end_ptr], %[size_class_lsl2]]\n"
+      "ldrh %w[end], [%[scratch_ptr], #2]\n"
       // if (ABSL_PREDICT_FALSE(end <= scratch)) { goto overflow_label; }
       "cmp %[end], %[scratch]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -709,10 +723,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #endif
       "str %[item], [%[region_start], %[scratch], LSL #3]\n"
       "add %w[scratch], %w[scratch], #1\n"
-      "strh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "strh %w[scratch], [%[scratch_ptr]]\n"
       // Commit
       "5:\n"
-      : [end_ptr] "=&r"(end_ptr), [scratch] "=&r"(scratch), [end] "=&r"(end),
+      : [scratch_ptr] "=&r"(scratch_ptr), [scratch] "=&r"(scratch),
+        [end] "=&r"(end),
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         [overflow] "=@ccls"(overflow),
 #endif
@@ -721,7 +736,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
-        [size_class_lsl2] "r"(size_class << 2), [item] "r"(item)
+        [size_class] "r"(size_class), [item] "r"(item)
       : TCMALLOC_RSEQ_CLOBBER, "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         ,
@@ -875,39 +890,42 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
 #else
+  uintptr_t scratch2;
   bool underflow;
   asm(
 #endif
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
       // region_start = tcmalloc_slabs;
-      "ldr %[region_start], %[rseq_slabs_addr]\n"
+
+      "ldr %[region_start], [%[sampler_addr], #%c[rseq_slabs_offset]]\n"
   // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-  // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
+  // region_start is unmasked on aarch64, since Top Byte Ignore is enabled in
+  // user space by default
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
 #else
       "tst %[region_start], %[cached_slabs_mask]\n"
       "b.eq 5f\n"
 #endif
-      "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
       // scratch = slab_headers[size_class]->current (current index)
       "ldrh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
-      // scratch--
-      "sub %w[scratch], %w[scratch], #1\n"
-      "ldr %[result], [%[region_start], %[scratch], LSL #3]\n"
+      // previous = scratch - 1
+      "sub %w[previous], %w[scratch], #1\n"
+      "add %[scratch],%[region_start], %[scratch], LSL #3\n"
+      // Note we are using a pre-indexed ldp. After this instruction, scratch
+      // points to the next location in slab memory, which we will prefetch.
+      "ldp %[prefetch], %[result], [%[scratch], #-16]!\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbnz %[result], #%c[begin_mark_bit], %l[underflow_path]\n"
 #else
-      // Temporary use %[previous] to store %[result] with inverted mark bit.
-      "eor %[previous], %[result], #%c[begin_mark_mask]\n"
-      "tst %[previous], #%c[begin_mark_mask]\n"
+      // Temporary use %[scratch2] to store %[result] with inverted mark bit.
+      "eor %[scratch2], %[result], #%c[begin_mark_mask]\n"
+      "tst %[scratch2], #%c[begin_mark_mask]\n"
       "b.eq 5f\n"
   // Important! code below this must not affect any flags (i.e.: cceq)
   // If so, the above code needs to explicitly set a cceq return value.
 #endif
-      "sub %w[previous], %w[scratch], #1\n"
-      "ldr %[prefetch], [%[region_start], %[previous], LSL #3]\n"
-      "strh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "strh %w[previous], [%[region_start], %[size_class_lsl2]]\n"
       // Commit
       "5:\n"
       :
@@ -924,8 +942,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
         [begin_mark_bit] "n"(absl::countr_zero(kBeginMark)),
 #else
         [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
+        [begin_mark_mask] "n"(kBeginMark), [scratch2] "=&r"(scratch2),
 #endif
-        [begin_mark_mask] "n"(kBeginMark), [size_class] "r"(size_class),
         [size_class_lsl2] "r"(size_class << 2)
       : TCMALLOC_RSEQ_CLOBBER, "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -940,8 +958,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   }
 #endif
   TSANAcquire(result);
-  PrefetchSlabMemory(reinterpret_cast<uintptr_t>(region_start) +
-                     (scratch - 2) * sizeof(void*));
+  PrefetchSlabMemory(scratch);
   PrefetchNextObject(prefetch);
   return AssumeNotNull(result);
 underflow_path:
