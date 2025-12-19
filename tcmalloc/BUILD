@@ -1414,6 +1414,7 @@ create_tcmalloc_benchmark(
     malloc = "//tcmalloc",
     deps = [
         ":common_8k_pages",
+        ":mock_static_forwarder",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/random",

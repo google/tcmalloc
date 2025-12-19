@@ -22,6 +22,7 @@
 #include "absl/types/span.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/central_freelist.h"
+#include "tcmalloc/mock_static_forwarder.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
 
@@ -29,18 +30,24 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using CentralFreeList = central_freelist_internal::CentralFreeList<
+    tcmalloc_internal::MockStaticForwarder>;
+using CentralFreelistEnv = FakeCentralFreeListEnvironment<CentralFreeList>;
+
 // This benchmark measures how long it takes to populate multiple
 // spans. The spans are freed in the same order as they were populated
 // to minimize the time it takes to free them.
+template <typename Env>
 void BM_Populate(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
+  const size_t size_class =
+      tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
+  const int pages = tc_globals.sizemap().class_to_pages(size_class);
+  const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;
-  CentralFreeList cfl;
-  // Initialize the span to contain the appropriate size of object.
-  cfl.Init(size_class, central_freelist_internal::PriorityListLength::kNormal);
+
+  Env env(object_size, pages, batch_size, PriorityListLength::kNormal);
 
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -53,7 +60,8 @@ void BM_Populate(benchmark::State& state) {
     // populating the span.
     while (index < num_objects) {
       int count = std::min(batch_size, num_objects - index);
-      int got = cfl.RemoveRange(absl::MakeSpan(buffer).subspan(index, count));
+      int got = env.central_freelist().RemoveRange(
+          absl::MakeSpan(buffer).subspan(index, count));
       index += got;
     }
 
@@ -63,7 +71,7 @@ void BM_Populate(benchmark::State& state) {
     index = 0;
     while (index < num_objects) {
       uint64_t count = std::min(batch_size, num_objects - index);
-      cfl.InsertRange({&buffer[index], count});
+      env.central_freelist().InsertRange({&buffer[index], count});
       index += count;
     }
     items_processed += index;
@@ -71,35 +79,37 @@ void BM_Populate(benchmark::State& state) {
   }
   state.SetItemsProcessed(items_processed);
 }
-BENCHMARK(BM_Populate)
+
+BENCHMARK_TEMPLATE(BM_Populate, CentralFreelistEnv)
     ->DenseRange(8, 64, 16)
     ->DenseRange(64, 1024, 64)
     ->DenseRange(4096, 28 * 1024, 4096)
     ->DenseRange(32 * 1024, 256 * 1024, 32 * 1024);
 
+template <typename Env>
 void BM_Multithreaded(benchmark::State& state) {
-  const size_t object_size = state.range(0);
+  size_t object_size = state.range(0);
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
+  const int pages = tc_globals.sizemap().class_to_pages(size_class);
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
 
-  // TODO(b/73749855): Use mocked page heap to avoid interacting with the real
-  // one.
-  static CentralFreeList cfl;
+  static Env* env;
   if (state.thread_index() == 0) {
-    cfl.Init(size_class,
-             central_freelist_internal::PriorityListLength::kNormal);
+    env = new Env(object_size, pages, batch_size, PriorityListLength::kNormal);
   }
 
   std::vector<void*> batch(batch_size);
   for (auto s : state) {
-    size_t got = cfl.RemoveRange(absl::MakeSpan(batch));
+    size_t got = env->central_freelist().RemoveRange(absl::MakeSpan(batch));
     benchmark::DoNotOptimize(batch);
-    cfl.InsertRange({batch.data(), got});
+    env->central_freelist().InsertRange({batch.data(), got});
+  }
+  if (state.thread_index() == 0) {
+    delete env;
   }
 }
-BENCHMARK(BM_Multithreaded)
-    ->ThreadRange(2, 64)
+BENCHMARK_TEMPLATE(BM_Multithreaded, CentralFreelistEnv)
     ->DenseRange(8, 64, 16)
     ->DenseRange(64, 1024, 64)
     ->DenseRange(4096, 28 * 1024, 4096)
@@ -110,15 +120,17 @@ BENCHMARK(BM_Multithreaded)
 // This should be relatively representative of what happens at runtime.
 // Fetching objects from the CFL is usually done in batches, but returning
 // them is usually done spread over many active spans.
+template <typename Env>
 void BM_MixAndReturn(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
+  const size_t size_class =
+      tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
+  const int pages = tc_globals.sizemap().class_to_pages(size_class);
+  const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;
-  CentralFreeList cfl;
-  // Initialize the span to contain the appropriate size of object.
-  cfl.Init(size_class, central_freelist_internal::PriorityListLength::kNormal);
+
+  Env env(object_size, pages, batch_size, PriorityListLength::kNormal);
 
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -129,7 +141,8 @@ void BM_MixAndReturn(benchmark::State& state) {
     int index = 0;
     while (index < num_objects) {
       int count = std::min(batch_size, num_objects - index);
-      int got = cfl.RemoveRange(absl::MakeSpan(buffer).subspan(index, count));
+      int got = env.central_freelist().RemoveRange(
+          absl::MakeSpan(buffer).subspan(index, count));
       index += got;
     }
 
@@ -142,14 +155,14 @@ void BM_MixAndReturn(benchmark::State& state) {
     index = 0;
     while (index < num_objects) {
       unsigned int count = std::min(batch_size, num_objects - index);
-      cfl.InsertRange({&buffer[index], count});
+      env.central_freelist().InsertRange({&buffer[index], count});
       index += count;
     }
     items_processed += index;
   }
   state.SetItemsProcessed(items_processed);
 }
-BENCHMARK(BM_MixAndReturn)
+BENCHMARK_TEMPLATE(BM_MixAndReturn, CentralFreelistEnv)
     ->DenseRange(8, 64, 16)
     ->DenseRange(64, 1024, 64)
     ->DenseRange(4096, 28 * 1024, 4096)
@@ -159,23 +172,25 @@ BENCHMARK(BM_MixAndReturn)
 // single object spans) spans are never allocated or freed during the
 // benchmark run. This evaluates the performance of just the span handling
 // code, and avoids timing the pageheap code.
+template <typename Env>
 void BM_SpanReuse(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
+  const size_t size_class =
+      tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
+  const int pages = tc_globals.sizemap().class_to_pages(size_class);
+  const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;
-  CentralFreeList cfl;
-  // Initialize the span to contain the appropriate size of object.
-  cfl.Init(size_class, central_freelist_internal::PriorityListLength::kNormal);
+
+  Env env(object_size, pages, batch_size, PriorityListLength::kNormal);
 
   // Array used to hold onto half of the objects
   std::vector<void*> held_objects(2 * num_objects);
   // Request twice the objects we need
   for (int index = 0; index < 2 * num_objects;) {
     int count = std::min(batch_size, 2 * num_objects - index);
-    int got =
-        cfl.RemoveRange(absl::MakeSpan(held_objects).subspan(index, count));
+    int got = env.central_freelist().RemoveRange(
+        absl::MakeSpan(held_objects).subspan(index, count));
     index += got;
   }
 
@@ -183,7 +198,7 @@ void BM_SpanReuse(benchmark::State& state) {
   // returned to the pageheap. So future operations will not touch the
   // pageheap.
   for (int index = 0; index < 2 * num_objects; index += 2) {
-    cfl.InsertRange({&held_objects[index], 1});
+    env.central_freelist().InsertRange({&held_objects[index], 1});
   }
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -194,7 +209,8 @@ void BM_SpanReuse(benchmark::State& state) {
     int index = 0;
     while (index < num_objects) {
       int count = std::min(batch_size, num_objects - index);
-      int got = cfl.RemoveRange(absl::MakeSpan(buffer).subspan(index, count));
+      int got = env.central_freelist().RemoveRange(
+          absl::MakeSpan(buffer).subspan(index, count));
       index += got;
     }
 
@@ -207,7 +223,7 @@ void BM_SpanReuse(benchmark::State& state) {
     index = 0;
     while (index < num_objects) {
       uint64_t count = std::min(batch_size, num_objects - index);
-      cfl.InsertRange({&buffer[index], count});
+      env.central_freelist().InsertRange({&buffer[index], count});
       index += count;
     }
     items_processed += index;
@@ -216,15 +232,14 @@ void BM_SpanReuse(benchmark::State& state) {
 
   // Return the other half of the objects.
   for (int index = 1; index < 2 * num_objects; index += 2) {
-    cfl.InsertRange({&held_objects[index], 1});
+    env.central_freelist().InsertRange({&held_objects[index], 1});
   }
 }
 // Want to avoid benchmarking spans where there is a single object per span.
-BENCHMARK(BM_SpanReuse)
+BENCHMARK_TEMPLATE(BM_SpanReuse, CentralFreelistEnv)
     ->DenseRange(8, 64, 16)
     ->DenseRange(64, 1024, 64)
     ->DenseRange(1024, 4096, 512);
-
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
