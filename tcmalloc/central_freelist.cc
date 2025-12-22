@@ -75,7 +75,7 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
     void* ptr = batch[i];
     const PageId p = PageIdContaining(ptr);
     auto [span, page_size_class] =
-        tc_globals.pagemap().GetExistingDescriptorAndSizeClass(p);
+        tc_globals.pagemap().GetDescriptorAndSizeClass(p);
     if (ABSL_PREDICT_FALSE(span == nullptr)) {
       ReportCorruptedFree(tc_globals, ptr);
     } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
