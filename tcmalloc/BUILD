@@ -758,6 +758,7 @@ cc_test(
         ":common_8k_pages",
         ":mock_static_forwarder",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",

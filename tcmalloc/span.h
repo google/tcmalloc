@@ -87,6 +87,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
         freelist_(0),
         allocated_(std::numeric_limits<uint16_t>::max()),
         cache_size_(0),
+        is_long_lived_span_(0),
         nonempty_index_(0),
         is_donated_(0),
         first_page_(0),
@@ -100,6 +101,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
         freelist_(0),
         allocated_(0),
         cache_size_(0),
+        is_long_lived_span_(0),
         nonempty_index_(0),
         is_donated_(0),
         first_page_(r.p.index()),
@@ -262,7 +264,11 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   ObjIdx BitmapPtrToIdx(void* ptr, size_t size, uint32_t reciprocal) const;
   void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
 
-  static constexpr size_t kNonemptyIndexBits = 5;
+  static constexpr size_t kNonemptyIndexBits = 6;
+
+  bool is_long_lived_span() const { return is_long_lived_span_; }
+
+  void set_is_long_lived_span(bool value) { is_long_lived_span_ = value; }
 
  private:
   // Returns if the span is large (i.e. consists of > kLargeSpanLength number of
@@ -280,7 +286,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static_assert(kCacheSize <= (1 << kMaxCacheBits) - 1);
 
   static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
-  static constexpr size_t kReservedBits = 25;
+  static constexpr size_t kReservedBits = 23;
   // Use uint16_t or uint8_t for 16 bit and 8 bit fields instead of bitfields.
   // LLVM will generate widen load/store and bit masking operations to access
   // bitfields and this hurts performance. Although compiler flag
@@ -296,6 +302,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   };
   std::atomic<uint16_t> allocated_;  // Number of non-free objects
   uint8_t cache_size_ : kMaxCacheBits;
+  uint8_t is_long_lived_span_ : 1;
   uint8_t nonempty_index_ : kNonemptyIndexBits;  // The nonempty_ list index for
                                                  // this span.
   // Has this span allocation resulted in a donation to the filler in the page

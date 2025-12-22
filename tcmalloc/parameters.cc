@@ -271,6 +271,20 @@ Parameters::priority_list_length() {
   return v;
 }
 
+central_freelist_internal::LifetimeTracking
+Parameters::span_lifetime_tracking() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<
+      central_freelist_internal::LifetimeTracking>
+      v{central_freelist_internal::LifetimeTracking::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(central_freelist_internal::LifetimeTracking{IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING)},
+            std::memory_order_relaxed);
+  });
+  return v;
+}
+
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }

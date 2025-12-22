@@ -504,6 +504,16 @@ void DumpStats(Printer& out, int level) {
       tc_globals.central_freelist(size_class).PrintNumSpansUsed(out);
     }
 
+    out.printf("\n");
+    out.printf("------------------------------------------------\n");
+    out.printf("Central cache freelist: Long lived spans moved histogram\n");
+    out.printf(
+        "Number of spans moved to the long lived spans list, from 0 to N\n");
+    out.printf("------------------------------------------------\n");
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      tc_globals.central_freelist(size_class).PrintLongLivedSpansMoved(out);
+    }
+
     tc_globals.transfer_cache().Print(tc_globals.per_size_class_counts(), out);
     tc_globals.sharded_transfer_cache().Print(
         tc_globals.per_size_class_counts(), out);
@@ -616,6 +626,11 @@ void DumpStats(Printer& out, int level) {
     out.printf(
         "PARAMETER tcmalloc_num_priority_lists %d\n",
         CentralFreeList::NumPriorityLists(Parameters::priority_list_length()));
+    out.printf("PARAMETER tcmalloc_span_lifetime_tracking %d\n",
+               Parameters::span_lifetime_tracking() ==
+                       central_freelist_internal::LifetimeTracking::kEnabled
+                   ? 1
+                   : 0);
   }
 }
 
@@ -828,6 +843,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintI64(
       "tcmalloc_num_priority_lists",
       CentralFreeList::NumPriorityLists(Parameters::priority_list_length()));
+  region.PrintBool("tcmalloc_span_lifetime_tracking",
+                   Parameters::span_lifetime_tracking() ==
+                       central_freelist_internal::LifetimeTracking::kEnabled);
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

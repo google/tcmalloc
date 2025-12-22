@@ -142,6 +142,14 @@ TEST_F(GetStatsTest, Pbtxt) {
   } else {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_num_priority_lists: 8"));
   }
+
+  if (IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING)) {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_span_lifetime_tracking: true"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_span_lifetime_tracking: false"));
+  }
+
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)) {
     EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
@@ -238,6 +246,16 @@ TEST_F(GetStatsTest, Parameters) {
     } else {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_num_priority_lists 8)"));
     }
+
+    if (IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING)) {
+      EXPECT_THAT(buf,
+                  HasSubstr(R"(PARAMETER tcmalloc_span_lifetime_tracking 1)"));
+    } else {
+      EXPECT_THAT(buf,
+                  HasSubstr(R"(PARAMETER tcmalloc_span_lifetime_tracking 0)"));
+    }
+
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_release_pages_from_huge_region 1)"));

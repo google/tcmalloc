@@ -247,6 +247,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_COLLAPSE_HEURISTICS"},
     },
+    {
+        "name": "tcmalloc_span_lifetime_tracking",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING"},
+    },
 ]
 
 def create_tcmalloc_library(

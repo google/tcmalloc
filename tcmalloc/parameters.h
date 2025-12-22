@@ -175,6 +175,7 @@ class Parameters {
   }
 
   static central_freelist_internal::PriorityListLength priority_list_length();
+  static central_freelist_internal::LifetimeTracking span_lifetime_tracking();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);

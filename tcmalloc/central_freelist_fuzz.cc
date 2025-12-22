@@ -22,6 +22,7 @@
 
 #include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
@@ -142,6 +143,15 @@ void FuzzCFL(const std::string& s) {
         PbtxtRegion region(p, kTop);
         env.central_freelist().PrintSpanUtilStatsInPbtxt(region);
         env.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
+        break;
+      }
+      case 5: {
+        env.central_freelist().HandleLongLivedSpans();
+        break;
+      }
+      case 6: {
+        // Advance the clock by a random amount.
+        env.forwarder().AdvanceClock(absl::Milliseconds(value));
         break;
       }
     }

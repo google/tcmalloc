@@ -17,6 +17,8 @@
 
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/central_freelist.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
@@ -40,6 +42,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   absl::Time last_size_class_max_capacity_resize = prev_time;
   absl::Time last_slab_resize_check = prev_time;
   absl::Time last_hpaa_hugepage_check = prev_time;
+  absl::Time last_cfl_long_lived_check = prev_time;
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   absl::Time last_transfer_cache_plunder_check = prev_time;
@@ -89,6 +92,10 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     // different treatments (e.g. usermode collapse, custom name sampled VMAs,
     // etc.) once every hpaa_hugepage_check_period.
     const absl::Duration hpaa_hugepage_check_period = 5 * sleep_time;
+
+    // Iterate through all spans and move long-lived spans to the long-lived
+    // section of nonempty_ once every cfl_long_lived_check_period.
+    const absl::Duration cfl_long_lived_check_period = 5 * sleep_time;
 
     absl::Time now = absl::Now();
 
@@ -160,14 +167,25 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       last_hpaa_hugepage_check = now;
     }
 
+    if (Parameters::span_lifetime_tracking() ==
+        tcmalloc::tcmalloc_internal::central_freelist_internal::
+            LifetimeTracking::kEnabled) {
+      if (now - last_cfl_long_lived_check >= cfl_long_lived_check_period) {
+        for (int i = 0; i < tcmalloc::tcmalloc_internal::kNumClasses; ++i) {
+          tc_globals.central_freelist(i).HandleLongLivedSpans();
+        }
+        last_cfl_long_lived_check = now;
+      }
+    }
+
     // If time goes backwards, we would like to cap the release rate at 0.
     ssize_t bytes_to_release =
         static_cast<size_t>(Parameters::background_release_rate()) *
         absl::ToDoubleSeconds(now - prev_time);
     bytes_to_release = std::max<ssize_t>(bytes_to_release, 0);
 
-    // If release rate is set to 0, do not release memory to system. However, if
-    // we want to release free and backed hugepages from HugeRegion,
+    // If release rate is set to 0, do not release memory to system. However,
+    // if we want to release free and backed hugepages from HugeRegion,
     // ReleaseMemoryToSystem should be able to release those pages to the
     // system even with bytes_to_release = 0.
     if (bytes_to_release > 0 || Parameters::release_pages_from_huge_region()) {
