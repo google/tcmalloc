@@ -44,6 +44,8 @@ class GwpAsanState {
 
   Type type() const { return type_; }
 
+  const void* ptr() const { return ptr_; }
+
   bool triggered() const { return type_ != Type::kNone; }
 
   std::optional<absl::Span<void* const>> AllocationStack() const {
@@ -105,9 +107,10 @@ class GwpAsanState {
   }
 
   void RecordMismatch(
-      size_t provided_min, size_t provided_max, size_t minimum, size_t maximum,
-      std::optional<absl::Span<void* const>> allocation_stack,
+      const void* ptr, size_t provided_min, size_t provided_max, size_t minimum,
+      size_t maximum, std::optional<absl::Span<void* const>> allocation_stack,
       std::optional<absl::Span<void* const>> deallocation_stack) {
+    ptr_ = ptr;
     type_ = Type::kMismatchedDelete;
 
     provided_min_ = provided_min;
@@ -136,7 +139,9 @@ class GwpAsanState {
     }
   }
 
-  void RecordDoubleFree(absl::Span<void* const> deallocation_stack) {
+  void RecordDoubleFree(const void* ptr,
+                        absl::Span<void* const> deallocation_stack) {
+    ptr_ = ptr;
     type_ = Type::kDoubleFree;
 
     size_t deallocation_stack_depth =
@@ -146,7 +151,9 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
-  void RecordInvalidFree(absl::Span<void* const> deallocation_stack) {
+  void RecordInvalidFree(const void* ptr,
+                         absl::Span<void* const> deallocation_stack) {
+    ptr_ = ptr;
     type_ = Type::kInvalidFree;
 
     size_t deallocation_stack_depth =
@@ -157,10 +164,11 @@ class GwpAsanState {
   }
 
   void RecordInvalidFree(
-      std::optional<std::align_val_t> actual_alignment,
+      const void* ptr, std::optional<std::align_val_t> actual_alignment,
       std::optional<std::align_val_t> expected_alignment,
       std::optional<absl::Span<void* const>> allocation_stack,
       absl::Span<void* const> deallocation_stack) {
+    ptr_ = ptr;
     type_ = Type::kInvalidFree;
 
     actual_alignment_ = actual_alignment;
@@ -183,10 +191,11 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
-  void RecordInvalidFree(std::align_val_t actual_alignment,
+  void RecordInvalidFree(const void* ptr, std::align_val_t actual_alignment,
                          std::align_val_t expected_alignment,
                          absl::Span<void* const> allocation_stack,
                          absl::Span<void* const> deallocation_stack) {
+    ptr_ = ptr;
     type_ = Type::kInvalidFree;
 
     actual_alignment_ = actual_alignment;
@@ -205,10 +214,12 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
-  void RecordMismatchedFree(Profile::Sample::AllocationType alloc_type,
+  void RecordMismatchedFree(const void* ptr,
+                            Profile::Sample::AllocationType alloc_type,
                             Profile::Sample::AllocationType dealloc_type,
                             absl::Span<void* const> allocation_stack,
                             absl::Span<void* const> deallocation_stack) {
+    ptr_ = ptr;
     type_ = Type::kMismatchedFree;
 
     alloc_type_ = alloc_type;
@@ -229,6 +240,7 @@ class GwpAsanState {
 
  private:
   Type type_ = Type::kNone;
+  const void* ptr_ = nullptr;
   size_t provided_min_ = 0, provided_max_ = 0, minimum_ = 0, maximum_ = 0;
   std::optional<std::align_val_t> actual_alignment_, expected_alignment_;
 

@@ -24,7 +24,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
-    Static& state, const SampledAllocation& alloc, size_t size,
+    Static& state, const void* ptr, const SampledAllocation& alloc, size_t size,
     size_t requested_size, std::optional<size_t> allocated_size);
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(

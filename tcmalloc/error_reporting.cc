@@ -37,7 +37,7 @@ namespace tcmalloc::tcmalloc_internal {
 
 [[noreturn]]
 ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
-    Static& state, const SampledAllocation& alloc, size_t size,
+    Static& state, const void* ptr, const SampledAllocation& alloc, size_t size,
     size_t requested_size, std::optional<size_t> allocated_size) {
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
   TC_LOG("Error originates from memory allocated at:");
@@ -55,7 +55,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
 
   RecordCrash("GWP-ASan", "mismatched-size-delete");
   state.gwp_asan_state().RecordMismatch(
-      size, size, requested_size, maximum_size,
+      ptr, size, size, requested_size, maximum_size,
       absl::MakeSpan(alloc.sampled_stack.stack, alloc.sampled_stack.depth),
       absl::MakeSpan(stack, depth));
 
@@ -99,7 +99,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(Static& state,
   PrintStackTrace(stack, depth);
 
   RecordCrash("GWP-ASan", "mismatched-size-delete");
-  state.gwp_asan_state().RecordMismatch(/*provided_min=*/size,
+  state.gwp_asan_state().RecordMismatch(ptr, /*provided_min=*/size,
                                         /*provided_max=*/size, minimum_size,
                                         maximum_size, std::nullopt,
                                         absl::MakeSpan(stack, depth));
@@ -127,9 +127,9 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedSizeClass(Static& state,
       "later point in time and different code location.");
   RecordCrash("GWP-ASan", "mismatched-size-class");
 
-  state.gwp_asan_state().RecordMismatch(object_min_size, object_max_size,
-                                        page_min_size, page_max_size,
-                                        std::nullopt, std::nullopt);
+  state.gwp_asan_state().RecordMismatch(
+      object, object_min_size, object_max_size, page_min_size, page_max_size,
+      std::nullopt, std::nullopt);
   TC_BUG(
       "Mismatched-size-class "
       "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
@@ -148,7 +148,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportDoubleFree(Static& state, const void* ptr) {
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
   RecordCrash("GWP-ASan", "double-free");
-  state.gwp_asan_state().RecordDoubleFree(absl::MakeSpan(stack, depth));
+  state.gwp_asan_state().RecordDoubleFree(ptr, absl::MakeSpan(stack, depth));
 
   TC_BUG("Possible double free detected of %p", ptr);
 }
@@ -160,7 +160,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(Static& state,
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
   RecordCrash("GWP-ASan", "invalid-free");
-  state.gwp_asan_state().RecordInvalidFree(absl::MakeSpan(stack, depth));
+  state.gwp_asan_state().RecordInvalidFree(ptr, absl::MakeSpan(stack, depth));
 
   TC_BUG(
       "Attempted to free corrupted pointer %p: It was never allocated or "
@@ -176,6 +176,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
 
   RecordCrash("GWP-ASan", "invalid-free");
   state.gwp_asan_state().RecordInvalidFree(
+      ptr,
       static_cast<std::align_val_t>(
           1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
       expected_alignment, std::nullopt, absl::MakeSpan(stack, depth));
@@ -192,6 +193,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
 
   RecordCrash("GWP-ASan", "invalid-free");
   state.gwp_asan_state().RecordInvalidFree(
+      ptr,
       static_cast<std::align_val_t>(
           1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
       expected_alignment, allocation_stack, absl::MakeSpan(stack, depth));
@@ -207,8 +209,9 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
   RecordCrash("GWP-ASan", "invalid-free");
-  state.gwp_asan_state().RecordMismatchedFree(
-      alloc_type, dealloc_type, allocation_stack, absl::MakeSpan(stack, depth));
+  state.gwp_asan_state().RecordMismatchedFree(ptr, alloc_type, dealloc_type,
+                                              allocation_stack,
+                                              absl::MakeSpan(stack, depth));
 
   TC_BUG("Deallocating %p with %v, expected %v", ptr, dealloc_type, alloc_type);
 }
@@ -221,7 +224,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
   RecordCrash("GWP-ASan", "invalid-free");
-  state.gwp_asan_state().RecordInvalidFree(dealloc_align, alloc_align,
+  state.gwp_asan_state().RecordInvalidFree(ptr, dealloc_align, alloc_align,
                                            allocation_stack,
                                            absl::MakeSpan(stack, depth));
 

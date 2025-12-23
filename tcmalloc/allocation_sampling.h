@@ -332,12 +332,12 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
     if (sampled_allocation->sampled_stack.requested_size_returning) {
       if (ABSL_PREDICT_FALSE(
               !(requested_size <= *size && *size <= allocated_size))) {
-        ReportMismatchedDelete(state, *sampled_allocation, *size,
+        ReportMismatchedDelete(state, ptr, *sampled_allocation, *size,
                                requested_size, allocated_size);
       }
     } else if (ABSL_PREDICT_FALSE(size != requested_size)) {
-      ReportMismatchedDelete(state, *sampled_allocation, *size, requested_size,
-                             std::nullopt);
+      ReportMismatchedDelete(state, ptr, *sampled_allocation, *size,
+                             requested_size, std::nullopt);
     }
   }
 
