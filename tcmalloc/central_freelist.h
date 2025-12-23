@@ -94,6 +94,10 @@ static constexpr absl::Duration kLongLivedSpanThreshold = absl::Seconds(10);
 static constexpr size_t kMaxLongLivedSpansToMove = 10;
 static constexpr size_t kSpanMoveStatBuckets =
     absl::bit_width(kMaxLongLivedSpansToMove) + 1;
+// Specifies the number of buckets in the histogram that tracks the number of
+// spans used to fill a batch.
+static constexpr size_t kSpansUsedStatBuckets =
+    absl::bit_width(kMaxObjectsToMove);
 
 enum class PriorityListLength : bool { kNormal = false, kExtended = true };
 enum class LifetimeTracking : bool { kDisabled = false, kEnabled = true };
@@ -275,7 +279,7 @@ class CentralFreeList {
   StatsCounter completed_spans_[kLifetimeBuckets];
 
   // Tracks the number of spans used to fill a batch in RemoveRange
-  StatsCounters<kMaxObjectsToMove> span_allocations_tracker_;
+  StatsCounters<kSpansUsedStatBuckets> span_allocations_tracker_;
 
   int LifetimeBucketNum(absl::Duration duration) {
     int64_t duration_ms = absl::ToInt64Milliseconds(duration);
@@ -633,7 +637,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   TC_ASSERT_GT(num_spans, 0);
   TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
   TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
-  span_allocations_tracker_[num_spans - 1].LossyAdd(1);
+  span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
   UpdateObjectCounts(-result);
 
   return result;
@@ -825,11 +829,13 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintNumSpansUsed(Printer& out) {
   out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
-  for (size_t i = 1; i <= kMaxObjectsToMove; ++i) {
-    out.printf("%zu : %8zu", i, span_allocations_tracker_[i - 1].value());
-    if (i < kMaxObjectsToMove) {
-      out.printf(",");
+  size_t lower_bound = 1;
+  for (size_t i = 0; i < kSpansUsedStatBuckets; ++i) {
+    out.printf("%zu : %8zu", lower_bound, span_allocations_tracker_[i].value());
+    if (i < kSpansUsedStatBuckets - 1) {
+      out.printf(", ");
     }
+    lower_bound *= 2;
   }
   out.printf("\n");
 }
@@ -870,12 +876,16 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintNumSpansUsedInPbtxt(
     PbtxtRegion& region) {
-  for (size_t i = 1; i <= kMaxObjectsToMove; ++i) {
+  size_t lower_bound = 1;
+  for (size_t i = 0; i < kSpansUsedStatBuckets; ++i) {
     PbtxtRegion span_allocations_tracker =
-        region.CreateSubRegion("span_allocations_tracker");
-    span_allocations_tracker.PrintI64("num_spans", i);
+        region.CreateSubRegion("span_allocations_histogram");
+    size_t upper_bound = lower_bound * 2;
+    span_allocations_tracker.PrintI64("lower_bound", lower_bound);
+    span_allocations_tracker.PrintI64("upper_bound", upper_bound);
     span_allocations_tracker.PrintI64("value",
-                                      span_allocations_tracker_[i - 1].value());
+                                      span_allocations_tracker_[i].value());
+    lower_bound = upper_bound;
   }
 }
 

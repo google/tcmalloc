@@ -873,6 +873,9 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
   }
   single_spans *= kNumSpans;
 
+  size_t max_lower_bound = 1 << (absl::bit_width<size_t>(kNumSpans) - 1);
+  size_t max_upper_bound = max_lower_bound * 2;
+
   // Check txt stats
   int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, kNumSpans));
   EXPECT_EQ(got, kNumSpans);
@@ -883,8 +886,8 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
   EXPECT_THAT(
       buffer,
       testing::AllOf(
-          testing::HasSubstr(absl::StrFormat("%v :        1", kNumSpans)),
-          testing::ContainsRegex(absl::StrFormat("1 : *%v", single_spans))));
+          testing::HasSubstr(absl::StrFormat("%v :        1", max_lower_bound)),
+          testing::ContainsRegex(absl::StrFormat("1 : *%v, ", single_spans))));
 
   // Check pbtxt stats
   std::string buffer_pbtxt(1024 * 1024, '\0');
@@ -895,9 +898,11 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
   buffer_pbtxt.resize(strlen(buffer_pbtxt.c_str()));
   EXPECT_THAT(buffer_pbtxt,
               testing::AllOf(testing::HasSubstr(absl::StrFormat(
-                                 "{ num_spans: %v value: 1}", kNumSpans)),
+                                 "{ lower_bound: %v upper_bound: %v value: 1}",
+                                 max_lower_bound, max_upper_bound)),
                              testing::HasSubstr(absl::StrFormat(
-                                 "{ num_spans: 1 value: %v}", single_spans))));
+                                 "{ lower_bound: 1 upper_bound: 2 value: %v}",
+                                 single_spans))));
 }
 
 TEST_P(CentralFreeListTest, MultipleSpans) {
