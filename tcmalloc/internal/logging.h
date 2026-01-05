@@ -74,7 +74,7 @@ struct StackTrace {
   void* proxy;
 
   uintptr_t requested_size;
-  uintptr_t requested_alignment;
+  std::optional<std::align_val_t> requested_alignment;
   uintptr_t allocated_size;  // size after sizeclass/page rounding
   bool requested_size_returning;
 

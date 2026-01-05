@@ -149,7 +149,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
 
   StackTrace t1 = {};
   t1.requested_size = static_cast<uintptr_t>(512);
-  t1.requested_alignment = static_cast<uintptr_t>(16);
+  t1.requested_alignment = static_cast<std::align_val_t>(16);
   t1.allocated_size = static_cast<uintptr_t>(1024);
   t1.sampled_alloc_handle = AllocHandle{1};
   t1.access_hint = 3;
@@ -176,7 +176,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
 
   StackTrace t2 = {};
   t2.requested_size = static_cast<uintptr_t>(375);
-  t2.requested_alignment = static_cast<uintptr_t>(0);
+  t2.requested_alignment = std::nullopt;
   t2.allocated_size = static_cast<uintptr_t>(512);
   t2.sampled_alloc_handle = AllocHandle{2};
   t2.access_hint = 254;
@@ -288,7 +288,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   // Same stack as t1, but w/ different size
   StackTrace t3 = {};
   t3.requested_size = static_cast<uintptr_t>(13);
-  t3.requested_alignment = static_cast<uintptr_t>(0);
+  t3.requested_alignment = std::nullopt;
   t3.allocated_size = static_cast<uintptr_t>(17);
   t3.sampled_alloc_handle = AllocHandle{3};
   t3.access_hint = 3;
@@ -328,7 +328,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   // Same stack as t1, but w/ different alignment
   StackTrace t4 = {};
   t4.requested_size = static_cast<uintptr_t>(512);
-  t4.requested_alignment = static_cast<uintptr_t>(32);
+  t4.requested_alignment = static_cast<std::align_val_t>(32);
   t4.allocated_size = static_cast<uintptr_t>(1024);
   t4.sampled_alloc_handle = AllocHandle{4};
   t4.access_hint = 3;
@@ -368,7 +368,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   // Same stack as t1, but w/ different hint
   StackTrace t5 = {};
   t5.requested_size = static_cast<uintptr_t>(512);
-  t5.requested_alignment = static_cast<uintptr_t>(32);
+  t5.requested_alignment = static_cast<std::align_val_t>(32);
   t5.allocated_size = static_cast<uintptr_t>(1024);
   t5.sampled_alloc_handle = AllocHandle{5};
   t5.access_hint = 4;

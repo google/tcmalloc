@@ -992,8 +992,7 @@ TEST_F(TcMallocTest, FreeWithoutAlignment) {
       { free_sized(malloc_with_align, size); },
       // GWP-ASan
       absl::StrCat(
-          "(Deallocating 0x[0-9a-f]+ with alignment \\?\\?\\?, expected ",
-          align,
+          "(Deallocating 0x[0-9a-f]+ with alignment 16, expected ", align,
           ")"));
 
   free_aligned_sized(malloc_with_align, align, size);

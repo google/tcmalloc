@@ -14,6 +14,9 @@
 
 #include "tcmalloc/internal/sampled_allocation.h"
 
+#include <new>
+#include <optional>
+
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/debugging/stacktrace.h"
@@ -27,7 +30,7 @@ StackTrace PrepareStackTrace() {
   StackTrace st;
   st.depth = absl::GetStackTrace(st.stack, kMaxStackDepth, /* skip_count= */ 0);
   st.requested_size = 8;
-  st.requested_alignment = 4;
+  st.requested_alignment = std::align_val_t{4};
   st.allocated_size = 8;
   st.access_hint = 1;
   st.weight = 4;
@@ -42,7 +45,8 @@ TEST(SampledAllocationTest, PrepareForSampling) {
   // Now verify some fields.
   EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);
   EXPECT_EQ(sampled_allocation.sampled_stack.requested_size, 8);
-  EXPECT_EQ(sampled_allocation.sampled_stack.requested_alignment, 4);
+  EXPECT_EQ(sampled_allocation.sampled_stack.requested_alignment,
+            std::align_val_t{4});
   EXPECT_EQ(sampled_allocation.sampled_stack.allocated_size, 8);
   EXPECT_EQ(sampled_allocation.sampled_stack.access_hint, 1);
   EXPECT_EQ(sampled_allocation.sampled_stack.weight, 4);
@@ -50,7 +54,7 @@ TEST(SampledAllocationTest, PrepareForSampling) {
   // Set them to different values.
   sampled_allocation.sampled_stack.depth = 0;
   sampled_allocation.sampled_stack.requested_size = 0;
-  sampled_allocation.sampled_stack.requested_alignment = 0;
+  sampled_allocation.sampled_stack.requested_alignment = std::nullopt;
   sampled_allocation.sampled_stack.allocated_size = 0;
   sampled_allocation.sampled_stack.access_hint = 0;
   sampled_allocation.sampled_stack.weight = 0;
@@ -59,7 +63,8 @@ TEST(SampledAllocationTest, PrepareForSampling) {
   sampled_allocation.PrepareForSampling(PrepareStackTrace());
   EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);
   EXPECT_EQ(sampled_allocation.sampled_stack.requested_size, 8);
-  EXPECT_EQ(sampled_allocation.sampled_stack.requested_alignment, 4);
+  EXPECT_EQ(sampled_allocation.sampled_stack.requested_alignment,
+            std::align_val_t{4});
   EXPECT_EQ(sampled_allocation.sampled_stack.allocated_size, 8);
   EXPECT_EQ(sampled_allocation.sampled_stack.access_hint, 1);
   EXPECT_EQ(sampled_allocation.sampled_stack.weight, 4);

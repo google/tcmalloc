@@ -115,11 +115,12 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   // Grab the stack trace outside the heap lock.
   stack_trace.depth = absl::GetStackTrace(stack_trace.stack, kMaxStackDepth, 0);
 
-  // requested_alignment = 1 means 'small size table alignment was used'
-  // Historically this is reported as requested_alignment = 0
-  stack_trace.requested_alignment = policy.align();
-  if (stack_trace.requested_alignment == 1) {
-    stack_trace.requested_alignment = 0;
+  if (policy.has_explicit_alignment()) {
+    // TODO(b/404341539): Make policy.align() a std::align_val_t.
+    stack_trace.requested_alignment =
+        static_cast<std::align_val_t>(policy.align());
+  } else {
+    stack_trace.requested_alignment = std::nullopt;
   }
 
   stack_trace.requested_size_returning = policy.size_returning();
@@ -145,9 +146,10 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
 
     Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
+    size_t sample_alignment = policy.align();
+    if (sample_alignment == 1) sample_alignment = 0;
     alloc_with_status = state.guardedpage_allocator().TrySample(
-        requested_size, stack_trace.requested_alignment, num_pages,
-        stack_trace);
+        requested_size, sample_alignment, num_pages, stack_trace);
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       TC_ASSERT(!IsNormalMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
@@ -221,7 +223,9 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   MallocHook::SampledAlloc sampled_alloc = {
       .handle = stack_trace.sampled_alloc_handle,
       .requested_size = stack_trace.requested_size,
-      .requested_alignment = stack_trace.requested_alignment,
+      // TODO(b/404341539): Propagate type to SampledAlloc.
+      .requested_alignment = static_cast<size_t>(
+          stack_trace.requested_alignment.value_or(std::align_val_t{0})),
       .allocated_size = stack_trace.allocated_size,
       .weight = allocation_estimate,
       .stack = absl::MakeSpan(stack_trace.stack, stack_trace.depth),
@@ -365,32 +369,26 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
                        sampled_allocation->sampled_stack.depth));
   }
 
-  // SampleifyAllocation turns alignment 1 into 0, turn it back for
-  // SizeMap::SizeClass.
-  //
-  // TODO(b/404341539): Make requested_alignment an optional and
-  // std::align_val_t-typed.
-  const size_t alignment =
-      sampled_allocation->sampled_stack.requested_alignment != 0
-          ? sampled_allocation->sampled_stack.requested_alignment
-          : 1;
-
   // TODO(b/404341539):
   // * Handle situation where malloc is deallocated with free_aligned_sized, or
   //   vice-versa.
+  const size_t allocated_alignment = static_cast<size_t>(
+      sampled_allocation->sampled_stack.requested_alignment.value_or(
+          std::align_val_t{1}));
+  const std::optional<std::align_val_t> deallocated_alignment =
+      policy.has_explicit_alignment()
+          ? std::make_optional<std::align_val_t>(
+                static_cast<std::align_val_t>(policy.align()))
+          : std::nullopt;
+
   if ((size.has_value() ||
        policy.allocation_type() == Profile::Sample::AllocationType::New) &&
-      ABSL_PREDICT_FALSE(policy.align() != alignment)) {
+      ABSL_PREDICT_FALSE(
+          deallocated_alignment !=
+          sampled_allocation->sampled_stack.requested_alignment)) {
     ReportMismatchedFree(
-        state, ptr,
-        sampled_allocation->sampled_stack.requested_alignment != 0
-            ? std::make_optional(static_cast<std::align_val_t>(
-                  sampled_allocation->sampled_stack.requested_alignment))
-            : std::nullopt,
-        policy.has_explicit_alignment()
-            ? std::make_optional<std::align_val_t>(
-                  static_cast<std::align_val_t>(policy.align()))
-            : std::nullopt,
+        state, ptr, sampled_allocation->sampled_stack.requested_alignment,
+        deallocated_alignment,
         absl::MakeSpan(sampled_allocation->sampled_stack.stack,
                        sampled_allocation->sampled_stack.depth));
   }
@@ -404,8 +402,8 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   MallocHook::SampledAlloc sampled_alloc = {
       .handle = sampled_alloc_handle,
       .requested_size = requested_size,
-      .requested_alignment =
-          sampled_allocation->sampled_stack.requested_alignment,
+      // TODO(b/404341539): Make requested_alignment std::align_val_t-typed.
+      .requested_alignment = allocated_alignment,
       .allocated_size = allocated_size,
       .weight = allocation_estimate,
       .stack = absl::MakeSpan(sampled_allocation->sampled_stack.stack,
@@ -435,10 +433,10 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
     size_t size_class;
     if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
       size_class = state.sizemap().SizeClass(
-          policy.AccessAsCold().AlignAs(alignment), allocated_size);
+          policy.AccessAsCold().AlignAs(allocated_alignment), allocated_size);
     } else {
       size_class = state.sizemap().SizeClass(
-          policy.AccessAsHot().AlignAs(alignment), allocated_size);
+          policy.AccessAsHot().AlignAs(allocated_alignment), allocated_size);
     }
     TC_ASSERT_EQ(size_class,
                  state.pagemap().sizeclass(PageIdContainingTagged(proxy)));

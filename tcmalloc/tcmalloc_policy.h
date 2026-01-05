@@ -133,6 +133,8 @@ struct DefaultAlignPolicy {
   // alignment is the default alignment of the size tables in tcmalloc.
   // The constexpr value of 1 will optimize out the alignment checks and
   // iterations in the GetSizeClass() calls for default aligned allocations.
+  //
+  // TODO(b/404341539): Make this a std::align_val_t.
   static constexpr size_t align() { return 1; }
 };
 
@@ -332,7 +334,7 @@ class TCMallocPolicy {
 
   // Alignment policy
   constexpr bool has_explicit_alignment() const {
-    return std::is_same<AlignAsPolicy, AlignPolicy>::value;
+    return !std::is_same<DefaultAlignPolicy, AlignPolicy>::value;
   }
 
   constexpr size_t align() const { return align_.align(); }

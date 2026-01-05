@@ -186,5 +186,48 @@ typedef ::testing::Types<Aligned4, Aligned8, Aligned16, Aligned32, Aligned64>
     MyTypes;
 INSTANTIATE_TYPED_TEST_SUITE_P(My, AlignedNew, MyTypes);
 
+TEST(UnderalignedNew, Profiled) {
+  constexpr size_t kAllocationSize = 1 << 21;
+  constexpr std::align_val_t kAlignment{1};
+  const size_t bytes = 32 * MallocExtension::GetProfileSamplingInterval();
+
+  std::vector<void*> ptrs;
+  ptrs.reserve(bytes / kAllocationSize + 1);
+
+  auto token = MallocExtension::StartAllocationProfiling();
+
+  for (size_t allocated = 0; allocated < bytes; allocated += kAllocationSize) {
+    ptrs.push_back(::operator new(kAllocationSize, kAlignment));
+  }
+
+  auto profile = std::move(token).Stop();
+
+  size_t count = 0;
+  profile.Iterate([&](const Profile::Sample& e) {
+    if (e.requested_size != kAllocationSize) {
+      return;
+    }
+
+    if (!e.requested_alignment.has_value() ||
+        e.requested_alignment != kAlignment) {
+      return;
+    }
+
+    count += e.count;
+  });
+
+  if (!tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_GT(count, 0);
+  }
+
+  for (void* ptr : ptrs) {
+    ::operator delete(ptr,
+#ifdef __cpp_sized_deallocation
+                      kAllocationSize,
+#endif
+                      kAlignment);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc
