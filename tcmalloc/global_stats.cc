@@ -430,17 +430,23 @@ void DumpStats(Printer& out, int level) {
       tc_globals.total_sampled_count_.value());
 
   MemoryStats memstats;
-  if (GetMemoryStats(&memstats)) {
+  bool has_memstats = GetMemoryStats(&memstats);
+  std::optional<int64_t> pss = GetPSS();
+
+  out.printf("\nTotal process stats (inclusive of non-malloc sources):\n");
+
+  if (has_memstats) {
     uint64_t rss = memstats.rss;
     uint64_t vss = memstats.vss;
-    // clang-format off
     out.printf(
-        "\n"
-        "Total process stats (inclusive of non-malloc sources):\n"
         "TOTAL: %12u (%7.1f MiB) Bytes resident (physical memory used)\n"
         "TOTAL: %12u (%7.1f MiB) Bytes mapped (virtual memory used)\n",
         rss, rss / MiB, vss, vss / MiB);
-    // clang-format on
+  }
+
+  if (pss.has_value()) {
+    out.printf("TOTAL: %12u (%7.1f MiB) Bytes PSS (proportional set size)\n",
+               *pss, *pss / MiB);
   }
 
   out.printf(
@@ -713,6 +719,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   if (GetMemoryStats(&memstats)) {
     region.PrintI64("total_resident", uint64_t(memstats.rss));
     region.PrintI64("total_mapped", uint64_t(memstats.vss));
+  }
+  if (auto pss = GetPSS()) {
+    region.PrintI64("total_pss", *pss);
   }
 
   region.PrintI64("total_sampled_count",

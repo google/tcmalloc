@@ -21,7 +21,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
+#include "absl/functional/function_ref.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
@@ -47,22 +49,64 @@ struct FDCloser {
 
 }  // namespace
 
-bool GetMemoryStats(MemoryStats* stats) {
-#if !defined(__linux__)
-  return false;
-#endif
-
+std::optional<int64_t> GetPSS() {
   FDCloser fd;
-  fd.fd = signal_safe_open("/proc/self/statm", O_RDONLY | O_CLOEXEC);
-  TC_ASSERT_GE(fd.fd, 0);
+  fd.fd = signal_safe_open("/proc/self/smaps_rollup", O_RDONLY | O_CLOEXEC);
   if (fd.fd < 0) {
-    return false;
+    return std::nullopt;
   }
 
+  return ParseSmapsRollup([&](char* buf, size_t count) {
+    return signal_safe_read(fd.fd, buf, count, nullptr);
+  });
+}
+
+std::optional<int64_t> ParseSmapsRollup(
+    absl::FunctionRef<ssize_t(char*, size_t)> read) {
+  char buf[4096];
+  ssize_t rc = read(buf, sizeof(buf) - 1);
+  if (rc < 0) {
+    return std::nullopt;
+  }
+  buf[rc] = '\0';
+
+  absl::string_view contents(buf, rc);
+  // Find "Pss:"
+  // It is usually at the start of a line.
+  size_t pos = contents.find("Pss:");
+  if (pos == absl::string_view::npos) {
+    return std::nullopt;
+  }
+
+  // Skip "Pss:"
+  pos += 4;
+
+  // Skip whitespace
+  while (pos < contents.size() && contents[pos] == ' ') {
+    pos++;
+  }
+
+  // Parse number
+  // Find end of number
+  size_t end = pos;
+  while (end < contents.size() && contents[end] >= '0' &&
+         contents[end] <= '9') {
+    end++;
+  }
+
+  absl::string_view value_str = contents.substr(pos, end - pos);
+  int64_t pss_kb = 0;
+  if (!absl::SimpleAtoi(value_str, &pss_kb)) {
+    return std::nullopt;
+  }
+
+  return pss_kb * 1024;
+}
+
+bool ParseStatm(absl::FunctionRef<ssize_t(char*, size_t)> read,
+                MemoryStats* stats) {
   char buf[1024];
-  ssize_t rc = signal_safe_read(fd.fd, buf, sizeof(buf), nullptr);
-  TC_ASSERT_GE(rc, 0);
-  TC_ASSERT_LT(rc, static_cast<ssize_t>(sizeof(buf)));
+  ssize_t rc = read(buf, sizeof(buf));
   if (rc < 0 || rc >= static_cast<ssize_t>(sizeof(buf))) {
     return false;
   }
@@ -126,6 +170,29 @@ bool GetMemoryStats(MemoryStats* stats) {
   } while (start < contents.size() && index++ < 6);
 
   if (index < 6) {
+    return false;
+  }
+
+  return true;
+}
+
+bool GetMemoryStats(MemoryStats* stats) {
+#if !defined(__linux__)
+  return false;
+#endif
+
+  FDCloser fd;
+  fd.fd = signal_safe_open("/proc/self/statm", O_RDONLY | O_CLOEXEC);
+  TC_ASSERT_GE(fd.fd, 0);
+  if (fd.fd < 0) {
+    return false;
+  }
+
+  if (!ParseStatm(
+          [&](char* buf, size_t count) {
+            return signal_safe_read(fd.fd, buf, count, nullptr);
+          },
+          stats)) {
     return false;
   }
 

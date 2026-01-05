@@ -16,7 +16,11 @@
 #define TCMALLOC_INTERNAL_MEMORY_STATS_H_
 
 #include <stdint.h>
+#include <sys/types.h>
 
+#include <optional>
+
+#include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -33,6 +37,14 @@ struct MemoryStats {
 
 // Memory stats of a process
 bool GetMemoryStats(MemoryStats* stats);
+
+[[nodiscard]] std::optional<int64_t> GetPSS();
+
+// Exposed for testing/fuzzing
+[[nodiscard]] bool ParseStatm(absl::FunctionRef<ssize_t(char*, size_t)> read,
+                              MemoryStats* stats);
+[[nodiscard]] std::optional<int64_t> ParseSmapsRollup(
+    absl::FunctionRef<ssize_t(char*, size_t)> read);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

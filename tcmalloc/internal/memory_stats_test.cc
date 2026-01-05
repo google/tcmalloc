@@ -37,6 +37,16 @@ TEST(Stats, ValidRanges) {
   EXPECT_GT(stats.shared, 0);
   EXPECT_GT(stats.code, 0);
   EXPECT_GT(stats.data, 0);
+
+  auto pss = GetPSS();
+  ASSERT_TRUE(pss.has_value());
+  EXPECT_GT(*pss, 0);
+  // This is a slightly more stringent test that may fail, but it is unlikely
+  // that we will run 10 or more copies of the same test simultaneously.  This
+  // scaling factor ensures we fully parse all of the digits out of
+  // smaps_rollup.
+  EXPECT_GT(*pss, stats.rss / 10);
+  EXPECT_LE(*pss, stats.rss);
 }
 
 }  // namespace
