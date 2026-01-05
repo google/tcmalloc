@@ -223,9 +223,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   MallocHook::SampledAlloc sampled_alloc = {
       .handle = stack_trace.sampled_alloc_handle,
       .requested_size = stack_trace.requested_size,
-      // TODO(b/404341539): Propagate type to SampledAlloc.
-      .requested_alignment = static_cast<size_t>(
-          stack_trace.requested_alignment.value_or(std::align_val_t{0})),
+      .requested_alignment = stack_trace.requested_alignment,
       .allocated_size = stack_trace.allocated_size,
       .weight = allocation_estimate,
       .stack = absl::MakeSpan(stack_trace.stack, stack_trace.depth),
@@ -402,8 +400,8 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   MallocHook::SampledAlloc sampled_alloc = {
       .handle = sampled_alloc_handle,
       .requested_size = requested_size,
-      // TODO(b/404341539): Make requested_alignment std::align_val_t-typed.
-      .requested_alignment = allocated_alignment,
+      .requested_alignment =
+          sampled_allocation->sampled_stack.requested_alignment,
       .allocated_size = allocated_size,
       .weight = allocation_estimate,
       .stack = absl::MakeSpan(sampled_allocation->sampled_stack.stack,

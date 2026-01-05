@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <limits>
 #include <new>
+#include <optional>
 #include <string>
 
 #include "gtest/gtest.h"
@@ -45,7 +46,7 @@ double min_weight;
 double max_weight;
 double unsampled_total_allocated_size;
 size_t last_requested_size;
-size_t last_requested_alignment;
+std::optional<std::align_val_t> last_requested_alignment;
 const void* last_ptr;
 absl::Time last_alloc_time;
 
@@ -210,12 +211,12 @@ TEST_F(SampledHooksTest, RequestedSizeAndAlignment) {
 
   void* p = Allocate(34);
   EXPECT_EQ(34, last_requested_size);
-  EXPECT_EQ(0, last_requested_alignment);
+  EXPECT_EQ(std::nullopt, last_requested_alignment);
   Deallocate(p, 34);
 
   p = AllocateAligned(24, 16);
   EXPECT_EQ(24, last_requested_size);
-  EXPECT_EQ(16, last_requested_alignment);
+  EXPECT_EQ(std::align_val_t{16}, last_requested_alignment);
   DeallocateAligned(p, 24, 16);
 }
 

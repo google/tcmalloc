@@ -103,7 +103,7 @@ class MallocHook final {
   struct SampledAlloc final {
     const AllocHandle handle;
     const size_t requested_size;
-    const size_t requested_alignment;
+    const std::optional<std::align_val_t> requested_alignment;
     const size_t allocated_size;
     const double weight;
     const absl::Span<const void* const> stack;
