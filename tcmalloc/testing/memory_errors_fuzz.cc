@@ -153,6 +153,82 @@ TEST(MemoryErrorsFuzzTest, MismatchedSizedDeleteRegression) {
 
 FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedSizedDelete);
 
+void MismatchedAlignedDelete(
+    size_t size, std::optional<std::align_val_t> allocated_alignment,
+    std::optional<std::align_val_t> deallocated_alignment) {
+  GTEST_SKIP() << "Skipping";
+
+  void* ptr;
+  if (allocated_alignment.has_value()) {
+    ptr = TCMallocInternalNewAlignedNothrow(size, *allocated_alignment,
+                                            std::nothrow);
+  } else {
+    ptr = TCMallocInternalNewNothrow(size, std::nothrow);
+  }
+  if (ptr == nullptr) {
+    return;
+  }
+
+  LongJmpScope scope;
+  if (setjmp(scope.buf_)) {
+    return;
+  }
+
+  if (deallocated_alignment.has_value()) {
+    TCMallocInternalDeleteSizedAligned(ptr, size, *deallocated_alignment);
+  } else {
+    TCMallocInternalDeleteSized(ptr, size);
+  }
+  EXPECT_EQ(allocated_alignment, deallocated_alignment);
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedAlignedDelete)
+    .WithDomains(
+        fuzztest::Arbitrary<size_t>(),
+        fuzztest::OptionalOf(fuzztest::Map(
+            [](size_t v) { return static_cast<std::align_val_t>(1ULL << v); },
+            fuzztest::InRange<size_t>(0, kHugePageShift))),
+        fuzztest::OptionalOf(fuzztest::Map(
+            [](size_t v) { return static_cast<std::align_val_t>(1ULL << v); },
+            fuzztest::InRange<size_t>(0, kHugePageShift))));
+
+void MismatchedAlignedFree(size_t size,
+                           std::optional<size_t> allocated_alignment,
+                           std::optional<size_t> deallocated_alignment) {
+  GTEST_SKIP() << "Skipping";
+
+  void* ptr;
+  if (allocated_alignment.has_value()) {
+    ptr = TCMallocInternalAlignedAlloc(*allocated_alignment, size);
+  } else {
+    ptr = TCMallocInternalMalloc(size);
+  }
+  if (ptr == nullptr) {
+    return;
+  }
+
+  LongJmpScope scope;
+  if (setjmp(scope.buf_)) {
+    return;
+  }
+
+  if (deallocated_alignment.has_value()) {
+    TCMallocInternalFreeAlignedSized(ptr, *deallocated_alignment, size);
+  } else {
+    TCMallocInternalFreeSized(ptr, size);
+  }
+  EXPECT_EQ(allocated_alignment, deallocated_alignment);
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedAlignedFree)
+    .WithDomains(fuzztest::Arbitrary<size_t>(),
+                 fuzztest::OptionalOf(fuzztest::Map(
+                     [](size_t v) { return static_cast<size_t>(1ULL << v); },
+                     fuzztest::InRange<size_t>(0, kHugePageShift))),
+                 fuzztest::OptionalOf(fuzztest::Map(
+                     [](size_t v) { return static_cast<size_t>(1ULL << v); },
+                     fuzztest::InRange<size_t>(0, kHugePageShift))));
+
 void MisalignedPointer(size_t size, std::optional<hot_cold_t> hot_cold,
                        std::optional<std::align_val_t> alignment,
                        std::align_val_t misalignment, bool sized) {
