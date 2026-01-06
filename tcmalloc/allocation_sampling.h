@@ -380,15 +380,20 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
           : std::nullopt;
 
   if ((size.has_value() ||
-       policy.allocation_type() == Profile::Sample::AllocationType::New) &&
-      ABSL_PREDICT_FALSE(
-          deallocated_alignment !=
-          sampled_allocation->sampled_stack.requested_alignment)) {
-    ReportMismatchedFree(
-        state, ptr, sampled_allocation->sampled_stack.requested_alignment,
-        deallocated_alignment,
-        absl::MakeSpan(sampled_allocation->sampled_stack.stack,
-                       sampled_allocation->sampled_stack.depth));
+       policy.allocation_type() == Profile::Sample::AllocationType::New)) {
+    const bool type_mismatch =
+        policy.allocation_type() !=
+        sampled_allocation->sampled_stack.allocation_type;
+    const bool alignment_mismatch =
+        deallocated_alignment !=
+        sampled_allocation->sampled_stack.requested_alignment;
+    if (ABSL_PREDICT_FALSE(type_mismatch || alignment_mismatch)) {
+      ReportMismatchedFree(
+          state, ptr, sampled_allocation->sampled_stack.requested_alignment,
+          deallocated_alignment,
+          absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                         sampled_allocation->sampled_stack.depth));
+    }
   }
 
   // How many allocations does this sample represent, given the sampling

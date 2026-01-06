@@ -1530,14 +1530,14 @@ extern "C" void TCMallocInternalCfree(void* ptr) noexcept
 
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalSdallocx(
     void* ptr, size_t size, int flags) noexcept {
-  size_t alignment = alignof(std::max_align_t);
-
   if (ABSL_PREDICT_FALSE(flags != 0)) {
     TC_ASSERT_EQ(flags & ~0x3f, 0);
-    alignment = static_cast<size_t>(1ull << (flags & 0x3f));
-  }
+    size_t alignment = static_cast<size_t>(1ull << (flags & 0x3f));
 
-  return do_free_with_size(ptr, size, MallocPolicy().AlignAs(alignment));
+    return do_free_with_size(ptr, size, MallocPolicy().AlignAs(alignment));
+  } else {
+    return do_free_with_size(ptr, size, MallocPolicy());
+  }
 }
 
 extern "C" void TCMallocInternalDelete(void* p) noexcept {

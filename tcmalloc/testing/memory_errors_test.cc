@@ -999,10 +999,6 @@ TEST_F(TcMallocTest, FreeWithoutAlignment) {
 }
 
 TEST_F(TcMallocTest, FreeWithSameAlignment) {
-  if (kSanitizerPresent) {
-    GTEST_SKIP() << "Skipping under sanitizers pending "
-                    "https://github.com/llvm/llvm-project/issues/144435";
-  }
   ScopedAlwaysSample always_sample;
 
   constexpr size_t size = ABSL_CACHELINE_SIZE;
@@ -1010,9 +1006,25 @@ TEST_F(TcMallocTest, FreeWithSameAlignment) {
   void* malloc_with_align = aligned_alloc(align, size);
   void* malloc_without_align = malloc(size);
 
-  // TODO(b/404341539): Distinguish this case and require free_align_sized.
-  free_sized(malloc_with_align, size);
-  free_aligned_sized(malloc_without_align, alignof(std::max_align_t), size);
+  if (!kSanitizerPresent) {
+    EXPECT_DEATH(
+        { free_sized(malloc_with_align, size); },
+        absl::StrCat("(Deallocating 0x[0-9a-f]+ with alignment ",
+                     alignof(std::max_align_t), ", expected ", align,
+                     ")"));
+
+    EXPECT_DEATH(
+        {
+          free_aligned_sized(malloc_without_align, alignof(std::max_align_t),
+                             size);
+        },
+        absl::StrCat("(Deallocating 0x[0-9a-f]+ with alignment ",
+                     alignof(std::max_align_t), ", expected ", align,
+                     ")"));
+  }
+
+  free_aligned_sized(malloc_with_align, alignof(std::max_align_t), size);
+  free_sized(malloc_without_align, size);
 }
 
 TEST_F(TcMallocTest, FreeWithAlignment) {
