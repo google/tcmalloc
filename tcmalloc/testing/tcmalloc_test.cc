@@ -75,6 +75,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pages.h"
@@ -114,14 +115,6 @@ static const size_t kMaxTestAllocSize = 4 << 10;
 namespace tcmalloc {
 extern ABSL_ATTRIBUTE_WEAK bool want_hpaa();
 }  // namespace tcmalloc
-
-int main(int argc, char** argv) {
-  testing::InitGoogleTest(&argc, argv);
-  constexpr size_t kGiB = 1024 * 1024 * 1024;
-  SetTestResourceLimit(/*limit=*/8 * kGiB);
-
-  return RUN_ALL_TESTS();
-}
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
@@ -225,6 +218,11 @@ TEST(TcmallocTest, Realloc) {
       const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
       benchmark::DoNotOptimize(p);
 
+      // Sanitizers reallocate more aggressively.
+      if (kSanitizerPresent) {
+        continue;
+      }
+
       ASSERT_EQ(orig_ptr, new_ptr)
           << ": realloc should not allocate new memory"
           << " (" << start_sizes[s] << " + " << deltas[d] << ")";
@@ -234,6 +232,11 @@ TEST(TcmallocTest, Realloc) {
       p = realloc(p, start_sizes[s] - deltas[d]);
       const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
       benchmark::DoNotOptimize(p);
+
+      // Sanitizers reallocate more aggressively.
+      if (kSanitizerPresent) {
+        continue;
+      }
 
       ASSERT_EQ(orig_ptr, new_ptr)
           << ": realloc should not allocate new memory"
@@ -273,6 +276,11 @@ TEST(TcmallocTest, ReallocArray) {
       const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
       benchmark::DoNotOptimize(p);
 
+      // Sanitizers reallocate more aggressively.
+      if (kSanitizerPresent) {
+        continue;
+      }
+
       ASSERT_EQ(orig_ptr, new_ptr)
           << ": reallocarray should not allocate new memory"
           << " (" << start_sizes[s] << " + " << deltas[d] << ")";
@@ -282,6 +290,11 @@ TEST(TcmallocTest, ReallocArray) {
       p = reallocarray(p, start_sizes[s] - deltas[d], 1);
       const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
       benchmark::DoNotOptimize(p);
+
+      // Sanitizers reallocate more aggressively.
+      if (kSanitizerPresent) {
+        continue;
+      }
 
       ASSERT_EQ(orig_ptr, new_ptr)
           << ": reallocarray should not allocate new memory"
@@ -768,6 +781,9 @@ TEST(TCMallocTest, nallocx) {
   for (size_t size = 0; size <= kMaxTestAllocSize; size += 11) {
     size_t rounded = nallocx(size, 0);
     ASSERT_GE(rounded, size);
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+    rounded = std::max<size_t>(rounded, 1u);
+#endif
     void* ptr = operator new(size);
     ASSERT_EQ(rounded, MallocExtension::GetAllocatedSize(ptr));
     operator delete(ptr);
@@ -787,8 +803,13 @@ TEST(TCMallocTest, nallocx_alignment) {
 #endif
       size_t rounded = nallocx(size, MALLOCX_LG_ALIGN(align));
       ASSERT_GE(rounded, size);
-      ASSERT_EQ(rounded % (1 << align), 0);
+      if (!kSanitizerPresent) {
+        ASSERT_EQ(rounded % (1 << align), 0) << size << " " << align;
+      }
       void* ptr = memalign(1 << align, size);
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+      rounded = std::max<size_t>(rounded, 1u);
+#endif
       ASSERT_EQ(rounded, MallocExtension::GetAllocatedSize(ptr));
       free(ptr);
     }
@@ -858,19 +879,28 @@ TEST(TCMallocTest, FreeSizedDeathTest) {
   const size_t alignment = 512;
   int err = posix_memalign(&ptr, 512, alignment);
   ASSERT_EQ(err, 0) << alignment << " " << size;
-  EXPECT_DEATH(free_sized(ptr, size), "");
+  // TODO(b/250877054): Switch to death test in sanitizers when supported.
+  if (kSanitizerPresent) {
+    // This is UB, but when sanitizers support it we will notice the test
+    // failure and fix it.
+    free_sized(ptr, size);
+  } else {
+    EXPECT_DEATH(free_sized(ptr, size), "");
+  }
 }
 #endif
 
-TEST(TCMallocTest, free_aligned_aligned) {
+TEST(TCMallocTest, FreeAlignedSized) {
   for (size_t size = 7; size <= 4096; size += 7) {
     for (size_t align = 0; align <= 10; align++) {
       const size_t alignment = 1 << align;
       void* ptr = aligned_alloc(alignment, size);
-      ASSERT_NE(ptr, nullptr) << alignment << " " << size;
-      ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) & (alignment - 1), 0);
-      memset(ptr, 0, size);
-      benchmark::DoNotOptimize(ptr);
+      if (!kSanitizerPresent) {
+        ASSERT_NE(ptr, nullptr) << alignment << " " << size;
+        ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) & (alignment - 1), 0);
+        memset(ptr, 0, size);
+        benchmark::DoNotOptimize(ptr);
+      }
       free_aligned_sized(ptr, alignment, size);
     }
   }
@@ -882,7 +912,14 @@ TEST(TCMallocTest, FreeAlignedSizedDeathTest) {
   const size_t alignment = 1024;
   void* ptr = malloc(size);
   ASSERT_NE(ptr, nullptr) << alignment << " " << size;
-  EXPECT_DEATH(free_aligned_sized(ptr, size, alignment), "");
+  // TODO(b/250877054): Switch to death test in sanitizers when supported.
+  if (kSanitizerPresent) {
+    // This is UB, but when sanitizers support it we will notice the test
+    // failure and fix it.
+    free_aligned_sized(ptr, size, alignment);
+  } else {
+    EXPECT_DEATH(free_aligned_sized(ptr, size, alignment), "");
+  }
 }
 #endif
 
@@ -928,11 +965,13 @@ TEST(TCMallocTest, aligned_alloc_at_least) {
     for (size_t align = 0; align <= 10; align++) {
       const size_t alignment = 1 << align;
       auto result = aligned_alloc_at_least(alignment, size);
-      ASSERT_NE(result.ptr, nullptr) << alignment << " " << size;
-      ASSERT_EQ(reinterpret_cast<uintptr_t>(result.ptr) & (alignment - 1), 0);
-      ASSERT_GE(result.size, size);
-      memset(result.ptr, 0, result.size);
-      benchmark::DoNotOptimize(result);
+      if (!kSanitizerPresent) {
+        ASSERT_NE(result.ptr, nullptr) << alignment << " " << size;
+        ASSERT_EQ(reinterpret_cast<uintptr_t>(result.ptr) & (alignment - 1), 0);
+        ASSERT_GE(result.size, size);
+        memset(result.ptr, 0, result.size);
+        benchmark::DoNotOptimize(result);
+      }
       free_aligned_sized(result.ptr, alignment, result.size);
     }
   }
@@ -975,6 +1014,9 @@ std::optional<int64_t> ParseLowLevelAllocator(absl::string_view allocator_name,
 }
 
 TEST(TCMallocTest, GetStatsReportsLowLevel) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "no stats under sanitizers";
+  }
   std::string stats = MallocExtension::GetStats();
   std::optional<int64_t> low_level_bytes =
       ParseLowLevelAllocator("MmapSysAllocator", stats);
@@ -1003,6 +1045,9 @@ void ExpectSameAddresses(T1 v1, T2 v2) {
 }  // end unnamed namespace
 
 TEST(TCMallocTest, TestAliasedFunctions) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
   void* (*operator_new)(size_t) = &::operator new;
   void* (*operator_new_nothrow)(size_t, const std::nothrow_t&) =
       &::operator new;
@@ -1137,7 +1182,11 @@ TEST_P(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
   // the next available class size, which we know is always at least
   // properly aligned, so size 3 should always return extra capacity.
   sized_ptr_t res = New(3);
-  EXPECT_THAT(res.n, testing::Ge(8));
+  if (kSanitizerPresent) {
+    EXPECT_THAT(res.n, testing::Eq(3));
+  } else {
+    EXPECT_THAT(res.n, testing::Ge(8));
+  }
   Delete(res);
 }
 
@@ -1160,6 +1209,9 @@ TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNew) {
     EXPECT_EQ(res.p, nullptr);
     EXPECT_EQ(res.n, 0);
   } else {
+#if defined(ABSL_HAVE_THREAD_SANITIZER)
+    GTEST_SKIP() << "Skipping under TSan";
+#endif
     EXPECT_DEATH(New(kBadSize), "");
   }
 }
@@ -1261,12 +1313,14 @@ TYPED_TEST(HotColdTest, HotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold) << ptr;
+    if (!kSanitizerPresent) {
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold) << ptr;
+    }
   }
 
   // Delete
   for (SizedPtr s : ptrs) {
-    if (expectColdTags && IsNormalMemory(s.ptr)) {
+    if (!kSanitizerPresent && expectColdTags && IsNormalMemory(s.ptr)) {
       EXPECT_TRUE(hot.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
     }
 
@@ -1290,7 +1344,8 @@ TYPED_TEST(HotColdTest, HotColdNew) {
   }
 
   for (SizedPtr s : ptrs) {
-    if (expectColdTags && GetMemoryTag(s.ptr) == MemoryTag::kCold) {
+    if (!kSanitizerPresent && expectColdTags &&
+        GetMemoryTag(s.ptr) == MemoryTag::kCold) {
       EXPECT_TRUE(cold.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
     }
 
@@ -1301,7 +1356,7 @@ TYPED_TEST(HotColdTest, HotColdNew) {
     }
   }
 
-  if (!expectColdTags) {
+  if (!expectColdTags || kSanitizerPresent) {
     return;
   }
 
@@ -1342,6 +1397,10 @@ TYPED_TEST(HotColdTest, NothrowHotColdNew) {
                                static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size});
+
+    if (kSanitizerPresent) {
+      continue;
+    }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
@@ -1390,9 +1449,13 @@ TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
+    if (kSanitizerPresent) {
+      continue;
+    }
+
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
-    } else {
+    } else if (expectColdTags) {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
   }
@@ -1433,6 +1496,10 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
+    if (kSanitizerPresent) {
+      continue;
+    }
+
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
@@ -1442,9 +1509,9 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
 
   for (SizedPtr s : ptrs) {
     if (absl::Bernoulli(rng, 0.2)) {
-      ::operator delete(s.ptr);
+      ::operator delete[](s.ptr);
     } else {
-      sized_delete(s.ptr, s.size);
+      sized_array_delete(s.ptr, s.size);
     }
   }
 }
@@ -1479,6 +1546,10 @@ TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
                          static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
+
+    if (kSanitizerPresent) {
+      continue;
+    }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
@@ -1523,10 +1594,12 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
         sizeof(TypeParam) * 0 + requested, static_cast<hot_cold_t>(label));
     ASSERT_GE(actual, requested);
 
-    if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
-    } else {
-      EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;
+    if (!kSanitizerPresent) {
+      if (IsHot<TypeParam>(label, MinHotAccessHint())) {
+        EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      } else {
+        EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;
+      }
     }
 
     std::optional<size_t> allocated_size =
@@ -1586,6 +1659,10 @@ TYPED_TEST(HotColdTest, HotColdNewMinHotFlag) {
                                static_cast<tcmalloc::hot_cold_t>(label));
 
     ptrs.emplace_back(SizedPtr{ptr, size});
+
+    if (kSanitizerPresent) {
+      continue;
+    }
 
     // The hotness threshold should have been set to kNonDefaultMinHotAccessHint
     // above via SetFlag.
@@ -1653,6 +1730,10 @@ TYPED_TEST(HotColdTest, SampleHasRuntimeHint) {
     hints.push_back(sample.access_hint);
   });
 
+  if (kSanitizerPresent) {
+    return;
+  }
+
   EXPECT_THAT(hints, testing::IsSupersetOf({
                          static_cast<hot_cold_t>(1),
                          static_cast<hot_cold_t>(2),
@@ -1697,7 +1778,9 @@ TEST(TCMalloc, malloc_info) {
   EXPECT_EQ(malloc_info(0, fp), 0);
   EXPECT_EQ(fclose(fp), 0);
   ASSERT_NE(buf, nullptr);
-  EXPECT_EQ(absl::string_view(buf, size), "<malloc></malloc>\n");
+  if (!kSanitizerPresent) {
+    EXPECT_EQ(absl::string_view(buf, size), "<malloc></malloc>\n");
+  }
   free(buf);
 }
 
