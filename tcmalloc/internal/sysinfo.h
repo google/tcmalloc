@@ -56,7 +56,6 @@ namespace sysinfo_internal {
 std::optional<int> NumPossibleCPUsNoCache();
 
 }  // namespace sysinfo_internal
-#endif  // __linux__
 
 inline std::optional<int> NumCPUsMaybe() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -65,6 +64,12 @@ inline std::optional<int> NumCPUsMaybe() {
       &flag, [&]() { result = sysinfo_internal::NumPossibleCPUsNoCache(); });
   return result;
 }
+
+#else  // __linux__
+
+inline std::optional<int> NumCPUsMaybe() { return std::nullopt; }
+
+#endif  // __linux__
 
 inline int NumCPUs() {
   std::optional<int> maybe_cpus = NumCPUsMaybe();
