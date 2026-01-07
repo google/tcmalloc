@@ -17,6 +17,7 @@
 #include <cstring>
 #include <string>
 
+#include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "tcmalloc/internal/memory_stats.h"
 
@@ -59,6 +60,10 @@ void ParseSmapsRollupFuzz(const std::string& s) {
 }
 
 FUZZ_TEST(MemoryStatsTest, ParseSmapsRollupFuzz);
+
+TEST(MemoryStatsTest, ParseSmapsRollupFuzzRegression) {
+  ParseSmapsRollupFuzz("\342UPss:8966666666666666668");
+}
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

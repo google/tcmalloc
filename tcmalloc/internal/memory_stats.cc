@@ -78,6 +78,12 @@ std::optional<int64_t> ParseSmapsRollup(
     return std::nullopt;
   }
 
+  // If we aren't at the start of the string, verify we are at the start of the
+  // line.
+  if (pos > 0 && contents[pos - 1] != '\n') {
+    return std::nullopt;
+  }
+
   // Skip "Pss:"
   pos += 4;
 
@@ -100,7 +106,11 @@ std::optional<int64_t> ParseSmapsRollup(
     return std::nullopt;
   }
 
-  return pss_kb * 1024;
+  int64_t pss_bytes;
+  if (__builtin_mul_overflow(pss_kb, 1024, &pss_bytes)) {
+    return std::nullopt;
+  }
+  return pss_bytes;
 }
 
 bool ParseStatm(absl::FunctionRef<ssize_t(char*, size_t)> read,
