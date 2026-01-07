@@ -31,7 +31,6 @@
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
-#include "tcmalloc/huge_page_subrelease.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
@@ -267,10 +266,8 @@ static double Frac(HugeLength num, HugeLength denom) {
   return static_cast<double>(num.raw_num()) / denom.raw_num();
 }
 
-// Tests that the cache can grow to fit a working set. The two cache shrinking
-// mechanisms, demand-based release and limit-based release, use two different
-// paths to shrink the cache (ReleaseCachedPagesByDemand vs. Release). We
-// test both paths here.
+// Tests that the cache can grow to fit a working set. The cache shrinking
+// mechanism, limit-based release, uses Release() to shrink the cache.
 TEST_P(HugeCacheTest, Growth) {
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
       .WillRepeatedly(
