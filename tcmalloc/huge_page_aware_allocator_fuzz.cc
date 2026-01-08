@@ -778,6 +778,31 @@ TEST(HugePageAwareAllocatorTest, FuzzHPAARegression2) {
   FuzzHPAA(options, instructions);
 }
 
+TEST(HugePageAwareAllocatorTest, b471822138) {
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormalP0,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault,
+          .huge_cache_time_ns = 3600000000000},
+      {Instruction{.instr = Alloc{.length = 15576967129319913528ULL,
+                                  .num_objects = 1,
+                                  .alignment = 18446744073709551615ULL,
+                                  .use_aligned = false,
+                                  .dense = false}},
+       Instruction{.instr = Alloc{.length = 9223372036854775807ULL,
+                                  .num_objects = 0,
+                                  .alignment = 1,
+                                  .use_aligned = false,
+                                  .dense = false}},
+       Instruction{.instr = GatherStatsPbtxt{}},
+       Instruction{.instr = PrintStats{.everything = true}},
+       Instruction{.instr = Dealloc{.index = 18446744073709551615ULL}},
+       Instruction{.instr = PrintStats{.everything = true}},
+       Instruction{.instr = ReleasePagesBreakingHugepages{
+                       .desired = 18446744073709551615ULL,
+                       .soft_limit_exceeded = true}}});
+}
+
 TEST(HugePageAwareAllocatorTest, b470332457) {
   // Regression found in b/470332457.
   FuzzHPAA(

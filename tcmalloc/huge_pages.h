@@ -138,8 +138,8 @@ inline constexpr HugeLength HLFromBytes(size_t bytes) {
 // Rounds *up* to the nearest hugepage.
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength HLFromPages(Length pages) {
-  return NHugePages((pages + kPagesPerHugePage - Length(1)) /
-                    kPagesPerHugePage);
+  return NHugePages(pages / kPagesPerHugePage +
+                    (pages % kPagesPerHugePage != Length(0)));
 }
 
 inline HugeLength& operator++(HugeLength& len) {  // NOLINT(runtime/references)
