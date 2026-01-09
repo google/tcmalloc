@@ -19,7 +19,7 @@ module(
     repo_name = "com_google_tcmalloc",
 )
 
-bazel_dep(name = "abseil-cpp", version = "20250814.0", repo_name = "com_google_absl")
+bazel_dep(name = "abseil-cpp", version = "20260107.0", repo_name = "com_google_absl")
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "protobuf", version = "32.1", repo_name = "com_google_protobuf")
 bazel_dep(name = "re2", version = "2024-02-01", repo_name = "com_googlesource_code_re2")
