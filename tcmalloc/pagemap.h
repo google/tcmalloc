@@ -197,9 +197,11 @@ class PageMap2 {
   CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
       sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
+    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
+        ABSL_PREDICT_FALSE(root_[i1] == nullptr)) {
+      return 0;
+    }
     const Number i2 = k & (kLeafLength - 1);
-    TC_ASSERT_EQ(k >> BITS, 0);
-    TC_ASSERT_NE(root_[i1], nullptr);
     return root_[i1]->sizeclass[i2];
   }
 
@@ -428,10 +430,12 @@ class PageMap3 {
   sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
+    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
+        ABSL_PREDICT_FALSE(root_[i1] == nullptr) ||
+        ABSL_PREDICT_FALSE(root_[i1]->leafs[i2] == nullptr)) {
+      return 0;
+    }
     const Number i3 = k & (kLeafLength - 1);
-    TC_ASSERT_EQ(k >> BITS, 0);
-    TC_ASSERT_NE(root_[i1], nullptr);
-    TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
     return root_[i1]->leafs[i2]->sizeclass[i3];
   }
 

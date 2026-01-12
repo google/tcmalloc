@@ -749,8 +749,6 @@ ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
     ReportCorruptedFree(tc_globals, kAlignment, ptr);
   }
 
-  // TODO(b/457842787): Use an alternative sizeclass() method that checks for
-  // nullptr in leaves or otherwise intercept nullptr SIGSEGV if here.
   size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
     FreeSmall(ptr, std::nullopt, size_class);
@@ -789,8 +787,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
   // therefore static initialization must have already occurred.
   TC_ASSERT(tc_globals.IsInited());
 
-  // TODO(b/457842787): Use an alternative sizeclass() method that checks for
-  // nullptr in leaves or otherwise intercept nullptr SIGSEGV if here.
   size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
     FreeSmall(ptr, std::nullopt, size_class);

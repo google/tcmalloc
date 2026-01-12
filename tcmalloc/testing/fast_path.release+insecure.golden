@@ -1,7 +1,7 @@
 func                    call cmov cmp div jcc jmp load mul pop push rmw rsp store
 aligned_alloc              -    -   5   -   7   -    6   -   2    1   1   1     2
 calloc                     -    -   3   -   6   -    6   1   2    3   1   2     2
-delete                     -    -   3   -   4   -    5   -   -    -   -   -     3
+delete                     -    -   4   -   5   -    5   -   -    -   -   -     3
 delete(size)               -    -   3   -   4   -    4   -   -    -   -   -     3
 delete(size,align)         -    -   5   -   6   -    5   -   -    -   -   -     3
 malloc                     -    -   3   -   5   -    6   -   -    -   1   -     2
@@ -11,7 +11,7 @@ new(align)                 -    -   4   -   6   -    6   -   -    -   1   -     
 new(align)->size           -    -   4   -   6   -    7   -   -    -   1   -     2
 new(align,cold)->size      -    1   5   -   6   -    8   -   -    -   1   -     2
 new(align,nothrow)         -    -   4   -   6   -    6   -   -    -   1   -     2
-new(cold)->size            -    -   3   -   5   -    7   -   -    -   1   -     2
+new(cold)->size            -    1   3   -   4   -    7   -   -    -   1   -     2
 new(cold,token_1)->size    -    1   3   -   4   -    7   -   -    -   1   -     2
 new(nothrow)               -    -   2   -   4   -    5   -   -    -   1   -     2
 new(token_1)               -    -   2   -   4   -    5   -   -    -   1   -     2

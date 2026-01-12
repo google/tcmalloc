@@ -1077,8 +1077,15 @@ TEST_F(TcMallocTest, NeverAllocatedPointer) {
 
   void* ptr = absl::bit_cast<void*>(uintptr_t{0xDEADBEEF});
 
-  // TODO(b/457842787): Exercise `operator delete(ptr)` too.  Unsized delete
-  // accesses PageMap::sizeclass, which does not check for null leaves.
+  EXPECT_DEATH(
+      { ::operator delete(ptr); },
+      absl::StrCat(
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+          "(attempting free on address which was not malloc)|"
+#endif
+          "(Attempted to free corrupted pointer 0xdeadbeef: It was "
+          "never allocated or TCMalloc metadata has been corrupted",
+          ")"));
 
   EXPECT_DEATH(
       { ::operator delete(ptr, kMaxSize + 1); },
