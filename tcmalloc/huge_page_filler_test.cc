@@ -4781,30 +4781,29 @@ std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
 // Testing subrelase stats: ensure that the cumulative number of released
 // pages and broken hugepages is no less than those of the last 10 mins
 TEST_P(FillerTest, CheckSubreleaseStats) {
-  // Get lots of hugepages into the filler.
-  FakeClock::Advance(absl::Minutes(1));
-  std::vector<std::vector<PAlloc>> result;
+  // Fix the object count since very specific statistics are being tested.
   static_assert(kPagesPerHugePage > Length(10),
                 "Not enough pages per hugepage!");
-  // Fix the object count since very specific statistics are being tested.
   const AccessDensityPrediction kDensity =
       absl::Bernoulli(gen_, 0.5) ? AccessDensityPrediction::kSparse
                                  : AccessDensityPrediction::kDense;
   SCOPED_TRACE(absl::StrCat("AccessDensityPrediction: ", kDensity));
   const size_t kObjects = (1 << absl::Uniform<size_t>(gen_, 0, 8));
   const SpanAllocInfo kAllocInfo = {kObjects, kDensity};
-
+  // Get lots of hugepages into the filler.
+  FakeClock::Advance(absl::Minutes(1));
+  std::vector<std::vector<PAlloc>> result;
   for (int i = 0; i < 10; ++i) {
     result.push_back(AllocateVectorWithSpanAllocInfo(
         kPagesPerHugePage - Length(i + 1), kAllocInfo));
   }
 
   if (kDensity == AccessDensityPrediction::kSparse) {
-    // Breaking up 2 hugepages, releasing 19 pages due to reaching limit,
+    // Breaking up 2 hugepages, releasing 19 pages due to reaching limit.
     EXPECT_EQ(HardReleasePages(Length(10)), Length(10));
     EXPECT_EQ(HardReleasePages(Length(9)), Length(9));
   } else {
-    // Breaking 1 hugepage, releasing 45 pages due to reaching limit,
+    // Breaking 1 hugepage, releasing all its free pages due to reaching limit.
     EXPECT_EQ(HardReleasePages(Length(10)), Length(55));
     EXPECT_EQ(HardReleasePages(Length(9)), Length(0));
   }
@@ -4846,12 +4845,13 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
   EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
 
-  // Breaking up 3 hugepages, releasing 21 pages (background thread)
   if (kDensity == AccessDensityPrediction::kSparse) {
+    // Breaking up 3 hugepages, releasing 21 pages (background thread)
     EXPECT_EQ(ReleasePages(Length(8)), Length(8));
     EXPECT_EQ(ReleasePages(Length(7)), Length(7));
     EXPECT_EQ(ReleasePages(Length(6)), Length(6));
   } else {
+    // No release as we were over-released before.
     EXPECT_EQ(ReleasePages(Length(8)), Length(0));
     EXPECT_EQ(ReleasePages(Length(7)), Length(0));
     EXPECT_EQ(ReleasePages(Length(6)), Length(0));
@@ -4913,112 +4913,19 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
         testing::EndsWith("HugePageFiller: Subrelease stats last 10 min: total "
                           "21 pages subreleased (0 pages from partial allocs), "
                           "3 hugepages broken\n"));
+  } else {
+    ASSERT_THAT(buffer,
+                testing::HasSubstr(
+                    "HugePageFiller: Since startup, 55 pages subreleased, 1 "
+                    "hugepages "
+                    "broken, (55 pages, 1 hugepages due to reaching tcmalloc "
+                    "limit)"));
+    ASSERT_THAT(
+        buffer,
+        testing::EndsWith("HugePageFiller: Subrelease stats last 10 min: total "
+                          "0 pages subreleased (0 pages from partial allocs), "
+                          "0 hugepages broken\n"));
   }
-
-  for (const auto& alloc : result) {
-    DeleteVector(alloc);
-  }
-}
-
-TEST_P(FillerTest, CheckSubreleaseStats_SpansAllocated) {
-  randomize_density_ = false;
-  // Get lots of hugepages into the filler.
-  FakeClock::Advance(absl::Minutes(1));
-  std::vector<std::vector<PAlloc>> result;
-  std::vector<std::vector<PAlloc>> temporary;
-  static_assert(kPagesPerHugePage > Length(10),
-                "Not enough pages per hugepage!");
-  // Fix the object count since very specific statistics are being tested.
-  const AccessDensityPrediction kDensity =
-      absl::Bernoulli(gen_, 0.5) ? AccessDensityPrediction::kSparse
-                                 : AccessDensityPrediction::kDense;
-  const size_t kObjects = (1 << absl::Uniform<size_t>(gen_, 0, 8));
-  const SpanAllocInfo kAllocInfo = {kObjects, kDensity};
-
-  for (int i = 0; i < 10; ++i) {
-    result.push_back(AllocateVectorWithSpanAllocInfo(
-        kPagesPerHugePage - Length(i + 1), kAllocInfo));
-    temporary.push_back(
-        AllocateVectorWithSpanAllocInfo(Length(i + 1), kAllocInfo));
-  }
-  for (const auto& alloc : temporary) {
-    DeleteVector(alloc);
-  }
-
-  // Breaking up 2 hugepages, releasing 19 pages due to reaching limit,
-  EXPECT_EQ(HardReleasePages(Length(10)), Length(10));
-  EXPECT_EQ(HardReleasePages(Length(9)), Length(9));
-
-  FakeClock::Advance(absl::Minutes(1));
-  SubreleaseStats subrelease = filler_.subrelease_stats();
-  EXPECT_EQ(subrelease.total_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 0);
-  EXPECT_EQ(subrelease.num_pages_subreleased, Length(19));
-  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 2);
-  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
-  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
-
-  // Do some work so that the timeseries updates its stats
-  for (int i = 0; i < 5; ++i) {
-    result.push_back(AllocateVectorWithSpanAllocInfo(Length(1), kAllocInfo));
-  }
-  subrelease = filler_.subrelease_stats();
-  EXPECT_EQ(subrelease.total_pages_subreleased, Length(19));
-  EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 2);
-  EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
-  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
-  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
-
-  // Breaking up 3 hugepages, releasing 21 pages (background thread)
-  EXPECT_EQ(ReleasePages(Length(8)), Length(8));
-  EXPECT_EQ(ReleasePages(Length(7)), Length(7));
-  EXPECT_EQ(ReleasePages(Length(6)), Length(6));
-
-  subrelease = filler_.subrelease_stats();
-  EXPECT_EQ(subrelease.total_pages_subreleased, Length(19));
-  EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 2);
-  EXPECT_EQ(subrelease.num_pages_subreleased, Length(21));
-  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 3);
-  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
-  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
-
-  FakeClock::Advance(absl::Minutes(10));  // This forces timeseries to wrap
-  // Do some work
-  for (int i = 0; i < 5; ++i) {
-    result.push_back(AllocateVectorWithSpanAllocInfo(Length(1), kAllocInfo));
-  }
-  subrelease = filler_.subrelease_stats();
-  EXPECT_EQ(subrelease.total_pages_subreleased, Length(40));
-  EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 5);
-  EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
-  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
-  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
-
-  std::string buffer(1024 * 1024, '\0');
-  FakePageFlags pageflags;
-  {
-    PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(printer, /*everything=*/true, pageflags);
-    buffer.erase(printer.SpaceRequired());
-  }
-
-  ASSERT_THAT(
-      buffer,
-      testing::HasSubstr(
-          "HugePageFiller: Since startup, 40 pages subreleased, 5 hugepages "
-          "broken, (19 pages, 2 hugepages due to reaching tcmalloc "
-          "limit)"));
-  ASSERT_THAT(buffer, testing::EndsWith(
-                          "HugePageFiller: Subrelease stats last 10 min: total "
-                          "21 pages subreleased (0 pages from partial allocs), "
-                          "3 hugepages broken\n"));
 
   for (const auto& alloc : result) {
     DeleteVector(alloc);
