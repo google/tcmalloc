@@ -311,10 +311,17 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
       const size_t maximum_size = span.bytes_in_span();
       const size_t minimum_size = maximum_size - (kPageSize - 1u);
 
-      if (ABSL_PREDICT_FALSE(*size < minimum_size || *size > maximum_size)) {
-        // While we don't have precise allocation-time information because this
-        // span was not sampled, the deallocated object's purported size exceeds
-        // the span it is on.  This is impossible and indicates corruption.
+      // *size should fall in [minimum_size, maximum_size], but a size of 0
+      // bytes is rounded up to 1 page if overaligned, we must allow 0 bytes if
+      // the span is 1 page.
+      if (ABSL_PREDICT_FALSE(*size < minimum_size || *size > maximum_size) &&
+          ABSL_PREDICT_TRUE(
+              !(*size == 0 && maximum_size == kPageSize &&
+                static_cast<size_t>(policy.align()) > kPageSize))) {
+        // While we don't have precise allocation-time information because
+        // this span was not sampled, the deallocated object's purported size
+        // exceeds the span it is on.  This is impossible and indicates
+        // corruption.
         ReportMismatchedDelete(state, ptr, *size, minimum_size, maximum_size);
       }
     }

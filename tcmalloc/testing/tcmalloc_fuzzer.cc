@@ -20,8 +20,8 @@
 #include "fuzztest/init_fuzztest.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/tcmalloc.h"
 
 namespace tcmalloc::tcmalloc_internal {
@@ -29,7 +29,7 @@ namespace {
 
 inline constexpr size_t kFuzzingMaxSize = kMaxSize * 2 + 1;
 
-size_t GetPageSizeLog2() { return absl::countr_zero(GetPageSize()); }
+size_t GetPageSizeLog2() { return kHugePageShift; }
 
 size_t PickDeleteSize(size_t min, size_t max, double scale) {
   TC_ASSERT_LE(min, max);
@@ -148,6 +148,39 @@ void NewSizedDelete(size_t size) {
 
 FUZZ_TEST(TCMalloc, NewSizedDelete)
     .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
+
+void AlignedNewDelete(size_t size, std::align_val_t align) {
+  void* ptr = TCMallocInternalNewAligned(size, align);
+  ASSERT_TRUE(ptr != nullptr);
+  TCMallocInternalDeleteAligned(ptr, align);
+}
+
+FUZZ_TEST(TCMalloc, AlignedNewDelete)
+    .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize),
+                 fuzztest::Map(
+                     [](size_t v) {
+                       return static_cast<std::align_val_t>(1ULL << v);
+                     },
+                     fuzztest::InRange<size_t>(0, GetPageSizeLog2())));
+
+void AlignedNewSizedDelete(size_t size, std::align_val_t align) {
+  void* ptr = TCMallocInternalNewAligned(size, align);
+  ASSERT_TRUE(ptr != nullptr);
+  TCMallocInternalDeleteSizedAligned(ptr, size, align);
+}
+
+TEST(TCMallocFuzzTest, AlignedNewSizedDeleteRegression) {
+  AlignedNewSizedDelete(0, std::align_val_t{1});
+  AlignedNewSizedDelete(0, std::align_val_t{2097152});
+}
+
+FUZZ_TEST(TCMalloc, AlignedNewSizedDelete)
+    .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize),
+                 fuzztest::Map(
+                     [](size_t v) {
+                       return static_cast<std::align_val_t>(1ULL << v);
+                     },
+                     fuzztest::InRange<size_t>(0, GetPageSizeLog2())));
 
 void SizeReturningNewDeleteAllocatedSize(size_t size) {
   const auto ptr = TCMallocInternalSizeReturningNew(size);

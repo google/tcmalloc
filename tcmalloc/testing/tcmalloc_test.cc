@@ -1819,5 +1819,10 @@ TEST(TCMalloc, MallocUsableSizeNullptr) {
   EXPECT_EQ(malloc_usable_size(nullptr), 0);
 }
 
+TEST(TCMalloc, Misc) {
+  constexpr std::align_val_t kAlignment{2097152};
+  ::operator delete(::operator new(0, kAlignment), 0, kAlignment);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

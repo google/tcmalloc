@@ -903,11 +903,29 @@ bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
     size = maximum_size = tc_globals.sizemap().class_to_size(sc);
     size_class = sc;
   } else {
-    size = maximum_size = BytesToLengthCeil(size).in_bytes();
-    minimum_size = maximum_size - (kPageSize - 1u);
+    // For large objects, we match the logic in MaybeUnsampleAllocation,
+    // allowing the size to be anywhere in the last page.
+    maximum_size = actual;
+    minimum_size =
+        maximum_size < kPageSize ? 0 : maximum_size - (kPageSize - 1u);
+
+    if (ABSL_PREDICT_FALSE(maximum_size == kPageSize &&
+                           static_cast<size_t>(policy.align()) > kPageSize)) {
+      // If the allocation has extreme alignment requirements, we will allocate
+      // at least 1 page even if the actual size is 0.  We are relying on the
+      // deallocation time-provided alignment being accurate, but this can only
+      // produce false negatives (alignment too large) rather than false
+      // positives.
+      minimum_size = 0;
+    }
+
+    if (provided_size >= minimum_size && provided_size <= maximum_size) {
+      return true;
+    }
   }
 
   if (ABSL_PREDICT_TRUE(actual == size)) return true;
+
   // We might have had a cold size class, so actual > size.  If we did not use
   // size returning new, the caller may not know this occurred.
   //
