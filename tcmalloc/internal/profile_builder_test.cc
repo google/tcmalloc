@@ -301,9 +301,15 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
     EXPECT_THAT(s.location_id(), testing::IsSubsetOf(interned_addresses));
 
     EXPECT_EQ(converted.sample_type().size(), s.value().size());
+
+    absl::flat_hash_set<int> keys;
+    keys.reserve(s.label().size());
+
     extracted.emplace_back();
     auto& labels = extracted.back();
     for (const auto& l : s.label()) {
+      EXPECT_TRUE(keys.insert(l.key()).second)
+          << "Duplicate key: " << converted.string_table(l.key());
       if (l.str() != 0) {
         labels.emplace_back(converted.string_table(l.key()),
                             converted.string_table(l.str()));
@@ -831,6 +837,7 @@ perftools::profiles::Profile MakeTestLifetimeProfile(absl::Time start_time,
         .requested_size = 2,
         .requested_alignment = std::align_val_t{4},
         .allocated_size = 16,
+        .requested_size_returning = true,
         // Lifetime specific information in each sample.
         .profile_id = 33,
         .avg_lifetime = absl::Nanoseconds(77),
@@ -945,27 +952,33 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("callstack-pair-id", 33), Pair("avg_lifetime", 77),
               Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
-              Pair("max_lifetime", 99),
-              Pair("active CPU", "same"), Pair("active vCPU", "same"),
-              Pair("active L3", "same"), Pair("active NUMA", "same"),
-              Pair("active thread", "different")),
+              Pair("max_lifetime", 99), Pair("active CPU", "same"),
+              Pair("active vCPU", "same"), Pair("active L3", "same"),
+              Pair("active NUMA", "same"), Pair("active thread", "different"),
+              Pair("size_returning", 1), Pair("allocation type", "new"),
+              Pair("guarded_status", "NotAttempted"), Pair("token_id", 0),
+              Pair("access_hint", 0), Pair("access_allocated", "hot")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("callstack-pair-id", 33), Pair("avg_lifetime", 77),
               Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
-              Pair("max_lifetime", 99),
-              Pair("active CPU", "same"), Pair("active vCPU", "same"),
-              Pair("active L3", "same"), Pair("active NUMA", "same"),
-              Pair("active thread", "different")),
+              Pair("max_lifetime", 99), Pair("active CPU", "same"),
+              Pair("active vCPU", "same"), Pair("active L3", "same"),
+              Pair("active NUMA", "same"), Pair("active thread", "different"),
+              Pair("size_returning", 1), Pair("allocation type", "new"),
+              Pair("guarded_status", "NotAttempted"), Pair("token_id", 0),
+              Pair("access_hint", 0), Pair("access_allocated", "hot")),
           // Check the contents of the censored sample.
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("callstack-pair-id", 34), Pair("avg_lifetime", 77),
               Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
-              Pair("max_lifetime", 99),
-              Pair("active CPU", "none"), Pair("active vCPU", "none"),
-              Pair("active L3", "none"), Pair("active NUMA", "none"),
-              Pair("active thread", "none"))));
+              Pair("max_lifetime", 99), Pair("active CPU", "none"),
+              Pair("active vCPU", "none"), Pair("active L3", "none"),
+              Pair("active NUMA", "none"), Pair("active thread", "none"),
+              Pair("size_returning", 1), Pair("allocation type", "new"),
+              Pair("guarded_status", "NotAttempted"), Pair("token_id", 0),
+              Pair("access_hint", 0), Pair("access_allocated", "hot"))));
 
   // Checks for common fields.
   EXPECT_THAT(converted.string_table(converted.drop_frames()),
@@ -1030,20 +1043,6 @@ TEST(ProfileBuilderTest, SameTags) {
   EXPECT_THAT(lifetime_tags, testing::IsSupersetOf(lifetime_only_tags));
   for (const auto tag : lifetime_only_tags) {
     lifetime_tags.erase(tag);
-  }
-
-  // TODO(b/454685302): Enable these.
-  const absl::flat_hash_set<absl::string_view> lifetime_missing_tags = {
-      "allocation type",
-      "access_hint",
-      "access_allocated",
-      "size_returning",
-      "token_id",
-      "guarded_status",
-  };
-  EXPECT_THAT(allocation_tags, testing::IsSupersetOf(lifetime_missing_tags));
-  for (const auto tag : lifetime_missing_tags) {
-    allocation_tags.erase(tag);
   }
 
   EXPECT_THAT(allocation_tags, testing::ContainerEq(lifetime_tags));

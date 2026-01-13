@@ -81,21 +81,11 @@ class AllocAdaptor final {
   void deallocate(T* p, size_t n) { Alloc::Free(p, n * sizeof(T)); }
 };
 
-const int64_t kMaxStackDepth = 64;
-
 // Stores stack traces and metadata for any allocation or deallocation
 // encountered by the profiler.
 struct DeallocationSampleRecord {
+  tcmalloc_internal::StackTrace stack_trace;
   double weight = 0.0;
-  size_t requested_size = 0;
-  std::optional<std::align_val_t> requested_alignment;
-  size_t allocated_size = 0;  // size after sizeclass/page rounding
-
-  int depth = 0;  // Number of PC values stored in array below
-  void* stack[kMaxStackDepth];
-
-  // creation_time is used to capture the life_time of sampled allocations
-  absl::Time creation_time;
   int cpu_id = -1;
   int vcpu_id = -1;
   int l3_id = -1;
@@ -104,18 +94,34 @@ struct DeallocationSampleRecord {
 
   template <typename H>
   friend H AbslHashValue(H h, const DeallocationSampleRecord& c) {
-    return H::combine(H::combine_contiguous(std::move(h), c.stack, c.depth),
-                      c.depth, c.requested_size, c.requested_alignment,
-                      c.allocated_size);
+    return H::combine(H::combine_contiguous(std::move(h), c.stack_trace.stack,
+                                            c.stack_trace.depth),
+                      c.stack_trace.depth, c.stack_trace.requested_size,
+                      c.stack_trace.requested_alignment,
+                      c.stack_trace.allocated_size,
+                      c.stack_trace.requested_size_returning,
+                      c.stack_trace.access_hint, c.stack_trace.cold_allocated,
+                      c.stack_trace.token_id, c.stack_trace.guarded_status,
+                      c.stack_trace.allocation_type);
   }
 
   bool operator==(const DeallocationSampleRecord& other) const {
-    if (depth != other.depth || requested_size != other.requested_size ||
-        requested_alignment != other.requested_alignment ||
-        allocated_size != other.allocated_size) {
+    if (stack_trace.depth != other.stack_trace.depth ||
+        stack_trace.requested_size != other.stack_trace.requested_size ||
+        stack_trace.requested_alignment !=
+            other.stack_trace.requested_alignment ||
+        stack_trace.allocated_size != other.stack_trace.allocated_size ||
+        stack_trace.requested_size_returning !=
+            other.stack_trace.requested_size_returning ||
+        stack_trace.access_hint != other.stack_trace.access_hint ||
+        stack_trace.cold_allocated != other.stack_trace.cold_allocated ||
+        stack_trace.token_id != other.stack_trace.token_id ||
+        stack_trace.guarded_status != other.stack_trace.guarded_status ||
+        stack_trace.allocation_type != other.stack_trace.allocation_type) {
       return false;
     }
-    return std::equal(stack, stack + depth, other.stack);
+    return std::equal(stack_trace.stack, stack_trace.stack + stack_trace.depth,
+                      other.stack_trace.stack);
   }
 };
 
@@ -477,15 +483,8 @@ class DeallocationProfiler {
     DeallocationSampleRecord& allocation =
         allocs_[stack_trace.sampled_alloc_handle];
 
-    allocation.allocated_size = stack_trace.allocated_size;
-    allocation.requested_size = stack_trace.requested_size;
-    allocation.requested_alignment = stack_trace.requested_alignment;
-    allocation.depth = stack_trace.depth;
-    memcpy(allocation.stack, stack_trace.stack,
-           sizeof(void*) * std::min(static_cast<int64_t>(stack_trace.depth),
-                                    kMaxStackDepth));
+    allocation.stack_trace = stack_trace;
     // TODO(mmaas): Do we need to worry about b/65384231 anymore?
-    allocation.creation_time = stack_trace.allocation_time;
     allocation.cpu_id = tcmalloc_internal::subtle::percpu::GetRealCpu();
     allocation.vcpu_id = tcmalloc_internal::subtle::percpu::VirtualCpu::get();
     allocation.l3_id = GetL3Id(allocation.cpu_id);
@@ -509,17 +508,15 @@ class DeallocationProfiler {
     allocs_.erase(it);
 
     DeallocationSampleRecord deallocation;
-    deallocation.allocated_size = sample.allocated_size;
-    deallocation.requested_alignment = sample.requested_alignment;
-    deallocation.requested_size = sample.requested_size;
-    deallocation.creation_time = absl::Now();
+    deallocation.stack_trace = sample.stack_trace;
+    deallocation.stack_trace.allocation_time = absl::Now();
     deallocation.cpu_id = tcmalloc_internal::subtle::percpu::GetRealCpu();
     deallocation.vcpu_id = tcmalloc_internal::subtle::percpu::VirtualCpu::get();
     deallocation.l3_id = GetL3Id(deallocation.cpu_id);
     deallocation.numa_id = GetNumaId(deallocation.cpu_id);
     deallocation.thread_id = absl::base_internal::GetTID();
-    deallocation.depth =
-        absl::GetStackTrace(deallocation.stack, kMaxStackDepth, 1);
+    deallocation.stack_trace.depth = absl::GetStackTrace(
+        deallocation.stack_trace.stack, tcmalloc_internal::kMaxStackDepth, 1);
 
     reports_->AddTrace(sample, deallocation);
   }
@@ -586,10 +583,11 @@ void DeallocationProfiler::DeallocationStackTraceTable::StopAndRecord(
   // allows us to make minimal changes to the rest of the sample processing
   // steps reducing special casing for censored samples. This also allows us to
   // aggregate censored samples just like regular deallocation samples.
-  const DeallocationSampleRecord censored{
-      .creation_time = stop_time_,
-  };
   for (const auto& [unused, alloc] : allocs) {
+    DeallocationSampleRecord censored;
+    censored.stack_trace = alloc.stack_trace;
+    censored.stack_trace.allocation_time = stop_time_;
+    censored.stack_trace.depth = 0;
     AddTrace(alloc, censored);
   }
 }
@@ -612,8 +610,8 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
   DeallocationStackTraceTable::Value& v =
       table_[DeallocationStackTraceTable::Key(alloc_trace, dealloc_trace)];
 
-  const absl::Duration life_time =
-      dealloc_trace.creation_time - alloc_trace.creation_time;
+  const absl::Duration life_time = dealloc_trace.stack_trace.allocation_time -
+                                   alloc_trace.stack_trace.allocation_time;
   double life_time_ns = absl::ToDoubleNanoseconds(life_time);
 
   // Update mean and variance using Welford’s online algorithm.
@@ -642,7 +640,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
     const Value& v = it.second;
 
     // Report total bytes that are a multiple of the object size.
-    size_t allocated_size = k.alloc.allocated_size;
+    size_t allocated_size = k.alloc.stack_trace.allocated_size;
 
     for (const auto& matching_case : kAllCases) {
       const int index = ComputeIndex(matching_case.first, matching_case.second);
@@ -671,15 +669,27 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
 
       const auto bucketize = internal::LifetimeNsToBucketedDuration;
       Profile::Sample sample;
-      sample.sum = sum, sample.requested_size = k.alloc.requested_size,
-      sample.requested_alignment = k.alloc.requested_alignment,
-      sample.allocated_size = allocated_size, sample.profile_id = pair_id++,
+      sample.sum = sum;
+      sample.requested_size = k.alloc.stack_trace.requested_size;
+      sample.requested_alignment = k.alloc.stack_trace.requested_alignment;
+      sample.allocated_size = allocated_size;
+      sample.profile_id = pair_id++;
+      sample.requested_size_returning =
+          k.alloc.stack_trace.requested_size_returning;
+      sample.access_hint =
+          static_cast<hot_cold_t>(k.alloc.stack_trace.access_hint);
+      sample.access_allocated = k.alloc.stack_trace.cold_allocated
+                                    ? Profile::Sample::Access::Cold
+                                    : Profile::Sample::Access::Hot;
+      sample.token_id = k.alloc.stack_trace.token_id;
+      sample.guarded_status = k.alloc.stack_trace.guarded_status;
+      sample.type = k.alloc.stack_trace.allocation_type;
       // Set the is_censored flag so that when we create a proto
       // sample later we can treat the *_lifetime accordingly.
-          sample.is_censored = (k.dealloc.depth == 0),
-      sample.avg_lifetime = bucketize(v.mean_life_times_ns[index]),
-      sample.stddev_lifetime = bucketize(stddev_life_time_ns),
-      sample.min_lifetime = bucketize(v.min_life_times_ns[index]),
+      sample.is_censored = (k.dealloc.stack_trace.depth == 0);
+      sample.avg_lifetime = bucketize(v.mean_life_times_ns[index]);
+      sample.stddev_lifetime = bucketize(stddev_life_time_ns);
+      sample.min_lifetime = bucketize(v.min_life_times_ns[index]);
       sample.max_lifetime = bucketize(v.max_life_times_ns[index]);
       // Only set the cpu and thread matched flags if the sample is not
       // censored.
@@ -698,8 +708,10 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
 
       // first for allocation
       sample.count = count;
-      sample.depth = k.alloc.depth;
-      std::copy(k.alloc.stack, k.alloc.stack + k.alloc.depth, sample.stack);
+      sample.depth = k.alloc.stack_trace.depth;
+      std::copy(k.alloc.stack_trace.stack,
+                k.alloc.stack_trace.stack + k.alloc.stack_trace.depth,
+                sample.stack);
       func(sample);
 
       // If this is a right-censored allocation (i.e. we did not observe the
@@ -713,8 +725,9 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
           std::is_signed<decltype(tcmalloc::Profile::Sample::count)>::value,
           "Deallocation samples are tagged with negative count values.");
       sample.count = -1 * count;
-      sample.depth = k.dealloc.depth;
-      std::copy(k.dealloc.stack, k.dealloc.stack + k.dealloc.depth,
+      sample.depth = k.dealloc.stack_trace.depth;
+      std::copy(k.dealloc.stack_trace.stack,
+                k.dealloc.stack_trace.stack + k.dealloc.stack_trace.depth,
                 sample.stack);
       func(sample);
     }
