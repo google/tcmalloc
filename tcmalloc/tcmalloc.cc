@@ -934,6 +934,7 @@ bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
     }
   }
 
+  TC_CHECK_LE(minimum_size, maximum_size);
   ReportMismatchedDelete(tc_globals, ptr, provided_size, minimum_size,
                          maximum_size);
 
