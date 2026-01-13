@@ -223,7 +223,7 @@ class SizeMap {
   [[nodiscard]] ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
       ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMapResult GetSizeClass(
           Policy policy, size_t size) const {
-    const size_t align = policy.align();
+    const size_t align = static_cast<size_t>(policy.align());
     TC_ASSERT(absl::has_single_bit(align));
 
     if (ABSL_PREDICT_FALSE(align > kPageSize)) {

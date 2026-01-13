@@ -18,6 +18,7 @@
 #include <sys/syscall.h>
 
 #include <cstddef>
+#include <new>
 
 #include "gtest/gtest.h"
 #include "tcmalloc/internal/logging.h"
@@ -40,7 +41,8 @@ self:
   stack_trace.stack[0] = reinterpret_cast<void*>(&&self);
   stack_trace.depth = 1;
 
-  auto ptr = tc_globals.guardedpage_allocator().Allocate(1, 0, stack_trace);
+  auto ptr = tc_globals.guardedpage_allocator().Allocate(1, std::align_val_t{0},
+                                                         stack_trace);
   if (ptr.status != Profile::Sample::GuardedStatus::Guarded) {
     GTEST_SKIP() << "did not get a guarded allocation";
   }

@@ -816,7 +816,8 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
       policy.InSamePartitionAs(ptr).AccessAsCold(), size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     // We couldn't calculate the size class, which means size > kMaxSize.
-    TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
+    TC_ASSERT(size > kMaxSize ||
+              policy.align() > std::align_val_t{alignof(std::max_align_t)});
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
@@ -876,7 +877,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
       tc_globals.sizemap().GetSizeClass(policy.InSamePartitionAs(ptr), size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     // We couldn't calculate the size class, which means size > kMaxSize.
-    TC_ASSERT(size > kMaxSize || policy.align() > alignof(std::max_align_t));
+    TC_ASSERT(size > kMaxSize ||
+              policy.align() > std::align_val_t{alignof(std::max_align_t)});
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
     SLOW_PATH_BARRIER();
     return InvokeHooksAndFreePages(ptr, size, policy);
@@ -944,7 +946,7 @@ bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
   }
 
   if (size_class > 0) {
-    if (policy.align() > static_cast<size_t>(kAlignment)) {
+    if (policy.align() > kAlignment) {
       // Nontrivial alignment.  We might have used a larger size to satisify it.
       minimum_size = 0;
     } else {

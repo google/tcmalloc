@@ -116,9 +116,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   stack_trace.depth = absl::GetStackTrace(stack_trace.stack, kMaxStackDepth, 0);
 
   if (policy.has_explicit_alignment()) {
-    // TODO(b/404341539): Make policy.align() a std::align_val_t.
-    stack_trace.requested_alignment =
-        static_cast<std::align_val_t>(policy.align());
+    stack_trace.requested_alignment = policy.align();
   } else {
     stack_trace.requested_alignment = std::nullopt;
   }
@@ -146,8 +144,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
 
     Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
-    size_t sample_alignment = policy.align();
-    if (sample_alignment == 1) sample_alignment = 0;
+    std::align_val_t sample_alignment = policy.align();
     alloc_with_status = state.guardedpage_allocator().TrySample(
         requested_size, sample_alignment, num_pages, stack_trace);
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
@@ -382,8 +379,7 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
           std::align_val_t{1}));
   const std::optional<std::align_val_t> deallocated_alignment =
       policy.has_explicit_alignment()
-          ? std::make_optional<std::align_val_t>(
-                static_cast<std::align_val_t>(policy.align()))
+          ? std::make_optional<std::align_val_t>(policy.align())
           : std::nullopt;
 
   if ((size.has_value() ||

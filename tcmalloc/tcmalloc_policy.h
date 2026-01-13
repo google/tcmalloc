@@ -133,28 +133,28 @@ struct DefaultAlignPolicy {
   // alignment is the default alignment of the size tables in tcmalloc.
   // The constexpr value of 1 will optimize out the alignment checks and
   // iterations in the GetSizeClass() calls for default aligned allocations.
-  //
-  // TODO(b/404341539): Make this a std::align_val_t.
-  static constexpr size_t align() { return 1; }
+  static constexpr std::align_val_t align() { return std::align_val_t{1}; }
 };
 
 // MallocAlignPolicy: use std::max_align_t allocation
 struct MallocAlignPolicy {
-  static constexpr size_t align() { return alignof(std::max_align_t); }
+  static constexpr std::align_val_t align() {
+    return std::align_val_t{alignof(std::max_align_t)};
+  }
 };
 
 // AlignAsPolicy: use user provided alignment
 class AlignAsPolicy {
  public:
   AlignAsPolicy() = delete;
-  explicit constexpr AlignAsPolicy(size_t value) : value_(value) {}
-  explicit constexpr AlignAsPolicy(std::align_val_t value)
-      : AlignAsPolicy(static_cast<size_t>(value)) {}
+  explicit constexpr AlignAsPolicy(size_t value)
+      : value_(static_cast<std::align_val_t>(value)) {}
+  explicit constexpr AlignAsPolicy(std::align_val_t value) : value_(value) {}
 
-  size_t constexpr align() const { return value_; }
+  std::align_val_t constexpr align() const { return value_; }
 
  private:
-  size_t value_;
+  std::align_val_t value_;
 };
 
 // AllocationAccessAsPolicy: use user provided access hint
@@ -337,7 +337,7 @@ class TCMallocPolicy {
     return !std::is_same<DefaultAlignPolicy, AlignPolicy>::value;
   }
 
-  constexpr size_t align() const { return align_.align(); }
+  constexpr std::align_val_t align() const { return align_.align(); }
 
   // NUMA partition
   constexpr size_t numa_partition() const { return numa_.partition(); }

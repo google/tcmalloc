@@ -117,7 +117,7 @@ class GuardedPageAllocator {
   // returns an instance of GuardedAllocWithStatus, that includes guarded
   // allocation Span and guarded status. Otherwise, returns nullptr and the
   // status indicating why the allocation may not be guarded.
-  GuardedAllocWithStatus TrySample(size_t size, size_t alignment,
+  GuardedAllocWithStatus TrySample(size_t size, std::align_val_t alignment,
                                    Length num_pages,
                                    const StackTrace& stack_trace);
 
@@ -133,7 +133,7 @@ class GuardedPageAllocator {
   //
   // Precondition:  size and alignment <= page_size_
   // Precondition:  alignment is 0 or a power of 2
-  GuardedAllocWithStatus Allocate(size_t size, size_t alignment,
+  GuardedAllocWithStatus Allocate(size_t size, std::align_val_t alignment,
                                   const StackTrace& stack_trace)
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
@@ -263,7 +263,7 @@ class GuardedPageAllocator {
   // If slot is marked for right alignment, moves the allocation in *ptr to the
   // right end of the slot, maintaining the specified size and alignment.  Magic
   // bytes are written in any alignment padding.
-  void MaybeRightAlign(size_t slot, size_t size, size_t alignment,
+  void MaybeRightAlign(size_t slot, size_t size, std::align_val_t alignment,
                        void** absl_nonnull ptr);
 
   uintptr_t SlotToAddr(size_t slot) const;

@@ -96,7 +96,7 @@ void GuardedPageAllocator::Reset() {
 }
 
 GuardedAllocWithStatus GuardedPageAllocator::TrySample(
-    size_t size, size_t alignment, Length num_pages,
+    size_t size, std::align_val_t alignment, Length num_pages,
     const StackTrace& stack_trace) {
   if (num_pages > Length(1)) {
     skipped_allocations_toolarge_.Add(1);
@@ -165,7 +165,7 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
 }
 
 GuardedAllocWithStatus GuardedPageAllocator::Allocate(
-    size_t size, size_t alignment, const StackTrace& stack_trace) {
+    size_t size, std::align_val_t alignment, const StackTrace& stack_trace) {
   const ssize_t free_slot = ReserveFreeSlot();
   if (free_slot == -1) {
     // All slots are reserved.
@@ -173,8 +173,9 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   }
 
   TC_ASSERT_LE(size, page_size_);
-  TC_ASSERT_LE(alignment, page_size_);
-  TC_ASSERT(alignment == 0 || absl::has_single_bit(alignment));
+  TC_ASSERT_LE(static_cast<size_t>(alignment), page_size_);
+  TC_ASSERT(static_cast<size_t>(alignment) == 0 ||
+            absl::has_single_bit(static_cast<size_t>(alignment)));
   void* result = reinterpret_cast<void*>(SlotToAddr(free_slot));
 
   // For size == 0, the page remains protected.
@@ -206,13 +207,13 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   d.dealloc_trace.depth = 0;
   d.requested_size = size;
   d.requested_alignment = static_cast<std::align_val_t>(std::max(
-      alignment,
-      std::max(static_cast<size_t>(kAlignment),
-               static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__))));
+      alignment, std::max(kAlignment, static_cast<std::align_val_t>(
+                                          __STDCPP_DEFAULT_NEW_ALIGNMENT__))));
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
   d.dealloc_count.store(0, std::memory_order_relaxed);
   TC_ASSERT(!d.write_overflow_detected);
-  TC_ASSERT(!alignment || d.allocation_start % alignment == 0);
+  TC_ASSERT(static_cast<size_t>(alignment) == 0 ||
+            d.allocation_start % static_cast<size_t>(alignment) == 0);
 
   stacktrace_filter_.Add({stack_trace.stack, stack_trace.depth}, 1);
   return {result, Profile::Sample::GuardedStatus::Guarded};
@@ -535,7 +536,8 @@ size_t GuardedPageAllocator::AddrToSlot(uintptr_t addr) const {
 }
 
 void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
-                                           size_t alignment, void** ptr) {
+                                           std::align_val_t alignment,
+                                           void** ptr) {
   if (!ShouldRightAlign(slot)) return;
   uintptr_t adjusted_ptr =
       reinterpret_cast<uintptr_t>(*ptr) + page_size_ - size;
@@ -552,8 +554,9 @@ void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
                         static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__)));
 
   // Ensure valid alignment.
-  alignment = std::max(alignment, default_alignment);
-  uintptr_t alignment_padding = adjusted_ptr & (alignment - 1);
+  const uintptr_t mask =
+      std::max(static_cast<size_t>(alignment), default_alignment) - 1;
+  uintptr_t alignment_padding = adjusted_ptr & mask;
   adjusted_ptr -= alignment_padding;
 
   // Write magic bytes in alignment padding to detect small overflow writes.

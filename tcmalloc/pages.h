@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <new>
 #include <string>
 
 #include "absl/strings/numbers.h"
@@ -191,6 +192,11 @@ TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length BytesToLengthCeil(size_t bytes) {
   return Length((bytes >> kPageShift) +
                 ((bytes & (kPageSize - 1)) > 0 ? 1 : 0));
+}
+
+TCMALLOC_ATTRIBUTE_CONST
+inline constexpr Length BytesToLengthCeil(std::align_val_t bytes) {
+  return BytesToLengthCeil(static_cast<size_t>(bytes));
 }
 
 TCMALLOC_ATTRIBUTE_CONST

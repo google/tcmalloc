@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <new>
 #include <vector>
 
 #include "benchmark/benchmark.h"
@@ -79,7 +80,7 @@ void BM_AllocDealloc(benchmark::State& state) {
   auto gpa = GetGuardedPageAllocator();
   for (auto _ : state) {
     char* ptr = reinterpret_cast<char*>(
-        gpa->Allocate(alloc_size, 0, GetStackTrace(0)).alloc);
+        gpa->Allocate(alloc_size, std::align_val_t{0}, GetStackTrace(0)).alloc);
     TC_CHECK_NE(ptr, nullptr);
     ptr[0] = 'X';               // Page fault first page.
     ptr[alloc_size - 1] = 'X';  // Page fault last page.
@@ -103,7 +104,8 @@ void ReservePool(const benchmark::State&) {
   auto deleter = [gpa](void* p) { gpa->Deallocate(p); };
 
   for (size_t stack_idx = 0;;) {
-    auto alloc = gpa->TrySample(1, 0, Length(1), GetStackTrace(stack_idx));
+    auto alloc = gpa->TrySample(1, std::align_val_t{0}, Length(1),
+                                GetStackTrace(stack_idx));
     switch (alloc.status) {
       case GuardedStatus::NoAvailableSlots:
         TC_CHECK(!GetReserved().empty());
@@ -143,7 +145,8 @@ void BM_TrySample(benchmark::State& state) {
 
   for (auto _ : state) {
     StackTrace& stack_trace = GetStackTrace(stack_idx++ % GetReserved().size());
-    auto alloc = gpa->TrySample(alloc_size, 0, Length(1), stack_trace);
+    auto alloc =
+        gpa->TrySample(alloc_size, std::align_val_t{0}, Length(1), stack_trace);
 
     switch (alloc.status) {
       case GuardedStatus::RateLimited:
