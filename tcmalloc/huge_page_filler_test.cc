@@ -4094,6 +4094,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   FakeClock::Advance(absl::Seconds(5));
   PAlloc small_alloc2 =
       AllocateWithSpanAllocInfo(Length(5), info_sparsely_accessed);
+  auto small_alloc2_time = FakeClock::now();
   EXPECT_EQ(small_alloc.pt, small_alloc2.pt);
   EXPECT_EQ(small_alloc.pt->features().allocations, 1);
   EXPECT_EQ(small_alloc.pt->features().objects, 2);
@@ -4101,8 +4102,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 255);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
-  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(5 * FakeClock::freq()) + 1234);
+  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), small_alloc2_time);
 
   FakeClock::Advance(absl::Seconds(10));
   PAlloc small_alloc3 =
@@ -4111,15 +4111,13 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().allocations, 2);
   EXPECT_EQ(small_alloc.pt->features().objects, 4);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time,
-                  5 * FakeClock::freq() + 1234);
+                  small_alloc2_time);
   EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 250);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
-  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(15 * FakeClock::freq()) + 1234);
+  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), FakeClock::now());
 
   // Test dense spans.
-  FakeClock::ResetClock();
   SpanAllocInfo info_densely_accessed = {128, AccessDensityPrediction::kDense};
   PAlloc large_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
@@ -4133,20 +4131,23 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   // Density is false because it defaults to false and lags behind by
   // one allocation.
   EXPECT_EQ(large_alloc.pt->features().density, false);
+  // The allocation time was not updated as this is the first allocation on pt.
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), 0);
 
   FakeClock::Advance(absl::Seconds(10));
   std::vector<PAlloc> large_allocs =
       AllocateVectorWithSpanAllocInfo(Length(100), info_densely_accessed);
+  auto large_allocs_time = FakeClock::now();
   EXPECT_EQ(large_alloc.pt->features().allocations, 100);
   EXPECT_EQ(large_alloc.pt->features().objects, 100 * 128);
+  // Allocated 100 small objects in a tight loop so the allocation time and last
+  // allocation time are all set to "now".
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
-                  10 * FakeClock::freq() + 1234);
+                  large_allocs_time);
   EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 156);
   EXPECT_EQ(large_alloc.pt->features().density, true);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
-  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(10 * FakeClock::freq()) + 1234);
+  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), large_allocs_time);
 
   FakeClock::Advance(absl::Seconds(10));
   PAlloc large_alloc2 =
@@ -4154,12 +4155,11 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(large_alloc.pt->features().allocations, 101);
   EXPECT_EQ(large_alloc.pt->features().objects, 101 * 128);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
-                  10 * FakeClock::freq() + 1234);
+                  large_allocs_time);
   EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 155);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(large_alloc.pt->features().density, true);
-  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(20 * FakeClock::freq()) + 1234);
+  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), FakeClock::now());
 
   Delete(small_alloc);
   Delete(small_alloc2);
@@ -4208,7 +4208,6 @@ HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage
 HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 100.000001
 )"));
 
-  FakeClock::ResetClock();
   PAlloc large_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
   large_alloc.pt->SetTagState({.sampled_for_tagging = true});
@@ -4224,8 +4223,10 @@ HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
   }
+  // The reallocation time is: "now" - default allocation time (0) as pt does
+  // not track the time for its first allocation.
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 100.000001
+HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 200.000001
 )"));
 
   FakeClock::Advance(absl::Seconds(100));
