@@ -4543,134 +4543,48 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
   }
-
-  FakePageFlags pageflags;
   const Length N = kPagesPerHugePage;
-  // Reports skip subrelease using the recent demand peak (2.5N): it is
-  // smaller than the total number of pages (3N) when 0.25N free pages are
-  // skipped.  The skipping is correct as the future demand is 2.5N.
-  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
-  PAlloc peak1a = AllocateWithSpanAllocInfo(3 * N / 4, info);
-  PAlloc peak1b = AllocateWithSpanAllocInfo(N / 4, info);
-  PAlloc peak2a = AllocateWithSpanAllocInfo(3 * N / 4, info);
-  PAlloc peak2b = AllocateWithSpanAllocInfo(N / 4, info);
-  PAlloc half1 = AllocateWithSpanAllocInfo(N / 2, info);
-  FakeClock::Advance(absl::Minutes(2));
-  Delete(half1);
-  Delete(peak1b);
-  Delete(peak2b);
-  PAlloc peak3a = AllocateWithSpanAllocInfo(3 * N / 4, info);
-  EXPECT_EQ(filler_.free_pages(), 3 * N / 4);
-  // Subreleases 0.5N free pages and skips 0.25N free pages.
-  EXPECT_EQ(N / 2,
-            ReleasePages(10 * N, SkipSubreleaseIntervals{
-                                     .peak_interval = absl::Minutes(3)}));
-  FakeClock::Advance(absl::Minutes(3));
-  PAlloc tiny1 = AllocateWithSpanAllocInfo(N / 4, info);
-  EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
-  EXPECT_EQ(filler_.unmapped_pages(), N / 2);
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  Delete(peak1a);
-  Delete(peak2a);
-  Delete(peak3a);
-  Delete(tiny1);
-  EXPECT_EQ(filler_.used_pages(), Length(0));
-  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  // Accounts for pages that are eagerly unmapped (unmapping_unaccounted_).
-  EXPECT_EQ(N + N / 2, ReleasePages(10 * N));
-
-  FakeClock::Advance(absl::Minutes(30));
-
-  // Reports skip subrelease using HugePageFiller's capacity (N pages): it is
-  // smaller than the recent peak (2N) when 0.5N pages are skipped. They are
-  // correctly skipped as the future demand is N.
-  PAlloc peak4a = AllocateWithSpanAllocInfo(3 * N / 4, info);
-  PAlloc peak4b = AllocateWithSpanAllocInfo(N / 4, info);
-  PAlloc peak5a = AllocateWithSpanAllocInfo(3 * N / 4, info);
-  PAlloc peak5b = AllocateWithSpanAllocInfo(N / 4, info);
-  FakeClock::Advance(absl::Minutes(2));
-  Delete(peak4a);
-  Delete(peak4b);
-  Delete(peak5a);
-  Delete(peak5b);
-  PAlloc half2 = AllocateWithSpanAllocInfo(N / 2, info);
-  EXPECT_EQ(Length(0),
-            ReleasePages(10 * N, SkipSubreleaseIntervals{
-                                     .peak_interval = absl::Minutes(3)}));
-  FakeClock::Advance(absl::Minutes(3));
-  PAlloc half3 = AllocateWithSpanAllocInfo(N / 2, info);
-  Delete(half2);
-  Delete(half3);
-  EXPECT_EQ(filler_.used_pages(), Length(0));
-  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  EXPECT_EQ(Length(0), ReleasePages(10 * N));
-  FakeClock::Advance(absl::Minutes(30));
-  //  Ensures that the tracker is updated.
-  auto tiny2 = Allocate(Length(1));
-  Delete(tiny2);
-
-  std::string buffer(1024 * 1024, '\0');
-  {
-    PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
-
-  EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
-HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
-)"));
-}
-
-TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
-  // Tests that HugePageFiller reports skipped subreleases using demand
-  // requirement that is the smaller of two (recent peak and its
-  // current capacity). This fix makes evaluating skip subrelease more
-  // accurate, which is useful for cross-comparing performance of different
-  // skip-subrelease intervals.
-
-  // This test is sensitive to the number of pages per hugepage, as we are
-  // printing raw stats.
-  if (kPagesPerHugePage != Length(256)) {
-    GTEST_SKIP();
-  }
-  randomize_density_ = false;
-  const Length N = kPagesPerHugePage;
-  SpanAllocInfo info = {kPagesPerHugePage.raw_num(),
-                        AccessDensityPrediction::kDense};
+  const AccessDensityPrediction density = absl::Bernoulli(gen_, 0.5)
+                                              ? AccessDensityPrediction::kSparse
+                                              : AccessDensityPrediction::kDense;
+  SCOPED_TRACE(absl::StrCat("AccessDensityPrediction: ", density));
+  size_t n_objects = density == AccessDensityPrediction::kSparse
+                         ? 1
+                         : kPagesPerHugePage.raw_num();
+  SpanAllocInfo info = {n_objects, density};
   // Reports skip subrelease using the recent demand peak (2.5N): it is
   // smaller than the total number of pages (3N) when 0.25N free pages are
   // skipped.  The skipping is correct as the future demand is 2.5N.
   std::vector<PAlloc> peak1a = AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
-  ASSERT_TRUE(!peak1a.empty());
-  std::vector<PAlloc> peak1b =
-      AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
-  std::vector<PAlloc> peak2a = AllocateVectorWithSpanAllocInfo(
-      3 * N / 4, peak1a.front().span_alloc_info);
-  std::vector<PAlloc> peak2b =
-      AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
-  std::vector<PAlloc> half1 =
-      AllocateVectorWithSpanAllocInfo(N / 2, peak1a.front().span_alloc_info);
+  std::vector<PAlloc> peak1b = AllocateVectorWithSpanAllocInfo(N / 4, info);
+  std::vector<PAlloc> peak2a = AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+  std::vector<PAlloc> peak2b = AllocateVectorWithSpanAllocInfo(N / 4, info);
+  std::vector<PAlloc> half1 = AllocateVectorWithSpanAllocInfo(N / 2, info);
   FakeClock::Advance(absl::Minutes(2));
   DeleteVector(half1);
   DeleteVector(peak1b);
   DeleteVector(peak2b);
-  std::vector<PAlloc> peak3a = AllocateVectorWithSpanAllocInfo(
-      3 * N / 4, peak1a.front().span_alloc_info);
+  std::vector<PAlloc> peak3a = AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
   EXPECT_EQ(filler_.free_pages(), 3 * N / 4);
-  // Subreleases 0.75N free pages.
-  EXPECT_EQ(3 * N / 4,
-            ReleasePages(10 * N, SkipSubreleaseIntervals{
-                                     .peak_interval = absl::Minutes(3)}));
+  // For sparse allocations, subreleases 0.5N free pages and skips 0.25N free
+  // pages. For dense allocations, although the skip subrelease requests to skip
+  // 0.25N pages, the mechanism subrelease all free pages on that huge page
+  // anyhow due to eager subrelease.
+  auto expected_subrelease =
+      density == AccessDensityPrediction::kSparse ? (N / 2) : (3 * N / 4);
+  EXPECT_EQ(ReleasePages(10 * N, SkipSubreleaseIntervals{.peak_interval =
+                                                             absl::Minutes(3)}),
+            expected_subrelease);
   FakeClock::Advance(absl::Minutes(3));
-  std::vector<PAlloc> tiny1 =
-      AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
+  std::vector<PAlloc> tiny1 = AllocateVectorWithSpanAllocInfo(N / 4, info);
+  // Uses a token allocation to trigger tracker update (hence correctness
+  // evaluation).
+  FakeClock::Advance(absl::Seconds(1));
+  std::vector<PAlloc> small = AllocateVectorWithSpanAllocInfo(Length(1), info);
+  DeleteVector(small);
   EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
-  EXPECT_EQ(filler_.unmapped_pages(), N / 2);
-  EXPECT_EQ(filler_.free_pages(), Length(0));
+  EXPECT_EQ(filler_.unmapped_pages(), N / 2 - Length(1));
+  EXPECT_EQ(filler_.free_pages(), Length(1));
   DeleteVector(peak1a);
   DeleteVector(peak2a);
   DeleteVector(peak3a);
@@ -4678,8 +4592,13 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   EXPECT_EQ(filler_.used_pages(), Length(0));
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
   EXPECT_EQ(filler_.free_pages(), Length(0));
-  // Accounts for pages that are eagerly unmapped (unmapping_unaccounted_).
-  EXPECT_EQ(N / 2, ReleasePages(10 * N));
+  // Accounts for pages that are eagerly unmapped (unmapping_unaccounted_). The
+  // value is different for sparse and dense allocations due to fragemenations
+  // in their huge pages.
+  expected_subrelease = density == AccessDensityPrediction::kSparse
+                            ? (N + N / 2 + Length(1))
+                            : (N / 2 + Length(1));
+  EXPECT_EQ(ReleasePages(10 * N), expected_subrelease);
 
   FakeClock::Advance(absl::Minutes(30));
 
@@ -4687,13 +4606,9 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   // smaller than the recent peak (2N) when 0.5N pages are skipped. They are
   // correctly skipped as the future demand is N.
   std::vector<PAlloc> peak4a = AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
-  ASSERT_TRUE(!peak4a.empty());
-  std::vector<PAlloc> peak4b =
-      AllocateVectorWithSpanAllocInfo(N / 4, peak4a.front().span_alloc_info);
+  std::vector<PAlloc> peak4b = AllocateVectorWithSpanAllocInfo(N / 4, info);
   std::vector<PAlloc> peak5a = AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
-  ASSERT_TRUE(!peak5a.empty());
-  std::vector<PAlloc> peak5b =
-      AllocateVectorWithSpanAllocInfo(N / 4, peak5a.front().span_alloc_info);
+  std::vector<PAlloc> peak5b = AllocateVectorWithSpanAllocInfo(N / 4, info);
   FakeClock::Advance(absl::Minutes(2));
   DeleteVector(peak4a);
   DeleteVector(peak4b);
@@ -4707,14 +4622,14 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   std::vector<PAlloc> half3 = AllocateVectorWithSpanAllocInfo(N / 2, info);
   DeleteVector(half2);
   DeleteVector(half3);
+  //  Ensures that the tracker is updated.
+  FakeClock::Advance(absl::Seconds(1));
+  std::vector<PAlloc> small1 = AllocateVectorWithSpanAllocInfo(Length(1), info);
+  DeleteVector(small1);
   EXPECT_EQ(filler_.used_pages(), Length(0));
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
   EXPECT_EQ(filler_.free_pages(), Length(0));
   EXPECT_EQ(Length(0), ReleasePages(10 * N));
-  FakeClock::Advance(absl::Minutes(30));
-  //  Ensures that the tracker is updated.
-  auto tiny2 = Allocate(Length(1));
-  Delete(tiny2);
 
   std::string buffer(1024 * 1024, '\0');
   FakePageFlags pageflags;
@@ -4727,7 +4642,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
-HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 
