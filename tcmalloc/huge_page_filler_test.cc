@@ -1101,16 +1101,6 @@ class FillerTest : public testing::TestWithParam<bool> {
   // various features of our stats.
   std::vector<PAlloc> GenerateInterestingAllocs();
 
-  // Generates demand patterns then requests for subrelease.
-  void GenerateDemandPatternForSubrelease(SpanAllocInfo allocation_info,
-                                          absl::Duration a, absl::Duration b,
-                                          absl::Duration c,
-                                          SkipSubreleaseIntervals intervals,
-                                          bool expected_subrelease,
-                                          bool release_partial);
-  // Tests the correctness of skip subrelease (including statistic reporting).
-  void SkipSubreleaseTest(AccessDensityPrediction density,
-                          bool release_partial);
   // Tests fragmentation
   void FragmentationTest();
 
@@ -3238,200 +3228,198 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
   }
 }
 
-// Firstly generates a peak (long-term demand peak) and waits for
-// time interval a. Then, it generates a higher peak plus a short-term
-// fluctuation peak, and waits for time interval b. It then generates a
-// trough in demand and tries to subrelease. Finally, it waits for time
-// interval c to generate the highest peak for evaluating subrelease
-// correctness. Skip subrelease selects those demand points using provided
-// time intervals.
-void FillerTest::GenerateDemandPatternForSubrelease(
-    SpanAllocInfo allocation_info, absl::Duration a, absl::Duration b,
-    absl::Duration c, SkipSubreleaseIntervals intervals,
-    bool expected_subrelease, bool release_partial) {
-  const Length N = kPagesPerHugePage;
-  // First peak: min_demand 1 page, max_demand 1N, diff (N - 1).
-  std::vector<PAlloc> peak1a =
-      AllocateVectorWithSpanAllocInfo(3 * N / 4, allocation_info);
-  ASSERT_TRUE(!peak1a.empty());
-  std::vector<PAlloc> peak1b =
-      AllocateVectorWithSpanAllocInfo(N / 4, allocation_info);
-  ASSERT_TRUE(!peak1b.empty());
-  FakeClock::Advance(a);
-  // Second peak: min_demand 0, max_demand 2N.
-  DeleteVector(peak1a);
-  DeleteVector(peak1b);
+TEST_P(FillerTest, SkipPartialAllocSubrelease) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (kPagesPerHugePage != Length(256)) {
+    GTEST_SKIP();
+  }
 
-  std::vector<PAlloc> half =
-      AllocateVectorWithSpanAllocInfo(N / 2, allocation_info);
-  ASSERT_TRUE(!half.empty());
-  std::vector<PAlloc> tiny1 =
-      AllocateVectorWithSpanAllocInfo(N / 4, allocation_info);
-  ASSERT_TRUE(!tiny1.empty());
-  std::vector<PAlloc> tiny2 =
-      AllocateVectorWithSpanAllocInfo(N / 4, allocation_info);
-  ASSERT_TRUE(!tiny2.empty());
+  FakePageFlags pageflags;
+  // Firstly, this test generates a peak (long-term demand peak) and waits for
+  // time interval a. Then, it generates a higher peak plus a short-term
+  // fluctuation peak, and waits for time interval b. It then generates a
+  // trough in demand and tries to subrelease. Finally, it waits for time
+  // interval c to generate the highest peak for evaluating subrelease
+  // correctness. Skip subrelease selects those demand points using provided
+  // time intervals.
+  const auto demand_pattern = [&](absl::Duration a, absl::Duration b,
+                                  absl::Duration c,
+                                  SkipSubreleaseIntervals intervals,
+                                  bool expected_subrelease) {
+    const Length N = kPagesPerHugePage;
+    SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
 
-  // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
-  // necessary after we delete `half` below, as a half huge page for the
-  // peak would fill into the gap previously occupied by it.
-  std::vector<PAlloc> peak2a =
-      AllocateVectorWithSpanAllocInfo(3 * N / 4, allocation_info);
-  ASSERT_TRUE(!peak2a.empty());
-  std::vector<PAlloc> peak2b =
-      AllocateVectorWithSpanAllocInfo(N / 4, allocation_info);
-  ASSERT_TRUE(!peak2b.empty());
-  EXPECT_EQ(filler_.used_pages(), 2 * N);
-  DeleteVector(peak2a);
-  DeleteVector(peak2b);
-  // Drops max_demand to N - 1 for dense allocations or 1 / 2 for sparse
-  // allocations, and min_demand to 0.5N.
-  FakeClock::Advance(b);
-  DeleteVector(half);
-  EXPECT_EQ(filler_.free_pages(), Length(N / 2));
-  // The number of released pages is limited to the number of free pages.
-  if (release_partial) {
+    // First peak: min_demand 3/4N, max_demand 1N.
+    PAlloc peak1a = AllocateWithSpanAllocInfo(3 * N / 4, info);
+    PAlloc peak1b = AllocateWithSpanAllocInfo(N / 4, peak1a.span_alloc_info);
+    FakeClock::Advance(a);
+    // Second peak: min_demand 0, max_demand 2N.
+    Delete(peak1a);
+    Delete(peak1b);
+
+    PAlloc half = AllocateWithSpanAllocInfo(N / 2, info);
+    PAlloc tiny1 = AllocateWithSpanAllocInfo(N / 4, half.span_alloc_info);
+    PAlloc tiny2 = AllocateWithSpanAllocInfo(N / 4, half.span_alloc_info);
+
+    // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
+    // necessary after we delete `half` below, as a half huge page for the
+    // peak would fill into the gap previously occupied by it.
+    PAlloc peak2a = AllocateWithSpanAllocInfo(3 * N / 4, info);
+    PAlloc peak2b = AllocateWithSpanAllocInfo(N / 4, peak2a.span_alloc_info);
+    EXPECT_EQ(filler_.used_pages(), 2 * N);
+    Delete(peak2a);
+    Delete(peak2b);
+    FakeClock::Advance(b);
+    Delete(half);
+    EXPECT_EQ(filler_.free_pages(), Length(N / 2));
+    // The number of released pages is limited to the number of free
+    // pages.
     EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
               ReleasePartialPages(10 * N, intervals));
-  } else {
+
+    FakeClock::Advance(c);
+    // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
+    PAlloc peak3a = AllocateWithSpanAllocInfo(3 * N / 4, info);
+    PAlloc peak3b = AllocateWithSpanAllocInfo(N / 4, peak3a.span_alloc_info);
+
+    PAlloc peak4a = AllocateWithSpanAllocInfo(3 * N / 4, info);
+    PAlloc peak4b = AllocateWithSpanAllocInfo(N / 4, peak4a.span_alloc_info);
+
+    Delete(tiny1);
+    Delete(tiny2);
+    Delete(peak3a);
+    Delete(peak3b);
+    Delete(peak4a);
+    Delete(peak4b);
+
+    EXPECT_EQ(filler_.used_pages(), Length(0));
+    EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+    EXPECT_EQ(filler_.free_pages(), Length(0));
+
     EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
-              ReleasePages(10 * N, intervals));
-  }
-  FakeClock::Advance(c);
-  // Third peak: min_demand 1 + 1/2 N page, max_demand (2+1/2)N.
-  std::vector<PAlloc> peak3a =
-      AllocateVectorWithSpanAllocInfo(3 * N / 4, allocation_info);
-  ASSERT_TRUE(!peak3a.empty());
-  std::vector<PAlloc> peak3b =
-      AllocateVectorWithSpanAllocInfo(N / 4, allocation_info);
-  ASSERT_TRUE(!peak3b.empty());
-  std::vector<PAlloc> peak4a =
-      AllocateVectorWithSpanAllocInfo(3 * N / 4, allocation_info);
-  ASSERT_TRUE(!peak4a.empty());
-  std::vector<PAlloc> peak4b =
-      AllocateVectorWithSpanAllocInfo(N / 4, allocation_info);
-  ASSERT_TRUE(!peak4b.empty());
-  DeleteVector(tiny1);
-  DeleteVector(tiny2);
-  DeleteVector(peak3a);
-  DeleteVector(peak3b);
-  DeleteVector(peak4a);
-  DeleteVector(peak4b);
-
-  EXPECT_EQ(filler_.used_pages(), Length(0));
-  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  // It does not matter how much we release here, we check the final state
-  // anyhow.
-  if (release_partial) {
-    ReleasePartialPages(10 * N);
-  } else {
-    ReleasePages(10 * N);
-  }
-  // Triggers tracker update via allocation, which also tiggers subrelease
-  // correctness evaluation.
-  FakeClock::Advance(absl::Seconds(1));
-  std::vector<PAlloc> peak5 =
-      AllocateVectorWithSpanAllocInfo(N / 2, allocation_info);
-  ASSERT_TRUE(!peak5.empty());
-  DeleteVector(peak5);
-  EXPECT_EQ(filler_.used_pages(), Length(0));
-  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  EXPECT_EQ(Length(0), ReleasePages(10 * N));
-
-  // Insert a time gap to make the pattern as a "history".
-  FakeClock::Advance(absl::Minutes(30));
-}
-
-void FillerTest::SkipSubreleaseTest(AccessDensityPrediction density,
-                                    bool release_partial) {
-  size_t n_objects = density == AccessDensityPrediction::kSparse
-                         ? 1
-                         : kPagesPerHugePage.raw_num();
-  SpanAllocInfo info = {n_objects, density};
+              ReleasePartialPages(10 * N));
+  };
 
   {
     // Uses peak interval for skipping subrelease. We should correctly skip
     // 128 pages.
     SCOPED_TRACE("demand_pattern 1");
-    GenerateDemandPatternForSubrelease(
-        info, absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
-        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
-        /*expected_subrelease=*/false, release_partial);
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
   }
+
+  FakeClock::Advance(absl::Minutes(30));
+
   {
     // Repeats the "demand_pattern 1" test with additional short-term and
     // long-term intervals, to show that skip-subrelease prioritizes using
     // peak_interval.
     SCOPED_TRACE("demand_pattern 2");
-    GenerateDemandPatternForSubrelease(
-        info, absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
         SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
                                 .short_interval = absl::Milliseconds(10),
                                 .long_interval = absl::Milliseconds(20)},
-        /*expected_subrelease=*/false, release_partial);
+        false);
   }
+
+  FakeClock::Advance(absl::Minutes(30));
+
   {
     // Uses peak interval for skipping subrelease, subreleasing all free
     // pages. The short-term interval is not used, as we prioritize using
-    // demand peak. For dense allocations, we skipped 1/2 N - 1 pages,
-    // allowed to release 1 page (but Filler releases all free pages anyhow).
+    // demand peak.
     SCOPED_TRACE("demand_pattern 3");
-    GenerateDemandPatternForSubrelease(
-        info, absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
-        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
-                                .short_interval = absl::Minutes(5)},
-        /*expected_subrelease=*/true, release_partial);
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
   }
+
+  FakeClock::Advance(absl::Minutes(30));
+
   {
     // Skip subrelease feature is disabled if all intervals are zero.
     SCOPED_TRACE("demand_pattern 4");
-    GenerateDemandPatternForSubrelease(
-        info, absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
-        SkipSubreleaseIntervals{}, /*expected_subrelease=*/true,
-        release_partial);
+    demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
+                   SkipSubreleaseIntervals{}, true);
   }
+
+  FakeClock::Advance(absl::Minutes(30));
+
   {
     // Uses short-term and long-term intervals for skipping subrelease. It
     // incorrectly skips 128 pages.
     SCOPED_TRACE("demand_pattern 5");
-    GenerateDemandPatternForSubrelease(
-        info, absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
-        SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
-                                .long_interval = absl::Minutes(6)},
-        /*expected_subrelease=*/false, release_partial);
+    demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
+                                           .long_interval = absl::Minutes(6)},
+                   false);
   }
+
+  FakeClock::Advance(absl::Minutes(30));
+
   {
-    // Uses short-term and long-term intervals for skipping subrelease, no
-    // skipping. For dense allocation, we skipped 1/2 N - 1 pages, allowed to
-    // release 1 page (but Filler releases all free pages anyhow).
+    // Uses short-term and long-term intervals for skipping subrelease,
+    // subreleasing all free pages.
     SCOPED_TRACE("demand_pattern 6");
-    GenerateDemandPatternForSubrelease(
-        info, absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
-        SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
-                                .long_interval = absl::Minutes(2)},
-        /*expected_subrelease=*/true, release_partial);
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   true);
   }
+  FakeClock::Advance(absl::Minutes(30));
+
   {
     // Uses only short-term interval for skipping subrelease. It correctly
     // skips 128 pages.
     SCOPED_TRACE("demand_pattern 7");
-    GenerateDemandPatternForSubrelease(
-        info, absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
-        SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
-        /*expected_subrelease=*/false, release_partial);
-  }
-  {
-    // Uses only long-term interval for skipping subrelease, no skipping.
-    SCOPED_TRACE("demand_pattern 8");
-    GenerateDemandPatternForSubrelease(
-        info, absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
-        SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
-        /*expected_subrelease=*/true, release_partial);
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
+                   false);
   }
 
-  FakePageFlags pageflags;
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses only long-term interval for skipping subrelease, subreleased all
+    // free pages.
+    SCOPED_TRACE("demand_pattern 8");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
+                   true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  // This captures a corner case: If we hit another peak immediately after a
+  // subrelease decision (in the same time series epoch), do not count this as
+  // a correct subrelease decision.
+  {
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  // Ensure that the tracker is updated.
+  auto tiny = Allocate(Length(1));
+  Delete(tiny);
+
   std::string buffer(1024 * 1024, '\0');
   {
     PageHeapSpinLockHolder l;
@@ -3439,50 +3427,655 @@ void FillerTest::SkipSubreleaseTest(AccessDensityPrediction density,
     filler_.Print(printer, true, pageflags);
   }
   buffer.resize(strlen(buffer.c_str()));
-  if (density == AccessDensityPrediction::kSparse) {
-    EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 4 subreleases (512 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (0s) fluctuations and long-term (120s) trends.
-HugePageFiller: 75.0000% of decisions confirmed correct, 0 pending (75.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Since the start of the execution, 6 subreleases (768 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
-  } else {
-    EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 6 subreleases (766 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (0s) fluctuations and long-term (120s) trends.
-HugePageFiller: 83.3333% of decisions confirmed correct, 0 pending (83.2898% of pages, 0 pending), as per anticipated 300s realized fragmentation.
-)"));
-  }
 }
 
-TEST_P(FillerTest, SkipSubrelease_PartialReleaseDenseAllocation) {
+TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
   }
-  SkipSubreleaseTest(AccessDensityPrediction::kDense, /*release_partial=*/true);
+  randomize_density_ = false;
+  SpanAllocInfo info = {kPagesPerHugePage.raw_num(),
+                        AccessDensityPrediction::kDense};
+
+  FakePageFlags pageflags;
+  // Firstly, this test generates a peak (long-term demand peak) and waits for
+  // time interval a. Then, it generates a higher peak plus a short-term
+  // fluctuation peak, and waits for time interval b. It then generates a
+  // trough in demand and tries to subrelease. Finally, it waits for time
+  // interval c to generate the highest peak for evaluating subrelease
+  // correctness. Skip subrelease selects those demand points using provided
+  // time intervals.
+  const auto demand_pattern = [&](absl::Duration a, absl::Duration b,
+                                  absl::Duration c,
+                                  SkipSubreleaseIntervals intervals,
+                                  bool expected_subrelease) {
+    const Length N = kPagesPerHugePage;
+    // First peak: min_demand 3/4N, max_demand 1N.
+    std::vector<PAlloc> peak1a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak1a.empty());
+    std::vector<PAlloc> peak1b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
+    FakeClock::Advance(a);
+    // Second peak: min_demand 0, max_demand 2N.
+    DeleteVector(peak1a);
+    DeleteVector(peak1b);
+
+    std::vector<PAlloc> half = AllocateVectorWithSpanAllocInfo(N / 2, info);
+    ASSERT_TRUE(!half.empty());
+    std::vector<PAlloc> tiny1 =
+        AllocateVectorWithSpanAllocInfo(N / 4, half.front().span_alloc_info);
+    std::vector<PAlloc> tiny2 =
+        AllocateVectorWithSpanAllocInfo(N / 4, half.front().span_alloc_info);
+
+    // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
+    // necessary after we delete `half` below, as a half huge page for the
+    // peak would fill into the gap previously occupied by it.
+    std::vector<PAlloc> peak2a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak2a.empty());
+    std::vector<PAlloc> peak2b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak2a.front().span_alloc_info);
+    EXPECT_EQ(filler_.used_pages(), 2 * N);
+    DeleteVector(peak2a);
+    DeleteVector(peak2b);
+    FakeClock::Advance(b);
+    DeleteVector(half);
+    EXPECT_EQ(filler_.free_pages(), Length(N / 2));
+    // The number of released pages is limited to the number of free pages.
+    EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
+              ReleasePartialPages(10 * N, intervals));
+
+    FakeClock::Advance(c);
+    half = AllocateVectorWithSpanAllocInfo(N / 2, half.front().span_alloc_info);
+    // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
+    std::vector<PAlloc> peak3a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak3a.empty());
+    std::vector<PAlloc> peak3b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak3a.front().span_alloc_info);
+
+    std::vector<PAlloc> peak4a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak4a.empty());
+    std::vector<PAlloc> peak4b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak4a.front().span_alloc_info);
+
+    DeleteVector(half);
+    DeleteVector(tiny1);
+    DeleteVector(tiny2);
+    DeleteVector(peak3a);
+    DeleteVector(peak3b);
+    DeleteVector(peak4a);
+    DeleteVector(peak4b);
+
+    EXPECT_EQ(filler_.used_pages(), Length(0));
+    EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+    EXPECT_EQ(filler_.free_pages(), Length(0));
+
+    EXPECT_EQ(Length(0), ReleasePartialPages(10 * N));
+  };
+
+  {
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
+    SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free
+    // pages. The short-term interval is not used, as we prioritize using
+    // demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
+    demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
+                   SkipSubreleaseIntervals{}, true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease. It
+    // incorrectly skips 128 pages.
+    SCOPED_TRACE("demand_pattern 5");
+    demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
+                                           .long_interval = absl::Minutes(6)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease,
+    // subreleasing all free pages.
+    SCOPED_TRACE("demand_pattern 6");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   true);
+  }
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses only short-term interval for skipping subrelease. It correctly
+    // skips 128 pages.
+    SCOPED_TRACE("demand_pattern 7");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses only long-term interval for skipping subrelease, subreleased all
+    // free pages.
+    SCOPED_TRACE("demand_pattern 8");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
+                   true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  // This captures a corner case: If we hit another peak immediately after a
+  // subrelease decision (in the same time series epoch), do not count this as
+  // a correct subrelease decision.
+  {
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  // Ensure that the tracker is updated.
+  auto tiny = Allocate(Length(1));
+  Delete(tiny);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, true, pageflags);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Since the start of the execution, 8 subreleases (1022 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+)"));
 }
 
-TEST_P(FillerTest, SkipSubrelease_PartialReleaseSparseAllocation) {
+TEST_P(FillerTest, SkipSubrelease) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
   }
-  SkipSubreleaseTest(AccessDensityPrediction::kSparse,
-                     /*release_partial=*/true);
+
+  FakePageFlags pageflags;
+  // Firstly, this test generates a peak (long-term demand peak) and waits for
+  // time interval a. Then, it generates a higher peak plus a short-term
+  // fluctuation peak, and waits for time interval b. It then generates a
+  // trough in demand and tries to subrelease. Finally, it waits for time
+  // interval c to generate the highest peak for evaluating subrelease
+  // correctness. Skip subrelease selects those demand points using provided
+  // time intervals.
+  const auto demand_pattern = [&](absl::Duration a, absl::Duration b,
+                                  absl::Duration c,
+                                  SkipSubreleaseIntervals intervals,
+                                  bool expected_subrelease) {
+    const Length N = kPagesPerHugePage;
+    SpanAllocInfo info = {.objects_per_span = 1,
+                          .density = AccessDensityPrediction::kSparse};
+    // First peak: min_demand 3/4N, max_demand 1N.
+    PAlloc peak1a = AllocateWithSpanAllocInfo(3 * N / 4, info);
+    PAlloc peak1b = AllocateWithSpanAllocInfo(N / 4, info);
+    FakeClock::Advance(a);
+    // Second peak: min_demand 0, max_demand 2N.
+    Delete(peak1a);
+    Delete(peak1b);
+
+    PAlloc half = AllocateWithSpanAllocInfo(N / 2, info);
+    PAlloc tiny1 = AllocateWithSpanAllocInfo(N / 4, info);
+    PAlloc tiny2 = AllocateWithSpanAllocInfo(N / 4, info);
+
+    // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
+    // necessary after we delete `half` below, as a half huge page for the
+    // peak would fill into the gap previously occupied by it.
+    PAlloc peak2a = AllocateWithSpanAllocInfo(3 * N / 4, info);
+    PAlloc peak2b = AllocateWithSpanAllocInfo(N / 4, info);
+    EXPECT_EQ(filler_.used_pages(), 2 * N);
+    Delete(peak2a);
+    Delete(peak2b);
+    FakeClock::Advance(b);
+    Delete(half);
+    EXPECT_EQ(filler_.free_pages(), Length(N / 2));
+    // The number of released pages is limited to the number of free pages.
+    EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
+              ReleasePages(10 * N, intervals));
+
+    FakeClock::Advance(c);
+    // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
+    PAlloc peak3a = AllocateWithSpanAllocInfo(3 * N / 4, info);
+    PAlloc peak3b = AllocateWithSpanAllocInfo(N / 4, info);
+
+    PAlloc peak4a = AllocateWithSpanAllocInfo(3 * N / 4, info);
+    PAlloc peak4b = AllocateWithSpanAllocInfo(N / 4, info);
+
+    Delete(tiny1);
+    Delete(tiny2);
+    Delete(peak3a);
+    Delete(peak3b);
+    Delete(peak4a);
+    Delete(peak4b);
+
+    EXPECT_EQ(filler_.used_pages(), Length(0));
+    EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+    EXPECT_EQ(filler_.free_pages(), Length(0));
+    EXPECT_EQ(expected_subrelease ? N / 2 : Length(0), ReleasePages(10 * N));
+  };
+
+  {
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
+    SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free pages
+    // . The short-term interval is not used, as we prioritize using demand
+    // peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
+    demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
+                   SkipSubreleaseIntervals{}, true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease. It
+    // incorrectly skips 128 pages.
+    SCOPED_TRACE("demand_pattern 5");
+    demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
+                                           .long_interval = absl::Minutes(6)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease,
+    // subreleasing all free pages.
+    SCOPED_TRACE("demand_pattern 6");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   true);
+  }
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses only short-term interval for skipping subrelease. It correctly
+    // skips 128 pages.
+    SCOPED_TRACE("demand_pattern 7");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses only long-term interval for skipping subrelease, subreleased all
+    // free pages.
+    SCOPED_TRACE("demand_pattern 8");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
+                   true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  // This captures a corner case: If we hit another peak immediately after a
+  // subrelease decision (in the same time series epoch), do not count this as
+  // a correct subrelease decision.
+  {
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  // Ensure that the tracker is updated.
+  auto tiny = Allocate(Length(1));
+  Delete(tiny);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, true, pageflags);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Since the start of the execution, 6 subreleases (768 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+)"));
 }
 
-TEST_P(FillerTest, SkipSubrelease_DenseAllocation) {
+TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
   }
-  SkipSubreleaseTest(AccessDensityPrediction::kDense,
-                     /*release_partial=*/false);
-}
+  randomize_density_ = false;
+  FakePageFlags pageflags;
+  SpanAllocInfo info = {kPagesPerHugePage.raw_num(),
+                        AccessDensityPrediction::kDense};
 
-TEST_P(FillerTest, SkipSubrelease_SparseAllocation) {
-  if (kPagesPerHugePage != Length(256)) {
-    GTEST_SKIP();
+  // Firstly, this test generates a peak (long-term demand peak) and waits for
+  // time interval a. Then, it generates a higher peak plus a short-term
+  // fluctuation peak, and waits for time interval b. It then generates a
+  // trough in demand and tries to subrelease. Finally, it waits for time
+  // interval c to generate the highest peak for evaluating subrelease
+  // correctness. Skip subrelease selects those demand points using provided
+  // time intervals.
+  const auto demand_pattern = [&](absl::Duration a, absl::Duration b,
+                                  absl::Duration c,
+                                  SkipSubreleaseIntervals intervals,
+                                  bool expected_subrelease) {
+    const Length N = kPagesPerHugePage;
+    // First peak: min_demand 3/4N, max_demand 1N.
+    std::vector<PAlloc> peak1a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak1a.empty());
+    std::vector<PAlloc> peak1b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
+    FakeClock::Advance(a);
+    // Second peak: min_demand 0, max_demand 2N.
+    DeleteVector(peak1a);
+    DeleteVector(peak1b);
+
+    std::vector<PAlloc> half = AllocateVectorWithSpanAllocInfo(N / 2, info);
+    ASSERT_TRUE(!half.empty());
+    std::vector<PAlloc> tiny1 =
+        AllocateVectorWithSpanAllocInfo(N / 4, half.front().span_alloc_info);
+    std::vector<PAlloc> tiny2 =
+        AllocateVectorWithSpanAllocInfo(N / 4, half.front().span_alloc_info);
+
+    // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
+    // necessary after we delete `half` below, as a half huge page for the
+    // peak would fill into the gap previously occupied by it.
+    std::vector<PAlloc> peak2a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak2a.empty());
+    std::vector<PAlloc> peak2b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak2a.front().span_alloc_info);
+    EXPECT_EQ(filler_.used_pages(), 2 * N);
+    DeleteVector(peak2a);
+    DeleteVector(peak2b);
+    FakeClock::Advance(b);
+    DeleteVector(half);
+    EXPECT_EQ(filler_.free_pages(), Length(N / 2));
+    // The number of released pages is limited to the number of free pages.
+    EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
+              ReleasePages(10 * N, intervals));
+
+    FakeClock::Advance(c);
+    // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
+    std::vector<PAlloc> peak3a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak3a.empty());
+    std::vector<PAlloc> peak3b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak3a.front().span_alloc_info);
+
+    std::vector<PAlloc> peak4a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak4a.empty());
+    std::vector<PAlloc> peak4b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak4a.front().span_alloc_info);
+
+    DeleteVector(tiny1);
+    DeleteVector(tiny2);
+    DeleteVector(peak3a);
+    DeleteVector(peak3b);
+    DeleteVector(peak4a);
+    DeleteVector(peak4b);
+
+    EXPECT_EQ(filler_.used_pages(), Length(0));
+    EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+    EXPECT_EQ(filler_.free_pages(), Length(0));
+    EXPECT_EQ(Length(0), ReleasePages(10 * N));
+  };
+
+  {
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
+    SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
   }
-  SkipSubreleaseTest(AccessDensityPrediction::kSparse,
-                     /*release_partial=*/false);
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free
+    // pages. The short-term interval is not used, as we prioritize using
+    // demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
+    demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
+                   SkipSubreleaseIntervals{}, true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease. It
+    // incorrectly skips 128 pages.
+    SCOPED_TRACE("demand_pattern 5");
+    demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
+                                           .long_interval = absl::Minutes(6)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease,
+    // subreleasing all free pages.
+    SCOPED_TRACE("demand_pattern 6");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   true);
+  }
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses only short-term interval for skipping subrelease. It correctly
+    // skips 128 pages.
+    SCOPED_TRACE("demand_pattern 7");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  {
+    // Uses only long-term interval for skipping subrelease, subreleased all
+    // free pages.
+    SCOPED_TRACE("demand_pattern 8");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
+                   true);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  // This captures a corner case: If we hit another peak immediately after a
+  // subrelease decision (in the same time series epoch), do not count this as
+  // a correct subrelease decision.
+  {
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   false);
+  }
+
+  FakeClock::Advance(absl::Minutes(30));
+
+  // Ensure that the tracker is updated.
+  auto tiny = Allocate(Length(1));
+  Delete(tiny);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(printer, true, pageflags);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Since the start of the execution, 8 subreleases (1022 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+)"));
 }
 
 TEST_P(FillerTest, RecordFeatureVectorTest) {
@@ -3501,6 +4094,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   FakeClock::Advance(absl::Seconds(5));
   PAlloc small_alloc2 =
       AllocateWithSpanAllocInfo(Length(5), info_sparsely_accessed);
+  auto small_alloc2_time = FakeClock::now();
   EXPECT_EQ(small_alloc.pt, small_alloc2.pt);
   EXPECT_EQ(small_alloc.pt->features().allocations, 1);
   EXPECT_EQ(small_alloc.pt->features().objects, 2);
@@ -3508,8 +4102,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 255);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
-  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(5 * FakeClock::freq()) + 1234);
+  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), small_alloc2_time);
 
   FakeClock::Advance(absl::Seconds(10));
   PAlloc small_alloc3 =
@@ -3518,15 +4111,13 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().allocations, 2);
   EXPECT_EQ(small_alloc.pt->features().objects, 4);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time,
-                  5 * FakeClock::freq() + 1234);
+                  small_alloc2_time);
   EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 250);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
-  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(15 * FakeClock::freq()) + 1234);
+  EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), FakeClock::now());
 
   // Test dense spans.
-  FakeClock::ResetClock();
   SpanAllocInfo info_densely_accessed = {128, AccessDensityPrediction::kDense};
   PAlloc large_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
@@ -3540,20 +4131,23 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   // Density is false because it defaults to false and lags behind by
   // one allocation.
   EXPECT_EQ(large_alloc.pt->features().density, false);
+  // The allocation time was not updated as this is the first allocation on pt.
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), 0);
 
   FakeClock::Advance(absl::Seconds(10));
   std::vector<PAlloc> large_allocs =
       AllocateVectorWithSpanAllocInfo(Length(100), info_densely_accessed);
+  auto large_allocs_time = FakeClock::now();
   EXPECT_EQ(large_alloc.pt->features().allocations, 100);
   EXPECT_EQ(large_alloc.pt->features().objects, 100 * 128);
+  // Allocated 100 small objects in a tight loop so the allocation time and last
+  // allocation time are all set to "now".
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
-                  10 * FakeClock::freq() + 1234);
+                  large_allocs_time);
   EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 156);
   EXPECT_EQ(large_alloc.pt->features().density, true);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
-  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(10 * FakeClock::freq()) + 1234);
+  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), large_allocs_time);
 
   FakeClock::Advance(absl::Seconds(10));
   PAlloc large_alloc2 =
@@ -3561,12 +4155,11 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(large_alloc.pt->features().allocations, 101);
   EXPECT_EQ(large_alloc.pt->features().objects, 101 * 128);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
-                  10 * FakeClock::freq() + 1234);
+                  large_allocs_time);
   EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 155);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(large_alloc.pt->features().density, true);
-  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(),
-            static_cast<uint64_t>(20 * FakeClock::freq()) + 1234);
+  EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), FakeClock::now());
 
   Delete(small_alloc);
   Delete(small_alloc2);
@@ -3615,7 +4208,6 @@ HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage
 HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 100.000001
 )"));
 
-  FakeClock::ResetClock();
   PAlloc large_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_densely_accessed);
   large_alloc.pt->SetTagState({.sampled_for_tagging = true});
@@ -3631,8 +4223,10 @@ HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
   }
+  // The reallocation time is: "now" - default allocation time (0) as pt does
+  // not track the time for its first allocation.
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 100.000001
+HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 200.000001
 )"));
 
   FakeClock::Advance(absl::Seconds(100));
