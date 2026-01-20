@@ -873,18 +873,30 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
   TC_ASSERT_NE(ptr, nullptr);
 
-  const auto [is_small, size_class] =
-      tc_globals.sizemap().GetSizeClass(policy.InSamePartitionAs(ptr), size);
-  if (ABSL_PREDICT_FALSE(!is_small)) {
-    // We couldn't calculate the size class, which means size > kMaxSize.
-    TC_ASSERT(size > kMaxSize ||
-              policy.align() > std::align_val_t{alignof(std::max_align_t)});
-    static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
-    SLOW_PATH_BARRIER();
-    return InvokeHooksAndFreePages(ptr, size, policy);
+  // TODO: b/470136917 - Investigate if we can beautify (i.e., avoiding the code
+  // duplication) this code without losing performance.
+  if (PartitionFromPointerFast(ptr) == 0) {
+    const auto [is_small, size_class] =
+        tc_globals.sizemap().GetSizeClass(policy.InPartition(0), size);
+    if (ABSL_PREDICT_TRUE(is_small)) {
+      FreeSmall(ptr, size, size_class);
+      return;
+    }
+  } else {
+    const auto [is_small, size_class] =
+        tc_globals.sizemap().GetSizeClass(policy.InPartition(1), size);
+    if (ABSL_PREDICT_TRUE(is_small)) {
+      FreeSmall(ptr, size, size_class);
+      return;
+    }
   }
 
-  FreeSmall(ptr, size, size_class);
+  // We couldn't calculate the size class, which means size > kMaxSize.
+  TC_ASSERT(size > kMaxSize ||
+            policy.align() > std::align_val_t{alignof(std::max_align_t)});
+  static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
+  SLOW_PATH_BARRIER();
+  return InvokeHooksAndFreePages(ptr, size, policy);
 }
 
 // Checks that an asserted object size for <ptr> is valid.

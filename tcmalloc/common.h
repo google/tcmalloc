@@ -285,6 +285,19 @@ inline size_t PartitionFromPointer(void* ptr) {
   }
 }
 
+// TODO: b/470136917 - Investigate if we can beautify this by avoiding two
+// PartitionFromPointer functions.
+inline size_t PartitionFromPointerFast(void* ptr) {
+  TC_ASSERT(GetMemoryTag(ptr) == MemoryTag::kNormal ||
+            GetMemoryTag(ptr) == MemoryTag::kNormalP1);
+  static_assert((static_cast<uint8_t>(MemoryTag::kNormal) & 2) == 0);
+  static_assert((static_cast<uint8_t>(MemoryTag::kNormalP1) & 2) == 2);
+  if constexpr (kNormalPartitions == 1) {
+    return 0;
+  }
+  return !!(static_cast<size_t>(GetMemoryTag(ptr)) & 2);
+}
+
 // Linker initialized, so this lock can be accessed at any time.
 // Note: `CpuCache::ResizeInfo::lock` must be taken before the `pageheap_lock`
 // if both are going to be held simultaneously.
