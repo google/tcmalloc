@@ -347,10 +347,10 @@ class TCMallocPolicy {
     return numa_.scaled_partition();
   }
 
-  // Security partition (0 or 1)
+  // NUMA or Security partition (0 or 1)
   constexpr size_t partition() const {
     if constexpr (kSecurityPartitions == 1) {
-      return 0;
+      return numa_partition();
     }
     return partition_.partition();
   }
