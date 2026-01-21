@@ -31,6 +31,7 @@
 #include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -78,7 +79,7 @@ using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 using testing::HasSubstr;
 
 class HugePageAwareAllocatorTest
-    : public ::testing::TestWithParam<HugeRegionUsageOption> {
+    : public ::testing::TestWithParam<std::tuple<HugeRegionUsageOption, bool>> {
   class FakeStaticForwarderWithReleaseCheck
       : public huge_page_allocator_internal::FakeStaticForwarder {
    public:
@@ -101,6 +102,12 @@ class HugePageAwareAllocatorTest
       }
       lock_.unlock();
       return ret;
+    }
+
+    void Back(Range r) {
+      ASSERT_TRUE(BackAllocations());
+      TC_CHECK_LE(r.in_bytes(), kPageSize);
+      huge_page_allocator_internal::FakeStaticForwarder::Back(r);
     }
 
     void RecordAllocation(uintptr_t start_addr) {
@@ -136,8 +143,9 @@ class HugePageAwareAllocatorTest
     HugePageAwareAllocatorOptions options;
     options.tag = MemoryTag::kNormal;
     // TODO(b/242550501): Parameterize other parts of the options.
-    options.use_huge_region_more_often = GetParam();
+    options.use_huge_region_more_often = std::get<0>(GetParam());
     allocator_.emplace(options);
+    allocator_->forwarder().SetBackAllocations(std::get<1>(GetParam()));
   }
 
   ~HugePageAwareAllocatorTest() override {
@@ -1628,8 +1636,16 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
 }
 INSTANTIATE_TEST_SUITE_P(
     All, HugePageAwareAllocatorTest,
-    testing::Values(HugeRegionUsageOption::kDefault,
-                    HugeRegionUsageOption::kUseForAllLargeAllocs));
+    testing::Combine(
+        testing::Values(HugeRegionUsageOption::kDefault,
+                        HugeRegionUsageOption::kUseForAllLargeAllocs),
+        testing::Bool()),
+    [](const testing::TestParamInfo<HugePageAwareAllocatorTest::ParamType>&
+           info) {
+      return absl::StrCat(
+          std::get<0>(info.param), "_",
+          std::get<1>(info.param) ? "BackingEnabled" : "BackingDisabled");
+    });
 
 // This is set to ensure that .in_bytes() doesn't overflow 64-bit size_t.
 inline constexpr Length kMaxLength =

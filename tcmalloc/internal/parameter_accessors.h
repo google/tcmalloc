@@ -106,6 +106,8 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(
     bool v);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetBackSmallAllocations();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackSmallAllocations(bool v);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

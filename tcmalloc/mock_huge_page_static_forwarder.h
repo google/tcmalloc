@@ -35,6 +35,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
@@ -83,6 +84,8 @@ class FakeStaticForwarder {
   void set_use_userspace_collapse_heuristics(bool value) {
     use_userspace_collapse_heuristics_ = value;
   }
+  bool BackAllocations() const { return back_allocations_; }
+  void SetBackAllocations(bool value) { back_allocations_ = value; }
 
   // Arena state.
   Arena& arena() { return arena_; }
@@ -157,7 +160,14 @@ class FakeStaticForwarder {
         bytes};
     return ret;
   }
-  void Back(Range r) {}
+
+  void Back(Range r) {
+    const uintptr_t start =
+        reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
+    const uintptr_t end = start + r.n.in_bytes();
+    TC_CHECK_LE(end, fake_allocation_);
+  }
+
   [[nodiscard]] MemoryModifyStatus ReleasePages(Range r) {
     const uintptr_t start =
         reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
@@ -197,6 +207,7 @@ class FakeStaticForwarder {
   int error_number_ = 0;
   bool huge_region_demand_based_release_ = false;
   bool use_userspace_collapse_heuristics_ = false;
+  bool back_allocations_ = false;
   Arena arena_;
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;

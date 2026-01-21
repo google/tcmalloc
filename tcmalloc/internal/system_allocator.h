@@ -56,6 +56,14 @@
 #define MADV_COLLAPSE 25 /* Synchronous hugepage collapse */
 #endif
 
+#ifndef MADV_POPULATE_READ
+#define MADV_POPULATE_READ 22
+#endif
+
+#ifndef MADV_POPULATE_WRITE
+#define MADV_POPULATE_WRITE 23
+#endif
+
 // The <sys/prctl.h> on some systems may not define these macros yet even though
 // the kernel may have support for the new PR_SET_VMA syscall, so we explicitly
 // define them here.
@@ -151,11 +159,7 @@ class SystemAllocator {
   //
   // REQUIRES: [start, start + length) is a range aligned to 4KiB boundaries.
   inline void Back(void* start, size_t length) {
-    // TODO(b/134694141): use madvise when we have better support for that;
-    // taking faults is not free.
-
-    // TODO(b/134694141): enable this, if we can avoid causing trouble for apps
-    // that routinely make large mallocs they never touch (sigh).
+    madvise(start, length, MADV_POPULATE_READ | MADV_POPULATE_WRITE);
   }
 
   // Returns the current address region factory.

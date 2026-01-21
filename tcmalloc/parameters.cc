@@ -204,6 +204,9 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
 // TODO: b/425749361 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
 
+// TODO: b/134694141 - Remove this opt out.
+ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
+
 static std::atomic<bool>& use_userspace_collapse_heuristics_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
@@ -287,6 +290,10 @@ Parameters::span_lifetime_tracking() {
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
+}
+
+bool TCMalloc_Internal_GetBackSmallAllocations() {
+  return Parameters::back_small_allocations();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -581,6 +588,10 @@ void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
 
 bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
   return Parameters::use_userspace_collapse_heuristics();
+}
+
+void TCMalloc_Internal_SetBackSmallAllocations(bool v) {
+  Parameters::back_small_allocations_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {

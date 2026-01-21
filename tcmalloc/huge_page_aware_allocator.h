@@ -117,6 +117,9 @@ class StaticForwarder {
   // SystemAlloc state.
   [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
                                                   MemoryTag tag);
+  static bool BackAllocations() {
+    return Parameters::back_small_allocations();
+  };
   static void Back(Range r);
   [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r);
   [[nodiscard]] static MemoryModifyStatus CollapsePages(Range r);
@@ -467,6 +470,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   Span* Spanify(FinalizeType f);
   Range Unspanify(FinalizeType f);
 
+  bool ShouldBack(const Range& r) const;
+
   // Whether this HPAA should use subrelease. This delegates to the appropriate
   // parameter depending whether this is for the cold heap or another heap.
   bool hpaa_subrelease() const;
@@ -705,7 +710,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
     Range r = Unspanify(f);
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(r.p.start_addr());
-    if (from_released) {
+    if (from_released && ShouldBack(r)) {
       forwarder_.Back(r);
     }
   }
@@ -758,7 +763,9 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
     Range r = Unspanify(f);
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(r.p.start_addr());
-    forwarder_.Back(r);
+    if (ShouldBack(r)) {
+      forwarder_.Back(r);
+    }
   }
 
   Span* s = Spanify(f);
@@ -791,6 +798,14 @@ inline Range HugePageAwareAllocator<Forwarder>::Unspanify(FinalizeType f) {
 #else
   return f.r;
 #endif
+}
+
+template <class Forwarder>
+inline bool HugePageAwareAllocator<Forwarder>::ShouldBack(
+    const Range& r) const {
+  // TODO(b/134694141): Experiment with the size threshold used for deciding
+  // whether to back or not.
+  return forwarder_.BackAllocations() && r.in_bytes() <= kPageSize;
 }
 
 template <class Forwarder>
