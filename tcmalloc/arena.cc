@@ -25,6 +25,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/system_allocator.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -58,7 +59,10 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
           "succeeding (sandbox, VSS limitations)?",
           kAllocIncrement, bytes);
     }
-    system_allocator.Back(free_area_, actual_size);
+
+    if (Parameters::back_small_allocations() && actual_size <= kPageSize) {
+      system_allocator.Back(free_area_, actual_size);
+    }
 
     // We've discarded the previous free_area_, so any bytes that were
     // unallocated are effectively inaccessible to future allocations.
