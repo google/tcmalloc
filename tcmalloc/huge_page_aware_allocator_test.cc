@@ -106,7 +106,7 @@ class HugePageAwareAllocatorTest
 
     void Back(Range r) {
       ASSERT_TRUE(BackAllocations());
-      TC_CHECK_LE(r.in_bytes(), kPageSize);
+      TC_CHECK_LE(r.in_bytes(), BackSizeThresholdBytes());
       huge_page_allocator_internal::FakeStaticForwarder::Back(r);
     }
 
@@ -146,6 +146,9 @@ class HugePageAwareAllocatorTest
     options.use_huge_region_more_often = std::get<0>(GetParam());
     allocator_.emplace(options);
     allocator_->forwarder().SetBackAllocations(std::get<1>(GetParam()));
+    absl::BitGen rng;
+    allocator_->forwarder().SetBackSizeThresholdBytes(
+        absl::Uniform<int32_t>(rng, 0, kHugePageSize));
   }
 
   ~HugePageAwareAllocatorTest() override {

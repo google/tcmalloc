@@ -86,6 +86,10 @@ class FakeStaticForwarder {
   }
   bool BackAllocations() const { return back_allocations_; }
   void SetBackAllocations(bool value) { back_allocations_ = value; }
+  int32_t BackSizeThresholdBytes() const { return back_size_threshold_bytes_; }
+  void SetBackSizeThresholdBytes(int32_t value) {
+    back_size_threshold_bytes_ = value;
+  }
 
   // Arena state.
   Arena& arena() { return arena_; }
@@ -208,6 +212,7 @@ class FakeStaticForwarder {
   bool huge_region_demand_based_release_ = false;
   bool use_userspace_collapse_heuristics_ = false;
   bool back_allocations_ = false;
+  int32_t back_size_threshold_bytes_ = kPageSize;
   Arena arena_;
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;

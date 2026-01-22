@@ -60,7 +60,8 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
           kAllocIncrement, bytes);
     }
 
-    if (Parameters::back_small_allocations() && actual_size <= kPageSize) {
+    if (Parameters::back_small_allocations() &&
+        actual_size <= Parameters::back_size_threshold_bytes()) {
       system_allocator.Back(free_area_, actual_size);
     }
 

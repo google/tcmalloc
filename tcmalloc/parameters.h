@@ -107,6 +107,10 @@ class Parameters {
     return back_small_allocations_.load(std::memory_order_relaxed);
   }
 
+  static int32_t back_size_threshold_bytes() {
+    return back_size_threshold_bytes_.load(std::memory_order_relaxed);
+  }
+
   static bool release_pages_from_huge_region() {
     return release_pages_from_huge_region_.load(std::memory_order_relaxed);
   }
@@ -214,6 +218,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
   friend void ::TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v);
   friend void ::TCMalloc_Internal_SetBackSmallAllocations(bool v);
+  friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_interval_;
@@ -232,6 +237,7 @@ class Parameters {
   static std::atomic<bool> release_free_swapped_;
   static std::atomic<bool> usermode_hugepage_collapse_enabled_;
   static std::atomic<bool> back_small_allocations_;
+  static std::atomic<int32_t> back_size_threshold_bytes_;
 };
 
 }  // namespace tcmalloc_internal

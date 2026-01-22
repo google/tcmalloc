@@ -206,6 +206,8 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
 
 // TODO: b/134694141 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
+ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
+    kPageSize);
 
 static std::atomic<bool>& use_userspace_collapse_heuristics_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -294,6 +296,10 @@ int32_t Parameters::max_per_cpu_cache_size() {
 
 bool TCMalloc_Internal_GetBackSmallAllocations() {
   return Parameters::back_small_allocations();
+}
+
+bool TCMalloc_Internal_GetBackSizeThresholdBytes() {
+  return Parameters::back_size_threshold_bytes();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -592,6 +598,10 @@ bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
 
 void TCMalloc_Internal_SetBackSmallAllocations(bool v) {
   Parameters::back_small_allocations_.store(v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v) {
+  Parameters::back_size_threshold_bytes_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {

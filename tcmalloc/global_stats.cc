@@ -625,6 +625,8 @@ void DumpStats(Printer& out, int level) {
                Parameters::use_userspace_collapse_heuristics() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_back_small_allocations %d\n",
                Parameters::back_small_allocations() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_back_size_threshold_bytes %d\n",
+               Parameters::back_size_threshold_bytes());
     out.printf(
         "PARAMETER tcmalloc_num_priority_lists %d\n",
         CentralFreeList::NumPriorityLists(Parameters::priority_list_length()));
@@ -837,6 +839,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                    Parameters::use_userspace_collapse_heuristics());
   region.PrintBool("back_small_allocations",
                    Parameters::back_small_allocations());
+  region.PrintI64("back_size_threshold_bytes",
+                  Parameters::back_size_threshold_bytes());
 
   region.PrintRaw(
       "size_class_config",

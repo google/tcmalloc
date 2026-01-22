@@ -96,7 +96,7 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
 
   void Back(Range r) {
     ASSERT_TRUE(BackAllocations());
-    TC_CHECK_LE(r.in_bytes(), kPageSize);
+    TC_CHECK_LE(r.in_bytes(), BackSizeThresholdBytes());
     return FakeStaticForwarder::Back(r);
   }
 
@@ -259,6 +259,15 @@ struct SetBackAllocations {
   }
 };
 
+struct SetBackSizeThresholdBytes {
+  int32_t value;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetBackSizeThresholdBytes& s) {
+    absl::Format(&sink, "SetBackSizeThresholdBytes{.value=%d}", s.value);
+  }
+};
+
 struct ResetSubreleaseIntervals {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const ResetSubreleaseIntervals& r) {
@@ -275,11 +284,13 @@ struct ReentrantSubprogram {
   std::vector<Instruction> subprogram;
 };
 
-using ParamOp = std::variant<
-    ResetSubreleaseIntervals, SetFillerSkipSubreleaseShortInterval,
-    SetFillerSkipSubreleaseLongInterval, SetReleasePartialAllocPages,
-    SetHpaaSubrelease, SetReleaseSucceeds, SetHugeRegionDemandBasedRelease,
-    SetUseUserspaceCollapseHeuristics, SetBackAllocations, ReentrantSubprogram>;
+using ParamOp =
+    std::variant<ResetSubreleaseIntervals, SetFillerSkipSubreleaseShortInterval,
+                 SetFillerSkipSubreleaseLongInterval,
+                 SetReleasePartialAllocPages, SetHpaaSubrelease,
+                 SetReleaseSucceeds, SetHugeRegionDemandBasedRelease,
+                 SetUseUserspaceCollapseHeuristics, SetBackAllocations,
+                 SetBackSizeThresholdBytes, ReentrantSubprogram>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -559,6 +570,9 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
                     } else if constexpr (std::is_same_v<P,
                                                         SetBackAllocations>) {
                       forwarder.SetBackAllocations(param_arg.value);
+                    } else if constexpr (std::is_same_v<
+                                             P, SetBackSizeThresholdBytes>) {
+                      forwarder.SetBackSizeThresholdBytes(param_arg.value);
                     } else if constexpr (std::is_same_v<P,
                                                         ReentrantSubprogram>) {
                       reentrant_stack.push_back(param_arg.subprogram);
@@ -693,6 +707,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
         fuzztest::Map([](SetBackAllocations s) { return ChangeParam{s}; },
                       fuzztest::Arbitrary<SetBackAllocations>()),
         fuzztest::Map(
+            [](SetBackSizeThresholdBytes s) { return ChangeParam{s}; },
+            fuzztest::Arbitrary<SetBackSizeThresholdBytes>()),
+        fuzztest::Map(
             [](std::vector<Instruction> v) {
               return ChangeParam{ReentrantSubprogram{v}};
             },
@@ -728,6 +745,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
             fuzztest::Arbitrary<SetUseUserspaceCollapseHeuristics>()),
         fuzztest::Map([](SetBackAllocations s) { return ChangeParam{s}; },
                       fuzztest::Arbitrary<SetBackAllocations>()),
+        fuzztest::Map(
+            [](SetBackSizeThresholdBytes s) { return ChangeParam{s}; },
+            fuzztest::Arbitrary<SetBackSizeThresholdBytes>()),
         fuzztest::Map(
             [](std::vector<Instruction> v) {
               return ChangeParam{ReentrantSubprogram{v}};

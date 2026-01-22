@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 
+#include <cstdint>
 #include <optional>
 
 #include "absl/base/attributes.h"
@@ -119,6 +120,9 @@ class StaticForwarder {
                                                   MemoryTag tag);
   static bool BackAllocations() {
     return Parameters::back_small_allocations();
+  };
+  static int32_t BackSizeThresholdBytes() {
+    return Parameters::back_size_threshold_bytes();
   };
   static void Back(Range r);
   [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r);
@@ -805,7 +809,8 @@ inline bool HugePageAwareAllocator<Forwarder>::ShouldBack(
     const Range& r) const {
   // TODO(b/134694141): Experiment with the size threshold used for deciding
   // whether to back or not.
-  return forwarder_.BackAllocations() && r.in_bytes() <= kPageSize;
+  return forwarder_.BackAllocations() &&
+         r.in_bytes() <= forwarder_.BackSizeThresholdBytes();
 }
 
 template <class Forwarder>
