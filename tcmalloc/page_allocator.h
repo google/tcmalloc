@@ -156,7 +156,7 @@ class PageAllocator {
 
   size_t active_partitions() const;
 
-  static constexpr size_t kNumHeaps = kNormalPartitions + 2;
+  static constexpr size_t kNumHeaps = 3;  // 3 heaps: normal, sampled, cold.
 
   union Choices {
     Choices() : dummy(0) {}

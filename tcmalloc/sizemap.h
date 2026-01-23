@@ -124,12 +124,34 @@ class SizeMap {
   // Batch size is the number of objects to move at once.
   typedef unsigned char BatchSize;
 
+  // If TCMalloc is compiled without NUMA support, and with cold allocations
+  // (expanded classes), then the class_array_ will consist of 4 regions:
+  //   [0, kClassArraySize)                   : Lookups for allocations marked
+  //                                            as hot & for partition 0.
+  //   [kClassArraySize, 2*kClassArraySize)   : Lookups for allocations marked
+  //                                            as hot & for partition 1.
+  //   [2*kClassArraySize, 3*kClassArraySize) : Lookups for allocations marked
+  //                                            as cold & for partition 0.
+  //   [3*kClassArraySize, 4*kClassArraySize) : Lookups for allocations marked
+  //                                            as cold & for partition 1.
+  // If the heap partitioning feature is not active, then the lookups for
+  // partition 1 will contain the same information as for partition 0.
+  // If the heap partitioning feature is active, cold & partition 1 will be
+  // the same as hot & partition 1. Namely, it will point to the
+  // [kNumBaseClasses, kExpandedClassesStart) size classes.
+  // If NUMA support is compiled in, the partition 1 regions won't exist.
+  // Similarly, for cold memory, if expanded classes are not compiled in.
+  static constexpr size_t kClassArraySizePartitions =
+      kClassArraySize * ((kHasExpandedClasses ? 2 : 1) * kSecurityPartitions);
+
   // class_array_ is accessed on every malloc, so is very hot.  We make it the
   // first member so that it inherits the overall alignment of a SizeMap
   // instance.  In particular, if we create a SizeMap instance that's cache-line
   // aligned, this member is also aligned to the width of a cache line.
-  CompactSizeClass
-      class_array_[kClassArraySize * (kHasExpandedClasses ? 2 : 1)] = {0};
+  //
+  // For the mapping with the cold and/or security partitions, see the comment
+  // for kClassArraySizePartitions.
+  CompactSizeClass class_array_[kClassArraySizePartitions] = {0};
 
   // Number of objects to move between a per-thread list and a central
   // list in one shot.  We want this to be not too small so we can
@@ -235,10 +257,22 @@ class SizeMap {
       return {false};
     }
     size_t size_class;
+    // Note, if security heap partitioning is enabled, only data (partition 0)
+    // is added to the cold heap. See the comment for kClassArraySizePartitions
+    // for more details.
     if (kHasExpandedClasses && policy.is_cold()) {
-      size_class = class_array_[idx + kClassArraySize];
+      TC_ASSERT_LT(idx + (policy.security_partition() + kSecurityPartitions) *
+                             kClassArraySize,
+                   kClassArraySizePartitions);
+      size_class = class_array_[idx + (policy.security_partition() +
+                                       kSecurityPartitions) *
+                                          kClassArraySize];
     } else {
-      size_class = class_array_[idx] + policy.scaled_numa_partition();
+      TC_ASSERT_LT(idx + policy.security_partition() * kClassArraySize,
+                   kClassArraySizePartitions);
+      size_class =
+          class_array_[idx + policy.security_partition() * kClassArraySize] +
+          policy.scaled_numa_partition();
     }
 
     // Don't search for suitably aligned class for operator new

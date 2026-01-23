@@ -24,6 +24,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
@@ -42,8 +43,10 @@ PageAllocator::PageAllocator() {
   normal_impl_[0] = new (&choices_[part++].hpaa)
       HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
   if (tc_globals.active_partitions() > 1) {
-    normal_impl_[1] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-        HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
+    normal_impl_[1] =
+        new (tc_globals.arena().Alloc(sizeof(HugePageAwareAllocator)))
+            HugePageAwareAllocator(
+                HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
   sampled_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
       HugePageAwareAllocatorOptions{MemoryTag::kSampled});

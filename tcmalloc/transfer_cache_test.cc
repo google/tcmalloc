@@ -689,6 +689,7 @@ struct MockTransferCacheManager {
   static constexpr bool kHasExpandedClasses = true;
   static constexpr size_t kMaxSizeClassesToResize = 1;
   static constexpr size_t kNormalPartitions = 2;
+  static constexpr size_t kSecurityPartitions = 1;
   static constexpr size_t kExpandedClassesStart =
       kNormalPartitions * kNumBaseClasses;
   static constexpr size_t kNumClasses = 3 * kNumBaseClasses;

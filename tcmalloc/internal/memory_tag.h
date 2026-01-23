@@ -28,9 +28,9 @@ namespace tcmalloc::tcmalloc_internal {
 enum class MemoryTag : uint8_t {
   // Sampled, infrequently allocated
   kSampled = 0x0,
-  // Normal memory, NUMA partition 0
+  // Normal memory, NUMA or security partition 0
   kNormalP0 = kSanitizerAddressSpace ? 0x1 : 0x4,
-  // Normal memory, NUMA partition 1
+  // Normal memory, NUMA or security partition 1
   kNormalP1 = kSanitizerAddressSpace ? 0xff : 0x6,
   // Normal memory
   kNormal = kNormalP0,
