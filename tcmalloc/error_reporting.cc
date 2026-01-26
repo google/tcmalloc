@@ -181,7 +181,8 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
           1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
       expected_alignment, std::nullopt, absl::MakeSpan(stack, depth));
 
-  TC_BUG("Attempted to free corrupted pointer %p", ptr);
+  TC_BUG("Attempted to free corrupted pointer %p.  Expected alignment %v", ptr,
+         expected_alignment);
 }
 
 [[noreturn]]
@@ -198,7 +199,8 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
           1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
       expected_alignment, allocation_stack, absl::MakeSpan(stack, depth));
 
-  TC_BUG("Attempted to free corrupted pointer %p", ptr);
+  TC_BUG("Attempted to free corrupted pointer %p.  Expected alignment %v", ptr,
+         expected_alignment);
 }
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedFree(
