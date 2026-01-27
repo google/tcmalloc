@@ -975,14 +975,33 @@ bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
 }
 
 // Checks that an asserted object <ptr> has <align> alignment.
+//
+// TODO(b/404341539): Verify that alignment is correct.
 bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
   size_t align = static_cast<size_t>(alignment);
   TC_ASSERT(absl::has_single_bit(align));
-  if (GetMemoryTag(ptr) != MemoryTag::kSampled) {
-    // TODO(b/404341539): Use stricter alignment than kAlignment when the object
-    // size is larger.
-    align = std::max(align, static_cast<size_t>(kAlignment));
+
+  if (ptr == nullptr) {
+    return true;
   }
+
+  const PageId p = PageIdContainingTagged(ptr);
+  const auto [span, size_class] =
+      tc_globals.pagemap().GetDescriptorAndSizeClass(p);
+  if (size_class != 0) {
+    size_t size = tc_globals.sizemap().class_to_size(size_class);
+    // Extract least significant bit from size, since that provides a lower
+    // bound on the possible alignment.  No size class-ful size can have more
+    // than a page of alignment, though.
+    align = std::max(align, std::min(size & -size, kPageSize));
+  } else if (ABSL_PREDICT_FALSE(span == nullptr)) {
+    ReportCorruptedFree(tc_globals, ptr);
+  } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
+    ReportDoubleFree(tc_globals, ptr);
+  } else if (!tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
+    align = std::max(align, kPageSize);
+  }
+
   if (ABSL_PREDICT_FALSE((reinterpret_cast<uintptr_t>(ptr) & (align - 1)) !=
                          0)) {
     ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(align), ptr);
