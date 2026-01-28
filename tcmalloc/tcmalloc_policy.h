@@ -88,6 +88,7 @@
 #include <type_traits>
 
 #include "absl/base/attributes.h"
+#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -149,7 +150,9 @@ class AlignAsPolicy {
   AlignAsPolicy() = delete;
   explicit constexpr AlignAsPolicy(size_t value)
       : value_(static_cast<std::align_val_t>(value)) {}
-  explicit constexpr AlignAsPolicy(std::align_val_t value) : value_(value) {}
+  explicit constexpr AlignAsPolicy(std::align_val_t value) : value_(value) {
+    TC_ASSERT(absl::has_single_bit(static_cast<size_t>(value)));
+  }
 
   std::align_val_t constexpr align() const { return value_; }
 
