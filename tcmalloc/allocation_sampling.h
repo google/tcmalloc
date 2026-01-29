@@ -371,9 +371,6 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
                        sampled_allocation->sampled_stack.depth));
   }
 
-  // TODO(b/404341539):
-  // * Handle situation where malloc is deallocated with free_aligned_sized, or
-  //   vice-versa.
   const size_t allocated_alignment = static_cast<size_t>(
       sampled_allocation->sampled_stack.requested_alignment.value_or(
           std::align_val_t{1}));
