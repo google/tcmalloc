@@ -1559,6 +1559,7 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
 
   // Obtain candidates to resize within expanded size classes.
   if (kHasExpandedClasses) {
+    start_size_class = kExpandedClassesStart;
     to_update = GetUpdatedMaxCapacities(start_size_class, new_max_capacities,
                                         to_update);
   }
