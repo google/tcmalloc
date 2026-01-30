@@ -683,6 +683,14 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
 
   MaybeUnsampleAllocation(tc_globals, policy, ptr, size, *span);
 
+  if (ABSL_PREDICT_FALSE(span->Allocated() != 0)) {
+    // Single object spans directly from the page heap (or GWP-ASan) don't have
+    // freelists constructed on them, so Allocated() is always 0.
+    //
+    // TODO(b/478294698): Decide whether to retain this check.
+    ReportCorruptedFree(tc_globals, ptr);
+  }
+
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
     gwp_asan.Deallocate(ptr);
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
