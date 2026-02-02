@@ -127,6 +127,7 @@ TEST(MallocExtension, Properties) {
       "tcmalloc.per_cpu_caches_active",
       "tcmalloc.required_bytes",
       "tcmalloc.sampled_internal_fragmentation",
+      "tcmalloc.security_partitioning_active",
       "tcmalloc.sharded_transfer_cache_free",
       "tcmalloc.slack_bytes",
       "tcmalloc.soft_limit_hits",

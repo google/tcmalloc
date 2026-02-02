@@ -487,6 +487,8 @@ extern "C" void MallocExtension_Internal_GetProperties(
       stats.num_released_soft_limit_exceeded.in_bytes();
   (*result)["tcmalloc.num_released_hard_limit_exceeded_bytes"].value =
       stats.num_released_hard_limit_exceeded.in_bytes();
+  (*result)["tcmalloc.security_partitioning_active"].value =
+      kSecurityPartitions > 1 && Parameters::heap_partitioning();
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {

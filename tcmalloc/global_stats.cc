@@ -1069,6 +1069,11 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     return true;
   }
 
+  if (name == "tcmalloc.security_partitioning_active") {
+    *value = kSecurityPartitions > 1 && Parameters::heap_partitioning();
+    return true;
+  }
+
   const absl::string_view kExperimentPrefix = "tcmalloc.experiment.";
   if (absl::StartsWith(name, kExperimentPrefix)) {
     std::optional<Experiment> exp =
