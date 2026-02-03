@@ -272,7 +272,7 @@ class HugeCache {
   absl::Duration CapDemandInterval() const { return absl::Minutes(5); }
 
   // The fraction of the cache that we are happy to return at a time. We use
-  // this to efficiently reduce the fragmenation.
+  // this to efficiently reduce the fragmentation.
   static constexpr double kFractionToReleaseFromCache = 0.2;
 };
 
