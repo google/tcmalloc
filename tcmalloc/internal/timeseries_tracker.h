@@ -18,14 +18,10 @@
 #include <stdint.h>
 
 #include <algorithm>
-#include <atomic>
-#include <limits>
 
-#include "absl/base/internal/cycleclock.h"
 #include "absl/functional/function_ref.h"
 #include "absl/numeric/bits.h"
 #include "absl/numeric/int128.h"
-#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/logging.h"

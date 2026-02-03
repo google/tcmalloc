@@ -23,7 +23,6 @@
 #include "absl/base/optimization.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_address_map.h"
-#include "tcmalloc/huge_page_subrelease.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"

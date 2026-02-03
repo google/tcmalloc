@@ -16,43 +16,18 @@
 
 #include <stddef.h>
 #include <stdio.h>
-#include <string.h>
 
-#include <algorithm>
 #include <cstdint>
-#include <memory>
-#include <random>
 #include <string>
-#include <thread>  // NOLINT(build/c++11)
-#include <tuple>
-#include <utility>
-#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/algorithm/container.h"
-#include "absl/base/attributes.h"
-#include "absl/base/internal/sysinfo.h"
-#include "absl/base/macros.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/flags/flag.h"
-#include "absl/memory/memory.h"
-#include "absl/random/random.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
-#include "absl/synchronization/blocking_counter.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
-#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/span.h"
-#include "tcmalloc/stats.h"
 
 using tcmalloc::tcmalloc_internal::Length;
 using testing::StrEq;
