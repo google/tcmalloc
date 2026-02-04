@@ -50,7 +50,7 @@ class StatsTrackerTest : public testing::Test {
   using StatsTrackerType = SubreleaseStatsTracker<16>;
   StatsTrackerType tracker_{
       Clock{.now = FakeClock, .freq = GetFakeClockFrequency}, kWindow,
-      absl::Minutes(5)};
+      /*summary_interval=*/absl::Minutes(5)};
 
   void Advance(absl::Duration d) {
     clock_ += static_cast<int64_t>(absl::ToDoubleSeconds(d) *
