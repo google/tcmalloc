@@ -24,7 +24,6 @@ enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
   TCMALLOC_COLLAPSE_HEURISTICS,  // TODO: b/456564608 - Complete experiment.
-  TCMALLOC_EXTENDED_PRIORITY_LISTS_V1,  // TODO: b/437412600 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_PREFERENTIAL_COLLAPSE,  // TODO: b/456565308 - Complete experiment.
   TEST_ONLY_DISABLE_STACK_TRACING,  // TODO: b/135065891 - Complete experiment.
@@ -52,7 +51,6 @@ struct ExperimentConfig {
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::TCMALLOC_COLLAPSE_HEURISTICS, "TCMALLOC_COLLAPSE_HEURISTICS"},
-    {Experiment::TCMALLOC_EXTENDED_PRIORITY_LISTS_V1, "TCMALLOC_EXTENDED_PRIORITY_LISTS_V1"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_PREFERENTIAL_COLLAPSE, "TCMALLOC_PREFERENTIAL_COLLAPSE"},
     {Experiment::TEST_ONLY_DISABLE_STACK_TRACING, "TEST_ONLY_DISABLE_STACK_TRACING"},

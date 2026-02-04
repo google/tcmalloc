@@ -293,13 +293,9 @@ Parameters::priority_list_length() {
       central_freelist_internal::PriorityListLength>
       v{central_freelist_internal::PriorityListLength::kNormal};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(
-        central_freelist_internal::PriorityListLength{
-            IsExperimentActive(
-                Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1) ||
-            IsExperimentActive(
-                Experiment::TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)},
-        std::memory_order_relaxed);
+    v.store(central_freelist_internal::PriorityListLength{IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)},
+            std::memory_order_relaxed);
   });
   return v;
 }
