@@ -94,10 +94,6 @@ bool UsingRseqVirtualCpus() {
   return GetRseqVcpuMode() == RseqVcpuMode::kMM;
 }
 
-static int UserVirtualCpuId() {
-  TC_BUG("initialized unsupported vCPU mode");
-}
-
 int VirtualCpu::Synchronize() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   int vcpu = kCpuIdUninitialized;
