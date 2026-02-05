@@ -649,7 +649,7 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   // could be potentially corrupted and this is off the fast path.  Most of the
   // cost of the lookup comes from pointer chasing, so the well-predicted
   // branches have minimal cost anyways.
-  Span* span = tc_globals.pagemap().GetDescriptor(p);
+  auto [span, size_class] = tc_globals.pagemap().GetDescriptorAndSizeClass(p);
   // We have two potential failure modes here:
   // * span is nullptr:  We are freeing a pointer to a page which we have never
   //                     allocated as part of the first page of a Span (an
@@ -685,7 +685,12 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
 
   MaybeUnsampleAllocation(tc_globals, policy, ptr, size, *span);
 
-  if (ABSL_PREDICT_FALSE(span->Allocated() != 0)) {
+  if (ABSL_PREDICT_FALSE(size_class != 0)) {
+    // Single object spans are given size class 0.
+    //
+    // TODO(b/478294698): Decide whether to retain this check.
+    ReportCorruptedFree(tc_globals, ptr);
+  } else if (ABSL_PREDICT_FALSE(span->Allocated() != 0)) {
     // Single object spans directly from the page heap (or GWP-ASan) don't have
     // freelists constructed on them, so Allocated() is always 0.
     //
