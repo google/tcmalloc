@@ -882,7 +882,11 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
   // Mismatched-size-delete error detection for sampled memory is performed in
   // the slow path above in all builds.
+#ifdef TCMALLOC_INTERNAL_WITH_ASSERTIONS
+  TC_CHECK(CorrectSize(ptr, size, policy.InSamePartitionAs(ptr)));
+#else
   TC_ASSERT(CorrectSize(ptr, size, policy.InSamePartitionAs(ptr)));
+#endif
 
   // At this point, since ptr's tag bit is 1, it means that it
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
@@ -1495,7 +1499,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
         {const_cast<void*>(old_ptr), new_size, old_size,
          tcmalloc::HookMemoryMutable::kImmutable});
     // Assert that free_sized will work correctly.
+#ifdef TCMALLOC_INTERNAL_WITH_ASSERTIONS
+    TC_CHECK(CorrectSize(old_ptr, new_size, MallocPolicy()));
+#else
     TC_ASSERT(CorrectSize(old_ptr, new_size, MallocPolicy()));
+#endif
     return old_ptr;
   }
 }

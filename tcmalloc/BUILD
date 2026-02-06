@@ -500,6 +500,32 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "tcmalloc_small_but_slow_with_assertions",
+    srcs = [
+        "libc_override.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = [
+        "-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW",
+        "-DTCMALLOC_INTERNAL_WITH_ASSERTIONS",
+    ] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = tcmalloc_deps + [
+        ":alloc_at_least",
+        ":common_small_but_slow_with_assertions",
+        ":malloc_hook",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:overflow",
+        "//tcmalloc/internal:page_size",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ],
+    alwayslink = 1,
+)
+
 # TCMalloc with NUMA awareness compiled in. Note that by default NUMA awareness
 # will still be disabled at runtime - this default can be changed by adding a
 # dependency upon want_numa_aware, or overridden by setting the

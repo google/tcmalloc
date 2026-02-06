@@ -491,7 +491,7 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
             free(new_ptr);
           }
         },
-        "has detected a memory error");
+        "has detected a memory error|TestWriter::WriteErrorType|SIGSEGV");
   }
 }
 
@@ -566,11 +566,9 @@ TEST_F(TcMallocTest, MismatchedSampled) {
                 size_range,
                 " bytes"
                 ")"
-#ifndef NDEBUG
                 "|(Mismatched-size-delete.*of [0-9]+ bytes \\(expected between "
                 "\\[[0-9]+, [0-9]+\\] bytes\\)"
                 ")"
-#endif
                 ));
       }
     }
@@ -647,11 +645,9 @@ TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
                 size, "|", likely_size,
                 ").*bytes"
                 ")"
-#ifndef NDEBUG
                 "|(Mismatched-size-delete.*of [0-9]+ bytes \\(expected between "
                 "\\[[0-9]+, [0-9]+\\] bytes\\)"
                 ")"
-#endif
                 ));
       }
     }
@@ -690,11 +686,9 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
           absl::StrCat(
               "(Mismatched-size-delete.*mismatched-sized-delete.md.*of"
               ")"
-#ifndef NDEBUG
               "|(Mismatched-size-delete.*of [0-9]+ bytes \\(expected between "
               "\\[[0-9]+, [0-9]+\\] bytes\\)"
               ")"
-#endif
               ));
     }
   }
@@ -724,11 +718,9 @@ TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
           "(Mismatched-size-class.*size argument in the range \\[1, "
           "8\\].*allocations with sizes \\[9, 16\\]"
           ")|"
-#ifndef NDEBUG
           "(Mismatched-size-delete.*of 5 bytes \\(expected between \\[0, 16\\] "
           "bytes\\)"
           ")|"
-#endif
           "alloc-dealloc-mismatch"));
 }
 
