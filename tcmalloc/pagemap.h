@@ -202,7 +202,9 @@ class PageMap2 {
       return 0;
     }
     const Number i2 = k & (kLeafLength - 1);
-    return root_[i1]->sizeclass[i2];
+    auto ret = root_[i1]->sizeclass[i2];
+    TC_ASSERT_EQ(ret, root_[i1]->span_and_sizeclass[i2].sizeclass());
+    return ret;
   }
 
   void set(Number k, Span* s) {
@@ -436,7 +438,9 @@ class PageMap3 {
       return 0;
     }
     const Number i3 = k & (kLeafLength - 1);
-    return root_[i1]->leafs[i2]->sizeclass[i3];
+    auto ret = root_[i1]->leafs[i2]->sizeclass[i3];
+    TC_ASSERT_EQ(ret, root_[i1]->leafs[i2]->span_and_sizeclass[i3].sizeclass());
+    return ret;
   }
 
   void set(Number k, Span* s) {
