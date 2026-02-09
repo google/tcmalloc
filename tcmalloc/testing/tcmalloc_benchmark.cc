@@ -82,6 +82,28 @@ static void BM_new_sized_delete(benchmark::State& state) {
 }
 BENCHMARK(BM_new_sized_delete)->Range(1, 1 << 20);
 
+static void BM_new_sized_delete_cold(benchmark::State& state) {
+  const int arg = state.range(0);
+  const int hot_cold = state.range(1);
+
+  CHECK_EQ(tcmalloc_internal::new_hooks_.size(), 0);
+  CHECK_EQ(tcmalloc_internal::delete_hooks_.size(), 0);
+  for (auto s : state) {
+    auto ptr = __size_returning_new_hot_cold(
+        arg, static_cast<tcmalloc::hot_cold_t>(hot_cold));
+    ::operator delete(ptr.p, arg);
+  }
+}
+BENCHMARK(BM_new_sized_delete_cold)
+    ->ArgPair(8, 0)
+    ->ArgPair(512, 0)
+    ->ArgPair(32768, 0)
+    ->ArgPair(1048576, 0)
+    ->ArgPair(8, 255)
+    ->ArgPair(512, 255)
+    ->ArgPair(32768, 255)
+    ->ArgPair(1048576, 255);
+
 static void BM_hooked_new_sized_delete(benchmark::State& state) {
   const int arg = state.range(0);
 
