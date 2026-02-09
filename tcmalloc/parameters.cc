@@ -307,9 +307,12 @@ Parameters::span_lifetime_tracking() {
       central_freelist_internal::LifetimeTracking>
       v{central_freelist_internal::LifetimeTracking::kDisabled};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(central_freelist_internal::LifetimeTracking{IsExperimentActive(
-                Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING)},
-            std::memory_order_relaxed);
+    v.store(
+        central_freelist_internal::LifetimeTracking{
+            IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING) ||
+            IsExperimentActive(Experiment::TCMALLOC_SPAN_LIFETIME_TRACKING)},
+        std::memory_order_relaxed);
   });
   return v;
 }

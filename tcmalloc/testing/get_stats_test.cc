@@ -144,7 +144,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   }
 
   if (IsExperimentActive(
-          Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING)) {
+          Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING) ||
+      IsExperimentActive(Experiment::TCMALLOC_SPAN_LIFETIME_TRACKING)) {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_span_lifetime_tracking: true"));
   } else {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_span_lifetime_tracking: false"));
@@ -249,7 +250,8 @@ TEST_F(GetStatsTest, Parameters) {
     }
 
     if (IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING)) {
+            Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING) ||
+        IsExperimentActive(Experiment::TCMALLOC_SPAN_LIFETIME_TRACKING)) {
       EXPECT_THAT(buf,
                   HasSubstr(R"(PARAMETER tcmalloc_span_lifetime_tracking 1)"));
     } else {
