@@ -144,7 +144,7 @@ StatsTracker: at peak demand: 208 pages (and 111 free, 10 unmapped)
 StatsTracker: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
 
 StatsTracker: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
-StatsTracker: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
+StatsTracker: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 StatsTracker: Subrelease stats last 10 min: total 0 pages subreleased (0 pages from partial allocs), 0 hugepages broken
 )"));
   }
@@ -313,36 +313,6 @@ TEST_F(StatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   EXPECT_EQ(tracker_.total_skipped().pages, Length(1000));
   EXPECT_EQ(tracker_.total_skipped().count, 3);
   EXPECT_EQ(tracker_.correctly_skipped().pages, Length(100));
-  EXPECT_EQ(tracker_.correctly_skipped().count, 2);
-  EXPECT_EQ(tracker_.pending_skipped().pages, Length(0));
-  EXPECT_EQ(tracker_.pending_skipped().count, 0);
-}
-
-TEST_F(StatsTrackerTest, SubreleaseCorrectnessWithChangingIntervals) {
-  // First peak (large)
-  GenerateDemandPoint(Length(1000), Length(1000));
-
-  Advance(absl::Minutes(1));
-  GenerateDemandPoint(Length(100), Length(1000));
-
-  tracker_.ReportSkippedSubreleasePages(Length(50), Length(1000),
-                                        absl::Minutes(4));
-  Advance(absl::Minutes(1));
-
-  // With two correctness intervals in the same epoch, take the maximum
-  tracker_.ReportSkippedSubreleasePages(Length(100), Length(1000),
-                                        absl::Minutes(1));
-  tracker_.ReportSkippedSubreleasePages(Length(200), Length(1000),
-                                        absl::Minutes(7));
-
-  Advance(absl::Minutes(5));
-  GenerateDemandPoint(Length(1100), Length(1000));
-  Advance(absl::Minutes(10));
-  GenerateDemandPoint(Length(1100), Length(1000));
-
-  EXPECT_EQ(tracker_.total_skipped().pages, Length(350));
-  EXPECT_EQ(tracker_.total_skipped().count, 3);
-  EXPECT_EQ(tracker_.correctly_skipped().pages, Length(300));
   EXPECT_EQ(tracker_.correctly_skipped().count, 2);
   EXPECT_EQ(tracker_.pending_skipped().pages, Length(0));
   EXPECT_EQ(tracker_.pending_skipped().count, 0);

@@ -64,10 +64,14 @@ class SkippedSubreleaseCorrectnessTracker {
     }
   };
 
-  explicit constexpr SkippedSubreleaseCorrectnessTracker(Clock clock,
-                                                         absl::Duration w)
+  explicit constexpr SkippedSubreleaseCorrectnessTracker(
+      Clock clock, absl::Duration w, absl::Duration correctness_interval)
       : window_(w),
         epoch_length_(window_ / kEpochs),
+        correctness_interval_(correctness_interval),
+        correctness_epochs_(std::clamp(correctness_interval_ / epoch_length_,
+                                       int64_t{0},
+                                       static_cast<int64_t>(kEpochs))),
         last_confirmed_peak_(0),
         tracker_(clock, w) {}
 
@@ -77,17 +81,13 @@ class SkippedSubreleaseCorrectnessTracker {
   SkippedSubreleaseCorrectnessTracker& operator=(
       const SkippedSubreleaseCorrectnessTracker&) = delete;
 
-  void ReportSkippedSubreleasePages(
-      Length skipped_pages, Length peak_pages,
-      absl::Duration expected_time_until_next_peak) {
+  void ReportSkippedSubreleasePages(Length skipped_pages, Length peak_pages) {
     total_skipped_ += SkippedSubreleaseDecision(skipped_pages);
     pending_skipped_ += SkippedSubreleaseDecision(skipped_pages);
 
     SkippedSubreleaseUpdate update;
     update.decision = SkippedSubreleaseDecision(skipped_pages);
     update.num_pages_at_decision = peak_pages;
-    update.correctness_interval_epochs =
-        expected_time_until_next_peak / epoch_length_;
     tracker_.Report(update);
   }
 
@@ -105,7 +105,9 @@ class SkippedSubreleaseCorrectnessTracker {
     pending_skipped_ = SkippedSubreleaseDecision::Zero();
 
     Length largest_peak_already_confirmed = last_confirmed_peak_;
-
+    // Going through all subrelease decisions recorded in [0,
+    // correctness_epochs_] to see if they can be marked correct by the new
+    // peak.
     tracker_.IterBackwards(
         [&](size_t offset, const SkippedSubreleaseEntry& e) {
           // Do not clear any decisions in the current epoch.
@@ -114,8 +116,7 @@ class SkippedSubreleaseCorrectnessTracker {
           }
 
           if (e.decisions.count > 0 &&
-              e.max_num_pages_at_decision > largest_peak_already_confirmed &&
-              offset <= e.correctness_interval_epochs) {
+              e.max_num_pages_at_decision > largest_peak_already_confirmed) {
             if (e.max_num_pages_at_decision <= current_peak) {
               // We can confirm a subrelease decision as correct and it had not
               // been confirmed correct by an earlier peak yet.
@@ -130,7 +131,7 @@ class SkippedSubreleaseCorrectnessTracker {
           largest_peak_already_confirmed =
               std::max(largest_peak_already_confirmed, e.max_confirmed_peak);
         },
-        -1);
+        correctness_epochs_ + 1);
 
     last_confirmed_peak_ = std::max(last_confirmed_peak_, current_peak);
   }
@@ -157,10 +158,6 @@ class SkippedSubreleaseCorrectnessTracker {
     // were multiple subrelease decisions in the same epoch, use the max.
     Length num_pages_at_decision;
 
-    // How long from the time of the decision do we have before the decision
-    // will be determined incorrect?
-    int64_t correctness_interval_epochs = 0;
-
     // At this time step, we confirmed a demand peak at this level, which means
     // all subrelease decisions in earlier time steps that had peak_demand_pages
     // <= this confirmed_peak were confirmed correct and don't need to be
@@ -171,15 +168,12 @@ class SkippedSubreleaseCorrectnessTracker {
   struct SkippedSubreleaseEntry {
     SkippedSubreleaseDecision decisions = SkippedSubreleaseDecision::Zero();
     Length max_num_pages_at_decision;
-    int64_t correctness_interval_epochs = 0;
     Length max_confirmed_peak;
 
     static SkippedSubreleaseEntry Nil() { return SkippedSubreleaseEntry(); }
 
     void Report(SkippedSubreleaseUpdate e) {
       decisions += e.decision;
-      correctness_interval_epochs =
-          std::max(correctness_interval_epochs, e.correctness_interval_epochs);
       max_num_pages_at_decision =
           std::max(max_num_pages_at_decision, e.num_pages_at_decision);
       max_confirmed_peak = std::max(max_confirmed_peak, e.confirmed_peak);
@@ -188,6 +182,14 @@ class SkippedSubreleaseCorrectnessTracker {
 
   const absl::Duration window_;
   const absl::Duration epoch_length_;
+
+  // How long from the time of the decision (i.e., skipped pages) do we have
+  // before the decision will be determined incorrect? The purpose is the
+  // skipped pages would only create realized fragmentation if actual peaks in
+  // this interval are smaller than the predicted demand peak (i.e., we reserved
+  // too many free pages).
+  const absl::Duration correctness_interval_;
+  const int64_t correctness_epochs_;
 
   // The largest peak we processed this epoch. This is required to avoid us
   // double-counting correctly predicted decisions.
@@ -298,7 +300,7 @@ class SubreleaseStatsTracker {
         window_(w),
         epoch_length_(window_ / kEpochs),
         tracker_(clock, w),
-        skipped_subrelease_correctness_(clock, w) {
+        skipped_subrelease_correctness_(clock, w, summary_interval_) {
     // The summary_interval is used in two trackers: SubreleaseStatsTracker for
     // evaluating realized fragmentation, and
     // SkippedSubreleaseCorrectnessTracker for evaluating the correctness of
@@ -371,24 +373,14 @@ class SubreleaseStatsTracker {
     return std::min(demand_peak, demand_trend);
   }
 
-  // Reports a skipped subrelease, which is evaluated by coming peaks within the
-  // realized fragmentation interval. The purpose is these skipped pages would
-  // only create realized fragmentation if peaks in that interval are
-  // smaller than peak_pages.
+  // Reports a skipped subrelease, which is evaluated by the correctness
+  // tracker.
   void ReportSkippedSubreleasePages(Length pages, Length peak_pages) {
-    ReportSkippedSubreleasePages(pages, peak_pages, summary_interval_);
-  }
-
-  // Reports a skipped subrelease, which is evaluated by coming peaks within the
-  // given time interval.
-  void ReportSkippedSubreleasePages(Length pages, Length peak_pages,
-                                    absl::Duration next_peak_interval) {
     if (pages == Length(0)) {
       return;
     }
-    last_next_peak_interval_ = next_peak_interval;
-    skipped_subrelease_correctness_.ReportSkippedSubreleasePages(
-        pages, peak_pages, next_peak_interval);
+    skipped_subrelease_correctness_.ReportSkippedSubreleasePages(pages,
+                                                                 peak_pages);
   }
 
   inline typename SkippedSubreleaseCorrectnessTracker<
@@ -582,11 +574,9 @@ class SubreleaseStatsTracker {
   TimeSeriesTracker<SubreleaseStatsEntry, SubreleaseStats, kEpochs> tracker_;
   SkippedSubreleaseCorrectnessTracker<kEpochs> skipped_subrelease_correctness_;
 
-  // Records most recent intervals for skipping subreleases, plus expected next
-  // peak_interval for evaluating skipped subreleases. All for reporting and
+  // Records most recent intervals for skipping subreleases, for reporting and
   // debugging only.
   SkipSubreleaseIntervals last_skip_subrelease_intervals_;
-  absl::Duration last_next_peak_interval_;
 };
 
 // Evaluates a/b, avoiding division by zero.
@@ -660,7 +650,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer& out,
       "fragmentation.\n",
       field, correctly_skipped_count_percentage, pending_skipped().count,
       correctly_skipped_pages_percentage, pending_skipped().pages.raw_num(),
-      absl::ToInt64Seconds(last_next_peak_interval_));
+      absl::ToInt64Seconds(summary_interval_));
 
   // Print subrelease stats
   Length total_subreleased;
@@ -706,7 +696,7 @@ void SubreleaseStatsTracker<kEpochs>::PrintSubreleaseStatsInPbtxt(
                   correctly_skipped().count);
   region.PrintI64("pending_skipped_subrelease_count", pending_skipped().count);
   region.PrintI64("next_peak_interval_ms",
-                  absl::ToInt64Milliseconds(last_next_peak_interval_));
+                  absl::ToInt64Milliseconds(summary_interval_));
 }
 
 template <size_t kEpochs>

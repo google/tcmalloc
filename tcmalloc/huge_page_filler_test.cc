@@ -5459,7 +5459,7 @@ HugePageFiller: at peak demand: 3547 pages (and 255 free, 38 unmapped)
 HugePageFiller: at peak demand: 15 hps (9 regular, 1 donated, 0 partial, 5 released)
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
-HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 HugePageFiller: Subrelease stats last 10 min: total 306 pages subreleased (0 pages from partial allocs), 6 hugepages broken
 )"));
 
