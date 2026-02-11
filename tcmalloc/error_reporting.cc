@@ -84,12 +84,9 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(Static& state,
   const PageId p = PageIdContainingTagged(ptr);
   size_t size_class = state.pagemap().sizeclass(p);
   if (size_class != 0) {
-    maximum_size = state.sizemap().class_to_size(size_class);
-    if (maximum_size < minimum_size) {
-      // Our size class refinement may have made the bounds inconsistent.
-      // Consult the size map to find the correct bounds.
-      minimum_size = state.sizemap().class_to_size_range(size_class).first;
-    }
+    auto [min, max] = state.sizemap().class_to_size_range(size_class);
+    minimum_size = min;
+    maximum_size = max;
   }
 
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");

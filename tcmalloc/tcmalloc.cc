@@ -981,7 +981,7 @@ bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
       // Nontrivial alignment.  We might have used a larger size to satisify it.
       minimum_size = 0;
     } else {
-      minimum_size = tc_globals.sizemap().class_to_size(size_class - 1);
+      minimum_size = tc_globals.sizemap().class_to_size(size_class - 1) + 1;
     }
   }
 

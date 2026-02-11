@@ -43,6 +43,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -718,7 +719,7 @@ TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
           "(Mismatched-size-class.*size argument in the range \\[1, "
           "8\\].*allocations with sizes \\[9, 16\\]"
           ")|"
-          "(Mismatched-size-delete.*of 5 bytes \\(expected between \\[0, 16\\] "
+          "(Mismatched-size-delete.*of 5 bytes \\(expected between \\[9, 16\\] "
           "bytes\\)"
           ")|"
           "alloc-dealloc-mismatch"));
@@ -1130,6 +1131,66 @@ TEST_F(TcMallocTest, NeverAllocatedPointerHighBits) {
           "(Attempted to free corrupted pointer 0xdeadbeef0000000: It was "
           "never allocated or TCMalloc metadata has been corrupted",
           ")"));
+}
+
+TEST_F(TcMallocTest, MismatchedDeleteExactRange) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+
+  // 440 bytes should fall into a size class.
+  // 40 bytes should fall into a smaller size class.
+  const size_t kAllocSize = 440;
+  const size_t kDeleteSize = 40;
+
+  // Compute expected range.
+  auto [is_small, sc] = tc_globals.sizemap().GetSizeClass(
+      tcmalloc_internal::CppPolicy(), kAllocSize);
+  ASSERT_TRUE(is_small);
+
+  constexpr hot_cold_t kCold{0};
+
+#if !defined(NDEBUG) || defined(TCMALLOC_INTERNAL_WITH_ASSERTIONS)
+  auto [min, max] = tc_globals.sizemap().class_to_size_range(sc);
+
+  EXPECT_DEATH(
+      {
+        ScopedNeverSample always_sample;
+
+        void* p = ::operator new(kAllocSize);
+        ::operator delete(p, kDeleteSize);
+      },
+      absl::StrCat("Mismatched-size-delete.*of ", kDeleteSize,
+                   " bytes \\(expected between \\[", min, ", ", max,
+                   "\\] bytes\\)"
+                   ));
+
+  // TODO(b/457842787): Test `ScopedNeverSample` with `kCold`.
+#endif
+
+  EXPECT_DEATH(
+      {
+        ScopedAlwaysSample always_sample;
+
+        void* p = ::operator new(kAllocSize);
+        ::operator delete(p, kDeleteSize);
+      },
+      absl::StrCat("Mismatched-size-delete.*of ", kDeleteSize,
+                   " bytes \\(expected ", kAllocSize,
+                   " bytes\\)"
+                   ));
+
+  EXPECT_DEATH(
+      {
+        ScopedAlwaysSample always_sample;
+
+        void* p = ::operator new(kAllocSize, kCold);
+        ::operator delete(p, kDeleteSize);
+      },
+      absl::StrCat("Mismatched-size-delete.*of ", kDeleteSize,
+                   " bytes \\(expected ", kAllocSize,
+                   " bytes\\)"
+                   ));
 }
 
 }  // namespace
