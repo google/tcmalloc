@@ -1616,9 +1616,18 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
     }
   };
 
+  auto release_func = [&](const std::atomic<bool>& done) {
+    absl::BitGen rng;
+    while (!done.load(std::memory_order_acquire)) {
+      ReleasePages(Length(absl::Uniform(rng, 1, 1 << 10)),
+                   /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
+    }
+  };
+
   std::atomic<bool> done(false);
 
   std::thread collapse_thread = std::thread(collapse_func, std::ref(done));
+  std::thread release_thread = std::thread(release_func, std::ref(done));
   std::vector<std::thread> alloc_threads;
   for (int i = 0; i < kAllocThreads; ++i) {
     alloc_threads.push_back(std::thread(alloc_func, i, std::ref(done)));
@@ -1627,6 +1636,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
   done.store(true, std::memory_order_release);
 
   collapse_thread.join();
+  release_thread.join();
   for (auto& thread : alloc_threads) {
     thread.join();
   }
