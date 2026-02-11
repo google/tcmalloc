@@ -55,32 +55,32 @@ namespace {
 // can be neither, in which case it's just a native page and no special handling
 // needs to be done.
 constexpr bool PageHead(uint64_t flags) {
-  constexpr uint64_t kPageHead = (1UL << KPF_COMPOUND_HEAD);
+  constexpr uint64_t kPageHead{uint64_t{1} << KPF_COMPOUND_HEAD};
   return (flags & kPageHead) == kPageHead;
 }
 constexpr bool PageTail(uint64_t flags) {
-  constexpr uint64_t kPageTail = (1UL << KPF_COMPOUND_TAIL);
+  constexpr uint64_t kPageTail{uint64_t{1} << KPF_COMPOUND_TAIL};
   return (flags & kPageTail) == kPageTail;
 }
 constexpr bool PageThp(uint64_t flags) {
-  constexpr uint64_t kPageThp = (1UL << KPF_THP);
+  constexpr uint64_t kPageThp{uint64_t{1} << KPF_THP};
   return (flags & kPageThp) == kPageThp;
 }
 constexpr bool PageHugetlbfs(uint64_t flags) {
-  constexpr uint64_t kPageHuge = (1UL << KPF_HUGE);
+  constexpr uint64_t kPageHuge{uint64_t{1} << KPF_HUGE};
   return (flags & kPageHuge) == kPageHuge;
 }
 constexpr bool IsHugepage(uint64_t flags) {
   return PageThp(flags) || PageHugetlbfs(flags);
 }
 constexpr bool PageStale(uint64_t flags) {
-  constexpr uint64_t kPageStale = (1UL << KPF_STALE);
+  constexpr uint64_t kPageStale{uint64_t{1} << KPF_STALE};
   return (flags & kPageStale) == kPageStale;
 }
 constexpr bool PageLocked(uint64_t flags) {
-  constexpr uint64_t kPageMlocked = (1UL << KPF_MLOCKED);
+  constexpr uint64_t kPageMlocked{uint64_t{1} << KPF_MLOCKED};
   // Locked pages are often "unevictable."  KPF_LOCKED has a different meaning.
-  constexpr uint64_t kPageUnevictable = (1UL << KPF_UNEVICTABLE);
+  constexpr uint64_t kPageUnevictable{uint64_t{1} << KPF_UNEVICTABLE};
   return (flags & (kPageMlocked | kPageUnevictable)) != 0;
 }
 
