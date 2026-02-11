@@ -101,7 +101,9 @@ class Parameters {
     return release_free_swapped_.load(std::memory_order_relaxed);
   }
 
-  static bool use_userspace_collapse_heuristics();
+  static bool use_userspace_collapse_heuristics() {
+    return use_userspace_collapse_heuristics_.load(std::memory_order_relaxed);
+  }
 
   static bool back_small_allocations() {
     return back_small_allocations_.load(std::memory_order_relaxed);
@@ -238,6 +240,7 @@ class Parameters {
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
   static std::atomic<bool> release_free_swapped_;
   static std::atomic<bool> usermode_hugepage_collapse_enabled_;
+  static std::atomic<bool> use_userspace_collapse_heuristics_;
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
 };

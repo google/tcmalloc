@@ -205,6 +205,9 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
+ABSL_CONST_INIT std::atomic<bool>
+    Parameters::use_userspace_collapse_heuristics_(false);
+
 // TODO: b/425749361 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
 
@@ -213,16 +216,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
     kPageSize);
 
-static std::atomic<bool>& use_userspace_collapse_heuristics_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TCMALLOC_COLLAPSE_HEURISTICS)) {
-      v.store(true, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
 
 static std::atomic<bool>& heap_partitioning_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -277,11 +270,6 @@ bool Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
 
-bool Parameters::use_userspace_collapse_heuristics() {
-  return use_userspace_collapse_heuristics_enabled().load(
-      std::memory_order_relaxed);
-}
-
 bool Parameters::heap_partitioning() {
   return heap_partitioning_enabled().load(std::memory_order_relaxed);
 }
@@ -327,6 +315,10 @@ bool TCMalloc_Internal_GetBackSmallAllocations() {
 
 bool TCMalloc_Internal_GetBackSizeThresholdBytes() {
   return Parameters::back_size_threshold_bytes();
+}
+
+bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
+  return Parameters::use_userspace_collapse_heuristics();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -619,10 +611,6 @@ void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
   Parameters::release_free_swapped_.store(v, std::memory_order_relaxed);
 }
 
-bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
-  return Parameters::use_userspace_collapse_heuristics();
-}
-
 void TCMalloc_Internal_SetBackSmallAllocations(bool v) {
   Parameters::back_small_allocations_.store(v, std::memory_order_relaxed);
 }
@@ -632,8 +620,8 @@ void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v) {
 }
 
 void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {
-  tcmalloc::tcmalloc_internal::use_userspace_collapse_heuristics_enabled()
-      .store(v, std::memory_order_relaxed);
+  Parameters::use_userspace_collapse_heuristics_.store(
+      v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetHeapPartitioning() {
