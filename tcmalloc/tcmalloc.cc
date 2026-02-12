@@ -132,7 +132,9 @@
 #error "Unsupported architecture."
 #endif
 
-#if defined(__android__) || defined(__APPLE__)
+#if defined(__ANDROID__) || defined(__APPLE__) || defined(__ros__) ||   \
+    defined(_WIN32) || defined(__asmjs__) || defined(__EMSCRIPTEN__) || \
+    defined(__Fuchsia__) || defined(__wasi__)
 #error "Unsupported platform."
 #endif
 
