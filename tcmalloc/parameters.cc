@@ -34,6 +34,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator.h"
@@ -313,9 +314,6 @@ bool TCMalloc_Internal_GetBackSmallAllocations() {
   return Parameters::back_small_allocations();
 }
 
-bool TCMalloc_Internal_GetBackSizeThresholdBytes() {
-  return Parameters::back_size_threshold_bytes();
-}
 
 bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
   return Parameters::use_userspace_collapse_heuristics();
@@ -427,6 +425,10 @@ bool TCMalloc_Internal_GetHPAASubrelease() {
 
 bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
+}
+
+int32_t TCMalloc_Internal_GetBackSizeThresholdBytes() {
+  return Parameters::back_size_threshold_bytes();
 }
 
 bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
