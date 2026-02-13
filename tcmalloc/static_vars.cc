@@ -114,7 +114,7 @@ TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT SystemAllocator<
 // section automatically, even though we will never mutate this particular
 // instance.
 ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro)
-constexpr Span Static::kInvalidSpan;
+const Span Static::kInvalidSpan = {};
 // LINT.ThenChange(:static_vars_size)
 
 ABSL_CONST_INIT Static tc_globals;
