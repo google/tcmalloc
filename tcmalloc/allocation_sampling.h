@@ -50,16 +50,17 @@ class Static;
 std::unique_ptr<const ProfileBase> DumpFragmentationProfile(Static& state);
 
 std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state);
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-// For RSEQ enabled builds, we declare the sampler in percpu.h so that we can
-// reference its address in percpu_tcmalloc.h without creating a circular
-// dependency with the Sampler definition. Otherwise, we declare it here to
-// avoid relying on the percpu code.
+
 extern "C" ABSL_CONST_INIT thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 
-#endif
-
+// Compiler needs to see definition of this variable to generate more
+// efficient code for -fPIE/PIC. If the compiler does not see the definition
+// it considers it may come from another dynamic library. So even for
+// initial-exec model, it need to emit an access via GOT (GOTTPOFF).
+// When it sees the definition, it can emit direct %fs:TPOFF access.
+// So we provide a weak definition here, but the actual definition is in
+// percpu_rseq_asm.S.
 ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 
@@ -70,11 +71,7 @@ inline Sampler& GetThreadSampler() {
                 "update TCMALLOC_SAMPLER_ALIGN");
   static_assert(Sampler::HotDataOffset() == TCMALLOC_SAMPLER_HOT_OFFSET,
                 "update TCMALLOC_SAMPLER_HOT_OFFSET");
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  return *static_cast<Sampler*>(subtle::percpu::GetThreadSamplerAddress());
-#else
   return tcmalloc_sampler;
-#endif
 }
 
 void FreeProxyObject(Static& state, void* absl_nonnull ptr, size_t size_class);
