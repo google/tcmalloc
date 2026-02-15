@@ -1157,12 +1157,12 @@ cc_test(
         ":malloc_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:linked_list",
+        "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest_main",
     ],
 )

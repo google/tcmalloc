@@ -33,6 +33,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -229,8 +230,10 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   for (auto s : sizes) {
     alignment[s.size] = s.alignment;
     access_hint[s.size] = s.hot_cold.value_or(hot_cold_t{255});
-    access_allocated[s.size] = s.expected_hot ? Profile::Sample::Access::Hot
-                                              : Profile::Sample::Access::Cold;
+    access_allocated[s.size] =
+        s.expected_hot || TCMalloc_Internal_GetHeapPartitioning()
+            ? Profile::Sample::Access::Hot
+            : Profile::Sample::Access::Cold;
   }
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& e) {
