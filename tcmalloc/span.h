@@ -380,6 +380,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // objects.  Returns number of objects actually popped.
   size_t BitmapPopBatch(absl::Span<void*> batch, size_t size) __restrict__;
 
+  [[noreturn]] void ReportDoubleFree(const void* ptr);
+
   // Friend class to enable more indepth testing of bitmap code.
   friend class SpanTestPeer;
 };
@@ -540,10 +542,15 @@ inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
   size_t before = small_span_state_.bitmap.CountBits();
   for (void* ptr : batch) {
     ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
-    // Check that the object is not already returned.
-    TC_ASSERT_EQ(small_span_state_.bitmap.GetBit(idx), 0);
     // Set the bit indicating where the object was returned.
-    small_span_state_.bitmap.SetBit(idx);
+    bool prior = small_span_state_.bitmap.SetBit(idx);
+    // Check that the object is not already returned.
+    (void)prior;
+#if !defined(NDEBUG) && defined(TCMALLOC_INTERNAL_WITH_ASSERTIONS)
+    if (ABSL_PREDICT_FALSE(prior)) {
+      ReportDoubleFree(ptr);
+    }
+#endif
   }
   TC_ASSERT_EQ(before + batch.size(), small_span_state_.bitmap.CountBits());
   return true;

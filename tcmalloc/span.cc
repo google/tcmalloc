@@ -24,6 +24,7 @@
 #include "absl/base/optimization.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -247,6 +248,10 @@ void Span::Delete(Span* span) {
   memset(static_cast<void*>(span), 0x3f, sizeof(*span));
 #endif
   Static::span_allocator().Delete(span);
+}
+
+[[noreturn]] void Span::ReportDoubleFree(const void* ptr) {
+  ::tcmalloc::tcmalloc_internal::ReportDoubleFree(tc_globals, ptr);
 }
 
 }  // namespace tcmalloc_internal
