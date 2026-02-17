@@ -65,6 +65,7 @@
 #include <new>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -733,8 +734,8 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   TC_ASSERT(valid_ptr);
 }
 
-template <typename AlignPolicy>
-bool CorrectSize(void* ptr, size_t size, AlignPolicy align);
+template <typename Policy>
+bool CorrectSize(const void* ptr, size_t size, Policy policy);
 
 bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
@@ -885,9 +886,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // Mismatched-size-delete error detection for sampled memory is performed in
   // the slow path above in all builds.
 #ifdef TCMALLOC_INTERNAL_WITH_ASSERTIONS
-  TC_CHECK(CorrectSize(ptr, size, policy.InSamePartitionAs(ptr)));
+  TC_CHECK(CorrectSize(ptr, size, policy));
 #else
-  TC_ASSERT(CorrectSize(ptr, size, policy.InSamePartitionAs(ptr)));
+  TC_ASSERT(CorrectSize(ptr, size, policy));
 #endif
 
   // At this point, since ptr's tag bit is 1, it means that it
@@ -922,75 +923,75 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
 // Checks that an asserted object size for <ptr> is valid.
 template <typename Policy>
-bool CorrectSize(void* ptr, const size_t provided_size, Policy policy) {
+bool CorrectSize(const void* ptr, const size_t provided_size, Policy policy) {
   if (ptr == nullptr) return true;
-  size_t size = provided_size;
+
+  // Lookup actual size/span information for ptr.
+  const PageId p = PageIdContainingTagged(ptr);
+  const auto [span, size_class] =
+      tc_globals.pagemap().GetDescriptorAndSizeClass(p);
   size_t minimum_size, maximum_size;
-  size_t size_class = 0;
-  const size_t actual = GetSize(ptr);
-  // Round-up passed in size to how much tcmalloc allocates for that size.
-  if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
-    // For guarded allocations we recorded the actual requested size.
-    minimum_size = maximum_size = actual;
-  } else if (auto [is_small, sc] =
-                 tc_globals.sizemap().GetSizeClass(policy, size);
-             is_small) {
-    size = maximum_size = tc_globals.sizemap().class_to_size(sc);
-    size_class = sc;
+
+  if (ABSL_PREDICT_TRUE(size_class != 0)) {
+    std::tie(minimum_size, maximum_size) =
+        tc_globals.sizemap().class_to_size_range(size_class);
+  } else if (ABSL_PREDICT_FALSE(span == nullptr)) {
+    ReportCorruptedFree(tc_globals, ptr);
+  } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
+    ReportDoubleFree(tc_globals, ptr);
   } else {
-    // For large objects, we match the logic in MaybeUnsampleAllocation,
-    // allowing the size to be anywhere in the last page.
-    maximum_size = actual;
-    minimum_size =
-        maximum_size < kPageSize ? 0 : maximum_size - (kPageSize - 1u);
-
-    if (ABSL_PREDICT_FALSE(maximum_size == kPageSize &&
-                           static_cast<size_t>(policy.align()) > kPageSize)) {
-      // If the allocation has extreme alignment requirements, we will allocate
-      // at least 1 page even if the actual size is 0.  We are relying on the
-      // deallocation time-provided alignment being accurate, but this can only
-      // produce false negatives (alignment too large) rather than false
-      // positives.
-      minimum_size = 0;
-    }
-
-    if (provided_size >= minimum_size && provided_size <= maximum_size) {
-      return true;
-    }
-  }
-
-  if (ABSL_PREDICT_TRUE(actual == size)) return true;
-
-  // We might have had a cold size class, so actual > size.  If we did not use
-  // size returning new, the caller may not know this occurred.
-  //
-  // Nonetheless, it is permitted to pass a size anywhere in [requested, actual]
-  // to sized delete.
-  if (actual > size && !IsNormalMemory(ptr)) {
-    if (auto [is_small, sc] =
-            tc_globals.sizemap().GetSizeClass(policy.AccessAsCold(), size);
-        is_small) {
-      size = maximum_size = tc_globals.sizemap().class_to_size(sc);
-      size_class = sc;
-      if (ABSL_PREDICT_TRUE(actual == size)) {
-        return true;
+    if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
+      minimum_size = maximum_size =
+          tc_globals.guardedpage_allocator().GetRequestedSize(ptr);
+    } else {
+      maximum_size = span->bytes_in_span();
+      minimum_size = maximum_size - kPageSize + 1;
+      if (ABSL_PREDICT_FALSE(static_cast<size_t>(policy.align()) > kPageSize) &&
+          maximum_size == kPageSize) {
+        // If the allocation has extreme alignment requirements, we will
+        // allocate at least 1 page even if the actual size is 0.  We are
+        // relying on the deallocation time-provided alignment being accurate,
+        // but this can only produce false negatives (alignment too large)
+        // rather than false positives.
+        minimum_size = 0;
       }
     }
   }
 
-  if (size_class > 0) {
-    if (policy.align() > kAlignment) {
-      // Nontrivial alignment.  We might have used a larger size to satisify it.
-      minimum_size = 0;
-    } else {
-      minimum_size = tc_globals.sizemap().class_to_size(size_class - 1) + 1;
-    }
+  TC_ASSERT_LE(minimum_size, maximum_size);
+
+  // Recompute the provided size and how it maps onto a size class.
+  const hot_cold_t access_hint =
+      ABSL_PREDICT_FALSE(GetMemoryTag(ptr) == MemoryTag::kCold)
+          ? hot_cold_t{0}
+          : hot_cold_t{255};
+  auto [is_small, provided_size_class] = tc_globals.sizemap().GetSizeClass(
+      policy.InSamePartitionAs(ptr).AccessAs(access_hint), provided_size);
+  if (ABSL_PREDICT_FALSE(!is_small)) {
+    provided_size_class = 0;
   }
 
-  TC_CHECK_LE(minimum_size, maximum_size);
+  if (ABSL_PREDICT_TRUE(provided_size_class == size_class)) {
+    if (ABSL_PREDICT_TRUE(is_small)) {
+      // Size class-ful allocation successfully matched.
+      TC_ASSERT_GT(size_class, 0);
+      return true;
+    }
+
+    TC_ASSERT_EQ(size_class, 0);
+  } else {
+    ReportMismatchedDelete(tc_globals, ptr, provided_size, minimum_size,
+                           maximum_size);
+    return false;
+  }
+
+  if (ABSL_PREDICT_TRUE(provided_size >= minimum_size &&
+                        provided_size <= maximum_size)) {
+    return true;
+  }
+
   ReportMismatchedDelete(tc_globals, ptr, provided_size, minimum_size,
                          maximum_size);
-
   return false;
 }
 

@@ -498,7 +498,7 @@ class TCMallocPolicy {
 
   // Returns this policy with a fixed NUMA/type partition matching that of the
   // previously allocated `ptr`.
-  constexpr auto InSamePartitionAs(void* ptr) const {
+  constexpr auto InSamePartitionAs(const void* ptr) const {
     return InPartition(PartitionFromPointer(ptr));
   }
 

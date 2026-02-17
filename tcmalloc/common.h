@@ -272,7 +272,7 @@ inline MemoryTag MultiNormalTag(size_t partition) {
   }
 }
 
-inline size_t PartitionFromPointer(void* ptr) {
+inline size_t PartitionFromPointer(const void* ptr) {
   if constexpr (kNormalPartitions == 1) {
     return 0;
   }
