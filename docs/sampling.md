@@ -148,24 +148,13 @@ Take an allocation that has been chosen to be sampled (of size $$k$$). The byte
 marked `*` is the byte that decreases the counter to zero; the counter starts at
 $$f$$ before this allocation.
 
-$$
-\underbrace{
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-\boxed{*}
-}_\text{$f$}
-\underbrace{
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-\boxed{\phantom{*}}
-}_\text{$k-f$}
-$$
+```
++---+---+---+---+---+---+---+---+---+---+---+---+
+|   |   |   |   |   |   | * |   |   |   |   |   |
++---+---+---+---+---+---+---+---+---+---+---+---+
+  \_______________________/   \_______________/
+              f                     k - f
+```
 
 The *sampling weight* $$W$$ (n.b. not `allocation count estimate`, which is
 reported as `weight` in `MallocHook::SampledAlloc`) of this allocation is the
