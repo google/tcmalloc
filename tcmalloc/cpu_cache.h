@@ -414,17 +414,14 @@ class CpuCache {
   size_t GetCapacityOfSizeClass(int cpu, int size_class) const;
 
   // Computes maximum capacities that we want to update the size classes to. It
-  // fetches number of capacity misses obvserved for the size classes, and
+  // fetches number of capacity misses observed for the size classes, and
   // computes increases to the maximum capacities for the size classes with the
-  // highest misses. It computes maximum capacities for kNumBaseClasses number
-  // of size classes, starting with <start_size_class>. It records the resized
-  // size classes and capacities in <max_capacity> starting from index
-  // <valid_entries>.
+  // highest misses. It computes maximum capacities for kNumClasses number
+  // of size classes. It records the resized size classes and capacities in
+  // <max_capacity>.
   // Returns total number of valid size classes recorded in <max_capacity>
   // array.
-  int GetUpdatedMaxCapacities(int start_size_class,
-                              PerSizeClassMaxCapacity* max_capacity,
-                              int valid_entries);
+  int GetUpdatedMaxCapacities(absl::Span<PerSizeClassMaxCapacity> max_capacity);
 
   // Resizes maximum capacities for the size classes. First, it computes
   // candidates to resize using GetUpdatedMaxCapacities(...), and then updates
@@ -1366,19 +1363,16 @@ inline void CpuCache<Forwarder>::TryReclaimingCaches() {
 
 template <class Forwarder>
 int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
-    int start_size_class, PerSizeClassMaxCapacity* max_capacity,
-    int valid_entries) {
-  TC_ASSERT_LT(valid_entries, kNumClasses);
+    absl::Span<PerSizeClassMaxCapacity> max_capacity) {
   // Collect miss stats incurred during the current resize interval for all the
   // size classes.
   const int num_cpus = NumCPUs();
-  absl::FixedArray<size_t> total_misses(kNumBaseClasses, 0);
+  absl::FixedArray<size_t, 0> total_misses(kNumClasses, 0);
   int index = 0;
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     index = 0;
     if (!HasPopulated(cpu)) continue;
-    for (size_t size_class = start_size_class;
-         size_class < start_size_class + kNumBaseClasses; ++size_class) {
+    for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
       total_misses[index] +=
           resize_[cpu].per_class[size_class].GetAndUpdateIntervalMisses(
               PerClassMissType::kMaxCapacityTotal,
@@ -1388,10 +1382,9 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
     }
   }
 
-  absl::FixedArray<SizeClassMissStat> miss_stats(kNumBaseClasses);
+  absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses);
   index = 0;
-  for (size_t size_class = start_size_class;
-       size_class < start_size_class + kNumBaseClasses; ++size_class) {
+  for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
     miss_stats[index] = SizeClassMissStat{.size_class = size_class,
                                           .misses = total_misses[index]};
     ++index;
@@ -1413,10 +1406,10 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
   // heavy-weight operation. So, we try to be aggressive in the number of size
   // classes we would like to resize when we can, but perform resizing operation
   // sparingly.
-  constexpr int kMaxCapacitiesToGrow = kNumBaseClasses / 2;
+  constexpr int kMaxCapacitiesToGrow = kNumClasses / 2;
 
   int grown = 0;
-  int max_capacity_index = valid_entries;
+  int max_capacity_index = 0;
 
   // We try to grow size class max capacities by batch_size times the growth
   // factor. The growth factor starts with 5 times the batch size for the size
@@ -1427,8 +1420,8 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
   int growth_factor = 5;
   // Indices in miss_stats corresponding to the size classes we aim to grow
   // and shrink.
-  int shrink_index = kNumBaseClasses - 1;
-  for (int grow_index = 0; grow_index < kNumBaseClasses; ++grow_index) {
+  int shrink_index = kNumClasses - 1;
+  for (int grow_index = 0; grow_index < kNumClasses; ++grow_index) {
     // If a size class with largest misses is zero, break. Other size classes
     // should also have suffered zero misses as well.
     if (miss_stats[grow_index].misses == 0) break;
@@ -1466,6 +1459,8 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
       to_shrink = std::min<size_t>(to_shrink, cap - batch_size);
       if (to_shrink == 0) continue;
 
+      TC_ASSERT_LT(next_capacity_index, kNumClasses);
+      TC_ASSERT_LT(next_capacity_index, max_capacity.size());
       max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
           .size_class = size_class_to_shrink, .max_capacity = cap - to_shrink};
       ++next_capacity_index;
@@ -1480,6 +1475,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
     // amount we shrunk from other size classes.
     size_t cap =
         max_capacity_[size_class_to_grow].load(std::memory_order_relaxed);
+    TC_ASSERT_LT(next_capacity_index, kNumClasses);
     max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
         .size_class = size_class_to_grow, .max_capacity = cap + shrunk};
     ++next_capacity_index;
@@ -1533,26 +1529,12 @@ template <class Forwarder>
 void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   const int num_cpus = NumCPUs();
-  const auto& topology = forwarder_.numa_topology();
-
   PerSizeClassMaxCapacity new_max_capacities[kNumClasses];
-  size_t start_size_class = 0;
-  int to_update = 0;
 
   // Obtain candidates to resize for size classes within each NUMA domain. We do
   // not resize across NUMA domains.
-  for (int i = 0; i < topology.active_partitions(); ++i) {
-    to_update = GetUpdatedMaxCapacities(start_size_class, new_max_capacities,
-                                        to_update);
-    start_size_class += kNumBaseClasses;
-  }
-
-  // Obtain candidates to resize within expanded size classes.
-  if (kHasExpandedClasses) {
-    start_size_class = kExpandedClassesStart;
-    to_update = GetUpdatedMaxCapacities(start_size_class, new_max_capacities,
-                                        to_update);
-  }
+  const int to_update =
+      GetUpdatedMaxCapacities(absl::MakeSpan(new_max_capacities));
 
   // Nothing to update.
   if (to_update == 0) return;

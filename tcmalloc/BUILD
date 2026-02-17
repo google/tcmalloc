@@ -657,6 +657,7 @@ cc_library(
         ":common_8k_pages",
         ":mock_central_freelist",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:distributions",
         "@com_google_absl//absl/types:span",
@@ -1387,6 +1388,7 @@ cc_test(
     tags = ["noubsan"],
     deps = [
         ":common_8k_pages",
+        ":mock_central_freelist",
         ":mock_transfer_cache",
         "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:logging",

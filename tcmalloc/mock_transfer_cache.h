@@ -25,6 +25,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/types/span.h"
@@ -226,25 +227,29 @@ class FakeTransferCacheEnvironment {
 // inside the cache manager, like in production code.
 template <typename FreeListT,
           template <typename FreeList, typename Manager> class TransferCacheT>
-class TwoSizeClassManager : public FakeTransferCacheManager {
+class ThreeSizeClassManager : public FakeTransferCacheManager {
  public:
   using FreeList = FreeListT;
-  using TransferCache = TransferCacheT<FreeList, TwoSizeClassManager>;
+  using TransferCache = TransferCacheT<FreeList, ThreeSizeClassManager>;
 
   // This is 3 instead of 2 because we hard code size_class == 0 to be invalid
   // in many places. We only use size_class 1 and 2 here.
   static constexpr size_t kClassSize1 = 8;
   static constexpr size_t kClassSize2 = 16 << 10;
+  static constexpr size_t kClassSize3 = 8;
   static constexpr size_t kNumToMove1 = 32;
   static constexpr size_t kNumToMove2 = 2;
+  static constexpr size_t kNumToMove3 = 2;
+  static constexpr size_t kColdSizeClass = kExpandedClassesStart + 1;
 
-  TwoSizeClassManager() {
-    caches_.push_back(std::make_unique<TransferCache>(
-        this, 0, central_freelist_internal::PriorityListLength::kNormal));
-    caches_.push_back(std::make_unique<TransferCache>(
-        this, 1, central_freelist_internal::PriorityListLength::kNormal));
-    caches_.push_back(std::make_unique<TransferCache>(
-        this, 2, central_freelist_internal::PriorityListLength::kNormal));
+  ThreeSizeClassManager() {
+    for (int i = 0; i < 3; ++i) {
+      caches_[i] = std::make_unique<TransferCache>(
+          this, i, central_freelist_internal::PriorityListLength::kNormal);
+    }
+    caches_[kColdSizeClass] = std::make_unique<TransferCache>(
+        this, kColdSizeClass,
+        central_freelist_internal::PriorityListLength::kNormal);
   }
 
   constexpr static size_t class_to_size(int size_class) {
@@ -253,6 +258,8 @@ class TwoSizeClassManager : public FakeTransferCacheManager {
         return kClassSize1;
       case 2:
         return kClassSize2;
+      case kColdSizeClass:
+        return kClassSize3;
       default:
         return 0;
     }
@@ -263,25 +270,35 @@ class TwoSizeClassManager : public FakeTransferCacheManager {
         return kNumToMove1;
       case 2:
         return kNumToMove2;
+      case kColdSizeClass:
+        return kNumToMove3;
       default:
         return 0;
     }
   }
 
+  absl::Span<const size_t> cold_size_classes() const {
+    return {cold_size_classes_, 1};
+  }
+
   void InsertRange(int size_class, absl::Span<void*> batch) {
+    TC_ASSERT(caches_.contains(size_class));
     caches_[size_class]->InsertRange(size_class, batch);
   }
 
   int RemoveRange(int size_class, absl::Span<void*> batch) {
+    TC_ASSERT(caches_.contains(size_class));
     return caches_[size_class]->RemoveRange(size_class, batch);
   }
 
   size_t tc_length(int size_class) { return caches_[size_class]->tc_length(); }
   TransferCacheStats GetStats(int size_class) {
+    TC_ASSERT(caches_.contains(size_class));
     return caches_[size_class]->GetStats();
   }
 
-  std::vector<std::unique_ptr<TransferCache>> caches_;
+  absl::flat_hash_map<size_t, std::unique_ptr<TransferCache>> caches_;
+  size_t cold_size_classes_[1] = {kColdSizeClass};
 };
 
 class FakeCpuLayout {

@@ -46,6 +46,7 @@
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/internal/sysinfo.h"
+#include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sizemap.h"
@@ -182,7 +183,7 @@ class TestStaticForwarder {
     if (size_map_.has_value()) {
       return size_map_->ColdSizeClasses();
     } else {
-      return {};
+      return transfer_cache_.cold_size_classes();
     }
   }
 
@@ -211,8 +212,8 @@ class TestStaticForwarder {
     return sharded_manager_;
   }
 
-  TwoSizeClassManager<FakeCentralFreeList,
-                      internal_transfer_cache::TransferCache>&
+  ThreeSizeClassManager<FakeCentralFreeList,
+                        internal_transfer_cache::TransferCache>&
   transfer_cache() {
     return transfer_cache_;
   }
@@ -255,8 +256,8 @@ class TestStaticForwarder {
   FakeShardedTransferCacheManager owner_;
   FakeCpuLayout cpu_layout_;
   ShardedManager sharded_manager_;
-  TwoSizeClassManager<FakeCentralFreeList,
-                      internal_transfer_cache::TransferCache>
+  ThreeSizeClassManager<FakeCentralFreeList,
+                        internal_transfer_cache::TransferCache>
       transfer_cache_;
 };
 
@@ -727,77 +728,79 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
   constexpr int kCpuId = 0;
   constexpr int kCpuId1 = 1;
 
-  constexpr int kLargeClass = 2;
-  constexpr int kGrowthFactor = 5;
-  const int base_max_capacity =
-      cache.GetMaxCapacity(kLargeClass, CpuCachePeer::GetSlabShift(cache));
+  for (auto large_class : {static_cast<size_t>(2), kExpandedClassesStart + 1}) {
+    const int kLargeClass = large_class;
+    constexpr int kGrowthFactor = 5;
+    const int base_max_capacity =
+        cache.GetMaxCapacity(kLargeClass, CpuCachePeer::GetSlabShift(cache));
 
-  const size_t large_class_size = cache.forwarder().class_to_size(kLargeClass);
-  ASSERT_LT(large_class_size * base_max_capacity, cache.CacheLimit());
+    const size_t large_class_size =
+        cache.forwarder().class_to_size(kLargeClass);
+    ASSERT_LT(large_class_size * base_max_capacity, cache.CacheLimit());
 
-  const size_t batch_size_large =
-      cache.forwarder().num_objects_to_move(kLargeClass);
+    const size_t batch_size_large =
+        cache.forwarder().num_objects_to_move(kLargeClass);
 
-  size_t ops = 0;
-  while (true) {
-    // We allocate and deallocate additional batch_size number of objects each
-    // time so that cpu cache suffers successive underflow and overflow, and it
-    // can grow.
-    ops += batch_size_large;
-    AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-    if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
-        base_max_capacity) {
-      break;
+    size_t ops = 0;
+    while (true) {
+      // We allocate and deallocate additional batch_size number of objects each
+      // time so that cpu cache suffers successive underflow and overflow, and
+      // it can grow.
+      ops += batch_size_large;
+      AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
+      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
+          base_max_capacity) {
+        break;
+      }
     }
-  }
 
-  size_t interval_misses = cache.GetIntervalSizeClassMisses(
-      kCpuId, kLargeClass, PerClassMissType::kMaxCapacityTotal,
-      PerClassMissType::kMaxCapacityResize);
-  EXPECT_GT(interval_misses, 0);
-  EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
-            base_max_capacity);
+    size_t interval_misses = cache.GetIntervalSizeClassMisses(
+        kCpuId, kLargeClass, PerClassMissType::kMaxCapacityTotal,
+        PerClassMissType::kMaxCapacityResize);
+    EXPECT_GT(interval_misses, 0);
+    EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
+              base_max_capacity);
 
-  AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-  EXPECT_GT(cache.GetIntervalSizeClassMisses(
-                kCpuId, kLargeClass, PerClassMissType::kMaxCapacityTotal,
-                PerClassMissType::kMaxCapacityResize),
-            0);
-
-  {
-    ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
-    cache.ResizeSizeClassMaxCapacities();
-  }
-
-  const int resized_max_capacity =
-      cache.GetMaxCapacity(kLargeClass, CpuCachePeer::GetSlabShift(cache));
-  EXPECT_EQ(resized_max_capacity,
-            base_max_capacity + kGrowthFactor * batch_size_large);
-
-  interval_misses = cache.GetIntervalSizeClassMisses(
-      kCpuId, kLargeClass, PerClassMissType::kMaxCapacityTotal,
-      PerClassMissType::kMaxCapacityResize);
-  EXPECT_EQ(interval_misses, 0);
-
-  ops = 0;
-  while (true) {
-    // We allocate and deallocate additional batch_size number of objects each
-    // time so that cpu cache suffers successive underflow and overflow, and it
-    // can grow.
-    ops += batch_size_large;
     AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-    if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
-        base_max_capacity) {
-      break;
+    EXPECT_GT(cache.GetIntervalSizeClassMisses(
+                  kCpuId, kLargeClass, PerClassMissType::kMaxCapacityTotal,
+                  PerClassMissType::kMaxCapacityResize),
+              0);
+
+    {
+      ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
+      cache.ResizeSizeClassMaxCapacities();
     }
-  }
-  for (int i = 0; i < kGrowthFactor; ++i) {
-    ops += batch_size_large;
-    AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-  }
-  EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
-            resized_max_capacity);
 
+    const int resized_max_capacity =
+        cache.GetMaxCapacity(kLargeClass, CpuCachePeer::GetSlabShift(cache));
+    EXPECT_EQ(resized_max_capacity,
+              base_max_capacity + kGrowthFactor * batch_size_large);
+
+    interval_misses = cache.GetIntervalSizeClassMisses(
+        kCpuId, kLargeClass, PerClassMissType::kMaxCapacityTotal,
+        PerClassMissType::kMaxCapacityResize);
+    EXPECT_EQ(interval_misses, 0);
+
+    ops = 0;
+    while (true) {
+      // We allocate and deallocate additional batch_size number of objects each
+      // time so that cpu cache suffers successive underflow and overflow, and
+      // it can grow.
+      ops += batch_size_large;
+      AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
+      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
+          base_max_capacity) {
+        break;
+      }
+    }
+    for (int i = 0; i < kGrowthFactor; ++i) {
+      ops += batch_size_large;
+      AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
+    }
+    EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
+              resized_max_capacity);
+  }
   // Reclaim caches.
   cache.Deactivate();
 }
