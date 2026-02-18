@@ -141,6 +141,8 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
         tc_globals.cpu_cache().ResizeSlabIfNeeded();
         last_slab_resize_check = now;
       }
+
+      tc_globals.cpu_cache().ClearTouchedCpus();
     }
 
     tc_globals.sharded_transfer_cache().Plunder();

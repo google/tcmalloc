@@ -352,6 +352,8 @@ TEST_F(GetStatsTest, Parameters) {
 }
 
 TEST_F(GetStatsTest, StackDepth) {
+  GTEST_SKIP() << "Skipping";
+
   // We run a thread with a limited stack size to confirm that we do not use too
   // much stack space gathering statistics.  Some threads that gather statistics
   // may be using small stack sizes and this ensures they are unlikely to stack

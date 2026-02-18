@@ -451,6 +451,15 @@ class CpuCache {
   // Reports total number of times any CPU has been reclaimed.
   uint64_t GetNumReclaims() const;
 
+  // Reports number of cpus that have touched set to true.
+  int CountTouchedCpus() const;
+
+  // Reports highest CPU ID of any touched CPU.
+  int MaxTouchedCpu() const;
+
+  // Resets touched to false for all cpus.
+  void ClearTouchedCpus();
+
   // When dynamic slab size is enabled, checks if there is a need to resize
   // the slab based on miss-counts and resizes if so.
   void ResizeSlabIfNeeded();
@@ -585,6 +594,9 @@ class CpuCache {
     size_t next_steal = 1;
     // Track whether we have ever populated this CPU.
     std::atomic<bool> populated;
+    // Tracks whether we've run on this CPU since the last call to
+    // ClearTouchedCpus.
+    std::atomic<bool> touched;
     // For cross-cpu operations. We can't allocate while holding one of these so
     // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock){
@@ -1265,10 +1277,13 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
 template <class Forwarder>
 std::pair<int, bool> CpuCache<Forwarder>::CacheCpuSlab() {
   auto [cpu, cached] = freelist_.CacheCpuSlab();
-  if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0) &&
-      ABSL_PREDICT_FALSE(
-          !resize_[cpu].populated.load(std::memory_order_acquire))) {
-    Populate(cpu);
+  if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0)) {
+    auto& state = resize_[cpu];
+    state.touched.store(true, std::memory_order_relaxed);
+
+    if (ABSL_PREDICT_FALSE(!state.populated.load(std::memory_order_acquire))) {
+      Populate(cpu);
+    }
   }
   return {cpu, cached};
 }
@@ -2187,6 +2202,40 @@ inline uint64_t CpuCache<Forwarder>::GetNumReclaims() const {
 }
 
 template <class Forwarder>
+inline int CpuCache<Forwarder>::CountTouchedCpus() const {
+  if (resize_ == nullptr) return 0;
+  int count = 0;
+  const int num_cpus = NumCPUs();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    if (resize_[cpu].touched.load(std::memory_order_relaxed)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+template <class Forwarder>
+inline int CpuCache<Forwarder>::MaxTouchedCpu() const {
+  if (resize_ == nullptr) return 0;
+  const int num_cpus = NumCPUs();
+  for (int cpu = num_cpus - 1; cpu >= 0; --cpu) {
+    if (resize_[cpu].touched.load(std::memory_order_relaxed)) {
+      return cpu + 1;
+    }
+  }
+  return 0;
+}
+
+template <class Forwarder>
+inline void CpuCache<Forwarder>::ClearTouchedCpus() {
+  if (resize_ == nullptr) return;
+  const int num_cpus = NumCPUs();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    resize_[cpu].touched.store(false, std::memory_order_relaxed);
+  }
+}
+
+template <class Forwarder>
 inline std::pair<void*, size_t> CpuCache<Forwarder>::AllocOrReuseSlabs(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
     subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset,
@@ -2579,10 +2628,12 @@ template <class Forwarder>
 inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
   const CpuSet allowed_cpus = FillActiveCpuMask();
 
+  int total_populated = 0;
   for (int cpu = 0, num_cpus = NumCPUs(); cpu < num_cpus; ++cpu) {
     PbtxtRegion entry = region.CreateSubRegion("cpu_cache");
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);
+    total_populated += populated;
     uint64_t unallocated = Unallocated(cpu);
     CpuCacheMissStats miss_stats = GetTotalCacheMissStats(cpu);
     uint64_t reclaims = GetNumReclaims(cpu);
@@ -2633,6 +2684,9 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
   region.PrintI64(
       "dynamic_slab_madvise_failed_bytes",
       dynamic_slab_info_.madvise_failed_bytes.load(std::memory_order_relaxed));
+
+  region.PrintI64("cpu_caches_touched", CountTouchedCpus());
+  region.PrintI64("cpu_caches_populated", total_populated);
 }
 
 template <class Forwarder>

@@ -1400,6 +1400,8 @@ cc_test(
         "//tcmalloc/testing:testutil",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:bit_gen_ref",
         "@com_google_absl//absl/synchronization",

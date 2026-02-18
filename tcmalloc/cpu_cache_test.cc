@@ -33,6 +33,8 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/optimization.h"
+#include "absl/container/btree_set.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/mutex.h"
@@ -1927,6 +1929,104 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
 
   EXPECT_EQ(allocated + unallocated, capacity);
   EXPECT_EQ(env.num_cpus() * last_cache_size, capacity);
+}
+
+TEST(CpuCacheTest, TouchedCpus) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Activate();
+
+  // Pin to a specific CPU to ensure consistent behavior with rseq.
+  {
+    const std::vector<int> allowed = tcmalloc_internal::AllowedCpus();
+    if (allowed.empty()) {
+      cache.Deactivate();
+      return;
+    }
+    const int kCpuId = allowed[0];
+    tcmalloc_internal::ScopedAffinityMask mask(kCpuId);
+
+    // Initially 0.
+    EXPECT_EQ(cache.CountTouchedCpus(), 0);
+
+    // Allocating should touch the cpu.
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    subtle::percpu::tcmalloc_slabs = 0;
+#endif
+    void* ptr = cache.Allocate(1);
+    const int after_allocate = cache.CountTouchedCpus();
+
+    cache.Deallocate(ptr, 1);
+    const int after_allocate_deallocate = cache.CountTouchedCpus();
+
+    cache.ClearTouchedCpus();
+    EXPECT_EQ(cache.CountTouchedCpus(), 0);
+
+    // Deallocating should touch the cpu.
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    subtle::percpu::tcmalloc_slabs = 0;
+#endif
+    ptr = cache.Allocate(1);
+    cache.ClearTouchedCpus();
+    EXPECT_EQ(cache.CountTouchedCpus(), 0);
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    subtle::percpu::tcmalloc_slabs = 0;
+#endif
+    cache.Deallocate(ptr, 1);
+    const int after_deallocate = cache.CountTouchedCpus();
+    cache.ClearTouchedCpus();
+
+    EXPECT_EQ(after_allocate, 1);
+    EXPECT_EQ(after_deallocate, 1);
+    if (mask.Tampered()) {
+      EXPECT_EQ(after_allocate_deallocate, 2);
+    } else {
+      EXPECT_EQ(after_allocate_deallocate, 1);
+    }
+  }
+
+  ThreadManager threads;
+  constexpr int kThreads = 10;
+  std::vector<absl::flat_hash_set<int>> seen;
+  seen.resize(kThreads);
+  for (auto& t : seen) {
+    t.reserve(NumCPUs());
+  }
+
+  threads.Start(10, [&](int thread_id) {
+    subtle::percpu::IsFast();
+
+    const int cpu_id_start = subtle::percpu::__rseq_abi.vcpu_id;
+
+    void* ptr = cache.Allocate(1);
+    cache.Deallocate(ptr, 1);
+
+    const int cpu_id_end = subtle::percpu::__rseq_abi.vcpu_id;
+    seen[thread_id].insert(cpu_id_start);
+    seen[thread_id].insert(cpu_id_end);
+  });
+
+  absl::SleepFor(absl::Seconds(0.3));
+
+  threads.Stop();
+
+  const int touched = cache.CountTouchedCpus();
+  const int max_id = cache.MaxTouchedCpu();
+
+  absl::btree_set<int> all;
+  for (const auto& t : seen) {
+    all.insert(t.begin(), t.end());
+  }
+
+  ASSERT_FALSE(all.empty());
+  EXPECT_THAT(all, testing::SizeIs(testing::Eq(touched)));
+  EXPECT_EQ(*all.rbegin() + 1, max_id);
+
+  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, TargetOverflowRefillCount) {

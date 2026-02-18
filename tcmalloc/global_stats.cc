@@ -635,6 +635,16 @@ void DumpStats(Printer& out, int level) {
                        central_freelist_internal::LifetimeTracking::kEnabled
                    ? 1
                    : 0);
+    out.printf("PARAMETER background_process_sleep_interval_ns %lld\n",
+               absl::ToInt64Nanoseconds(
+                   Parameters::background_process_sleep_interval()));
+
+    if (UsePerCpuCache(tc_globals)) {
+      out.printf("PARAMETER tcmalloc_cpu_cache_touched %d\n",
+                 tc_globals.cpu_cache().CountTouchedCpus());
+      out.printf("PARAMETER max_tcmalloc_cpu_cache_touched %d\n",
+                 tc_globals.cpu_cache().MaxTouchedCpu());
+    }
   }
 }
 
@@ -854,6 +864,10 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("tcmalloc_span_lifetime_tracking",
                    Parameters::span_lifetime_tracking() ==
                        central_freelist_internal::LifetimeTracking::kEnabled);
+
+  region.PrintI64("background_process_sleep_interval_ns",
+                  absl::ToInt64Nanoseconds(
+                      Parameters::background_process_sleep_interval()));
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
