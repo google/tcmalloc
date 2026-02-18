@@ -33,7 +33,6 @@
 #include "absl/time/time.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/malloc_hook_invoke.h"
