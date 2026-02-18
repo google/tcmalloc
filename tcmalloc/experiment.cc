@@ -139,12 +139,16 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
 
   // The compiler experiments should be env variable independent.
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT
-  if (!absl::StrContains(active, NPX_COMPILER_ENABLED_EXPERIMENT)) {
+#define Q(x) STR(x)
+#define STR(x) #x
+  if (!absl::StrContains(active, Q(NPX_COMPILER_ENABLED_EXPERIMENT))) {
     Experiment id;
-    if (LookupExperimentID(NPX_COMPILER_ENABLED_EXPERIMENT, &id)) {
+    if (LookupExperimentID(Q(NPX_COMPILER_ENABLED_EXPERIMENT), &id)) {
       buffer[static_cast<int>(id)] = true;
     }
   }
+#undef STR
+#undef Q
 #endif
 
   if (disabled == kDisableAll) {
