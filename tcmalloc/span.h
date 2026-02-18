@@ -546,7 +546,7 @@ inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
     bool prior = small_span_state_.bitmap.SetBit(idx);
     // Check that the object is not already returned.
     (void)prior;
-#if !defined(NDEBUG) && defined(TCMALLOC_INTERNAL_WITH_ASSERTIONS)
+#if !defined(NDEBUG) || defined(TCMALLOC_INTERNAL_WITH_ASSERTIONS)
     if (ABSL_PREDICT_FALSE(prior)) {
       ReportDoubleFree(ptr);
     }
