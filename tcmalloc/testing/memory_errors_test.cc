@@ -1133,6 +1133,26 @@ TEST_F(TcMallocTest, NeverAllocatedPointerHighBits) {
           ")"));
 }
 
+TEST_F(TcMallocTest, ReallocNeverAllocatedPointerHighBits) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Skipping under address sanitizer";
+#endif
+
+  constexpr uintptr_t kAddress = uintptr_t{0xDEADBEEF0000000};
+  static_assert(absl::bit_width(kAddress) > tcmalloc_internal::kAddressBits);
+  void* ptr = absl::bit_cast<void*>(kAddress);
+
+  EXPECT_DEATH(
+      {
+        void* p = realloc(ptr, 1);
+        benchmark::DoNotOptimize(p);
+      },
+      absl::StrCat(
+          "(Attempted to free corrupted pointer 0xdeadbeef0000000: It was "
+          "never allocated or TCMalloc metadata has been corrupted",
+          ")"));
+}
+
 TEST_F(TcMallocTest, MismatchedDeleteExactRange) {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
   GTEST_SKIP() << "ASan will trap ahead of us";
@@ -1165,7 +1185,17 @@ TEST_F(TcMallocTest, MismatchedDeleteExactRange) {
                    "\\] bytes\\)"
                    ));
 
-  // TODO(b/457842787): Test `ScopedNeverSample` with `kCold`.
+  EXPECT_DEATH(
+      {
+        ScopedNeverSample always_sample;
+
+        void* p = ::operator new(kAllocSize, kCold);
+        ::operator delete(p, kDeleteSize);
+      },
+      absl::StrCat("Mismatched-size-delete.*of ", kDeleteSize,
+                   " bytes \\(expected between \\[", min, ", ", max,
+                   "\\] bytes\\)"
+                   ));
 #endif
 
   EXPECT_DEATH(

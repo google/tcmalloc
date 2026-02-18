@@ -831,6 +831,15 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
   }
 
   TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold);
+
+#ifdef TCMALLOC_INTERNAL_WITH_ASSERTIONS
+  TC_CHECK(
+      CorrectSize(ptr, size, policy.InSamePartitionAs(ptr).AccessAsCold()));
+#else
+  TC_ASSERT(
+      CorrectSize(ptr, size, policy.InSamePartitionAs(ptr).AccessAsCold()));
+#endif
+
   const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
       policy.InSamePartitionAs(ptr).AccessAsCold(), size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
@@ -1103,7 +1112,9 @@ using tcmalloc::tcmalloc_internal::do_malloc_stats;
 using tcmalloc::tcmalloc_internal::do_malloc_trim;
 using tcmalloc::tcmalloc_internal::do_mallopt;
 using tcmalloc::tcmalloc_internal::GetThreadSampler;
+using tcmalloc::tcmalloc_internal::kBadDeallocationHighMask;
 using tcmalloc::tcmalloc_internal::MallocPolicy;
+using tcmalloc::tcmalloc_internal::ReportCorruptedFree;
 using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
 
@@ -1516,9 +1527,10 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
   if (ptr == nullptr) {
     return fast_alloc(size, MallocPolicy());
   }
-  // TODO(b/457842787): Consider checking pointer MSB here, since do_free will
-  // do it too and it protects the PageMap walk done in do_realloc ->
-  // GetSizeAndSampled.
+  const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
+  if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
+    ReportCorruptedFree(tc_globals, ptr);
+  }
   if (size == 0) {
     do_free(ptr, MallocPolicy());
     return nullptr;
