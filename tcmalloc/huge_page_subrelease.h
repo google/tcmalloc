@@ -343,8 +343,8 @@ class SubreleaseStatsTracker {
   }
 
   // Calculates demand requirements for the skip subrelease: we do not
-  // subrelease if the number of free pages are than (or equal to) the demand
-  // computed by GetRecentDemand. The demand requirement is the sum of
+  // subrelease if the number of free pages are lower than (or equal to) the
+  // demand computed by GetRecentDemand. The demand requirement is the sum of
   // short-term demand fluctuation peak with in the last <short_interval> and
   // long-term demand trend in the previous <long_interval>. When both are set,
   // short_interval should be (significantly) shorter or equal to long_interval
@@ -356,8 +356,8 @@ class SubreleaseStatsTracker {
   }
 
   // Calculates demand requirements for the skip subrelease: we do not
-  // subrelease if the number of free pages are than (or equal to) the demand
-  // computed by GetRecentDemand. The demand requirement is the sum of
+  // subrelease if the number of free pages are lower than (or equal to) the
+  // demand computed by GetRecentDemand. The demand requirement is the sum of
   // short-term demand fluctuation peak with in the last <short_interval> and
   // long-term demand trend in the previous <long_interval>. When both are set,
   // short_interval should be (significantly) shorter or equal to long_interval
@@ -515,7 +515,7 @@ class SubreleaseStatsTracker {
   }
 
   // Gets the combined demand trend, which is the sum of the maximum demand
-  // difference in <short_interval> and the maxmin demand in <long_interval>.
+  // difference in <short_interval> and the max-min demand in <long_interval>.
   Length CalculateCombinedDemandTrend(absl::Duration short_interval,
                                       absl::Duration long_interval) {
     if (short_interval != absl::ZeroDuration() &&
