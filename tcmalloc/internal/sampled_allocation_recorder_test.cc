@@ -29,7 +29,6 @@
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
