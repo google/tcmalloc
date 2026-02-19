@@ -23,6 +23,7 @@ namespace tcmalloc {
 enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
+  EXTENDED_MUTEX_SPINNING,  // TODO: b/481096853 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_PREFERENTIAL_COLLAPSE,  // TODO: b/456565308 - Complete experiment.
   TCMALLOC_SPAN_LIFETIME_TRACKING, // TODO: b/445984647 - Complete experiment.
@@ -51,6 +52,7 @@ struct ExperimentConfig {
 // clang-format off
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
+    {Experiment::EXTENDED_MUTEX_SPINNING, "EXTENDED_MUTEX_SPINNING"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_PREFERENTIAL_COLLAPSE, "TCMALLOC_PREFERENTIAL_COLLAPSE"},
     {Experiment::TCMALLOC_SPAN_LIFETIME_TRACKING, "TCMALLOC_SPAN_LIFETIME_TRACKING"},
