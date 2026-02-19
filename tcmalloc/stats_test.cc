@@ -27,6 +27,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -39,9 +40,10 @@ class PrintTest : public ::testing::Test {
 
   void ExpectStats(const BackingStats& back, const SmallSpanStats& small,
                    const LargeSpanStats& large, const std::string& expected) {
-    Printer out(&buf_[0], kBufferSize);
-    PrintStats("PrintTest", out, back, small, large, true);
-    EXPECT_EQ(expected, buf_);
+    std::string buf = PrintToString(kBufferSize, [&](Printer& out) {
+      PrintStats("PrintTest", out, back, small, large, true);
+    });
+    EXPECT_EQ(expected, buf);
   }
 
   BackingStats Backing(size_t system, size_t free, size_t unmapped) {

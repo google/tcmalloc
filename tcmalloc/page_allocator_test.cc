@@ -42,6 +42,7 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -94,12 +95,10 @@ class PageAllocatorTest : public testing::Test {
   }
 
   std::string Print() {
-    std::vector<char> buf(1024 * 1024);
-    PageFlags pageflags;
-    Printer out(&buf[0], buf.size());
-    allocator_.Print(out, MemoryTag::kNormal, pageflags);
-
-    return std::string(&buf[0]);
+    return PrintToString(1024 * 1024, [&](Printer& out) {
+      PageFlags pageflags;
+      allocator_.Print(out, MemoryTag::kNormal, pageflags);
+    });
   }
 
   PageAllocator allocator_;

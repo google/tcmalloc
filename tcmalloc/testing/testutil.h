@@ -23,6 +23,8 @@
 #include <cstdint>
 #include <new>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 #include "benchmark/benchmark.h"
 #include "absl/base/attributes.h"
@@ -290,6 +292,24 @@ class ScopedFakeCpuId {
 // See "Evaluating the Anderson-Darling Distribution" by
 // Marsaglia and Marsaglia for details.
 double AndersonDarlingTest(absl::Span<const double> random_sample);
+
+template <typename Function>
+std::string PrintToString(size_t buffer_size, Function&& f) {
+  std::string buf;
+  absl::StringResizeAndOverwrite(buf, buffer_size, [&](char* ptr, size_t size) {
+    tcmalloc_internal::Printer p(ptr, size);
+    if constexpr (std::is_invocable_v<Function,
+                                      tcmalloc_internal::PbtxtRegion&>) {
+      tcmalloc_internal::PbtxtRegion r(p, tcmalloc_internal::kTop);
+      f(r);
+    } else {
+      f(p);
+    }
+    TC_CHECK_LE(p.SpaceRequired(), size);
+    return p.SpaceRequired();
+  });
+  return buf;
+}
 
 // Allows program state to be recorded with `setjmp` into `buf`.  It installs a
 // hook into TCMalloc's logging library that `longjmp`'s back when a CHECK

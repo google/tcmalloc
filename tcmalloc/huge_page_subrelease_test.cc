@@ -32,6 +32,8 @@
 using tcmalloc::tcmalloc_internal::Length;
 using testing::StrEq;
 
+#include "tcmalloc/testing/testutil.h"
+
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -129,12 +131,9 @@ TEST_F(StatsTrackerTest, Works) {
 
   // Test text output (time series summary).
   {
-    std::string buffer(1024 * 1024, '\0');
-    Printer printer(&*buffer.begin(), buffer.size());
-    {
+    std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
       tracker_.Print(printer, "StatsTracker");
-      buffer.erase(printer.SpaceRequired());
-    }
+    });
 
     EXPECT_THAT(buffer, StrEq(R"(StatsTracker: time series over 5 min interval
 

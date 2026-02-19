@@ -57,6 +57,7 @@
 #include "tcmalloc/span_stats.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
@@ -759,10 +760,9 @@ void CheckLifetimeStats(TypeParam& e, SpanLifetimes span_lifetimes) {
   // lifetime stats.
   e.central_freelist().HandleLongLivedSpans();
 
-  std::string buffer(1024 * 1024, '\0');
-  Printer printer(&*buffer.begin(), buffer.size());
-  e.central_freelist().PrintSpanLifetimeStats(printer);
-  buffer.resize(strlen(buffer.c_str()));
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    e.central_freelist().PrintSpanLifetimeStats(printer);
+  });
 
   EXPECT_THAT(buffer, testing::AllOf(testing::HasSubstr(completed_spans_txt),
                                      testing::HasSubstr(live_spans_txt)));
@@ -783,12 +783,10 @@ void CheckLifetimeStats(TypeParam& e, SpanLifetimes span_lifetimes) {
                         lower_bound, upper_bound, completed[lower_bound]));
   }
 
-  std::string buffer_pbtxt(1024 * 1024, '\0');
-  Printer printer_pbtxt(&*buffer_pbtxt.begin(), buffer_pbtxt.size());
-  PbtxtRegion region(printer_pbtxt,
-                     tcmalloc::tcmalloc_internal::PbtxtRegionType::kTop);
-  e.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
-  buffer_pbtxt.resize(strlen(buffer_pbtxt.c_str()));
+  std::string buffer_pbtxt =
+      PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
+        e.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
+      });
   EXPECT_THAT(
       buffer_pbtxt,
       testing::AllOf(
@@ -879,10 +877,9 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
   // Check txt stats
   int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, kNumSpans));
   EXPECT_EQ(got, kNumSpans);
-  std::string buffer(1024 * 1024, '\0');
-  Printer printer(&*buffer.begin(), buffer.size());
-  e.central_freelist().PrintNumSpansUsed(printer);
-  buffer.resize(strlen(buffer.c_str()));
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    e.central_freelist().PrintNumSpansUsed(printer);
+  });
   EXPECT_THAT(
       buffer,
       testing::AllOf(
@@ -890,12 +887,10 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
           testing::ContainsRegex(absl::StrFormat("1 : *%v, ", single_spans))));
 
   // Check pbtxt stats
-  std::string buffer_pbtxt(1024 * 1024, '\0');
-  Printer printer_pbtxt(&*buffer_pbtxt.begin(), buffer_pbtxt.size());
-  PbtxtRegion region(printer_pbtxt,
-                     tcmalloc::tcmalloc_internal::PbtxtRegionType::kTop);
-  e.central_freelist().PrintNumSpansUsedInPbtxt(region);
-  buffer_pbtxt.resize(strlen(buffer_pbtxt.c_str()));
+  std::string buffer_pbtxt =
+      PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
+        e.central_freelist().PrintNumSpansUsedInPbtxt(region);
+      });
   EXPECT_THAT(buffer_pbtxt,
               testing::AllOf(testing::HasSubstr(absl::StrFormat(
                                  "{ lower_bound: %v upper_bound: %v value: 1}",
@@ -1190,22 +1185,19 @@ TEST_P(CentralFreeListTest, LongLivedSpansMovedHistogram) {
   // Third run should move 0 spans.
   e.central_freelist().HandleLongLivedSpans();
 
-  std::string buffer(1024 * 1024, '\0');
-  Printer printer(&*buffer.begin(), buffer.size());
-  e.central_freelist().PrintLongLivedSpansMoved(printer);
-  buffer.resize(strlen(buffer.c_str()));
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    e.central_freelist().PrintLongLivedSpansMoved(printer);
+  });
 
   EXPECT_THAT(buffer, testing::HasSubstr(
                           "0 <      1,  1 <      1,  2 <      0,  4 <      0,  "
                           "8 <      1"));
 
   // Check pbtxt stats
-  std::string buffer_pbtxt(1024 * 1024, '\0');
-  Printer printer_pbtxt(&*buffer_pbtxt.begin(), buffer_pbtxt.size());
-  PbtxtRegion region(printer_pbtxt,
-                     tcmalloc::tcmalloc_internal::PbtxtRegionType::kTop);
-  e.central_freelist().PrintLongLivedSpansMovedInPbtxt(region);
-  buffer_pbtxt.resize(strlen(buffer_pbtxt.c_str()));
+  std::string buffer_pbtxt =
+      PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
+        e.central_freelist().PrintLongLivedSpansMovedInPbtxt(region);
+      });
   EXPECT_THAT(
       buffer_pbtxt,
       testing::HasSubstr(

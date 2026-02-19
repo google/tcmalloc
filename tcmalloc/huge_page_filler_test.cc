@@ -63,6 +63,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/testing/testutil.h"
 
 using tcmalloc::tcmalloc_internal::Length;
 
@@ -1415,13 +1416,10 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   // swapped. We expect to log this correctly.
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 2);
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: In the previous treatment "
                                  "interval, subreleased 2 pages."));
@@ -2723,13 +2721,10 @@ TEST_P(FillerTest, PrintFreeRatio) {
   DeleteVector(a6);
   ReleasePages(kQ);
   DeleteVector(a5);
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, /*everything=*/true, pageflags);
-    buffer.erase(printer.SpaceRequired());
-  }
+  });
 
   EXPECT_THAT(buffer,
               testing::StartsWith(
@@ -3062,13 +3057,10 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
   EXPECT_EQ(ReleasePages(kMaxValidPages), N / 2);
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer, testing::HasSubstr(
                           "HugePageFiller: 0 hugepages became full after "
                           "being previously released, "
@@ -3079,14 +3071,10 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
   half = AllocateVectorWithSpanAllocInfo(N / 2, tiny1.front().span_alloc_info);
   EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
-  buffer.resize(1024 * 1024);
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: 1 hugepages became full "
                                  "after being previously released, "
@@ -3097,13 +3085,10 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
   DeleteVector(tiny1);
   DeleteVector(tiny2);
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
-  buffer.resize(1024 * 1024);
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: 0 hugepages became full "
                                  "after being previously released, "
@@ -3123,13 +3108,10 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
   EXPECT_EQ(ReleasePages(kMaxValidPages), N / 2);
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: 0 hugepages became full "
                                  "after being previously released, "
@@ -3140,14 +3122,10 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
       AllocateVectorWithSpanAllocInfo(N / 2, half.front().span_alloc_info);
   EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
-  buffer.resize(1024 * 1024);
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: 1 hugepages became full "
                                  "after being previously released, "
@@ -3158,13 +3136,10 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
   EXPECT_EQ(ReleasePages(kMaxValidPages), N / 2);
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
-  buffer.resize(1024 * 1024);
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer,
 
               testing::HasSubstr("HugePageFiller: 0 hugepages became full "
@@ -3174,13 +3149,10 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
   // Release everything and cleanup.
   DeleteVector(half);
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
-  buffer.resize(1024 * 1024);
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: 0 hugepages became full "
                                  "after being previously released, "
@@ -3432,13 +3404,10 @@ void FillerTest::SkipSubreleaseTest(AccessDensityPrediction density,
   }
 
   FakePageFlags pageflags;
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   if (density == AccessDensityPrediction::kSparse) {
     EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Since the start of the execution, 4 subreleases (512 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (0s) fluctuations and long-term (120s) trends.
@@ -3586,13 +3555,10 @@ TEST_P(FillerTest, PrintFeatureVectorTest) {
   SpanAllocInfo info_densely_accessed = {2, AccessDensityPrediction::kDense};
   PAlloc small_alloc = AllocateWithSpanAllocInfo(N / 4, info_sparsely_accessed);
   small_alloc.pt->SetTagState({.sampled_for_tagging = true});
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 0.000000
 )"));
@@ -3605,12 +3571,10 @@ HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(),
             static_cast<uint64_t>(100 * FakeClock::freq()) + 1234);
   EXPECT_EQ(small_alloc.pt->features().allocation_time, 0);
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 100.000001
 )"));
@@ -3625,11 +3589,10 @@ HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage
   EXPECT_EQ(large_alloc.pt, large_alloc2.pt);
 
   pageflags.MarkHugePageBacked(large_alloc.pt->location().start_addr(), true);
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
+  });
   // The reallocation time is: "now" - default allocation time (0) as pt does
   // not track the time for its first allocation.
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -3639,12 +3602,10 @@ HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage
   FakeClock::Advance(absl::Seconds(100));
   std::vector<PAlloc> large_allocs =
       AllocateVectorWithSpanAllocInfo(Length(100), info_densely_accessed);
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   // Time delta is 0 here because the clock is not advanced during vector
   // allocation.
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -3675,13 +3636,10 @@ TEST_P(FillerTest, LiveLifetimeTelemetryTest) {
   PAlloc large_alloc =
       AllocateWithSpanAllocInfo(3 * N / 4, info_sparsely_accessed);
 
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -3823,11 +3781,10 @@ HugePageFiller: <254<=     0 <255<=     0
 )"));
 
   FakeClock::Advance(absl::Seconds(101));
-  {
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
+  });
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed regular hps with live lifetime a <= # hps < b
@@ -3875,12 +3832,10 @@ TEST_P(FillerTest, CompletedLifetimeTelemetryTest) {
   Delete(alloc0);
   FakeClock::Advance(absl::Seconds(1001));
   Delete(alloc1);
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
+  });
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of densely-accessed hps with completed lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4038,14 +3993,11 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   EXPECT_EQ(filler_.free_pages(), Length(0));
   EXPECT_EQ(Length(0), ReleasePages(10 * N));
 
-  std::string buffer(1024 * 1024, '\0');
   FakePageFlags pageflags;
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, true, pageflags);
-  }
-  buffer.resize(strlen(buffer.c_str()));
+  });
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
@@ -4113,6 +4065,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
   SCOPED_TRACE(absl::StrCat("AccessDensityPrediction: ", kDensity));
   const size_t kObjects = (1 << absl::Uniform<size_t>(gen_, 0, 8));
   const SpanAllocInfo kAllocInfo = {kObjects, kDensity};
+  FakePageFlags pageflags;
   // Get lots of hugepages into the filler.
   FakeClock::Advance(absl::Minutes(1));
   std::vector<std::vector<PAlloc>> result;
@@ -4215,14 +4168,10 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
     EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 1);
   }
 
-  std::string buffer(1024 * 1024, '\0');
-  FakePageFlags pageflags;
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, /*everything=*/true, pageflags);
-    buffer.erase(printer.SpaceRequired());
-  }
+  });
 
   if (kDensity == AccessDensityPrediction::kSparse) {
     ASSERT_THAT(buffer,
@@ -4280,6 +4229,7 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
   }
   ASSERT_EQ(filler_.size(), kHugePages);
 
+  FakePageFlags pageflags;
   for (int i = 0; i < 2; ++i) {
     for (auto& a : dead) {
       Delete(a);
@@ -4289,14 +4239,10 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
     alloc_small.push_back(
         Allocate(Length(1)));  // To force subrelease stats to update
 
-    std::string buffer(1024 * 1024, '\0');
-    FakePageFlags pageflags;
-    {
+    std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
       PageHeapSpinLockHolder l;
-      Printer printer(&*buffer.begin(), buffer.size());
       filler_.Print(printer, /*everything=*/false, pageflags);
-      buffer.erase(printer.SpaceRequired());
-    }
+    });
 
     ASSERT_THAT(buffer, testing::HasSubstr(absl::StrCat(kHugePages.raw_num(),
                                                         " hugepages broken")));
@@ -4339,18 +4285,15 @@ TEST_P(FillerTest, CheckBufferSize) {
 
   DeleteVector(big);
 
-  std::string buffer(1024 * 1024, '\0');
-  Printer printer(&*buffer.begin(), buffer.size());
   FakePageFlags pageflags;
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
     PageHeapSpinLockHolder l;
-    PbtxtRegion region(printer, kTop);
     filler_.PrintInPbtxt(region, pageflags);
-  }
+  });
 
   // We assume a maximum buffer size of 1 MiB. When increasing this size,
   // ensure that all places processing mallocz protos get updated as well.
-  size_t buffer_size = printer.SpaceRequired();
+  size_t buffer_size = buffer.size();
   EXPECT_LE(buffer_size, 1024 * 1024);
 }
 
@@ -4649,13 +4592,10 @@ TEST_P(FillerTest, ResidencyTelemetry) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
   }
 
-  std::string buffer_text(1024 * 1024, '\0');
-  {
+  std::string buffer_text = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer_text.begin(), buffer_text.size());
     filler_.Print(printer, /*everything=*/true, pageflags);
-  }
-  buffer_text.resize(strlen(buffer_text.c_str()));
+  });
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed regular hps with a <= # of swapped < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
@@ -4724,14 +4664,11 @@ HugePageFiller: 126 of sparsely-accessed regular free native pages are unbacked.
 HugePageFiller: 130 of sparsely-accessed regular used native pages are unbacked.
 )"));
 
-  std::string buffer_pbtxt(1024 * 1024, '\0');
-  Printer printer(&*buffer_pbtxt.begin(), buffer_pbtxt.size());
-  {
-    PageHeapSpinLockHolder l;
-    PbtxtRegion region(printer, kTop);
-    filler_.PrintInPbtxt(region, pageflags);
-  }
-  buffer_pbtxt.erase(printer.SpaceRequired());
+  std::string buffer_pbtxt =
+      PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
+        PageHeapSpinLockHolder l;
+        filler_.PrintInPbtxt(region, pageflags);
+      });
 
   EXPECT_THAT(
       buffer_pbtxt,
@@ -4786,13 +4723,10 @@ TEST_P(FillerTest, PrintHugepageBackedStats) {
     EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()));
   }
 
-  std::string buffer(1024 * 1024, '\0');
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, /*everything=*/true, pageflags);
-    buffer.erase(printer.SpaceRequired());
-  }
+  });
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: 1 of sparsely-accessed regular pages hugepage backed out of 2.
 )"));
@@ -4833,14 +4767,11 @@ TEST_P(FillerTest, Print) {
   randomize_density_ = false;
   auto allocs = GenerateInterestingAllocs();
 
-  std::string buffer(1024 * 1024, '\0');
   FakePageFlags pageflags;
-  {
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(printer, /*everything=*/true, pageflags);
-    buffer.erase(printer.SpaceRequired());
-  }
+  });
 
   EXPECT_THAT(
       buffer,

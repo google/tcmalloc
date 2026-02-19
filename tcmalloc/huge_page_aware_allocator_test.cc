@@ -69,6 +69,7 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
@@ -293,28 +294,17 @@ class HugePageAwareAllocatorTest
   }
 
   std::string Print() {
-    std::string ret;
-    const size_t kSize = 1 << 20;
-    ret.resize(kSize);
-    Printer p(&ret[0], kSize);
-    PageFlags pageflags;
-    allocator_->Print(p, pageflags);
-    ret.erase(p.SpaceRequired());
-    return ret;
+    return PrintToString(1 << 20, [&](Printer& p) {
+      PageFlags pageflags;
+      allocator_->Print(p, pageflags);
+    });
   }
 
   std::string PrintInPbtxt() {
-    std::string ret;
-    const size_t kSize = 1 << 20;
-    ret.resize(kSize);
-    PageFlags pageflags;
-    Printer p(&ret[0], kSize);
-    {
-      PbtxtRegion region(p, kNested);
+    return PrintToString(1 << 20, [&](PbtxtRegion& region) {
+      PageFlags pageflags;
       allocator_->PrintInPbtxt(region, pageflags);
-    }
-    ret.erase(p.SpaceRequired());
-    return ret;
+    });
   }
 
   // TODO(b/242550501):  Replace this with one templated with a different
