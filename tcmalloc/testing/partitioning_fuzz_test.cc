@@ -24,6 +24,7 @@
 #include "fuzztest/fuzztest.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/testutil.h"
 
 #if defined(__SANITIZE_ALLOC_TOKEN__)
@@ -435,14 +436,24 @@ void RandomizedAllocateAndDeallocateFuzzTest(
       void* ptr = PerformAllocate(alloc_op);
       if (ptr != nullptr) {
         const auto tag = tcmalloc::tcmalloc_internal::GetMemoryTag(ptr);
+        bool security_partition =
+            tcmalloc::tcmalloc_internal::Parameters::heap_partitioning();
         if (alloc_op.token_id == AllocTokenId::ID0 &&
-            static_cast<uint8_t>(alloc_op.hot_cold) < 1) {
+            alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint) {
           EXPECT_TRUE(IsCold(tag));
         } else if (alloc_op.token_id == AllocTokenId::ID0) {
           EXPECT_TRUE(IsPartitionZero(tag));
-        } else {
+        } else if (security_partition) {
           EXPECT_TRUE(IsPartitionOne(tag));
+        } else if (alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint) {
+          EXPECT_TRUE(IsCold(tag));
+        } else {
+          // When security option is off, the same set of size classes
+          // are used so the resulting pointer's tag will be kNormalP0
+          // even the static security token is set to 1:
+          EXPECT_TRUE(IsPartitionZero(tag));
         }
+
         live_allocs.push_back(
             {ptr, alloc_op.type, alloc_op.size, alloc_op.alignment});
       }
