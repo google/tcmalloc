@@ -1154,8 +1154,9 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
                                 ptr);
   }
   if (Policy::invoke_hooks()) {
-    // TODO(b/273983652): Size returning tcmallocs call NewHooks with capacity
-    // as requested_size
+    // Size returning tcmallocs call NewHooks with capacity as requested_size.
+    // The callee of the hook has no other way of knowing that writes to [size,
+    // ptr.n) are valid.
     MallocHook::InvokeNewHook({ptr.p, Policy::size_returning() ? ptr.n : size,
                                ptr.n, HookMemoryMutable::kMutable});
   }
@@ -1198,8 +1199,9 @@ ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
 
   if (Policy::invoke_hooks()) {
-    // TODO(b/273983652): Size returning tcmallocs call NewHooks with capacity
-    // as requested_size
+    // Size returning tcmallocs call NewHooks with capacity as requested_size.
+    // The callee of the hook has no other way of knowing that writes to [size,
+    // ptr.n) are valid.
     MallocHook::InvokeNewHook({res.p, Policy::size_returning() ? res.n : size,
                                res.n, HookMemoryMutable::kMutable});
   }
