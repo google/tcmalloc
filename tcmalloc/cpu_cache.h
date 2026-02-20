@@ -854,11 +854,14 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   // We allocate 256KiB per-cpu for pointers to cached per-cpu memory.
   // Max(kNumClasses) is 89, so the maximum footprint per CPU for a 256KiB
   // slab is:
-  //   89 * 8 + 8 * ((2048 + 1) * 10 + (152 + 1) * 78) = 254 KiB
+  //   89 * 8 + 8 * ((2000 + 1) * 10 + (144 + 1) * 78) = 245 KiB
   // For 512KiB slab, with a multiplier of 2, maximum footprint is:
-  //   89 * 8 + 8 * ((4096 + 1) * 10 + (304 + 1) * 78) = 506 KiB
-  const uint16_t kSmallObjectDepth = 2048 * kWiderSlabMultiplier;
-  const uint16_t kLargeObjectDepth = 152 * kWiderSlabMultiplier;
+  //   89 * 8 + 8 * ((4000 + 1) * 10 + (288 + 1) * 78) = 489 KiB
+  //
+  // Note that this computes slab capacity for normal size classes alone.
+  // Additionally, we reserve capacity for cold size classes below.
+  const uint16_t kSmallObjectDepth = 2000 * kWiderSlabMultiplier;
+  const uint16_t kLargeObjectDepth = 144 * kWiderSlabMultiplier;
 #endif
   if (size_class == 0 || size_class >= kNumClasses) {
     return 0;
@@ -890,9 +893,8 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
         forwarder_.reuse_size_classes() ? 246 * kWiderSlabMultiplier
                                         : 123 * kWiderSlabMultiplier;
     const uint16_t kLargeInterestingObjectDepth =
-        forwarder_.reuse_size_classes() ? 26 * kWiderSlabMultiplier
-                                        : 18 * kWiderSlabMultiplier;
-
+        forwarder_.reuse_size_classes() ? 52 * kWiderSlabMultiplier
+                                        : 36 * kWiderSlabMultiplier;
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     if (absl::c_binary_search(cold, size_class)) {
       return kLargeInterestingObjectDepth;
@@ -996,15 +998,27 @@ inline void CpuCache<Forwarder>::Activate() {
   // have a smaller shift than would suffice for all of the unused size classes.
   const int num_size_classes = forwarder_.active_partitions() * kNumBaseClasses;
   for (int size_class = 0; size_class < num_size_classes; ++size_class) {
-    max_capacity_[size_class].store(MaxCapacity(size_class),
-                                    std::memory_order_relaxed);
+    const size_t capacity = MaxCapacity(size_class);
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+    // Check that the capacity is greater than the batch size.
+    if (capacity > 0) {
+      TC_CHECK_GE(capacity, forwarder_.num_objects_to_move(size_class));
+    }
+#endif
+    max_capacity_[size_class].store(capacity, std::memory_order_relaxed);
   }
 
   // Deal with expanded size classes.
   for (int size_class = kExpandedClassesStart; size_class < kNumClasses;
        ++size_class) {
-    max_capacity_[size_class].store(MaxCapacity(size_class),
-                                    std::memory_order_relaxed);
+    const size_t capacity = MaxCapacity(size_class);
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+    // Check that the capacity is greater than the batch size.
+    if (capacity > 0) {
+      TC_CHECK_GE(capacity, forwarder_.num_objects_to_move(size_class));
+    }
+#endif
+    max_capacity_[size_class].store(capacity, std::memory_order_relaxed);
   }
 
   // Verify that all the possible shifts will have valid max capacities.
