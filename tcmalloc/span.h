@@ -237,10 +237,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // IsValidSizeClass verifies size class parameters from the Span perspective.
   static bool IsValidSizeClass(size_t size, size_t pages);
 
-  // Returns true if Span does not touch objects and the <size> is suitable
-  // for cold size classes.
-  static bool IsNonIntrusive(size_t size);
-
   // For bitmap'd spans conversion from an offset to an index is performed
   // by multiplying by the scaled reciprocal of the object size.
   static uint32_t CalcReciprocal(size_t size);
@@ -653,10 +649,6 @@ inline bool Span::UseBitmapForSize(size_t size) {
   static constexpr size_t kBitmapMinObjectSize = kPageSize / kBitmapSize;
   return size >= kBitmapMinObjectSize;
 }
-
-// This is equivalent to UseBitmapForSize, but instrusive-ness is the property
-// callers care about, while use of bitmap is an implementation detail.
-inline bool Span::IsNonIntrusive(size_t size) { return UseBitmapForSize(size); }
 
 inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
                                    size_t size) __restrict__ {
