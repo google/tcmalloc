@@ -22,6 +22,7 @@
 
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -439,13 +440,15 @@ void RandomizedAllocateAndDeallocateFuzzTest(
         bool security_partition =
             tcmalloc::tcmalloc_internal::Parameters::heap_partitioning();
         if (alloc_op.token_id == AllocTokenId::ID0 &&
-            alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint) {
+            alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint &&
+            tcmalloc::tcmalloc_internal::ColdFeatureActive()) {
           EXPECT_TRUE(IsCold(tag));
         } else if (alloc_op.token_id == AllocTokenId::ID0) {
           EXPECT_TRUE(IsPartitionZero(tag));
         } else if (security_partition) {
           EXPECT_TRUE(IsPartitionOne(tag));
-        } else if (alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint) {
+        } else if (alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint &&
+                   tcmalloc::tcmalloc_internal::ColdFeatureActive()) {
           EXPECT_TRUE(IsCold(tag));
         } else {
           // When security option is off, the same set of size classes
