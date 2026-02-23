@@ -30,6 +30,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
@@ -216,7 +217,8 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
     kPageSize);
-
+ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
+    false);
 
 static std::atomic<bool>& heap_partitioning_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -629,6 +631,15 @@ void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {
 
 bool TCMalloc_Internal_GetHeapPartitioning() {
   return Parameters::heap_partitioning();
+}
+
+bool TCMalloc_Internal_GetEnableUnfilteredCollapse() {
+  return Parameters::enable_unfiltered_collapse() ==
+         tcmalloc::tcmalloc_internal::EnableUnfilteredCollapse::kEnabled;
+}
+
+void TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v) {
+  Parameters::enable_unfiltered_collapse_.store(v, std::memory_order_relaxed);
 }
 
 }  // extern "C"

@@ -155,6 +155,8 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
   }
 
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
+
   sized_delete(alloc, kSize);
 }
 
@@ -239,6 +241,9 @@ TEST_F(GetStatsTest, Parameters) {
     } else {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_num_priority_lists 8)"));
     }
+
+    EXPECT_THAT(
+        buf, HasSubstr(R"(PARAMETER tcmalloc_enable_unfiltered_collapse 0)"));
 
     if (IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING) ||

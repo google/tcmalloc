@@ -32,6 +32,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
@@ -645,6 +646,11 @@ void DumpStats(Printer& out, int level) {
       out.printf("PARAMETER max_tcmalloc_cpu_cache_touched %d\n",
                  tc_globals.cpu_cache().MaxTouchedCpu());
     }
+    out.printf("PARAMETER tcmalloc_enable_unfiltered_collapse %d\n",
+               Parameters::enable_unfiltered_collapse() ==
+                       EnableUnfilteredCollapse::kEnabled
+                   ? 1
+                   : 0);
   }
 }
 
@@ -868,6 +874,10 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintI64("background_process_sleep_interval_ns",
                   absl::ToInt64Nanoseconds(
                       Parameters::background_process_sleep_interval()));
+
+  region.PrintBool("tcmalloc_enable_unfiltered_collapse",
+                   Parameters::enable_unfiltered_collapse() ==
+                       EnableUnfilteredCollapse::kEnabled);
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

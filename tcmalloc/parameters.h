@@ -23,6 +23,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/central_freelist.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
@@ -125,6 +126,12 @@ class Parameters {
     return per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
 
+  static EnableUnfilteredCollapse enable_unfiltered_collapse() {
+    return enable_unfiltered_collapse_.load(std::memory_order_relaxed)
+               ? EnableUnfilteredCollapse::kEnabled
+               : EnableUnfilteredCollapse::kDisabled;
+  }
+
   static void set_per_cpu_caches(bool value) {
 #if !defined(TCMALLOC_DEPRECATED_PERTHREAD)
     if (!value) {
@@ -223,6 +230,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v);
   friend void ::TCMalloc_Internal_SetBackSmallAllocations(bool v);
   friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
+  friend void ::TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_interval_;
@@ -243,6 +251,7 @@ class Parameters {
   static std::atomic<bool> use_userspace_collapse_heuristics_;
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
+  static std::atomic<bool> enable_unfiltered_collapse_;
 };
 
 }  // namespace tcmalloc_internal

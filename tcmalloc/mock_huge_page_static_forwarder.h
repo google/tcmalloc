@@ -32,6 +32,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -89,6 +90,14 @@ class FakeStaticForwarder {
   int32_t BackSizeThresholdBytes() const { return back_size_threshold_bytes_; }
   void SetBackSizeThresholdBytes(int32_t value) {
     back_size_threshold_bytes_ = value;
+  }
+
+  EnableUnfilteredCollapse enable_unfiltered_collapse() const {
+    return enable_unfiltered_collapse_;
+  }
+  void set_enable_unfiltered_collapse(bool value) {
+    enable_unfiltered_collapse_ = value ? EnableUnfilteredCollapse::kEnabled
+                                        : EnableUnfilteredCollapse::kDisabled;
   }
 
   // Arena state.
@@ -213,6 +222,8 @@ class FakeStaticForwarder {
   bool use_userspace_collapse_heuristics_ = false;
   bool back_allocations_ = false;
   int32_t back_size_threshold_bytes_ = kPageSize;
+  EnableUnfilteredCollapse enable_unfiltered_collapse_ =
+      EnableUnfilteredCollapse::kDisabled;
   Arena arena_;
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;

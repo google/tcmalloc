@@ -79,6 +79,10 @@ class StaticForwarder {
     return Parameters::use_userspace_collapse_heuristics();
   }
 
+  static EnableUnfilteredCollapse enable_unfiltered_collapse() {
+    return Parameters::enable_unfiltered_collapse();
+  }
+
   // Arena state.
   static Arena& arena();
 
@@ -1051,9 +1055,12 @@ inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
     bool enable_collapse, bool enable_release_free_swapped) {
   const bool use_userspace_collapse_heuristics =
       forwarder_.use_userspace_collapse_heuristics();
+  const EnableUnfilteredCollapse enable_unfiltered_collapse =
+      forwarder_.enable_unfiltered_collapse();
   PageHeapSpinLockHolder l;
   filler_.TreatHugepageTrackers(enable_collapse, enable_release_free_swapped,
-                                use_userspace_collapse_heuristics);
+                                use_userspace_collapse_heuristics,
+                                enable_unfiltered_collapse);
   FillerType::Tracker* pt;
   while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
     ReleaseHugepage(pt);
