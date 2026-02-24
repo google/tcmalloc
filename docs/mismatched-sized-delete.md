@@ -4,7 +4,7 @@
 
 <!--*
 # Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'ckennelly' reviewed: '2025-08-19' }
+freshness: { owner: 'ckennelly' reviewed: '2026-02-24' }
 *-->
 
 TCMalloc or Address Sanitizer told me there was a mismatch in sized delete's
