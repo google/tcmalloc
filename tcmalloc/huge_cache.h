@@ -62,11 +62,11 @@ class MemoryTagFunction {
 
 // Track the extreme values of a HugeLength value over the past
 // kWindow (time ranges approximate.)
-template <size_t kEpochs = 16>
+template <size_t kSlots = 16>
 class MinMaxTracker {
  public:
   explicit constexpr MinMaxTracker(Clock clock, absl::Duration w)
-      : kEpochLength(w / kEpochs), timeseries_(clock, w) {}
+      : kEpochLength(w / kSlots), timeseries_(clock, kEpochLength) {}
 
   void Report(HugeLength val);
   void Print(Printer& out) const;
@@ -102,7 +102,7 @@ class MinMaxTracker {
     bool operator==(const Extrema& other) const;
   };
 
-  TimeSeriesTracker<Extrema, HugeLength, kEpochs> timeseries_;
+  TimeSeriesTracker<Extrema, HugeLength, kSlots> timeseries_;
 };
 
 // Explicit instantiations are defined in huge_cache.cc.

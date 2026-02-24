@@ -42,14 +42,28 @@ class StatsTrackerTest : public testing::Test {
  private:
   static int64_t clock_;
   static int64_t FakeClock() { return clock_; }
+  static void ResetClock() { clock_ = 0; }
   static double GetFakeClockFrequency() {
     return absl::ToDoubleNanoseconds(absl::Seconds(2));
   }
 
+  // Helper struct whose sole purpose is to call ResetClock() upon construction.
+  struct ClockResetter {
+    ClockResetter() { ResetClock(); }
+  };
+
+  // This ensures ResetClock() is called before the constructor runs
+  // (where tracker_ inits), so its time series has the same initial state
+  // (e.g., first epoch)
+  ClockResetter clock_resetter_;
+
  protected:
   static constexpr absl::Duration kWindow = absl::Minutes(10);
 
-  using StatsTrackerType = SubreleaseStatsTracker<16>;
+  // Epoch length: 0.5 min (i.e., 10-min window in 20 slots). The tracker can
+  // hold records longer than 10 mins, and we expect it to account the epoch
+  // coverage correctly.
+  using StatsTrackerType = SubreleaseStatsTracker<20>;
   StatsTrackerType tracker_{
       Clock{.now = FakeClock, .freq = GetFakeClockFrequency}, kWindow,
       /*summary_interval=*/absl::Minutes(5)};
@@ -67,12 +81,6 @@ class StatsTrackerTest : public testing::Test {
   // Generates a data point with a particular amount of demand pages, while
   // ignoring the specific number of hugepages.
   void GenerateDemandPoint(Length num_pages, Length num_free_pages);
-
-  void SetUp() override {
-    // Resets the clock used by SubreleaseStatsTracker, allowing each test
-    // starts in epoch 0.
-    clock_ = 0;
-  }
 };
 
 int64_t StatsTrackerTest::clock_{0};
@@ -116,18 +124,14 @@ void StatsTrackerTest::GenerateDemandPoint(Length num_pages,
 // comparing the text output of the tracker. While this is a bit verbose, it is
 // much cleaner than extracting and comparing all data manually.
 TEST_F(StatsTrackerTest, Works) {
-  // Ensure that the beginning (when free pages are 0) is outside the 5-min
-  // window the instrumentation is recording.
+  // Epoch 1.
   GenerateInterestingPoints(Length(1), NHugePages(1), Length(1));
+  // Epoch 11.
   Advance(absl::Minutes(5));
-
   GenerateInterestingPoints(Length(100), NHugePages(5), Length(200));
-
+  // Epoch 13.
   Advance(absl::Minutes(1));
-
   GenerateInterestingPoints(Length(200), NHugePages(10), Length(100));
-
-  Advance(absl::Minutes(1));
 
   // Test text output (time series summary).
   {
@@ -158,11 +162,15 @@ TEST_F(StatsTrackerTest, InvalidDurations) {
 }
 
 TEST_F(StatsTrackerTest, ComputeRecentPeaks) {
+  // Epoch 1.
   GenerateDemandPoint(Length(3000), Length(1000));
-  Advance(absl::Minutes(1.25));
+  // Epoch 4.
+  Advance(absl::Minutes(1.5));
   GenerateDemandPoint(Length(1500), Length(0));
+  // Epoch 6.
   Advance(absl::Minutes(1));
   GenerateDemandPoint(Length(100), Length(2000));
+  // Epoch 8.
   Advance(absl::Minutes(1));
   GenerateDemandPoint(Length(500), Length(3000));
 
@@ -170,7 +178,7 @@ TEST_F(StatsTrackerTest, ComputeRecentPeaks) {
   EXPECT_EQ(peak, Length(1500));
   Length peak2 = tracker_.GetRecentPeak(absl::Minutes(5));
   EXPECT_EQ(peak2, Length(3000));
-
+  // Epoch 16.
   Advance(absl::Minutes(4));
   GenerateDemandPoint(Length(200), Length(3000));
 
@@ -187,14 +195,18 @@ TEST_F(StatsTrackerTest, ComputeRecentPeaks) {
 TEST_F(StatsTrackerTest, ComputeRecentDemand) {
   // Generates max and min demand in each epoch to create short-term demand
   // fluctuations.
+  // Epoch 1.
   GenerateDemandPoint(Length(1500), Length(2000));
   GenerateDemandPoint(Length(3000), Length(1000));
-  Advance(absl::Minutes(1.25));
+  // Epoch 4.
+  Advance(absl::Minutes(1.5));
   GenerateDemandPoint(Length(500), Length(1000));
   GenerateDemandPoint(Length(1500), Length(0));
+  // Epoch 6.
   Advance(absl::Minutes(1));
   GenerateDemandPoint(Length(50), Length(1000));
   GenerateDemandPoint(Length(100), Length(2000));
+  // Epoch 8.
   Advance(absl::Minutes(1));
   GenerateDemandPoint(Length(100), Length(2000));
   GenerateDemandPoint(Length(300), Length(3000));
@@ -205,7 +217,7 @@ TEST_F(StatsTrackerTest, ComputeRecentDemand) {
   Length short_long_peak_pages2 =
       tracker_.GetRecentDemand(absl::Minutes(5), absl::Minutes(5));
   EXPECT_EQ(short_long_peak_pages2, Length(3000));
-
+  // Epoch 16.
   Advance(absl::Minutes(4));
   GenerateDemandPoint(Length(150), Length(500));
   GenerateDemandPoint(Length(200), Length(3000));
@@ -213,7 +225,7 @@ TEST_F(StatsTrackerTest, ComputeRecentDemand) {
   Length short_long_peak_pages3 =
       tracker_.GetRecentDemand(absl::Minutes(1), absl::ZeroDuration());
   EXPECT_EQ(short_long_peak_pages3, Length(50));
-
+  // Epoch 36.
   Advance(absl::Minutes(5));
   GenerateDemandPoint(Length(100), Length(700));
   GenerateDemandPoint(Length(150), Length(800));
@@ -256,13 +268,13 @@ TEST_F(StatsTrackerTest, ComputeRealizedFragmentation) {
   GenerateDemandPoint(Length(3000), Length(1000));
   Advance(absl::Minutes(1));
   GenerateDemandPoint(Length(1500), Length(2000));
-  Advance(absl::Minutes(2));
+
   Length fragmentation_1 = tracker_.RealizedFragmentation();
   EXPECT_EQ(fragmentation_1, Length(500));
 
   Advance(absl::Minutes(30));
   GenerateDemandPoint(Length(1500), Length(2000));
-  Advance(absl::Minutes(2));
+
   Length fragmentation_2 = tracker_.RealizedFragmentation();
   EXPECT_EQ(fragmentation_2, Length(2000));
 }
@@ -304,9 +316,6 @@ TEST_F(StatsTrackerTest, TrackCorrectSubreleaseDecisions) {
 
   // Third peak (large, too late for first peak)
   Advance(absl::Minutes(4));
-  GenerateDemandPoint(Length(1100), Length(1000));
-
-  Advance(absl::Minutes(5));
   GenerateDemandPoint(Length(1100), Length(1000));
 
   EXPECT_EQ(tracker_.total_skipped().pages, Length(1000));

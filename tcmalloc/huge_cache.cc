@@ -15,7 +15,6 @@
 #include "tcmalloc/huge_cache.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <tuple>
@@ -33,69 +32,72 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::Report(HugeLength val) {
+template <size_t kSlots>
+void MinMaxTracker<kSlots>::Report(HugeLength val) {
   timeseries_.Report(val);
 }
 
-template <size_t kEpochs>
-HugeLength MinMaxTracker<kEpochs>::MaxOverTime(absl::Duration t) const {
+template <size_t kSlots>
+HugeLength MinMaxTracker<kSlots>::MaxOverTime(absl::Duration t) const {
   HugeLength m = NHugePages(0);
-  size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
-  timeseries_.IterBackwards(
-      [&](size_t offset, const Extrema& e) { m = std::max(m, e.max); },
-      num_epochs);
+  timeseries_.IterBackwards([&](size_t offset, size_t epoch_delta,
+                                const Extrema& e) { m = std::max(m, e.max); },
+                            t);
   return m;
 }
 
-template <size_t kEpochs>
-HugeLength MinMaxTracker<kEpochs>::MinOverTime(absl::Duration t) const {
+template <size_t kSlots>
+HugeLength MinMaxTracker<kSlots>::MinOverTime(absl::Duration t) const {
   HugeLength m = kMaxVal;
-  size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
-  timeseries_.IterBackwards(
-      [&](size_t offset, const Extrema& e) { m = std::min(m, e.min); },
-      num_epochs);
+  timeseries_.IterBackwards([&](size_t offset, size_t epoch_delta,
+                                const Extrema& e) { m = std::min(m, e.min); },
+                            t);
+  if (m == kMaxVal) m = NHugePages(0);
   return m;
 }
 
-template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::Print(Printer& out) const {
-  // Prints timestamp:min_pages:max_pages for each window with records.
-  // Timestamp == kEpochs - 1 is the most recent measurement.
+template <size_t kSlots>
+void MinMaxTracker<kSlots>::Print(Printer& out) const {
+  // Prints record_number:time_offset_ms:min_pages:max_pages for each records,
+  // from the earliest to the latest.
   const int64_t millis = absl::ToInt64Milliseconds(kEpochLength);
-  out.printf("\nHugeCache: window %lldms * %zu", millis, kEpochs);
+  out.printf("\nHugeCache: epoch length %lldms, number of records %zu", millis,
+             kSlots);
   int written = 0;
-  timeseries_.Iter(
-      [&](size_t offset, const Extrema& e) {
-        if ((written++) % 100 == 0) {
-          out.printf("\nHugeCache: Usage timeseries ");
-        }
-        out.printf("%zu:%zu:%zd,", offset, e.min.raw_num(), e.max.raw_num());
-      },
-      timeseries_.kSkipEmptyEntries);
+  int64_t accumulated_delta_ms = 0;
+  timeseries_.Iter([&](size_t offset, size_t epoch_delta, const Extrema& e) {
+    if ((written++) % 100 == 0) {
+      out.printf("\nHugeCache: Usage timeseries ");
+    }
+    accumulated_delta_ms +=
+        absl::ToInt64Milliseconds(epoch_delta * kEpochLength);
+    out.printf("%zu:%zu:%zu:%zd,", offset, accumulated_delta_ms,
+               e.min.raw_num(), e.max.raw_num());
+  });
   out.printf("\n");
 }
 
-template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion& hpaa) const {
+template <size_t kSlots>
+void MinMaxTracker<kSlots>::PrintInPbtxt(PbtxtRegion& hpaa) const {
   // Prints content of each non-empty epoch, from oldest to most recent data
   auto huge_cache_history = hpaa.CreateSubRegion("huge_cache_history");
   huge_cache_history.PrintI64("window_ms",
                               absl::ToInt64Milliseconds(kEpochLength));
-  huge_cache_history.PrintI64("epochs", kEpochs);
-
-  timeseries_.Iter(
-      [&](size_t offset, const Extrema& e) {
-        auto m = huge_cache_history.CreateSubRegion("measurements");
-        m.PrintI64("epoch", offset);
-        m.PrintI64("min_bytes", e.min.in_bytes());
-        m.PrintI64("max_bytes", e.max.in_bytes());
-      },
-      timeseries_.kSkipEmptyEntries);
+  huge_cache_history.PrintI64("epochs", kSlots);
+  int64_t accumulated_delta_ms = 0;
+  timeseries_.Iter([&](size_t offset, size_t epoch_delta, const Extrema& e) {
+    accumulated_delta_ms +=
+        absl::ToInt64Milliseconds(epoch_delta * kEpochLength);
+    auto m = huge_cache_history.CreateSubRegion("measurements");
+    m.PrintI64("epoch", offset);
+    m.PrintI64("time_offset_ms", accumulated_delta_ms);
+    m.PrintI64("min_bytes", e.min.in_bytes());
+    m.PrintI64("max_bytes", e.max.in_bytes());
+  });
 }
 
-template <size_t kEpochs>
-bool MinMaxTracker<kEpochs>::Extrema::operator==(const Extrema& other) const {
+template <size_t kSlots>
+bool MinMaxTracker<kSlots>::Extrema::operator==(const Extrema& other) const {
   return (other.max == max) && (other.min == min);
 }
 

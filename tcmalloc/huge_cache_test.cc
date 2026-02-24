@@ -60,6 +60,16 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
 
   static void ResetClock() { clock_ = 1234; }
 
+  // Helper struct whose sole purpose is to call ResetClock() upon construction.
+  struct ClockResetter {
+    ClockResetter() { ResetClock(); }
+  };
+
+  // This ensures ResetClock() is called before the HugeCache constructor runs
+  // (where cache_ inits), so its time series has the same initial state (e.g.,
+  // first epoch)
+  ClockResetter clock_resetter_;
+
   class MockBackingInterface : public MemoryModifyFunction {
    public:
     MOCK_METHOD(MemoryModifyStatus, Unback, (PageId p, Length len), ());
@@ -74,7 +84,6 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
     // We don't use the first few bytes, because things might get weird
     // given zero pointers.
     vm_allocator_.backing_.resize(1024);
-    ResetClock();
   }
 
   static void Advance(absl::Duration d) {

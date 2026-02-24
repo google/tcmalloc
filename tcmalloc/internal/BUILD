@@ -1195,7 +1195,7 @@ cc_library(
     deps = [
         ":clock",
         ":logging",
-        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/numeric:int128",

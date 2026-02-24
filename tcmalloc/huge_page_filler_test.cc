@@ -904,6 +904,15 @@ class FillerTest : public testing::TestWithParam<bool> {
     return filler_.GetHugePageTreatmentStats();
   }
 
+  // Helper struct whose sole purpose is to call ResetClock() upon construction.
+  struct ClockResetter {
+    ClockResetter() { FakeClock::ResetClock(); }
+  };
+
+  // This ensures ResetClock() is called before the constructor runs (where
+  // filler inits), so its time series has the same initial state (e.g., first
+  // epoch)
+  ClockResetter clock_resetter_;
   HugePageFiller<PageTracker> filler_;
   BlockingUnback blocking_unback_;
   MockCollapse collapse_;
@@ -916,7 +925,6 @@ class FillerTest : public testing::TestWithParam<bool> {
             MemoryTag::kNormal, blocking_unback_, blocking_unback_, collapse_,
             set_anon_vma_name_,
             HugePageFillerOptions{.use_preferential_collapse = GetParam()}) {
-    FakeClock::ResetClock();
     // Reset success state
     blocking_unback_.success_ = true;
     use_preferential_collapse_ = GetParam();
@@ -4228,8 +4236,8 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
     EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
   }
-
-  FakeClock::Advance(absl::Minutes(10));  // This forces timeseries to wrap
+  // The tracker can hold record collected longer than 10 mins.
+  FakeClock::Advance(absl::Minutes(10));
   // Do some work
   for (int i = 0; i < 5; ++i) {
     result.push_back(AllocateVectorWithSpanAllocInfo(Length(1), kAllocInfo));

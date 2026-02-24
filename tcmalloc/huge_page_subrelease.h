@@ -41,7 +41,7 @@ namespace tcmalloc_internal {
 // (ISMM 2021).
 
 // Tracks correctness of skipped subrelease decisions over time.
-template <size_t kEpochs = 16>
+template <size_t kSlots = 16>
 class SkippedSubreleaseCorrectnessTracker {
  public:
   struct SkippedSubreleaseDecision {
@@ -66,14 +66,10 @@ class SkippedSubreleaseCorrectnessTracker {
 
   explicit constexpr SkippedSubreleaseCorrectnessTracker(
       Clock clock, absl::Duration w, absl::Duration correctness_interval)
-      : window_(w),
-        epoch_length_(window_ / kEpochs),
+      : epoch_length_(w / kSlots),
         correctness_interval_(correctness_interval),
-        correctness_epochs_(std::clamp(correctness_interval_ / epoch_length_,
-                                       int64_t{0},
-                                       static_cast<int64_t>(kEpochs))),
         last_confirmed_peak_(0),
-        tracker_(clock, w) {}
+        tracker_(clock, epoch_length_) {}
 
   // Not copyable or movable
   SkippedSubreleaseCorrectnessTracker(
@@ -105,11 +101,12 @@ class SkippedSubreleaseCorrectnessTracker {
     pending_skipped_ = SkippedSubreleaseDecision::Zero();
 
     Length largest_peak_already_confirmed = last_confirmed_peak_;
-    // Going through all subrelease decisions recorded in [0,
-    // correctness_epochs_] to see if they can be marked correct by the new
-    // peak.
+    // Going through all subrelease decisions recorded in the last
+    // correctness_interval_ (inclusive) to see if they can
+    // be marked correct by the new peak.
     tracker_.IterBackwards(
-        [&](size_t offset, const SkippedSubreleaseEntry& e) {
+        [&](size_t offset, size_t epoch_delta,
+            const SkippedSubreleaseEntry& e) {
           // Do not clear any decisions in the current epoch.
           if (offset == 0) {
             return;
@@ -131,7 +128,7 @@ class SkippedSubreleaseCorrectnessTracker {
           largest_peak_already_confirmed =
               std::max(largest_peak_already_confirmed, e.max_confirmed_peak);
         },
-        correctness_epochs_ + 1);
+        correctness_interval_ + epoch_length_);
 
     last_confirmed_peak_ = std::max(last_confirmed_peak_, current_peak);
   }
@@ -180,7 +177,6 @@ class SkippedSubreleaseCorrectnessTracker {
     }
   };
 
-  const absl::Duration window_;
   const absl::Duration epoch_length_;
 
   // How long from the time of the decision (i.e., skipped pages) do we have
@@ -189,7 +185,6 @@ class SkippedSubreleaseCorrectnessTracker {
   // this interval are smaller than the predicted demand peak (i.e., we reserved
   // too many free pages).
   const absl::Duration correctness_interval_;
-  const int64_t correctness_epochs_;
 
   // The largest peak we processed this epoch. This is required to avoid us
   // double-counting correctly predicted decisions.
@@ -199,7 +194,7 @@ class SkippedSubreleaseCorrectnessTracker {
   SkippedSubreleaseDecision correctly_skipped_;
   SkippedSubreleaseDecision pending_skipped_;
 
-  TimeSeriesTracker<SkippedSubreleaseEntry, SkippedSubreleaseUpdate, kEpochs>
+  TimeSeriesTracker<SkippedSubreleaseEntry, SkippedSubreleaseUpdate, kSlots>
       tracker_;
 };
 
@@ -257,7 +252,7 @@ struct SubreleaseStats {
 };
 
 // Track subrelease statistics over a time window.
-template <size_t kEpochs = 16>
+template <size_t kSlots = 16>
 class SubreleaseStatsTracker {
  public:
   enum Type {
@@ -296,10 +291,11 @@ class SubreleaseStatsTracker {
 
   explicit constexpr SubreleaseStatsTracker(Clock clock, absl::Duration w,
                                             absl::Duration summary_interval)
-      : summary_interval_(summary_interval),
-        window_(w),
-        epoch_length_(window_ / kEpochs),
-        tracker_(clock, w),
+      : window_(w),
+        epoch_length_(window_ / kSlots),
+        summary_interval_(summary_interval),
+        summary_epochs_(summary_interval_ / epoch_length_),
+        tracker_(clock, epoch_length_),
         skipped_subrelease_correctness_(clock, w, summary_interval_) {
     // The summary_interval is used in two trackers: SubreleaseStatsTracker for
     // evaluating realized fragmentation, and
@@ -316,11 +312,16 @@ class SubreleaseStatsTracker {
   void Report(const SubreleaseStats& stats) {
     if (ABSL_PREDICT_FALSE(tracker_.Report(stats))) {
       if (ABSL_PREDICT_FALSE(pending_skipped().count > 0)) {
-        // Consider the peak within the just completed epoch to confirm the
-        // correctness of any recent subrelease decisions.
-        skipped_subrelease_correctness_.ReportUpdatedPeak(std::max(
-            stats.num_pages,
-            tracker_.GetEpochAtOffset(1).stats[kStatsAtMaxDemand].num_pages));
+        Length peak = stats.num_pages;
+        // Consider the peak in the most recent record that reported within the
+        // summary interval to confirm the correctness of any recent subrelease
+        // decisions.
+        auto most_recent_record = tracker_.GetMostRecentRecord();
+        if (most_recent_record.epoch_taken <= summary_epochs_) {
+          peak = std::max(
+              peak, most_recent_record.data.stats[kStatsAtMaxDemand].num_pages);
+        }
+        skipped_subrelease_correctness_.ReportUpdatedPeak(peak);
       }
     }
   }
@@ -339,7 +340,9 @@ class SubreleaseStatsTracker {
   Length GetRecentPeak(absl::Duration peak_interval) {
     last_skip_subrelease_intervals_.peak_interval =
         std::min(peak_interval, window_);
-    return CalculateDemandPeak(peak_interval);
+    // Being precise about the interval length as the tracker can hold records
+    // outside the window_ .
+    return CalculateDemandPeak(last_skip_subrelease_intervals_.peak_interval);
   }
 
   // Calculates demand requirements for the skip subrelease: we do not
@@ -349,7 +352,7 @@ class SubreleaseStatsTracker {
   // long-term demand trend in the previous <long_interval>. When both are set,
   // short_interval should be (significantly) shorter or equal to long_interval
   // to avoid realized fragmentation caused by non-recent (short-term) demand
-  // spikes. The demand is capped to the peak observed in the time series.
+  // spikes. The demand is capped to the peak observed in the history window.
   Length GetRecentDemand(absl::Duration short_interval,
                          absl::Duration long_interval) {
     return GetRecentDemand(short_interval, long_interval, window_);
@@ -384,19 +387,19 @@ class SubreleaseStatsTracker {
   }
 
   inline typename SkippedSubreleaseCorrectnessTracker<
-      kEpochs>::SkippedSubreleaseDecision
+      kSlots>::SkippedSubreleaseDecision
   total_skipped() const {
     return skipped_subrelease_correctness_.total_skipped();
   }
 
   inline typename SkippedSubreleaseCorrectnessTracker<
-      kEpochs>::SkippedSubreleaseDecision
+      kSlots>::SkippedSubreleaseDecision
   correctly_skipped() const {
     return skipped_subrelease_correctness_.correctly_skipped();
   }
 
   inline typename SkippedSubreleaseCorrectnessTracker<
-      kEpochs>::SkippedSubreleaseDecision
+      kSlots>::SkippedSubreleaseDecision
   pending_skipped() const {
     return skipped_subrelease_correctness_.pending_skipped();
   }
@@ -409,18 +412,17 @@ class SubreleaseStatsTracker {
     mins.free = Length::max();
     mins.free_backed = Length::max();
 
-    int64_t num_epochs = std::clamp(w / epoch_length_, int64_t{0},
-                                    static_cast<int64_t>(kEpochs));
+    w = std::max(w, absl::ZeroDuration());
 
     tracker_.IterBackwards(
-        [&](size_t offset, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             mins.free = std::min(mins.free, e.min_free_pages);
             mins.free_backed =
                 std::min(mins.free_backed, e.min_free_backed_pages);
           }
         },
-        num_epochs);
+        w);
     mins.free = (mins.free == Length::max()) ? Length(0) : mins.free;
     mins.free_backed =
         (mins.free_backed == Length::max()) ? Length(0) : mins.free_backed;
@@ -431,16 +433,14 @@ class SubreleaseStatsTracker {
   // backed pages over the last summary_interval_ (default 5 min).
   Length RealizedFragmentation() const {
     Length min_free_backed = Length::max();
-    int64_t num_epochs =
-        std::min<int64_t>(summary_interval_ / epoch_length_, kEpochs);
     tracker_.IterBackwards(
-        [&](size_t offset, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             min_free_backed =
                 std::min(min_free_backed, e.min_free_backed_pages);
           }
         },
-        num_epochs);
+        summary_interval_);
     min_free_backed =
         (min_free_backed == Length::max()) ? Length(0) : min_free_backed;
     return min_free_backed;
@@ -498,10 +498,8 @@ class SubreleaseStatsTracker {
   // <peak_interval>.
   Length CalculateDemandPeak(absl::Duration peak_interval) {
     Length max_demand_pages;
-    int64_t num_epochs =
-        std::min<int64_t>(peak_interval / epoch_length_, kEpochs);
     tracker_.IterBackwards(
-        [&](size_t offset, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             // Identify the maximum number of demand pages we have seen within
             // the time interval.
@@ -510,7 +508,7 @@ class SubreleaseStatsTracker {
             }
           }
         },
-        num_epochs);
+        peak_interval);
     return max_demand_pages;
   }
 
@@ -527,15 +525,8 @@ class SubreleaseStatsTracker {
     last_skip_subrelease_intervals_.long_interval =
         std::max(std::min(long_interval, window_), absl::ZeroDuration());
     Length short_term_fluctuation_pages, long_term_trend_pages;
-    int64_t short_epochs =
-        std::min<int64_t>(short_interval / epoch_length_, kEpochs);
-    TC_ASSERT_GE(short_epochs, 0);
-    int64_t long_epochs =
-        std::min<int64_t>(long_interval / epoch_length_, kEpochs);
-    TC_ASSERT_GE(long_epochs, 0);
-
     tracker_.IterBackwards(
-        [&](size_t offset, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             Length demand_difference = e.stats[kStatsAtMaxDemand].num_pages -
                                        e.stats[kStatsAtMinDemand].num_pages;
@@ -547,9 +538,9 @@ class SubreleaseStatsTracker {
             }
           }
         },
-        short_epochs);
+        last_skip_subrelease_intervals_.short_interval);
     tracker_.IterBackwards(
-        [&](size_t offset, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             // Identifies the long-term demand peak (i.e., largest minimum
             // demand) that we have seen within the time interval.
@@ -558,21 +549,21 @@ class SubreleaseStatsTracker {
             }
           }
         },
-        long_epochs);
+        last_skip_subrelease_intervals_.long_interval);
     return short_term_fluctuation_pages + long_term_trend_pages;
   }
 
+  const absl::Duration window_;
+  const absl::Duration epoch_length_;
   // The tracker reports pages that have been free for at least this interval,
   // as well as peaks within this interval. The interval is also used for
   // deciding correctness of skipped subreleases by associating past skipping
   // decisions to peaks within this interval.
   const absl::Duration summary_interval_;
+  const int64_t summary_epochs_;
 
-  const absl::Duration window_;
-  const absl::Duration epoch_length_;
-
-  TimeSeriesTracker<SubreleaseStatsEntry, SubreleaseStats, kEpochs> tracker_;
-  SkippedSubreleaseCorrectnessTracker<kEpochs> skipped_subrelease_correctness_;
+  TimeSeriesTracker<SubreleaseStatsEntry, SubreleaseStats, kSlots> tracker_;
+  SkippedSubreleaseCorrectnessTracker<kSlots> skipped_subrelease_correctness_;
 
   // Records most recent intervals for skipping subreleases, for reporting and
   // debugging only.
@@ -584,9 +575,9 @@ inline double safe_div(Length a, Length b) {
   return safe_div(a.raw_num(), b.raw_num());
 }
 
-template <size_t kEpochs>
-void SubreleaseStatsTracker<kEpochs>::Print(Printer& out,
-                                            absl::string_view field) const {
+template <size_t kSlots>
+void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
+                                           absl::string_view field) const {
   NumberOfFreePages free_pages = min_free_pages(summary_interval_);
   out.printf("%s: time series over %d min interval\n\n", field,
              absl::ToInt64Minutes(summary_interval_));
@@ -601,7 +592,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer& out,
   SubreleaseStatsEntry at_peak_demand;
 
   tracker_.IterBackwards(
-      [&](size_t offset, const SubreleaseStatsEntry& e) {
+      [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
         if (!e.empty()) {
           if (at_peak_demand.empty() ||
               at_peak_demand.stats[kStatsAtMaxDemand].num_pages <
@@ -610,7 +601,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer& out,
           }
         }
       },
-      summary_interval_ / epoch_length_);
+      summary_interval_);
 
   out.printf(
       "%s: at peak demand: %zu pages (and %zu free, %zu unmapped)\n"
@@ -656,14 +647,16 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer& out,
   Length total_subreleased;
   Length total_partial_alloc_pages_subreleased;
   HugeLength total_broken = NHugePages(0);
-  tracker_.Iter(
-      [&](size_t offset, const SubreleaseStatsEntry& e) {
-        total_subreleased += e.num_pages_subreleased;
-        total_partial_alloc_pages_subreleased +=
-            e.num_partial_alloc_pages_subreleased;
-        total_broken += e.num_hugepages_broken;
+  tracker_.IterBackwards(
+      [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
+        if (!e.empty()) {
+          total_subreleased += e.num_pages_subreleased;
+          total_partial_alloc_pages_subreleased +=
+              e.num_partial_alloc_pages_subreleased;
+          total_broken += e.num_hugepages_broken;
+        }
       },
-      tracker_.kSkipEmptyEntries);
+      window_);
   out.printf(
       "%s: Subrelease stats last %d min: total "
       "%zu pages subreleased (%zu pages from partial allocs), "
@@ -673,8 +666,8 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer& out,
       total_partial_alloc_pages_subreleased.raw_num(), total_broken.raw_num());
 }
 
-template <size_t kEpochs>
-void SubreleaseStatsTracker<kEpochs>::PrintSubreleaseStatsInPbtxt(
+template <size_t kSlots>
+void SubreleaseStatsTracker<kSlots>::PrintSubreleaseStatsInPbtxt(
     PbtxtRegion& hpaa, absl::string_view field) const {
   PbtxtRegion region = hpaa.CreateSubRegion(field);
   region.PrintI64(
@@ -699,12 +692,12 @@ void SubreleaseStatsTracker<kEpochs>::PrintSubreleaseStatsInPbtxt(
                   absl::ToInt64Milliseconds(summary_interval_));
 }
 
-template <size_t kEpochs>
-void SubreleaseStatsTracker<kEpochs>::PrintTimeseriesStatsInPbtxt(
+template <size_t kSlots>
+void SubreleaseStatsTracker<kSlots>::PrintTimeseriesStatsInPbtxt(
     PbtxtRegion& hpaa, absl::string_view field) const {
   PbtxtRegion region = hpaa.CreateSubRegion(field);
   region.PrintI64("window_ms", absl::ToInt64Milliseconds(epoch_length_));
-  region.PrintI64("epochs", kEpochs);
+  region.PrintI64("epochs", kSlots);
 
   NumberOfFreePages free_pages = min_free_pages(summary_interval_);
   region.PrintI64("min_free_pages_interval_ms",
@@ -714,11 +707,15 @@ void SubreleaseStatsTracker<kEpochs>::PrintTimeseriesStatsInPbtxt(
 
   static const char* labels[kNumStatsTypes] = {"at_minimum_demand",
                                                "at_maximum_demand"};
-
+  int64_t accumulated_delta_ms = 0;
   tracker_.Iter(
-      [&](size_t offset, const SubreleaseStatsEntry& e) GOOGLE_MALLOC_SECTION {
+      [&](size_t offset, size_t epoch_delta,
+          const SubreleaseStatsEntry& e) GOOGLE_MALLOC_SECTION {
+        accumulated_delta_ms +=
+            absl::ToInt64Milliseconds(epoch_delta * epoch_length_);
         auto subregion = region.CreateSubRegion("measurements");
         subregion.PrintI64("epoch", offset);
+        subregion.PrintI64("time_offset_ms", accumulated_delta_ms);
         subregion.PrintI64("min_free_pages", e.min_free_pages.raw_num());
         subregion.PrintI64("min_free_backed_pages",
                            e.min_free_backed_pages.raw_num());
@@ -743,8 +740,7 @@ void SubreleaseStatsTracker<kEpochs>::PrintTimeseriesStatsInPbtxt(
           m.PrintI64("used_pages_in_subreleased_huge_pages",
                      stats.used_pages_in_subreleased_huge_pages.raw_num());
         }
-      },
-      tracker_.kSkipEmptyEntries);
+      });
 }
 
 }  // namespace tcmalloc_internal
