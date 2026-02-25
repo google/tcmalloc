@@ -165,7 +165,7 @@ SizeClassConfiguration Static::size_class_configuration() {
 
   // TODO(b/242710633): remove this opt out.
   if (default_want_legacy_size_classes != nullptr &&
-      default_want_legacy_size_classes() > 0) {
+      default_want_legacy_size_classes() > 0 && kPageSize == 8192) {
     return SizeClassConfiguration::kLegacy;
   }
 
