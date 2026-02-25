@@ -207,8 +207,9 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
+// TODO: b/435257627 - Remove this opt out once this has soaked for a while.
 ABSL_CONST_INIT std::atomic<bool>
-    Parameters::use_userspace_collapse_heuristics_(false);
+    Parameters::use_userspace_collapse_heuristics_(true);
 
 // TODO: b/425749361 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
@@ -315,11 +316,6 @@ int32_t Parameters::max_per_cpu_cache_size() {
 
 bool TCMalloc_Internal_GetBackSmallAllocations() {
   return Parameters::back_small_allocations();
-}
-
-
-bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
-  return Parameters::use_userspace_collapse_heuristics();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -432,6 +428,10 @@ bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
 
 int32_t TCMalloc_Internal_GetBackSizeThresholdBytes() {
   return Parameters::back_size_threshold_bytes();
+}
+
+bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
+  return Parameters::use_userspace_collapse_heuristics();
 }
 
 bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
