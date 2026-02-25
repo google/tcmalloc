@@ -22,10 +22,13 @@
 
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
 #if defined(__SANITIZE_ALLOC_TOKEN__)
@@ -434,7 +437,25 @@ void RandomizedAllocateAndDeallocateFuzzTest(
   for (const auto& action : actions) {
     if (std::holds_alternative<AllocationOp>(action)) {
       const auto& alloc_op = std::get<AllocationOp>(action);
-      void* ptr = PerformAllocate(alloc_op);
+      auto original_cpus = tcmalloc::tcmalloc_internal::AllowedCpus();
+      bool is_numa_partition_one = false;
+      bool has_migrated = false;
+      void* ptr;
+      {
+        std::vector<int> temp_affinity;
+        temp_affinity.push_back(original_cpus[0]);
+        tcmalloc::tcmalloc_internal::ScopedAffinityMask affinity_mask(
+            absl::MakeSpan(temp_affinity));
+        // Limit the cpus for the thread to run on to  avoid numa node
+        // migration before the allocation.
+        auto& topo = tcmalloc::tcmalloc_internal::tc_globals.numa_topology();
+        is_numa_partition_one =
+            (topo.numa_aware() && topo.GetCurrentPartition() > 0);
+
+        ptr = PerformAllocate(alloc_op);
+        has_migrated = affinity_mask.Tampered();
+      }
+
       if (ptr != nullptr) {
         const auto tag = tcmalloc::tcmalloc_internal::GetMemoryTag(ptr);
         bool security_partition =
@@ -444,17 +465,25 @@ void RandomizedAllocateAndDeallocateFuzzTest(
             tcmalloc::tcmalloc_internal::ColdFeatureActive()) {
           EXPECT_TRUE(IsCold(tag));
         } else if (alloc_op.token_id == AllocTokenId::ID0) {
-          EXPECT_TRUE(IsPartitionZero(tag));
+          if (is_numa_partition_one) {
+            EXPECT_TRUE(IsPartitionOne(tag) || has_migrated);
+          } else {
+            EXPECT_TRUE(IsPartitionZero(tag) || has_migrated);
+          }
         } else if (security_partition) {
           EXPECT_TRUE(IsPartitionOne(tag));
         } else if (alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint &&
                    tcmalloc::tcmalloc_internal::ColdFeatureActive()) {
           EXPECT_TRUE(IsCold(tag));
         } else {
-          // When security option is off, the same set of size classes
-          // are used so the resulting pointer's tag will be kNormalP0
-          // even the static security token is set to 1:
-          EXPECT_TRUE(IsPartitionZero(tag));
+          if (is_numa_partition_one) {
+            EXPECT_TRUE(IsPartitionOne(tag) || has_migrated);
+          } else {
+            // When security option is off, the same set of size classes
+            // are used so the resulting pointer's tag will be kNormalP0
+            // even the static security token is set to 1:
+            EXPECT_TRUE(IsPartitionZero(tag) || has_migrated);
+          }
         }
 
         live_allocs.push_back(

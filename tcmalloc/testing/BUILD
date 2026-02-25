@@ -1042,12 +1042,10 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "partitioning_fuzz_test",
     srcs = ["partitioning_fuzz_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
-    env = {"TCMALLOC_HEAP_PARTITIONING": "true"},
-    malloc = "//tcmalloc",
     tags = [
         "noasan",
         "nomsan",
@@ -1056,9 +1054,10 @@ cc_test(
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:memory_tag",
+        "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:init_fuzztest",
         "@com_google_googletest//:gtest_main",
