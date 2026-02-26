@@ -191,6 +191,10 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
 
+  static bool madvise_hugepage_mmap_enabled() {
+    return madvise_hugepage_mmap_enabled_.load(std::memory_order_relaxed);
+  }
+
   static bool heap_partitioning();
 
   static central_freelist_internal::PriorityListLength priority_list_length();
@@ -231,6 +235,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetBackSmallAllocations(bool v);
   friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
   friend void ::TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
+  friend void ::TCMalloc_Internal_SetMadviseHugepageMmapEnabled(bool v);
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_interval_;
@@ -252,6 +257,7 @@ class Parameters {
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
+  static std::atomic<bool> madvise_hugepage_mmap_enabled_;
 };
 
 }  // namespace tcmalloc_internal

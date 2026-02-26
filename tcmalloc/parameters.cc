@@ -220,6 +220,8 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
     kPageSize);
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
+ABSL_CONST_INIT std::atomic<bool> Parameters::madvise_hugepage_mmap_enabled_(
+    false);
 
 static std::atomic<bool>& heap_partitioning_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -316,6 +318,10 @@ int32_t Parameters::max_per_cpu_cache_size() {
 
 bool TCMalloc_Internal_GetBackSmallAllocations() {
   return Parameters::back_small_allocations();
+}
+
+bool TCMalloc_Internal_GetMadviseHugepageMmapEnabled() {
+  return Parameters::madvise_hugepage_mmap_enabled();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -618,6 +624,10 @@ void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
 
 void TCMalloc_Internal_SetBackSmallAllocations(bool v) {
   Parameters::back_small_allocations_.store(v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetMadviseHugepageMmapEnabled(bool v) {
+  Parameters::madvise_hugepage_mmap_enabled_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v) {
