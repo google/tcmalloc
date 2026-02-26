@@ -342,10 +342,11 @@ create_tcmalloc_libraries(
 # If this is linked in, heap partitioning will be enabled by default.
 cc_library(
     name = "tcmalloc_enable_heap_partitioning_default_on",
-    linkopts = ["-Wl,--defsym=tcmalloc_flag_enable_heap_partitioning_default_on=1"],
+    srcs = ["enable_heap_partitioning_default_on.cc"],
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
+    deps = ["@com_google_absl//absl/base:core_headers"],
     alwayslink = 1,
 )
 
