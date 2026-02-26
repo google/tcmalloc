@@ -298,6 +298,9 @@ cc_library(
     name = "linux_syscall_support",
     hdrs = ["linux_syscall_support.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:friends",
+    ],
 )
 
 cc_library(
@@ -1133,6 +1136,7 @@ cc_library(
     visibility = [
         "//tcmalloc:__pkg__",
         "//tcmalloc:__subpackages__",
+        "//tcmalloc:friends",
     ],
     deps = [
         ":config",

@@ -1611,3 +1611,9 @@ cc_library(
     ],
     deps = ["@com_google_absl//absl/base:core_headers"],
 )
+
+# Expose internals to privileged external repositories.
+package_group(
+    name = "friends",
+    packages = [],
+)
