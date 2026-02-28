@@ -1159,3 +1159,22 @@ cc_test(
         "//tcmalloc:alloc_at_least",
     ],
 )
+
+cc_import(
+    name = "standalone_import",
+    static_library = "//tcmalloc:tcmalloc_standalone",
+    alwayslink = True,
+)
+
+cc_test(
+    name = "standalone_test",
+    srcs = ["standalone_test.cc"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":standalone_import",
+    ],
+)

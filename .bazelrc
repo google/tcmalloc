@@ -26,6 +26,9 @@ common --incompatible_config_setting_private_default_visibility
 # Link Google Test against Abseil and RE2.
 build --define='absl=1'
 
+# https://github.com/bazelbuild/bazel/pull/26294
+build --experimental_cc_static_library
+
 # AllocationGuard.CooperativeDeathTest checks for "SIGABRT received"
 # message printed by this signal handler.
 test --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1"
