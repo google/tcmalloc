@@ -48,6 +48,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
         "//tcmalloc:__subpackages__",
+        "//tcmalloc:friends",
     ],
     deps = [
         ":malloc_extension",
