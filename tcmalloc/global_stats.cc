@@ -283,7 +283,7 @@ static absl::string_view SizeClassConfigurationString(
 }
 
 static absl::string_view HeapPartitioningModeString() {
-  if (kSecurityPartitions == 1 && tc_globals.active_partitions() == 1) {
+  if (tc_globals.active_partitions() == 1) {
     return "PARTITIONING_MODE_DISABLED";
   } else if (kSecurityPartitions == 1 && tc_globals.active_partitions() > 1) {
     return "PARTITIONING_MODE_NUMA";
@@ -576,8 +576,11 @@ void DumpStats(Printer& out, int level) {
         "MiB)\n",
         stats.num_released_hard_limit_exceeded.in_pages().raw_num(),
         stats.num_released_hard_limit_exceeded.in_mib());
-    out.printf("Number of active %s partitions: %llu\n",
-               kSecurityPartitions > 1 ? "security" : "NUMA",
+    out.printf("Number of active %spartitions: %llu\n",
+               tc_globals.active_partitions() > 1
+                   ? (tc_globals.multiple_non_numa_partitions() ? "security "
+                                                                : "NUMA ")
+                   : "",
                tc_globals.active_partitions());
 
     out.printf("------------------------------------------------\n");
