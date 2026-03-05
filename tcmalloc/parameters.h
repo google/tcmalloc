@@ -193,7 +193,6 @@ class Parameters {
 
   static bool heap_partitioning();
 
-  static central_freelist_internal::PriorityListLength priority_list_length();
   static central_freelist_internal::LifetimeTracking span_lifetime_tracking();
 
  private:

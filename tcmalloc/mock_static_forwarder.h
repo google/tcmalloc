@@ -25,7 +25,6 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
-#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 
@@ -178,9 +177,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
 };
 
 using MockStaticForwarder = testing::NiceMock<RawMockStaticForwarder>;
-using central_freelist_internal::kNumLists,
-    central_freelist_internal::kNumListsExtended,
-    central_freelist_internal::PriorityListLength;
+
 // Wires up a largely functional CentralFreeList + MockStaticForwarder.
 //
 // By default, it fills allocations and responds sensibly.  Because it backs
@@ -200,16 +197,11 @@ class FakeCentralFreeListEnvironment {
            forwarder().class_to_size(kSizeClass);
   }
   size_t batch_size() { return forwarder().num_objects_to_move(); }
-  size_t num_priority_lists() const {
-    return CentralFreeList::NumPriorityLists(priority_list_length_);
-  }
 
-  explicit FakeCentralFreeListEnvironment(
-      size_t class_size, size_t pages, size_t num_objects_to_move,
-      PriorityListLength priority_list_length)
-      : priority_list_length_(priority_list_length) {
+  explicit FakeCentralFreeListEnvironment(size_t class_size, size_t pages,
+                                          size_t num_objects_to_move) {
     forwarder().Init(class_size, pages, num_objects_to_move);
-    cache_.Init(kSizeClass, priority_list_length);
+    cache_.Init(kSizeClass);
   }
 
   ~FakeCentralFreeListEnvironment() { EXPECT_EQ(cache_.length(), 0); }
@@ -220,7 +212,6 @@ class FakeCentralFreeListEnvironment {
 
  private:
   CentralFreeList cache_;
-  const PriorityListLength priority_list_length_;
 };
 
 }  // namespace tcmalloc_internal

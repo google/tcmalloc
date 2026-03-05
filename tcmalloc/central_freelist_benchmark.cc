@@ -47,7 +47,7 @@ void BM_Populate(benchmark::State& state) {
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;
 
-  Env env(object_size, pages, batch_size, PriorityListLength::kNormal);
+  Env env(object_size, pages, batch_size);
 
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -96,7 +96,7 @@ void BM_Multithreaded(benchmark::State& state) {
 
   static Env* env;
   if (state.thread_index() == 0) {
-    env = new Env(object_size, pages, batch_size, PriorityListLength::kNormal);
+    env = new Env(object_size, pages, batch_size);
   }
 
   std::vector<void*> batch(batch_size);
@@ -130,7 +130,7 @@ void BM_MixAndReturn(benchmark::State& state) {
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;
 
-  Env env(object_size, pages, batch_size, PriorityListLength::kNormal);
+  Env env(object_size, pages, batch_size);
 
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -182,7 +182,7 @@ void BM_SpanReuse(benchmark::State& state) {
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;
 
-  Env env(object_size, pages, batch_size, PriorityListLength::kNormal);
+  Env env(object_size, pages, batch_size);
 
   // Array used to hold onto half of the objects
   std::vector<void*> held_objects(2 * num_objects);

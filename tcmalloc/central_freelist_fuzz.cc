@@ -55,17 +55,13 @@ void FuzzCFL(const std::string& s) {
   object_size = object_size % (kMaxSize + 1);
   const size_t num_pages = data[3];
   const size_t num_objects_to_move = data[4];
-  // data[5]: priority list length.
-  const central_freelist_internal::PriorityListLength priority_list_length =
-      data[5] & 0x1 ? central_freelist_internal::PriorityListLength::kExtended
-                    : central_freelist_internal::PriorityListLength::kNormal;
+  // data[5]: reserved
   data += 6;
   size -= 6;
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_objects_to_move)) {
     return;
   }
-  CentralFreelistEnv env(object_size, num_pages, num_objects_to_move,
-                         priority_list_length);
+  CentralFreelistEnv env(object_size, num_pages, num_objects_to_move);
   std::vector<void*> objects;
 
   for (int i = 0; i + 5 < size; i += 5) {

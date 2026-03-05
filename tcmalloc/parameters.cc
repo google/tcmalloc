@@ -24,7 +24,6 @@
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/time/time.h"
-#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
@@ -277,20 +276,6 @@ bool Parameters::usermode_hugepage_collapse() {
 
 bool Parameters::heap_partitioning() {
   return heap_partitioning_enabled().load(std::memory_order_relaxed);
-}
-
-central_freelist_internal::PriorityListLength
-Parameters::priority_list_length() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<
-      central_freelist_internal::PriorityListLength>
-      v{central_freelist_internal::PriorityListLength::kNormal};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(central_freelist_internal::PriorityListLength{IsExperimentActive(
-                Experiment::TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1)},
-            std::memory_order_relaxed);
-  });
-  return v;
 }
 
 central_freelist_internal::LifetimeTracking

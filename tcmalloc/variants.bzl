@@ -255,12 +255,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "tcmalloc_extended_priority_lists",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_EXTENDED_PRIORITY_LISTS_V1"},
-    },
-    {
         "name": "tcmalloc_span_lifetime_tracking",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

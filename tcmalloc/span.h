@@ -261,7 +261,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   ObjIdx BitmapPtrToIdx(void* ptr, size_t size, uint32_t reciprocal) const;
   void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
 
-  static constexpr size_t kNonemptyIndexBits = 6;
+  static constexpr size_t kNonemptyIndexBits = 5;
 
   bool is_long_lived_span() const { return is_long_lived_span_; }
 
@@ -283,7 +283,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static_assert(kCacheSize <= (1 << kMaxCacheBits) - 1);
 
   static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
-  static constexpr size_t kReservedBits = 23;
+  static constexpr size_t kReservedBits = 24;
   // Use uint16_t or uint8_t for 16 bit and 8 bit fields instead of bitfields.
   // LLVM will generate widen load/store and bit masking operations to access
   // bitfields and this hurts performance. Although compiler flag

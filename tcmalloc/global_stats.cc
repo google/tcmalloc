@@ -633,9 +633,6 @@ void DumpStats(Printer& out, int level) {
                Parameters::back_small_allocations() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_back_size_threshold_bytes %d\n",
                Parameters::back_size_threshold_bytes());
-    out.printf(
-        "PARAMETER tcmalloc_num_priority_lists %d\n",
-        CentralFreeList::NumPriorityLists(Parameters::priority_list_length()));
     out.printf("PARAMETER tcmalloc_span_lifetime_tracking %d\n",
                Parameters::span_lifetime_tracking() ==
                        central_freelist_internal::LifetimeTracking::kEnabled
@@ -872,9 +869,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintRaw("madvise", MadviseString());
   region.PrintBool("tcmalloc_resize_size_class_max_capacity",
                    Parameters::resize_size_class_max_capacity());
-  region.PrintI64(
-      "tcmalloc_num_priority_lists",
-      CentralFreeList::NumPriorityLists(Parameters::priority_list_length()));
   region.PrintBool("tcmalloc_span_lifetime_tracking",
                    Parameters::span_lifetime_tracking() ==
                        central_freelist_internal::LifetimeTracking::kEnabled);
