@@ -466,7 +466,8 @@ void DumpStats(Printer& out, int level) {
       out.printf(
           // clang-format off
           "class %3d [ %8zu bytes ] : %8u objs; %5.1f MiB; %6.1f cum MiB; "
-          "%8u live pages; spans: %10zu ret / %10zu req = %5.4f;\n",
+          "%8u live pages; spans: %10zu ret / %10zu req = %5.4f; "
+          "%10zu objs/span;\n",
           // clang-format on
           size_class, tc_globals.sizemap().class_to_size(size_class),
           class_count[size_class], class_bytes / MiB, cumulative / MiB,
@@ -474,7 +475,8 @@ void DumpStats(Printer& out, int level) {
               tc_globals.sizemap().class_to_pages(size_class),
           span_stats[size_class].num_spans_returned,
           span_stats[size_class].num_spans_requested,
-          span_stats[size_class].prob_returned());
+          span_stats[size_class].prob_returned(),
+          tc_globals.central_freelist(size_class).objects_per_span());
     }
 
     out.printf("------------------------------------------------\n");
@@ -748,6 +750,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
       PbtxtRegion entry = region.CreateSubRegion("freelist");
       entry.PrintI64("sizeclass",
                      tc_globals.sizemap().class_to_size(size_class));
+      entry.PrintI64(
+          "objects_per_span",
+          tc_globals.central_freelist(size_class).objects_per_span());
       entry.PrintI64("bytes", class_bytes);
       entry.PrintI64("num_spans_requested",
                      span_stats[size_class].num_spans_requested);

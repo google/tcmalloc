@@ -181,6 +181,7 @@ class CentralFreeList {
 
   // Move long-lived spans to long-lived section of nonempty_.
   void HandleLongLivedSpans() ABSL_LOCKS_EXCLUDED(lock_);
+  size_t objects_per_span() const { return objects_per_span_; }
 
  private:
   // Release a batch of objects to a span.
