@@ -779,8 +779,6 @@ HugePageFiller: realized fragmentation: 0.0 MiB
 HugePageFiller: minimum free pages: 0 (0 backed)
 HugePageFiller: at peak demand: 1774 pages (and 261 free, 13 unmapped)
 HugePageFiller: at peak demand: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
-HugePageFiller: at peak hps: 1774 pages (and 261 free, 13 unmapped)
-HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
 ```
 
 The first line shows the minimum number of free pages over the time interval,
@@ -791,12 +789,11 @@ filler (whether or not released to the OS) as well as only those that were
 backed by physical memory for the full 5-min interval. The realized
 fragmentation metric computed here uses a bounded window.
 
-The next two sections show the state of the filler at peak demand (i.e., when
-the maximum number of pages was in use) and at peak hps (i.e., when the maximum
-number of hugepages was in use). For each, we show the number of free (backed)
-pages as well as unmapped pages, and the number of the four different types of
-hugepages active at that time. If there are multiple peaks, we return the state
-at the latest one of them.
+The next section show the state of the filler at peak demand (i.e., when the
+maximum number of pages was in use). Specifically, we show the number of free
+(backed) pages as well as unmapped pages, and the number of the four different
+types of hugepages active at that time. If there are multiple peaks, we return
+the state at the latest one of them.
 
 If applicable, an additional section tracks the behavior that skips subreleasing
 hugepages if behind the recent demand requirement, which is either the peak

@@ -453,8 +453,7 @@ class SubreleaseStatsTracker {
   enum StatsType { kStatsAtMinDemand, kStatsAtMaxDemand, kNumStatsTypes };
 
   struct SubreleaseStatsEntry {
-    // Collect stats at "interesting points" (minimum/maximum page demand
-    // and at minimum/maximum usage of huge pages).
+    // Collect stats at "interesting points" (minimum/maximum page demand).
     SubreleaseStats stats[kNumStatsTypes] = {};
     static constexpr Length kDefaultValue = Length::max();
     Length min_free_pages = kDefaultValue;
