@@ -32,9 +32,7 @@
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc.h"
-#include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc::tcmalloc_internal {
@@ -169,48 +167,7 @@ void MismatchedAlignedDelete(
   } else {
     ptr = TCMallocInternalNewNothrow(size, std::nothrow);
   }
-
   if (ptr == nullptr) {
-    return;
-  }
-
-  // Alignment mismatches that result in different size classes
-  // will cause catatrophic failures. Detection of such error
-  // conditions is tested, but we need to by-pass inputs that are
-  // valid.
-  //
-  // Here are the normal conditions to be bypassed:
-  // 1. Alignment is specified neither in allocation nor deallocation
-  //     -- always ok
-  // 2. Alignment is specified in allocation, but not deallocation:
-  //     -- ok when the size of the corresponding size class's
-  //     -- natural alignment >= requested alignment (then no size class
-  //     -- adjustment is needed in deallocation)
-  // 3. Alignment is not specified in allocation, but in deallocation
-  //     -- same as above
-  // 4. When both are specified:
-  //     -- ok when the alignment are equal or
-  //     -- both are greater than kPageSize or
-  //     -- size_class adjustments are needed in neither cases.
-
-  auto [is_small_a, size_class_a] =
-      allocated_alignment.has_value()
-          ? tc_globals.sizemap().GetSizeClass(
-                CppPolicy().Nothrow().AlignAs(*allocated_alignment), size)
-          : tc_globals.sizemap().GetSizeClass(CppPolicy().Nothrow(), size);
-
-  auto [is_small_d, size_class_d] =
-      deallocated_alignment.has_value()
-          ? tc_globals.sizemap().GetSizeClass(
-                CppPolicy().Nothrow().AlignAs(*deallocated_alignment), size)
-          : tc_globals.sizemap().GetSizeClass(CppPolicy().Nothrow(), size);
-
-  if (is_small_a && is_small_d && size_class_a == size_class_d) {
-    if (deallocated_alignment.has_value()) {
-      TCMallocInternalDeleteSizedAligned(ptr, size, *deallocated_alignment);
-    } else {
-      TCMallocInternalDeleteSized(ptr, size);
-    }
     return;
   }
 
@@ -224,11 +181,7 @@ void MismatchedAlignedDelete(
   } else {
     TCMallocInternalDeleteSized(ptr, size);
   }
-
-  // The alignment error detecion is only available with debug build
-#ifndef NDEBUG
-  EXPECT_TRUE(!is_small_a && !is_small_d);
-#endif
+  EXPECT_EQ(allocated_alignment, deallocated_alignment);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedAlignedDelete)
