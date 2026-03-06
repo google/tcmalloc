@@ -1064,66 +1064,65 @@ create_tcmalloc_testsuite(
     ],
 )
 
-cc_test(
-    name = "partitioning_off_test",
-    srcs = ["partitioning_test.cc"],
+cc_binary(
+    name = "partitioning_test_helper",
+    testonly = 1,
+    srcs = ["partitioning_test_helper.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    env = {
-        "TCMALLOC_HEAP_PARTITIONING": "false",
-    },
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-        "noubsan",
-    ],
     deps = [
-        ":testutil",
-        "//tcmalloc:tcmalloc_enable_heap_partitioning_default_on",
+        "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:parameter_accessors",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
     ],
 )
 
-cc_test(
-    name = "partitioning_on_test",
-    srcs = ["partitioning_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    env = {"TCMALLOC_HEAP_PARTITIONING": "true"},
-    malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-        "noubsan",
-    ],
-    deps = [
-        ":testutil",
-        "//tcmalloc/internal:memory_tag",
-        "//tcmalloc/internal:parameter_accessors",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "partitioning_default_on_test",
-    srcs = ["partitioning_test.cc"],
+cc_binary(
+    name = "partitioning_test_helper_partitioning_default_on",
+    testonly = 1,
+    srcs = ["partitioning_test_helper.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-        "noubsan",
-    ],
     deps = [
-        ":testutil",
+        "//tcmalloc:malloc_extension",
         "//tcmalloc:tcmalloc_enable_heap_partitioning_default_on",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:parameter_accessors",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+    ],
+)
+
+cc_binary(
+    name = "partitioning_test_helper_partitioning_default_on_numa",
+    testonly = 1,
+    srcs = ["partitioning_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_numa_aware",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:tcmalloc_enable_heap_partitioning_default_on",
+        "//tcmalloc/internal:memory_tag",
+        "//tcmalloc/internal:parameter_accessors",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+    ],
+)
+
+cc_binary(
+    name = "partitioning_test_helper_numa",
+    testonly = 1,
+    srcs = ["partitioning_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_numa_aware",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:memory_tag",
+        "//tcmalloc/internal:parameter_accessors",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
     ],
 )
 
