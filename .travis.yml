@@ -1,0 +1,25 @@
+# [Travis CI Documentation](https://docs.travis-ci.com/)
+language: cpp
+compiler: clang
+dist: xenial
+cache:
+  directories:
+    - $HOME/.bzrepos
+    - $HOME/.cache/bazel
+env:
+  global:
+    - BAZEL_VERSION=2.1.0
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - g++
+
+before_install:
+  - wget https://github.com/bazelbuild/bazel/releases/download/${BAZEL_VERSION}/bazel_${BAZEL_VERSION}-linux-x86_64.deb
+  - sudo dpkg -i bazel_${BAZEL_VERSION}-linux-x86_64.deb
+
+script:
+  - bazel build //...
+  - bazel test //...
