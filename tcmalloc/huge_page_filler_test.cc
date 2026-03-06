@@ -871,7 +871,7 @@ class BlockingUnback final : public MemoryModifyFunction {
 
 thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
 
-class FillerTest : public testing::TestWithParam<bool> {
+class FillerTest : public testing::Test {
  protected:
   // We have backing of one word per (normal-sized) page for our "hugepages".
   std::vector<size_t> backing_;
@@ -917,17 +917,13 @@ class FillerTest : public testing::TestWithParam<bool> {
   BlockingUnback blocking_unback_;
   MockCollapse collapse_;
   MockSetAnonVmaName set_anon_vma_name_;
-  bool use_preferential_collapse_;
 
   FillerTest()
-      : filler_(
-            Clock{.now = FakeClock::now, .freq = FakeClock::freq},
-            MemoryTag::kNormal, blocking_unback_, blocking_unback_, collapse_,
-            set_anon_vma_name_,
-            HugePageFillerOptions{.use_preferential_collapse = GetParam()}) {
+      : filler_(Clock{.now = FakeClock::now, .freq = FakeClock::freq},
+                MemoryTag::kNormal, blocking_unback_, blocking_unback_,
+                collapse_, set_anon_vma_name_) {
     // Reset success state
     blocking_unback_.success_ = true;
-    use_preferential_collapse_ = GetParam();
   }
 
   ~FillerTest() override { EXPECT_EQ(filler_.size(), NHugePages(0)); }
@@ -1182,7 +1178,7 @@ class FillerTest : public testing::TestWithParam<bool> {
 
 int64_t FillerTest::clock_{1234};
 
-TEST_P(FillerTest, Density) {
+TEST_F(FillerTest, Density) {
   absl::BitGen rng;
   // Start with a really annoying setup: some hugepages half empty (randomly)
   std::vector<PAlloc> allocs;
@@ -1226,7 +1222,7 @@ TEST_P(FillerTest, Density) {
   }
 }
 
-TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
+TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   const Length kAlloc = kPagesPerHugePage;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
   ASSERT_TRUE(!p1.empty());
@@ -1287,7 +1283,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
 
 // Checks that the filler prefers to collapse dense hugepages before sparse
 // hugepages.
-TEST_P(FillerTest, CollapseDenseBeforeSparse) {
+TEST_F(FillerTest, CollapseDenseBeforeSparse) {
   const Length kAlloc = kPagesPerHugePage - Length(1);
   constexpr int kNumAllocs = 64;
   using AllocChunk = std::vector<PAlloc>;
@@ -1346,7 +1342,7 @@ TEST_P(FillerTest, CollapseDenseBeforeSparse) {
 
 // Checks that the filler orders collapse operations per the number of
 // objects allocated on those hugepages.
-TEST_P(FillerTest, CollapseOrderNObjects) {
+TEST_F(FillerTest, CollapseOrderNObjects) {
   const Length kAlloc = kPagesPerHugePage - Length(1);
   constexpr int kNumAllocs = 64;
   using AllocChunk = std::vector<PAlloc>;
@@ -1404,7 +1400,7 @@ TEST_P(FillerTest, CollapseOrderNObjects) {
 // Checks that we release pages that are free when any page is swapped.
 // Also checks that we don't release pages that were previously released.
 // The second native page is swapped. The last two pages are free.
-TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
+TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   const Length kAlloc = kPagesPerHugePage;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(2));
   ASSERT_TRUE(!p1.empty());
@@ -1455,7 +1451,7 @@ TEST_P(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
 
 // Checks that we don't release pages when there aren't any pages that are
 // swapped.
-TEST_P(FillerTest, ReleaseNoFreePages) {
+TEST_F(FillerTest, ReleaseNoFreePages) {
   const Length kAlloc = kPagesPerHugePage / 2;
   // 2 TCMalloc pages are free.
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(2));
@@ -1490,7 +1486,7 @@ TEST_P(FillerTest, ReleaseNoFreePages) {
 // Given two hugepages with free pages, checks that an alloc comes from the
 // intact hugepage instead of the one from which we subreleased EVEN IF it has a
 // more suitable LFR.
-TEST_P(FillerTest, CheckAllocationsComeFromIntactHugepage) {
+TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
   // Fill up the first hugepage with elements from p1 and p2. Fill up almost the
   // entire second hugepage with elements from p3. Delete p2 so that both
   // hugepages have 2 free pages.
@@ -1553,7 +1549,7 @@ TEST_P(FillerTest, CheckAllocationsComeFromIntactHugepage) {
 // concurrently with deallocating certain allocations. By deallocating
 // concurrently, some trackers end up in fully freed lists. We want to make sure
 // that we handle this case correctly.
-TEST_P(FillerTest, ParallelCollapseRelease) {
+TEST_F(FillerTest, ParallelCollapseRelease) {
   std::atomic<bool> done(false);
 
   FakePageFlags pageflags;
@@ -1618,7 +1614,7 @@ TEST_P(FillerTest, ParallelCollapseRelease) {
 
 // Makes sure that we do not collapse the pages that are already hugepage
 // backed.
-TEST_P(FillerTest, DontCollapseAlreadyHugepages) {
+TEST_F(FillerTest, DontCollapseAlreadyHugepages) {
   const Length kAlloc = kPagesPerHugePage / 2;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
   ASSERT_TRUE(!p1.empty());
@@ -1652,7 +1648,7 @@ TEST_P(FillerTest, DontCollapseAlreadyHugepages) {
   DeleteVector(p1);
 }
 
-TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
+TEST_F(FillerTest, DontCollapseAlreadyCollapsed) {
   const Length kAlloc = kPagesPerHugePage / 2;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
   ASSERT_TRUE(!p1.empty());
@@ -1712,7 +1708,7 @@ TEST_P(FillerTest, DontCollapseAlreadyCollapsed) {
 
 // Checks that the anonymous VMA name is being recorded correctly for the
 // sampled tracker.
-TEST_P(FillerTest, SetAnonVmaName) {
+TEST_F(FillerTest, SetAnonVmaName) {
   FakePageFlags pageflags;
   FakeResidency residency;
   SpanAllocInfo info;
@@ -1777,7 +1773,7 @@ TEST_P(FillerTest, SetAnonVmaName) {
 }
 
 // Checks that we collapse hugepages that are eligible to be collapsed.
-TEST_P(FillerTest, CollapseHugepages) {
+TEST_F(FillerTest, CollapseHugepages) {
   const Length kAlloc = kPagesPerHugePage / 2;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
   ASSERT_TRUE(!p1.empty());
@@ -1816,7 +1812,7 @@ TEST_P(FillerTest, CollapseHugepages) {
 
 // Checks that we do not collapse hugepages that are not eligible to be
 // collapsed.
-TEST_P(FillerTest, DontCollapseHugepages) {
+TEST_F(FillerTest, DontCollapseHugepages) {
   const Length kAlloc = kPagesPerHugePage / 2;
 
   auto test_collapse = [&](size_t total_unbacked, size_t total_swapped) {
@@ -1866,7 +1862,7 @@ TEST_P(FillerTest, DontCollapseHugepages) {
 
 // Checks that, when unfiltered collapse is enabled, we do collapse hugepages
 // that are generally not eligible for collapse.
-TEST_P(FillerTest, CollapseHugepagesDueToUnfilteredCollapse) {
+TEST_F(FillerTest, CollapseHugepagesDueToUnfilteredCollapse) {
   const Length kAlloc = kPagesPerHugePage / 2;
 
   auto test_collapse = [&](size_t total_unbacked, size_t total_swapped) {
@@ -1915,7 +1911,7 @@ TEST_P(FillerTest, CollapseHugepagesDueToUnfilteredCollapse) {
   EXPECT_EQ(treatment_stats.collapse_time_max_cycles, 0);
 }
 
-TEST_P(FillerTest, CollapseLatency) {
+TEST_F(FillerTest, CollapseLatency) {
   const Length kAlloc = kPagesPerHugePage / 2;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
   ASSERT_TRUE(!p1.empty());
@@ -1965,7 +1961,7 @@ TEST_P(FillerTest, CollapseLatency) {
 
 // Test that collapse mechanism backs off as soon as it encounters the first
 // operation with a high latency.
-TEST_P(FillerTest, EarlyBackoff) {
+TEST_F(FillerTest, EarlyBackoff) {
   const Length kAlloc = kPagesPerHugePage - Length(1);
 
   collapse_.SetLatency(kMaxCollapseLatencyThreshold + absl::Milliseconds(1));
@@ -2038,7 +2034,7 @@ TEST_P(FillerTest, EarlyBackoff) {
 
 // Tests that, due to increased collapse latency, we exponentially backoff from
 // collapse.
-TEST_P(FillerTest, BackoffFromCollapse) {
+TEST_F(FillerTest, BackoffFromCollapse) {
   const Length kAlloc = kPagesPerHugePage / 2;
 
   constexpr size_t kMaxBackoffDelay =
@@ -2116,91 +2112,8 @@ TEST_P(FillerTest, BackoffFromCollapse) {
   }
 }
 
-TEST_P(FillerTest, BackoffOnENoMem) {
-  if (!use_preferential_collapse_) {
-    GTEST_SKIP() << "The test checks behavior of preferential collapse. Skip "
-                    "it when it is not enabled.";
-  }
-  const Length kAlloc = kPagesPerHugePage / 2;
-
-  constexpr size_t kMaxBackoffDelay =
-      HugePageFiller<PageTracker>::kMaxBackoffDelay;
-  bool expect_collapse_attempted = true;
-  int expected_collapse_count = 0;
-  int successful_collapse_count = 0;
-  int backoff_count = 0;
-  int max_backoff = 1;
-  int expected_collapse_intervals_skipped = 0;
-
-  for (bool success : {false, true}) {
-    collapse_.SetSuccess(success);
-    if (!success) {
-      collapse_.SetErrorNumber(ENOMEM);
-    } else {
-      collapse_.SetErrorNumber(0);
-    }
-    bool backoff_increase = !success;
-    while (true) {
-      std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
-      ASSERT_TRUE(!p1.empty());
-
-      FakePageFlags pageflags;
-      FakeResidency residency;
-      for (const auto& pa : p1) {
-        pageflags.MarkHugePageBacked(pa.p.start_addr(),
-                                     /*is_hugepage_backed=*/false);
-        EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
-
-        Bitmap<kMaxResidencyBits> unbacked, swapped;
-        unbacked.SetRange(/*index=*/0, /*n=*/1);
-        swapped.SetRange(/*index=*/0, /*n=*/1);
-        residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
-                                               swapped);
-      }
-
-      ASSERT_EQ(filler_.size(), NHugePages(1));
-
-      TreatHugepageTrackers(/*enable_collapse=*/true,
-                            /*enable_release_free_swapped=*/false,
-                            /*use_userspace_collapse_heuristics=*/false,
-                            EnableUnfilteredCollapse::kDisabled, &pageflags,
-                            &residency);
-      // We exponentially backoff from collapse, depending on the collapse
-      // error.
-      ++backoff_count;
-      expect_collapse_attempted = backoff_count >= max_backoff;
-      if (expect_collapse_attempted) {
-        ++expected_collapse_count;
-        max_backoff = backoff_increase
-                          ? std::min<size_t>(max_backoff * 16, kMaxBackoffDelay)
-                          : std::max<size_t>(max_backoff / 2, 1);
-        backoff_count = 0;
-        successful_collapse_count += success ? 1 : 0;
-      } else {
-        ++expected_collapse_intervals_skipped;
-      }
-
-      for (const auto& pa : p1) {
-        EXPECT_EQ(collapse_.TriedCollapse(pa.p.start_addr()),
-                  expect_collapse_attempted);
-        EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()),
-                  expect_collapse_attempted ? 1 : 0);
-      }
-      HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
-      EXPECT_EQ(treatment_stats.collapse_eligible, expected_collapse_count);
-      EXPECT_EQ(treatment_stats.collapse_attempted, expected_collapse_count);
-      EXPECT_EQ(treatment_stats.collapse_succeeded, successful_collapse_count);
-      EXPECT_EQ(treatment_stats.collapse_intervals_skipped,
-                expected_collapse_intervals_skipped);
-      DeleteVector(p1);
-      if (backoff_increase && max_backoff >= kMaxBackoffDelay) break;
-      if (!backoff_increase && max_backoff <= 1) break;
-    }
-  }
-}
-
 // Don't collapse pages that are released.
-TEST_P(FillerTest, DontCollapseReleasedPages) {
+TEST_F(FillerTest, DontCollapseReleasedPages) {
   const Length kAlloc = kPagesPerHugePage / 2;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc);
   std::vector<PAlloc> p2 =
@@ -2247,7 +2160,7 @@ TEST_P(FillerTest, DontCollapseReleasedPages) {
   DeleteVector(p1);
 }
 
-TEST_P(FillerTest, CollapseFailure) {
+TEST_F(FillerTest, CollapseFailure) {
   const Length kAlloc = kPagesPerHugePage / 2;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
   ASSERT_TRUE(!p1.empty());
@@ -2296,13 +2209,24 @@ TEST_P(FillerTest, CollapseFailure) {
               /*error_count=*/1);
 
   FakeClock::Advance(absl::Minutes(10));
-  collapse_.SetErrorNumber(EBUSY);
+  collapse_.SetErrorNumber(ENOMEM);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
                         /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   check_stats(/*expected_eligible=*/2, /*expected_attempted=*/2,
+              /*expected_succeeded=*/0, CollapseErrorType::kENoMem,
+              /*error_count=*/1);
+
+  FakeClock::Advance(absl::Minutes(10));
+  collapse_.SetErrorNumber(EBUSY);
+  TreatHugepageTrackers(/*enable_collapse=*/true,
+                        /*enable_release_free_swapped=*/false,
+                        /*use_userspace_collapse_heuristics=*/false,
+                        EnableUnfilteredCollapse::kDisabled, &pageflags,
+                        &residency);
+  check_stats(/*expected_eligible=*/3, /*expected_attempted=*/3,
               /*expected_succeeded=*/0, CollapseErrorType::kEBusy,
               /*error_count=*/1);
 
@@ -2313,7 +2237,7 @@ TEST_P(FillerTest, CollapseFailure) {
                         /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
-  check_stats(/*expected_eligible=*/3, /*expected_attempted=*/3,
+  check_stats(/*expected_eligible=*/4, /*expected_attempted=*/4,
               /*expected_succeeded=*/0, CollapseErrorType::kEAgain,
               /*error_count=*/1);
 
@@ -2324,19 +2248,8 @@ TEST_P(FillerTest, CollapseFailure) {
                         /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
-  check_stats(/*expected_eligible=*/4, /*expected_attempted=*/4,
-              /*expected_succeeded=*/0, CollapseErrorType::kOther,
-              /*error_count=*/1);
-
-  FakeClock::Advance(absl::Minutes(10));
-  collapse_.SetErrorNumber(ENOMEM);
-  TreatHugepageTrackers(/*enable_collapse=*/true,
-                        /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
   check_stats(/*expected_eligible=*/5, /*expected_attempted=*/5,
-              /*expected_succeeded=*/0, CollapseErrorType::kENoMem,
+              /*expected_succeeded=*/0, CollapseErrorType::kOther,
               /*error_count=*/1);
 
   DeleteVector(p1);
@@ -2344,7 +2257,7 @@ TEST_P(FillerTest, CollapseFailure) {
 
 // Tests that the pages are revisited periodically (after the clock threshold
 // expires), if the collapse wasn't successful before.
-TEST_P(FillerTest, CollapseClock) {
+TEST_F(FillerTest, CollapseClock) {
   const Length kAlloc = kPagesPerHugePage / 2;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
   ASSERT_TRUE(!p1.empty());
@@ -2424,7 +2337,7 @@ TEST_P(FillerTest, CollapseClock) {
 // This test makes sure that we continue releasing from regular (non-partial)
 // allocs when we enable a feature to release all free pages from partial
 // allocs.
-TEST_P(FillerTest, ReleaseFromFullAllocs) {
+TEST_F(FillerTest, ReleaseFromFullAllocs) {
   const Length kAlloc = kPagesPerHugePage / 2;
   // Maintain the object count for the second allocation so that the alloc
   // list remains the same for the two allocations.
@@ -2471,7 +2384,7 @@ TEST_P(FillerTest, ReleaseFromFullAllocs) {
 // even when we request fewer pages to release. It also confirms that we
 // continue to release desired number of pages from the full allocs even when
 // release_partial_alloc_pages option is enabled.
-TEST_P(FillerTest, ReleaseFreePagesInPartialAllocs) {
+TEST_F(FillerTest, ReleaseFreePagesInPartialAllocs) {
   static const Length kAlloc = kPagesPerHugePage / 2;
   static const Length kL1 = kAlloc - Length(1);
   static const Length kL2 = kAlloc + Length(1);
@@ -2560,7 +2473,7 @@ TEST_P(FillerTest, ReleaseFreePagesInPartialAllocs) {
   DeleteVector(p3);
 }
 
-TEST_P(FillerTest, ReleaseFreePagesInPartialAllocs_SpansAllocated) {
+TEST_F(FillerTest, ReleaseFreePagesInPartialAllocs_SpansAllocated) {
   randomize_density_ = false;
   SpanAllocInfo info = {kPagesPerHugePage.raw_num(),
                         AccessDensityPrediction::kDense};
@@ -2631,7 +2544,7 @@ TEST_P(FillerTest, ReleaseFreePagesInPartialAllocs_SpansAllocated) {
   DeleteVector(p3);
 }
 
-TEST_P(FillerTest, AccountingForUsedPartialReleased) {
+TEST_F(FillerTest, AccountingForUsedPartialReleased) {
   static const Length kAlloc = kPagesPerHugePage / 2;
   static const Length kL1 = kAlloc + Length(3);
   static const Length kL2 = kAlloc + Length(5);
@@ -2673,7 +2586,7 @@ TEST_P(FillerTest, AccountingForUsedPartialReleased) {
   DeleteVector(p2);
 }
 
-TEST_P(FillerTest, Release) {
+TEST_F(FillerTest, Release) {
   static const Length kAlloc = kPagesPerHugePage / 2;
   // Maintain the object count for the second allocation so that the alloc
   // list
@@ -2715,7 +2628,7 @@ TEST_P(FillerTest, Release) {
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 }
 
-TEST_P(FillerTest, ReleaseZero) {
+TEST_F(FillerTest, ReleaseZero) {
   // Trying to release no pages should not crash.
   EXPECT_EQ(
       ReleasePages(Length(0),
@@ -2774,9 +2687,9 @@ void FillerTest::FragmentationTest() {
   }
 }
 
-TEST_P(FillerTest, Fragmentation) { FragmentationTest(); }
+TEST_F(FillerTest, Fragmentation) { FragmentationTest(); }
 
-TEST_P(FillerTest, PrintFreeRatio) {
+TEST_F(FillerTest, PrintFreeRatio) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
@@ -2844,7 +2757,7 @@ using testing::AnyOf;
 using testing::Eq;
 using testing::StrEq;
 
-TEST_P(FillerTest, HugePageFrac) {
+TEST_F(FillerTest, HugePageFrac) {
   // I don't actually care which we get, both are
   // reasonable choices, but don't report a NaN/complain
   // about divide by 0s/ give some bogus number for empty.
@@ -2909,7 +2822,7 @@ TEST_P(FillerTest, HugePageFrac) {
 //
 // This test is a tool for analyzing parameters -- not intended as an actual
 // unit test.
-TEST_P(FillerTest, DISABLED_ReleaseFrac) {
+TEST_F(FillerTest, DISABLED_ReleaseFrac) {
   absl::BitGen rng;
   const Length baseline = LengthFromBytes(absl::GetFlag(FLAGS_bytes));
   const Length peak = baseline * absl::GetFlag(FLAGS_growth_factor);
@@ -2948,7 +2861,7 @@ TEST_P(FillerTest, DISABLED_ReleaseFrac) {
 
 // Make sure we release appropriate number of pages when using
 // ReleasePartialPages.
-TEST_P(FillerTest, ReleasePagesFromPartialAllocs) {
+TEST_F(FillerTest, ReleasePagesFromPartialAllocs) {
   const Length N = kPagesPerHugePage;
   auto big = AllocateVector(N - Length(2));
   ASSERT_TRUE(!big.empty());
@@ -3008,7 +2921,7 @@ TEST_P(FillerTest, ReleasePagesFromPartialAllocs) {
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
 }
 
-TEST_P(FillerTest, ReleaseAccounting) {
+TEST_F(FillerTest, ReleaseAccounting) {
   const Length N = kPagesPerHugePage;
   auto big = AllocateVector(N - Length(2));
   ASSERT_TRUE(!big.empty());
@@ -3086,7 +2999,7 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
 }
 
-TEST_P(FillerTest, ReleaseWithReuse) {
+TEST_F(FillerTest, ReleaseWithReuse) {
   const Length N = kPagesPerHugePage;
   auto half = AllocateVector(N / 2);
   ASSERT_TRUE(!half.empty());
@@ -3133,7 +3046,7 @@ TEST_P(FillerTest, ReleaseWithReuse) {
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 }
 
-TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
+TEST_F(FillerTest, CheckPreviouslyReleasedStats) {
   FakePageFlags pageflags;
   const Length N = kPagesPerHugePage;
   auto half = AllocateVector(N / 2);
@@ -3190,7 +3103,7 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
 
 // Make sure that previously_released_huge_pages stat is correct when a huge
 // page toggles from full -> released -> full -> released.
-TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
+TEST_F(FillerTest, CheckFullReleasedFullReleasedState) {
   FakePageFlags pageflags;
   const Length N = kPagesPerHugePage;
   auto half = AllocateVector(N / 2);
@@ -3252,7 +3165,7 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
                                  "out of which 0 pages are hugepage backed."));
 }
 
-TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
+TEST_F(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
   const Length N = kPagesPerHugePage;
   // Guarantee we have a ton of released pages go empty.
   for (int i = 0; i < 10 * 1000; ++i) {
@@ -3267,7 +3180,7 @@ TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
   EXPECT_LE(s.system_bytes, 1024 * 1024 * 1024);
 }
 
-TEST_P(FillerTest, StronglyPreferNonDonated) {
+TEST_F(FillerTest, StronglyPreferNonDonated) {
   // We donate several huge pages of varying fullnesses. Then we make several
   // allocations that would be perfect fits for the donated hugepages, *after*
   // making one allocation that won't fit, to ensure that a huge page is
@@ -3514,7 +3427,7 @@ HugePageFiller: 83.3333% of decisions confirmed correct, 0 pending (83.2898% of 
   }
 }
 
-TEST_P(FillerTest, SkipSubrelease_PartialReleaseDenseAllocation) {
+TEST_F(FillerTest, SkipSubrelease_PartialReleaseDenseAllocation) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
@@ -3523,7 +3436,7 @@ TEST_P(FillerTest, SkipSubrelease_PartialReleaseDenseAllocation) {
   SkipSubreleaseTest(AccessDensityPrediction::kDense, /*release_partial=*/true);
 }
 
-TEST_P(FillerTest, SkipSubrelease_PartialReleaseSparseAllocation) {
+TEST_F(FillerTest, SkipSubrelease_PartialReleaseSparseAllocation) {
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
   }
@@ -3531,7 +3444,7 @@ TEST_P(FillerTest, SkipSubrelease_PartialReleaseSparseAllocation) {
                      /*release_partial=*/true);
 }
 
-TEST_P(FillerTest, SkipSubrelease_DenseAllocation) {
+TEST_F(FillerTest, SkipSubrelease_DenseAllocation) {
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
   }
@@ -3539,7 +3452,7 @@ TEST_P(FillerTest, SkipSubrelease_DenseAllocation) {
                      /*release_partial=*/false);
 }
 
-TEST_P(FillerTest, SkipSubrelease_SparseAllocation) {
+TEST_F(FillerTest, SkipSubrelease_SparseAllocation) {
   if (kPagesPerHugePage != Length(256)) {
     GTEST_SKIP();
   }
@@ -3547,7 +3460,7 @@ TEST_P(FillerTest, SkipSubrelease_SparseAllocation) {
                      /*release_partial=*/false);
 }
 
-TEST_P(FillerTest, RecordFeatureVectorTest) {
+TEST_F(FillerTest, RecordFeatureVectorTest) {
   SpanAllocInfo info_sparsely_accessed = {2, AccessDensityPrediction::kSparse};
   PAlloc small_alloc =
       AllocateWithSpanAllocInfo(Length(1), info_sparsely_accessed);
@@ -3641,7 +3554,7 @@ TEST_P(FillerTest, RecordFeatureVectorTest) {
   }
 }
 
-TEST_P(FillerTest, PrintFeatureVectorTest) {
+TEST_F(FillerTest, PrintFeatureVectorTest) {
   FakePageFlags pageflags;
   const Length N = kPagesPerHugePage;
   SpanAllocInfo info_sparsely_accessed = {1, AccessDensityPrediction::kSparse};
@@ -3715,7 +3628,7 @@ HugePageFiller: Allocations: 101, Longest Free Range: 155, Objects: 202, Is Huge
   }
 }
 
-TEST_P(FillerTest, LiveLifetimeTelemetryTest) {
+TEST_F(FillerTest, LiveLifetimeTelemetryTest) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
@@ -3907,7 +3820,7 @@ HugePageFiller: <254<=     0 <255<=     0
   Delete(large_alloc);
 }
 
-TEST_P(FillerTest, CompletedLifetimeTelemetryTest) {
+TEST_F(FillerTest, CompletedLifetimeTelemetryTest) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
@@ -3940,7 +3853,7 @@ HugePageFiller: < 100000 ms <=      1 < 1000000 ms <=      0
 )"));
 }
 
-TEST_P(FillerTest, SkipSubreleaseDemandPeak) {
+TEST_F(FillerTest, SkipSubreleaseDemandPeak) {
   // Tests that HugePageFiller can cap filler's short-term long-term
   // skip-subrelease mechanism using the demand measured by subrelease
   // intervals.
@@ -3986,7 +3899,7 @@ TEST_P(FillerTest, SkipSubreleaseDemandPeak) {
   DeleteVector(half1c);
 }
 
-TEST_P(FillerTest, ReportSkipSubreleases) {
+TEST_F(FillerTest, ReportSkipSubreleases) {
   // Tests that HugePageFiller reports skipped subreleases using demand
   // requirement that is the smaller of two (recent peak and its
   // current capacity). This fix makes evaluating skip subrelease more
@@ -4148,7 +4061,7 @@ std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
 
 // Testing subrelase stats: ensure that the cumulative number of released
 // pages and broken hugepages is no less than those of the last 10 mins
-TEST_P(FillerTest, CheckSubreleaseStats) {
+TEST_F(FillerTest, CheckSubreleaseStats) {
   // Fix the object count since very specific statistics are being tested.
   static_assert(kPagesPerHugePage > Length(10),
                 "Not enough pages per hugepage!");
@@ -4297,7 +4210,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
   }
 }
 
-TEST_P(FillerTest, ConstantBrokenHugePages) {
+TEST_F(FillerTest, ConstantBrokenHugePages) {
   // Get and Fill up many huge pages
   const HugeLength kHugePages = NHugePages(10 * kPagesPerHugePage.raw_num());
 
@@ -4364,7 +4277,7 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
 
 // Confirms that a timeseries that contains every epoch does not exceed the
 // expected buffer capacity of 1 MiB.
-TEST_P(FillerTest, CheckBufferSize) {
+TEST_F(FillerTest, CheckBufferSize) {
   const int kEpochs = 600;
   const absl::Duration kEpochLength = absl::Seconds(1);
   std::vector<PAlloc> big = AllocateVector(kPagesPerHugePage - Length(4));
@@ -4390,7 +4303,7 @@ TEST_P(FillerTest, CheckBufferSize) {
   EXPECT_LE(buffer_size, 1024 * 1024);
 }
 
-TEST_P(FillerTest, ReleasePriority) {
+TEST_F(FillerTest, ReleasePriority) {
   // Fill up many huge pages (>> kPagesPerHugePage).  This relies on an
   // implementation detail of ReleasePages buffering up at most
   // kPagesPerHugePage as potential release candidates.
@@ -4492,7 +4405,7 @@ TEST_P(FillerTest, ReleasePriority) {
   }
 }
 
-TEST_P(FillerTest, b258965495) {
+TEST_F(FillerTest, b258965495) {
   // 1 huge page:  2 pages allocated, kPagesPerHugePage-2 free, 0 released
   auto a1 = AllocateVector(Length(2));
   ASSERT_TRUE(!a1.empty());
@@ -4523,7 +4436,7 @@ TEST_P(FillerTest, b258965495) {
   DeleteVector(a1);
 }
 
-TEST_P(FillerTest, CheckFillerStats) {
+TEST_F(FillerTest, CheckFillerStats) {
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
     // it would be way too much of a pain.
@@ -4581,7 +4494,7 @@ TEST_P(FillerTest, CheckFillerStats) {
   }
 }
 
-TEST_P(FillerTest, CheckFillerStats_SpansAllocated) {
+TEST_F(FillerTest, CheckFillerStats_SpansAllocated) {
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
     // it would be way too much of a pain.
@@ -4639,7 +4552,7 @@ TEST_P(FillerTest, CheckFillerStats_SpansAllocated) {
   }
 }
 
-TEST_P(FillerTest, ResidencyTelemetry) {
+TEST_F(FillerTest, ResidencyTelemetry) {
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
     // it would be way too much of a pain.
@@ -4795,7 +4708,7 @@ HugePageFiller: 130 of sparsely-accessed regular used native pages are unbacked.
   DeleteVector(p2);
 }
 
-TEST_P(FillerTest, PrintHugepageBackedStats) {
+TEST_F(FillerTest, PrintHugepageBackedStats) {
   const Length kAlloc = kPagesPerHugePage / 2;
   randomize_density_ = false;
   SpanAllocInfo sparsely_accessed_info = {1, AccessDensityPrediction::kSparse};
@@ -4849,7 +4762,7 @@ HugePageFiller: 0 of densely-accessed released pages hugepage backed out of 0.
 
 // Test the output of Print(). This is something of a change-detector test,
 // but that's not all bad in this case.
-TEST_P(FillerTest, Print) {
+TEST_F(FillerTest, Print) {
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
     // it would be way too much of a pain.
@@ -5520,7 +5433,7 @@ HugePageFiller: Subrelease stats last 10 min: total 306 pages subreleased (0 pag
 // Test Get and Put operations on the filler work correctly when number of
 // objects are provided.  We expect that Get requests with sparsely-accessed
 // and densely-accessed spans are satisfied by their respective allocs.
-TEST_P(FillerTest, GetsAndPuts) {
+TEST_F(FillerTest, GetsAndPuts) {
   randomize_density_ = false;
   absl::BitGen rng;
   std::vector<PAlloc> sparsely_accessed_allocs;
@@ -5565,7 +5478,7 @@ TEST_P(FillerTest, GetsAndPuts) {
 
 // Test that filler tries to release pages from the sparsely - accessed allocs
 // before attempting to release pages from the densely - accessed allocs.
-TEST_P(FillerTest, ReleasePrioritySparseAndDenseAllocs) {
+TEST_F(FillerTest, ReleasePrioritySparseAndDenseAllocs) {
   randomize_density_ = false;
   const Length N = kPagesPerHugePage;
   const Length kToBeReleased(4);
@@ -5597,7 +5510,7 @@ TEST_P(FillerTest, ReleasePrioritySparseAndDenseAllocs) {
 // back down by random deletion. Then release partial hugepages until
 // pageheap is bounded by some fraction of usage.  Measure the blowup in VSS
 // footprint.
-TEST_P(FillerTest, BoundedVSS) {
+TEST_F(FillerTest, BoundedVSS) {
   randomize_density_ = false;
   absl::BitGen rng;
   const Length baseline = LengthFromBytes(absl::GetFlag(FLAGS_bytes));
@@ -5635,7 +5548,7 @@ TEST_P(FillerTest, BoundedVSS) {
 // In b/265337869, we observed failures in the huge_page_filler due to mixing
 // of hugepages between sparsely-accessed and densely-accessed allocs. The
 // test below reproduces the buggy situation.
-TEST_P(FillerTest, CounterUnderflow) {
+TEST_F(FillerTest, CounterUnderflow) {
   randomize_density_ = false;
   const Length N = kPagesPerHugePage;
   const Length kToBeReleased(kPagesPerHugePage / 2 + Length(1));
@@ -5667,7 +5580,7 @@ TEST_P(FillerTest, CounterUnderflow) {
 // presence of partially released and fully released pages in densely-accessed
 // alloc.  The comparator in use does not make correct choices in presence of
 // such hugepages.  The test below reproduces the buggy situation.
-TEST_P(FillerTest, ReleasePagesFromDenseAlloc) {
+TEST_F(FillerTest, ReleasePagesFromDenseAlloc) {
   randomize_density_ = false;
   constexpr size_t kCandidatesForReleasingMemory =
       HugePageFiller<PageTracker>::kCandidatesForReleasingMemory;
@@ -5719,7 +5632,7 @@ TEST_P(FillerTest, ReleasePagesFromDenseAlloc) {
   }
 }
 
-TEST_P(FillerTest, ReleasePagesFromDenseAlloc_SpansAllocated) {
+TEST_F(FillerTest, ReleasePagesFromDenseAlloc_SpansAllocated) {
   randomize_density_ = false;
   constexpr size_t kCandidatesForReleasingMemory =
       HugePageFiller<PageTracker>::kCandidatesForReleasingMemory;
@@ -5787,7 +5700,7 @@ TEST_P(FillerTest, ReleasePagesFromDenseAlloc_SpansAllocated) {
   DeleteVector(allocs_to_be_released);
 }
 
-TEST_P(FillerTest, ReleasedPagesStatistics) {
+TEST_F(FillerTest, ReleasedPagesStatistics) {
   constexpr Length N = kPagesPerHugePage / 4;
 
   std::vector<PAlloc> a1 = AllocateVector(N);
@@ -5828,8 +5741,6 @@ TEST_P(FillerTest, ReleasedPagesStatistics) {
 
   DeleteVector(a1);
 }
-
-INSTANTIATE_TEST_SUITE_P(All, FillerTest, ::testing::Bool());
 
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the

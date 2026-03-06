@@ -24,7 +24,6 @@
 #include <cerrno>
 #include <climits>
 #include <cstddef>
-#include <cstring>
 #include <limits>
 #include <optional>
 
@@ -1034,10 +1033,6 @@ class UsageInfo {
 };
 }  // namespace huge_page_filler_internal
 
-struct HugePageFillerOptions {
-  bool use_preferential_collapse;
-};
-
 enum class EnableUnfilteredCollapse : bool {
   kDisabled = false,
   kEnabled = true,
@@ -1060,8 +1055,7 @@ class HugePageFiller {
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& collapse ABSL_ATTRIBUTE_LIFETIME_BOUND,
-      MemoryTagFunction& set_anon_vma_name ABSL_ATTRIBUTE_LIFETIME_BOUND,
-      HugePageFillerOptions options);
+      MemoryTagFunction& set_anon_vma_name ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   typedef TrackerType Tracker;
 
@@ -1208,8 +1202,8 @@ class HugePageFiller {
   // attempts.
   bool ShouldBackoffFromCollapse();
 
-  // Based on the <latency> and <enomem_errors>, updates the max backoff delay.
-  void UpdateMaxBackoffDelay(absl::Duration latency, int enomem_errors);
+  // Based on the <latency>, updates the max backoff delay.
+  void UpdateMaxBackoffDelay(absl::Duration latency);
 
   // Iterates through all hugepage trackers and applies different treatments.
   // Treatments applied include:
@@ -1395,7 +1389,6 @@ class HugePageFiller {
   MemoryModifyFunction& unback_without_lock_;
   MemoryModifyFunction& collapse_;
   MemoryTagFunction& set_anon_vma_name_;
-  bool preferential_collapse_;
   int max_backoff_delay_ = 1;
   int current_backoff_delay_ = 0;
   uintptr_t rng_ = 0;
@@ -1627,20 +1620,17 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
     MemoryTag tag, MemoryModifyFunction& unback,
     MemoryModifyFunction& unback_without_lock, MemoryModifyFunction& collapse,
     MemoryTagFunction& set_anon_vma_name)
-    : HugePageFiller(
-          Clock{.now = absl::base_internal::CycleClock::Now,
-                .freq = absl::base_internal::CycleClock::Frequency},
-          tag, unback, unback_without_lock, collapse, set_anon_vma_name,
-          HugePageFillerOptions{
-              .use_preferential_collapse =
-                  system_allocator_internal::preferential_collapse()}) {}
+    : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
+                           .freq = absl::base_internal::CycleClock::Frequency},
+                     tag, unback, unback_without_lock, collapse,
+                     set_anon_vma_name) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     Clock clock, MemoryTag tag, MemoryModifyFunction& unback,
     MemoryModifyFunction& unback_without_lock, MemoryModifyFunction& collapse,
-    MemoryTagFunction& set_anon_vma_name, HugePageFillerOptions options)
+    MemoryTagFunction& set_anon_vma_name)
     : size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
@@ -1648,8 +1638,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
       unback_(unback),
       unback_without_lock_(unback_without_lock),
       collapse_(collapse),
-      set_anon_vma_name_(set_anon_vma_name),
-      preferential_collapse_(options.use_preferential_collapse) {
+      set_anon_vma_name_(set_anon_vma_name) {
   lifetime_bucket_bounds_[0] = 0;
   lifetime_bucket_bounds_[1] = 1;
   for (int i = 2; i <= kLifetimeBuckets; ++i) {
@@ -2721,14 +2710,8 @@ inline bool HugePageFiller<TrackerType>::ShouldBackoffFromCollapse() {
 }
 
 template <class TrackerType>
-void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(absl::Duration latency,
-                                                        int enomem_errors) {
-  if (preferential_collapse_ && enomem_errors > 0) {
-    // Backoff more aggressively if we encounter ENOMEM errors.
-    max_backoff_delay_ = std::min(max_backoff_delay_ << 4, kMaxBackoffDelay);
-    return;
-  }
-
+void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
+    absl::Duration latency) {
   // These latency thresholds are chosen empirically.
   const bool increase = latency > kMaxCollapseLatencyThreshold;
   const bool decrease = latency < kMinCollapseLatencyThreshold;
@@ -2830,10 +2813,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   if (stats.collapse_attempted > 0) {
     absl::Duration max_collapse_latency = absl::Milliseconds(
         stats.collapse_time_max_cycles * 1000 / clock_.freq());
-    int enomem_errors =
-        stats.collapse_errors[HugePageTreatmentStats::ErrorTypeToIndex(
-            CollapseErrorType::kENoMem)];
-    UpdateMaxBackoffDelay(max_collapse_latency, enomem_errors);
+    UpdateMaxBackoffDelay(max_collapse_latency);
   }
 
   // Lock the pageheap lock and update residency information in the tracker.

@@ -1087,7 +1087,6 @@ cc_library(
     ],
     deps = [
         ":config",
-        ":environment",
         ":exponential_biased",
         ":logging",
         ":memory_tag",
