@@ -106,9 +106,7 @@ class Parameters {
     return use_userspace_collapse_heuristics_.load(std::memory_order_relaxed);
   }
 
-  static bool back_small_allocations() {
-    return back_small_allocations_.load(std::memory_order_relaxed);
-  }
+  static bool back_small_allocations();
 
   static int32_t back_size_threshold_bytes() {
     return back_size_threshold_bytes_.load(std::memory_order_relaxed);
@@ -248,7 +246,6 @@ class Parameters {
   static std::atomic<bool> release_free_swapped_;
   static std::atomic<bool> usermode_hugepage_collapse_enabled_;
   static std::atomic<bool> use_userspace_collapse_heuristics_;
-  static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
 };

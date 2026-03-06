@@ -131,7 +131,11 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("release_free_swapped: true"));
 
   EXPECT_THAT(buf, HasSubstr("use_userspace_collapse_heuristics: true"));
-  EXPECT_THAT(buf, HasSubstr("back_small_allocations: false"));
+  if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING)) {
+    EXPECT_THAT(buf, HasSubstr("back_small_allocations: true"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("back_small_allocations: false"));
+  }
   EXPECT_THAT(buf, ContainsRegex("(back_size_threshold_bytes: [1-9][0-9]*)"));
 
   if (IsExperimentActive(
@@ -224,8 +228,13 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_use_userspace_collapse_heuristics 1)"));
-    EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 0)"));
+    if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING)) {
+      EXPECT_THAT(buf,
+                  HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 1)"));
+    } else {
+      EXPECT_THAT(buf,
+                  HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 0)"));
+    }
     EXPECT_THAT(
         buf, ContainsRegex("(tcmalloc_back_size_threshold_bytes [1-9][0-9]*)"));
 
