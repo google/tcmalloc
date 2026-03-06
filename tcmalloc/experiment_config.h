@@ -24,6 +24,7 @@ enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
   EXTENDED_MUTEX_SPINNING,  // TODO: b/481096853 - Complete experiment.
+  TCMALLOC_L3_AWARE_VCPU_V2,  // TODO: b/488032418 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_SPAN_LIFETIME_TRACKING, // TODO: b/445984647 - Complete experiment.
   TEST_ONLY_DISABLE_STACK_TRACING,  // TODO: b/135065891 - Complete experiment.
@@ -51,6 +52,7 @@ struct ExperimentConfig {
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::EXTENDED_MUTEX_SPINNING, "EXTENDED_MUTEX_SPINNING"},
+    {Experiment::TCMALLOC_L3_AWARE_VCPU_V2, "TCMALLOC_L3_AWARE_VCPU_V2"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_SPAN_LIFETIME_TRACKING, "TCMALLOC_SPAN_LIFETIME_TRACKING"},
     {Experiment::TEST_ONLY_DISABLE_STACK_TRACING, "TEST_ONLY_DISABLE_STACK_TRACING"},
