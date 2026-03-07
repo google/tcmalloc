@@ -256,8 +256,7 @@ class Static final {
       NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>
       system_allocator_;
 
-  static ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro) constexpr Span
-      kInvalidSpan{};
+  static const Span kInvalidSpan;
 
   // Manages sampled allocations and allows iteration over samples free from the
   // global pageheap_lock.
