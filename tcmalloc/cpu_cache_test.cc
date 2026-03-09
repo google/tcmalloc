@@ -2000,12 +2000,20 @@ TEST(CpuCacheTest, TouchedCpus) {
   threads.Start(10, [&](int thread_id) {
     subtle::percpu::IsFast();
 
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     const int cpu_id_start = subtle::percpu::__rseq_abi.vcpu_id;
+#else
+    const int cpu_id_start = subtle::percpu::GetRealCpu();
+#endif
 
     void* ptr = cache.Allocate(1);
     cache.Deallocate(ptr, 1);
 
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     const int cpu_id_end = subtle::percpu::__rseq_abi.vcpu_id;
+#else
+    const int cpu_id_end = subtle::percpu::GetRealCpu();
+#endif
     seen[thread_id].insert(cpu_id_start);
     seen[thread_id].insert(cpu_id_end);
   });
