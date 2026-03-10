@@ -22,7 +22,6 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
-#include "absl/base/dynamic_annotations.h"
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/types/span.h"
@@ -57,45 +56,6 @@ class SizeMap {
   static constexpr int kLargeSizeAlignment = 128;
 
  private:
-  // Shifts the provided value right by `n` bits.
-  //
-  // TODO(b/281517865): the LLVM codegen for ClassIndexMaybe() doesn't use
-  // an immediate shift for the `>> 3` and `>> 7` operations due to a missed
-  // optimization / miscompile in clang, resulting in this codegen:
-  //
-  //   mov        $0x3,%ecx
-  //   mov        $0x7,%eax
-  //   add        %edi,%eax
-  //   shr        %cl,%rax
-  //
-  // Immediate shift has latency 1 vs 3 for cl shift, and also the `add` can
-  // be far more efficient, which we force into inline assembly here:
-  //
-  //   lea        0x7(%rdi),%rax
-  //   shr        $0x3,%rax
-  //
-  // Benchmark:
-  // BM_new_sized_delete/1      6.51ns ± 5%   6.00ns ± 1%   -7.73%  (p=0.000)
-  // BM_new_sized_delete/8      6.51ns ± 5%   6.01ns ± 1%   -7.66%  (p=0.000)
-  // BM_new_sized_delete/64     6.52ns ± 5%   6.04ns ± 1%   -7.37%  (p=0.000)
-  // BM_new_sized_delete/512    6.71ns ± 6%   6.21ns ± 1%   -7.40%  (p=0.000)
-  template <int n>
-  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t Shr(size_t value) {
-    TC_ASSERT_LE(value, std::numeric_limits<uint32_t>::max());
-#if defined(__x86_64__)
-    asm("shrl %[n], %k[value]" : [value] "+r"(value) : [n] "n"(n));
-    return value;
-#elif defined(__aarch64__)
-    size_t result;
-    asm("lsr %[result], %[value], %[n]"
-        : [result] "=r"(result)
-        : [value] "r"(value), [n] "n"(n));
-    return result;
-#else
-    return value >> n;
-#endif
-  }
-
   //-------------------------------------------------------------------
   // Mapping from size to size_class and vice versa
   //-------------------------------------------------------------------
@@ -166,10 +126,10 @@ class SizeMap {
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
                                                                   size_t& idx) {
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
-      idx = Shr<3>(s + 7);
+      idx = (s + 7) >> 3;
       return true;
     } else if (s <= kMaxSize) {
-      idx = Shr<7>(s + 127 + (120 << 7));
+      idx = ((s + 127) >> 7) + 120;
       return true;
     }
     return false;
@@ -237,14 +197,8 @@ class SizeMap {
   // TODO(b/171978365): Replace the output parameter with returning
   // absl::optional<uint32_t>.
   template <typename Policy>
-  // clang does not correctly optimize out the array bounds check,
-  // leading to high overhead. Disable UBSan to avoid the performance
-  // regression.
-  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
-  // optimizes out the array bounds check.
-  [[nodiscard]] ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
-      ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMapResult GetSizeClass(
-          Policy policy, size_t size) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMapResult GetSizeClass(
+      Policy policy, size_t size) const {
     const size_t align = static_cast<size_t>(policy.align());
     TC_ASSERT(absl::has_single_bit(align));
 
