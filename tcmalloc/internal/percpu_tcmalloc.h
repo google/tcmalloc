@@ -519,15 +519,16 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
                                               user-writable segment). */      \
   ".long %c[rseq_sig]\n"                                                      \
   ".local " #name                                                             \
-  "_trampoline_%=\n"                                                          \
+  "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=\n"               \
   ".type " #name                                                              \
-  "_trampoline_%=,@function\n"                                                \
+  "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=,@function\n"     \
   "" #name                                                                    \
-  "_trampoline_%=:\n"                                                         \
+  "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=:\n"              \
   "2:\n" TCMALLOC_RSEQ_JUMP                                                   \
   " 3f\n"                                                                     \
-  ".size " #name "_trampoline_%=, . - " #name                                 \
-  "_trampoline_%=\n"                                                          \
+  ".size " #name                                                              \
+  "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=, . - " #name     \
+  "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=\n"               \
   ".popsection\n"                   /* Prepare */                             \
   "3:\n" TCMALLOC_RSEQ_SET_CS(name) /* Start */                               \
       "4:\n"
