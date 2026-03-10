@@ -21,12 +21,10 @@
 #include <memory>
 #include <new>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "benchmark/benchmark.h"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
@@ -35,8 +33,6 @@
 #include "absl/random/random.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/static_vars.h"
