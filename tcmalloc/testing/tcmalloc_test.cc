@@ -1207,7 +1207,6 @@ TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNew) {
   if (IsNothrow()) {
     sized_ptr_t res = New(kBadSize);
     EXPECT_EQ(res.p, nullptr);
-    EXPECT_EQ(res.n, 0);
   } else {
 #if defined(ABSL_HAVE_THREAD_SANITIZER)
     GTEST_SKIP() << "Skipping under TSan";

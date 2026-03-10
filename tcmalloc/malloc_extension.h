@@ -758,8 +758,8 @@ using sized_ptr_t = __sized_ptr_t;
 //
 // The returned pointer follows the alignment requirements of the standard new
 // operator. This function will terminate on failure, except for the APIs
-// accepting the std::nothrow parameter which will return {nullptr, 0} on
-// failure.
+// accepting the std::nothrow parameter which will return nullptr and an
+// unspecified size on failure.
 //
 // The returned pointer must be freed calling the matching ::operator delete.
 //

@@ -19,17 +19,30 @@
 
 #include <stdalign.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 int main(int argc, char** argv) {
-  alloc_result_t result = alloc_at_least(127);
-  if (result.ptr != NULL) {
+  {
+    alloc_result_t result = alloc_at_least(127);
+    free(result.ptr);
+    if (result.size < 127) {
+      return EXIT_FAILURE;
+    }
+  }
+  {
+    alloc_result_t result = aligned_alloc_at_least(alignof(max_align_t) * 2,
+                                                   alignof(max_align_t) * 4);
     free(result.ptr);
   }
-  result = aligned_alloc_at_least(alignof(max_align_t) * 2,
-                                  alignof(max_align_t) * 4);
-  if (result.ptr != NULL) {
+  {
+    size_t should_fail = SIZE_MAX;
+    alloc_result_t result = alloc_at_least(should_fail);
     free(result.ptr);
+    if (result.size < should_fail) {
+      return EXIT_FAILURE;
+    }
   }
+
   return EXIT_SUCCESS;
 }

@@ -23,7 +23,7 @@ extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t alloc_at_least(size_t min_size)
     ALLOC_AT_LEAST_NOEXCEPT {
   alloc_result_t result;
   result.ptr = std::malloc(min_size);
-  result.size = result.ptr != nullptr ? min_size : 0;
+  result.size = min_size;
   return result;
 }
 
@@ -31,6 +31,6 @@ extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t aligned_alloc_at_least(
     size_t alignment, size_t min_size) ALLOC_AT_LEAST_NOEXCEPT {
   alloc_result_t result;
   result.ptr = std::aligned_alloc(alignment, min_size);
-  result.size = result.ptr != nullptr ? min_size : 0;
+  result.size = min_size;
   return result;
 }
