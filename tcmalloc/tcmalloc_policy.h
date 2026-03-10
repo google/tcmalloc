@@ -106,7 +106,7 @@ namespace tcmalloc_internal {
 struct NullOomPolicy {
   template <typename Policy, typename Pointer = typename Policy::pointer_type>
   static inline constexpr Pointer handle_oom(size_t size) {
-    return Policy::as_pointer(nullptr, size);
+    return Policy::as_pointer(nullptr, 0);
   }
 };
 
@@ -115,7 +115,7 @@ struct MallocOomPolicy {
   template <typename Policy, typename Pointer = typename Policy::pointer_type>
   static inline Pointer handle_oom(size_t size) {
     errno = ENOMEM;
-    return Policy::as_pointer(nullptr, size);
+    return Policy::as_pointer(nullptr, 0);
   }
 };
 
