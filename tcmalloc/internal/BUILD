@@ -1087,6 +1087,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":environment",
         ":exponential_biased",
         ":logging",
         ":memory_tag",
@@ -1123,6 +1124,24 @@ cc_test(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "system_allocator_mlockall_test",
+    srcs = ["system_allocator_mlockall_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":memory_tag",
+        ":numa",
+        ":pageflags",
+        ":system_allocator",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )

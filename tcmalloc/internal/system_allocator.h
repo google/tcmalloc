@@ -40,6 +40,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/numa.h"
@@ -197,6 +198,7 @@ class SystemAllocator {
 
   std::atomic<int> release_errors_{0};
   std::atomic<MadvisePreference> madvise_{MadvisePreference::kDontNeed};
+  bool unlock_vmas_ = false;
 
   void DiscardMappedRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
 
@@ -548,6 +550,12 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
 
     void* result = mmap(hint, size, PROT_NONE, flags, -1, 0);
     if (result == hint) {
+      if (unlock_vmas_) {
+        int ret;
+        do {
+          ret = munlock(result, size);
+        } while (ret == -1 && errno == EAGAIN);
+      }
       if (numa_partition.has_value()) {
         BindMemory(result, size, *numa_partition);
       }
@@ -748,6 +756,12 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   // Rely on kernel's mmap randomization to seed our RNG.
   absl::base_internal::LowLevelCallOnce(
       &rnd_flag_, [&]() GOOGLE_MALLOC_SECTION {
+        // `TCMALLOC_MLOCKALL_UNLOCK_FUTURE` controls whether we `munlock` VMAs
+        // as we allocate them so that `mlockall` does not force
+        // TCMalloc-managed memory to be mlocked.
+        const char* e = thread_safe_getenv("TCMALLOC_MLOCKALL_UNLOCK_FUTURE");
+        unlock_vmas_ = absl::NullSafeStringView(e) == "1";
+
         const size_t page_size = GetPageSize();
         void* seed = mmap(nullptr, page_size, PROT_NONE,
                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
