@@ -389,6 +389,12 @@ TEST(PageFlagsTest, OnlyTails) {
             std::nullopt);
 }
 
+TEST(PageFlagsTest, IsHugepageBackedBadFile) {
+  PageFlagsFriend s("/tmp/04a94de3-cb23-4397-8554-de209645e7bf");
+  EXPECT_THAT(s.IsHugepageBacked(nullptr), std::nullopt);
+  EXPECT_THAT(s.IsHugepageBacked(this), std::nullopt);
+}
+
 // Queries and checks the pageflags if the pages are hugepage-backed or not.
 // TODO(b/28093874): Check to see if we can add a real pageflags test (e.g.
 // using MADV_COLLAPSE) to confirm the hugepage status using pageflags.

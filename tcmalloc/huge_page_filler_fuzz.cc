@@ -57,7 +57,7 @@ bool unback_success = true;
 bool collapse_success = true;
 int collapse_latency = 0;
 int error_number = 0;
-bool is_hugepage_backed = true;
+std::optional<bool> is_hugepage_backed = true;
 Bitmap<kMaxResidencyBits> unbacked_bitmap;
 Bitmap<kMaxResidencyBits> swapped_bitmap;
 
@@ -110,7 +110,7 @@ class FakePageFlags : public PageFlagsBase {
     return std::nullopt;
   }
 
-  bool IsHugepageBacked(const void* addr) override {
+  std::optional<bool> IsHugepageBacked(const void* addr) override {
     return is_hugepage_backed;
   }
 };
@@ -518,12 +518,16 @@ void FuzzFiller(const std::string& s) {
         break;
       }
       case 11: {
-        is_hugepage_backed = value & 0x1;
-        if (is_hugepage_backed) {
+        if (value & 0x2) {
+          is_hugepage_backed = value & 0x1;
+        } else {
+          is_hugepage_backed = std::nullopt;
+        }
+        if (is_hugepage_backed.value_or(false)) {
           unbacked_bitmap.Clear();
           swapped_bitmap.Clear();
         } else {
-          value >>= 1;
+          value >>= 2;
           unbacked_bitmap = GetBitmap(value & 0x01FF);
           value >>= 9;
           swapped_bitmap = GetBitmap(value & 0x01FF);

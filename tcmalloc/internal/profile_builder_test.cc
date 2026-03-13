@@ -97,7 +97,9 @@ class StubPageFlags final : public PageFlagsBase {
     stale_scan_period_ = seconds_stale;
   }
 
-  bool IsHugepageBacked(const void* addr) override { return true; }
+  std::optional<bool> IsHugepageBacked(const void* addr) override {
+    return true;
+  }
 
  private:
   absl::flat_hash_map<uintptr_t, int> stale_bytes_;

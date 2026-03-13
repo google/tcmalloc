@@ -296,15 +296,24 @@ class FakePageFlags : public PageFlagsBase {
     is_hugepage_backed_[hp.start_addr()] = is_hugepage_backed;
   }
 
-  bool IsHugepageBacked(const void* addr) override {
+  void MarkHugePageBackedUnknown(void* addr) {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
-    if (!is_hugepage_backed_.contains(hp.start_addr())) return false;
-    return is_hugepage_backed_[hp.start_addr()];
+    is_hugepage_backed_[hp.start_addr()] = std::nullopt;
+  }
+
+  std::optional<bool> IsHugepageBacked(const void* addr) override {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    auto it = is_hugepage_backed_.find(hp.start_addr());
+    if (it == is_hugepage_backed_.end()) {
+      return false;
+    }
+    return it->second;
   }
 
  private:
-  absl::flat_hash_map<const void*, bool> is_hugepage_backed_;
+  absl::flat_hash_map<const void*, std::optional<bool>> is_hugepage_backed_;
 };
 
 class FakeResidency : public Residency {
@@ -1232,7 +1241,7 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
@@ -1251,7 +1260,7 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     swapped.SetRange(/*index=*/0, /*n=*/512);
@@ -1308,7 +1317,7 @@ TEST_F(FillerTest, CollapseDenseBeforeSparse) {
       for (const auto& pa : alloc) {
         pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                      /*is_hugepage_backed=*/false);
-        EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+        EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
         Bitmap<kMaxResidencyBits> unbacked, swapped;
         unbacked.SetRange(/*index=*/0, /*n=*/1);
         swapped.SetRange(/*index=*/0, /*n=*/1);
@@ -1366,7 +1375,7 @@ TEST_F(FillerTest, CollapseOrderNObjects) {
       for (const auto& pa : alloc) {
         pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                      /*is_hugepage_backed=*/false);
-        EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+        EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
         Bitmap<kMaxResidencyBits> unbacked, swapped;
         unbacked.SetRange(/*index=*/0, /*n=*/1);
         swapped.SetRange(/*index=*/0, /*n=*/1);
@@ -1410,7 +1419,7 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     swapped.SetRange(/*index=*/1, /*n=*/1);
@@ -1462,7 +1471,7 @@ TEST_F(FillerTest, ReleaseNoFreePages) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     // No pages are swapped.
     Bitmap<kMaxResidencyBits> unbacked, swapped;
@@ -1502,7 +1511,7 @@ TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     swapped.SetRange(/*index=*/0, /*n=*/5);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
@@ -1512,7 +1521,7 @@ TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
   for (const auto& pa : p3) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
     // No pages are swapped.
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
@@ -1564,7 +1573,7 @@ TEST_F(FillerTest, ParallelCollapseRelease) {
     allocated.push_back(p1);
     pageflags.MarkHugePageBacked(p1.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(p1.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(p1.p.start_addr()).value());
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/0, /*n=*/128);
     swapped.SetRange(/*index=*/128, /*n=*/128);
@@ -1624,7 +1633,40 @@ TEST_F(FillerTest, DontCollapseAlreadyHugepages) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/true);
-    EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+  }
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  TreatHugepageTrackers(/*enable_collapse=*/true,
+                        /*enable_release_free_swapped=*/false,
+                        /*use_userspace_collapse_heuristics=*/false,
+                        EnableUnfilteredCollapse::kDisabled, &pageflags,
+                        &residency);
+
+  for (const auto& pa : p1) {
+    EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
+  }
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_eligible, 1);
+  EXPECT_EQ(treatment_stats.collapse_attempted, 0);
+  EXPECT_EQ(treatment_stats.collapse_succeeded, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_total_cycles, 0);
+  EXPECT_EQ(treatment_stats.collapse_time_max_cycles, 0);
+  DeleteVector(p1);
+}
+
+TEST_F(FillerTest, DontCollapseUnknownHugepages) {
+  const Length kAlloc = kPagesPerHugePage / 2;
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
+  ASSERT_TRUE(!p1.empty());
+  FakePageFlags pageflags;
+  FakeResidency residency;
+
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBackedUnknown(pa.p.start_addr());
+    EXPECT_EQ(pageflags.IsHugepageBacked(pa.p.start_addr()), std::nullopt);
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
@@ -1667,7 +1709,7 @@ TEST_F(FillerTest, DontCollapseAlreadyCollapsed) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
@@ -1783,7 +1825,7 @@ TEST_F(FillerTest, CollapseHugepages) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/0, /*n=*/1);
@@ -1824,7 +1866,7 @@ TEST_F(FillerTest, DontCollapseHugepages) {
     for (const auto& pa : p1) {
       pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                    /*is_hugepage_backed=*/false);
-      EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+      EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
       Bitmap<kMaxResidencyBits> unbacked, swapped;
       unbacked.SetRange(/*index=*/0, total_unbacked);
@@ -1874,7 +1916,7 @@ TEST_F(FillerTest, CollapseHugepagesDueToUnfilteredCollapse) {
     for (const auto& pa : p1) {
       pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                    /*is_hugepage_backed=*/false);
-      EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+      EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
       Bitmap<kMaxResidencyBits> unbacked, swapped;
       if (total_unbacked > 0) unbacked.SetRange(/*index=*/0, total_unbacked);
@@ -1921,7 +1963,7 @@ TEST_F(FillerTest, CollapseLatency) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/0, /*n=*/1);
@@ -1980,7 +2022,7 @@ TEST_F(FillerTest, EarlyBackoff) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/0, /*n=*/1);
@@ -1994,7 +2036,7 @@ TEST_F(FillerTest, EarlyBackoff) {
   for (const auto& pa : p2) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/0, /*n=*/1);
@@ -2057,7 +2099,7 @@ TEST_F(FillerTest, BackoffFromCollapse) {
       for (const auto& pa : p1) {
         pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                      /*is_hugepage_backed=*/false);
-        EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+        EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
         Bitmap<kMaxResidencyBits> unbacked, swapped;
         unbacked.SetRange(/*index=*/0, /*n=*/1);
@@ -2126,7 +2168,7 @@ TEST_F(FillerTest, DontCollapseReleasedPages) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/0, kMaxResidencyBits / 2);
@@ -2185,7 +2227,7 @@ TEST_F(FillerTest, CollapseFailure) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/0, 1);
@@ -2278,7 +2320,7 @@ TEST_F(FillerTest, CollapseClock) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/0, 1);
@@ -2303,7 +2345,7 @@ TEST_F(FillerTest, CollapseClock) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
   }
 
   TreatHugepageTrackers(/*enable_collapse=*/true,
@@ -4574,7 +4616,7 @@ TEST_F(FillerTest, ResidencyTelemetry) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/false);
-    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     unbacked.SetRange(/*index=*/kMaxResidencyBits / 4, kMaxResidencyBits / 2);
@@ -4586,7 +4628,7 @@ TEST_F(FillerTest, ResidencyTelemetry) {
   for (const auto& pa : p2) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/true);
-    EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
   }
 
   ASSERT_EQ(filler_.size(), NHugePages(2));
@@ -4727,7 +4769,7 @@ TEST_F(FillerTest, PrintHugepageBackedStats) {
   for (const auto& pa : p1) {
     pageflags.MarkHugePageBacked(pa.p.start_addr(),
                                  /*is_hugepage_backed=*/true);
-    EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()));
+    EXPECT_TRUE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
   }
 
   std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {

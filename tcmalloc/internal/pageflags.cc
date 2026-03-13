@@ -199,9 +199,9 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
   return absl::StatusCode::kOk;
 }
 
-bool PageFlags::IsHugepageBacked(const void* const addr) {
+std::optional<bool> PageFlags::IsHugepageBacked(const void* const addr) {
   if (fd_ < 0) {
-    return false;
+    return std::nullopt;
   }
 
   uint64_t flags = 0;
@@ -216,7 +216,7 @@ bool PageFlags::IsHugepageBacked(const void* const addr) {
   auto status = signal_safe_read(fd_, reinterpret_cast<char*>(&flags),
                                  kPagemapEntrySize, nullptr);
   if (status != kPagemapEntrySize) {
-    return false;
+    return std::nullopt;
   }
   // pass entry to check if its hugepage backed.
   return IsHugepage(flags);

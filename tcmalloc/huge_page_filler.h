@@ -565,12 +565,12 @@ class UsageInfo {
   }
 
   template <class TrackerType>
-  bool IsHugepageBacked(const TrackerType& tracker, PageFlagsBase& pageflags) {
+  std::optional<bool> IsHugepageBacked(const TrackerType& tracker,
+                                       PageFlagsBase& pageflags) {
     void* addr = tracker.location().start_addr();
     // TODO(b/28093874): Investigate if pageflags may be queried without
     // pageheap_lock.
-    const bool is_hugepage_backed = pageflags.IsHugepageBacked(addr);
-    return is_hugepage_backed;
+    return pageflags.IsHugepageBacked(addr);
   }
 
   // Reports the number of pages that were previously released, but later became
@@ -644,7 +644,7 @@ class UsageInfo {
       ++records.low_occupancy_lifetime_histo[LifetimeBucketNum(lifetime)];
     }
 
-    if (IsHugepageBacked(pt, pageflags)) {
+    if (IsHugepageBacked(pt, pageflags).value_or(false)) {
       ++records.hugepage_backed;
       if (pt.was_released()) {
         ++hugepage_backed_previously_released_;
@@ -2580,7 +2580,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       PageTracker::HugePageResidencyState state;
       PageTracker* tracker = selected_trackers_[i];
       TC_ASSERT_NE(tracker, nullptr);
-      bool is_hugepage = pf->IsHugepageBacked(tracker->location().start_addr());
+      // Assume element is hugepage if we can't read the value.
+      bool is_hugepage =
+          pf->IsHugepageBacked(tracker->location().start_addr()).value_or(true);
+
       state.entry_valid = true;
       state.record_time = clock_.now();
 
