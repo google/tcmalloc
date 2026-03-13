@@ -73,13 +73,13 @@ class Length {
   }
 
   constexpr Length& operator/=(size_t rhs) {
-    TC_ASSERT_NE(rhs, 0);
+    TC_ASSERT_NE(rhs, 0u);
     n_ /= rhs;
     return *this;
   }
 
   constexpr Length& operator%=(Length rhs) {
-    TC_ASSERT_NE(rhs.n_, 0);
+    TC_ASSERT_NE(rhs.n_, 0u);
     n_ %= rhs.n_;
     return *this;
   }
@@ -315,7 +315,7 @@ inline constexpr Length operator*(size_t lhs, Length rhs) { return rhs *= lhs; }
 
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr size_t operator/(Length lhs, Length rhs) {
-  TC_ASSERT_NE(rhs.raw_num(), 0);
+  TC_ASSERT_NE(rhs.raw_num(), 0u);
   return lhs.raw_num() / rhs.raw_num();
 }
 
@@ -324,7 +324,7 @@ inline constexpr Length operator/(Length lhs, size_t rhs) { return lhs /= rhs; }
 
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator%(Length lhs, Length rhs) {
-  TC_ASSERT_NE(rhs.raw_num(), 0);
+  TC_ASSERT_NE(rhs.raw_num(), 0u);
   return lhs %= rhs;
 }
 

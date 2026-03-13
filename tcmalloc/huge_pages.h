@@ -154,7 +154,7 @@ inline HugePage& operator++(HugePage& p) {  // NOLINT(runtime/references)
 }
 
 inline HugeLength& operator--(HugeLength& len) {  // NOLINT(runtime/references)
-  TC_ASSERT_GE(len.n, 1);
+  TC_ASSERT_GE(len.n, 1u);
   len.n--;
   return len;
 }

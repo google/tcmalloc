@@ -261,7 +261,7 @@ class Printer {
  public:
   // REQUIRES: "length > 0"
   Printer(char* buf, size_t length) : buf_(buf), left_(length), required_(0) {
-    TC_ASSERT_GT(length, 0);
+    TC_ASSERT_GT(length, 0u);
     buf[0] = '\0';
   }
 

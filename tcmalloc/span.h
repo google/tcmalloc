@@ -390,7 +390,7 @@ inline uint64_t Span::AllocTime() const {
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {
-  TC_ASSERT_EQ(small_span_state_.num_pages, 1);
+  TC_ASSERT_EQ(small_span_state_.num_pages, 1u);
   TC_ASSERT_EQ(start, first_page().start_uintptr());
   TC_ASSERT_NE(idx, kListEnd);
   uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
@@ -404,7 +404,7 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   // Classes that use freelist must also use 1 page per span,
   // so don't load first_page_ (may be on a different cache line).
-  TC_ASSERT_EQ(small_span_state_.num_pages, 1);
+  TC_ASSERT_EQ(small_span_state_.num_pages, 1u);
   TC_ASSERT_EQ(PageIdContaining(ptr), first_page());
   uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
   ObjIdx idx = static_cast<ObjIdx>(off);
@@ -608,7 +608,7 @@ inline void Span::set_num_pages(Length len) {
     is_large_span_ = len > kLargeSpanLength;
     return;
   }
-  TC_ASSERT_LT(len.raw_num(), 1 << kMaxNumPageBits);
+  TC_ASSERT_LT(len.raw_num(), 1u << kMaxNumPageBits);
   small_span_state_.num_pages = len.raw_num();
   is_large_span_ = 0;
 }
