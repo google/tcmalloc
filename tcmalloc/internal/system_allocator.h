@@ -46,6 +46,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/strerror.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -362,8 +363,8 @@ SystemAllocator<Topology, NormalPartitions>::MmapRegion::Alloc(
   TC_ASSERT_EQ(result % GetPageSize(), 0);
   void* result_ptr = reinterpret_cast<void*>(result);
   if (mprotect(result_ptr, actual_size, PROT_READ | PROT_WRITE) != 0) {
-    TC_LOG("mprotect(%p, %v) failed (%s)", result_ptr, actual_size,
-           strerror(errno));
+    TC_LOG("mprotect(%p, %v) failed (%v)", result_ptr, actual_size,
+           StrError(errno));
     return {nullptr, 0};
   }
   // For cold regions (kInfrequentAccess) and sampled regions
@@ -576,12 +577,12 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
       TC_CHECK_EQ(result, MAP_FAILED);
     } else {
       if (result == MAP_FAILED) {
-        TC_LOG("mmap(%p, %v) reservation failed (%s)", hint, size,
-               strerror(errno));
+        TC_LOG("mmap(%p, %v) reservation failed (%v)", hint, size,
+               StrError(errno));
         return nullptr;
       }
       if (int err = munmap(result, size)) {
-        TC_LOG("munmap(%p, %v) failed (%s)", result, size, strerror(errno));
+        TC_LOG("munmap(%p, %v) failed (%v)", result, size, StrError(errno));
         TC_ASSERT_EQ(err, 0);
       }
     }

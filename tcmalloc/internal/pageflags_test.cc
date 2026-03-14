@@ -51,6 +51,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/strerror.h"
 #include "tcmalloc/internal/util.h"
 
 ABSL_FLAG(bool, check_staleness, false,
@@ -174,7 +175,7 @@ void* GenerateAllStaleTest(absl::string_view filename, void* obj, size_t size) {
   off_t file_read_offset = pages_start / kPageSize * kPagemapEntrySize;
   int read_fd = signal_safe_open("/proc/self/pageflags", O_RDONLY);
   CHECK_NE(read_fd, -1)
-      << strerror(errno)
+      << StrError(errno)
       << " while reading pageflags; does your kernel support it?";
   int write_fd = signal_safe_open(filename.data(), O_CREAT | O_WRONLY, S_IRUSR);
   CHECK_NE(write_fd, -1) << errno;

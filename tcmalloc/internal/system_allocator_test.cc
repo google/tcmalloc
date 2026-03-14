@@ -31,10 +31,12 @@
 #include "absl/base/attributes.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/proc_maps.h"
+#include "tcmalloc/testing/testutil.h"
 
 #ifndef PR_SET_VMA
 #define PR_SET_VMA 0x53564d41

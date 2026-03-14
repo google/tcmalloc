@@ -460,6 +460,7 @@ cc_test(
     deps = [
         ":allocation_guard",
         ":pageflags",
+        ":strerror",
         ":util",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/flags:flag",
@@ -1051,6 +1052,20 @@ cc_test(
 )
 
 cc_library(
+    name = "strerror",
+    srcs = ["strerror.cc"],
+    hdrs = ["strerror.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
     name = "stacktrace_filter",
     hdrs = ["stacktrace_filter.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -1094,6 +1109,7 @@ cc_library(
         ":numa",
         ":optimization",
         ":page_size",
+        ":strerror",
         ":util",
         "//tcmalloc:experiment",
         "//tcmalloc:malloc_extension",
@@ -1115,12 +1131,38 @@ cc_test(
         "notsan",
     ],
     deps = [
+        ":allocation_guard",
         ":config",
         ":logging",
         ":numa",
         ":proc_maps",
         ":system_allocator",
+        "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "system_allocator_locale_test",
+    srcs = ["system_allocator_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    env = {"LC_ALL": "en_US.UTF-8"},
+    tags = [
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":allocation_guard",
+        ":config",
+        ":logging",
+        ":numa",
+        ":proc_maps",
+        ":system_allocator",
+        "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
