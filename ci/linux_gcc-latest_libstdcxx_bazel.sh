@@ -36,7 +36,7 @@ if [ -z ${EXCEPTIONS_MODE:-} ]; then
   EXCEPTIONS_MODE="-fno-exceptions -fexceptions"
 fi
 
-readonly DOCKER_CONTAINER="gcr.io/google.com/absl-177019/linux_hybrid-latest:20250527"
+readonly DOCKER_CONTAINER="gcr.io/google.com/absl-177019/linux_hybrid-latest:20260131"
 
 # USE_BAZEL_CACHE=1 only works on Kokoro.
 # Without access to the credentials this won't work.
@@ -55,6 +55,7 @@ for std in ${STD}; do
     for exceptions_mode in ${EXCEPTIONS_MODE}; do
       echo "--------------------------------------------------------------------"
       time docker run \
+        --env="USE_BAZEL_VERSION=8.5.1" \
         --volume="${TCMALLOC_ROOT}:/tcmalloc:ro" \
         --workdir=/tcmalloc \
         --cap-add=SYS_PTRACE \

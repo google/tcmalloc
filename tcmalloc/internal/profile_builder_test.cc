@@ -45,6 +45,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "re2/re2.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/fake_profile.h"
 #include "tcmalloc/internal/page_size.h"
@@ -717,8 +718,8 @@ TEST(ProfileConverterTest, HeapProfile) {
     }
   }
 
-  EXPECT_THAT(converted.string_table(converted.drop_frames()),
-              testing::HasSubstr("TCMallocInternalNew"));
+  EXPECT_TRUE(RE2::FullMatch("TCMallocInternalNew",
+                             converted.string_table(converted.drop_frames())));
   // No keep frames.
   EXPECT_EQ(converted.string_table(converted.keep_frames()), "");
 
@@ -983,8 +984,8 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"))));
 
   // Checks for common fields.
-  EXPECT_THAT(converted.string_table(converted.drop_frames()),
-              testing::HasSubstr("TCMallocInternalNew"));
+  EXPECT_TRUE(RE2::FullMatch("TCMallocInternalNew",
+                             converted.string_table(converted.drop_frames())));
   // No keep frames.
   EXPECT_EQ(converted.string_table(converted.keep_frames()), "");
 

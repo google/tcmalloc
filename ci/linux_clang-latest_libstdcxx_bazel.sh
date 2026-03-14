@@ -36,7 +36,7 @@ if [ -z ${EXCEPTIONS_MODE:-} ]; then
   EXCEPTIONS_MODE="-fno-exceptions -fexceptions"
 fi
 
-readonly DOCKER_CONTAINER="gcr.io/google.com/absl-177019/linux_hybrid-latest:20250527"
+readonly DOCKER_CONTAINER="gcr.io/google.com/absl-177019/linux_hybrid-latest:20260131"
 
 # USE_BAZEL_CACHE=1 only works on Kokoro.
 # Without access to the credentials this won't work.
@@ -55,20 +55,19 @@ for std in ${STD}; do
     for exceptions_mode in ${EXCEPTIONS_MODE}; do
       echo "--------------------------------------------------------------------"
       time docker run \
+        --env="USE_BAZEL_VERSION=8.5.1" \
         --volume="${ABSEIL_ROOT}:/abseil-cpp:ro" \
         --workdir=/abseil-cpp \
         --cap-add=SYS_PTRACE \
         --rm \
-        -e CC="/opt/llvm/clang/bin/clang" \
-        -e BAZEL_CXXOPTS="-std=${std}" \
         ${DOCKER_EXTRA_ARGS:-} \
         ${DOCKER_CONTAINER} \
         /usr/local/bin/bazel test ... \
+          --action_env=\"CC=/opt/llvm/bin/clang\" \
+          --action_env=\"BAZEL_CXXOPTS=-std=${std}\" \
           --compilation_mode="${compilation_mode}" \
-          --copt="--gcc-toolchain=/usr/local" \
           --copt="${exceptions_mode}" \
           --keep_going \
-          --linkopt="--gcc-toolchain=/usr/local" \
           --show_timestamps \
           --test_env="TZDIR=/abseil-cpp/absl/time/internal/cctz/testdata/zoneinfo" \
           --test_output=errors \

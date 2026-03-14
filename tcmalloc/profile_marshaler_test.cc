@@ -29,6 +29,7 @@
 #include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/gzip_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
+#include "re2/re2.h"
 #include "tcmalloc/internal/fake_profile.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
@@ -75,8 +76,8 @@ TEST(ProfileMarshalTest, Smoke) {
   EXPECT_EQ(converted.period(), 0);  // Not set
   EXPECT_EQ(converted.string_table(converted.period_type().type()), "space");
   EXPECT_EQ(converted.string_table(converted.period_type().unit()), "bytes");
-  EXPECT_THAT(converted.string_table(converted.drop_frames()),
-              testing::HasSubstr("TCMallocInternalNew"));
+  EXPECT_TRUE(RE2::FullMatch("TCMallocInternalNew",
+                             converted.string_table(converted.drop_frames())));
   EXPECT_EQ(converted.duration_nanos(), absl::ToInt64Nanoseconds(kDuration));
   EXPECT_EQ(converted.string_table(converted.default_sample_type()), "objects");
 }

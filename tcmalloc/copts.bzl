@@ -22,6 +22,7 @@ TCMALLOC_LLVM_FLAGS = [
     "-Wno-deprecated-volatile",
     "-Wno-implicit-int-float-conversion",
     "-Wno-nullability-completeness",  # TODO: b/383569842 - remove or replace
+    "-Wno-return-type",
     "-Wno-sign-compare",
     "-Wno-uninitialized",
     "-Wno-unused-function",
@@ -36,6 +37,7 @@ TCMALLOC_GCC_FLAGS = [
     "-Wno-attribute-alias",
     "-Wno-deprecated-declarations",
     "-Wno-nullability-completeness",  # TODO: b/383569842 - remove or replace
+    "-Wno-return-type",
     "-Wno-sign-compare",
     "-Wno-stringop-overflow",
     "-Wno-uninitialized",

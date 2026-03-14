@@ -292,7 +292,7 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "TCMallocInternalPvalloc|"
     "TCMallocInternalValloc|"
     "TCMallocInternalRealloc|"
-    "TCMallocInternalNew(Array)?(Aligned)?(Nothrow)?|"
+    "TCMallocInternal(SizeReturning)?New(Array)?(Aligned)?(Nothrow)?|"
     "TCMallocInternalDelete(Array)?(Sized)?(Aligned)?(Nothrow)?|"
     "TCMallocInternalSdallocx|"
     "(tcmalloc_)?size_returning_operator_new(_hot_cold)?(_nothrow)?|"
