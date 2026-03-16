@@ -32,7 +32,8 @@ void FuzzSelectExperiments(absl::string_view test_target,
 
   bool buffer[tcmalloc::tcmalloc_internal::kNumExperiments];
 
-  SelectExperiments(buffer, test_target, active, disabled, unset);
+  SelectExperiments(buffer, test_target, active, disabled,
+                    unset);
 }
 
 FUZZ_TEST(ExperimentTest, FuzzSelectExperiments);
@@ -41,7 +42,8 @@ TEST(ExperimentTest, FuzzSelectExperiments_b395212979) {
   FuzzSelectExperiments(
       "t_fuenchmark&"
       "vvvvvvvvvvvvvvvvvvVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
-      "", "", true);
+      "", "",
+      true);
 }
 
 }  // namespace

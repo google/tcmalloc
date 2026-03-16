@@ -112,6 +112,9 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
 #endif
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING)) {
+      interval = absl::ZeroDuration();
+    }
     // clang-format off
     v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
     // clang-format on
@@ -130,6 +133,9 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
 #endif
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING)) {
+      interval = absl::ZeroDuration();
+    }
     // clang-format off
     v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
     // clang-format on
@@ -166,10 +172,30 @@ absl::Duration Parameters::huge_cache_release_time() {
   return absl::Seconds(v.load(std::memory_order_relaxed));
 }
 
-ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
-    Parameters::background_release_rate_(MallocExtension::BytesPerSecond{
-        0
-    });
+std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<MallocExtension::BytesPerSecond> v{
+      MallocExtension::BytesPerSecond{
+          0
+      }};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING)) {
+      v.store(static_cast<MallocExtension::BytesPerSecond>(
+                  std::numeric_limits<size_t>::max()),
+              std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
+MallocExtension::BytesPerSecond Parameters::background_release_rate() {
+  return background_release_rate_ptr().load(std::memory_order_relaxed);
+}
+
+void Parameters::set_background_release_rate(
+    MallocExtension::BytesPerSecond value) {
+  TCMalloc_Internal_SetBackgroundReleaseRate(static_cast<size_t>(value));
+}
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
     DefaultOrDebugValue(/*default_val=*/50, /*debug_val=*/5) *
@@ -402,7 +428,7 @@ void MallocExtension_Internal_SetBackgroundReleaseRate(
 }
 
 void TCMalloc_Internal_SetBackgroundReleaseRate(size_t value) {
-  Parameters::background_release_rate_.store(
+  tcmalloc::tcmalloc_internal::background_release_rate_ptr().store(
       static_cast<tcmalloc::MallocExtension::BytesPerSecond>(value));
 }
 

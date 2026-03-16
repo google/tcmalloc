@@ -35,14 +35,10 @@ namespace tcmalloc_internal {
 
 class Parameters {
  public:
-  static MallocExtension::BytesPerSecond background_release_rate() {
-    return background_release_rate_.load(std::memory_order_relaxed);
-  }
+  static MallocExtension::BytesPerSecond background_release_rate();
 
   static void set_background_release_rate(
-      MallocExtension::BytesPerSecond value) {
-    TCMalloc_Internal_SetBackgroundReleaseRate(static_cast<size_t>(value));
-  }
+      MallocExtension::BytesPerSecond value);
 
   static uint64_t heap_size_hard_limit();
   static void set_heap_size_hard_limit(uint64_t value);
@@ -229,7 +225,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
   friend void ::TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
 
-  static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
