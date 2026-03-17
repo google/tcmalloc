@@ -1,0 +1,1059 @@
+# Copyright 2026 The TCMalloc Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_malloc_hook_recorder
+  ALIAS
+    tcmalloc::testing_malloc_hook_recorder
+  HDRS
+    "malloc_hook_recorder.h"
+  SRCS
+    "malloc_hook_recorder.cc"
+  DEPS
+    "absl::core_headers"
+    "absl::malloc_internal"
+    "absl::stacktrace"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_hook"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_testutil
+  ALIAS
+    tcmalloc::testing_testutil
+  HDRS
+    "testutil.h"
+  SRCS
+    "testutil.cc"
+  DEPS
+    "absl::core_headers"
+    "absl::strings"
+    "absl::time"
+    "benchmark::benchmark"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_tcmalloc_test
+  SRCS
+    "tcmalloc_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::base"
+    "absl::bits"
+    "absl::core_headers"
+    "absl::flat_hash_set"
+    "absl::optional"
+    "absl::random_random"
+    "absl::str_format"
+    "absl::strings"
+    "absl::time"
+    "benchmark::benchmark"
+    "tcmalloc::alloc_at_least"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_declarations"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_test_allocator_harness"
+    "tcmalloc::testing_testutil"
+    "tcmalloc::testing_thread_manager"
+)
+
+tcmalloc_cc_binary_variants(
+  NAME
+    tcmalloc_testing_tcmalloc_benchmark
+  SRCS
+    "tcmalloc_benchmark.cc"
+  DEPS
+    "absl::check"
+    "absl::core_headers"
+    "absl::random_random"
+    "absl::synchronization"
+    "absl::time"
+    "benchmark::benchmark"
+    "tcmalloc::internal_declarations"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
+    "tcmalloc_testing_benchmark_main"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_tcmalloc_fuzzer
+  SRCS
+    "tcmalloc_fuzzer.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::bits"
+    "fuzztest::fuzztest"
+    "fuzztest::init_fuzztest"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::tcmalloc_internal_methods_only"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_memory_errors_fuzz
+  SRCS
+    "memory_errors_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::base"
+    "absl::bits"
+    "fuzztest::fuzztest"
+    "fuzztest::init_fuzztest"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_internal_methods_only"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_hooks_test
+  SRCS
+    "hooks_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::leak_check"
+    "absl::malloc_internal"
+    "benchmark::benchmark"
+    "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
+    "tcmalloc::testing_malloc_hook_recorder"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_threadcachesize_test
+  SRCS
+    "threadcachesize_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::synchronization"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_markidle_test
+  SRCS
+    "markidle_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::optional"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_deprecated_perthread"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_memalign_test
+  SRCS
+    "memalign_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::random_random"
+    "benchmark::benchmark"
+    "tcmalloc::internal_page_size"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_frag_test
+  SRCS
+    "frag_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_config"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_largesmall_frag_test
+  SRCS
+    "largesmall_frag_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::str_format"
+    "tcmalloc::internal_linked_list"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_thread_manager
+  ALIAS
+    tcmalloc::testing_thread_manager
+  HDRS
+    "thread_manager.h"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::synchronization"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_outofmemory_test
+  SRCS
+    "outofmemory_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::time"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_linked_list"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_current_allocated_bytes_test
+  SRCS
+    "current_allocated_bytes_test.cc"
+  DEPS
+    "absl::string_view"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_sampling_test
+  SRCS
+    "sampling_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::bits"
+    "absl::check"
+    "absl::core_headers"
+    "absl::log"
+    "absl::optional"
+    "absl::symbolize"
+    "benchmark::benchmark"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_sampling_memusage_test
+  SRCS
+    "sampling_memusage_test.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::strings"
+    "benchmark::benchmark"
+    "tcmalloc::internal_affinity"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_sampler_test
+  SRCS
+    "sampler_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "benchmark::benchmark"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_startup_size_test
+  SRCS
+    "startup_size_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_large_alloc_size_test
+  SRCS
+    "large_alloc_size_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_config"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_thread_ctor_test_lib
+  ALIAS
+    tcmalloc::testing_thread_ctor_test_lib
+  SRCS
+    "thread_ctor_test_lib.cc"
+  LINKOPTS
+    "-pthread"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_thread_ctor_test
+  SRCS
+    "thread_ctor_test.cc"
+  DEPS
+    "tcmalloc::testing_thread_ctor_test_lib"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_sample_size_class_test
+  SRCS
+    "sample_size_class_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_linked_list"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_no_deps_test
+  SRCS
+    "no_deps_test.cc"
+  DEPS
+    "absl::core_headers"
+    "absl::str_format"
+    "absl::string_view"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_no_deps_per_cpu_test
+  SRCS
+    "no_deps_test.cc"
+  DEPS
+    "absl::core_headers"
+    "absl::str_format"
+    "absl::string_view"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_limit_test
+  SRCS
+    "limit_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::flags"
+    "absl::flat_hash_map"
+    "absl::inlined_vector"
+    "absl::str_format"
+    "absl::strings"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_aligned_new_test
+  SRCS
+    "aligned_new_test.cc"
+  COPTS
+    "-faligned-new"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::flat_hash_map"
+    "absl::leak_check"
+    "benchmark::benchmark"
+    "tcmalloc::internal_config"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_sampled_hooks_test
+  SRCS
+    "sampled_hooks_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::time"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_memory_errors_test
+  SRCS
+    "memory_errors_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::base"
+    "absl::bits"
+    "absl::core_headers"
+    "absl::strings"
+    "benchmark::benchmark"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_declarations"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_want_hpaa_test_helper
+  SRCS
+    "want_hpaa_test_helper.cc"
+  DEPS
+    "absl::check"
+    "absl::strings"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_want_hpaa_test_helper_32k
+  SRCS
+    "want_hpaa_test_helper.cc"
+  DEPS
+    "absl::check"
+    "absl::strings"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_large_pages"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_want_hpaa_test_helper_256k
+  SRCS
+    "want_hpaa_test_helper.cc"
+  DEPS
+    "absl::check"
+    "absl::strings"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_256k_pages"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_want_hpaa_test_helper_hpaa
+  SRCS
+    "want_hpaa_test_helper.cc"
+  DEPS
+    "absl::check"
+    "absl::strings"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+    "tcmalloc::want_hpaa"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_want_hpaa_test_helper_small
+  SRCS
+    "want_hpaa_test_helper.cc"
+  DEPS
+    "absl::check"
+    "absl::strings"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_small_but_slow"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_get_stats_test
+  SRCS
+    "get_stats_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::config"
+    "absl::optional"
+    "absl::strings"
+    "absl::time"
+    "tcmalloc::experiment"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_releasing_test
+  SRCS
+    "releasing_test.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::optional"
+    "absl::random_random"
+    "benchmark::benchmark"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_stats"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_default_parameters_test
+  SRCS
+    "default_parameters_test.cc"
+  DEPS
+    "absl::str_format"
+    "absl::time"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_hello_main
+  SRCS
+    "hello_main.cc"
+  DEPS
+    "absl::optional"
+    "absl::str_format"
+    "absl::strings"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_benchmark_main
+  ALIAS
+    tcmalloc::testing_benchmark_main
+  SRCS
+    "benchmark_main.cc"
+  DEPS
+    "benchmark::benchmark"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_numa_locality_test
+  SRCS
+    "numa_locality_test.cc"
+  COPTS
+    "-DTCMALLOC_INTERNAL_NUMA_AWARE"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::check"
+    "absl::core_headers"
+    "absl::log"
+    "absl::no_destructor"
+    "absl::random_random"
+    "absl::span"
+    "absl::strings"
+    "tcmalloc::common_numa_aware"
+    "tcmalloc::internal_affinity"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_numa"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_numa_aware"
+    "tcmalloc::testing_testutil"
+    "tcmalloc::want_numa_aware"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_test_allocator_harness
+  ALIAS
+    tcmalloc::testing_test_allocator_harness
+  HDRS
+    "test_allocator_harness.h"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::random_random"
+    "absl::synchronization"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_realized_fragmentation_test
+  SRCS
+    "realized_fragmentation_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::check"
+    "absl::random_random"
+    "absl::strings"
+    "tcmalloc::internal_linked_list"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_background_test
+  SRCS
+    "background_test.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::time"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_test_allocator_harness"
+    "tcmalloc::testing_testutil"
+    "tcmalloc::testing_thread_manager"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_reclaim_test
+  SRCS
+    "reclaim_test.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::str_format"
+    "absl::strings"
+    "absl::time"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_test_allocator_harness"
+    "tcmalloc::testing_thread_manager"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_profile_test
+  SRCS
+    "profile_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::flat_hash_map"
+    "absl::flat_hash_set"
+    "absl::statusor"
+    "absl::strings"
+    "benchmark::benchmark"
+    "protobuf::libprotobuf"
+    "tcmalloc::internal_profile_cc_proto"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::profile_marshaler"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_deallocation_profiler_test
+  SRCS
+    "deallocation_profiler_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::log"
+    "absl::strings"
+    "absl::symbolize"
+    "absl::time"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_system-alloc_test
+  SRCS
+    "system-alloc_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::leak_check"
+    "absl::str_format"
+    "absl::string_view"
+    "benchmark::benchmark"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_numa"
+    "tcmalloc::internal_proc_maps"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_realloc_test
+  SRCS
+    "realloc_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_tcmalloc_large_test
+  SRCS
+    "tcmalloc_large_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::flat_hash_set"
+    "absl::span"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_malloc_extension_system_malloc_test
+  SRCS
+    "malloc_extension_system_malloc_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::random_random"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_malloc_extension_test
+  SRCS
+    "malloc_extension_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::strings"
+    "absl::time"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_malloc_tracing_extension_system_malloc_test
+  SRCS
+    "malloc_tracing_extension_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::cleanup"
+    "absl::status"
+    "absl::statusor"
+    "tcmalloc::malloc_tracing_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_malloc_tracing_extension_test
+  SRCS
+    "malloc_tracing_extension_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::cleanup"
+    "absl::status"
+    "absl::statusor"
+    "tcmalloc::malloc_tracing_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_heap_profiling_test
+  SRCS
+    "heap_profiling_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::absl_check"
+    "absl::base"
+    "absl::check"
+    "absl::core_headers"
+    "absl::flat_hash_set"
+    "absl::malloc_internal"
+    "absl::statusor"
+    "absl::str_format"
+    "absl::time"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_profile_builder"
+    "tcmalloc::internal_profile_cc_proto"
+    "tcmalloc::internal_sampled_allocation"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
+    "tcmalloc::testing_test_allocator_harness"
+    "tcmalloc::testing_thread_manager"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_peak_heap_profiling_test
+  SRCS
+    "peak_heap_profiling_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::check"
+    "absl::time"
+    "benchmark::benchmark"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_variants_test
+  SRCS
+    "variants_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::base"
+    "absl::core_headers"
+    "absl::flat_hash_set"
+    "absl::strings"
+    "tcmalloc::experiment"
+    "tcmalloc::internal_environment"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_percpu"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_parallel_test
+  SRCS
+    "parallel_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::absl_check"
+    "absl::random_random"
+    "absl::time"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_internal_methods_only"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_partitioning_fuzz_test
+  SRCS
+    "partitioning_fuzz_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::span"
+    "fuzztest::fuzztest"
+    "fuzztest::init_fuzztest"
+    "tcmalloc::internal_affinity"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_partitioning_test_helper
+  SRCS
+    "partitioning_test_helper.cc"
+  DEPS
+    "absl::str_format"
+    "absl::strings"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_partitioning_test_helper_partitioning_default_on
+  SRCS
+    "partitioning_test_helper.cc"
+  DEPS
+    "absl::str_format"
+    "absl::strings"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+    "tcmalloc::tcmalloc_enable_heap_partitioning_default_on"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_partitioning_test_helper_partitioning_default_on_numa
+  SRCS
+    "partitioning_test_helper.cc"
+  DEPS
+    "absl::str_format"
+    "absl::strings"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_enable_heap_partitioning_default_on"
+    "tcmalloc::tcmalloc_numa_aware"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_testing_partitioning_test_helper_numa
+  SRCS
+    "partitioning_test_helper.cc"
+  DEPS
+    "absl::str_format"
+    "absl::strings"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_numa_aware"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_profile_drop_frames_test
+  SRCS
+    "profile_drop_frames_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::flat_hash_map"
+    "absl::strings"
+    "absl::symbolize"
+    "tcmalloc::internal_profile_builder"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_disable_numa_test
+  SRCS
+    "disable_numa_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_numa"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_alloc_at_least_test
+  SRCS
+    "alloc_at_least_test.c"
+  DEPS
+    "tcmalloc::alloc_at_least"
+    "tcmalloc::tcmalloc"
+)
+

@@ -9,6 +9,7 @@ a fast, multi-threaded malloc implementation.
 ## Building TCMalloc
 
 [Bazel](https://bazel.build) is the official build system for TCMalloc.
+Experimental support for CMake is available as well.
 
 The [TCMalloc Platforms Guide](docs/platforms.md) contains information on
 platform support for TCMalloc.
