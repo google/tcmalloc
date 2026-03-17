@@ -177,7 +177,8 @@ void* GenerateAllStaleTest(absl::string_view filename, void* obj, size_t size) {
   CHECK_NE(read_fd, -1)
       << StrError(errno)
       << " while reading pageflags; does your kernel support it?";
-  int write_fd = signal_safe_open(filename.data(), O_CREAT | O_WRONLY, S_IRUSR);
+  int write_fd =
+      signal_safe_open(filename.data(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
   CHECK_NE(write_fd, -1) << errno;
 
   CHECK_EQ(::lseek(read_fd, file_read_offset, SEEK_SET), file_read_offset);
@@ -376,8 +377,8 @@ TEST(PageFlagsTest, OnlyTails) {
     page |= kPageThp;
   }
   std::string file_path = absl::StrCat(testing::TempDir(), "/only-tails");
-  int write_fd =
-      signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY, S_IRUSR);
+  int write_fd = signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY,
+                                  S_IRUSR | S_IWUSR);
   ASSERT_NE(write_fd, -1) << errno;
 
   size_t bytes_to_write = data.size() * sizeof(data[0]);
@@ -410,8 +411,8 @@ TEST(PageFlagsTest, IsHugepageBacked) {
     }
     std::string file_path =
         absl::StrCat(testing::TempDir(), "/hugepage_backed_", flags);
-    int write_fd =
-        signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY, S_IRUSR);
+    int write_fd = signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY,
+                                    S_IRUSR | S_IWUSR);
     ASSERT_NE(write_fd, -1) << errno;
 
     size_t bytes_to_write = data.size() * sizeof(data[0]);
@@ -445,8 +446,8 @@ TEST(PageFlagsTest, TooManyTails) {
   data[5 * kHugePageSize / kPageSize] = kPageHead | kPageThp;
 
   std::string file_path = absl::StrCat(testing::TempDir(), "/too-many-tails");
-  int write_fd =
-      signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY, S_IRUSR);
+  int write_fd = signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY,
+                                  S_IRUSR | S_IWUSR);
   ASSERT_NE(write_fd, -1) << errno;
 
   size_t bytes_to_write = data.size() * sizeof(data[0]);
@@ -478,8 +479,8 @@ TEST(PageFlagsTest, NotThp) {
   }
 
   std::string file_path = absl::StrCat(testing::TempDir(), "/not-thp");
-  int write_fd =
-      signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY, S_IRUSR);
+  int write_fd = signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY,
+                                  S_IRUSR | S_IWUSR);
   ASSERT_NE(write_fd, -1) << errno;
 
   size_t bytes_to_write = data.size() * sizeof(data[0]);

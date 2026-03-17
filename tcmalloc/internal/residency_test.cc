@@ -159,7 +159,8 @@ TEST(ResidenceTest, CannotSeek) {
 // a region with all missing pages, or a region with a hugepage in the middle.
 void GenerateHolesInSinglePage(absl::string_view filename, int case_num,
                                int num_pages) {
-  int write_fd = signal_safe_open(filename.data(), O_CREAT | O_WRONLY, S_IRUSR);
+  int write_fd =
+      signal_safe_open(filename.data(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
   CHECK_NE(write_fd, -1) << errno;
   std::vector<uint64_t> buf(num_pages, 0);
   for (int i = 0; i < num_pages; i++) {

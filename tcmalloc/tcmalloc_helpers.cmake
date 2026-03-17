@@ -76,7 +76,7 @@ function(tcmalloc_cc_test)
   endif()
   target_include_directories(${TCMALLOC_NAME} PUBLIC ${CMAKE_SOURCE_DIR})
   add_test(NAME ${TCMALLOC_NAME} COMMAND ${TCMALLOC_NAME})
-  set_tests_properties(${TCMALLOC_NAME} PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR}")
+  set_tests_properties(${TCMALLOC_NAME} PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
 endfunction()
 
 function(tcmalloc_cc_binary)
