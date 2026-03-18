@@ -752,11 +752,16 @@ static constexpr uintptr_t kBadAlignmentMask =
 // overlapping tag bit.  This is the same property IsNormalMemory relies on.
 static constexpr uintptr_t kNormalMask =
     static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift;
+static constexpr uintptr_t kColdMask = static_cast<uintptr_t>(MemoryTag::kCold)
+                                       << kTagShift;
 static_assert((static_cast<uintptr_t>(MemoryTag::kNormal) &
                static_cast<uintptr_t>(MemoryTag::kNormalP1)) != 0);
 
 static constexpr uintptr_t kNormalOrBadDeallocationMask =
     kBadDeallocationHighMask | kNormalMask | kBadAlignmentMask;
+
+static constexpr uintptr_t kTagOrBadDeallocationMask =
+    kBadDeallocationHighMask | kTagMask | kBadAlignmentMask;
 
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
@@ -821,32 +826,34 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
 }
 
 template <typename Policy>
-ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
-                                                    Policy policy) {
+ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
+    void* ptr, size_t size, Policy policy) {
   TC_ASSERT_NE(ptr, nullptr);
+  // If we get here, the allocation is either sampled or the pointer is
+  // illformed.
+  auto tag = GetMemoryTag(ptr);
+  const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
+  TC_ASSERT((uptr & (kBadAlignmentMask | kBadDeallocationHighMask)) != 0 ||
+            (tag != MemoryTag::kNormal && tag != MemoryTag::kNormalP1 &&
+             tag != MemoryTag::kCold));
 
-  if (GetMemoryTag(ptr) == MemoryTag::kSampled) {
+  if (ABSL_PREDICT_TRUE(tag == MemoryTag::kSampled)) {
     // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
-
-  const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
+  // At this point, the pointer is purely illformed: wrong alignment, corrupted
+  // high bits, or illegal tags.
   if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
     ReportCorruptedFree(tc_globals, ptr);
   }
 
-  TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold);
-
 #ifdef TCMALLOC_INTERNAL_WITH_ASSERTIONS
-  TC_CHECK(
-      CorrectSize(ptr, size, policy.InSamePartitionAs(ptr).AccessAsCold()));
+  TC_CHECK(CorrectSize(ptr, size, policy));
 #else
-  TC_ASSERT(
-      CorrectSize(ptr, size, policy.InSamePartitionAs(ptr).AccessAsCold()));
+  TC_ASSERT(CorrectSize(ptr, size, policy));
 #endif
 
-  const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
-      policy.InSamePartitionAs(ptr).AccessAsCold(), size);
+  const auto [is_small, _] = tc_globals.sizemap().GetSizeClass(policy, size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     // We couldn't calculate the size class, which means size > kMaxSize.
     TC_ASSERT(size > kMaxSize ||
@@ -855,22 +862,19 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
 
-  // We do this check here at the cost of an extra branch, rather than combining
-  // it with kBadDeallocationHighMask.
-  //
   // >kMaxSize objects may be sampled and this is handled by
   // InvokeHooksAndFreePages.  By failing there, we can provide a richer error
   // report by consulting our sampled object information and include the
   // deallocation stack.
   //
   // If we get here, the object is small and this is the last line of defense
-  // before it gets stored into a cache.
-  if (ABSL_PREDICT_FALSE(uptr & kBadAlignmentMask)) {
-    ReportCorruptedFree(tc_globals, kAlignment, ptr);
-  }
-
-  FreeSmall(ptr, size, size_class);
+  // to report the error.
+  TC_ASSERT_EQ((uptr & kBadAlignmentMask) != 0, true);
+  return ReportCorruptedFree(tc_globals, kAlignment, ptr);
 }
+
+template <typename Policy>
+static void fast_free_with_size(void* ptr, size_t size, Policy policy);
 
 template <typename Policy>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
@@ -892,11 +896,30 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
     }
-    // Outline cold path to avoid putting cold size lookup on the fast path.
-    SLOW_PATH_BARRIER();
-    return free_non_normal(ptr, size, policy);
+    bool is_cold = ((uptr & kTagOrBadDeallocationMask) == kColdMask);
+    if (ABSL_PREDICT_FALSE(!is_cold)) {
+      // Outline cold path to avoid putting cold size lookup on the fast path.
+      SLOW_PATH_BARRIER();
+      return handle_sampled_or_illformed_ptrs(ptr, size, policy);
+    } else {
+      // Clone the callsite here to enable constant propgation of is_cold.
+      return fast_free_with_size(ptr, size, policy.AccessAsCold());
+    }
   }
+  fast_free_with_size(ptr, size, policy.AccessAsHot());
+}
 
+template <typename Policy>
+inline
+// The slow path (e.g. handling sampled allocation) has very deep stack
+// and can create out of stack issues when building in dbg mode because
+// of use of -O0 (b/492232880). Force inlining of the fast path code into
+// the shared caller can greatly increases the slowpath's stack usage (
+// more assert related variables, and additional forced inlinings etc).
+#ifdef NDEBUG
+    ABSL_ATTRIBUTE_ALWAYS_INLINE
+#endif
+    static void fast_free_with_size(void* ptr, size_t size, Policy policy) {
   // Mismatched-size-delete error detection for sampled memory is performed in
   // the slow path above in all builds.
 #ifdef TCMALLOC_INTERNAL_WITH_ASSERTIONS
@@ -911,7 +934,37 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
   // TODO: b/470136917 - Investigate if we can beautify (i.e., avoiding the code
   // duplication) this code without losing performance.
-  if (PartitionFromPointerFast(ptr) == 0) {
+
+  // AllocHint/Partition-id  -->  Tag(SizeClass) space
+  // (with Security Partition off)
+  //  H/0  ────────────────╮
+  //  H/1  ────────────────+───> kNormalP0
+  //
+  //  C/0  ────────────────╮
+  //  C/1  ────────────────+───> kCold
+
+  // AllocHint/Partition-id  -->  Tag(SizeClass) space
+  // (with Security Partition on)
+  // H/0 ────────────────>kNormalP0
+  // H/1 ───┐
+  //        │
+  // C/1 ───+────────────> kNormalP1
+  // C/0 ────────────────> kCold
+  //
+  // NUMA on (kSecurityPartition == 1):
+  // H/[0|1] ────────────────+──────────────> kNormalP0 (for numa node 0)
+  //                         │
+  //                         └──────────────> kNormalP1 (for numa node 1)
+  // C/[0|1] ───────────────────────────────> kCold
+
+  // 'policy.is_cold()' means the ptr has kCold tag. To make the delete
+  // operation correctly maps to the expanded size class, partition 0 needs
+  // to be used. If partition 1 used, it will be wrongly mapped to NormalP1
+  // classes (see above diagrams). Additional note: partition number specified
+  // at allocation time is not recorded in the tag for cold objects and
+  // 'ParititionFromPointerFast' will return wrong results for them (and
+  // therefore there is assertion failure if used for kCold ptrs)
+  if (policy.is_cold() || PartitionFromPointerFast(ptr) == 0) {
     const auto [is_small, size_class] =
         tc_globals.sizemap().GetSizeClass(policy.InPartition(0), size);
     if (ABSL_PREDICT_TRUE(is_small)) {
@@ -926,7 +979,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
       return;
     }
   }
-
   // We couldn't calculate the size class, which means size > kMaxSize.
   TC_ASSERT(size > kMaxSize ||
             policy.align() > std::align_val_t{alignof(std::max_align_t)});
