@@ -120,32 +120,7 @@ void testEntry(Params& p, const tcmalloc::Profile::Sample& e) {
     EXPECT_LE(e.min_lifetime, e.avg_lifetime);
     EXPECT_LE(e.avg_lifetime, e.max_lifetime);
 
-    auto log_optional_bool = [](std::optional<bool> item) {
-      if (!item.has_value()) {
-        return "none";
-      }
-      return item.value() ? "true" : "false";
-    };
-
     p.dealloc_bucket_counter++;
-    LOG(INFO) << "-------------------------------------------";
-    LOG(INFO) << "e.count:" << e.count;
-    LOG(INFO) << "e.allocated_size:" << e.allocated_size;
-    LOG(INFO) << "e.requested_size:" << e.requested_size;
-    LOG(INFO) << "e.avg_lifetime:" << e.avg_lifetime;
-    LOG(INFO) << "e.min_lifetime:" << e.min_lifetime;
-    LOG(INFO) << "e.max_lifetime:" << e.max_lifetime;
-    LOG(INFO) << "e.stddev_lifetime:" << e.stddev_lifetime;
-    LOG(INFO) << "e.allocator_deallocator_physical_cpu_matched:"
-              << log_optional_bool(
-                     e.allocator_deallocator_physical_cpu_matched);
-    LOG(INFO) << "e.allocator_deallocator_virtual_cpu_matched:"
-              << log_optional_bool(e.allocator_deallocator_virtual_cpu_matched);
-    LOG(INFO) << "e.allocator_deallocator_l3_matched:"
-              << log_optional_bool(e.allocator_deallocator_l3_matched);
-    LOG(INFO) << "e.allocator_deallocator_thread_matched:"
-              << log_optional_bool(e.allocator_deallocator_thread_matched);
-    LOG(INFO) << "e.profile_id:" << e.profile_id;
   }
 }
 
