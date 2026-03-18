@@ -139,7 +139,8 @@ inline constexpr int kAddressBits = 48;
 inline constexpr int kAddressBits = 8 * sizeof(void*);
 #endif
 
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
 inline constexpr bool kSanitizerPresent = true;
 #else

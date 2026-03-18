@@ -143,7 +143,7 @@ class ReadWriteTcMallocTest
       public testing::WithParamInterface<bool /* write_test */> {};
 
 TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
-#if ABSL_HAVE_ADDRESS_SANITIZER
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP() << "Test requires GWP-ASan";
 #endif  // ABSL_HAVE_ADDRESS_SANITIZER
 
@@ -178,7 +178,7 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
 }
 
 TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
-#if ABSL_HAVE_ADDRESS_SANITIZER
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP() << "Test requires GWP-ASan";
 #endif  // ABSL_HAVE_ADDRESS_SANITIZER
 
@@ -213,7 +213,7 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
 }
 
 TEST_P(ReadWriteTcMallocTest, ZeroByteAccessDetected) {
-#if ABSL_HAVE_ADDRESS_SANITIZER
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP() << "Test requires GWP-ASan";
 #endif  // ABSL_HAVE_ADDRESS_SANITIZER
 
@@ -267,6 +267,9 @@ TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
       }
     }
   };
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  std::string expected_output = "Cause: use-after-free";
+#else
   std::string expected_output = absl::StrCat(
       "Use-after-free ",
 #if !defined(__riscv)
@@ -276,6 +279,7 @@ TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
 #endif
       " occurs in thread [0-9]+ at"
       "|heap-use-after-free");
+#endif
   EXPECT_DEATH(RepeatUseAfterFree(), expected_output);
 }
 
@@ -285,7 +289,7 @@ INSTANTIATE_TEST_SUITE_P(rwtmt, ReadWriteTcMallocTest, testing::Bool());
 // run this test for opt builds.
 #ifdef NDEBUG
 TEST_F(TcMallocTest, DoubleFreeDetected) {
-#if ABSL_HAVE_ADDRESS_SANITIZER
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP() << "Test requires GWP-ASan";
 #endif
 
@@ -338,9 +342,9 @@ TEST_F(TcMallocTest, ReallocNoFalsePositive) {
 }
 
 TEST_F(TcMallocTest, OffsetAndLength) {
-#if ABSL_HAVE_ADDRESS_SANITIZER
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP() << "Test requires GWP-ASan";
-#endif  // ABSL_HAVE_ADDRESS_SANITIZER
+#endif  // ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
 
   auto RepeatUseAfterFree = [&](size_t buffer_len, off_t access_offset) {
     for (int i = 0; i < 1000000; i++) {
@@ -400,7 +404,7 @@ TEST_F(TcMallocTest, b201199449_AlignedObjectConstruction) {
     }
   }
 
-#if !ABSL_HAVE_ADDRESS_SANITIZER
+#if !ABSL_HAVE_ADDRESS_SANITIZER && !ABSL_HAVE_HWADDRESS_SANITIZER
   EXPECT_TRUE(allocated) << "Failed to allocate with GWP-ASan";
 #endif  // !ABSL_HAVE_ADDRESS_SANITIZER
 }
@@ -415,13 +419,22 @@ TEST_F(TcMallocTest, DoubleFree) {
     benchmark::DoNotOptimize(buf);
     ::operator delete(buf);
   };
-  EXPECT_DEATH(
-      DoubleFree(),
-      absl::StrCat("(Possible double free detected"
-                   ")|attempting double-free"));
+  EXPECT_DEATH(DoubleFree(),
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+               "Cause: use-after-free"
+#else
+               absl::StrCat(
+                   "(Possible double free detected"
+                   ")|attempting double-free")
+#endif
+  );
 }
 
 TEST_F(TcMallocTest, LargeDoubleFree) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP() << "Just segfaults with HWASan.";
+#endif  //  ABSL_HAVE_HWADDRESS_SANITIZER
+
   ScopedGuardedSamplingInterval gs(-1);
   ScopedProfileSamplingInterval s(1);
   auto DoubleFree = []() {
@@ -452,12 +465,16 @@ TEST_F(TcMallocTest, ReallocLarger) {
             free(ptr);
           }
         },
-        "has detected a memory error|heap-buffer-overflow");
+        // TODO(b/476209670): figure out why this sometimes gives
+        // allocation-tail-overwritten.
+        "has detected a memory "
+        "error|heap-buffer-overflow|allocation-tail-overwritten");
   }
 }
 
 TEST_F(TcMallocTest, ReallocSmaller) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
   for (size_t size : {8, 29, 60, 505}) {
@@ -477,7 +494,8 @@ TEST_F(TcMallocTest, ReallocSmaller) {
 }
 
 TEST_F(TcMallocTest, ReallocUseAfterFree) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
   for (size_t size : {8, 29, 60, 505}) {
@@ -497,7 +515,8 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
 }
 
 TEST_F(TcMallocTest, MismatchedSampled) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
 
@@ -577,7 +596,8 @@ TEST_F(TcMallocTest, MismatchedSampled) {
 }
 
 TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
 
@@ -656,7 +676,8 @@ TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
 }
 
 TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
 
@@ -696,7 +717,8 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
 }
 
 TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
   // Ensure GWP-ASAN doesn't catch the issue before we do, so that we validate
@@ -726,7 +748,8 @@ TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
 }
 
 TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
 #ifndef NDEBUG
@@ -759,6 +782,10 @@ TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
 }
 
 TEST_F(TcMallocTest, CorruptedPointer) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "HWASan does not currently detect alloc-dealloc-mismatch.";
+#endif
+
   constexpr size_t kSizes[] = {
       8u,
       64u,
@@ -777,7 +804,7 @@ TEST_F(TcMallocTest, CorruptedPointer) {
       static_cast<size_t>(tcmalloc_internal::kAlignment) - 1,
 #ifdef NDEBUG
       ABSL_CACHELINE_SIZE,
-#ifndef ABSL_HAVE_ADDRESS_SANITIZER
+#if !defined(ABSL_HAVE_ADDRESS_SANITIZER)
       tcmalloc_internal::kPageSize / 2,
 #endif  // ABSL_HAVE_ADDRESS_SANITIZER
 #endif  // NDEBUG
@@ -841,6 +868,9 @@ TEST_F(TcMallocTest, CorruptedPointer) {
 }
 
 TEST_F(TcMallocTest, CorruptedPointerEdgeCases) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "HWASan does not currently detect alloc-dealloc-mismatch.";
+#endif
   EXPECT_DEATH(
       {
         ScopedProfileSamplingInterval sampling(0);
@@ -856,6 +886,9 @@ TEST_F(TcMallocTest, CorruptedPointerEdgeCases) {
 }
 
 TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "HWASan does not currently detect alloc-dealloc-mismatch.";
+#endif
   ScopedAlwaysSample always_sample;
 
   EXPECT_DEATH(
@@ -893,6 +926,9 @@ TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
 }
 
 TEST_F(TcMallocTest, DeleteWithoutAlignment) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "HWASan does not currently detect new-delete-type-mismatch.";
+#endif
   ScopedAlwaysSample always_sample;
 
   constexpr size_t size = ABSL_CACHELINE_SIZE;
@@ -919,6 +955,9 @@ TEST_F(TcMallocTest, DeleteWithoutAlignment) {
 }
 
 TEST_F(TcMallocTest, DeleteWithAlignment) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "HWASan does not currently detect new-delete-type-mismatch.";
+#endif
   ScopedAlwaysSample always_sample;
 
   constexpr size_t size = ABSL_CACHELINE_SIZE;
@@ -943,6 +982,9 @@ TEST_F(TcMallocTest, DeleteWithAlignment) {
 }
 
 TEST_F(TcMallocTest, DeleteWrongAlignment) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "HWASan does not currently detect new-delete-type-mismatch.";
+#endif
   ScopedAlwaysSample always_sample;
 
   constexpr size_t size = ABSL_CACHELINE_SIZE;
@@ -1044,6 +1086,9 @@ TEST_F(TcMallocTest, FreeWithAlignment) {
 }
 
 TEST_F(TcMallocTest, InteriorPointer) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "Times out with HWASan.";
+#endif
   if (kPageSize == 4096) {
     // TODO(b/457842787):  Include small-but-slow.
     GTEST_SKIP() << "Skipping under small-but-slow";
@@ -1063,7 +1108,8 @@ TEST_F(TcMallocTest, InteriorPointer) {
 }
 
 TEST_F(TcMallocTest, NeverAllocatedPointer) {
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) && defined(__aarch64__)
+#if (defined(ABSL_HAVE_ADDRESS_SANITIZER) && defined(__aarch64__)) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   // TODO(b/462125445): Enable this under ASan.
   GTEST_SKIP() << "Skipping under address sanitizer";
 #endif
@@ -1073,7 +1119,7 @@ TEST_F(TcMallocTest, NeverAllocatedPointer) {
   EXPECT_DEATH(
       { ::operator delete(ptr); },
       absl::StrCat(
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER)
           "(attempting free on address which was not malloc)|"
 #endif
           "(Attempted to free corrupted pointer 0xdeadbeef: It was "
@@ -1083,7 +1129,7 @@ TEST_F(TcMallocTest, NeverAllocatedPointer) {
   EXPECT_DEATH(
       { ::operator delete(ptr, kMaxSize + 1); },
       absl::StrCat(
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER)
           "(attempting free on address which was not malloc)|"
 #endif
           "(Attempted to free corrupted pointer 0xdeadbeef: It was "
@@ -1092,7 +1138,8 @@ TEST_F(TcMallocTest, NeverAllocatedPointer) {
 }
 
 TEST_F(TcMallocTest, NeverAllocatedPointerHighBits) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   // TODO(b/462125445): Enable this under ASan.
   GTEST_SKIP() << "Skipping under address sanitizer";
 #endif
@@ -1134,7 +1181,8 @@ TEST_F(TcMallocTest, NeverAllocatedPointerHighBits) {
 }
 
 TEST_F(TcMallocTest, ReallocNeverAllocatedPointerHighBits) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "Skipping under address sanitizer";
 #endif
 
@@ -1154,7 +1202,8 @@ TEST_F(TcMallocTest, ReallocNeverAllocatedPointerHighBits) {
 }
 
 TEST_F(TcMallocTest, MismatchedDeleteExactRange) {
-#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
 

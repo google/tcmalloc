@@ -211,6 +211,11 @@ FUZZ_TEST(SpanTest, FuzzSpanInstructions);
 
 void FuzzSpan(size_t object_size, size_t num_pages, size_t num_to_move,
               size_t initial_objects_at_build, uint64_t alloc_time) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_to_move)) {
     // Invalid size class configuration, but ValidSizeClass detected that.
     return;

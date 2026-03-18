@@ -82,6 +82,11 @@ class SpanTest : public testing::TestWithParam<size_t> {
 
  private:
   void SetUp() override {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+    GTEST_SKIP()
+        << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
     size_class_ = GetParam();
     size_ = tc_globals.sizemap().class_to_size(size_class_);
     if (size_ == 0) {

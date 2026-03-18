@@ -78,7 +78,7 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
   void SetUp() override {
     size_class_ = GetParam();
     if (IsExpandedSizeClass(size_class_)) {
-#if ABSL_HAVE_THREAD_SANITIZER
+#if ABSL_HAVE_THREAD_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
       GTEST_SKIP() << "Skipping test under sanitizers that conflict with "
                       "address placement";
 #endif
@@ -299,11 +299,11 @@ static BackingStats PageHeapStats() {
 }
 
 TEST_P(StaticForwarderTest, Fuzz) {
-#if ABSL_HAVE_THREAD_SANITIZER
+#if ABSL_HAVE_THREAD_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
   // TODO(b/193887621):  Enable this test under TSan after addressing benign
   // true positives.
   GTEST_SKIP() << "Skipping test under Thread Sanitizer.";
-#endif  // ABSL_HAVE_THREAD_SANITIZER
+#endif  // ABSL_HAVE_THREAD_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
 
   const auto page_heap_before = PageHeapStats();
 
@@ -343,6 +343,11 @@ using TypeParam = FakeCentralFreeListEnvironment<
 using CentralFreeListTest = ::testing::TestWithParam<SizeClassInfo>;
 
 TEST_P(CentralFreeListTest, IsolatedSmoke) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
@@ -395,6 +400,11 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
 }
 
 TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   constexpr size_t kNumSpans = 10;
 
@@ -495,6 +505,11 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 // This avoids memory regression due to multiple Populate calls observed in
 // b/225880278.
 TEST_P(CentralFreeListTest, SinglePopulate) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   // Make sure that we allocate up to kObjectsPerSpan objects in both the span
   // prioritization states.
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
@@ -568,6 +583,11 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
 }
 
 TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   if (e.objects_per_span() <= 2 * kNumLists) {
     GTEST_SKIP()
@@ -581,6 +601,11 @@ TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
 }
 
 TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   if (e.objects_per_span() > 2 * kNumLists) {
     GTEST_SKIP() << "Skipping test as one hot encoding not required.";
@@ -599,6 +624,11 @@ TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
 // objects are allocated from the span with a higher number of allocated objects
 // as enforced by our prioritization scheme.
 TEST_P(CentralFreeListTest, SpanPriority) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
 
   // If the number of objects per span is less than 2, we do not use more than
@@ -783,6 +813,11 @@ void CheckLifetimeStats(TypeParam& e, SpanLifetimes span_lifetimes) {
 }
 
 TEST_P(CentralFreeListTest, SpanLifetime) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   // Skip the check for objects_per_span = 1 since such spans skip most of the
   // central freelist's logic.
@@ -816,6 +851,11 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
 }
 
 TEST_P(CentralFreeListTest, SpanAllocationTracker) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
 
   const int objects_per_span = e.objects_per_span();
@@ -887,6 +927,11 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
 }
 
 TEST_P(CentralFreeListTest, MultipleSpans) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   std::vector<void*> all_objects;
   constexpr size_t kNumSpans = 10;
@@ -968,6 +1013,11 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
 }
 
 TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   ASSERT_GE(e.objects_per_span(), 1);
   auto test_function = [&](size_t num_objects,
@@ -992,6 +1042,11 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
 }
 
 TEST_P(CentralFreeListTest, SpanFragmentation) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   // This test is primarily exercising Span itself to model how tcmalloc.cc uses
   // it, but this gives us a self-contained (and sanitizable) implementation of
   // the CentralFreeList.
@@ -1028,6 +1083,11 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
 }
 
 TEST_P(CentralFreeListTest, SpanLifetimeWithLongLivedSpans) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
 
   const int objects_per_span = e.objects_per_span();
@@ -1118,6 +1178,11 @@ TEST_P(CentralFreeListTest, SpanLifetimeWithLongLivedSpans) {
 }
 
 TEST_P(CentralFreeListTest, LongLivedSpansMovedHistogram) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
 
   const int objects_per_span = e.objects_per_span();
@@ -1193,6 +1258,11 @@ TEST_P(CentralFreeListTest, LongLivedSpansMovedHistogram) {
 }
 
 TEST_P(CentralFreeListTest, ParallelHandleLongLivedSpans) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
   std::atomic<bool> done(false);
   TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
 

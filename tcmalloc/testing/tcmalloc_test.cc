@@ -781,7 +781,9 @@ TEST(TCMallocTest, nallocx) {
   for (size_t size = 0; size <= kMaxTestAllocSize; size += 11) {
     size_t rounded = nallocx(size, 0);
     ASSERT_GE(rounded, size);
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_THREAD_SANITIZER) ||  \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
     rounded = std::max<size_t>(rounded, 1u);
 #endif
     void* ptr = operator new(size);
@@ -807,7 +809,9 @@ TEST(TCMallocTest, nallocx_alignment) {
         ASSERT_EQ(rounded % (1 << align), 0) << size << " " << align;
       }
       void* ptr = memalign(1 << align, size);
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_THREAD_SANITIZER) ||  \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
       rounded = std::max<size_t>(rounded, 1u);
 #endif
       ASSERT_EQ(rounded, MallocExtension::GetAllocatedSize(ptr));

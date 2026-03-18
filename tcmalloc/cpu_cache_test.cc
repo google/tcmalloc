@@ -1292,6 +1292,9 @@ TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
 // Test that old slabs are madvised-away during max capacity resize even when
 // memory is mlocked.
 TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "OOMs under HWASan";
+#endif  // ABSL_HAVE_HWADDRESS_SANITIZER
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -1337,6 +1340,9 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
 // Test that old slabs are madvised-away during slab resize even when memory is
 // mlocked.
 TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "OOMs under HWASan";
+#endif  // ABSL_HAVE_HWADDRESS_SANITIZER
   if (!subtle::percpu::IsFast()) {
     return;
   }

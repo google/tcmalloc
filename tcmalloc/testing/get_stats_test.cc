@@ -399,9 +399,10 @@ TEST_F(GetStatsTest, StackDepth) {
     ASSERT_EQ(
         pthread_create(&stats_thread, &thread_attributes, get_stats, &args), 0);
     ASSERT_EQ(pthread_join(stats_thread, nullptr), 0);
-#if !(defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
-      defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
-      defined(ABSL_HAVE_MEMORY_SANITIZER) ||  \
+#if !(defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
+      defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
+      defined(ABSL_HAVE_LEAK_SANITIZER) ||      \
+      defined(ABSL_HAVE_MEMORY_SANITIZER) ||    \
       defined(ABSL_HAVE_THREAD_SANITIZER))
     // We won't have data if we are running under a sanitizer, but everything
     // should run cleanly.
