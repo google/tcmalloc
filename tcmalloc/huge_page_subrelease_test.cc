@@ -74,9 +74,8 @@ class StatsTrackerTest : public testing::Test {
   }
 
   // Generates four data points for the tracker that represent "interesting"
-  // points (i.e., min/max pages demand, min/max hugepages).
-  void GenerateInterestingPoints(Length num_pages, HugeLength num_hugepages,
-                                 Length num_free_pages);
+  // points (i.e., min/max pages demand).
+  void GenerateInterestingPoints(Length num_pages, Length num_free_pages);
 
   // Generates a data point with a particular amount of demand pages, while
   // ignoring the specific number of hugepages.
@@ -86,7 +85,6 @@ class StatsTrackerTest : public testing::Test {
 int64_t StatsTrackerTest::clock_{0};
 
 void StatsTrackerTest::GenerateInterestingPoints(Length num_pages,
-                                                 HugeLength num_hugepages,
                                                  Length num_free_pages) {
   for (int i = 0; i <= 1; ++i) {
     for (int j = 0; j <= 1; ++j) {
@@ -94,12 +92,6 @@ void StatsTrackerTest::GenerateInterestingPoints(Length num_pages,
       stats.num_pages = num_pages + Length((i == 0) ? 4 : 8 * j);
       stats.free_pages = num_free_pages + Length(10 * i + j);
       stats.unmapped_pages = Length(10);
-      stats.used_pages_in_subreleased_huge_pages = num_pages;
-      stats.huge_pages[StatsTrackerType::kRegular] =
-          num_hugepages + ((i == 1) ? NHugePages(4) : NHugePages(8) * j);
-      stats.huge_pages[StatsTrackerType::kDonated] = num_hugepages;
-      stats.huge_pages[StatsTrackerType::kPartialReleased] = NHugePages(i);
-      stats.huge_pages[StatsTrackerType::kReleased] = NHugePages(j);
       tracker_.Report(stats);
     }
   }
@@ -107,16 +99,10 @@ void StatsTrackerTest::GenerateInterestingPoints(Length num_pages,
 
 void StatsTrackerTest::GenerateDemandPoint(Length num_pages,
                                            Length num_free_pages) {
-  HugeLength hp = NHugePages(1);
   StatsTrackerType::SubreleaseStats stats;
   stats.num_pages = num_pages;
   stats.free_pages = num_free_pages;
   stats.unmapped_pages = Length(0);
-  stats.used_pages_in_subreleased_huge_pages = Length(0);
-  stats.huge_pages[StatsTrackerType::kRegular] = hp;
-  stats.huge_pages[StatsTrackerType::kDonated] = hp;
-  stats.huge_pages[StatsTrackerType::kPartialReleased] = hp;
-  stats.huge_pages[StatsTrackerType::kReleased] = hp;
   tracker_.Report(stats);
 }
 
@@ -125,13 +111,13 @@ void StatsTrackerTest::GenerateDemandPoint(Length num_pages,
 // much cleaner than extracting and comparing all data manually.
 TEST_F(StatsTrackerTest, Works) {
   // Epoch 1.
-  GenerateInterestingPoints(Length(1), NHugePages(1), Length(1));
+  GenerateInterestingPoints(Length(1), Length(1));
   // Epoch 11.
   Advance(absl::Minutes(5));
-  GenerateInterestingPoints(Length(100), NHugePages(5), Length(200));
+  GenerateInterestingPoints(Length(100), Length(200));
   // Epoch 13.
   Advance(absl::Minutes(1));
-  GenerateInterestingPoints(Length(200), NHugePages(10), Length(100));
+  GenerateInterestingPoints(Length(200), Length(100));
 
   // Test text output (time series summary).
   {
@@ -144,11 +130,10 @@ TEST_F(StatsTrackerTest, Works) {
 StatsTracker: realized fragmentation: 0.8 MiB
 StatsTracker: minimum free pages: 110 (100 backed)
 StatsTracker: at peak demand: 208 pages (and 111 free, 10 unmapped)
-StatsTracker: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
 
 StatsTracker: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 StatsTracker: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
-StatsTracker: Subrelease stats last 10 min: total 0 pages subreleased (0 pages from partial allocs), 0 hugepages broken
+StatsTracker: Subrelease stats last 10 min: total 0 pages subreleased.
 )"));
   }
 }

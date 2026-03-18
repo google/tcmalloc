@@ -4231,8 +4231,7 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
     ASSERT_THAT(
         buffer,
         testing::EndsWith("HugePageFiller: Subrelease stats last 10 min: total "
-                          "21 pages subreleased (0 pages from partial allocs), "
-                          "3 hugepages broken\n"));
+                          "21 pages subreleased.\n"));
   } else {
     ASSERT_THAT(buffer,
                 testing::HasSubstr(
@@ -4243,8 +4242,7 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
     ASSERT_THAT(
         buffer,
         testing::EndsWith("HugePageFiller: Subrelease stats last 10 min: total "
-                          "0 pages subreleased (0 pages from partial allocs), "
-                          "0 hugepages broken\n"));
+                          "0 pages subreleased.\n"));
   }
 
   for (const auto& alloc : result) {
@@ -5436,11 +5434,10 @@ HugePageFiller: time series over 5 min interval
 HugePageFiller: realized fragmentation: 0.0 MiB
 HugePageFiller: minimum free pages: 0 (0 backed)
 HugePageFiller: at peak demand: 3547 pages (and 255 free, 38 unmapped)
-HugePageFiller: at peak demand: 15 hps (9 regular, 1 donated, 0 partial, 5 released)
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
-HugePageFiller: Subrelease stats last 10 min: total 306 pages subreleased (0 pages from partial allocs), 6 hugepages broken
+HugePageFiller: Subrelease stats last 10 min: total 306 pages subreleased.
 )"));
 
   absl::flat_hash_set<const PageTracker*> expected_pts, actual_pts;

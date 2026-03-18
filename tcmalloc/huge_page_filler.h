@@ -3277,24 +3277,7 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
   stats.num_pages = pages_allocated();
   stats.free_pages = free_pages();
   stats.unmapped_pages = unmapped_pages();
-  stats.used_pages_in_subreleased_huge_pages =
-      n_used_released_[AccessDensityPrediction::kDense] +
-      n_used_released_[AccessDensityPrediction::kSparse] +
-      n_used_partial_released_[AccessDensityPrediction::kDense] +
-      n_used_partial_released_[AccessDensityPrediction::kSparse];
-  stats.huge_pages[StatsTrackerType::kDonated] = donated_alloc_.size();
-  for (const AccessDensityPrediction type :
-       {AccessDensityPrediction::kDense, AccessDensityPrediction::kSparse}) {
-    stats.huge_pages[StatsTrackerType::kRegular] += regular_alloc_[type].size();
-    stats.huge_pages[StatsTrackerType::kPartialReleased] +=
-        regular_alloc_partial_released_[type].size();
-    stats.huge_pages[StatsTrackerType::kReleased] +=
-        regular_alloc_released_[type].size();
-  }
   stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
-  stats.num_partial_alloc_pages_subreleased =
-      subrelease_stats_.num_partial_alloc_pages_subreleased;
-  stats.num_hugepages_broken = subrelease_stats_.num_hugepages_broken;
   fillerstats_tracker_.Report(stats);
   subrelease_stats_.reset();
 }

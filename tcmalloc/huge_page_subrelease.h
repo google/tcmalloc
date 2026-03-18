@@ -255,33 +255,11 @@ struct SubreleaseStats {
 template <size_t kSlots = 16>
 class SubreleaseStatsTracker {
  public:
-  enum Type {
-    kRegular,
-    kSparse = kRegular,
-    kDense,
-    kDonated,
-    kPartialReleased,
-    kReleased,
-    kNumTypes
-  };
-
   struct SubreleaseStats {
     Length num_pages;
     Length free_pages;
     Length unmapped_pages;
-    Length used_pages_in_subreleased_huge_pages;
-    HugeLength huge_pages[kNumTypes];
     Length num_pages_subreleased;
-    Length num_partial_alloc_pages_subreleased;
-    HugeLength num_hugepages_broken = NHugePages(0);
-
-    HugeLength total_huge_pages() const {
-      HugeLength total_huge_pages;
-      for (int i = 0; i < kNumTypes; i++) {
-        total_huge_pages += huge_pages[i];
-      }
-      return total_huge_pages;
-    }
   };
 
   struct NumberOfFreePages {
@@ -459,8 +437,6 @@ class SubreleaseStatsTracker {
     Length min_free_pages = kDefaultValue;
     Length min_free_backed_pages = kDefaultValue;
     Length num_pages_subreleased;
-    Length num_partial_alloc_pages_subreleased;
-    HugeLength num_hugepages_broken = NHugePages(0);
 
     static SubreleaseStatsEntry Nil() { return SubreleaseStatsEntry(); }
 
@@ -485,9 +461,6 @@ class SubreleaseStatsTracker {
 
       // Subrelease stats
       num_pages_subreleased += e.num_pages_subreleased;
-      num_partial_alloc_pages_subreleased +=
-          e.num_partial_alloc_pages_subreleased;
-      num_hugepages_broken += e.num_hugepages_broken;
     }
 
     bool empty() const { return min_free_pages == kDefaultValue; }
@@ -602,20 +575,10 @@ void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
       },
       summary_interval_);
 
-  out.printf(
-      "%s: at peak demand: %zu pages (and %zu free, %zu unmapped)\n"
-      "%s: at peak demand: %zu hps (%zu regular, %zu donated, "
-      "%zu partial, %zu released)\n",
-      field, at_peak_demand.stats[kStatsAtMaxDemand].num_pages.raw_num(),
-      at_peak_demand.stats[kStatsAtMaxDemand].free_pages.raw_num(),
-      at_peak_demand.stats[kStatsAtMaxDemand].unmapped_pages.raw_num(), field,
-      at_peak_demand.stats[kStatsAtMaxDemand].total_huge_pages().raw_num(),
-      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kRegular].raw_num(),
-      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kDonated].raw_num(),
-      at_peak_demand.stats[kStatsAtMaxDemand]
-          .huge_pages[kPartialReleased]
-          .raw_num(),
-      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kReleased].raw_num());
+  out.printf("%s: at peak demand: %zu pages (and %zu free, %zu unmapped)\n",
+             field, at_peak_demand.stats[kStatsAtMaxDemand].num_pages.raw_num(),
+             at_peak_demand.stats[kStatsAtMaxDemand].free_pages.raw_num(),
+             at_peak_demand.stats[kStatsAtMaxDemand].unmapped_pages.raw_num());
 
   out.printf(
       "\n%s: Since the start of the execution, %zu subreleases (%zu"
@@ -644,25 +607,16 @@ void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
 
   // Print subrelease stats
   Length total_subreleased;
-  Length total_partial_alloc_pages_subreleased;
-  HugeLength total_broken = NHugePages(0);
   tracker_.IterBackwards(
       [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
         if (!e.empty()) {
           total_subreleased += e.num_pages_subreleased;
-          total_partial_alloc_pages_subreleased +=
-              e.num_partial_alloc_pages_subreleased;
-          total_broken += e.num_hugepages_broken;
         }
       },
       window_);
-  out.printf(
-      "%s: Subrelease stats last %d min: total "
-      "%zu pages subreleased (%zu pages from partial allocs), "
-      "%zu hugepages broken\n",
-      field, static_cast<int64_t>(absl::ToInt64Minutes(window_)),
-      total_subreleased.raw_num(),
-      total_partial_alloc_pages_subreleased.raw_num(), total_broken.raw_num());
+  out.printf("%s: Subrelease stats last %d min: total %zu pages subreleased.\n",
+             field, static_cast<int64_t>(absl::ToInt64Minutes(window_)),
+             total_subreleased.raw_num());
 }
 
 template <size_t kSlots>
@@ -720,24 +674,10 @@ void SubreleaseStatsTracker<kSlots>::PrintTimeseriesStatsInPbtxt(
                            e.min_free_backed_pages.raw_num());
         subregion.PrintI64("num_pages_subreleased",
                            e.num_pages_subreleased.raw_num());
-        subregion.PrintI64("num_hugepages_broken",
-                           e.num_hugepages_broken.raw_num());
-        subregion.PrintI64("partial_alloc_pages_subreleased",
-                           e.num_partial_alloc_pages_subreleased.raw_num());
         for (int i = 0; i < kNumStatsTypes; i++) {
           auto m = subregion.CreateSubRegion(labels[i]);
           SubreleaseStats stats = e.stats[i];
           m.PrintI64("num_pages", stats.num_pages.raw_num());
-          m.PrintI64("regular_huge_pages",
-                     stats.huge_pages[kRegular].raw_num());
-          m.PrintI64("donated_huge_pages",
-                     stats.huge_pages[kDonated].raw_num());
-          m.PrintI64("partial_released_huge_pages",
-                     stats.huge_pages[kPartialReleased].raw_num());
-          m.PrintI64("released_huge_pages",
-                     stats.huge_pages[kReleased].raw_num());
-          m.PrintI64("used_pages_in_subreleased_huge_pages",
-                     stats.used_pages_in_subreleased_huge_pages.raw_num());
         }
       });
 }
