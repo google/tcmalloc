@@ -2700,6 +2700,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
       dynamic_slab_info_.madvise_failed_bytes.load(std::memory_order_relaxed));
 
   region.PrintI64("cpu_caches_touched", CountTouchedCpus());
+  region.PrintI64("max_cpu_cache_touched", MaxTouchedCpu());
   region.PrintI64("cpu_caches_populated", total_populated);
 }
 

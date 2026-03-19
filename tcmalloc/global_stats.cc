@@ -766,10 +766,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                                              region);
     tc_globals.sharded_transfer_cache().PrintInPbtxt(
         tc_globals.per_size_class_counts(), region);
-
-    if (UsePerCpuCache(tc_globals)) {
-      tc_globals.cpu_cache().PrintInPbtxt(region);
-    }
+  }
+  if (UsePerCpuCache(tc_globals)) {
+    tc_globals.cpu_cache().PrintInPbtxt(region);
   }
 
   PageFlags pageflags;

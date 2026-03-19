@@ -154,6 +154,10 @@ TEST_F(GetStatsTest, Pbtxt) {
   }
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
+  if (MallocExtension::PerCpuCachesActive()) {
+    EXPECT_THAT(buf, ContainsRegex("cpu_caches_touched: [0-9]+"));
+    EXPECT_THAT(buf, ContainsRegex("max_cpu_cache_touched: [0-9]+"));
+  }
 
   sized_delete(alloc, kSize);
 }
