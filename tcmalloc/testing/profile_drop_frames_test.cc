@@ -219,6 +219,30 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void wrap_std_allocator_deallocate(
   std::allocator<char>().deallocate(static_cast<char*>(ptr), size);
 }
 
+extern "C" ABSL_ATTRIBUTE_NOINLINE void* __alloc_token_9_posix_memalign_test(
+    size_t size) {
+  void* res;
+  if (posix_memalign(&res, 64, size)) {
+    abort();
+  }
+  return res;
+}
+
+extern "C" ABSL_ATTRIBUTE_NOINLINE void* __alloc_token_0_calloc_test(
+    size_t size) {
+  return calloc(size, 1);
+}
+
+extern "C" ABSL_ATTRIBUTE_NOINLINE void* __alloc_token_9_realloc_test(
+    size_t size) {
+  return realloc(malloc(1), size);
+}
+
+extern "C" ABSL_ATTRIBUTE_NOINLINE void* __alloc_token_9__Znwm_test(
+    size_t size) {
+  return operator new(size);
+}
+
 template <void*(alloc)(size_t), void(free)(void*, size_t)>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void test() {
   constexpr size_t kLargeSize = 3 << 20;
@@ -276,6 +300,11 @@ void profile_test_top_func() {
   test<wrap_aligned_alloc, wrap_free>();
   test<wrap_aligned_alloc, wrap_free_aligned_sized>();
   test<wrap_memalign, wrap_free>();
+  // Allocation functions renamed by LLVM heap partitioning.
+  test<__alloc_token_9_posix_memalign_test, wrap_free>();
+  test<__alloc_token_0_calloc_test, wrap_free>();
+  test<__alloc_token_9_realloc_test, wrap_free>();
+  test<__alloc_token_9__Znwm_test, wrap_delete>();
 #if defined(__x86_64__)
   // pvalloc is not present in some versions of libc.
   test<pvalloc, wrap_free>();

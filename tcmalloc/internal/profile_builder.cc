@@ -323,6 +323,9 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "std::__(u|1)::__allocation_guard::(~)?__allocation_guard|"
     "std::__(u|1)::__split_buffer::(~)?__split_buffer|"
 
+    // Allocation functions renamed by LLVM heap partitioning.
+    "__alloc_token.*|"
+
     // Other misc. memory allocation routines
     "(::)?do_malloc_pages|"
     "(::)?do_realloc|"
