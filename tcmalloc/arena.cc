@@ -14,6 +14,7 @@
 
 #include "tcmalloc/arena.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <new>
@@ -49,8 +50,8 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
   auto& system_allocator = tc_globals.system_allocator();
   if (free_avail_ < bytes) {
     size_t ask = bytes > kAllocIncrement ? bytes : kAllocIncrement;
-    auto [ptr, actual_size] =
-        system_allocator.Allocate(ask, kPageSize, MemoryTag::kMetadata);
+    auto [ptr, actual_size] = system_allocator.Allocate(
+        ask, std::max(kPageSize, align), MemoryTag::kMetadata);
     free_area_ = reinterpret_cast<char*>(ptr);
     if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
       TC_BUG(

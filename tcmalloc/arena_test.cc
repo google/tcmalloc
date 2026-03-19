@@ -41,6 +41,16 @@ TEST(Arena, AlignedAlloc) {
               0);
   }
 }
+TEST(Arena, AlignedLargeAlloc) {
+  for (int align = 1; align < 100000000; align *= 2) {
+    Arena arena;
+    for (int i = 0; i < 5; ++i) {
+      EXPECT_EQ(
+          reinterpret_cast<uintptr_t>(arena.Alloc(123, Align(align))) % align,
+          0);
+    }
+  }
+}
 
 TEST(Arena, Stats) {
   Arena arena;
