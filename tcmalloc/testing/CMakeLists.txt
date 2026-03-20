@@ -14,7 +14,7 @@
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_testing_malloc_hook_recorder
+    testing_malloc_hook_recorder
   ALIAS
     tcmalloc::testing_malloc_hook_recorder
   TESTONLY
@@ -32,7 +32,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_testing_testutil
+    testing_testutil
   ALIAS
     tcmalloc::testing_testutil
   TESTONLY
@@ -52,7 +52,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_tcmalloc_test
+    testing_tcmalloc_test
   SRCS
     "tcmalloc_test.cc"
   DEPS
@@ -83,7 +83,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_binary_variants(
   NAME
-    tcmalloc_testing_tcmalloc_benchmark
+    testing_tcmalloc_benchmark
   SRCS
     "tcmalloc_benchmark.cc"
   DEPS
@@ -96,12 +96,12 @@ tcmalloc_cc_binary_variants(
     "tcmalloc::internal_declarations"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_tcmalloc_fuzzer
+    testing_tcmalloc_fuzzer
   SRCS
     "tcmalloc_fuzzer.cc"
   DEPS
@@ -118,7 +118,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_memory_errors_fuzz
+    testing_memory_errors_fuzz
   SRCS
     "memory_errors_fuzz.cc"
   DEPS
@@ -138,7 +138,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_hooks_test
+    testing_hooks_test
   SRCS
     "hooks_test.cc"
   DEPS
@@ -159,7 +159,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_threadcachesize_test
+    testing_threadcachesize_test
   SRCS
     "threadcachesize_test.cc"
   DEPS
@@ -174,7 +174,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_markidle_test
+    testing_markidle_test
   SRCS
     "markidle_test.cc"
   DEPS
@@ -188,7 +188,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_memalign_test
+    testing_memalign_test
   SRCS
     "memalign_test.cc"
   DEPS
@@ -202,7 +202,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_frag_test
+    testing_frag_test
   SRCS
     "frag_test.cc"
   DEPS
@@ -215,7 +215,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_largesmall_frag_test
+    testing_largesmall_frag_test
   SRCS
     "largesmall_frag_test.cc"
   DEPS
@@ -230,7 +230,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_testing_thread_manager
+    testing_thread_manager
   ALIAS
     tcmalloc::testing_thread_manager
   TESTONLY
@@ -244,7 +244,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_outofmemory_test
+    testing_outofmemory_test
   SRCS
     "outofmemory_test.cc"
   DEPS
@@ -261,7 +261,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_current_allocated_bytes_test
+    testing_current_allocated_bytes_test
   SRCS
     "current_allocated_bytes_test.cc"
   DEPS
@@ -272,7 +272,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_sampling_test
+    testing_sampling_test
   SRCS
     "sampling_test.cc"
   DEPS
@@ -294,7 +294,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_sampling_memusage_test
+    testing_sampling_memusage_test
   SRCS
     "sampling_memusage_test.cc"
   DEPS
@@ -311,7 +311,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_sampler_test
+    testing_sampler_test
   SRCS
     "sampler_test.cc"
   DEPS
@@ -325,7 +325,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_startup_size_test
+    testing_startup_size_test
   SRCS
     "startup_size_test.cc"
   DEPS
@@ -340,7 +340,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_large_alloc_size_test
+    testing_large_alloc_size_test
   SRCS
     "large_alloc_size_test.cc"
   DEPS
@@ -353,7 +353,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_testing_thread_ctor_test_lib
+    testing_thread_ctor_test_lib
   ALIAS
     tcmalloc::testing_thread_ctor_test_lib
   TESTONLY
@@ -365,7 +365,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_thread_ctor_test
+    testing_thread_ctor_test
   SRCS
     "thread_ctor_test.cc"
   DEPS
@@ -374,7 +374,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_sample_size_class_test
+    testing_sample_size_class_test
   SRCS
     "sample_size_class_test.cc"
   DEPS
@@ -389,7 +389,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_no_deps_test
+    testing_no_deps_test
   SRCS
     "no_deps_test.cc"
   DEPS
@@ -401,7 +401,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_no_deps_per_cpu_test
+    testing_no_deps_per_cpu_test
   SRCS
     "no_deps_test.cc"
   DEPS
@@ -413,7 +413,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_limit_test
+    testing_limit_test
   SRCS
     "limit_test.cc"
   DEPS
@@ -434,7 +434,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_aligned_new_test
+    testing_aligned_new_test
   SRCS
     "aligned_new_test.cc"
   COPTS
@@ -453,7 +453,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_sampled_hooks_test
+    testing_sampled_hooks_test
   SRCS
     "sampled_hooks_test.cc"
   DEPS
@@ -468,7 +468,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_memory_errors_test
+    testing_memory_errors_test
   SRCS
     "memory_errors_test.cc"
   DEPS
@@ -489,7 +489,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_want_hpaa_test_helper
+    testing_want_hpaa_test_helper
   SRCS
     "want_hpaa_test_helper.cc"
   DEPS
@@ -501,7 +501,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_want_hpaa_test_helper_32k
+    testing_want_hpaa_test_helper_32k
   SRCS
     "want_hpaa_test_helper.cc"
   DEPS
@@ -513,7 +513,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_want_hpaa_test_helper_256k
+    testing_want_hpaa_test_helper_256k
   SRCS
     "want_hpaa_test_helper.cc"
   DEPS
@@ -525,7 +525,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_want_hpaa_test_helper_hpaa
+    testing_want_hpaa_test_helper_hpaa
   SRCS
     "want_hpaa_test_helper.cc"
   DEPS
@@ -538,7 +538,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_want_hpaa_test_helper_small
+    testing_want_hpaa_test_helper_small
   SRCS
     "want_hpaa_test_helper.cc"
   DEPS
@@ -550,7 +550,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_get_stats_test
+    testing_get_stats_test
   SRCS
     "get_stats_test.cc"
   DEPS
@@ -570,7 +570,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_releasing_test
+    testing_releasing_test
   SRCS
     "releasing_test.cc"
   DEPS
@@ -587,7 +587,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_default_parameters_test
+    testing_default_parameters_test
   SRCS
     "default_parameters_test.cc"
   DEPS
@@ -598,7 +598,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_hello_main
+    testing_hello_main
   SRCS
     "hello_main.cc"
   DEPS
@@ -611,7 +611,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_testing_benchmark_main
+    testing_benchmark_main
   ALIAS
     tcmalloc::testing_benchmark_main
   TESTONLY
@@ -623,7 +623,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_numa_locality_test
+    testing_numa_locality_test
   SRCS
     "numa_locality_test.cc"
   COPTS
@@ -652,7 +652,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_testing_test_allocator_harness
+    testing_test_allocator_harness
   ALIAS
     tcmalloc::testing_test_allocator_harness
   TESTONLY
@@ -669,7 +669,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_realized_fragmentation_test
+    testing_realized_fragmentation_test
   SRCS
     "realized_fragmentation_test.cc"
   DEPS
@@ -686,7 +686,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_background_test
+    testing_background_test
   SRCS
     "background_test.cc"
   DEPS
@@ -701,7 +701,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_reclaim_test
+    testing_reclaim_test
   SRCS
     "reclaim_test.cc"
   DEPS
@@ -721,7 +721,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_profile_test
+    testing_profile_test
   SRCS
     "profile_test.cc"
   DEPS
@@ -743,7 +743,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_deallocation_profiler_test
+    testing_deallocation_profiler_test
   SRCS
     "deallocation_profiler_test.cc"
   DEPS
@@ -761,7 +761,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_system-alloc_test
+    testing_system-alloc_test
   SRCS
     "system-alloc_test.cc"
   DEPS
@@ -784,7 +784,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_realloc_test
+    testing_realloc_test
   SRCS
     "realloc_test.cc"
   DEPS
@@ -795,7 +795,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_tcmalloc_large_test
+    testing_tcmalloc_large_test
   SRCS
     "tcmalloc_large_test.cc"
   DEPS
@@ -811,7 +811,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_malloc_extension_system_malloc_test
+    testing_malloc_extension_system_malloc_test
   SRCS
     "malloc_extension_system_malloc_test.cc"
   DEPS
@@ -824,7 +824,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_malloc_extension_test
+    testing_malloc_extension_test
   SRCS
     "malloc_extension_test.cc"
   DEPS
@@ -839,7 +839,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_malloc_tracing_extension_system_malloc_test
+    testing_malloc_tracing_extension_system_malloc_test
   SRCS
     "malloc_tracing_extension_test.cc"
   DEPS
@@ -854,7 +854,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_malloc_tracing_extension_test
+    testing_malloc_tracing_extension_test
   SRCS
     "malloc_tracing_extension_test.cc"
   DEPS
@@ -869,7 +869,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_heap_profiling_test
+    testing_heap_profiling_test
   SRCS
     "heap_profiling_test.cc"
   DEPS
@@ -898,7 +898,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_peak_heap_profiling_test
+    testing_peak_heap_profiling_test
   SRCS
     "peak_heap_profiling_test.cc"
   DEPS
@@ -915,7 +915,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_variants_test
+    testing_variants_test
   SRCS
     "variants_test.cc"
   DEPS
@@ -934,7 +934,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_parallel_test
+    testing_parallel_test
   SRCS
     "parallel_test.cc"
   DEPS
@@ -950,7 +950,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_partitioning_fuzz_test
+    testing_partitioning_fuzz_test
   SRCS
     "partitioning_fuzz_test.cc"
   DEPS
@@ -968,7 +968,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_partitioning_test_helper
+    testing_partitioning_test_helper
   SRCS
     "partitioning_test_helper.cc"
   DEPS
@@ -982,7 +982,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_partitioning_test_helper_partitioning_default_on
+    testing_partitioning_test_helper_partitioning_default_on
   SRCS
     "partitioning_test_helper.cc"
   DEPS
@@ -997,7 +997,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_partitioning_test_helper_partitioning_default_on_numa
+    testing_partitioning_test_helper_partitioning_default_on_numa
   SRCS
     "partitioning_test_helper.cc"
   DEPS
@@ -1012,7 +1012,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_testing_partitioning_test_helper_numa
+    testing_partitioning_test_helper_numa
   SRCS
     "partitioning_test_helper.cc"
   DEPS
@@ -1026,7 +1026,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_profile_drop_frames_test
+    testing_profile_drop_frames_test
   SRCS
     "profile_drop_frames_test.cc"
   DEPS
@@ -1043,7 +1043,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_disable_numa_test
+    testing_disable_numa_test
   SRCS
     "disable_numa_test.cc"
   DEPS
@@ -1055,7 +1055,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_testing_alloc_at_least_test
+    testing_alloc_at_least_test
   SRCS
     "alloc_at_least_test.c"
   DEPS

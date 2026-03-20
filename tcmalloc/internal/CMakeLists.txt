@@ -14,7 +14,7 @@
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_affinity
+    internal_affinity
   ALIAS
     tcmalloc::internal_affinity
   TESTONLY
@@ -31,7 +31,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_affinity_test
+    internal_affinity_test
   SRCS
     "affinity_test.cc"
   DEPS
@@ -47,7 +47,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_allocation_guard
+    internal_allocation_guard
   ALIAS
     tcmalloc::internal_allocation_guard
   HDRS
@@ -64,7 +64,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_allocation_guard_test
+    internal_allocation_guard_test
   SRCS
     "allocation_guard_test.cc"
   DEPS
@@ -79,7 +79,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_atomic_danger
+    internal_atomic_danger
   ALIAS
     tcmalloc::internal_atomic_danger
   HDRS
@@ -90,7 +90,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_atomic_stats_counter
+    internal_atomic_stats_counter
   ALIAS
     tcmalloc::internal_atomic_stats_counter
   HDRS
@@ -103,7 +103,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_clock
+    internal_clock
   ALIAS
     tcmalloc::internal_clock
   HDRS
@@ -114,7 +114,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_config
+    internal_config
   ALIAS
     tcmalloc::internal_config
   HDRS
@@ -126,7 +126,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_config_test
+    internal_config_test
   SRCS
     "config_test.cc"
   DEPS
@@ -142,7 +142,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_declarations
+    internal_declarations
   ALIAS
     tcmalloc::internal_declarations
   HDRS
@@ -151,7 +151,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_environment
+    internal_environment
   ALIAS
     tcmalloc::internal_environment
   HDRS
@@ -165,7 +165,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_environment_test
+    internal_environment_test
   SRCS
     "environment_test.cc"
   DEPS
@@ -178,7 +178,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_explicitly_constructed
+    internal_explicitly_constructed
   ALIAS
     tcmalloc::internal_explicitly_constructed
   HDRS
@@ -189,7 +189,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_exponential_biased
+    internal_exponential_biased
   ALIAS
     tcmalloc::internal_exponential_biased
   HDRS
@@ -198,7 +198,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_exponential_biased_test
+    internal_exponential_biased_test
   SRCS
     "exponential_biased_test.cc"
   DEPS
@@ -212,7 +212,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_fake_profile
+    internal_fake_profile
   ALIAS
     tcmalloc::internal_fake_profile
   HDRS
@@ -225,7 +225,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_gwp_asan_state
+    internal_gwp_asan_state
   ALIAS
     tcmalloc::internal_gwp_asan_state
   HDRS
@@ -239,7 +239,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_hook_list
+    internal_hook_list
   ALIAS
     tcmalloc::internal_hook_list
   HDRS
@@ -254,7 +254,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_linked_list
+    internal_linked_list
   ALIAS
     tcmalloc::internal_linked_list
   HDRS
@@ -267,7 +267,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_internal_linked_list_benchmark
+    internal_linked_list_benchmark
   SRCS
     "linked_list_benchmark.cc"
   DEPS
@@ -278,12 +278,12 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_mock_span"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_linked_list_test
+    internal_linked_list_test
   SRCS
     "linked_list_test.cc"
   DEPS
@@ -299,7 +299,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_linux_syscall_support
+    internal_linux_syscall_support
   ALIAS
     tcmalloc::internal_linux_syscall_support
   HDRS
@@ -308,7 +308,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_logging
+    internal_logging
   ALIAS
     tcmalloc::internal_logging
   HDRS
@@ -332,7 +332,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_logging_test
+    internal_logging_test
   SRCS
     "logging_test.cc"
   DEPS
@@ -348,7 +348,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_internal_logging_test_helper
+    internal_logging_test_helper
   SRCS
     "logging_test_helper.cc"
   DEPS
@@ -357,7 +357,7 @@ tcmalloc_cc_binary(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_memory_stats
+    internal_memory_stats
   ALIAS
     tcmalloc::internal_memory_stats
   HDRS
@@ -374,7 +374,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_memory_stats_test
+    internal_memory_stats_test
   SRCS
     "memory_stats_test.cc"
   DEPS
@@ -387,7 +387,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_memory_tag
+    internal_memory_tag
   ALIAS
     tcmalloc::internal_memory_tag
   HDRS
@@ -403,7 +403,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_mincore
+    internal_mincore
   ALIAS
     tcmalloc::internal_mincore
   HDRS
@@ -418,7 +418,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_residency
+    internal_residency
   ALIAS
     tcmalloc::internal_residency
   HDRS
@@ -436,7 +436,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_pageflags
+    internal_pageflags
   ALIAS
     tcmalloc::internal_pageflags
   HDRS
@@ -456,7 +456,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_pageflags_test
+    internal_pageflags_test
   SRCS
     "pageflags_test.cc"
   DEPS
@@ -482,7 +482,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_metadata_allocator
+    internal_metadata_allocator
   ALIAS
     tcmalloc::internal_metadata_allocator
   HDRS
@@ -495,7 +495,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_mock_metadata_allocator
+    internal_mock_metadata_allocator
   ALIAS
     tcmalloc::internal_mock_metadata_allocator
   TESTONLY
@@ -508,7 +508,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_internal_mincore_benchmark
+    internal_mincore_benchmark
   SRCS
     "mincore_benchmark.cc"
   DEPS
@@ -517,12 +517,12 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_page_size"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_mincore_test
+    internal_mincore_test
   SRCS
     "mincore_test.cc"
   DEPS
@@ -537,7 +537,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_residency_test
+    internal_residency_test
   SRCS
     "residency_test.cc"
   DEPS
@@ -560,7 +560,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_size_class_info
+    internal_size_class_info
   ALIAS
     tcmalloc::internal_size_class_info
   HDRS
@@ -572,7 +572,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_mock_span
+    internal_mock_span
   ALIAS
     tcmalloc::internal_mock_span
   TESTONLY
@@ -584,7 +584,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_cache_topology
+    internal_cache_topology
   ALIAS
     tcmalloc::internal_cache_topology
   HDRS
@@ -603,7 +603,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_cache_topology_test
+    internal_cache_topology_test
   SRCS
     "cache_topology_test.cc"
   DEPS
@@ -617,7 +617,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_numa
+    internal_numa
   ALIAS
     tcmalloc::internal_numa
   HDRS
@@ -638,7 +638,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_numa_test
+    internal_numa_test
   SRCS
     "numa_test.cc"
   DEPS
@@ -659,7 +659,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_optimization
+    internal_optimization
   ALIAS
     tcmalloc::internal_optimization
   HDRS
@@ -672,7 +672,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_overflow
+    internal_overflow
   ALIAS
     tcmalloc::internal_overflow
   HDRS
@@ -684,7 +684,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_page_size
+    internal_page_size
   ALIAS
     tcmalloc::internal_page_size
   HDRS
@@ -699,7 +699,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_parameter_accessors
+    internal_parameter_accessors
   ALIAS
     tcmalloc::internal_parameter_accessors
   HDRS
@@ -712,7 +712,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_percpu
+    internal_percpu
   ALIAS
     tcmalloc::internal_percpu
   HDRS
@@ -736,7 +736,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_percpu_test
+    internal_percpu_test
   SRCS
     "percpu_test.cc"
   DEPS
@@ -754,7 +754,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_percpu_early_test
+    internal_percpu_early_test
   SRCS
     "percpu_early_test.cc"
   DEPS
@@ -768,7 +768,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_percpu_tcmalloc
+    internal_percpu_tcmalloc
   ALIAS
     tcmalloc::internal_percpu_tcmalloc
   HDRS
@@ -791,7 +791,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_percpu_tcmalloc_test
+    internal_percpu_tcmalloc_test
   SRCS
     "percpu_tcmalloc_test.cc"
   DEPS
@@ -824,7 +824,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_prefetch
+    internal_prefetch
   ALIAS
     tcmalloc::internal_prefetch
   HDRS
@@ -835,7 +835,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_prefetch_test
+    internal_prefetch_test
   SRCS
     "prefetch_test.cc"
   DEPS
@@ -853,7 +853,7 @@ add_custom_command(
 )
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_profile_cc_proto
+    internal_profile_cc_proto
   ALIAS
     tcmalloc::internal_profile_cc_proto
   SRCS
@@ -863,7 +863,12 @@ tcmalloc_cc_library(
   DEPS
     protobuf::libprotobuf
 )
-target_include_directories(tcmalloc_internal_profile_cc_proto
+if(TCMALLOC_ENABLE_INSTALL)
+  set(_proto_target "internal_profile_cc_proto")
+else()
+  set(_proto_target "tcmalloc_internal_profile_cc_proto")
+endif()
+target_include_directories(${_proto_target}
   PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>"
 )
@@ -875,7 +880,7 @@ endif()
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_profile_builder
+    internal_profile_builder
   ALIAS
     tcmalloc::internal_profile_builder
   HDRS
@@ -902,7 +907,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_profile_builder_fuzz
+    internal_profile_builder_fuzz
   SRCS
     "profile_builder_fuzz.cc"
   DEPS
@@ -916,7 +921,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_profile_builder_test
+    internal_profile_builder_test
   SRCS
     "profile_builder_test.cc"
   DEPS
@@ -944,7 +949,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_profile_builder_no_tcmalloc_test
+    internal_profile_builder_no_tcmalloc_test
   SRCS
     "profile_builder_no_tcmalloc_test.cc"
   DEPS
@@ -959,7 +964,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_proc_maps
+    internal_proc_maps
   ALIAS
     tcmalloc::internal_proc_maps
   HDRS
@@ -975,7 +980,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_range_tracker
+    internal_range_tracker
   ALIAS
     tcmalloc::internal_range_tracker
   HDRS
@@ -989,7 +994,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_internal_range_tracker_benchmark
+    internal_range_tracker_benchmark
   SRCS
     "range_tracker_benchmark.cc"
   DEPS
@@ -1000,12 +1005,12 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_config"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_range_tracker_test
+    internal_range_tracker_test
   SRCS
     "range_tracker_test.cc"
   DEPS
@@ -1020,7 +1025,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_sampled_allocation
+    internal_sampled_allocation
   ALIAS
     tcmalloc::internal_sampled_allocation
   HDRS
@@ -1032,7 +1037,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_sampled_allocation_test
+    internal_sampled_allocation_test
   SRCS
     "sampled_allocation_test.cc"
   DEPS
@@ -1048,7 +1053,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_sampled_allocation_recorder
+    internal_sampled_allocation_recorder
   ALIAS
     tcmalloc::internal_sampled_allocation_recorder
   HDRS
@@ -1063,7 +1068,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_sampled_allocation_recorder_test
+    internal_sampled_allocation_recorder_test
   SRCS
     "sampled_allocation_recorder_test.cc"
   DEPS
@@ -1081,7 +1086,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_strerror
+    internal_strerror
   ALIAS
     tcmalloc::internal_strerror
   HDRS
@@ -1095,7 +1100,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_stacktrace_filter
+    internal_stacktrace_filter
   ALIAS
     tcmalloc::internal_stacktrace_filter
   HDRS
@@ -1108,7 +1113,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_stacktrace_filter_test
+    internal_stacktrace_filter_test
   SRCS
     "stacktrace_filter_test.cc"
   DEPS
@@ -1123,7 +1128,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_system_allocator
+    internal_system_allocator
   ALIAS
     tcmalloc::internal_system_allocator
   HDRS
@@ -1153,7 +1158,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_system_allocator_test
+    internal_system_allocator_test
   SRCS
     "system_allocator_test.cc"
   DEPS
@@ -1176,7 +1181,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_system_allocator_locale_test
+    internal_system_allocator_locale_test
   SRCS
     "system_allocator_test.cc"
   DEPS
@@ -1198,7 +1203,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_system_allocator_mlockall_test
+    internal_system_allocator_mlockall_test
   SRCS
     "system_allocator_mlockall_test.cc"
   DEPS
@@ -1215,7 +1220,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_sysinfo
+    internal_sysinfo
   ALIAS
     tcmalloc::internal_sysinfo
   HDRS
@@ -1235,7 +1240,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_sysinfo_fuzz
+    internal_sysinfo_fuzz
   SRCS
     "sysinfo_fuzz.cc"
   DEPS
@@ -1250,7 +1255,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_sysinfo_test
+    internal_sysinfo_test
   SRCS
     "sysinfo_test.cc"
   DEPS
@@ -1269,14 +1274,14 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_system_malloc
+    internal_system_malloc
   ALIAS
     tcmalloc::internal_system_malloc
 )
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_timeseries_tracker
+    internal_timeseries_tracker
   ALIAS
     tcmalloc::internal_timeseries_tracker
   HDRS
@@ -1293,7 +1298,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_internal_timeseries_tracker_test
+    internal_timeseries_tracker_test
   SRCS
     "timeseries_tracker_test.cc"
   DEPS
@@ -1309,7 +1314,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_util
+    internal_util
   ALIAS
     tcmalloc::internal_util
   HDRS
@@ -1324,7 +1329,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_internal_cpu_utils
+    internal_cpu_utils
   ALIAS
     tcmalloc::internal_cpu_utils
   HDRS

@@ -56,7 +56,11 @@ function(tcmalloc_cc_library)
     return()
   endif()
 
-  set(_NAME "${TCMALLOC_CC_LIB_NAME}")
+  if(TCMALLOC_ENABLE_INSTALL)
+    set(_NAME "${TCMALLOC_CC_LIB_NAME}")
+  else()
+    set(_NAME "tcmalloc_${TCMALLOC_CC_LIB_NAME}")
+  endif()
 
   # Check if this is a header-only library by stripping .h/.inc files from SRCS
   set(TCMALLOC_CC_SRCS "${TCMALLOC_CC_LIB_SRCS}")
@@ -116,9 +120,12 @@ function(tcmalloc_cc_library)
       set_property(TARGET ${_NAME} PROPERTY FOLDER ${TCMALLOC_IDE_FOLDER}/internal)
     endif()
 
-    # When being installed, set SOVERSION for shared library versioning.
+    # When being installed, we lose the tcmalloc_ prefix.  We want to put it
+    # back to have properly named lib files.  This is a no-op when we are not
+    # being installed.
     if(TCMALLOC_ENABLE_INSTALL)
       set_target_properties(${_NAME} PROPERTIES
+        OUTPUT_NAME "tcmalloc_${_NAME}"
         SOVERSION "${TCMALLOC_SOVERSION}"
       )
     endif()
@@ -176,7 +183,7 @@ function(tcmalloc_cc_test)
     ${ARGN}
   )
 
-  set(_NAME "${TCMALLOC_CC_TEST_NAME}")
+  set(_NAME "tcmalloc_${TCMALLOC_CC_TEST_NAME}")
 
   add_executable(${_NAME} "")
   if(TCMALLOC_CC_TEST_SRCS)
