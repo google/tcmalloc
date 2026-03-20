@@ -116,10 +116,9 @@ function(tcmalloc_cc_library)
       set_property(TARGET ${_NAME} PROPERTY FOLDER ${TCMALLOC_IDE_FOLDER}/internal)
     endif()
 
-    # When being installed, set proper output name and SOVERSION
+    # When being installed, set SOVERSION for shared library versioning.
     if(TCMALLOC_ENABLE_INSTALL)
       set_target_properties(${_NAME} PROPERTIES
-        OUTPUT_NAME "tcmalloc_${_NAME}"
         SOVERSION "${TCMALLOC_SOVERSION}"
       )
     endif()
@@ -139,9 +138,7 @@ function(tcmalloc_cc_library)
     target_compile_definitions(${_NAME} INTERFACE ${TCMALLOC_CC_LIB_DEFINES})
   endif()
 
-  # Install target (will be activated in the TCMALLOC_ENABLE_INSTALL commit)
-  if(TCMALLOC_ENABLE_INSTALL AND NOT TCMALLOC_CC_LIB_DISABLE_INSTALL
-      AND NOT TCMALLOC_CC_LIB_TESTONLY)
+  if(TCMALLOC_ENABLE_INSTALL)
     install(TARGETS ${_NAME} EXPORT ${PROJECT_NAME}Targets
           RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
           LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
