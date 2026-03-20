@@ -1,0 +1,9 @@
+# tcmalloc CMake configuration file.
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+find_dependency(absl)
+
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")

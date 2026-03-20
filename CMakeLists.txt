@@ -28,7 +28,14 @@ set(CMAKE_INSTALL_RPATH "$ORIGIN")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 
-set(CMAKE_SKIP_INSTALL_RULES ON)
+# When tcmalloc is included as a subproject (i.e. using
+# add_subdirectory(tcmalloc)), install rules are disabled by default.
+if(NOT CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+  option(TCMALLOC_ENABLE_INSTALL "Enable install rule" OFF)
+else()
+  option(TCMALLOC_ENABLE_INSTALL "Enable install rule" ON)
+endif()
+
 set(ABSL_PROPAGATE_CXX_STD ON)
 set(protobuf_ABSL_PROVIDER "package" CACHE STRING "" FORCE)
 set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
@@ -201,3 +208,31 @@ include(TcmallocVariants)
 add_subdirectory(tcmalloc/internal)
 add_subdirectory(tcmalloc/testing)
 add_subdirectory(tcmalloc)
+
+if(TCMALLOC_ENABLE_INSTALL)
+  # Export targets with tcmalloc:: namespace
+  install(EXPORT ${PROJECT_NAME}Targets
+    NAMESPACE tcmalloc::
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+  )
+
+  # Generate and install the config file from template
+  configure_package_config_file(
+    CMake/tcmallocConfig.cmake.in
+    "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+  )
+  install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+  )
+
+  # Install public headers
+  install(DIRECTORY tcmalloc
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING
+      PATTERN "*.h"
+      PATTERN "*.inc"
+      PATTERN "testing" EXCLUDE
+      PATTERN "mock_*" EXCLUDE
+  )
+endif()
