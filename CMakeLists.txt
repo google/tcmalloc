@@ -38,12 +38,18 @@ set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
 set(RE2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(utf8_range_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
+include(CTest)
+
+option(TCMALLOC_BUILD_TESTING
+  "If ON, TCMalloc will build all of its own tests." OFF)
+
+option(TCMALLOC_BUILD_TEST_HELPERS
+  "If ON, TCMalloc will build test helper libraries." OFF)
+
 set(ABSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(ABSL_BUILD_TEST_HELPERS ON CACHE BOOL "" FORCE)
 set(ABSL_USE_EXTERNAL_GOOGLETEST ON CACHE BOOL "" FORCE)
 set(ABSL_FIND_GOOGLETEST OFF CACHE BOOL "" FORCE)
-
-enable_testing()
 
 include(FetchContent)
 

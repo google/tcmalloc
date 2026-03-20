@@ -57,6 +57,10 @@ function(tcmalloc_cc_library)
 endfunction()
 
 function(tcmalloc_cc_test)
+  if(NOT (BUILD_TESTING AND TCMALLOC_BUILD_TESTING))
+    return()
+  endif()
+
   cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
   add_executable(${TCMALLOC_NAME} "")
   if(TCMALLOC_SRCS)
@@ -80,5 +84,9 @@ function(tcmalloc_cc_test)
 endfunction()
 
 function(tcmalloc_cc_binary)
+  if(NOT (BUILD_TESTING AND TCMALLOC_BUILD_TESTING))
+    return()
+  endif()
+
   tcmalloc_cc_test(${ARGN})
 endfunction()
