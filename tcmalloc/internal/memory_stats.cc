@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "absl/functional/function_ref.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
@@ -47,22 +48,11 @@ struct FDCloser {
 
 }  // namespace
 
-bool GetMemoryStats(MemoryStats* stats) {
-#if !defined(__linux__)
-  return false;
-#endif
-
-  FDCloser fd;
-  fd.fd = signal_safe_open("/proc/self/statm", O_RDONLY | O_CLOEXEC);
-  TC_ASSERT_GE(fd.fd, 0);
-  if (fd.fd < 0) {
-    return false;
-  }
-
+bool GetMemoryStatsFromCallback(
+    MemoryStats& stats,
+    absl::FunctionRef<ssize_t(char* buf, size_t count)> read) {
   char buf[1024];
-  ssize_t rc = signal_safe_read(fd.fd, buf, sizeof(buf), nullptr);
-  TC_ASSERT_GE(rc, 0);
-  TC_ASSERT_LT(rc, static_cast<ssize_t>(sizeof(buf)));
+  ssize_t rc = read(buf, sizeof(buf));
   if (rc < 0 || rc >= static_cast<ssize_t>(sizeof(buf))) {
     return false;
   }
@@ -97,19 +87,19 @@ bool GetMemoryStats(MemoryStats* stats) {
     //  [6] = unused
     switch (index) {
       case 0:
-        stats->vss = parsed * pagesize;
+        stats.vss = parsed * pagesize;
         break;
       case 1:
-        stats->rss = parsed * pagesize;
+        stats.rss = parsed * pagesize;
         break;
       case 2:
-        stats->shared = parsed * pagesize;
+        stats.shared = parsed * pagesize;
         break;
       case 3:
-        stats->code = parsed * pagesize;
+        stats.code = parsed * pagesize;
         break;
       case 5:
-        stats->data = parsed * pagesize;
+        stats.data = parsed * pagesize;
         break;
       case 4:
       case 6:
@@ -130,6 +120,23 @@ bool GetMemoryStats(MemoryStats* stats) {
   }
 
   return true;
+}
+
+bool GetMemoryStats(MemoryStats& stats) {
+#if !defined(__linux__)
+  return false;
+#endif
+
+  FDCloser fd;
+  fd.fd = signal_safe_open("/proc/self/statm", O_RDONLY | O_CLOEXEC);
+  TC_ASSERT_GE(fd.fd, 0);
+  if (fd.fd < 0) {
+    return false;
+  }
+
+  return GetMemoryStatsFromCallback(stats, [&](char* buf, size_t count) {
+    return signal_safe_read(fd.fd, buf, count, nullptr);
+  });
 }
 
 }  // namespace tcmalloc_internal

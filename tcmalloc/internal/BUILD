@@ -364,6 +364,8 @@ cc_library(
         ":logging",
         ":page_size",
         ":util",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -1306,5 +1308,18 @@ cc_library(
     deps = [
         ":config",
         "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_test(
+    name = "memory_stats_fuzz",
+    srcs = ["memory_stats_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    deps = [
+        ":memory_stats",
+        "@com_google_absl//absl/strings",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )

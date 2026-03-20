@@ -364,6 +364,8 @@ tcmalloc_cc_library(
   SRCS
     "memory_stats.cc"
   DEPS
+    "absl::core_headers"
+    "absl::function_ref"
     "absl::strings"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
@@ -382,6 +384,20 @@ tcmalloc_cc_test(
     "GTest::gmock"
     "tcmalloc::internal_memory_stats"
     "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_memory_stats_fuzz
+  SRCS
+    "memory_stats_fuzz.cc"
+  DEPS
+    "absl::strings"
+    "GTest::gtest"
+    "GTest::gmock"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::internal_memory_stats"
 )
 
 tcmalloc_cc_library(
