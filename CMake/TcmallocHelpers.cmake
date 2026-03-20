@@ -17,84 +17,197 @@ include(CMakeParseArguments)
 # include current path
 list(APPEND TCMALLOC_COMMON_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR})
 
+# The IDE folder for TCMalloc that will be used if TCMalloc is included in a
+# CMake project that sets
+#    set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+if(NOT DEFINED TCMALLOC_IDE_FOLDER)
+  set(TCMALLOC_IDE_FOLDER TCMalloc)
+endif()
+
+# tcmalloc_cc_library()
+#
+# CMake function to imitate Bazel's cc_library rule, analogous to
+# abseil-cpp's absl_cc_library().
+#
+# Parameters:
+# NAME: name of target
+# ALIAS: alias target name (e.g. tcmalloc::foo)
+# HDRS: List of public header files for the library
+# SRCS: List of source files for the library
+# DEPS: List of other libraries to be linked in
+# COPTS: List of private compile options
+# DEFINES: List of public defines
+# LINKOPTS: List of link options
+# PUBLIC: Mark this as a public API target (affects IDE folder)
+# TESTONLY: Only build when BUILD_TESTING AND TCMALLOC_BUILD_TESTING
+# DISABLE_INSTALL: Skip installation rules for this target
+#
 function(tcmalloc_cc_library)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
-  if(TCMALLOC_SRCS)
-    if(TCMALLOC_NAME MATCHES ".*_main$")
-      add_library(${TCMALLOC_NAME} OBJECT "")
+  cmake_parse_arguments(TCMALLOC_CC_LIB
+    "DISABLE_INSTALL;PUBLIC;TESTONLY"
+    "NAME;ALIAS"
+    "SRCS;HDRS;COPTS;DEFINES;LINKOPTS;DEPS"
+    ${ARGN}
+  )
+
+  if(TCMALLOC_CC_LIB_TESTONLY AND
+      NOT ((BUILD_TESTING AND TCMALLOC_BUILD_TESTING) OR
+        (TCMALLOC_BUILD_TEST_HELPERS AND TCMALLOC_CC_LIB_PUBLIC)))
+    return()
+  endif()
+
+  set(_NAME "${TCMALLOC_CC_LIB_NAME}")
+
+  # Check if this is a header-only library by stripping .h/.inc files from SRCS
+  set(TCMALLOC_CC_SRCS "${TCMALLOC_CC_LIB_SRCS}")
+  foreach(src_file IN LISTS TCMALLOC_CC_SRCS)
+    if(${src_file} MATCHES ".*\\.(h|inc)")
+      list(REMOVE_ITEM TCMALLOC_CC_SRCS "${src_file}")
+    endif()
+  endforeach()
+
+  if(TCMALLOC_CC_SRCS STREQUAL "")
+    set(TCMALLOC_CC_LIB_IS_INTERFACE 1)
+  else()
+    set(TCMALLOC_CC_LIB_IS_INTERFACE 0)
+  endif()
+
+  if(NOT TCMALLOC_CC_LIB_IS_INTERFACE)
+    if(_NAME MATCHES ".*_main$")
+      add_library(${_NAME} OBJECT "")
     else()
-      add_library(${TCMALLOC_NAME} STATIC "")
+      add_library(${_NAME} "")
     endif()
-    set_target_properties(${TCMALLOC_NAME} PROPERTIES LINKER_LANGUAGE CXX)
-    target_sources(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_SRCS})
-    if(TCMALLOC_HDRS)
-      target_sources(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_HDRS})
-    endif()
-    if(TCMALLOC_COPTS)
-      target_compile_options(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_COPTS})
-    endif()
-    if(TCMALLOC_LINKOPTS)
-      target_link_options(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_LINKOPTS})
-    endif()
-    if(TCMALLOC_DEPS)
-      target_link_libraries(${TCMALLOC_NAME} PUBLIC ${TCMALLOC_DEPS})
-    endif()
-    target_include_directories(${TCMALLOC_NAME}
+
+    set_property(TARGET ${_NAME} PROPERTY LINKER_LANGUAGE "CXX")
+
+    target_sources(${_NAME} PRIVATE ${TCMALLOC_CC_LIB_SRCS} ${TCMALLOC_CC_LIB_HDRS})
+
+    target_include_directories(${_NAME}
       PUBLIC
         "$<BUILD_INTERFACE:${TCMALLOC_COMMON_INCLUDE_DIRS}>"
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
+
+    target_compile_options(${_NAME}
+      PRIVATE ${TCMALLOC_CC_LIB_COPTS})
+    target_compile_definitions(${_NAME} PUBLIC ${TCMALLOC_CC_LIB_DEFINES})
+
+    target_link_libraries(${_NAME}
+      PUBLIC ${TCMALLOC_CC_LIB_DEPS}
+      PRIVATE
+        ${TCMALLOC_CC_LIB_LINKOPTS}
+    )
+
+    if(APPLE)
+      set_target_properties(${_NAME} PROPERTIES
+        INSTALL_RPATH "@loader_path")
+    elseif(UNIX)
+      set_target_properties(${_NAME} PROPERTIES
+        INSTALL_RPATH "$ORIGIN")
+    endif()
+
+    # IDE folder organization
+    if(TCMALLOC_CC_LIB_PUBLIC)
+      set_property(TARGET ${_NAME} PROPERTY FOLDER ${TCMALLOC_IDE_FOLDER})
+    elseif(TCMALLOC_CC_LIB_TESTONLY)
+      set_property(TARGET ${_NAME} PROPERTY FOLDER ${TCMALLOC_IDE_FOLDER}/test)
+    else()
+      set_property(TARGET ${_NAME} PROPERTY FOLDER ${TCMALLOC_IDE_FOLDER}/internal)
+    endif()
+
+    # When being installed, set proper output name and SOVERSION
+    if(TCMALLOC_ENABLE_INSTALL)
+      set_target_properties(${_NAME} PROPERTIES
+        OUTPUT_NAME "tcmalloc_${_NAME}"
+        SOVERSION "${TCMALLOC_SOVERSION}"
+      )
+    endif()
   else()
-    add_library(${TCMALLOC_NAME} INTERFACE)
-    if(TCMALLOC_HDRS)
-      target_sources(${TCMALLOC_NAME} INTERFACE ${TCMALLOC_HDRS})
-    endif()
-    if(TCMALLOC_COPTS)
-      target_compile_options(${TCMALLOC_NAME} INTERFACE ${TCMALLOC_COPTS})
-    endif()
-    if(TCMALLOC_LINKOPTS)
-      target_link_options(${TCMALLOC_NAME} INTERFACE ${TCMALLOC_LINKOPTS})
-    endif()
-    if(TCMALLOC_DEPS)
-      target_link_libraries(${TCMALLOC_NAME} INTERFACE ${TCMALLOC_DEPS})
-    endif()
-    target_include_directories(${TCMALLOC_NAME}
+    # Header-only (interface) library
+    add_library(${_NAME} INTERFACE)
+    target_include_directories(${_NAME}
       INTERFACE
         "$<BUILD_INTERFACE:${TCMALLOC_COMMON_INCLUDE_DIRS}>"
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
+    target_link_libraries(${_NAME}
+      INTERFACE
+        ${TCMALLOC_CC_LIB_DEPS}
+        ${TCMALLOC_CC_LIB_LINKOPTS}
+    )
+    target_compile_definitions(${_NAME} INTERFACE ${TCMALLOC_CC_LIB_DEFINES})
   endif()
-  if(TCMALLOC_ALIAS)
-    add_library(${TCMALLOC_ALIAS} ALIAS ${TCMALLOC_NAME})
+
+  # Install target (will be activated in the TCMALLOC_ENABLE_INSTALL commit)
+  if(TCMALLOC_ENABLE_INSTALL AND NOT TCMALLOC_CC_LIB_DISABLE_INSTALL
+      AND NOT TCMALLOC_CC_LIB_TESTONLY)
+    install(TARGETS ${_NAME} EXPORT ${PROJECT_NAME}Targets
+          RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+          LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+          ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+  endif()
+
+  if(TCMALLOC_CC_LIB_ALIAS)
+    add_library(${TCMALLOC_CC_LIB_ALIAS} ALIAS ${_NAME})
   endif()
 endfunction()
 
+# tcmalloc_cc_test()
+#
+# CMake function to imitate Bazel's cc_test rule, analogous to
+# abseil-cpp's absl_cc_test().
+#
+# Parameters:
+# NAME: name of target (creates executable with this name)
+# SRCS: List of source files for the binary
+# DEPS: List of other libraries to be linked in
+# COPTS: List of private compile options
+# DEFINES: List of public defines
+# LINKOPTS: List of link options
+#
 function(tcmalloc_cc_test)
   if(NOT (BUILD_TESTING AND TCMALLOC_BUILD_TESTING))
     return()
   endif()
 
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
-  add_executable(${TCMALLOC_NAME} "")
-  if(TCMALLOC_SRCS)
-    target_sources(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_SRCS})
+  cmake_parse_arguments(TCMALLOC_CC_TEST
+    ""
+    "NAME;ALIAS"
+    "SRCS;HDRS;COPTS;DEFINES;LINKOPTS;DEPS"
+    ${ARGN}
+  )
+
+  set(_NAME "${TCMALLOC_CC_TEST_NAME}")
+
+  add_executable(${_NAME} "")
+  if(TCMALLOC_CC_TEST_SRCS)
+    target_sources(${_NAME} PRIVATE ${TCMALLOC_CC_TEST_SRCS})
   endif()
-  if(TCMALLOC_HDRS)
-    target_sources(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_HDRS})
+  if(TCMALLOC_CC_TEST_HDRS)
+    target_sources(${_NAME} PRIVATE ${TCMALLOC_CC_TEST_HDRS})
   endif()
-  if(TCMALLOC_COPTS)
-    target_compile_options(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_COPTS})
-  endif()
-  if(TCMALLOC_LINKOPTS)
-    target_link_options(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_LINKOPTS})
-  endif()
-  if(TCMALLOC_DEPS)
-    target_link_libraries(${TCMALLOC_NAME} PUBLIC ${TCMALLOC_DEPS})
-  endif()
-  target_include_directories(${TCMALLOC_NAME}
+
+  target_compile_options(${_NAME}
+    PRIVATE ${TCMALLOC_CC_TEST_COPTS})
+  target_compile_definitions(${_NAME}
+    PUBLIC ${TCMALLOC_CC_TEST_DEFINES})
+
+  target_link_libraries(${_NAME}
+    PUBLIC ${TCMALLOC_CC_TEST_DEPS}
+    PRIVATE ${TCMALLOC_CC_TEST_LINKOPTS}
+  )
+
+  target_include_directories(${_NAME}
     PUBLIC "$<BUILD_INTERFACE:${TCMALLOC_COMMON_INCLUDE_DIRS}>")
-  add_test(NAME ${TCMALLOC_NAME} COMMAND ${TCMALLOC_NAME})
-  set_tests_properties(${TCMALLOC_NAME} PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+
+  # IDE folder organization
+  set_property(TARGET ${_NAME} PROPERTY FOLDER ${TCMALLOC_IDE_FOLDER}/test)
+
+  add_test(NAME ${_NAME} COMMAND ${_NAME})
+  set_tests_properties(${_NAME} PROPERTIES
+    ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
 endfunction()
 
 function(tcmalloc_cc_binary)
