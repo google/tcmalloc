@@ -126,7 +126,6 @@ function(tcmalloc_cc_library)
     if(TCMALLOC_ENABLE_INSTALL)
       set_target_properties(${_NAME} PROPERTIES
         OUTPUT_NAME "tcmalloc_${_NAME}"
-        SOVERSION "${TCMALLOC_SOVERSION}"
       )
     endif()
   else()
