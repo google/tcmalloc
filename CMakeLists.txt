@@ -53,14 +53,7 @@ set(ABSL_FIND_GOOGLETEST OFF CACHE BOOL "" FORCE)
 
 include(FetchContent)
 
-FetchContent_Declare(
-  googletest
-  GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES GTest
-)
-FetchContent_MakeAvailable(googletest)
-
+# -- abseil-cpp (always required) --
 FetchContent_Declare(
   abseil-cpp
   GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
@@ -69,29 +62,40 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(abseil-cpp)
 
-FetchContent_Declare(
-  protobuf
-  GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
-  GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES Protobuf
-)
-FetchContent_MakeAvailable(protobuf)
+# -- Test-only dependencies --
+if((BUILD_TESTING AND TCMALLOC_BUILD_TESTING) OR TCMALLOC_BUILD_TEST_HELPERS)
+  FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        main
+    FIND_PACKAGE_ARGS NAMES GTest
+  )
+  FetchContent_MakeAvailable(googletest)
 
-FetchContent_Declare(
-  benchmark
-  GIT_REPOSITORY https://github.com/google/benchmark.git
-  GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES benchmark
-)
-FetchContent_MakeAvailable(benchmark)
+  FetchContent_Declare(
+    protobuf
+    GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+    GIT_TAG        main
+    FIND_PACKAGE_ARGS NAMES Protobuf
+  )
+  FetchContent_MakeAvailable(protobuf)
 
-FetchContent_Declare(
-  fuzztest
-  GIT_REPOSITORY https://github.com/google/fuzztest.git
-  GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES fuzztest
-)
-FetchContent_MakeAvailable(fuzztest)
+  FetchContent_Declare(
+    benchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        main
+    FIND_PACKAGE_ARGS NAMES benchmark
+  )
+  FetchContent_MakeAvailable(benchmark)
+
+  FetchContent_Declare(
+    fuzztest
+    GIT_REPOSITORY https://github.com/google/fuzztest.git
+    GIT_TAG        main
+    FIND_PACKAGE_ARGS NAMES fuzztest
+  )
+  FetchContent_MakeAvailable(fuzztest)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
 include(TcmallocHelpers)
