@@ -78,8 +78,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(fuzztest)
 
-include(tcmalloc/tcmalloc_helpers.cmake)
-include(tcmalloc/tcmalloc_variants.cmake)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
+include(TcmallocHelpers)
+include(TcmallocVariants)
 
 add_subdirectory(tcmalloc/internal)
 add_subdirectory(tcmalloc/testing)
