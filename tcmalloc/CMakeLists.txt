@@ -14,7 +14,7 @@
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_experiment
+    experiment
   ALIAS
     tcmalloc::experiment
   HDRS
@@ -37,7 +37,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc
+    tcmalloc
   ALIAS
     tcmalloc::tcmalloc
   SRCS
@@ -83,9 +83,10 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_internal_methods_only
+    tcmalloc_internal_methods_only
   ALIAS
     tcmalloc::tcmalloc_internal_methods_only
+  TESTONLY
   HDRS
     "tcmalloc.h"
   SRCS
@@ -129,7 +130,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_deprecated_perthread
+    tcmalloc_deprecated_perthread
   ALIAS
     tcmalloc::tcmalloc_deprecated_perthread
   SRCS
@@ -175,7 +176,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library_variants(
   NAME
-    tcmalloc_common
+    common
   ALIAS
     tcmalloc::common
   HDRS
@@ -342,7 +343,7 @@ tcmalloc_cc_library_variants(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_enable_heap_partitioning_default_on
+    tcmalloc_enable_heap_partitioning_default_on
   ALIAS
     tcmalloc::tcmalloc_enable_heap_partitioning_default_on
   SRCS
@@ -353,7 +354,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_want_hpaa
+    want_hpaa
   ALIAS
     tcmalloc::want_hpaa
   SRCS
@@ -367,7 +368,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_want_disable_huge_region_more_often
+    want_disable_huge_region_more_often
   ALIAS
     tcmalloc::want_disable_huge_region_more_often
   SRCS
@@ -380,7 +381,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_want_numa_aware
+    want_numa_aware
   ALIAS
     tcmalloc::want_numa_aware
   SRCS
@@ -394,7 +395,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_large_pages
+    tcmalloc_large_pages
   ALIAS
     tcmalloc::tcmalloc_large_pages
   SRCS
@@ -440,7 +441,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_256k_pages
+    tcmalloc_256k_pages
   ALIAS
     tcmalloc::tcmalloc_256k_pages
   SRCS
@@ -486,7 +487,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_256k_pages_numa_aware
+    tcmalloc_256k_pages_numa_aware
   ALIAS
     tcmalloc::tcmalloc_256k_pages_numa_aware
   SRCS
@@ -533,7 +534,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_small_but_slow
+    tcmalloc_small_but_slow
   ALIAS
     tcmalloc::tcmalloc_small_but_slow
   SRCS
@@ -579,7 +580,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_small_but_slow_with_assertions
+    tcmalloc_small_but_slow_with_assertions
   ALIAS
     tcmalloc::tcmalloc_small_but_slow_with_assertions
   SRCS
@@ -626,7 +627,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_numa_aware
+    tcmalloc_numa_aware
   ALIAS
     tcmalloc::tcmalloc_numa_aware
   SRCS
@@ -672,7 +673,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_legacy_locking
+    tcmalloc_legacy_locking
   ALIAS
     tcmalloc::tcmalloc_legacy_locking
   SRCS
@@ -719,9 +720,10 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_mock_central_freelist
+    mock_central_freelist
   ALIAS
     tcmalloc::mock_central_freelist
+  TESTONLY
   HDRS
     "mock_central_freelist.h"
   SRCS
@@ -737,9 +739,10 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_mock_static_forwarder
+    mock_static_forwarder
   ALIAS
     tcmalloc::mock_static_forwarder
+  TESTONLY
   HDRS
     "mock_static_forwarder.h"
   DEPS
@@ -753,9 +756,10 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_mock_virtual_allocator
+    mock_virtual_allocator
   ALIAS
     tcmalloc::mock_virtual_allocator
+  TESTONLY
   HDRS
     "mock_virtual_allocator.h"
   DEPS
@@ -768,9 +772,10 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_page_allocator_test_util
+    page_allocator_test_util
   ALIAS
     tcmalloc::page_allocator_test_util
+  TESTONLY
   HDRS
     "page_allocator_test_util.h"
   SRCS
@@ -785,9 +790,10 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_mock_transfer_cache
+    mock_transfer_cache
   ALIAS
     tcmalloc::mock_transfer_cache
+  TESTONLY
   HDRS
     "mock_transfer_cache.h"
   SRCS
@@ -806,9 +812,10 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_mock_huge_page_static_forwarder
+    mock_huge_page_static_forwarder
   ALIAS
     tcmalloc::mock_huge_page_static_forwarder
+  TESTONLY
   HDRS
     "mock_huge_page_static_forwarder.h"
   SRCS
@@ -828,7 +835,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_page_aware_allocator_fuzz
+    huge_page_aware_allocator_fuzz
   SRCS
     "huge_page_aware_allocator_fuzz.cc"
   DEPS
@@ -852,7 +859,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_region_fuzz
+    huge_region_fuzz
   SRCS
     "huge_region_fuzz.cc"
   DEPS
@@ -871,7 +878,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_page_filler_fuzz
+    huge_page_filler_fuzz
   SRCS
     "huge_page_filler_fuzz.cc"
   DEPS
@@ -900,7 +907,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_span_fuzz
+    span_fuzz
   SRCS
     "span_fuzz.cc"
   DEPS
@@ -917,7 +924,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_sizemap_fuzz
+    sizemap_fuzz
   SRCS
     "sizemap_fuzz.cc"
   DEPS
@@ -934,7 +941,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_central_freelist_fuzz
+    central_freelist_fuzz
   SRCS
     "central_freelist_fuzz.cc"
   DEPS
@@ -952,7 +959,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_transfer_cache_fuzz
+    transfer_cache_fuzz
   SRCS
     "transfer_cache_fuzz.cc"
   DEPS
@@ -970,7 +977,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_arena_test
+    arena_test
   SRCS
     "arena_test.cc"
   DEPS
@@ -982,7 +989,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_transfer_cache_test
+    transfer_cache_test
   SRCS
     "transfer_cache_test.cc"
   DEPS
@@ -1002,7 +1009,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_transfer_cache_benchmark
+    transfer_cache_benchmark
   SRCS
     "transfer_cache_benchmark.cc"
   DEPS
@@ -1015,12 +1022,12 @@ tcmalloc_cc_binary(
     "tcmalloc::mock_central_freelist"
     "tcmalloc::mock_transfer_cache"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_cache_test
+    huge_cache_test
   SRCS
     "huge_cache_test.cc"
   DEPS
@@ -1042,7 +1049,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_allocator_test
+    huge_allocator_test
   SRCS
     "huge_allocator_test.cc"
   DEPS
@@ -1062,7 +1069,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_page_subrelease_test
+    huge_page_subrelease_test
   SRCS
     "huge_page_subrelease_test.cc"
   DEPS
@@ -1080,7 +1087,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_page_filler_test
+    huge_page_filler_test
   SRCS
     "huge_page_filler_test.cc"
   DEPS
@@ -1117,7 +1124,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_page_aware_allocator_test
+    huge_page_aware_allocator_test
   SRCS
     "huge_page_aware_allocator_test.cc"
   DEPS
@@ -1153,7 +1160,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_region_test
+    huge_region_test
   SRCS
     "huge_region_test.cc"
   DEPS
@@ -1175,7 +1182,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_guarded_page_allocator_benchmark
+    guarded_page_allocator_benchmark
   SRCS
     "guarded_page_allocator_benchmark.cc"
   DEPS
@@ -1186,12 +1193,12 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_page_size"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_guarded_page_allocator_test
+    guarded_page_allocator_test
   SRCS
     "guarded_page_allocator_test.cc"
   DEPS
@@ -1211,7 +1218,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_guarded_page_allocator_profile_test
+    guarded_page_allocator_profile_test
   SRCS
     "guarded_page_allocator_profile_test.cc"
   DEPS
@@ -1229,7 +1236,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_pagemap_test
+    pagemap_test
   SRCS
     "pagemap_test.cc"
   DEPS
@@ -1242,7 +1249,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_stack_trace_table_test
+    stack_trace_table_test
   SRCS
     "stack_trace_table_test.cc"
   DEPS
@@ -1259,7 +1266,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_malloc_extension_fuzz
+    malloc_extension_fuzz
   SRCS
     "malloc_extension_fuzz.cc"
   DEPS
@@ -1274,7 +1281,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_page_allocator_test
+    page_allocator_test
   SRCS
     "page_allocator_test.cc"
   DEPS
@@ -1296,7 +1303,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_page_allocator_test_partitioned
+    page_allocator_test_partitioned
   SRCS
     "page_allocator_test.cc"
   DEPS
@@ -1318,7 +1325,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_profile_test
+    profile_test
   SRCS
     "profile_test.cc"
   DEPS
@@ -1339,7 +1346,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_segv_handler_test
+    segv_handler_test
   SRCS
     "segv_handler_test.cc"
   DEPS
@@ -1354,7 +1361,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_thread_cache_test
+    thread_cache_test
   SRCS
     "thread_cache_test.cc"
   DEPS
@@ -1373,7 +1380,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_size_classes_test
+    size_classes_test
   SRCS
     "size_classes_test.cc"
   DEPS
@@ -1390,7 +1397,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_span_test
+    span_test
   SRCS
     "span_test.cc"
   DEPS
@@ -1410,7 +1417,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_span_benchmark
+    span_benchmark
   SRCS
     "span_benchmark.cc"
   DEPS
@@ -1422,12 +1429,12 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_stats_test
+    stats_test
   SRCS
     "stats_test.cc"
   DEPS
@@ -1444,7 +1451,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_huge_address_map_test
+    huge_address_map_test
   SRCS
     "huge_address_map_test.cc"
   DEPS
@@ -1458,7 +1465,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_malloc_extension
+    malloc_extension
   ALIAS
     tcmalloc::malloc_extension
   HDRS
@@ -1481,7 +1488,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_malloc_tracing_extension
+    malloc_tracing_extension
   ALIAS
     tcmalloc::malloc_tracing_extension
   HDRS
@@ -1497,7 +1504,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_new_extension
+    new_extension
   ALIAS
     tcmalloc::new_extension
   HDRS
@@ -1509,7 +1516,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_new_extension_test
+    new_extension_test
   SRCS
     "new_extension_test.cc"
   DEPS
@@ -1527,7 +1534,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_experiment_config_test
+    experiment_config_test
   SRCS
     "experiment_config_test.cc"
   DEPS
@@ -1540,7 +1547,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_experiment_fuzz
+    experiment_fuzz
   SRCS
     "experiment_fuzz.cc"
   DEPS
@@ -1555,7 +1562,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_cpu_cache_test
+    cpu_cache_test
   SRCS
     "cpu_cache_test.cc"
   DEPS
@@ -1586,7 +1593,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_cpu_cache_activate_test
+    cpu_cache_activate_test
   SRCS
     "cpu_cache_activate_test.cc"
   DEPS
@@ -1607,7 +1614,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_central_freelist_test
+    central_freelist_test
   SRCS
     "central_freelist_test.cc"
   DEPS
@@ -1641,7 +1648,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_binary(
   NAME
-    tcmalloc_central_freelist_benchmark
+    central_freelist_benchmark
   SRCS
     "central_freelist_benchmark.cc"
   DEPS
@@ -1654,12 +1661,12 @@ tcmalloc_cc_binary(
     "tcmalloc::common_8k_pages"
     "tcmalloc::mock_static_forwarder"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_profile_marshaler
+    profile_marshaler
   ALIAS
     tcmalloc::profile_marshaler
   HDRS
@@ -1675,7 +1682,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_profile_marshaler_test
+    profile_marshaler_test
   SRCS
     "profile_marshaler_test.cc"
   DEPS
@@ -1697,7 +1704,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_want_legacy_size_classes
+    want_legacy_size_classes
   ALIAS
     tcmalloc::want_legacy_size_classes
   SRCS
@@ -1710,7 +1717,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_want_legacy_size_classes_test
+    want_legacy_size_classes_test
   SRCS
     "want_legacy_size_classes_test.cc"
   DEPS
@@ -1725,7 +1732,7 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_allocation_sample_test
+    allocation_sample_test
   SRCS
     "allocation_sample_test.cc"
   DEPS
@@ -1743,7 +1750,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_pages_test
+    pages_test
   SRCS
     "pages_test.cc"
   DEPS
@@ -1755,7 +1762,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_sizemap_test
+    sizemap_test
   SRCS
     "sizemap_test.cc"
   DEPS
@@ -1769,7 +1776,7 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_malloc_hook
+    malloc_hook
   ALIAS
     tcmalloc::malloc_hook
   HDRS
@@ -1787,7 +1794,7 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_alloc_at_least
+    alloc_at_least
   ALIAS
     tcmalloc::alloc_at_least
   HDRS
