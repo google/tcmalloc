@@ -17,6 +17,7 @@ tcmalloc_cc_library(
     tcmalloc_testing_malloc_hook_recorder
   ALIAS
     tcmalloc::testing_malloc_hook_recorder
+  TESTONLY
   HDRS
     "malloc_hook_recorder.h"
   SRCS
@@ -34,6 +35,7 @@ tcmalloc_cc_library(
     tcmalloc_testing_testutil
   ALIAS
     tcmalloc::testing_testutil
+  TESTONLY
   HDRS
     "testutil.h"
   SRCS
@@ -231,6 +233,7 @@ tcmalloc_cc_library(
     tcmalloc_testing_thread_manager
   ALIAS
     tcmalloc::testing_thread_manager
+  TESTONLY
   HDRS
     "thread_manager.h"
   DEPS
@@ -353,6 +356,7 @@ tcmalloc_cc_library(
     tcmalloc_testing_thread_ctor_test_lib
   ALIAS
     tcmalloc::testing_thread_ctor_test_lib
+  TESTONLY
   SRCS
     "thread_ctor_test_lib.cc"
   LINKOPTS
@@ -610,6 +614,7 @@ tcmalloc_cc_library(
     tcmalloc_testing_benchmark_main
   ALIAS
     tcmalloc::testing_benchmark_main
+  TESTONLY
   SRCS
     "benchmark_main.cc"
   DEPS
@@ -650,6 +655,7 @@ tcmalloc_cc_library(
     tcmalloc_testing_test_allocator_harness
   ALIAS
     tcmalloc::testing_test_allocator_harness
+  TESTONLY
   HDRS
     "test_allocator_harness.h"
   DEPS

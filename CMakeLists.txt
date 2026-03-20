@@ -54,9 +54,12 @@ option(TCMALLOC_BUILD_TEST_HELPERS
   "If ON, TCMalloc will build test helper libraries." OFF)
 
 set(ABSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(ABSL_BUILD_TEST_HELPERS ON CACHE BOOL "" FORCE)
-set(ABSL_USE_EXTERNAL_GOOGLETEST ON CACHE BOOL "" FORCE)
-set(ABSL_FIND_GOOGLETEST OFF CACHE BOOL "" FORCE)
+
+if((BUILD_TESTING AND TCMALLOC_BUILD_TESTING) OR TCMALLOC_BUILD_TEST_HELPERS)
+  set(ABSL_BUILD_TEST_HELPERS ON CACHE BOOL "" FORCE)
+  set(ABSL_USE_EXTERNAL_GOOGLETEST ON CACHE BOOL "" FORCE)
+  set(ABSL_FIND_GOOGLETEST OFF CACHE BOOL "" FORCE)
+endif()
 
 include(FetchContent)
 
@@ -94,6 +97,30 @@ else()
   endif()
 endif()
 
+# -- Protobuf (required by profile_builder / profile_marshaler) --
+option(TCMALLOC_USE_EXTERNAL_PROTOBUF
+  "If ON, assume Protobuf targets are already provided." OFF)
+set(TCMALLOC_LOCAL_PROTOBUF_DIR "" CACHE PATH
+  "Path to a local protobuf source directory.")
+
+if(TCMALLOC_USE_EXTERNAL_PROTOBUF)
+  if(NOT TARGET protobuf::libprotobuf)
+    find_package(Protobuf REQUIRED)
+  endif()
+else()
+  if(TCMALLOC_LOCAL_PROTOBUF_DIR)
+    add_subdirectory("${TCMALLOC_LOCAL_PROTOBUF_DIR}" protobuf EXCLUDE_FROM_ALL)
+  else()
+    FetchContent_Declare(
+      protobuf
+      GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+      GIT_TAG        main
+      FIND_PACKAGE_ARGS NAMES Protobuf
+    )
+    FetchContent_MakeAvailable(protobuf)
+  endif()
+endif()
+
 # -- Test-only dependencies --
 if((BUILD_TESTING AND TCMALLOC_BUILD_TESTING) OR TCMALLOC_BUILD_TEST_HELPERS)
 
@@ -124,30 +151,6 @@ if((BUILD_TESTING AND TCMALLOC_BUILD_TESTING) OR TCMALLOC_BUILD_TEST_HELPERS)
         FIND_PACKAGE_ARGS NAMES GTest
       )
       FetchContent_MakeAvailable(googletest)
-    endif()
-  endif()
-
-  # Protobuf
-  option(TCMALLOC_USE_EXTERNAL_PROTOBUF
-    "If ON, assume Protobuf targets are already provided." OFF)
-  set(TCMALLOC_LOCAL_PROTOBUF_DIR "" CACHE PATH
-    "Path to a local protobuf source directory.")
-
-  if(TCMALLOC_USE_EXTERNAL_PROTOBUF)
-    if(NOT TARGET protobuf::libprotobuf)
-      find_package(Protobuf REQUIRED)
-    endif()
-  else()
-    if(TCMALLOC_LOCAL_PROTOBUF_DIR)
-      add_subdirectory("${TCMALLOC_LOCAL_PROTOBUF_DIR}" protobuf EXCLUDE_FROM_ALL)
-    else()
-      FetchContent_Declare(
-        protobuf
-        GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
-        GIT_TAG        main
-        FIND_PACKAGE_ARGS NAMES Protobuf
-      )
-      FetchContent_MakeAvailable(protobuf)
     endif()
   endif()
 

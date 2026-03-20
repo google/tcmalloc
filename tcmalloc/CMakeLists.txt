@@ -86,6 +86,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_internal_methods_only
   ALIAS
     tcmalloc::tcmalloc_internal_methods_only
+  TESTONLY
   HDRS
     "tcmalloc.h"
   SRCS
@@ -722,6 +723,7 @@ tcmalloc_cc_library(
     tcmalloc_mock_central_freelist
   ALIAS
     tcmalloc::mock_central_freelist
+  TESTONLY
   HDRS
     "mock_central_freelist.h"
   SRCS
@@ -740,6 +742,7 @@ tcmalloc_cc_library(
     tcmalloc_mock_static_forwarder
   ALIAS
     tcmalloc::mock_static_forwarder
+  TESTONLY
   HDRS
     "mock_static_forwarder.h"
   DEPS
@@ -756,6 +759,7 @@ tcmalloc_cc_library(
     tcmalloc_mock_virtual_allocator
   ALIAS
     tcmalloc::mock_virtual_allocator
+  TESTONLY
   HDRS
     "mock_virtual_allocator.h"
   DEPS
@@ -771,6 +775,7 @@ tcmalloc_cc_library(
     tcmalloc_page_allocator_test_util
   ALIAS
     tcmalloc::page_allocator_test_util
+  TESTONLY
   HDRS
     "page_allocator_test_util.h"
   SRCS
@@ -788,6 +793,7 @@ tcmalloc_cc_library(
     tcmalloc_mock_transfer_cache
   ALIAS
     tcmalloc::mock_transfer_cache
+  TESTONLY
   HDRS
     "mock_transfer_cache.h"
   SRCS
@@ -809,6 +815,7 @@ tcmalloc_cc_library(
     tcmalloc_mock_huge_page_static_forwarder
   ALIAS
     tcmalloc::mock_huge_page_static_forwarder
+  TESTONLY
   HDRS
     "mock_huge_page_static_forwarder.h"
   SRCS

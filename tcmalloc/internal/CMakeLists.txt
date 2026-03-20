@@ -17,6 +17,7 @@ tcmalloc_cc_library(
     tcmalloc_internal_affinity
   ALIAS
     tcmalloc::internal_affinity
+  TESTONLY
   HDRS
     "affinity.h"
   SRCS
@@ -497,6 +498,7 @@ tcmalloc_cc_library(
     tcmalloc_internal_mock_metadata_allocator
   ALIAS
     tcmalloc::internal_mock_metadata_allocator
+  TESTONLY
   HDRS
     "mock_metadata_allocator.h"
   DEPS
@@ -573,6 +575,7 @@ tcmalloc_cc_library(
     tcmalloc_internal_mock_span
   ALIAS
     tcmalloc::internal_mock_span
+  TESTONLY
   HDRS
     "mock_span.h"
   DEPS
