@@ -860,7 +860,15 @@ tcmalloc_cc_library(
   DEPS
     protobuf::libprotobuf
 )
-target_include_directories(tcmalloc_internal_profile_cc_proto PUBLIC ${CMAKE_BINARY_DIR})
+target_include_directories(tcmalloc_internal_profile_cc_proto
+  PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>"
+)
+if(TCMALLOC_ENABLE_INSTALL)
+  install(FILES ${CMAKE_BINARY_DIR}/tcmalloc/internal/profile.pb.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tcmalloc/internal
+  )
+endif()
 
 tcmalloc_cc_library(
   NAME

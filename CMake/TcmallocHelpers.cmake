@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+include(CMakeParseArguments)
+
+# include current path
+list(APPEND TCMALLOC_COMMON_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR})
+
 function(tcmalloc_cc_library)
   cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
   if(TCMALLOC_SRCS)
@@ -34,7 +39,11 @@ function(tcmalloc_cc_library)
     if(TCMALLOC_DEPS)
       target_link_libraries(${TCMALLOC_NAME} PUBLIC ${TCMALLOC_DEPS})
     endif()
-    target_include_directories(${TCMALLOC_NAME} PUBLIC ${CMAKE_SOURCE_DIR})
+    target_include_directories(${TCMALLOC_NAME}
+      PUBLIC
+        "$<BUILD_INTERFACE:${TCMALLOC_COMMON_INCLUDE_DIRS}>"
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
   else()
     add_library(${TCMALLOC_NAME} INTERFACE)
     if(TCMALLOC_HDRS)
@@ -49,7 +58,11 @@ function(tcmalloc_cc_library)
     if(TCMALLOC_DEPS)
       target_link_libraries(${TCMALLOC_NAME} INTERFACE ${TCMALLOC_DEPS})
     endif()
-    target_include_directories(${TCMALLOC_NAME} INTERFACE ${CMAKE_SOURCE_DIR})
+    target_include_directories(${TCMALLOC_NAME}
+      INTERFACE
+        "$<BUILD_INTERFACE:${TCMALLOC_COMMON_INCLUDE_DIRS}>"
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
   endif()
   if(TCMALLOC_ALIAS)
     add_library(${TCMALLOC_ALIAS} ALIAS ${TCMALLOC_NAME})
@@ -78,7 +91,8 @@ function(tcmalloc_cc_test)
   if(TCMALLOC_DEPS)
     target_link_libraries(${TCMALLOC_NAME} PUBLIC ${TCMALLOC_DEPS})
   endif()
-  target_include_directories(${TCMALLOC_NAME} PUBLIC ${CMAKE_SOURCE_DIR})
+  target_include_directories(${TCMALLOC_NAME}
+    PUBLIC "$<BUILD_INTERFACE:${TCMALLOC_COMMON_INCLUDE_DIRS}>")
   add_test(NAME ${TCMALLOC_NAME} COMMAND ${TCMALLOC_NAME})
   set_tests_properties(${TCMALLOC_NAME} PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
 endfunction()
