@@ -24,7 +24,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/optimization.h"
-#include "tcmalloc/internal/config.h"
+#include "absl/hash/hash.h"
 #include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/parameters.h"
@@ -123,8 +123,9 @@ ssize_t Sampler::GetGeometricVariable(ssize_t mean) {
 size_t Sampler::RecordAllocationSlow(size_t k) {
   if (ABSL_PREDICT_FALSE(!initialized_)) {
     initialized_ = true;
-    Init(static_cast<uint64_t>(absl::base_internal::CycleClock::Now()) +
-         reinterpret_cast<uintptr_t>(this));
+    Init(absl::HashOf(
+        static_cast<uint64_t>(absl::base_internal::CycleClock::Now()),
+        reinterpret_cast<uintptr_t>(this)));
     // Avoid missampling 0.
     bytes_until_sample_ -= k + 1;
     if (ABSL_PREDICT_TRUE(bytes_until_sample_ >= 0)) {
