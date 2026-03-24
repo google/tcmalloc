@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -181,9 +182,18 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     }
 
     // If time goes backwards, we would like to cap the release rate at 0.
-    ssize_t bytes_to_release =
+    //
+    // TODO(b/495452446): Improve test coverage and possibly move to working
+    // integer space entirely.
+    double calculated_bytes =
         static_cast<size_t>(Parameters::background_release_rate()) *
         absl::ToDoubleSeconds(now - prev_time);
+    constexpr double kMaxSsize =
+        static_cast<double>(std::numeric_limits<ssize_t>::max());
+
+    ssize_t bytes_to_release = calculated_bytes >= kMaxSsize
+                                   ? std::numeric_limits<ssize_t>::max()
+                                   : calculated_bytes;
     bytes_to_release = std::max<ssize_t>(bytes_to_release, 0);
 
     // If release rate is set to 0, do not release memory to system. However,
