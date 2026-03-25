@@ -103,8 +103,9 @@ int main() {
       &MallocExtension_Internal_GetNumericProperty == nullptr) {
     // Skip rest of test since we don't link against TCMalloc.  This should only
     // happen under sanitizers.
-#if !defined(ABSL_HAVE_ADDRESS_SANITIZER) && \
-    !defined(ABSL_HAVE_MEMORY_SANITIZER) &&  \
+#if !defined(ABSL_HAVE_ADDRESS_SANITIZER) &&   \
+    !defined(ABSL_HAVE_HWADDRESS_SANITIZER) && \
+    !defined(ABSL_HAVE_MEMORY_SANITIZER) &&    \
     !defined(ABSL_HAVE_THREAD_SANITIZER)
     assert(false &&
            "Not linked against TCMalloc, but not built with sanitizers.");
