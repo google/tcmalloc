@@ -111,6 +111,10 @@ struct GetMaxCapacity {
 class TcmallocSlabTest : public testing::Test {
  public:
   TcmallocSlabTest() {
+    if (!IsFast()) {
+      return;
+    }
+
 // Ignore false-positive warning in GCC. For more information, see:
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003
 #pragma GCC diagnostic ignored "-Wnonnull"
@@ -122,7 +126,13 @@ class TcmallocSlabTest : public testing::Test {
         [](size_t) { return kCapacity; }, kShift);
   }
 
-  ~TcmallocSlabTest() override { slab_.Destroy(sized_aligned_delete); }
+  ~TcmallocSlabTest() override {
+    if (!IsFast()) {
+      return;
+    }
+
+    slab_.Destroy(sized_aligned_delete);
+  }
 
   void* ByteCountingMalloc(size_t size, std::align_val_t alignment) {
     void* ptr = ::operator new(size, alignment);
@@ -141,16 +151,16 @@ class TcmallocSlabTest : public testing::Test {
 };
 
 TEST_F(TcmallocSlabTest, Metadata) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+
   PerCPUMetadataState r = slab_.MetadataMemoryUsage();
 
   ASSERT_GT(metadata_bytes_, 0);
   EXPECT_EQ(r.virtual_size, metadata_bytes_);
   EXPECT_EQ(r.resident_size, 0);
-
-  if (!IsFast()) {
-    GTEST_SKIP() << "Need fast percpu. Skipping.";
-    return;
-  }
 
   // Initialize a core.  Verify that the increased RSS is proportional to a
   // core.

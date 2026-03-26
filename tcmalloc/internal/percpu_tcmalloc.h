@@ -1068,6 +1068,7 @@ void TcmallocSlab<NumClasses>::Init(
   // This is needed only for tests that create/destroy slabs,
   // w/o this cpu_id_start may contain wrong offset for a new slab.
   __rseq_abi.cpu_id_start = 0;
+  FenceAllCpus();
 #endif
 }
 
@@ -1365,6 +1366,7 @@ void* TcmallocSlab<NumClasses>::Destroy(
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   free(slabs, GetSlabsAllocSize(shift, n_cpus), kPhysicalPageAlign);
   slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
+  FenceAllCpus();
   return slabs;
 }
 
