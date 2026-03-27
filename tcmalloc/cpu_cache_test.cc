@@ -1937,7 +1937,7 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
   EXPECT_EQ(env.num_cpus() * last_cache_size, capacity);
 }
 
-TEST(CpuCacheTest, TouchedCpus) {
+TEST(TouchedCpus, SingleThreaded) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -1994,6 +1994,17 @@ TEST(CpuCacheTest, TouchedCpus) {
       EXPECT_EQ(after_allocate_deallocate, 1);
     }
   }
+
+  cache.Deactivate();
+}
+
+TEST(TouchedCpus, Multithreaded) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Activate();
 
   ThreadManager threads;
   constexpr int kThreads = 10;
