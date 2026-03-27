@@ -1995,17 +1995,6 @@ TEST(CpuCacheTest, TouchedCpus) {
     }
   }
 
-  cache.Deactivate();
-}
-
-TEST(CpuCacheTest, TouchedCpusMultithreaded) {
-  if (!subtle::percpu::IsFast()) {
-    return;
-  }
-
-  CpuCache cache;
-  cache.Activate();
-
   ThreadManager threads;
   constexpr int kThreads = 10;
   std::vector<absl::flat_hash_set<int>> seen;
