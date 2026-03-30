@@ -720,7 +720,7 @@ extern "C" [[nodiscard]] size_t nallocx(size_t size, int flags) noexcept;
 // uses the size to improve deallocation performance.
 extern "C" void sdallocx(void* ptr, size_t size, int flags) noexcept;
 
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) || defined(__Fuchsia__)
 #define TCMALLOC_FREE_SIZED_NOEXCEPT noexcept
 #else
 #define TCMALLOC_FREE_SIZED_NOEXCEPT
