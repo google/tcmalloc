@@ -1963,13 +1963,16 @@ TEST(TouchedCpus, SingleThreaded) {
     subtle::percpu::tcmalloc_slabs = 0;
 #endif
     void* ptr = cache.Allocate(1);
+    const int after_allocate_vcpu = subtle::percpu::VirtualCpu::get();
     const int after_allocate = cache.CountTouchedCpus();
 
     cache.Deallocate(ptr, 1);
+    const int after_allocate_deallocate_vcpu =
+        subtle::percpu::VirtualCpu::get();
     const int after_allocate_deallocate = cache.CountTouchedCpus();
 
     cache.ClearTouchedCpus();
-    EXPECT_EQ(cache.CountTouchedCpus(), 0);
+    const int after_clear1 = cache.CountTouchedCpus();
 
     // Deallocating should touch the cpu.
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
@@ -1977,7 +1980,7 @@ TEST(TouchedCpus, SingleThreaded) {
 #endif
     ptr = cache.Allocate(1);
     cache.ClearTouchedCpus();
-    EXPECT_EQ(cache.CountTouchedCpus(), 0);
+    const int after_clear2 = cache.CountTouchedCpus();
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     subtle::percpu::tcmalloc_slabs = 0;
@@ -1988,10 +1991,19 @@ TEST(TouchedCpus, SingleThreaded) {
 
     EXPECT_EQ(after_allocate, 1);
     EXPECT_EQ(after_deallocate, 1);
+    EXPECT_EQ(after_clear1, 0);
+    EXPECT_EQ(after_clear2, 0);
+
     if (mask.Tampered()) {
       EXPECT_EQ(after_allocate_deallocate, 2);
     } else {
-      EXPECT_EQ(after_allocate_deallocate, 1);
+      // We may have encountered multiple vCPUs due to preemption causing the ID
+      // to be recomputed, even if we didn't change physical CPU IDs.
+      std::set<int> unique_vcpus;
+      unique_vcpus.insert(after_allocate_vcpu);
+      unique_vcpus.insert(after_allocate_deallocate_vcpu);
+
+      EXPECT_THAT(unique_vcpus, testing::SizeIs(after_allocate_deallocate));
     }
   }
 
