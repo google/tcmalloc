@@ -90,6 +90,10 @@ function(tcmalloc_cc_library_variants)
 endfunction()
 
 function(tcmalloc_cc_test_variants)
+  if(NOT (BUILD_TESTING AND TCMALLOC_BUILD_TESTING))
+    return()
+  endif()
+
   cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_8k_pages
     SRCS ${TCMALLOC_SRCS}
@@ -294,5 +298,9 @@ function(tcmalloc_cc_test_variants)
 endfunction()
 
 function(tcmalloc_cc_binary_variants)
+  if(NOT (BUILD_TESTING AND TCMALLOC_BUILD_TESTING))
+    return()
+  endif()
+
   tcmalloc_cc_test_variants(${ARGN})
 endfunction()
