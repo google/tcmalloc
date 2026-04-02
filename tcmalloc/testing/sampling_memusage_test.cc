@@ -15,12 +15,13 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <optional>
 #include <vector>
 
 #include "benchmark/benchmark.h"
-#include "gtest/gtest.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
@@ -36,113 +37,115 @@ namespace {
 using tcmalloc_internal::AllowedCpus;
 using tcmalloc_internal::ScopedAffinityMask;
 
-class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
- protected:
-  SamplingMemoryTest() { MallocExtension::SetGuardedSamplingInterval(-1); }
+size_t Property(absl::string_view name) {
+  std::optional<size_t> result = MallocExtension::GetNumericProperty(name);
+  TC_CHECK(result.has_value());
+  return *result;
+}
 
-  size_t Property(absl::string_view name) {
-    std::optional<size_t> result = MallocExtension::GetNumericProperty(name);
-    TC_CHECK(result.has_value());
-    return *result;
+void SetSamplingInterval(int64_t val) {
+  MallocExtension::SetProfileSamplingInterval(val);
+  // We do this to reset the per-thread sampler - it may have a
+  // very large gap put in here if sampling had been disabled.
+  void* ptr = ::operator new(1024 * 1024 * 1024);
+  // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+  benchmark::DoNotOptimize(ptr);
+  ::operator delete(ptr);
+}
+
+size_t CurrentHeapSize() {
+  return Property("generic.current_allocated_bytes") +
+         Property("tcmalloc.metadata_bytes");
+}
+
+// Return peak memory usage growth when allocating many "size" byte objects.
+ssize_t HeapGrowth(size_t size) {
+  if (size < sizeof(void*)) {
+    size = sizeof(void*);  // Must be able to fit a pointer in each object
   }
 
-  void SetSamplingInterval(int64_t val) {
-    MallocExtension::SetProfileSamplingInterval(val);
-    // We do this to reset the per-thread sampler - it may have a
-    // very large gap put in here if sampling had been disabled.
-    void* ptr = ::operator new(1024 * 1024 * 1024);
-    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
-    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+  // For speed, allocate smaller number of total bytes when size is small
+  size_t total = 100 << 20;
+  if (size <= 4096) {
+    total = 30 << 20;
+  }
+
+  constexpr int kMaxTries = 10;
+
+  for (int i = 0; i < kMaxTries; i++) {
+    // We are trying to make precise measurements about the overhead of
+    // allocations.  Keep harness-related allocations outside of our probe
+    // points.
+    //
+    // We pin to a CPU and trigger an allocation of the target size to ensure
+    // that the per-CPU slab has been initialized.
+    std::vector<int> cpus = AllowedCpus();
+    ScopedAffinityMask mask(cpus[0]);
+
+    void* ptr = ::operator new(size);
+    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator
+    // new, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
     benchmark::DoNotOptimize(ptr);
     ::operator delete(ptr);
-  }
 
-  size_t CurrentHeapSize() {
-    return Property("generic.current_allocated_bytes") +
-           Property("tcmalloc.metadata_bytes");
-  }
+    const size_t start_memory =
+        tcmalloc_internal::kSanitizerPresent ? 0 : CurrentHeapSize();
 
-  // Return peak memory usage growth when allocating many "size" byte objects.
-  ssize_t HeapGrowth(size_t size) {
-    if (size < sizeof(void*)) {
-      size = sizeof(void*);  // Must be able to fit a pointer in each object
+    void* list = nullptr;
+    for (size_t alloc = 0; alloc < total; alloc += size) {
+      void** object = reinterpret_cast<void**>(::operator new(size));
+      benchmark::DoNotOptimize(object);
+
+      *object = list;
+      list = object;
     }
 
-    // For speed, allocate smaller number of total bytes when size is small
-    size_t total = 100 << 20;
-    if (size <= 4096) {
-      total = 30 << 20;
+    const size_t peak_memory =
+        tcmalloc_internal::kSanitizerPresent ? 0 : CurrentHeapSize();
+
+    while (list != nullptr) {
+      void** object = reinterpret_cast<void**>(list);
+      list = *object;
+      sized_delete(object, size);
     }
 
-    constexpr int kMaxTries = 10;
-
-    for (int i = 0; i < kMaxTries; i++) {
-      // We are trying to make precise measurements about the overhead of
-      // allocations.  Keep harness-related allocations outside of our probe
-      // points.
-      //
-      // We pin to a CPU and trigger an allocation of the target size to ensure
-      // that the per-CPU slab has been initialized.
-      std::vector<int> cpus = AllowedCpus();
-      ScopedAffinityMask mask(cpus[0]);
-
-      void* ptr = ::operator new(size);
-      // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator
-      // new, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
-      benchmark::DoNotOptimize(ptr);
-      ::operator delete(ptr);
-
-      const size_t start_memory =
-          tcmalloc_internal::kSanitizerPresent ? 0 : CurrentHeapSize();
-
-      void* list = nullptr;
-      for (size_t alloc = 0; alloc < total; alloc += size) {
-        void** object = reinterpret_cast<void**>(::operator new(size));
-        benchmark::DoNotOptimize(object);
-
-        *object = list;
-        list = object;
-      }
-
-      const size_t peak_memory =
-          tcmalloc_internal::kSanitizerPresent ? 0 : CurrentHeapSize();
-
-      while (list != nullptr) {
-        void** object = reinterpret_cast<void**>(list);
-        list = *object;
-        sized_delete(object, size);
-      }
-
-      if (mask.Tampered()) {
-        continue;
-      }
-
-      return peak_memory - start_memory;
+    if (mask.Tampered()) {
+      continue;
     }
 
-    return 0;
+    // If we observed negative growth, something else in the process
+    // (e.g. a background thread) freed a lot of memory. Retry.
+    if (peak_memory < start_memory) {
+      continue;
+    }
+
+    return peak_memory - start_memory;
   }
-};
 
-// Check that percent memory overhead created by sampling under the
-// specified allocation pattern is not too large.
-TEST_P(SamplingMemoryTest, Overhead) {
-  const size_t size = GetParam();
+  return 0;
+}
+
+bool RunTest(size_t size) {
   int64_t original = MallocExtension::GetProfileSamplingInterval();
   SetSamplingInterval(0);
   const ssize_t baseline = HeapGrowth(size);
 
   SetSamplingInterval(original);
-
   const ssize_t with_sampling = HeapGrowth(size);
 
   if (tcmalloc_internal::kSanitizerPresent) {
-    return;
+    return true;
   }
 
   // Allocating many MB's of memory should trigger some growth.
-  EXPECT_NE(baseline, 0);
-  EXPECT_NE(with_sampling, 0);
+  if (baseline <= 0 || with_sampling <= 0) {
+    fprintf(stderr,
+            "Failed to get valid measurement for size %zu (baseline=%zd, "
+            "with_sampling=%zd)\n",
+            size, baseline, with_sampling);
+    return false;
+  }
 
   const double percent =
       (static_cast<double>(with_sampling) - static_cast<double>(baseline)) *
@@ -157,8 +160,15 @@ TEST_P(SamplingMemoryTest, Overhead) {
   }
 
   // some noise is unavoidable
-  EXPECT_GE(percent, -expectedOverhead) << baseline << " " << with_sampling;
-  EXPECT_LE(percent, expectedOverhead) << baseline << " " << with_sampling;
+  if (percent < -expectedOverhead || percent > expectedOverhead) {
+    fprintf(stderr,
+            "Size %zu: overhead %.2f%% outside expected +/-%.2f%% "
+            "(baseline=%zd, with_sampling=%zd)\n",
+            size, percent, expectedOverhead, baseline, with_sampling);
+    return false;
+  }
+
+  return true;
 }
 
 std::vector<size_t> InterestingSizes() {
@@ -181,14 +191,26 @@ std::vector<size_t> InterestingSizes() {
   return ret;
 }
 
-INSTANTIATE_TEST_SUITE_P(AllSizeClasses, SamplingMemoryTest,
-                         testing::ValuesIn(InterestingSizes()),
-                         testing::PrintToStringParamName());
-
 }  // namespace
 }  // namespace tcmalloc
 
 int main(int argc, char** argv) {
-  testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  // Disable background activity to minimize noise.
+  tcmalloc::MallocExtension::SetBackgroundProcessActionsEnabled(false);
+  tcmalloc::MallocExtension::SetGuardedSamplingInterval(-1);
+
+  bool all_ok = true;
+  for (size_t size : tcmalloc::InterestingSizes()) {
+    if (!tcmalloc::RunTest(size)) {
+      all_ok = false;
+    }
+  }
+
+  if (all_ok) {
+    printf("PASS\n");
+    return 0;
+  } else {
+    printf("FAIL\n");
+    return 1;
+  }
 }
