@@ -362,10 +362,12 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
     size_t objects_per_span;
   };
   std::vector<SpanInfo> allocs;
+  allocs.reserve(100000);
   Length allocated;
   PageReleaseStats expected_stats;
 
   std::vector<std::vector<Instruction>> reentrant_stack;
+  reentrant_stack.reserve(1000);
   int depth = 0;
 
   std::string output;
@@ -619,7 +621,10 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
       return;
     }
 
-    auto ops = reentrant_stack.back();
+    // std::move avoids a new allocation, but we will still delete the memory
+    // afterwards.  AllocationGuard currently only looks for calls to new and
+    // not delete, though.
+    auto ops = std::move(reentrant_stack.back());
     reentrant_stack.pop_back();
 
     depth++;
