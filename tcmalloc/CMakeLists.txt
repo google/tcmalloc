@@ -299,6 +299,7 @@ tcmalloc_cc_library_variants(
     "absl::stacktrace"
     "absl::str_format"
     "absl::strings"
+    "absl::synchronization"
     "absl::time"
     "tcmalloc::experiment"
     "tcmalloc::internal_allocation_guard"
