@@ -307,6 +307,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_clock"
     "tcmalloc::internal_config"
     "tcmalloc::internal_cpu_utils"
+    "tcmalloc::internal_delay_injection"
     "tcmalloc::internal_environment"
     "tcmalloc::internal_explicitly_constructed"
     "tcmalloc::internal_exponential_biased"
@@ -703,6 +704,54 @@ tcmalloc_cc_library(
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
     "tcmalloc::internal_declarations"
+    "tcmalloc::internal_linked_list"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_optimization"
+    "tcmalloc::internal_overflow"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::internal_sampled_allocation"
+    "tcmalloc::internal_system_allocator"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
+    "tcmalloc::malloc_tracing_extension"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_tcmalloc_latency_injection
+  ALIAS
+    tcmalloc::tcmalloc_latency_injection
+  SRCS
+    "libc_override.h"
+    "tcmalloc.cc"
+    "tcmalloc.h"
+  COPTS
+    "-DTCMALLOC_INTERNAL_8K_PAGES"
+    "-DTCMALLOC_INTERNAL_LATENCY_INJECTION"
+  DEPS
+    "absl::base"
+    "absl::bits"
+    "absl::config"
+    "absl::core_headers"
+    "absl::dynamic_annotations"
+    "absl::memory"
+    "absl::span"
+    "absl::stacktrace"
+    "absl::status"
+    "absl::statusor"
+    "absl::str_format"
+    "absl::strings"
+    "absl::symbolize"
+    "absl::time"
+    "tcmalloc::alloc_at_least"
+    "tcmalloc::common_latency_injection"
+    "tcmalloc::experiment"
+    "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_declarations"
+    "tcmalloc::internal_delay_injection"
     "tcmalloc::internal_linked_list"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"

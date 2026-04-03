@@ -772,6 +772,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":delay_injection",
         ":linux_syscall_support",
         ":logging",
         ":mincore",
@@ -1321,5 +1322,17 @@ cc_test(
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
         "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
+    name = "delay_injection",
+    srcs = ["delay_injection.cc"],
+    hdrs = ["delay_injection.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
     ],
 )

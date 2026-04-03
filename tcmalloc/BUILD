@@ -291,6 +291,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:cpu_utils",
+        "//tcmalloc/internal:delay_injection",
         "//tcmalloc/internal:environment",
         "//tcmalloc/internal:explicitly_constructed",
         "//tcmalloc/internal:exponential_biased",
@@ -574,6 +575,33 @@ cc_library(
         ":common_legacy_locking",
         ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:overflow",
+        "//tcmalloc/internal:page_size",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "tcmalloc_latency_injection",
+    srcs = [
+        "libc_override.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = [
+        "-DTCMALLOC_INTERNAL_8K_PAGES",
+        "-DTCMALLOC_INTERNAL_LATENCY_INJECTION",
+    ] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = [":tcmalloc_tests"],
+    deps = tcmalloc_deps + [
+        ":alloc_at_least",
+        ":common_latency_injection",
+        ":malloc_hook",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:delay_injection",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
         "@com_google_absl//absl/time",

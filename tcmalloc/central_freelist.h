@@ -37,6 +37,7 @@
 #include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/delay_injection.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
@@ -46,6 +47,25 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// TODO(b/29448043): Remove latency injection.
+// TODO(b/296824599): AllocationGuardSpinLockHolder adds an AllocationGuard
+// which is not yet compatible with the CentralFreeListTest code.
+class ABSL_SCOPED_LOCKABLE CentralFreeListLockHolder {
+ public:
+  explicit CentralFreeListLockHolder(absl::base_internal::SpinLock& lock)
+      ABSL_EXCLUSIVE_LOCK_FUNCTION(lock)
+      : lock_(lock) {
+    lock_.Lock();
+#ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
+    ScopedDelay delay(ScopedDelay::central_freelist_delay);
+#endif
+  }
+  ~CentralFreeListLockHolder() ABSL_UNLOCK_FUNCTION() { lock_.Unlock(); }
+
+ private:
+  absl::base_internal::SpinLock& lock_;
+};
 
 namespace central_freelist_internal {
 
@@ -465,7 +485,7 @@ template <class Forwarder>
 inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
   ASSUME(n >= 0);
   ASSUME(n < kNumLists * 2);
-  AllocationGuardSpinLockHolder h(lock_);
+  CentralFreeListLockHolder h(lock_);
   return nonempty_.SizeOfList(n);
 }
 
@@ -508,7 +528,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // Then, release all individual objects into spans under our mutex
   // and collect spans that become completely free.
   {
-    absl::base_internal::SpinLockHolder h(lock_);
+    CentralFreeListLockHolder h(lock_);
     for (int i = 0; i < batch.size(); ++i) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const absl::Span<void*> b{&batch[i], 1};
@@ -568,7 +588,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   int result = 0;
   size_t num_spans = 0;
 
-  absl::base_internal::SpinLockHolder h(lock_);
+  CentralFreeListLockHolder h(lock_);
 
   do {
     num_spans++;
@@ -706,7 +726,7 @@ inline void CentralFreeList<Forwarder>::HandleLongLivedSpans() {
   // frequency to avoid dividing by frequency in the iterator.
   uint64_t threshold =
       absl::ToInt64Seconds(kLongLivedSpanThreshold) * frequency;
-  AllocationGuardSpinLockHolder h(lock_);
+  CentralFreeListLockHolder h(lock_);
   size_t i = 0;
   nonempty_.Iter(
       [&](Span& s) GOOGLE_MALLOC_SECTION {
@@ -769,7 +789,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
   LifetimeHistogram lifetime_histo{};
 
   {
-    AllocationGuardSpinLockHolder h(lock_);
+    CentralFreeListLockHolder h(lock_);
     nonempty_.Iter(
         [&](const Span& s) GOOGLE_MALLOC_SECTION {
           const double elapsed = std::max<double>(now - s.AllocTime(), 0);
@@ -874,7 +894,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
   LifetimeHistogram lifetime_histo{};
 
   {
-    AllocationGuardSpinLockHolder h(lock_);
+    CentralFreeListLockHolder h(lock_);
     nonempty_.Iter(
         [&](const Span& s) GOOGLE_MALLOC_SECTION {
           const double elapsed = std::max<double>(now - s.AllocTime(), 0);

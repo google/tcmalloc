@@ -87,6 +87,14 @@ function(tcmalloc_cc_library_variants)
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS}
   )
+  tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_latency_injection
+    ALIAS ${TCMALLOC_ALIAS}_latency_injection
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LATENCY_INJECTION
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS}
+  )
 endfunction()
 
 function(tcmalloc_cc_test_variants)
@@ -291,6 +299,14 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_eager_backing PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_EAGER_BACKING;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_latency_injection
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LATENCY_INJECTION
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_latency_injection tcmalloc::common_latency_injection
+  )
+  set_tests_properties(${TCMALLOC_NAME}_latency_injection PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
 endfunction()
 
 function(tcmalloc_cc_binary_variants)

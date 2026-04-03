@@ -31,6 +31,7 @@
 #include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/delay_injection.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
@@ -303,8 +304,12 @@ extern absl::base_internal::SpinLock pageheap_lock;
 
 class ABSL_SCOPED_LOCKABLE PageHeapSpinLockHolder {
  public:
-  PageHeapSpinLockHolder()
-      ABSL_EXCLUSIVE_LOCK_FUNCTION(pageheap_lock) = default;
+  // TODO(b/29448043): Remove latency injection.
+  PageHeapSpinLockHolder() ABSL_EXCLUSIVE_LOCK_FUNCTION(pageheap_lock) {
+#ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
+    ScopedDelay delay(ScopedDelay::page_heap_delay);
+#endif
+  }
   ~PageHeapSpinLockHolder() ABSL_UNLOCK_FUNCTION() = default;
 
  private:

@@ -793,6 +793,7 @@ tcmalloc_cc_library(
     "absl::dynamic_annotations"
     "absl::function_ref"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_delay_injection"
     "tcmalloc::internal_linux_syscall_support"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_mincore"
@@ -1337,5 +1338,19 @@ tcmalloc_cc_library(
   DEPS
     "absl::core_headers"
     "tcmalloc::internal_config"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_internal_delay_injection
+  ALIAS
+    tcmalloc::internal_delay_injection
+  HDRS
+    "delay_injection.h"
+  SRCS
+    "delay_injection.cc"
+  DEPS
+    "absl::base"
+    "absl::core_headers"
 )
 

@@ -36,6 +36,7 @@
 #include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
 #include "absl/numeric/bits.h"
+#include "tcmalloc/internal/delay_injection.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/optimization.h"
@@ -1280,6 +1281,11 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   }
   FenceAllCpus();
 
+#ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
+  // TODO(b/29448043): Remove latency injection.
+  ScopedDelay delay(ScopedDelay::update_max_capacities_delay);
+#endif
+
   // Phase 2: Update max capacity of the size classes.
   for (int i = 0; i < classes_to_resize; ++i) {
     size_t size_class = new_max_capacity[i].size_class;
@@ -1333,6 +1339,11 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
     }
   }
   FenceAllCpus();
+
+#ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
+  // TODO(b/29448043): Remove latency injection.
+  ScopedDelay delay(ScopedDelay::resize_slabs_delay);
+#endif
 
   // Phase 2: Atomically update slabs and shift.
   InitSlabs(new_slabs, new_shift, capacity);
