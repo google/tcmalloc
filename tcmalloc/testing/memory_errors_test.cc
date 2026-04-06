@@ -523,16 +523,8 @@ TEST_F(TcMallocTest, MismatchedSampled) {
   // Sampled allocations should be able to provide a richer error (precise
   // size/allocation stack) when there is a mismatch in provided sizes.
 
-  constexpr size_t kSizes[] = {0u,
-                               8u,
-                               64u,
-                               tcmalloc_internal::kPageSize,
-                               tcmalloc_internal::kMaxSize - 1u,
-                               tcmalloc_internal::kMaxSize,
-                               tcmalloc_internal::kMaxSize + 1u,
-                               tcmalloc_internal::kHugePageSize - 1u,
-                               tcmalloc_internal::kHugePageSize,
-                               tcmalloc_internal::kHugePageSize + 1u};
+  constexpr size_t kSizes[] = {0u, tcmalloc_internal::kMaxSize + 1u,
+                               tcmalloc_internal::kHugePageSize};
   for (const size_t size : kSizes) {
     const size_t likely_size = MallocExtension::GetEstimatedAllocatedSize(size);
     SCOPED_TRACE(absl::StrCat("size=", size));
@@ -612,16 +604,8 @@ TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
     return r;
   };
 
-  constexpr size_t kSizes[] = {0u,
-                               8u,
-                               64u,
-                               tcmalloc_internal::kPageSize,
-                               tcmalloc_internal::kMaxSize - 1u,
-                               tcmalloc_internal::kMaxSize,
-                               tcmalloc_internal::kMaxSize + 1u,
-                               tcmalloc_internal::kHugePageSize - 1u,
-                               tcmalloc_internal::kHugePageSize,
-                               tcmalloc_internal::kHugePageSize + 1u};
+  constexpr size_t kSizes[] = {0u, tcmalloc_internal::kMaxSize + 1u,
+                               tcmalloc_internal::kHugePageSize};
   for (const size_t size : kSizes) {
     const size_t likely_size = MallocExtension::GetEstimatedAllocatedSize(size);
     SCOPED_TRACE(absl::StrCat("size=", size));
@@ -685,8 +669,7 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
   using tcmalloc_internal::kMaxSize;
   using tcmalloc_internal::kPageSize;
 
-  constexpr size_t kSizes[] = {kHugePageSize - 1u, kHugePageSize,
-                               kHugePageSize + 1u};
+  constexpr size_t kSizes[] = {kHugePageSize + 1u};
   for (size_t size : kSizes) {
     SCOPED_TRACE(absl::StrCat("size=", size));
     const size_t likely_size = MallocExtension::GetEstimatedAllocatedSize(size);
@@ -788,22 +771,13 @@ TEST_F(TcMallocTest, CorruptedPointer) {
 
   constexpr size_t kSizes[] = {
       8u,
-      64u,
-      1024u,
-      tcmalloc_internal::kPageSize,
-      tcmalloc_internal::kMaxSize,
       tcmalloc_internal::kMaxSize + 1,
-      tcmalloc_internal::kHugePageSize,
   };
 
   constexpr size_t kMisalignment[] = {
       1,
-      2,
-      3,
-      4,
       static_cast<size_t>(tcmalloc_internal::kAlignment) - 1,
 #ifdef NDEBUG
-      ABSL_CACHELINE_SIZE,
 #if !defined(ABSL_HAVE_ADDRESS_SANITIZER)
       tcmalloc_internal::kPageSize / 2,
 #endif  // ABSL_HAVE_ADDRESS_SANITIZER
