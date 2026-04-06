@@ -22,12 +22,14 @@
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/macros.h"
+#include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu_state.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/transfer_cache.h"
@@ -46,7 +48,6 @@ ThreadCache* ThreadCache::next_memory_steal_ = nullptr;
 ABSL_CONST_INIT thread_local ThreadCache* ThreadCache::thread_local_data_
     ABSL_ATTRIBUTE_INITIAL_EXEC = nullptr;
 ABSL_CONST_INIT bool ThreadCache::tsd_inited_ = false;
-pthread_key_t ThreadCache::heap_key_;
 ABSL_CONST_INIT absl::base_internal::SpinLock ThreadCache::threadcache_lock_(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
@@ -256,7 +257,7 @@ void ThreadCache::IncreaseCacheLimitLocked() {
 
 void ThreadCache::InitTSD() {
   TC_ASSERT(!tsd_inited_);
-  pthread_key_create(&heap_key_, DestroyThreadCache);
+  PerCpuState::state().Init();
   tsd_inited_ = true;
 }
 
@@ -302,7 +303,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
     heap->in_setspecific_ = true;
     // Also keep a copy in __thread for faster retrieval
     thread_local_data_ = heap;
-    pthread_setspecific(heap_key_, heap);
+    PerCpuState::state().RegisterThreadCache(heap);
     heap->in_setspecific_ = false;
   }
   return heap;
@@ -332,7 +333,7 @@ void ThreadCache::BecomeIdle() {
   if (heap->in_setspecific_) return;  // Do not disturb the active caller
 
   heap->in_setspecific_ = true;
-  pthread_setspecific(heap_key_, nullptr);
+  PerCpuState::state().RegisterThreadCache(nullptr);
   // Also update the copy in __thread
   thread_local_data_ = nullptr;
   heap->in_setspecific_ = false;
@@ -346,14 +347,20 @@ void ThreadCache::BecomeIdle() {
   DeleteCache(heap);
 }
 
-void ThreadCache::DestroyThreadCache(void* ptr) {
-  // Note that "ptr" cannot be NULL since pthread promises not
-  // to invoke the destructor on NULL values, but for safety,
-  // we check anyway.
-  if (ptr != nullptr) {
-    thread_local_data_ = nullptr;
-    DeleteCache(reinterpret_cast<ThreadCache*>(ptr));
+void ThreadCache::DestroyThreadCache(ThreadCache* ptr) {
+  // Note that "ptr" cannot be NULL since pthread promises not to invoke the
+  // destructor on NULL values, but for safety, we check anyway.
+  if (ptr == nullptr) {
+    return;
   }
+
+  thread_local_data_ = nullptr;
+  DeleteCache(ptr);
+}
+
+extern "C" void TCMalloc_Internal_DestroyThreadCache(
+    ThreadCache* absl_nullable cache) {
+  ThreadCache::DestroyThreadCache(cache);
 }
 
 void ThreadCache::DeleteCache(ThreadCache* heap) {

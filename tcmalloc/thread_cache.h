@@ -26,6 +26,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
+#include "tcmalloc/internal/percpu_state.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/static_vars.h"
 
@@ -72,6 +73,8 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   }
 
  private:
+  friend void TCMalloc_Internal_DestroyThreadCache(ThreadCache* absl_nullable);
+
   // We inherit rather than include the list as a data structure to reduce
   // compiler padding.  Without inheritance, the compiler pads the list
   // structure and then adds it as a member, even though we could fit everything
@@ -171,7 +174,6 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   // Therefore, we use TSD keys only after tsd_inited is set to true.
   // Until then, we use a slow path to get the heap object.
   static bool tsd_inited_;
-  static pthread_key_t heap_key_;
 
   // Linked list of heap objects.
   static ThreadCache* thread_heaps_ ABSL_GUARDED_BY(threadcache_lock_);
@@ -209,7 +211,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(threadcache_lock_);
 
   // Use only as pthread thread-specific destructor function.
-  static void DestroyThreadCache(void* ptr);
+  static void DestroyThreadCache(ThreadCache* ptr);
 
   static void DeleteCache(ThreadCache* heap);
   static void RecomputePerThreadCacheSize()

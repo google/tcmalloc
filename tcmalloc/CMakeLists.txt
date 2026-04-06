@@ -325,6 +325,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_pageflags"
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::internal_percpu"
+    "tcmalloc::internal_percpu_state"
     "tcmalloc::internal_percpu_tcmalloc"
     "tcmalloc::internal_prefetch"
     "tcmalloc::internal_range_tracker"

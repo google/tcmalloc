@@ -308,6 +308,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:pageflags",
         "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:percpu",
+        "//tcmalloc/internal:percpu_state",
         "//tcmalloc/internal:percpu_tcmalloc",
         "//tcmalloc/internal:prefetch",
         "//tcmalloc/internal:range_tracker",

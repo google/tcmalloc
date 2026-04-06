@@ -781,6 +781,36 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_percpu_state
+  ALIAS
+    tcmalloc::internal_percpu_state
+  HDRS
+    "percpu_state.h"
+  SRCS
+    "percpu_state.cc"
+  DEPS
+    "absl::base"
+    "absl::core_headers"
+    "absl::nullability"
+    "tcmalloc::internal_config"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_percpu_state_test
+  SRCS
+    "percpu_state_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_percpu_state"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_percpu_tcmalloc
   ALIAS
     tcmalloc::internal_percpu_tcmalloc

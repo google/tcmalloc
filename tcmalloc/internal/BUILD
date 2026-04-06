@@ -703,6 +703,38 @@ cc_library(
 )
 
 cc_library(
+    name = "percpu_state",
+    srcs = ["percpu_state.cc"],
+    hdrs = ["percpu_state.h"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+    ],
+)
+
+cc_test(
+    name = "percpu_state_test",
+    srcs = ["percpu_state_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = ":system_malloc",
+    deps = [
+        ":allocation_guard",
+        ":logging",
+        ":percpu_state",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "percpu",
     srcs = [
         "percpu.cc",
