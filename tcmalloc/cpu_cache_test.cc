@@ -102,6 +102,11 @@ class CpuCachePeer {
   static size_t ResizeInfoSize() {
     return sizeof(typename CpuCache::ResizeInfo);
   }
+
+  template <typename CpuCache>
+  static size_t CpuStateSize(const CpuCache& cpu_cache) {
+    return cpu_cache.freelist_.GetCpuStateSize();
+  }
 };
 
 namespace {
@@ -402,7 +407,7 @@ TEST(CpuCacheTest, Metadata) {
     PerCPUMetadataState r = cache.MetadataMemoryUsage();
     size_t slabs_size = subtle::percpu::GetSlabsAllocSize(
         subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus);
-    size_t resize_size = num_cpus * sizeof(bool);
+    size_t resize_size = num_cpus * CpuCachePeer::CpuStateSize(cache);
     size_t begins_size = kNumClasses * sizeof(std::atomic<uint16_t>);
     EXPECT_EQ(r.virtual_size, slabs_size + resize_size + begins_size);
     EXPECT_EQ(r.resident_size, 0);

@@ -290,6 +290,8 @@ class TcmallocSlab {
     return ToUint8(GetSlabsAndShift(std::memory_order_relaxed).second);
   }
 
+  constexpr static size_t GetCpuStateSize() { return sizeof(CpuState); }
+
  private:
   // In order to support dynamic slab metadata sizes, we need to be able to
   // atomically update both the slabs pointer and the shift value so we store
