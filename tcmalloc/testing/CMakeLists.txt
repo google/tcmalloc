@@ -1057,3 +1057,16 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
 )
 
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_percpu_stale_test
+  SRCS
+    "percpu_stale_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::time"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::malloc_extension"
+)

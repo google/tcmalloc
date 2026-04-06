@@ -1158,3 +1158,16 @@ cc_test(
         "//tcmalloc:alloc_at_least",
     ],
 )
+
+create_tcmalloc_testsuite(
+    name = "percpu_stale_test",
+    srcs = ["percpu_stale_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    linkstatic = 1,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:sysinfo",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
