@@ -386,20 +386,6 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
 )
 
-tcmalloc_cc_test(
-  NAME
-    tcmalloc_internal_memory_stats_fuzz
-  SRCS
-    "memory_stats_fuzz.cc"
-  DEPS
-    "absl::strings"
-    "GTest::gtest"
-    "GTest::gmock"
-    "fuzztest::fuzztest"
-    "fuzztest::fuzztest_gtest_main"
-    "tcmalloc::internal_memory_stats"
-)
-
 tcmalloc_cc_library(
   NAME
     tcmalloc_internal_memory_tag
@@ -725,6 +711,38 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_percpu_state
+  ALIAS
+    tcmalloc::internal_percpu_state
+  HDRS
+    "percpu_state.h"
+  SRCS
+    "percpu_state.cc"
+  DEPS
+    "absl::base"
+    "absl::core_headers"
+    "absl::nullability"
+    "tcmalloc::internal_config"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_percpu_state_test
+  SRCS
+    "percpu_state_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::nullability"
+    "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_percpu_state"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_percpu
   ALIAS
     tcmalloc::internal_percpu
@@ -777,36 +795,6 @@ tcmalloc_cc_test(
     "absl::core_headers"
     "tcmalloc::internal_percpu"
     "tcmalloc::tcmalloc"
-)
-
-tcmalloc_cc_library(
-  NAME
-    tcmalloc_internal_percpu_state
-  ALIAS
-    tcmalloc::internal_percpu_state
-  HDRS
-    "percpu_state.h"
-  SRCS
-    "percpu_state.cc"
-  DEPS
-    "absl::base"
-    "absl::core_headers"
-    "absl::nullability"
-    "tcmalloc::internal_config"
-)
-
-tcmalloc_cc_test(
-  NAME
-    tcmalloc_internal_percpu_state_test
-  SRCS
-    "percpu_state_test.cc"
-  DEPS
-    "GTest::gtest_main"
-    "GTest::gmock_main"
-    "GTest::gmock"
-    "tcmalloc::internal_allocation_guard"
-    "tcmalloc::internal_logging"
-    "tcmalloc::internal_percpu_state"
 )
 
 tcmalloc_cc_library(
@@ -1368,6 +1356,21 @@ tcmalloc_cc_library(
   DEPS
     "absl::core_headers"
     "tcmalloc::internal_config"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_memory_stats_fuzz
+  SRCS
+    "memory_stats_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::strings"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::internal_memory_stats"
+    "tcmalloc::tcmalloc"
 )
 
 tcmalloc_cc_library(
