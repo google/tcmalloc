@@ -42,6 +42,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/percpu_state.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/internal/sysinfo.h"
@@ -145,9 +146,11 @@ size_t Static::metadata_bytes() {
       sizeof(kInvalidSpan);
   // LINT.ThenChange(:static_vars)
 
+  const size_t internal_dependencies_size = sizeof(PerCpuState::state());
+
   const size_t allocated = arena().stats().bytes_allocated +
                            AddressRegionFactory::InternalBytesAllocated();
-  return allocated + static_var_size;
+  return allocated + static_var_size + internal_dependencies_size;
 }
 
 size_t Static::pagemap_residence() {
