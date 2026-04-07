@@ -1071,3 +1071,18 @@ tcmalloc_cc_test_variants(
     "tcmalloc::malloc_extension"
 )
 
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_reentrancy_test
+  SRCS
+    "reentrancy_test.cc"
+  DEPS
+    "GTest::gmock"
+    "GTest::gmock_main"
+    "GTest::gtest_main"
+    "absl::core_headers"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
+)

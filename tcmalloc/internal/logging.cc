@@ -15,6 +15,8 @@
 #include "tcmalloc/internal/logging.h"
 
 #include <fcntl.h>
+
+#include "absl/base/thread_annotations.h"
 #ifdef _WINDOWS
 #include <io.h>
 #endif
@@ -52,7 +54,7 @@ namespace tcmalloc_internal {
 // may not be able to heap-allocate while crashing.
 ABSL_CONST_INIT static absl::base_internal::SpinLock crash_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
-static bool crashed = false;
+static bool crashed ABSL_GUARDED_BY(crash_lock) = false;
 
 static const size_t kStatsBufferSize = 16 << 10;
 #ifndef __APPLE__
@@ -166,6 +168,14 @@ static void Crash(const char* filename, int line, const char* msg,
     if (!crashed) {
       crashed = true;
       first_crash = true;
+#if !defined(NDEBUG)
+      // Reset reentrancy count to allow calls to malloc/free under any signal
+      // handlers that we may trigger from abort().
+      //
+      // We only reset this, rather than permit an unlimited amount of
+      // reentrancy while crashing, in order to maintain modest stack depths.
+      tcmalloc_reentrancy_count = 0;
+#endif
     }
   }
 
@@ -285,6 +295,10 @@ PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
   PbtxtRegion sub(*out_, kNested);
   return sub;
 }
+
+#if !defined(NDEBUG)
+ABSL_CONST_INIT thread_local int tcmalloc_reentrancy_count = 0;
+#endif
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
