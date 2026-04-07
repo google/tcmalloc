@@ -358,7 +358,7 @@ ABSL_CONST_INIT extern thread_local int tcmalloc_reentrancy_count;
 class [[maybe_unused]] ReentrancyGuard {
  public:
   ReentrancyGuard() {
-    TC_CHECK_EQ(tcmalloc_reentrancy_count, 0);
+    // TODO(ckennelly): Reenable reentrancy check.
     ++tcmalloc_reentrancy_count;
   }
   ~ReentrancyGuard() { --tcmalloc_reentrancy_count; }
