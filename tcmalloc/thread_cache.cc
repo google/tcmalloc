@@ -45,6 +45,8 @@ int64_t ThreadCache::unclaimed_cache_space_ = kDefaultOverallThreadCacheSize;
 ThreadCache* ThreadCache::thread_heaps_ = nullptr;
 int ThreadCache::thread_heap_count_ = 0;
 ThreadCache* ThreadCache::next_memory_steal_ = nullptr;
+ABSL_CONST_INIT thread_local ThreadCache* ThreadCache::thread_local_data_
+    ABSL_ATTRIBUTE_INITIAL_EXEC = nullptr;
 ABSL_CONST_INIT bool ThreadCache::tsd_inited_ = false;
 ABSL_CONST_INIT absl::base_internal::SpinLock ThreadCache::threadcache_lock_(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
@@ -267,9 +269,8 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   const bool maybe_reentrant = !tsd_inited_;
   // If we have set up our TLS, we can avoid a scan of the thread_heaps_ list.
   if (tsd_inited_) {
-    ThreadCache* cache = PerCpuState::state().GetThreadCache();
-    if (cache) {
-      return cache;
+    if (thread_local_data_) {
+      return thread_local_data_;
     }
   }
 
@@ -300,6 +301,8 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   // pthread_setspecific() if we are already inside pthread_setspecific().
   if (!heap->in_setspecific_ && tsd_inited_) {
     heap->in_setspecific_ = true;
+    // Also keep a copy in __thread for faster retrieval
+    thread_local_data_ = heap;
     PerCpuState::state().RegisterThreadCache(heap);
     heap->in_setspecific_ = false;
   }
@@ -331,6 +334,8 @@ void ThreadCache::BecomeIdle() {
 
   heap->in_setspecific_ = true;
   PerCpuState::state().RegisterThreadCache(nullptr);
+  // Also update the copy in __thread
+  thread_local_data_ = nullptr;
   heap->in_setspecific_ = false;
   if (GetCacheIfPresent() == heap) {
     // Somehow heap got reinstated by a recursive call to malloc
@@ -349,6 +354,7 @@ void ThreadCache::DestroyThreadCache(ThreadCache* ptr) {
     return;
   }
 
+  thread_local_data_ = nullptr;
   DeleteCache(ptr);
 }
 
