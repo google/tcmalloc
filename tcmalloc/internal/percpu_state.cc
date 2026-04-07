@@ -21,6 +21,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
 ABSL_CONST_INIT PerCpuState PerCpuState::g;
+ABSL_CONST_INIT thread_local ThreadCache* PerCpuState::thread_local_data_
+    ABSL_ATTRIBUTE_INITIAL_EXEC = nullptr;
 
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END

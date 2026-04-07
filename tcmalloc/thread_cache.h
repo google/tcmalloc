@@ -152,22 +152,6 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   void Scavenge();
   static ThreadCache* CreateCacheIfNecessary();
 
-  // If TLS is available, we also store a copy of the per-thread object
-  // in a __thread variable since __thread variables are faster to read
-  // than pthread_getspecific().  We still need pthread_setspecific()
-  // because __thread variables provide no way to run cleanup code when
-  // a thread is destroyed.
-  //
-  // We also give a hint to the compiler to use the "initial exec" TLS
-  // model.  This is faster than the default TLS model, at the cost that
-  // you cannot dlopen this library.  (To see the difference, look at
-  // the CPU use of __tls_get_addr with and without this attribute.)
-  //
-  // Since using dlopen on a malloc replacement is asking for trouble in any
-  // case, that's a good tradeoff for us.
-  ABSL_CONST_INIT static thread_local ThreadCache* thread_local_data_
-      ABSL_ATTRIBUTE_INITIAL_EXEC;
-
   // Thread-specific key.  Initialization here is somewhat tricky
   // because some Linux startup code invokes malloc() before it
   // is in a good enough state to handle pthread_keycreate().
@@ -256,7 +240,7 @@ ThreadCache::Deallocate(void* ptr, size_t size_class) {
 
 inline ThreadCache* ABSL_ATTRIBUTE_ALWAYS_INLINE
 ThreadCache::GetCacheIfPresent() {
-  return thread_local_data_;
+  return PerCpuState::state().GetThreadCache();
 }
 
 inline ThreadCache* ThreadCache::GetCache() {

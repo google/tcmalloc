@@ -41,6 +41,8 @@ class PerCpuState {
 
   void Init();
 
+  ThreadCache* absl_nullable GetThreadCache() const;
+
   // Registers an instance for destruction.  `nullptr` unregisters.
   void RegisterThreadCache(ThreadCache* absl_nullable);
 
@@ -53,6 +55,20 @@ class PerCpuState {
 
   absl::once_flag f_;
   pthread_key_t key_{};
+  // We also store a copy of per-thread data in a `thread_local` variable since
+  // it is faster to read than `pthread_getspecific`.  We use
+  // pthread_setspecific to manage destroying the thread cache, since many
+  // `__cxa_thread_atexit` implementations allocate.
+  //
+  // We also give a hint to the compiler to use the "initial exec" TLS model.
+  // This is faster than the default TLS model, at the cost that you cannot
+  // dlopen this library.  (To see the difference, look at the CPU use of
+  // __tls_get_addr with and without this attribute.)
+  //
+  // Since using dlopen on a malloc replacement is asking for trouble in any
+  // case, that's a good tradeoff for us.
+  ABSL_CONST_INIT static thread_local ThreadCache* thread_local_data_
+      ABSL_ATTRIBUTE_INITIAL_EXEC;
 };
 
 inline void PerCpuState::Init() {
@@ -60,12 +76,19 @@ inline void PerCpuState::Init() {
       &f_, [&]() { pthread_key_create(&key_, HandleThreadExit); });
 }
 
+inline ThreadCache* absl_nullable ABSL_ATTRIBUTE_ALWAYS_INLINE
+PerCpuState::GetThreadCache() const {
+  return thread_local_data_;
+}
+
 inline void PerCpuState::RegisterThreadCache(ThreadCache* absl_nullable cache) {
   if (cache == nullptr) {
     // Use &g as a sentinel so that we always get a callback.
     pthread_setspecific(key_, &g);
+    thread_local_data_ = nullptr;
   } else {
     pthread_setspecific(key_, cache);
+    thread_local_data_ = cache;
   }
 }
 
@@ -75,6 +98,7 @@ inline void PerCpuState::HandleThreadExit(void* ptr) {
     return;
   }
 
+  thread_local_data_ = nullptr;
   if (&TCMalloc_Internal_DestroyThreadCache != nullptr) {
     ThreadCache* cache = static_cast<ThreadCache*>(ptr);
     TCMalloc_Internal_DestroyThreadCache(cache);
