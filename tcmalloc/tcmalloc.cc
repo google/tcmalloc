@@ -789,8 +789,6 @@ ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
 
 template <typename Policy>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
-  ReentrancyGuard guard;
-
   // TODO(b/404341539):  Improve the bound.
   TC_ASSERT(CorrectAlignment(ptr, static_cast<std::align_val_t>(1)));
 
@@ -882,8 +880,6 @@ template <typename Policy>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
                                                            size_t size,
                                                            Policy policy) {
-  ReentrancyGuard guard;
-
   TC_ASSERT(CorrectAlignment(ptr, policy.align()));
 
   // This is an optimized path that may be taken if the binary is compiled
@@ -1267,8 +1263,6 @@ ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
 template <typename Policy, typename Pointer = typename Policy::pointer_type>
 static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
                                                               Policy policy) {
-  ReentrancyGuard guard;
-
   // If size is larger than kMaxSize, it's not fast-path anymore. In
   // such case, GetSizeClass will return false, and we'll delegate to the slow
   // path. If malloc is not yet initialized, we may end up with size_class == 0
@@ -1278,10 +1272,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
       tc_globals.sizemap().GetSizeClass(policy, size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     SLOW_PATH_BARRIER();
-#if defined(NDEBUG) && !defined(TCMALLOC_INTERNAL_WITH_ASSERTIONS)
-    TCMALLOC_MUSTTAIL
-#endif
-    return slow_alloc_large(size, policy);
+    TCMALLOC_MUSTTAIL return slow_alloc_large(size, policy);
   }
 
   // TryRecordAllocationFast() returns true if no extra logic is required, e.g.:
@@ -1573,12 +1564,6 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
     do_free(old_ptr, MallocPolicy());
     return new_ptr;
   } else {
-    // We guard here since callers to
-    // `TCMallocInternalRealloc`/`TCMallocInternalReallocArray` and the above
-    // conditional will check for reentrancy inside of `fast_alloc` and
-    // `do_free`.
-    tcmalloc::tcmalloc_internal::ReentrancyGuard guard;
-
     // We still need to call hooks to report the updated size:
     tcmalloc::MallocHook::InvokeDeleteHook(
         {const_cast<void*>(old_ptr), std::nullopt, old_size,

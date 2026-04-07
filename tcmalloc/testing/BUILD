@@ -1171,16 +1171,3 @@ create_tcmalloc_testsuite(
         "@com_google_googletest//:gtest_main",
     ],
 )
-
-create_tcmalloc_testsuite(
-    name = "reentrancy_test",
-    srcs = ["reentrancy_test.cc"],
-    deps = [
-        "//tcmalloc:malloc_extension",
-        "//tcmalloc:malloc_hook",
-        "//tcmalloc/internal:config",
-        "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
