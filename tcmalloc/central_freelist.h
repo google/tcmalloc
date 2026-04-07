@@ -56,12 +56,12 @@ class ABSL_SCOPED_LOCKABLE CentralFreeListLockHolder {
   explicit CentralFreeListLockHolder(absl::base_internal::SpinLock& lock)
       ABSL_EXCLUSIVE_LOCK_FUNCTION(lock)
       : lock_(lock) {
-    lock_.Lock();
+    lock_.lock();
 #ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
     ScopedDelay delay(ScopedDelay::central_freelist_delay);
 #endif
   }
-  ~CentralFreeListLockHolder() ABSL_UNLOCK_FUNCTION() { lock_.Unlock(); }
+  ~CentralFreeListLockHolder() ABSL_UNLOCK_FUNCTION() { lock_.unlock(); }
 
  private:
   absl::base_internal::SpinLock& lock_;
