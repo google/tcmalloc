@@ -102,7 +102,7 @@ TEST(AllocationSampleTest, RaceToClaim) {
   // Verify the threads are up and running before we start the clock.
   counter.Wait();
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Milliseconds(50));
 
   stop.store(true);
 
@@ -149,7 +149,7 @@ TEST(DeallocationSampleTest, RaceToClaim) {
   // Verify the threads are up and running before we start the clock.
   counter.Wait();
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Milliseconds(50));
 
   stop.store(true);
 
