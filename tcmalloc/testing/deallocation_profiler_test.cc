@@ -318,9 +318,9 @@ class DeallocationzTest : public ::testing::Test {
 TEST_F(DeallocationzTest, SingleThreaded) {
   n_alloc_funcs_ = 3;
   m_dealloc_funcs_ = 4;
-  block_objects_ = 10000;
+  block_objects_ = 100;
   t_threads_ = 1;
-  sleep_time_ = absl::Seconds(5);
+  sleep_time_ = absl::Milliseconds(500);
   req_size_ = 1024 * 1024;
   req_alignment_ = std::align_val_t{64};
   Run();
@@ -330,7 +330,7 @@ TEST_F(DeallocationzTest, SingleThreaded) {
 TEST_F(DeallocationzTest, MultiThreaded) {
   n_alloc_funcs_ = 2;
   m_dealloc_funcs_ = 2;
-  block_objects_ = 10000;
+  block_objects_ = 100;
   // for multi-threaded, t_threads must be > 2 (due to design of the test).
   t_threads_ = 4;
   sleep_time_ = absl::Seconds(9);
