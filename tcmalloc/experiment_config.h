@@ -27,7 +27,6 @@ enum class Experiment : int {
   TCMALLOC_EAGER_BACKING,  // TODO: b/488404335 - Complete experiment.
   TCMALLOC_L3_AWARE_VCPU_V2,  // TODO: b/488032418 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
-  TCMALLOC_SPAN_LIFETIME_TRACKING, // TODO: b/445984647 - Complete experiment.
   TEST_ONLY_L3_AWARE,  // TODO: b/239977380 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
   TEST_ONLY_MUTEX_EXTENDED_SPINNING,  // TODO: b/454666418 - Complete experiment.
@@ -55,7 +54,6 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_EAGER_BACKING, "TCMALLOC_EAGER_BACKING"},
     {Experiment::TCMALLOC_L3_AWARE_VCPU_V2, "TCMALLOC_L3_AWARE_VCPU_V2"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
-    {Experiment::TCMALLOC_SPAN_LIFETIME_TRACKING, "TCMALLOC_SPAN_LIFETIME_TRACKING"},
     {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
     {Experiment::TEST_ONLY_MUTEX_EXTENDED_SPINNING, "TEST_ONLY_MUTEX_EXTENDED_SPINNING"},
