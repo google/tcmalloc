@@ -312,7 +312,7 @@ TEST_P(StaticForwarderTest, Fuzz) {
   ThreadManager threads;
   threads.Start(10, [&](int) { env.RandomlyPoke(); });
 
-  absl::SleepFor(absl::Seconds(0.2));
+  absl::SleepFor(absl::Milliseconds(50));
 
   threads.Stop();
 
@@ -1074,7 +1074,7 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
     e.central_freelist().InsertRange(absl::MakeSpan(&next, got));
   });
 
-  absl::SleepFor(absl::Seconds(0.1));
+  absl::SleepFor(absl::Milliseconds(50));
 
   fragmentation.Stop();
   cfl.Stop();
@@ -1356,7 +1356,7 @@ TEST_P(CentralFreeListTest, ParallelHandleLongLivedSpans) {
       std::thread{allocate_deallocate_advance(flat_objects[0])},
       std::thread{allocate_deallocate_advance(flat_objects[1])}};
 
-  absl::SleepFor(absl::Seconds(2));
+  absl::SleepFor(absl::Milliseconds(150));
   done = true;
   for (std::thread& thread : threads) {
     thread.join();
