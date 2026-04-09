@@ -196,6 +196,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
       TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(false);
     }
     (void)subtle::percpu::IsFast();
+    PerCpuState::state().Init();
     numa_topology_.Init();
     CacheTopology::Instance().Init();
 

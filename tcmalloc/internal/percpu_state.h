@@ -20,6 +20,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/base/nullability.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -56,8 +57,14 @@ class PerCpuState {
 };
 
 inline void PerCpuState::Init() {
-  absl::base_internal::LowLevelCallOnce(
-      &f_, [&]() { pthread_key_create(&key_, HandleThreadExit); });
+  absl::base_internal::LowLevelCallOnce(&f_, [&]() {
+    pthread_key_create(&key_, HandleThreadExit);
+
+    // Invoke `pthread_setspecific` now to ensure that we have one of the
+    // early `pthread_key_t`'s that does not require allocating when use it.
+    AllocationGuard g;
+    RegisterThreadCache(nullptr);
+  });
 }
 
 inline void PerCpuState::RegisterThreadCache(ThreadCache* absl_nullable cache) {
