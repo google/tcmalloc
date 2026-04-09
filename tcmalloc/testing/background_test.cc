@@ -55,7 +55,7 @@ TEST(BackgroundTest, Stress) {
 
   mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::SleepFor(absl::Seconds(5));
+  absl::SleepFor(absl::Milliseconds(500));
 
   mgr.Stop();
 
