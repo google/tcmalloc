@@ -36,7 +36,7 @@ class OutOfMemoryTest : public ::testing::Test {
   OutOfMemoryTest() {
     MallocExtension::SetBackgroundProcessActionsEnabled(false);
     // If memory releaser thread is doing anything at the moment, let it finish.
-    absl::SleepFor(absl::Seconds(1));
+    absl::SleepFor(absl::Milliseconds(100));
   }
 };
 

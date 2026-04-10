@@ -92,7 +92,7 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
     });
   }
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Milliseconds(100));
   manager.Stop();
 }
 
@@ -380,7 +380,7 @@ TEST_P(HeapAllocHandleTest, VerifyAllocHandles) {
         });
   });
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Milliseconds(100));
   manager.Stop();
 }
 

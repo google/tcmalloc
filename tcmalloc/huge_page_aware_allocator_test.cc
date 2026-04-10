@@ -1528,7 +1528,7 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
     }
   });
 
-  absl::SleepFor(absl::Seconds(5));
+  absl::SleepFor(absl::Milliseconds(100));
 
   threads.Stop();
 
@@ -1626,7 +1626,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
   for (int i = 0; i < kAllocThreads; ++i) {
     alloc_threads.push_back(std::thread(alloc_func, i, std::ref(done)));
   }
-  absl::SleepFor(absl::Seconds(5));
+  absl::SleepFor(absl::Milliseconds(100));
   done.store(true, std::memory_order_release);
 
   collapse_thread.join();

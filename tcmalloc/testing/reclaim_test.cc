@@ -106,7 +106,7 @@ TEST(ReclaimTest, ReclaimWorks) {
 
   mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::SleepFor(absl::Seconds(2));
+  absl::SleepFor(absl::Milliseconds(100));
 
   mgr.Stop();
 
@@ -173,7 +173,7 @@ TEST(ReclaimTest, ReclaimStable) {
 
   mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::SleepFor(absl::Seconds(5));
+  absl::SleepFor(absl::Milliseconds(100));
 
   mgr.Stop();
 

@@ -518,7 +518,7 @@ TEST(LifetimeProfiler, BasicCounterValues) {
     SingleDealloc(2, ptr);
   }
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Milliseconds(100));
 
   const tcmalloc::Profile profile = std::move(token).Stop();
 

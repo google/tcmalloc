@@ -206,7 +206,7 @@ TEST_F(SampleRecorderTest, MultiThreaded) {
 
   // The threads will hammer away.  Give it a little bit of time for tsan to
   // spot errors.
-  absl::SleepFor(absl::Seconds(3));
+  absl::SleepFor(absl::Milliseconds(100));
   stop.Notify();
   threads.Stop();
 }

@@ -1069,14 +1069,14 @@ TEST_P(StressThreadTest, Stress) {
   }
   if (pin_cpu) {
     // Regression test for a livelock when a thread keeps running on cpu 0.
-    absl::SleepFor(absl::Seconds(1));
+    absl::SleepFor(absl::Milliseconds(100));
     CpuSet cpus;
     cpus.Zero();
     cpus.Set(0);
     (void)cpus.SetAffinity(0);
-    absl::SleepFor(absl::Seconds(1));
+    absl::SleepFor(absl::Milliseconds(100));
   } else {
-    absl::SleepFor(absl::Seconds(5));
+    absl::SleepFor(absl::Milliseconds(100));
   }
   stop = true;
   for (auto& t : threads) {

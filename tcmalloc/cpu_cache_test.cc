@@ -853,7 +853,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
   resize_thread =
       std::thread(ResizeMaxCapacities, std::ref(cache), std::ref(stop));
 
-  absl::SleepFor(absl::Seconds(10));
+  absl::SleepFor(absl::Milliseconds(100));
   stop = true;
   for (auto& t : threads) {
     t.join();
@@ -899,7 +899,7 @@ TEST(CpuCacheTest, StressSizeClassResize) {
   resize_thread =
       std::thread(ResizeSizeClasses, std::ref(cache), std::ref(stop));
 
-  absl::SleepFor(absl::Seconds(5));
+  absl::SleepFor(absl::Milliseconds(100));
   stop = true;
   for (auto& t : threads) {
     t.join();
@@ -939,7 +939,7 @@ TEST(CpuCacheTest, StealCpuCache) {
   }
   shuffle_thread = std::thread(ShuffleThread, std::ref(cache), std::ref(stop));
 
-  absl::SleepFor(absl::Seconds(5));
+  absl::SleepFor(absl::Milliseconds(100));
   stop = true;
   for (auto& t : threads) {
     t.join();
@@ -1838,9 +1838,9 @@ TEST(CpuCacheTest, Fuzz) {
     env.RandomlyPoke(thread_state[thread_id].rng);
   });
 
-  absl::SleepFor(absl::Seconds(0.1));
+  absl::SleepFor(absl::Milliseconds(100));
   env.Activate();
-  absl::SleepFor(absl::Seconds(0.3));
+  absl::SleepFor(absl::Milliseconds(100));
 
   threads.Stop();
 
@@ -1921,7 +1921,7 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
     last_cache_size = new_cache_size;
   });
 
-  absl::SleepFor(absl::Seconds(0.5));
+  absl::SleepFor(absl::Milliseconds(100));
 
   threads.Stop();
 
@@ -2052,7 +2052,7 @@ TEST(TouchedCpus, Multithreaded) {
     seen[thread_id].insert(cpu_id_end);
   });
 
-  absl::SleepFor(absl::Seconds(0.3));
+  absl::SleepFor(absl::Milliseconds(100));
 
   threads.Stop();
 

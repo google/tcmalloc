@@ -243,7 +243,7 @@ TEST(PageFlagsTest, Stale) {
         break;
       }
       LOG(INFO) << "still waiting; stale = " << res->bytes_stale;
-      absl::SleepFor(absl::Seconds(5));
+      absl::SleepFor(absl::Milliseconds(100));
     } while (absl::Now() - start < absl::Seconds(600));
     EXPECT_TRUE(ok) << "Failed to get enough stale memory.";
   } else {
@@ -359,7 +359,7 @@ TEST(PageFlagsTest, Locked) {
       }
     }
     LOG(INFO) << "still waiting; locked = " << res->bytes_locked;
-    absl::SleepFor(absl::Seconds(5));
+    absl::SleepFor(absl::Milliseconds(100));
   } while (absl::Now() - start < absl::Seconds(60));
 
   auto res = s.Get(p, kPageSize * kNumPages);

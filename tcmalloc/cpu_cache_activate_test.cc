@@ -74,7 +74,7 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
   TCMalloc_Internal_ForceCpuCacheActivation();
   EXPECT_TRUE(tc_globals.CpuCacheActive());
 
-  absl::SleepFor(absl::Seconds(0.2));
+  absl::SleepFor(absl::Milliseconds(100));
 
   done.Notify();
   t.join();

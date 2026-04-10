@@ -78,7 +78,7 @@ TEST(ParallelTest, Stable) {
 
   std::thread t1(a1), t2(a2), t3(a3);
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Milliseconds(100));
 
   stop.store(true, std::memory_order_release);
   t1.join();

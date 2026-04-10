@@ -94,7 +94,7 @@ TEST_P(SystemAllocatorMlockallTest, Mlockall) {
       if (stats->bytes_locked == expected_locked) {
         break;
       }
-      absl::SleepFor(absl::Seconds(1));
+      absl::SleepFor(absl::Milliseconds(100));
     } while (absl::Now() - start < absl::Seconds(60));
   } else {
     stats = page_flags.Get(result.ptr, result.bytes);

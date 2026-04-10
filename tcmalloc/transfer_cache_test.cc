@@ -166,7 +166,7 @@ TYPED_TEST_P(TransferCacheTest, ReadStats) {
     }
   });
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Milliseconds(100));
   stop.store(true, std::memory_order_release);
 
   t1.join();

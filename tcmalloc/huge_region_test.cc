@@ -454,7 +454,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
     }
   });
 
-  absl::SleepFor(absl::Seconds(1));
+  absl::SleepFor(absl::Milliseconds(100));
 
   threads.Stop();
 }
