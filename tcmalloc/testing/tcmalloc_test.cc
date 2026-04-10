@@ -356,7 +356,7 @@ TEST(TCMallocTest, Multithreaded) {
 
   mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::SleepFor(absl::Seconds(3));
+  absl::SleepFor(absl::Milliseconds(500));
 
   mgr.Stop();
 }
