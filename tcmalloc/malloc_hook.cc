@@ -107,39 +107,7 @@ bool MallocHook::RemoveSampledDeleteHook(SampledDeleteHook hook) {
   return tcmalloc_internal::sampled_delete_hooks_.Remove(hook);
 }
 
-// Note: embedding the function calls inside the traversal of HookList would be
-// very confusing, as it is legal for a hook to remove itself and add other
-// hooks.  Doing traversal first, and then calling the hooks ensures we only
-// call the hooks registered at the start.
-#define INVOKE_HOOKS(HookType, hook_list, args)                           \
-  do {                                                                    \
-    HookType hooks[tcmalloc_internal::kHookListMaxValues];                \
-    int num_hooks =                                                       \
-        hook_list.Traverse(hooks, tcmalloc_internal::kHookListMaxValues); \
-    for (int i = 0; i < num_hooks; ++i) {                                 \
-      (*hooks[i]) args;                                                   \
-    }                                                                     \
-  } while (0)
 
-void MallocHook::InvokeNewHookSlow(const NewInfo& info) {
-  INVOKE_HOOKS(NewHook, tcmalloc_internal::new_hooks_, (info));
-}
-
-void MallocHook::InvokeDeleteHookSlow(const DeleteInfo& info) {
-  INVOKE_HOOKS(DeleteHook, tcmalloc_internal::delete_hooks_, (info));
-}
-
-void MallocHook::InvokeSampledNewHookSlow(const SampledAlloc& sampled_alloc) {
-  INVOKE_HOOKS(SampledNewHook, tcmalloc_internal::sampled_new_hooks_,
-               (sampled_alloc));
-}
-
-void MallocHook::InvokeSampledDeleteHookSlow(
-    const
-    SampledAlloc& sampled_alloc) {
-  INVOKE_HOOKS(SampledDeleteHook, tcmalloc_internal::sampled_delete_hooks_,
-               (sampled_alloc));
-}
 
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

@@ -128,14 +128,6 @@ class MallocHook final {
   static void InvokeSampledDeleteHook(
       const
       SampledAlloc& sampled_alloc);
-
- private:
-  static void InvokeNewHookSlow(const NewInfo& info) ABSL_ATTRIBUTE_COLD;
-  static void InvokeDeleteHookSlow(const DeleteInfo& info) ABSL_ATTRIBUTE_COLD;
-  static void InvokeSampledNewHookSlow(const SampledAlloc& sampled_alloc);
-  static void InvokeSampledDeleteHookSlow(
-      const
-      SampledAlloc& sampled_alloc);
 };
 
 }  // namespace tcmalloc

@@ -32,30 +32,22 @@ extern HookList<MallocHook::SampledDeleteHook> sampled_delete_hooks_;
 }  // namespace tcmalloc_internal
 
 inline void MallocHook::InvokeNewHook(const NewInfo& info) {
-  if (!tcmalloc_internal::new_hooks_.empty()) {
-    InvokeNewHookSlow(info);
-  }
+  tcmalloc_internal::new_hooks_.Invoke(info);
 }
 
 inline void MallocHook::InvokeDeleteHook(const DeleteInfo& info) {
-  if (!tcmalloc_internal::delete_hooks_.empty()) {
-    InvokeDeleteHookSlow(info);
-  }
+  tcmalloc_internal::delete_hooks_.Invoke(info);
 }
 
 inline void MallocHook::InvokeSampledNewHook(
     const SampledAlloc& sampled_alloc) {
-  if (!tcmalloc_internal::sampled_new_hooks_.empty()) {
-    InvokeSampledNewHookSlow(sampled_alloc);
-  }
+  tcmalloc_internal::sampled_new_hooks_.Invoke(sampled_alloc);
 }
 
 inline void MallocHook::InvokeSampledDeleteHook(
     const
     SampledAlloc& sampled_alloc) {
-  if (!tcmalloc_internal::sampled_delete_hooks_.empty()) {
-    InvokeSampledDeleteHookSlow(sampled_alloc);
-  }
+  tcmalloc_internal::sampled_delete_hooks_.Invoke(sampled_alloc);
 }
 
 }  // namespace tcmalloc

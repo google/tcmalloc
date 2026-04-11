@@ -24,8 +24,11 @@
 
 #include <atomic>
 #include <cstddef>
+#include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -78,7 +81,18 @@ class HookList final : HookListBase {
     return priv_end.load(std::memory_order_relaxed);
   }
 
+  template <typename... Args>
+  void Invoke(Args&&... args) const {
+    if (ABSL_PREDICT_FALSE(!empty())) {
+      InvokeSlow(std::forward<Args>(args)...);
+    }
+  }
+
  private:
+  template <typename... Args>
+  void InvokeSlow(Args&&... args) const ABSL_ATTRIBUTE_COLD
+      ABSL_ATTRIBUTE_NOINLINE;
+
   // One more than the index of the last valid element in priv_data.  During
   // 'Remove' this may be past the last valid element in priv_data, but
   // subsequent values will be 0.
@@ -150,6 +164,16 @@ int HookList<T>::Traverse(T* output_array, int n) const {
     }
   }
   return actual_hooks_end;
+}
+
+template <typename T>
+template <typename... Args>
+void HookList<T>::InvokeSlow(Args&&... args) const {
+  T hooks[kHookListMaxValues];
+  int num_hooks = Traverse(hooks, kHookListMaxValues);
+  for (int i = 0; i < num_hooks; ++i) {
+    (*hooks[i])(args...);
+  }
 }
 
 }  // namespace tcmalloc::tcmalloc_internal
