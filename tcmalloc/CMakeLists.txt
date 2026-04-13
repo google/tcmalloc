@@ -873,10 +873,13 @@ tcmalloc_cc_library(
     "absl::flat_hash_map"
     "absl::hash"
     "absl::malloc_internal"
+    "absl::strings"
     "absl::time"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_system_allocator"
 )
 
 tcmalloc_cc_test(
@@ -995,10 +998,13 @@ tcmalloc_cc_test(
     "GTest::gmock"
     "absl::check"
     "absl::span"
+    "absl::str_format"
     "absl::time"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
     "tcmalloc::mock_static_forwarder"
     "tcmalloc::tcmalloc"
 )
@@ -1012,6 +1018,7 @@ tcmalloc_cc_test(
     "GTest::gtest"
     "GTest::gmock"
     "absl::check"
+    "absl::str_format"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::common_8k_pages"
@@ -1059,7 +1066,6 @@ tcmalloc_cc_binary(
   SRCS
     "transfer_cache_benchmark.cc"
   DEPS
-    "absl::optional"
     "absl::random_distributions"
     "absl::random_random"
     "benchmark::benchmark"
@@ -1318,7 +1324,6 @@ tcmalloc_cc_test(
   DEPS
     "GTest::gtest"
     "GTest::gmock"
-    "absl::optional"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::malloc_extension"
@@ -1556,7 +1561,6 @@ tcmalloc_cc_library(
   HDRS
     "new_extension.h"
   DEPS
-    "absl::core_headers"
     "tcmalloc::malloc_extension"
 )
 

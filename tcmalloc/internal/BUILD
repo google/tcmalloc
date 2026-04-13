@@ -66,7 +66,6 @@ cc_library(
     ],
     deps = [
         ":config",
-        "//tcmalloc:experiment",
         "//tcmalloc:malloc_hook",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
@@ -486,7 +485,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
-        "//tcmalloc/internal:config",
+        ":config",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
     ],
@@ -804,9 +803,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
-        ":config",
         ":delay_injection",
-        ":linux_syscall_support",
         ":logging",
         ":mincore",
         ":optimization",
@@ -1077,7 +1074,6 @@ cc_test(
     srcs = ["sampled_allocation_recorder_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":explicitly_constructed",
         ":sampled_allocation_recorder",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/base:core_headers",

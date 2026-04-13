@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include <cstddef>
-#include <cstdint>
+#include <vector>
 
 #include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
@@ -26,18 +26,13 @@
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-void FuzzSizeMap(const std::string& s) {
-  if (s.empty()) {
+void FuzzSizeMap(const std::vector<SizeClassInfo>& info) {
+  if (info.empty()) {
     return;
   }
 
-  // TODO(b/271282540): Strongly type input to fuzzer.
-  const char* data = s.data();
-  const size_t size = s.size();
-
   SizeMap m;
-  const SizeClassInfo* info = reinterpret_cast<const SizeClassInfo*>(data);
-  if (!m.Init(absl::MakeSpan(info, size / sizeof(*info)))) {
+  if (!m.Init(absl::MakeSpan(info))) {
     return;
   }
 
@@ -58,8 +53,7 @@ void FuzzSizeMap(const std::string& s) {
   }
 }
 
-FUZZ_TEST(SizeMapTest, FuzzSizeMap)
-    ;
+FUZZ_TEST(SizeMapTest, FuzzSizeMap);
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

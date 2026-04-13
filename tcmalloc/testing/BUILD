@@ -106,7 +106,6 @@ create_tcmalloc_benchmark_suite(
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc:malloc_hook",
-        "//tcmalloc/internal:declarations",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/log:check",
@@ -213,7 +212,6 @@ cc_test(
     ],
     deps = [
         "//tcmalloc:malloc_extension",
-        "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -650,7 +648,6 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:memory_stats",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
-        "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -676,7 +673,6 @@ cc_binary(
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "@com_google_absl//absl/types:optional",
     ],
 )
 
