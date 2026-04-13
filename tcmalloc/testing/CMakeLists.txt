@@ -805,6 +805,21 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test(
   NAME
+    tcmalloc_testing_malloc_extension_internal_methods_test
+  SRCS
+    "malloc_extension_system_malloc_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::random_random"
+    "tcmalloc::internal_config"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_internal_methods_only"
+)
+
+tcmalloc_cc_test(
+  NAME
     tcmalloc_testing_malloc_extension_system_malloc_test
   SRCS
     "malloc_extension_system_malloc_test.cc"
@@ -813,6 +828,7 @@ tcmalloc_cc_test(
     "GTest::gmock_main"
     "GTest::gmock"
     "absl::random_random"
+    "tcmalloc::internal_config"
     "tcmalloc::malloc_extension"
 )
 

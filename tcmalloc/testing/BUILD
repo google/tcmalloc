@@ -890,6 +890,20 @@ create_tcmalloc_testsuite(
 )
 
 cc_test(
+    name = "malloc_extension_internal_methods_test",
+    srcs = ["malloc_extension_system_malloc_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_internal_methods_only",
+    tags = ["noubsan"],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "malloc_extension_system_malloc_test",
     srcs = ["malloc_extension_system_malloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -897,6 +911,7 @@ cc_test(
     tags = ["noubsan"],
     deps = [
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],

@@ -1312,14 +1312,13 @@ extern "C" void MallocHook_HooksChanged() {
 using tcmalloc::tcmalloc_internal::GetOwnership;
 using tcmalloc::tcmalloc_internal::GetSize;
 
-extern "C" size_t MallocExtension_Internal_GetAllocatedSize(const void* ptr) {
+extern "C" size_t TCMalloc_Internal_GetAllocatedSize(const void* ptr) {
   TC_ASSERT(!ptr || GetOwnership(ptr) !=
                         tcmalloc::MallocExtension::Ownership::kNotOwned);
   return GetSize(ptr);
 }
 
-extern "C" size_t MallocExtension_Internal_GetEstimatedAllocatedSize(
-    size_t size) {
+extern "C" size_t TCMalloc_Internal_GetEstimatedAllocatedSize(size_t size) {
   if (ABSL_PREDICT_FALSE(!tc_globals.IsInited())) {
     return tcmalloc::tcmalloc_internal::nallocx_slow(size, 0);
   }
@@ -1333,7 +1332,7 @@ extern "C" size_t MallocExtension_Internal_GetEstimatedAllocatedSize(
   }
 }
 
-extern "C" void MallocExtension_Internal_MarkThreadBusy() {
+extern "C" void TCMalloc_Internal_MarkThreadBusy() {
   tc_globals.InitIfNecessary();
 
   if (UsePerCpuCache(tc_globals)) {
@@ -1343,6 +1342,21 @@ extern "C" void MallocExtension_Internal_MarkThreadBusy() {
   // Force creation of the cache.
   tcmalloc::tcmalloc_internal::ThreadCache::GetCache();
 }
+
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
+extern "C" size_t MallocExtension_Internal_GetAllocatedSize(const void* ptr) {
+  return TCMalloc_Internal_GetAllocatedSize(ptr);
+}
+
+extern "C" size_t MallocExtension_Internal_GetEstimatedAllocatedSize(
+    size_t size) {
+  return TCMalloc_Internal_GetEstimatedAllocatedSize(size);
+}
+
+extern "C" void MallocExtension_Internal_MarkThreadBusy() {
+  TCMalloc_Internal_MarkThreadBusy();
+}
+#endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
 
 absl::StatusOr<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges>
 MallocTracingExtension_Internal_GetAllocatedAddressRanges() {

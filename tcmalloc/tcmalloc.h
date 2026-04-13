@@ -281,6 +281,10 @@ static_assert(ALLOC_TOKEN_FALLBACK >= ALLOC_TOKEN_MAX);
 DECLARE_ALLOC_TOKEN_VARIANTS(ALLOC_TOKEN_FALLBACK)
 #endif
 
+size_t TCMalloc_Internal_GetAllocatedSize(const void* ptr);
+size_t TCMalloc_Internal_GetEstimatedAllocatedSize(size_t size);
+void TCMalloc_Internal_MarkThreadBusy();
+
 }  // extern "C"
 
 #endif  // TCMALLOC_TCMALLOC_H_

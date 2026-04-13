@@ -29,6 +29,7 @@ extern "C" {
 void* TCMallocInternalNew(size_t);
 void TCMallocInternalDelete(void*);
 void TCMallocInternalDeleteSized(void*, size_t);
+size_t TCMalloc_Internal_GetAllocatedSize(const void*);
 
 }  // extern "C"
 
@@ -53,7 +54,7 @@ struct Allocator {
       }
 
       for (void* ptr : v) {
-        ABSL_CHECK_GE(*MallocExtension::GetAllocatedSize(ptr), size);
+        ABSL_CHECK_GE(TCMalloc_Internal_GetAllocatedSize(ptr), size);
       }
 
       for (void* ptr : v) {
