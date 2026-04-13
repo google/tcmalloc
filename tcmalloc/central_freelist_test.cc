@@ -812,41 +812,6 @@ void CheckLifetimeStats(TypeParam& e, SpanLifetimes span_lifetimes) {
           testing::HasSubstr(absl::StrJoin(completed_spans_pbtxt, " "))));
 }
 
-TEST_P(CentralFreeListTest, HookTracing) {
-#if ABSL_HAVE_HWADDRESS_SANITIZER
-  GTEST_SKIP()
-      << "Skipping under HWASan, which uses the top bits of the pointer.";
-#endif
-
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
-
-  static int insert_count = 0;
-  static int remove_count = 0;
-  insert_count = 0;
-  remove_count = 0;
-  auto insert_hook = [](size_t size_class, absl::Span<void*> batch) {
-    insert_count += batch.size();
-  };
-  auto remove_hook = [](size_t size_class, absl::Span<void*> batch) {
-    remove_count += batch.size();
-  };
-
-  EXPECT_TRUE(e.forwarder().insert_range_hooks.Add(insert_hook));
-  EXPECT_TRUE(e.forwarder().remove_range_hooks.Add(remove_hook));
-
-  void* batch[kMaxObjectsToMove];
-  int got = e.central_freelist().RemoveRange(
-      absl::MakeSpan(batch, std::min(size_t{1}, e.batch_size())));
-  EXPECT_GT(got, 0);
-  EXPECT_EQ(remove_count, got);
-
-  e.central_freelist().InsertRange({batch, static_cast<size_t>(got)});
-  EXPECT_EQ(insert_count, got);
-
-  EXPECT_TRUE(e.forwarder().insert_range_hooks.Remove(insert_hook));
-  EXPECT_TRUE(e.forwarder().remove_range_hooks.Remove(remove_hook));
-}
-
 TEST_P(CentralFreeListTest, SpanLifetime) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP()

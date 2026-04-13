@@ -25,15 +25,11 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
-#include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-using InsertRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
-using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
 
 class FakeStaticForwarder {
  public:
@@ -43,17 +39,6 @@ class FakeStaticForwarder {
     pages_ = Length(pages);
     num_objects_to_move_ = num_objects_to_move;
     clock_ = 1234;
-  }
-
-  HookList<InsertRangeHook> insert_range_hooks;
-  HookList<RemoveRangeHook> remove_range_hooks;
-
-  void InvokeInsertRangeHook(size_t size_class, absl::Span<void*> batch) {
-    insert_range_hooks.Invoke(size_class, batch);
-  }
-
-  void InvokeRemoveRangeHook(size_t size_class, absl::Span<void*> batch) {
-    remove_range_hooks.Invoke(size_class, batch);
   }
   uint64_t clock_now() const { return clock_.load(std::memory_order_relaxed); }
   double clock_frequency() const {

@@ -38,7 +38,6 @@
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/delay_injection.h"
-#include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
@@ -74,30 +73,8 @@ namespace central_freelist_internal {
 //
 // This is a class, rather than namespaced globals, so that it can be mocked for
 // testing.
-using InsertRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
-using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
-
 class StaticForwarder {
  public:
-  static HookList<InsertRangeHook> insert_range_hooks;
-  static HookList<RemoveRangeHook> remove_range_hooks;
-
-  static void InvokeInsertRangeHook(size_t size_class,
-                                    absl::Span<void*> batch) {
-    if (ABSL_PREDICT_TRUE(insert_range_hooks.empty())) {
-      return;
-    }
-    InvokeInsertRangeHookSlow(size_class, batch);
-  }
-
-  static void InvokeRemoveRangeHook(size_t size_class,
-                                    absl::Span<void*> batch) {
-    if (ABSL_PREDICT_TRUE(remove_range_hooks.empty())) {
-      return;
-    }
-    InvokeRemoveRangeHookSlow(size_class, batch);
-  }
-
   static uint64_t clock_now() { return absl::base_internal::CycleClock::Now(); }
   static double clock_frequency() {
     return absl::base_internal::CycleClock::Frequency();
@@ -115,12 +92,6 @@ class StaticForwarder {
   static void DeallocateSpans(size_t objects_per_span,
                               absl::Span<Span*> free_spans)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
-
- private:
-  static void InvokeInsertRangeHookSlow(size_t size_class,
-                                        absl::Span<void*> batch);
-  static void InvokeRemoveRangeHookSlow(size_t size_class,
-                                        absl::Span<void*> batch);
 };
 
 // Specifies number of nonempty_ lists that keep track of non-empty spans.
@@ -523,8 +494,6 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   TC_CHECK(!batch.empty());
   TC_CHECK_LE(batch.size(), kMaxObjectsToMove);
 
-  forwarder_.InvokeInsertRangeHook(size_class_, batch);
-
   Span* spans[kMaxObjectsToMove];
   // First, map objects to spans and prefetch spans outside of our mutex
   // (to reduce critical section size and cache misses).
@@ -604,71 +573,70 @@ template <class Forwarder>
 inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   TC_ASSERT(!batch.empty());
 
-  int result = 0;
-
-  if (ABSL_PREDICT_FALSE(objects_per_span_ == 1)) {
+  if (objects_per_span_ == 1) {
     // If there is only 1 object per span, skip CentralFreeList entirely.
     Span* span = AllocateSpan();
-    if (ABSL_PREDICT_TRUE(span != nullptr)) {
-      batch[0] = span->start_address();
-      result = 1;
+    if (ABSL_PREDICT_FALSE(span == nullptr)) {
+      return 0;
     }
-  } else {
-    // Use local copy of variable to ensure that it is not reloaded.
-    size_t object_size = object_size_;
-    size_t num_spans = 0;
-
-    CentralFreeListLockHolder h(lock_);
-
-    do {
-      num_spans++;
-      Span* span = FirstNonEmptySpan();
-      if (ABSL_PREDICT_FALSE(!span)) {
-        result += Populate(batch.subspan(result));
-        break;
-      }
-
-      const uint16_t prev_allocated = span->Allocated();
-      const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
-      const uint8_t prev_index = span->nonempty_index();
-      int here = span->FreelistPopBatch(batch.subspan(result), object_size);
-      // TODO(b/451807659): Return this to an assert after debugging is done.
-      TC_CHECK_GT(here, 0, "Failed to make progress.  Freelist corrupted?");
-      // As the objects are being popped from the span, its utilization might
-      // change. So, we remove the stale utilization from the histogram here and
-      // add it again once we pop the objects.
-      const uint16_t cur_allocated = prev_allocated + here;
-      TC_ASSERT_EQ(cur_allocated, span->Allocated());
-      const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
-      if (cur_bitwidth != prev_bitwidth) {
-        RecordSpanUtil(prev_bitwidth, /*increase=*/false);
-        RecordSpanUtil(cur_bitwidth, /*increase=*/true);
-      }
-      if (span->FreelistEmpty(object_size)) {
-        nonempty_.Remove(span, prev_index);
-      } else {
-        // If span allocation changes so that it must be moved to a different
-        // nonempty_ list, we remove it from the previous list and add it to the
-        // desired list indexed by cur_index.
-        const uint8_t cur_index =
-            IndexFor(span->is_long_lived_span(), cur_allocated, cur_bitwidth);
-        if (cur_index != prev_index) {
-          nonempty_.Remove(span, prev_index);
-          nonempty_.Add(span, cur_index);
-          span->set_nonempty_index(cur_index);
-        }
-      }
-      result += here;
-    } while (result < batch.size());
-
-    TC_ASSERT_GT(num_spans, 0);
-    TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
-    TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
-    span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
-    UpdateObjectCounts(-result);
+    batch[0] = span->start_address();
+    return 1;
   }
 
-  forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
+  // Use local copy of variable to ensure that it is not reloaded.
+  size_t object_size = object_size_;
+  int result = 0;
+  size_t num_spans = 0;
+
+  CentralFreeListLockHolder h(lock_);
+
+  do {
+    num_spans++;
+    Span* span = FirstNonEmptySpan();
+    if (ABSL_PREDICT_FALSE(!span)) {
+      result += Populate(batch.subspan(result));
+      break;
+    }
+
+    const uint16_t prev_allocated = span->Allocated();
+    const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
+    const uint8_t prev_index = span->nonempty_index();
+    int here = span->FreelistPopBatch(batch.subspan(result), object_size);
+    // TODO(b/451807659): Return this to an assert after debugging is done.
+    TC_CHECK_GT(here, 0, "Failed to make progress.  Freelist corrupted?");
+    // As the objects are being popped from the span, its utilization might
+    // change. So, we remove the stale utilization from the histogram here and
+    // add it again once we pop the objects.
+    const uint16_t cur_allocated = prev_allocated + here;
+    TC_ASSERT_EQ(cur_allocated, span->Allocated());
+    const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
+    if (cur_bitwidth != prev_bitwidth) {
+      RecordSpanUtil(prev_bitwidth, /*increase=*/false);
+      RecordSpanUtil(cur_bitwidth, /*increase=*/true);
+    }
+    if (span->FreelistEmpty(object_size)) {
+      nonempty_.Remove(span, prev_index);
+    } else {
+      // If span allocation changes so that it must be moved to a different
+      // nonempty_ list, we remove it from the previous list and add it to the
+      // desired list indexed by cur_index.
+      const uint8_t cur_index =
+          IndexFor(span->is_long_lived_span(), cur_allocated, cur_bitwidth);
+      if (cur_index != prev_index) {
+        nonempty_.Remove(span, prev_index);
+        nonempty_.Add(span, cur_index);
+        span->set_nonempty_index(cur_index);
+      }
+    }
+    result += here;
+  } while (result < batch.size());
+
+  TC_ASSERT_GT(num_spans, 0);
+  TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
+  TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
+  span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
+  UpdateObjectCounts(-result);
+
   return result;
 }
 

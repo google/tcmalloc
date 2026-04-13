@@ -296,7 +296,6 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:explicitly_constructed",
         "//tcmalloc/internal:exponential_biased",
         "//tcmalloc/internal:gwp_asan_state",
-        "//tcmalloc/internal:hook_list",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_stats",
@@ -643,7 +642,6 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
-        "//tcmalloc/internal:hook_list",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
@@ -1633,7 +1631,6 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
     ],
-    alwayslink = 1,
 )
 
 cc_library(

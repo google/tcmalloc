@@ -19,7 +19,6 @@
 #include <optional>
 
 #include "absl/base/attributes.h"
-#include "absl/base/call_once.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/debugging/stacktrace.h"
@@ -28,7 +27,6 @@
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -37,35 +35,10 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
-extern "C" {
-ABSL_ATTRIBUTE_WEAK void
-TCMalloc_CentralFreeList_InitAtFirstRemoveRange_Tracing();
-}
-
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace central_freelist_internal {
-
-static void RemoveInitialHooksAndCallInitializers();
-
-static void InitialRemoveRangeHook(size_t size_class, absl::Span<void*> batch) {
-  ABSL_CONST_INIT static absl::once_flag once;
-  absl::base_internal::LowLevelCallOnce(&once,
-                                        RemoveInitialHooksAndCallInitializers);
-  StaticForwarder::InvokeRemoveRangeHook(size_class, batch);
-}
-
-ABSL_CONST_INIT HookList<InsertRangeHook> StaticForwarder::insert_range_hooks;
-ABSL_CONST_INIT HookList<RemoveRangeHook> StaticForwarder::remove_range_hooks{
-    &InitialRemoveRangeHook};
-
-void RemoveInitialHooksAndCallInitializers() {
-  TC_CHECK(StaticForwarder::remove_range_hooks.Remove(&InitialRemoveRangeHook));
-  if (TCMalloc_CentralFreeList_InitAtFirstRemoveRange_Tracing != nullptr) {
-    TCMalloc_CentralFreeList_InitAtFirstRemoveRange_Tracing();
-  }
-}
 
 static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
   if (IsExpandedSizeClass(size_class)) {
@@ -204,16 +177,6 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
   ReturnAllocsToPageHeap(tag, absl::MakeSpan(allocs, free_spans.size()),
                          span_alloc_info);
 #endif
-}
-
-ABSL_ATTRIBUTE_NOINLINE void StaticForwarder::InvokeInsertRangeHookSlow(
-    size_t size_class, absl::Span<void*> batch) {
-  insert_range_hooks.Invoke(size_class, batch);
-}
-
-ABSL_ATTRIBUTE_NOINLINE void StaticForwarder::InvokeRemoveRangeHookSlow(
-    size_t size_class, absl::Span<void*> batch) {
-  remove_range_hooks.Invoke(size_class, batch);
 }
 
 }  // namespace central_freelist_internal
