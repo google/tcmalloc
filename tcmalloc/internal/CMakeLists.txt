@@ -722,6 +722,7 @@ tcmalloc_cc_library(
     "absl::base"
     "absl::core_headers"
     "absl::nullability"
+    "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
 )
 
