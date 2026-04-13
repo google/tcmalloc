@@ -25,6 +25,9 @@ extern "C" {
 ABSL_ATTRIBUTE_WEAK void MallocHook_InitAtFirstAllocation_HeapLeakChecker() {
   // Do nothing
 }
+ABSL_ATTRIBUTE_WEAK void MallocHook_InitAtFirstAllocation_ForTesting() {
+  // Do nothing
+}
 ABSL_ATTRIBUTE_WEAK void MallocHook_HooksChanged() {
   // Do Nothing
 }
@@ -55,6 +58,7 @@ void RemoveInitialHooksAndCallInitializers() {
   // HeapLeakChecker need to get control on the first memory allocation. One can
   // add other modules by following the same weak/strong function pattern.
   MallocHook_InitAtFirstAllocation_HeapLeakChecker();
+  MallocHook_InitAtFirstAllocation_ForTesting();
 }
 
 }  // namespace tcmalloc_internal

@@ -1071,3 +1071,20 @@ tcmalloc_cc_test_variants(
     "tcmalloc::malloc_extension"
 )
 
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_central_freelist_tracing_test
+  SRCS
+    "central_freelist_tracing_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::base"
+    "absl::core_headers"
+    "absl::flat_hash_set"
+    "absl::span"
+    "tcmalloc::internal_logging"
+    "tcmalloc::malloc_hook"
+)
+
