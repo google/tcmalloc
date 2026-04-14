@@ -22,9 +22,12 @@
 #include <new>
 
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
@@ -45,16 +48,17 @@ class FakeStaticForwarder {
     clock_ = 1234;
   }
 
-  HookList<InsertRangeHook> insert_range_hooks;
-  HookList<RemoveRangeHook> remove_range_hooks;
+  HookList<InsertRangeHook> insert_range_hooks_;
+  HookList<RemoveRangeHook> remove_range_hooks_;
 
   void InvokeInsertRangeHook(size_t size_class, absl::Span<void*> batch) {
-    insert_range_hooks.Invoke(size_class, batch);
+    insert_range_hooks_.Invoke(size_class, batch);
   }
 
   void InvokeRemoveRangeHook(size_t size_class, absl::Span<void*> batch) {
-    remove_range_hooks.Invoke(size_class, batch);
+    remove_range_hooks_.Invoke(size_class, batch);
   }
+
   uint64_t clock_now() const { return clock_.load(std::memory_order_relaxed); }
   double clock_frequency() const {
     return absl::ToDoubleNanoseconds(absl::Seconds(2));

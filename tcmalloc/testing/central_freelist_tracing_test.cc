@@ -20,8 +20,8 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/types/span.h"
-#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/central_freelist_hooks.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_hook.h"
 
@@ -48,8 +48,8 @@ static void RecordFirstRemoveRangeBatchHook(size_t size_class,
   }
 
   TC_CHECK(
-      tcmalloc::tcmalloc_internal::central_freelist_internal::StaticForwarder::
-          remove_range_hooks.Remove(RecordFirstRemoveRangeBatchHook));
+      tcmalloc::tcmalloc_internal::central_freelist_remove_range_hooks.Remove(
+          RecordFirstRemoveRangeBatchHook));
 }
 
 static void RecordNewHook(const tcmalloc::MallocHook::NewInfo& info) {
@@ -68,9 +68,8 @@ extern "C" void MallocHook_InitAtFirstAllocation_ForTesting() {
 }
 
 extern "C" void TCMalloc_CentralFreeList_InitAtFirstRemoveRange_Tracing() {
-  TC_CHECK(
-      tcmalloc::tcmalloc_internal::central_freelist_internal::StaticForwarder::
-          remove_range_hooks.Add(RecordFirstRemoveRangeBatchHook));
+  TC_CHECK(tcmalloc::tcmalloc_internal::central_freelist_remove_range_hooks.Add(
+      RecordFirstRemoveRangeBatchHook));
 }
 
 namespace tcmalloc {

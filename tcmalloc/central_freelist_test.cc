@@ -831,8 +831,8 @@ TEST_P(CentralFreeListTest, HookTracing) {
     remove_count += batch.size();
   };
 
-  EXPECT_TRUE(e.forwarder().insert_range_hooks.Add(insert_hook));
-  EXPECT_TRUE(e.forwarder().remove_range_hooks.Add(remove_hook));
+  EXPECT_TRUE(e.forwarder().insert_range_hooks_.Add(insert_hook));
+  EXPECT_TRUE(e.forwarder().remove_range_hooks_.Add(remove_hook));
 
   void* batch[kMaxObjectsToMove];
   int got = e.central_freelist().RemoveRange(
@@ -843,8 +843,8 @@ TEST_P(CentralFreeListTest, HookTracing) {
   e.central_freelist().InsertRange({batch, static_cast<size_t>(got)});
   EXPECT_EQ(insert_count, got);
 
-  EXPECT_TRUE(e.forwarder().insert_range_hooks.Remove(insert_hook));
-  EXPECT_TRUE(e.forwarder().remove_range_hooks.Remove(remove_hook));
+  EXPECT_TRUE(e.forwarder().insert_range_hooks_.Remove(insert_hook));
+  EXPECT_TRUE(e.forwarder().remove_range_hooks_.Remove(remove_hook));
 }
 
 TEST_P(CentralFreeListTest, SpanLifetime) {

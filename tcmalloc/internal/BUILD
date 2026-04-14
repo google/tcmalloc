@@ -107,6 +107,22 @@ cc_library(
 )
 
 cc_library(
+    name = "central_freelist_hooks",
+    srcs = ["central_freelist_hooks.cc"],
+    hdrs = ["central_freelist_hooks.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        ":config",
+        ":hook_list",
+        ":logging",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
     name = "clock",
     hdrs = ["clock.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -697,6 +713,7 @@ cc_library(
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/time",
     ],
 )

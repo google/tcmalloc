@@ -102,6 +102,24 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_central_freelist_hooks
+  ALIAS
+    tcmalloc::internal_central_freelist_hooks
+  HDRS
+    "central_freelist_hooks.h"
+  SRCS
+    "central_freelist_hooks.cc"
+  DEPS
+    "absl::base"
+    "absl::core_headers"
+    "absl::span"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_hook_list"
+    "tcmalloc::internal_logging"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_clock
   ALIAS
     tcmalloc::internal_clock
@@ -705,6 +723,7 @@ tcmalloc_cc_library(
     "parameter_accessors.h"
   DEPS
     "absl::core_headers"
+    "absl::nullability"
     "absl::time"
     "tcmalloc::malloc_extension"
 )

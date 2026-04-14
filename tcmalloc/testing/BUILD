@@ -1189,6 +1189,7 @@ create_tcmalloc_testsuite(
     linkstatic = 1,
     deps = [
         "//tcmalloc:malloc_hook",
+        "//tcmalloc/internal:central_freelist_hooks",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

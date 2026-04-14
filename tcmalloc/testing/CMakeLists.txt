@@ -1100,6 +1100,7 @@ tcmalloc_cc_test_variants(
     "absl::core_headers"
     "absl::flat_hash_set"
     "absl::span"
+    "tcmalloc::internal_central_freelist_hooks"
     "tcmalloc::internal_logging"
     "tcmalloc::malloc_hook"
 )

@@ -36,6 +36,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
+#include "tcmalloc/internal/central_freelist_hooks.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/delay_injection.h"
 #include "tcmalloc/internal/hook_list.h"
@@ -79,12 +80,9 @@ using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
 
 class StaticForwarder {
  public:
-  static HookList<InsertRangeHook> insert_range_hooks;
-  static HookList<RemoveRangeHook> remove_range_hooks;
-
   static void InvokeInsertRangeHook(size_t size_class,
                                     absl::Span<void*> batch) {
-    if (ABSL_PREDICT_TRUE(insert_range_hooks.empty())) {
+    if (ABSL_PREDICT_TRUE(central_freelist_insert_range_hooks.empty())) {
       return;
     }
     InvokeInsertRangeHookSlow(size_class, batch);
@@ -92,7 +90,7 @@ class StaticForwarder {
 
   static void InvokeRemoveRangeHook(size_t size_class,
                                     absl::Span<void*> batch) {
-    if (ABSL_PREDICT_TRUE(remove_range_hooks.empty())) {
+    if (ABSL_PREDICT_TRUE(central_freelist_remove_range_hooks.empty())) {
       return;
     }
     InvokeRemoveRangeHookSlow(size_class, batch);
