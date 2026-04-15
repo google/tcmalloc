@@ -90,7 +90,7 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
       ReportDoubleFree(tc_globals, ptr);
     }
     if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
-      ReportMismatchedSizeClass(tc_globals, span, page_size_class,
+      ReportMismatchedSizeClass(tc_globals, ptr, page_size_class,
                                 expected_size_class);
     }
     span->Prefetch();
