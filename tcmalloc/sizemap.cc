@@ -19,13 +19,16 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <vector>
 
 #include "absl/base/macros.h"
+#include "absl/base/nullability.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/pages.h"
@@ -330,4 +333,27 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+
+extern "C" {
+
+void TCMalloc_Internal_GetSizeClasses(
+    std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull
+        size_classes) {
+  tcmalloc::tcmalloc_internal::tc_globals.InitIfNecessary();
+  size_t num_classes = tcmalloc::tcmalloc_internal::kNumClasses;
+  size_classes->resize(num_classes);
+  for (size_t i = 0; i < num_classes; ++i) {
+    (*size_classes)[i].size =
+        tcmalloc::tcmalloc_internal::tc_globals.sizemap().class_to_size(i);
+    (*size_classes)[i].span_size_in_bytes =
+        tcmalloc::tcmalloc_internal::tc_globals.sizemap().class_to_pages(i) *
+        tcmalloc::tcmalloc_internal::kPageSize;
+    (*size_classes)[i].num_objects_to_move =
+        tcmalloc::tcmalloc_internal::tc_globals.sizemap().num_objects_to_move(
+            i);
+  }
+}
+
+}  // extern "C"
+
 GOOGLE_MALLOC_SECTION_END

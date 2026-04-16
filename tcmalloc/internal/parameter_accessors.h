@@ -17,10 +17,22 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "absl/base/attributes.h"
+#include "absl/base/nullability.h"
 #include "absl/time/time.h"
 #include "tcmalloc/malloc_extension.h"
+
+namespace tcmalloc {
+namespace tcmalloc_internal {
+struct TracerSizeClassInfo {
+  size_t size;
+  size_t span_size_in_bytes;
+  size_t num_objects_to_move;
+};
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
 
 extern "C" {
 
@@ -113,6 +125,11 @@ ABSL_ATTRIBUTE_WEAK int32_t TCMalloc_Internal_GetBackSizeThresholdBytes();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetEnableUnfilteredCollapse();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
+
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
+    std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull
+        size_classes);
+ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetPageSize();
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

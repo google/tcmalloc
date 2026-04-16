@@ -40,12 +40,14 @@ using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
 
 class FakeStaticForwarder {
  public:
-  FakeStaticForwarder() : class_size_(0), pages_() {}
-  void Init(size_t class_size, size_t pages, size_t num_objects_to_move) {
+  FakeStaticForwarder() : class_size_(0), pages_(), page_size_(kPageSize) {}
+  void Init(size_t class_size, size_t pages, size_t num_objects_to_move,
+            size_t page_size = kPageSize) {
     class_size_ = class_size;
     pages_ = Length(pages);
     num_objects_to_move_ = num_objects_to_move;
     clock_ = 1234;
+    page_size_ = page_size;
   }
 
   HookList<InsertRangeHook> insert_range_hooks_;
@@ -98,8 +100,8 @@ class FakeStaticForwarder {
 
   [[nodiscard]] Span* AllocateSpan(int, size_t objects_per_span,
                                    Length pages_per_span) {
-    void* backing =
-        ::operator new(pages_per_span.in_bytes(), std::align_val_t(kPageSize));
+    void* backing = ::operator new(pages_per_span.raw_num() * page_size_,
+                                   std::align_val_t(page_size_));
     PageId page = PageIdContaining(backing);
 
     auto* span = new Span(Range(page, pages_per_span));
@@ -126,7 +128,7 @@ class FakeStaticForwarder {
     }
 
     for (Span* span : free_spans) {
-      ::operator delete(span->start_address(), std::align_val_t(kPageSize));
+      ::operator delete(span->start_address(), std::align_val_t(page_size_));
       delete span;
     }
   }
@@ -142,6 +144,7 @@ class FakeStaticForwarder {
   size_t class_size_;
   Length pages_;
   size_t num_objects_to_move_;
+  size_t page_size_;
   std::atomic<uint64_t> clock_;
 };
 
@@ -159,8 +162,9 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
     });
     ON_CALL(*this, Init)
         .WillByDefault([this](size_t size_class, size_t pages,
-                              size_t num_objects_to_move) {
-          FakeStaticForwarder::Init(size_class, pages, num_objects_to_move);
+                              size_t num_objects_to_move, size_t page_size) {
+          FakeStaticForwarder::Init(size_class, pages, num_objects_to_move,
+                                    page_size);
         });
 
     ON_CALL(*this, MapObjectsToSpans)
@@ -186,7 +190,8 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(Length, class_to_pages, (int size_class));
   MOCK_METHOD(size_t, num_objects_to_move, ());
   MOCK_METHOD(void, Init,
-              (size_t class_size, size_t pages, size_t num_objects_to_move));
+              (size_t class_size, size_t pages, size_t num_objects_to_move,
+               size_t page_size));
   MOCK_METHOD(void, MapObjectsToSpans,
               (absl::Span<void*> batch, Span** spans, int expected_size_class));
   MOCK_METHOD(Span*, AllocateSpan,
@@ -218,8 +223,9 @@ class FakeCentralFreeListEnvironment {
   size_t batch_size() { return forwarder().num_objects_to_move(); }
 
   explicit FakeCentralFreeListEnvironment(size_t class_size, size_t pages,
-                                          size_t num_objects_to_move) {
-    forwarder().Init(class_size, pages, num_objects_to_move);
+                                          size_t num_objects_to_move,
+                                          size_t page_size = kPageSize) {
+    forwarder().Init(class_size, pages, num_objects_to_move, page_size);
     cache_.Init(kSizeClass);
   }
 
