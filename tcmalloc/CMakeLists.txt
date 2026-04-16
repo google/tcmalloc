@@ -1390,27 +1390,6 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
-    tcmalloc_profile_test
-  SRCS
-    "profile_test.cc"
-  DEPS
-    "GTest::gtest_main"
-    "GTest::gmock_main"
-    "GTest::gmock"
-    "absl::btree"
-    "absl::flat_hash_map"
-    "absl::synchronization"
-    "absl::time"
-    "tcmalloc::internal_declarations"
-    "tcmalloc::internal_linked_list"
-    "tcmalloc::internal_parameter_accessors"
-    "tcmalloc::malloc_extension"
-    "tcmalloc::tcmalloc"
-    "tcmalloc::testing_testutil"
-)
-
-tcmalloc_cc_test(
-  NAME
     tcmalloc_segv_handler_test
   SRCS
     "segv_handler_test.cc"

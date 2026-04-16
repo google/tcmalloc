@@ -1189,34 +1189,6 @@ cc_test(
 )
 
 cc_test(
-    name = "profile_test",
-    size = "medium",
-    timeout = "long",
-    srcs = ["profile_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
-    malloc = "//tcmalloc",
-    shard_count = 2,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
-    deps = [
-        ":malloc_extension",
-        "//tcmalloc/internal:declarations",
-        "//tcmalloc/internal:linked_list",
-        "//tcmalloc/internal:parameter_accessors",
-        "//tcmalloc/testing:testutil",
-        "@com_google_absl//absl/container:btree",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
     name = "segv_handler_test",
     srcs = ["segv_handler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

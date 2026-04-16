@@ -719,19 +719,26 @@ tcmalloc_cc_test_variants(
   SRCS
     "profile_test.cc"
   DEPS
-    "GTest::gtest_main"
-    "GTest::gmock_main"
     "GTest::gmock"
+    "GTest::gmock_main"
+    "GTest::gtest_main"
+    "absl::btree"
     "absl::core_headers"
     "absl::flat_hash_map"
     "absl::flat_hash_set"
     "absl::statusor"
     "absl::strings"
+    "absl::synchronization"
+    "absl::time"
     "benchmark::benchmark"
     "protobuf::libprotobuf"
+    "tcmalloc::internal_declarations"
+    "tcmalloc::internal_linked_list"
+    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::internal_profile_cc_proto"
     "tcmalloc::malloc_extension"
     "tcmalloc::profile_marshaler"
+    "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
 )
 
