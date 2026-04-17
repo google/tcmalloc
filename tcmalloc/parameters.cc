@@ -181,7 +181,7 @@ std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING)) {
       v.store(static_cast<MallocExtension::BytesPerSecond>(
-                  std::numeric_limits<size_t>::max()),
+                  std::numeric_limits<int>::max()),
               std::memory_order_relaxed);
     }
   });
