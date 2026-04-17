@@ -70,7 +70,9 @@ create_tcmalloc_testsuite(
     }),
     linkstatic = 1,  # get the most realistic performance
     shard_count = 3,
-    visibility = ["//visibility:private"],
+    visibility = [
+        "//tcmalloc:__pkg__",
+    ],
     deps = [
         ":test_allocator_harness",
         ":testutil",
@@ -811,9 +813,7 @@ create_tcmalloc_testsuite(
         ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:profile_marshaler",
-        "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:linked_list",
-        "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
