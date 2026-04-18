@@ -19,6 +19,7 @@
 
 #include <vector>
 
+#include "absl/log/log.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
@@ -61,8 +62,11 @@ ScopedAffinityMask::ScopedAffinityMask(absl::Span<int> allowed_cpus) {
   // getaffinity should never fail.
   TC_CHECK(original_cpus_.GetAffinity(0));
   // See destructor comments on setaffinity interactions.  Tampered() will
-  // necessarily be true in this case.
-  TC_CHECK(specified_cpus_.SetAffinity(0));
+  // necessarily be true in this case, especially when SetAffinity(0)
+  // fails.
+  if (!specified_cpus_.SetAffinity(0)) {
+    PLOG(ERROR) << "SetAffinity(0) failed! ";
+  }
 }
 
 ScopedAffinityMask::ScopedAffinityMask(int allowed_cpu) {
@@ -72,8 +76,11 @@ ScopedAffinityMask::ScopedAffinityMask(int allowed_cpu) {
   // getaffinity should never fail.
   TC_CHECK(original_cpus_.GetAffinity(0));
   // See destructor comments on setaffinity interactions.  Tampered() will
-  // necessarily be true in this case.
-  TC_CHECK(specified_cpus_.SetAffinity(0));
+  // necessarily be true in this case, especially when SetAffinity(0)
+  // fails.
+  if (!specified_cpus_.SetAffinity(0)) {
+    PLOG(ERROR) << "SetAffinity(0) failed! ";
+  }
 }
 
 ScopedAffinityMask::~ScopedAffinityMask() {

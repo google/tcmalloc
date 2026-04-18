@@ -39,6 +39,7 @@ cc_library(
         ":config",
         ":cpu_utils",
         ":logging",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/types:span",
     ],
 )
