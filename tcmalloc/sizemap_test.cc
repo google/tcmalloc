@@ -144,8 +144,10 @@ TEST(SizeMapTest, PointerPartitionNoCold) {
   if (kPageShift <= 12) {
     GTEST_SKIP() << "cold size classes are not activated on the small page";
   }
-  if (!TCMalloc_Internal_GetHeapPartitioning()) {
-    GTEST_SKIP() << "Heap partitioning is not compiled in.";
+  if (MallocExtension::GetNumericProperty(
+          "tcmalloc.security_partitioning_active")
+          .value_or(0) == 0) {
+    GTEST_SKIP() << "security partition not active";
   }
   const auto& classes = kSizeClasses.classes;
   std::vector<size_t> allowed_alloc_size;

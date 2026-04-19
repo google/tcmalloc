@@ -1290,7 +1290,10 @@ static bool IsHot(uint8_t label,
   // allocations as hot to avoid mixing pointer-containing and
   // pointerless allocations in the same cold partition.
   return static_cast<tcmalloc::hot_cold_t>(label) >= threshold ||
-         (TCMalloc_Internal_GetHeapPartitioning() && std::is_same_v<T, char*>);
+         (MallocExtension::GetNumericProperty(
+              "tcmalloc.security_partitioning_active")
+              .value_or(0) &&
+          std::is_same_v<T, char*>);
 }
 
 TYPED_TEST(HotColdTest, HotColdNew) {

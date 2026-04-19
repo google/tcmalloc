@@ -17,7 +17,6 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/memory_tag.h"
-#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 
 using ::tcmalloc::tcmalloc_internal::GetMemoryTag;
@@ -32,7 +31,6 @@ int main() {
   void* ptr_0 = __alloc_token_0_malloc(8);
   void* ptr_1 = __alloc_token_1_malloc(8);
 
-  bool heap_partitioning = TCMalloc_Internal_GetHeapPartitioning();
   bool security_partitioning = tcmalloc::MallocExtension::GetNumericProperty(
                                    "tcmalloc.security_partitioning_active")
                                    .value_or(0);
@@ -40,7 +38,6 @@ int main() {
   absl::string_view tag_0 = MemoryTagToLabel(GetMemoryTag(ptr_0));
   absl::string_view tag_1 = MemoryTagToLabel(GetMemoryTag(ptr_1));
 
-  absl::PrintF("heap_partitioning:%d\n", heap_partitioning);
   absl::PrintF("security_partitioning:%d\n", security_partitioning);
   absl::PrintF("ptr_0_tag:%s\n", tag_0);
   absl::PrintF("ptr_1_tag:%s\n", tag_1);

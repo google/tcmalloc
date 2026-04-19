@@ -651,10 +651,6 @@ void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {
       v, std::memory_order_relaxed);
 }
 
-bool TCMalloc_Internal_GetHeapPartitioning() {
-  return Parameters::heap_partitioning();
-}
-
 bool TCMalloc_Internal_GetEnableUnfilteredCollapse() {
   return Parameters::enable_unfiltered_collapse() ==
          tcmalloc::tcmalloc_internal::EnableUnfilteredCollapse::kEnabled;
