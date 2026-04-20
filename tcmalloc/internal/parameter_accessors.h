@@ -80,10 +80,6 @@ ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetProfileSamplingInterval(
     int64_t v);
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackgroundProcessActionsEnabled(
-    bool v);
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackgroundProcessSleepInterval(
-    absl::Duration v);
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration v);
@@ -99,16 +95,7 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(
     bool v);
-ABSL_ATTRIBUTE_WEAK double
-TCMalloc_Internal_GetPerCpuCachesDynamicSlabGrowThreshold();
-ABSL_ATTRIBUTE_WEAK void
-TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(double v);
-ABSL_ATTRIBUTE_WEAK double
-TCMalloc_Internal_GetPerCpuCachesDynamicSlabShrinkThreshold();
-ABSL_ATTRIBUTE_WEAK void
-TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseFree();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseFree(bool v);
+
 ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::MadvisePreference
 TCMalloc_Internal_GetMadvise();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadvise(

@@ -173,16 +173,10 @@ class Parameters {
     return per_cpu_caches_dynamic_slab_grow_threshold_.load(
         std::memory_order_relaxed);
   }
-  static void set_per_cpu_caches_dynamic_slab_grow_threshold(double value) {
-    TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(value);
-  }
 
   static double per_cpu_caches_dynamic_slab_shrink_threshold() {
     return per_cpu_caches_dynamic_slab_shrink_threshold_.load(
         std::memory_order_relaxed);
-  }
-  static void set_per_cpu_caches_dynamic_slab_shrink_threshold(double value) {
-    TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
 
   static bool heap_partitioning();
@@ -200,6 +194,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
   friend void ::TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v);
+  friend void ::TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(
       bool v);
   friend void ::TCMalloc_Internal_SetProfileSamplingInterval(int64_t v);
@@ -209,10 +204,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
       absl::Duration v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v);
-  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(
-      double v);
-  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(
-      double v);
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
       absl::string_view s);

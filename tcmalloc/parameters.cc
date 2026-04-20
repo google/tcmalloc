@@ -381,7 +381,8 @@ bool MallocExtension_Internal_GetBackgroundProcessActionsEnabled() {
 }
 
 void MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value) {
-  TCMalloc_Internal_SetBackgroundProcessActionsEnabled(value);
+  tcmalloc::tcmalloc_internal::background_process_actions_enabled_ptr().store(
+      value, std::memory_order_relaxed);
 }
 
 void MallocExtension_Internal_GetBackgroundProcessSleepInterval(
@@ -391,7 +392,8 @@ void MallocExtension_Internal_GetBackgroundProcessSleepInterval(
 
 void MallocExtension_Internal_SetBackgroundProcessSleepInterval(
     absl::Duration value) {
-  TCMalloc_Internal_SetBackgroundProcessSleepInterval(value);
+  tcmalloc::tcmalloc_internal::background_process_sleep_interval_ns().store(
+      absl::ToInt64Nanoseconds(value), std::memory_order_relaxed);
 }
 
 void MallocExtension_Internal_GetSkipSubreleaseShortInterval(
@@ -555,16 +557,6 @@ void TCMalloc_Internal_SetProfileSamplingInterval(int64_t v) {
   Parameters::profile_sampling_interval_.store(v, std::memory_order_relaxed);
 }
 
-void TCMalloc_Internal_SetBackgroundProcessActionsEnabled(bool v) {
-  tcmalloc::tcmalloc_internal::background_process_actions_enabled_ptr().store(
-      v, std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetBackgroundProcessSleepInterval(absl::Duration v) {
-  tcmalloc::tcmalloc_internal::background_process_sleep_interval_ns().store(
-      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
-}
-
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration* v) {
   *v = Parameters::filler_skip_subrelease_short_interval();
@@ -598,23 +590,6 @@ void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
   Parameters::per_cpu_caches_dynamic_slab_.store(v, std::memory_order_relaxed);
 }
 
-double TCMalloc_Internal_GetPerCpuCachesDynamicSlabGrowThreshold() {
-  return Parameters::per_cpu_caches_dynamic_slab_grow_threshold();
-}
-
-void TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(double v) {
-  Parameters::per_cpu_caches_dynamic_slab_grow_threshold_.store(
-      v, std::memory_order_relaxed);
-}
-
-double TCMalloc_Internal_GetPerCpuCachesDynamicSlabShrinkThreshold() {
-  return Parameters::per_cpu_caches_dynamic_slab_shrink_threshold();
-}
-
-void TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v) {
-  Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_.store(
-      v, std::memory_order_relaxed);
-}
 
 uint8_t TCMalloc_Internal_GetMinHotAccessHint() {
   return static_cast<uint8_t>(Parameters::min_hot_access_hint());
