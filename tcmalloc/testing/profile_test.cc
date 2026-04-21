@@ -174,9 +174,12 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   // Disable GWP-ASan, since it allocates different sizes than normal samples.
   MallocExtension::SetGuardedSamplingInterval(-1);
 
-  // Allocate about 512 MiB each of various sizes. For _some_ but not all
-  // sizes, delete it as we go--it shouldn't matter for the sample count.
-  static const size_t kTotalPerSize = 512 * 1024 * 1024;
+  constexpr size_t kSamplingRate = 512 * 1024;
+  // Increase sampling rate to decrease flakiness.
+  ScopedProfileSamplingInterval ps(kSamplingRate);
+
+  // Allocate enough memory to get a stable number of samples (~1000 per size).
+  const size_t kTotalPerSize = 1000 * kSamplingRate;
 
   // (object size, object alignment, keep objects)
   struct Requests {
