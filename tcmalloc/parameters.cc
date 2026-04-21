@@ -270,7 +270,7 @@ static std::atomic<bool>& heap_partitioning_enabled() {
       v.store(true, std::memory_order_relaxed);
     }
     if (hp != nullptr) {
-      bool off = std::strcmp(hp, "false") == 0 || std::strcmp(hp, "0") == 0;
+      bool off = strcasecmp(hp, "false") == 0 || std::strcmp(hp, "0") == 0;
       v.store(!off, std::memory_order_relaxed);
     }
   });
