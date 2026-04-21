@@ -39,9 +39,9 @@ class ThreadManager {
       threads_.emplace_back(
           [this, func, &started](int thread_id) {
             started.DecrementCount();
-            while (!shutdown_.load()) {
+            do {  // ensure we run once
               func(thread_id);
-            }
+            } while (!shutdown_.load());
           },
           i);
     }
