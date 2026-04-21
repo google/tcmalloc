@@ -884,13 +884,15 @@ TEST(TCMallocTest, FreeSizedDeathTest) {
   int err = posix_memalign(&ptr, 512, alignment);
   ASSERT_EQ(err, 0) << alignment << " " << size;
   // TODO(b/250877054): Switch to death test in sanitizers when supported.
-  if (kSanitizerPresent) {
-    // This is UB, but when sanitizers support it we will notice the test
-    // failure and fix it.
-    free_sized(ptr, size);
-  } else {
-    EXPECT_DEATH(free_sized(ptr, size), "");
-  }
+  // Note: ASan does support it.
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+  // This is UB, but when sanitizers support it we will notice the test
+  // failure and fix it.
+  free_sized(ptr, size);
+#else
+  EXPECT_DEATH(free_sized(ptr, size), "");
+#endif
 }
 #endif
 
@@ -917,13 +919,15 @@ TEST(TCMallocTest, FreeAlignedSizedDeathTest) {
   void* ptr = malloc(size);
   ASSERT_NE(ptr, nullptr) << alignment << " " << size;
   // TODO(b/250877054): Switch to death test in sanitizers when supported.
-  if (kSanitizerPresent) {
-    // This is UB, but when sanitizers support it we will notice the test
-    // failure and fix it.
-    free_aligned_sized(ptr, size, alignment);
-  } else {
-    EXPECT_DEATH(free_aligned_sized(ptr, size, alignment), "");
-  }
+  // Note: ASan does support it.
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+  // This is UB, but when sanitizers support it we will notice the test
+  // failure and fix it.
+  free_aligned_sized(ptr, size, alignment);
+#else
+  EXPECT_DEATH(free_aligned_sized(ptr, size, alignment), "");
+#endif
 }
 #endif
 
