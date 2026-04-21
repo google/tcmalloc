@@ -29,7 +29,7 @@ struct SpanStats {
   size_t num_spans_returned = 0;
   size_t obj_capacity = 0;  // cap of number of objs that could be live anywhere
 
-  size_t num_live_spans() {
+  size_t num_live_spans() const {
     if (num_spans_requested < num_spans_returned) {
       return 0;
     }
@@ -37,7 +37,7 @@ struct SpanStats {
   }
 
   // Probability that a span will be returned
-  double prob_returned() {
+  double prob_returned() const {
     if (ABSL_PREDICT_FALSE(num_spans_requested == 0)) return 0.0;
     return static_cast<double>(num_spans_returned) / num_spans_requested;
   }

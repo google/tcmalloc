@@ -1206,7 +1206,7 @@ TEST_P(TcmallocSizedNewTest, SizedOperatorNew) {
   }
 }
 
-TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNew) {
+TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNewDeathTest) {
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
   if (IsNothrow()) {
     sized_ptr_t res = New(kBadSize);
@@ -1795,7 +1795,7 @@ TEST(TCMalloc, malloc_info) {
   free(buf);
 }
 
-TEST(Check, CustomTypes) {
+TEST(Check, CustomTypesDeathTest) {
   Length len1(1), len2(2);
   TC_CHECK_NE(len1, len2);
   EXPECT_DEATH(
