@@ -28,6 +28,7 @@ void* __alloc_token_1_malloc(size_t) noexcept;
 }
 
 int main() {
+  tcmalloc::MallocExtension::SetProfileSamplingInterval(-1);
   void* ptr_0 = __alloc_token_0_malloc(8);
   void* ptr_1 = __alloc_token_1_malloc(8);
 
