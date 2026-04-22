@@ -23,8 +23,6 @@
 
 #include "gtest/gtest.h"
 #include "absl/strings/numbers.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
@@ -110,8 +108,7 @@ TEST(ReclaimTest, ReclaimWorks) {
 
   mgr.Stop();
 
-  // All CPUs (that we have access to...) should have full percpu caches.
-  // Pick one.
+  // Re-read stats now that threads have stopped to get a stable baseline.
   GetMallocStats(&before);
   int cpu = -1;
   ssize_t used_bytes = -1;
@@ -120,12 +117,9 @@ TEST(ReclaimTest, ReclaimWorks) {
     if (used_bytes > 0) {
       cpu = i;
       break;
-    } else if (used_bytes < -1) {
-      // this is the only way we can find out --per_cpu was requested, but
-      // not available: no matching line in Stats.
-      return;
     }
   }
+
   // should find at least one non-empty cpu...
   ASSERT_NE(-1, cpu);
   uint64_t released_bytes = MallocExtension::ReleaseCpuMemory(cpu);
