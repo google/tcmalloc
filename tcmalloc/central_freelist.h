@@ -586,9 +586,9 @@ template <class Forwarder>
 void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
   // Size classes with 1 object per span skip CentralFreeList entirely.
   if (objects_per_span_ > 1) {
+    const uint64_t now = forwarder_.clock_now();
+    const double frequency = forwarder_.clock_frequency();
     for (Span* span : spans) {
-      uint64_t now = forwarder_.clock_now();
-      double frequency = forwarder_.clock_frequency();
       const double elapsed = std::max<double>(now - span->AllocTime(), 0);
       const absl::Duration lifetime =
           absl::Milliseconds(elapsed * 1000 / frequency);
