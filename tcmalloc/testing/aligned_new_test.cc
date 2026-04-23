@@ -28,6 +28,7 @@
 #include "absl/debugging/leak_check.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
@@ -73,7 +74,12 @@ class AlignedNew : public ::testing::Test {
 TYPED_TEST_SUITE_P(AlignedNew);
 
 TYPED_TEST_P(AlignedNew, AlignedTest) {
-  const int kAllocations = 1 << 22;
+  // Increase sampling rate to reduce total number of allocations we need for
+  // test speed.
+  ScopedProfileSamplingInterval ps(512 * 1024);
+
+  const int kAllocations =
+      32 * MallocExtension::GetProfileSamplingInterval() / sizeof(TypeParam);
   this->ptrs.reserve(kAllocations);
 
   auto token = MallocExtension::StartAllocationProfiling();

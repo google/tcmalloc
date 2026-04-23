@@ -498,6 +498,7 @@ create_tcmalloc_testsuite(
             }),
     linkstatic = 1,
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "@com_github_google_benchmark//:benchmark",
