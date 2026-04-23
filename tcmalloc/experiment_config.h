@@ -36,7 +36,7 @@ enum class Experiment : int {
   TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE,  // TODO: b/450368905 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
   TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE,
-  TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING,  // TODO: b/319868990 - Complete experiment.
+  TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING, // TODO: b/319868990 - Complete experiment.
   // go/keep-sorted end
   kMaxExperimentID,
   // clang-format on
