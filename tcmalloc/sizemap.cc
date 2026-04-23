@@ -91,7 +91,7 @@ bool SizeMap::CheckAssumptions() {
   return !failed;
 }
 
-bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
+bool SizeMap::IsValidSizeClass(size_t size, Length pages,
                                size_t num_objects_to_move) {
   if (size == 0) {
     TC_LOG("size class is 0");
@@ -109,15 +109,15 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     TC_LOG("%v not aligned properly %v", size, alignment);
     return false;
   }
-  if (pages == 0) {
+  if (pages == Length(0)) {
     TC_LOG("pages should not be 0");
     return false;
   }
-  if (pages > 32) {
+  if (pages > Length(32)) {
     TC_LOG("pages %v limited to 32", pages);
     return false;
   }
-  const size_t objects_per_span = Length(pages).in_bytes() / size;
+  const size_t objects_per_span = pages.in_bytes() / size;
   if (objects_per_span < 1) {
     TC_LOG("each span must have at least one object");
     return false;
@@ -201,7 +201,7 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 
   for (int c = 1; c < num_classes; c++) {
     size_t class_size = size_classes[c].size;
-    size_t pages = size_classes[c].pages;
+    Length pages = Length(size_classes[c].pages);
     size_t num_objects_to_move = size_classes[c].num_to_move;
     // Each size class must be larger than the previous size class.
     if (class_size <= size_classes[c - 1].size) {
@@ -346,8 +346,9 @@ void TCMalloc_Internal_GetSizeClasses(
     (*size_classes)[i].size =
         tcmalloc::tcmalloc_internal::tc_globals.sizemap().class_to_size(i);
     (*size_classes)[i].span_size_in_bytes =
-        tcmalloc::tcmalloc_internal::tc_globals.sizemap().class_to_pages(i) *
-        tcmalloc::tcmalloc_internal::kPageSize;
+        tcmalloc::tcmalloc_internal::tc_globals.sizemap()
+            .class_to_pages(i)
+            .in_bytes();
     (*size_classes)[i].num_objects_to_move =
         tcmalloc::tcmalloc_internal::tc_globals.sizemap().num_objects_to_move(
             i);

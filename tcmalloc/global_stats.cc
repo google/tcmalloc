@@ -471,8 +471,9 @@ void DumpStats(Printer& out, int level) {
           // clang-format on
           size_class, tc_globals.sizemap().class_to_size(size_class),
           class_count[size_class], class_bytes / MiB, cumulative / MiB,
-          span_stats[size_class].num_live_spans() *
-              tc_globals.sizemap().class_to_pages(size_class),
+          (span_stats[size_class].num_live_spans() *
+           tc_globals.sizemap().class_to_pages(size_class))
+              .raw_num(),
           span_stats[size_class].num_spans_returned,
           span_stats[size_class].num_spans_requested,
           span_stats[size_class].prob_returned(),

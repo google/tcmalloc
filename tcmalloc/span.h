@@ -235,7 +235,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   void Prefetch();
 
   // IsValidSizeClass verifies size class parameters from the Span perspective.
-  static bool IsValidSizeClass(size_t size, size_t pages);
+  static bool IsValidSizeClass(size_t size, Length pages);
 
   // For bitmap'd spans conversion from an offset to an index is performed
   // by multiplying by the scaled reciprocal of the object size.
@@ -631,13 +631,13 @@ inline bool Span::FreelistEmpty(size_t size) const {
 
 inline void Span::Prefetch() { PrefetchT0(this); }
 
-inline bool Span::IsValidSizeClass(size_t size, size_t pages) {
-  if (Length(pages) > kLargeSpanLength) return false;
+inline bool Span::IsValidSizeClass(size_t size, Length pages) {
+  if (pages > kLargeSpanLength) return false;
   if (Span::UseBitmapForSize(size)) {
-    size_t objects = Length(pages).in_bytes() / size;
+    size_t objects = pages.in_bytes() / size;
     return objects <= kBitmapSize;
   } else {
-    return pages == 1;
+    return pages == Length(1);
   }
 }
 

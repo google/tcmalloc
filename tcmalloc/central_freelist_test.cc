@@ -95,7 +95,7 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
       GTEST_SKIP() << "Skipping empty size class.";
     }
 
-    pages_per_span_ = Length(tc_globals.sizemap().class_to_pages(size_class_));
+    pages_per_span_ = tc_globals.sizemap().class_to_pages(size_class_);
     batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
     objects_per_span_ = pages_per_span_.in_bytes() / object_size_;
     size_reciprocal_ = Span::CalcReciprocal(object_size_);
@@ -348,7 +348,8 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
   absl::FixedArray<void*> batch(e.batch_size());
@@ -405,7 +406,8 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   constexpr size_t kNumSpans = 10;
 
   // Request kNumSpans spans.
@@ -512,7 +514,8 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
 
   // Make sure that we allocate up to kObjectsPerSpan objects in both the span
   // prioritization states.
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   // Try to fetch sufficiently large number of objects at startup.
   const int num_objects_to_fetch = kMaxObjectsToMove;
   std::vector<void*> objects(num_objects_to_fetch, nullptr);
@@ -588,7 +591,8 @@ TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   if (e.objects_per_span() <= 2 * kNumLists) {
     GTEST_SKIP()
         << "Skipping test as one hot encoding used for few object spans.";
@@ -606,7 +610,8 @@ TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   if (e.objects_per_span() > 2 * kNumLists) {
     GTEST_SKIP() << "Skipping test as one hot encoding not required.";
   }
@@ -629,7 +634,8 @@ TEST_P(CentralFreeListTest, SpanPriority) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
 
   // If the number of objects per span is less than 2, we do not use more than
   // one nonempty_ lists. So, we can not prioritize the spans based on how many
@@ -818,7 +824,8 @@ TEST_P(CentralFreeListTest, HookTracing) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
 
   static int insert_count = 0;
   static int remove_count = 0;
@@ -853,7 +860,8 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   // Skip the check for objects_per_span = 1 since such spans skip most of the
   // central freelist's logic.
   if (e.objects_per_span() == 1) {
@@ -891,7 +899,8 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span == 1) return;
@@ -967,7 +976,8 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   std::vector<void*> all_objects;
   constexpr size_t kNumSpans = 10;
 
@@ -1053,7 +1063,8 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   ASSERT_GE(e.objects_per_span(), 1);
   auto test_function = [&](size_t num_objects,
                            AccessDensityPrediction density) {
@@ -1085,7 +1096,8 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
   // This test is primarily exercising Span itself to model how tcmalloc.cc uses
   // it, but this gives us a self-contained (and sanitizable) implementation of
   // the CentralFreeList.
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
   // Allocate one object from the CFL to allocate a span.
   void* initial;
   int got = e.central_freelist().RemoveRange(absl::MakeSpan(&initial, 1));
@@ -1123,7 +1135,8 @@ TEST_P(CentralFreeListTest, SpanLifetimeWithLongLivedSpans) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span < 3) return;
@@ -1218,7 +1231,8 @@ TEST_P(CentralFreeListTest, LongLivedSpansMovedHistogram) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span < 2) return;
@@ -1299,7 +1313,8 @@ TEST_P(CentralFreeListTest, ParallelHandleLongLivedSpans) {
 #endif
 
   std::atomic<bool> done(false);
-  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  TypeParam e(GetParam().size, Length(GetParam().pages),
+              GetParam().num_to_move);
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span < 2) return;

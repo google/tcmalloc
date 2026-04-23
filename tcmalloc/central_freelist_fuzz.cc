@@ -31,6 +31,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_static_forwarder.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span_stats.h"
 
@@ -41,6 +42,10 @@ namespace {
 using CentralFreeList = central_freelist_internal::CentralFreeList<
     tcmalloc_internal::MockStaticForwarder>;
 using CentralFreelistEnv = FakeCentralFreeListEnvironment<CentralFreeList>;
+
+auto AnyLength() {
+  return fuzztest::ConstructorOf<Length>(fuzztest::Arbitrary<size_t>());
+}
 
 struct Allocate {
   uint8_t num_objects;
@@ -111,7 +116,7 @@ struct Instruction {
 template <class>
 inline constexpr bool always_false_v = false;
 
-void FuzzCFL(size_t object_size, size_t num_pages, size_t num_objects_to_move,
+void FuzzCFL(size_t object_size, Length num_pages, size_t num_objects_to_move,
              const std::vector<Instruction>& instructions) {
   // TODO(271282540): Add support for multiple size classes for fuzzing.
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_objects_to_move)) {
@@ -215,8 +220,8 @@ auto GetInstructionDomain() {
 }
 
 FUZZ_TEST(CentralFreeListTest, FuzzCFL)
-    .WithDomains(fuzztest::InRange<size_t>(0, kMaxSize),
-                 fuzztest::Arbitrary<size_t>(), fuzztest::Arbitrary<size_t>(),
+    .WithDomains(fuzztest::InRange<size_t>(0, kMaxSize), AnyLength(),
+                 fuzztest::Arbitrary<size_t>(),
                  fuzztest::VectorOf(GetInstructionDomain()));
 
 }  // namespace

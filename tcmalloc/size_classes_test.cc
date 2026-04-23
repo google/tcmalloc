@@ -87,7 +87,7 @@ TEST_F(RunTimeSizeClassesTest, SpanPages) {
       continue;
     }
     // A span of class_to_pages(c) must be able to hold at least one object.
-    EXPECT_GE(Length(m_.class_to_pages(c)).in_bytes(), max_size_in_class);
+    EXPECT_GE(m_.class_to_pages(c).in_bytes(), max_size_in_class);
   }
 }
 
@@ -116,7 +116,7 @@ TEST_F(RunTimeSizeClassesTest, ValidateCorrectScalingByReciprocal) {
     }
     size_t reciprocal = SpanTestPeer::CalcReciprocal(max_size_in_class);
     const size_t objects_per_span =
-        Length(m_.class_to_pages(c)).in_bytes() / m_.class_to_size(c);
+        m_.class_to_pages(c).in_bytes() / m_.class_to_size(c);
     for (int index = 0; index < objects_per_span; index++) {
       // Calculate the address of the object.
       uintptr_t address = index * max_size_in_class;
@@ -181,7 +181,7 @@ TEST_F(RunTimeSizeClassesTest, WastedSpan) {
     if (max_size_in_class == 0) {
       continue;
     }
-    const size_t span_size = kPageSize * m_.class_to_pages(c);
+    const size_t span_size = m_.class_to_pages(c).in_bytes();
     const size_t alignment = Alignment(max_size_in_class);
     const size_t n_objects = span_size / max_size_in_class;
     const size_t waste = span_size - n_objects * max_size_in_class;
@@ -225,7 +225,7 @@ TEST_F(RunTimeSizeClassesTest, NumToMove) {
 // This allows us to simplify the HugePageFiller's logic for many-object spans.
 TEST_F(RunTimeSizeClassesTest, DenseSpansAreOnePage) {
   for (int c = 1; c < kNumClasses; c++) {
-    const Length in_pages = Length(m_.class_to_pages(c));
+    const Length in_pages = m_.class_to_pages(c);
     const size_t span_size = in_pages.in_bytes();
     const size_t max_size_in_class = m_.class_to_size(c);
     if (max_size_in_class == 0) {
@@ -463,7 +463,7 @@ TEST(SizeMapTest, ValidateConditionsForSeparateAllocsInHugePageFiller) {
 
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     size_t object_size = m.class_to_size(size_class);
-    Length pages_per_span = Length(m.class_to_pages(size_class));
+    Length pages_per_span = m.class_to_pages(size_class);
     size_t objects_per_span =
         pages_per_span.in_bytes() / (object_size > 0 ? object_size : 1);
     EXPECT_TRUE(pages_per_span.in_bytes() <= kHugePageSize / 2 ||
@@ -477,7 +477,7 @@ TEST(SizeMapTest, Preinit) {
 
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     EXPECT_EQ(m.class_to_size(size_class), 0) << size_class;
-    EXPECT_EQ(m.class_to_pages(size_class), 0) << size_class;
+    EXPECT_EQ(m.class_to_pages(size_class), Length(0)) << size_class;
     EXPECT_EQ(m.num_objects_to_move(size_class), 0) << size_class;
   }
 }

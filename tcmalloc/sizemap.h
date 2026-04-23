@@ -30,6 +30,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/size_class_info.h"
+#include "tcmalloc/pages.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -280,10 +281,10 @@ class SizeMap {
   }
 
   // Mapping from size class to number of pages to allocate at a time
-  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_pages(
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline Length class_to_pages(
       size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
-    return class_to_pages_[size_class];
+    return Length(class_to_pages_[size_class]);
   }
 
   // Returns the inclusive range of possible sizes for a given size class.
@@ -321,7 +322,7 @@ class SizeMap {
     return {cold_sizes_, cold_sizes_count_};
   }
 
-  [[nodiscard]] static bool IsValidSizeClass(size_t size, size_t num_pages,
+  [[nodiscard]] static bool IsValidSizeClass(size_t size, Length num_pages,
                                              size_t num_objects_to_move);
 };
 

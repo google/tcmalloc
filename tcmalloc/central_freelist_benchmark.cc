@@ -23,6 +23,7 @@
 #include "benchmark/benchmark.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/mock_static_forwarder.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
 
@@ -42,7 +43,7 @@ void BM_Populate(benchmark::State& state) {
   size_t object_size = state.range(0);
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
-  const int pages = tc_globals.sizemap().class_to_pages(size_class);
+  const Length pages = tc_globals.sizemap().class_to_pages(size_class);
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;
@@ -91,7 +92,7 @@ void BM_Multithreaded(benchmark::State& state) {
   size_t object_size = state.range(0);
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
-  const int pages = tc_globals.sizemap().class_to_pages(size_class);
+  const Length pages = tc_globals.sizemap().class_to_pages(size_class);
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
 
   static Env* env;
@@ -125,7 +126,7 @@ void BM_MixAndReturn(benchmark::State& state) {
   size_t object_size = state.range(0);
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
-  const int pages = tc_globals.sizemap().class_to_pages(size_class);
+  const Length pages = tc_globals.sizemap().class_to_pages(size_class);
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;
@@ -177,7 +178,7 @@ void BM_SpanReuse(benchmark::State& state) {
   size_t object_size = state.range(0);
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
-  const int pages = tc_globals.sizemap().class_to_pages(size_class);
+  const Length pages = tc_globals.sizemap().class_to_pages(size_class);
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   const int num_batches = num_objects / batch_size;

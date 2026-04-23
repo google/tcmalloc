@@ -41,10 +41,10 @@ using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
 class FakeStaticForwarder {
  public:
   FakeStaticForwarder() : class_size_(0), pages_(), page_size_(kPageSize) {}
-  void Init(size_t class_size, size_t pages, size_t num_objects_to_move,
+  void Init(size_t class_size, Length pages, size_t num_objects_to_move,
             size_t page_size = kPageSize) {
     class_size_ = class_size;
-    pages_ = Length(pages);
+    pages_ = pages;
     num_objects_to_move_ = num_objects_to_move;
     clock_ = 1234;
     page_size_ = page_size;
@@ -161,7 +161,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
       return FakeStaticForwarder::num_objects_to_move();
     });
     ON_CALL(*this, Init)
-        .WillByDefault([this](size_t size_class, size_t pages,
+        .WillByDefault([this](size_t size_class, Length pages,
                               size_t num_objects_to_move, size_t page_size) {
           FakeStaticForwarder::Init(size_class, pages, num_objects_to_move,
                                     page_size);
@@ -190,7 +190,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(Length, class_to_pages, (int size_class));
   MOCK_METHOD(size_t, num_objects_to_move, ());
   MOCK_METHOD(void, Init,
-              (size_t class_size, size_t pages, size_t num_objects_to_move,
+              (size_t class_size, Length pages, size_t num_objects_to_move,
                size_t page_size));
   MOCK_METHOD(void, MapObjectsToSpans,
               (absl::Span<void*> batch, Span** spans, int expected_size_class));
@@ -222,7 +222,7 @@ class FakeCentralFreeListEnvironment {
   }
   size_t batch_size() { return forwarder().num_objects_to_move(); }
 
-  explicit FakeCentralFreeListEnvironment(size_t class_size, size_t pages,
+  explicit FakeCentralFreeListEnvironment(size_t class_size, Length pages,
                                           size_t num_objects_to_move,
                                           size_t page_size = kPageSize) {
     forwarder().Init(class_size, pages, num_objects_to_move, page_size);

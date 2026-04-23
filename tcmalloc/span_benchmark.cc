@@ -41,7 +41,7 @@ class RawSpan {
   void Init(size_t size_class) {
     size_t size = tc_globals.sizemap().class_to_size(size_class);
     TC_CHECK_GT(size, 0);
-    auto npages = Length(tc_globals.sizemap().class_to_pages(size_class));
+    auto npages = tc_globals.sizemap().class_to_pages(size_class);
     size_t objects_per_span = npages.in_bytes() / size;
 
     void* mem;
@@ -107,9 +107,9 @@ void BM_single_span_fulldrain(benchmark::State& state) {
     return;
   }
   uint32_t reciprocal = Span::CalcReciprocal(size);
-  size_t npages = tc_globals.sizemap().class_to_pages(size_class);
+  Length npages = tc_globals.sizemap().class_to_pages(size_class);
   size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  size_t objects_per_span = npages * kPageSize / size;
+  size_t objects_per_span = npages.in_bytes() / size;
   RawSpan raw_span;
   raw_span.Init(size_class);
   Span& span = raw_span.span();

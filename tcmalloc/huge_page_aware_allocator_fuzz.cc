@@ -399,8 +399,7 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
                 // TODO(b/283843066): Revisit this once we have fluid
                 // partitioning.
                 density = AccessDensityPrediction::kSparse;
-              } else if (!SizeMap::IsValidSizeClass(object_size,
-                                                    length.raw_num(),
+              } else if (!SizeMap::IsValidSizeClass(object_size, length,
                                                     kMinObjectsToMove)) {
                 // This is an invalid size class, so skip it.
                 return;

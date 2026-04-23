@@ -264,7 +264,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   };
 
   // IsValidSizeClass verifies size class parameters from the HPAA perspective.
-  static bool IsValidSizeClass(size_t size, size_t pages);
+  static bool IsValidSizeClass(size_t size, Length pages);
 
   Forwarder& forwarder() { return forwarder_; }
 
@@ -1251,11 +1251,11 @@ inline PageReleaseStats HugePageAwareAllocator<Forwarder>::GetReleaseStats()
 
 template <class Forwarder>
 bool HugePageAwareAllocator<Forwarder>::IsValidSizeClass(size_t size,
-                                                         size_t pages) {
+                                                         Length pages) {
   // We assume that dense spans won't be donated.
-  size_t objects = Length(pages).in_bytes() / size;
+  size_t objects = pages.in_bytes() / size;
   if (objects > central_freelist_internal::kFewObjectsAllocMaxLimit &&
-      Length(pages) > kSmallAllocPages) {
+      pages > kSmallAllocPages) {
     return false;
   }
   return true;
