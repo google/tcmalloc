@@ -61,10 +61,17 @@ TEST(AllocationSampleTest, TokenAbuse) {
   // Repeated Claims should happily return null.
   auto profile = std::move(token).Stop();
   int count = 0;
-  profile.Iterate([&](const Profile::Sample&) { count++; });
+  bool found_large_alloc = false;
+  profile.Iterate([&](const Profile::Sample& sample) {
+    count++;
+    if (sample.requested_size == 512 * 1024 * 1024) {
+      found_large_alloc = true;
+    }
+  });
 
   if (!kSanitizerPresent) {
-    EXPECT_EQ(count, 1);
+    EXPECT_GE(count, 1);
+    EXPECT_TRUE(found_large_alloc);
   }
 
   auto profile2 = std::move(token).Stop();  // NOLINT: use-after-move intended
