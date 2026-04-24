@@ -1626,6 +1626,13 @@ cc_library(
     deps = ["@com_google_absl//absl/base:core_headers"],
 )
 
+cc_binary(
+    name = "libtcmalloc.so",
+    deps = [":tcmalloc"],
+    linkshared = 1,
+    copts = TCMALLOC_DEFAULT_COPTS,
+)
+
 # Expose internals to privileged external repositories.
 package_group(
     name = "friends",
