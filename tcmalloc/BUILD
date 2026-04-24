@@ -413,7 +413,7 @@ cc_library(
     ],
     copts = ["-DTCMALLOC_INTERNAL_32K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//visibility:public"],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_large_pages",
@@ -438,7 +438,7 @@ cc_library(
     ],
     copts = ["-DTCMALLOC_INTERNAL_256K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//visibility:public"],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_256k_pages",
