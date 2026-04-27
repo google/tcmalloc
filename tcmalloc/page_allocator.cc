@@ -95,7 +95,7 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
   if (limits_[kHard] < backed) ++limit_hits_[kHard];
 
   const size_t overage = backed - limits_[kSoft];
-  const Length pages = LengthFromBytes(overage + kPageSize - 1);
+  const Length pages = BytesToLengthCeil(overage);
   if (ShrinkHardBy(pages, kSoft)) {
     ++successful_shrinks_after_limit_hit_[kSoft];
     return;
@@ -112,7 +112,7 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
       return;
     }
     const size_t overage = backed - limits_[kHard];
-    const Length pages = LengthFromBytes(overage + kPageSize - 1);
+    const Length pages = BytesToLengthCeil(overage);
     if (ShrinkHardBy(pages, kHard)) {
       ++successful_shrinks_after_limit_hit_[kHard];
       TC_ASSERT_EQ(successful_shrinks_after_limit_hit_[kHard],
