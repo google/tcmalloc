@@ -78,9 +78,6 @@ TEST(PeakHeapProfilingTest, DISABLED_PeakHeapTracking) {
   // make a large allocation to force a new peak heap sample
   // (total live: 50MiB)
   void* first = ::operator new(50 << 20);
-  // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
-  benchmark::DoNotOptimize(first);
   int64_t expected_first = start_peak_sz + (50 << 20);
   auto [peak_after_first, time_after_first] =
       ProfileSizeAndTime(ProfileType::kPeakHeap);

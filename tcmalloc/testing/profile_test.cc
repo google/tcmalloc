@@ -54,9 +54,6 @@ namespace {
 TEST(AllocationSampleTest, TokenAbuse) {
   auto token = MallocExtension::StartAllocationProfiling();
   void* ptr = ::operator new(512 * 1024 * 1024);
-  // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
-  benchmark::DoNotOptimize(ptr);
   ::operator delete(ptr);
   // Repeated Claims should happily return null.
   auto profile = std::move(token).Stop();

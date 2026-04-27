@@ -118,9 +118,6 @@ TEST(Basic, InvokedTest) {
 
   // An allocation size that is likely to trigger the system allocator.
   void* ptr = ::operator new(kMinMmapAlloc);
-  // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
-  benchmark::DoNotOptimize(ptr);
   ::operator delete(ptr);
 
   // Make sure that our allocator was invoked.

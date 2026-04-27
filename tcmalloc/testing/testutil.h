@@ -95,18 +95,12 @@ class ScopedProfileSamplingInterval {
     // Reset the per-thread sampler.  It may have a very large gap if sampling
     // had been disabled.
     void* ptr = ::operator new(256 * 1024 * 1024);
-    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
-    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
-    benchmark::DoNotOptimize(ptr);
     ::operator delete(ptr);
   }
 
   ~ScopedProfileSamplingInterval() {
     MallocExtension::SetProfileSamplingInterval(previous_);
     void* ptr = ::operator new(256 * 1024 * 1024);
-    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
-    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
-    benchmark::DoNotOptimize(ptr);
     ::operator delete(ptr);
   }
 

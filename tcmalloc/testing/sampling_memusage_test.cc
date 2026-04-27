@@ -48,9 +48,6 @@ void SetSamplingInterval(int64_t val) {
   // We do this to reset the per-thread sampler - it may have a
   // very large gap put in here if sampling had been disabled.
   void* ptr = ::operator new(1024 * 1024 * 1024);
-  // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
-  benchmark::DoNotOptimize(ptr);
   ::operator delete(ptr);
 }
 
@@ -84,9 +81,6 @@ ssize_t HeapGrowth(size_t size) {
     ScopedAffinityMask mask(cpus[0]);
 
     void* ptr = ::operator new(size);
-    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator
-    // new, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
-    benchmark::DoNotOptimize(ptr);
     ::operator delete(ptr);
 
     const size_t start_memory =
