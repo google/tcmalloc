@@ -39,8 +39,7 @@ void FuzzGetProperty(absl::string_view property) {
     return;
   }
 
-  std::map<std::string, MallocExtension::Property> properties =
-      MallocExtension::GetProperties();
+  MallocExtension::PropertyMap properties = MallocExtension::GetProperties();
   if (properties.find(std::string(property)) == properties.end()) {
     __builtin_trap();
   }

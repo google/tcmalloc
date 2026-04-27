@@ -30,8 +30,7 @@ namespace {
 // Ensure that when we allocate lots of kHugePageSize + epsilon blocks,
 // tcmalloc does not double memory consumption.
 TEST(LargeAllocSizeTest, Basic) {
-  typedef std::map<std::string, MallocExtension::Property> PropertyMap;
-  PropertyMap map = MallocExtension::GetProperties();
+  MallocExtension::PropertyMap map = MallocExtension::GetProperties();
   const size_t start_mem = map["generic.physical_memory_used"].value;
   const size_t kTotalToAllocate = 1024 << 20;
   const size_t kAllocSize =

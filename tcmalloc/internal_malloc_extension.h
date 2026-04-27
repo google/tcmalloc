@@ -94,9 +94,9 @@ MallocExtension_Internal_GetSkipSubreleaseShortInterval(absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetSkipSubreleaseLongInterval(
     absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetProperties(
-    std::map<std::string, tcmalloc::MallocExtension::Property>* ret);
+    tcmalloc::MallocExtension::PropertyMap* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetExperiments(
-    std::map<std::string, tcmalloc::MallocExtension::Property>* ret);
+    tcmalloc::MallocExtension::PropertyMap* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetStats(std::string* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMaxPerCpuCacheSize(
     int32_t value);

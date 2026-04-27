@@ -255,7 +255,7 @@ void WalkExperiments(
 }
 
 extern "C" void MallocExtension_Internal_GetExperiments(
-    std::map<std::string, MallocExtension::Property>* result) {
+    tcmalloc::MallocExtension::PropertyMap* result) {
   WalkExperiments([&](absl::string_view name, bool active) {
     (*result)[absl::StrCat("tcmalloc.experiment.", name)].value = active;
   });

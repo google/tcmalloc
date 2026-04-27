@@ -640,9 +640,8 @@ MallocExtension::Ownership MallocExtension::GetOwnership(const void* p) {
   return MallocExtension::Ownership::kUnknown;
 }
 
-std::map<std::string, MallocExtension::Property>
-MallocExtension::GetProperties() {
-  std::map<std::string, MallocExtension::Property> ret;
+MallocExtension::PropertyMap MallocExtension::GetProperties() {
+  MallocExtension::PropertyMap ret;
 #if TCMALLOC_UNDER_SANITIZERS
   // Unlike other extension points this one fills in sanitizer data before the
   // weak function is called so that the weak function can override as needed.

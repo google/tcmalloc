@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -633,7 +634,8 @@ class MallocExtension final {
   //  tcmalloc.metadata_bytes      -- Used by internal data structures
   //  tcmalloc.thread_cache_count  -- Number of thread caches in use
   //  tcmalloc.experiment.NAME     -- Experiment NAME is running if 1
-  [[nodiscard]] static std::map<std::string, Property> GetProperties();
+  using PropertyMap = std::map<std::string, Property>;
+  [[nodiscard]] static PropertyMap GetProperties();
 
   [[nodiscard]] static Profile SnapshotCurrent(tcmalloc::ProfileType type);
 

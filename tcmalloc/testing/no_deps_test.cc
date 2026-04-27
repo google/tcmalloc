@@ -114,7 +114,7 @@ int main() {
     return 0;
   }
 
-  std::map<std::string, tcmalloc::MallocExtension::Property> properties;
+  tcmalloc::MallocExtension::PropertyMap properties;
   // Run GetProperties twice.  Once to use some RAM, which will skew our stats,
   // and a second time for the actual read-out.
   MallocExtension_Internal_GetProperties(&properties);

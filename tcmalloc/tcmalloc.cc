@@ -402,7 +402,7 @@ extern "C" MallocExtension::Ownership MallocExtension_Internal_GetOwnership(
 }
 
 extern "C" void MallocExtension_Internal_GetProperties(
-    std::map<std::string, MallocExtension::Property>* result) {
+    tcmalloc::MallocExtension::PropertyMap* result) {
   TCMallocStats stats;
   // Include residency stats to avoid overestimating reported memory usage from
   // returned slabs, see b/372229857#comment10.
