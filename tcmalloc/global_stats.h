@@ -78,7 +78,7 @@ size_t SlackBytes(const BackingStats& stats);
 void DumpStats(Printer& out, int level);
 void DumpStatsInPbtxt(Printer& out, int level);
 
-bool GetNumericProperty(const char* absl_nonnull name_data, size_t name_size,
+bool GetNumericProperty(const char* name_data, size_t name_size,
                         size_t* absl_nonnull value);
 
 }  // namespace tcmalloc_internal

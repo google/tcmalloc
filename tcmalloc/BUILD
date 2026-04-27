@@ -1140,7 +1140,7 @@ cc_test(
     data = glob(["testdata/malloc_extension_fuzz/*"]),
     deps = [
         ":malloc_extension",
-        "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
         "@com_google_googletest//:gtest",

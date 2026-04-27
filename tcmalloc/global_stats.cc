@@ -884,11 +884,11 @@ void DumpStatsInPbtxt(Printer& out, int level) {
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
                         size_t* value) {
-  // LINT.IfChange
-  TC_ASSERT_NE(name_data, nullptr);
+  TC_ASSERT(name_data != nullptr || name_size == 0);
   TC_ASSERT_NE(value, nullptr);
   const absl::string_view name(name_data, name_size);
 
+  // LINT.IfChange
   // This is near the top since ReleasePerCpuMemoryToOS() calls it frequently.
   if (name == "tcmalloc.per_cpu_caches_active") {
     *value = tc_globals.CpuCacheActive();
