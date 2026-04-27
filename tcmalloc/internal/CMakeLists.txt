@@ -22,6 +22,7 @@ tcmalloc_cc_library(
   SRCS
     "affinity.cc"
   DEPS
+    "absl::log"
     "absl::span"
     "tcmalloc::internal_config"
     "tcmalloc::internal_cpu_utils"
@@ -56,7 +57,6 @@ tcmalloc_cc_library(
   DEPS
     "absl::base"
     "absl::core_headers"
-    "tcmalloc::experiment"
     "tcmalloc::internal_config"
     "tcmalloc::malloc_hook"
 )
@@ -154,6 +154,35 @@ tcmalloc_cc_test(
     "protobuf::libprotobuf"
     "tcmalloc::internal_config"
     "tcmalloc::internal_util"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_internal_bytes
+  ALIAS
+    tcmalloc::internal_bytes
+  HDRS
+    "bytes.h"
+  DEPS
+    "absl::core_headers"
+    "absl::strings"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_optimization"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_bytes_test
+  SRCS
+    "bytes_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "benchmark::benchmark"
+    "tcmalloc::internal_bytes"
     "tcmalloc::tcmalloc"
 )
 
@@ -830,9 +859,7 @@ tcmalloc_cc_library(
     "absl::core_headers"
     "absl::dynamic_annotations"
     "absl::function_ref"
-    "tcmalloc::internal_config"
     "tcmalloc::internal_delay_injection"
-    "tcmalloc::internal_linux_syscall_support"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_mincore"
     "tcmalloc::internal_optimization"
@@ -1117,7 +1144,6 @@ tcmalloc_cc_test(
     "absl::core_headers"
     "absl::synchronization"
     "absl::time"
-    "tcmalloc::internal_explicitly_constructed"
     "tcmalloc::internal_sampled_allocation_recorder"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_thread_manager"

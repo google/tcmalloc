@@ -160,6 +160,33 @@ cc_test(
 )
 
 cc_library(
+    name = "bytes",
+    hdrs = ["bytes.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        ":optimization",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_test(
+    name = "bytes_test",
+    srcs = ["bytes_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":bytes",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "declarations",
     hdrs = ["declarations.h"],
     visibility = [
