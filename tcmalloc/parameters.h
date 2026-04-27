@@ -179,6 +179,10 @@ class Parameters {
         std::memory_order_relaxed);
   }
 
+  static bool madvise_hugepage_mmap_enabled() {
+    return madvise_hugepage_mmap_enabled_.load(std::memory_order_relaxed);
+  }
+
   static bool heap_partitioning();
 
   static central_freelist_internal::LifetimeTracking span_lifetime_tracking();
@@ -215,6 +219,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetBackSmallAllocations(bool v);
   friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
   friend void ::TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
+  friend void ::TCMalloc_Internal_SetMadviseHugepageMmapEnabled(bool v);
 
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
@@ -234,6 +239,7 @@ class Parameters {
   static std::atomic<bool> use_userspace_collapse_heuristics_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
+  static std::atomic<bool> madvise_hugepage_mmap_enabled_;
 };
 
 }  // namespace tcmalloc_internal

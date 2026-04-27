@@ -377,6 +377,13 @@ SystemAllocator<Topology, NormalPartitions>::MmapRegion::Alloc(
     // This is only advisory, so ignore the error.
     ErrnoRestorer errno_restorer;
     (void)madvise(result_ptr, actual_size, MADV_NOHUGEPAGE);
+  } else if (Parameters::madvise_hugepage_mmap_enabled()) {
+    // Opt-in to transparent hugepages when system is 
+    // configured for transparent_hugepage=madvise. This can improve memory
+    // performance by reducing TLB pressure.
+    // This is only advisory, so ignore the error.
+    ErrnoRestorer errno_restorer;
+    (void)madvise(result_ptr, actual_size, MADV_HUGEPAGE);
   }
   free_size_ -= actual_size;
   return {result_ptr, actual_size};
