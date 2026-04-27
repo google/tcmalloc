@@ -18,13 +18,14 @@
 #include <optional>
 
 #include "fuzztest/fuzztest.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/sysinfo.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-void ParseInput(const std::string& s) {
+void ParseInput(absl::string_view s) {
   const char* data = s.data();
   size_t size = s.size();
 
