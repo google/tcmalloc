@@ -47,6 +47,7 @@
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/sampler.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -85,7 +86,6 @@ class AllocAdaptor final {
 // encountered by the profiler.
 struct DeallocationSampleRecord {
   tcmalloc_internal::StackTrace stack_trace;
-  double weight = 0.0;
   int cpu_id = -1;
   int vcpu_id = -1;
   int l3_id = -1;
@@ -490,10 +490,6 @@ class DeallocationProfiler {
     allocation.l3_id = GetL3Id(allocation.cpu_id);
     allocation.numa_id = GetNumaId(allocation.cpu_id);
     allocation.thread_id = absl::base_internal::GetTID();
-    // We divide by the requested size to obtain the number of allocations.
-    // TODO(b/248332543): Consider using AllocatedBytes from sampler.h.
-    allocation.weight = static_cast<double>(stack_trace.weight) /
-                        (stack_trace.requested_size + 1);
   }
 
   void ReportFree(tcmalloc_internal::AllocHandle handle) {
@@ -649,7 +645,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
       }
 
       uintptr_t bytes =
-          std::lround(v.counts[index] * k.alloc.weight * allocated_size);
+          std::lround(v.counts[index] * AllocatedBytes(k.alloc.stack_trace));
       int64_t count;
       if (allocated_size != 0) {
         count = (bytes + allocated_size - 1) / allocated_size;
