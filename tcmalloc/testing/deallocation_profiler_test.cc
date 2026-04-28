@@ -594,12 +594,9 @@ TEST(LifetimeProfiler, BasicCounterValues) {
   // the stack trace.
   EXPECT_GT(counters.alloc_fn_count, 0);
   EXPECT_GT(counters.dealloc_fn_count, 0);
-  // TODO(b/248332543): Investigate why the symbol count in the callstack is not
-  // as expected for GCC opt builds.
-#if defined(__clang__)
+
   EXPECT_EQ(counters.alloc_fn_count, 6 * kNumAllocations);
   EXPECT_EQ(counters.dealloc_fn_count, 7 * kNumAllocations);
-#endif
 
   for (size_t i = 0; i < counters.counts.size(); i += 2) {
     EXPECT_EQ(counters.counts[i], -counters.counts[i + 1]);
