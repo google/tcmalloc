@@ -965,6 +965,7 @@ cc_test(
     data = glob(["testdata/profile_builder_fuzz/*"]),
     deps = [
         ":profile_builder",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
         "@com_google_googletest//:gtest",

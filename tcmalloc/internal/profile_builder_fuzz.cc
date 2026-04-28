@@ -22,11 +22,12 @@
 #include <cstddef>
 
 #include "fuzztest/fuzztest.h"
+#include "absl/strings/string_view.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-void ParseBuildID(const std::string& s) {
+void ParseBuildID(absl::string_view s) {
   const char* data = s.data();
   size_t size = s.size();
 #if defined(__linux__)
@@ -48,6 +49,7 @@ void ParseBuildID(const std::string& s) {
 }
 
 FUZZ_TEST(ProfileBuilderTest, ParseBuildID)
+    .WithDomains(fuzztest::String())
     ;
 
 }  // namespace
