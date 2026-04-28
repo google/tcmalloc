@@ -20,12 +20,13 @@
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/memory_stats.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-void ParseInput(const std::string& s) {
+void ParseInput(absl::string_view s) {
   const char* data = s.data();
   size_t size = s.size();
 
