@@ -572,9 +572,6 @@ std::optional<size_t> MallocExtension::GetNumericProperty(
   }
 #endif
 #if TCMALLOC_UNDER_SANITIZERS
-  // TODO(b/273946827): Add local tcmalloc tests for the various sanitizer
-  // configs as opposed to depending on
-  // //testing/sanitizer_common:malloc_extension_test
   // LINT.IfChange(SanitizerGetProperty)
   if (property == "dynamic_tool.virtual_memory_overhead") {
     return SanitizerVirtualMemoryOverhead();

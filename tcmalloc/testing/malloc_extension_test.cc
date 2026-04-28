@@ -24,9 +24,11 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/cpu_cache.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -45,6 +47,8 @@ class CpuCachePeer {
 };
 
 namespace {
+
+using tcmalloc_internal::kSanitizerPresent;
 
 TEST(MallocExtension, BackgroundReleaseRate) {
 
@@ -87,6 +91,15 @@ TEST(MallocExtension, Properties) {
   // GetNumericProperty.
   const auto properties = MallocExtension::GetProperties();
   for (const auto& property : properties) {
+    // Skip experiments under sanitizers as GetNumericProperty doesn't currently
+    // handle them.
+    //
+    // TODO(b/273946827): Report in malloc_extension.cc
+    if (kSanitizerPresent &&
+        absl::StartsWith(property.first, "tcmalloc.experiment.")) {
+      continue;
+    }
+
     std::optional<size_t> scalar =
         MallocExtension::GetNumericProperty(property.first);
     // The value of the property itself may have changed, so just check that it
@@ -94,63 +107,80 @@ TEST(MallocExtension, Properties) {
     EXPECT_THAT(scalar, testing::Ne(std::nullopt)) << property.first;
   }
 
-  // Test that known GetNumericProperty keys exist under GetProperties.
-  constexpr absl::string_view kKnownProperties[] = {
-      // clang-format off
+  std::vector<absl::string_view> known_properties = {
       // go/keep-sorted start
-      "generic.bytes_in_use_by_app",
-      "generic.current_allocated_bytes",
-      "generic.heap_size",
-      "generic.peak_memory_usage",
-      "generic.physical_memory_used",
-      "generic.realized_fragmentation",
-      "generic.virtual_memory_used",
-      "tcmalloc.central_cache_free",
-      "tcmalloc.cpu_free",
-      "tcmalloc.current_total_thread_cache_bytes",
-      "tcmalloc.desired_usage_limit_bytes",
-      "tcmalloc.external_fragmentation_bytes",
-      "tcmalloc.hard_limit_hits",
-      "tcmalloc.hard_usage_limit_bytes",
-      "tcmalloc.local_bytes",
-      "tcmalloc.max_total_thread_cache_bytes",
-      "tcmalloc.metadata_bytes",
-      "tcmalloc.num_released_hard_limit_exceeded_bytes",
-      "tcmalloc.num_released_process_background_actions_bytes",
-      "tcmalloc.num_released_release_memory_to_system_bytes",
-      "tcmalloc.num_released_soft_limit_exceeded_bytes",
-      "tcmalloc.num_released_total_bytes",
-      "tcmalloc.page_heap_free",
-      "tcmalloc.page_heap_unmapped",
-      "tcmalloc.pageheap_free_bytes",
-      "tcmalloc.pageheap_unmapped_bytes",
-      "tcmalloc.per_cpu_caches_active",
-      "tcmalloc.required_bytes",
-      "tcmalloc.sampled_internal_fragmentation",
-      "tcmalloc.security_partitioning_active",
-      "tcmalloc.sharded_transfer_cache_free",
-      "tcmalloc.slack_bytes",
-      "tcmalloc.soft_limit_hits",
-      "tcmalloc.successful_shrinks_after_hard_limit_hit",
-      "tcmalloc.successful_shrinks_after_soft_limit_hit",
-      "tcmalloc.thread_cache_count",
-      "tcmalloc.thread_cache_free",
-      "tcmalloc.transfer_cache_free",
+      "generic.current_allocated_bytes", "generic.heap_size",
+      "tcmalloc.pageheap_free_bytes",    "tcmalloc.pageheap_unmapped_bytes",
+      "tcmalloc.per_cpu_caches_active",  "tcmalloc.slack_bytes",
       // go/keep-sorted end
-      // clang-format on
   };
 
-  for (const auto& known : kKnownProperties) {
+  if (kSanitizerPresent) {
+    known_properties.insert(known_properties.end(),
+                            {
+                                // go/keep-sorted start
+                                "dynamic_tool.memory_usage_multiplier",
+                                "dynamic_tool.stack_size_multiplier",
+                                "dynamic_tool.virtual_memory_overhead",
+                                // go/keep-sorted end
+                            });
+  } else {
+    known_properties.insert(
+        known_properties.end(),
+        {
+            // go/keep-sorted start
+            "generic.bytes_in_use_by_app",
+            "generic.peak_memory_usage",
+            "generic.physical_memory_used",
+            "generic.realized_fragmentation",
+            "generic.virtual_memory_used",
+            "tcmalloc.central_cache_free",
+            "tcmalloc.cpu_free",
+            "tcmalloc.current_total_thread_cache_bytes",
+            "tcmalloc.desired_usage_limit_bytes",
+            "tcmalloc.external_fragmentation_bytes",
+            "tcmalloc.hard_limit_hits",
+            "tcmalloc.hard_usage_limit_bytes",
+            "tcmalloc.local_bytes",
+            "tcmalloc.max_total_thread_cache_bytes",
+            "tcmalloc.metadata_bytes",
+            "tcmalloc.num_released_hard_limit_exceeded_bytes",
+            "tcmalloc.num_released_process_background_actions_bytes",
+            "tcmalloc.num_released_release_memory_to_system_bytes",
+            "tcmalloc.num_released_soft_limit_exceeded_bytes",
+            "tcmalloc.num_released_total_bytes",
+            "tcmalloc.page_heap_free",
+            "tcmalloc.page_heap_unmapped",
+            "tcmalloc.required_bytes",
+            "tcmalloc.sampled_internal_fragmentation",
+            "tcmalloc.security_partitioning_active",
+            "tcmalloc.sharded_transfer_cache_free",
+            "tcmalloc.slack_bytes",
+            "tcmalloc.soft_limit_hits",
+            "tcmalloc.successful_shrinks_after_hard_limit_hit",
+            "tcmalloc.successful_shrinks_after_soft_limit_hit",
+            "tcmalloc.thread_cache_count",
+            "tcmalloc.thread_cache_free",
+            "tcmalloc.transfer_cache_free",
+            // go/keep-sorted end
+        });
+  }
+
+  for (const absl::string_view known : known_properties) {
     std::optional<size_t> scalar = MallocExtension::GetNumericProperty(known);
-    EXPECT_THAT(scalar, testing::Ne(std::nullopt));
-    EXPECT_THAT(properties,
-                testing::Contains(testing::Key(testing::Eq(known))));
+    EXPECT_THAT(scalar, testing::Ne(std::nullopt)) << known;
+    EXPECT_THAT(properties, testing::Contains(testing::Key(testing::Eq(known))))
+        << known;
   }
 }
 
 // Test that when we resize the slab repeatedly, the metadata metric is
 // positive.
 TEST(MallocExtension, DynamicSlabMallocMetadata) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Running under sanitizers";
+  }
+
   if (!tc_globals.CpuCacheActive()) {
     GTEST_SKIP() << "CPU cache disabled.";
   }

@@ -935,14 +935,10 @@ create_tcmalloc_testsuite(
     name = "malloc_extension_test",
     srcs = ["malloc_extension_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",

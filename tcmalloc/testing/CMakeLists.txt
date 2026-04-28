@@ -850,6 +850,7 @@ tcmalloc_cc_test_variants(
     "GTest::gmock"
     "absl::strings"
     "absl::time"
+    "tcmalloc::internal_config"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
 )
