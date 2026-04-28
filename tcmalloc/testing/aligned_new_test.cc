@@ -76,7 +76,7 @@ TYPED_TEST_SUITE_P(AlignedNew);
 TYPED_TEST_P(AlignedNew, AlignedTest) {
   // Increase sampling rate to reduce total number of allocations we need for
   // test speed.
-  ScopedProfileSamplingInterval ps(512 * 1024);
+  ScopedProfileSamplingInterval ps(1024);
 
   const int kAllocations =
       32 * MallocExtension::GetProfileSamplingInterval() / sizeof(TypeParam);
@@ -132,6 +132,10 @@ TYPED_TEST_P(AlignedNew, SizeCheckSampling) {
   // up the size class (and asserting the correct size was passed to TCMalloc).
   ASSERT_FALSE(absl::LeakCheckerIsActive());
 
+  // Increase sampling rate to reduce total number of allocations we need for
+  // test speed.
+  ScopedProfileSamplingInterval ps(1024);
+
   // Allocate enough objects to ensure we sample one.
   const int allocations =
       32 * MallocExtension::GetProfileSamplingInterval() / sizeof(TypeParam);
@@ -169,6 +173,10 @@ TYPED_TEST_P(AlignedNew, ArraySizeCheckSampling) {
   // The HeapLeakChecker initializes malloc hooks which we call prior to looking
   // up the size class (and asserting the correct size was passed to TCMalloc).
   ASSERT_FALSE(absl::LeakCheckerIsActive());
+
+  // Increase sampling rate to reduce total number of allocations we need for
+  // test speed.
+  ScopedProfileSamplingInterval ps(1024);
 
   // Allocate enough objects to ensure we sample one.
   const int allocations =
