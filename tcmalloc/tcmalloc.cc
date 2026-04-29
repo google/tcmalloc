@@ -148,6 +148,13 @@
 #error "TCMalloc only supports little endian architectures"
 #endif
 
+#if ABSL_HAVE_CPP_ATTRIBUTE(clang::always_inline)
+// Supported since Clang 15
+#define TCMALLOC_ALWAYS_INLINE_CALL [[clang::always_inline]]
+#else
+#define TCMALLOC_ALWAYS_INLINE_CALL
+#endif
+
 // We use this before out-of-line calls to slow paths so that compiler
 // does not emit long conditional jump on the fast path.
 //
@@ -579,9 +586,6 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
 // slower function that handles all of these cases. This is done so that free
 // fast-path only does tail calls, which allow compiler to avoid generating
 // costly prologue/epilogue for fast-path.
-#if defined(__clang__)
-__attribute__((flatten))
-#endif
 ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
                                                   std::optional<size_t> size,
                                                   size_t size_class) {
@@ -589,7 +593,8 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
     return FreeWithHooksOrPerThread(ptr, size, size_class);
   }
-  tc_globals.cpu_cache().DeallocateSlowNoHooks(ptr, size_class);
+  TCMALLOC_ALWAYS_INLINE_CALL tc_globals.cpu_cache().DeallocateSlowNoHooks(
+      ptr, size_class);
 }
 
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
@@ -1223,9 +1228,6 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
 // TODO(b/130771275):  This function is marked as static, rather than appearing
 // in the anonymous namespace, to workaround incomplete heapz filtering.
 template <typename Policy>
-#if defined(__clang__)
-__attribute__((flatten))
-#endif
 ABSL_ATTRIBUTE_NOINLINE static
     typename Policy::pointer_type slow_alloc_small(size_t size,
                                                    uint32_t size_class,
@@ -1238,7 +1240,9 @@ ABSL_ATTRIBUTE_NOINLINE static
                                                   weight);
   }
 
-  void* res = tc_globals.cpu_cache().AllocateSlowNoHooks(size_class);
+  void* res;
+  TCMALLOC_ALWAYS_INLINE_CALL res =
+      tc_globals.cpu_cache().AllocateSlowNoHooks(size_class);
   if (ABSL_PREDICT_FALSE(res == nullptr)) return policy.handle_oom(size);
   return Policy::to_pointer(res, size_class);
 }
