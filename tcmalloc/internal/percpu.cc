@@ -45,6 +45,7 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+class Sampler;
 namespace subtle {
 namespace percpu {
 
@@ -65,7 +66,7 @@ ABSL_CONST_INIT static absl::once_flag init_per_cpu_once;
 ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
-extern "C" thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_INITIAL_EXEC;
+extern "C" thread_local Sampler tcmalloc_sampler ABSL_ATTRIBUTE_INITIAL_EXEC;
 
 ABSL_CONST_INIT RseqVcpuMode vcpu_mode = RseqVcpuMode::kNone;
 
