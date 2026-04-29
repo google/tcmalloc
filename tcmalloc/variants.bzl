@@ -259,12 +259,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "tcmalloc_span_lifetime_tracking",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING"},
-    },
-    {
         "name": "tcmalloc_eager_backing",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

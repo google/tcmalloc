@@ -234,6 +234,8 @@ class Parameters {
   static std::atomic<bool> use_userspace_collapse_heuristics_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
+  static std::atomic<central_freelist_internal::LifetimeTracking>
+      span_lifetime_tracking_;
 };
 
 }  // namespace tcmalloc_internal

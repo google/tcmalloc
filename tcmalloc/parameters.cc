@@ -24,6 +24,7 @@
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
@@ -244,6 +245,9 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
     kPageSize);
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
+ABSL_CONST_INIT std::atomic<central_freelist_internal::LifetimeTracking>
+    Parameters::span_lifetime_tracking_(
+        central_freelist_internal::LifetimeTracking::kDisabled);
 
 static std::atomic<bool>& back_small_allocations_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -319,16 +323,7 @@ bool Parameters::back_small_allocations() {
 }
 central_freelist_internal::LifetimeTracking
 Parameters::span_lifetime_tracking() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<
-      central_freelist_internal::LifetimeTracking>
-      v{central_freelist_internal::LifetimeTracking::kDisabled};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(central_freelist_internal::LifetimeTracking{IsExperimentActive(
-                Experiment::TEST_ONLY_TCMALLOC_SPAN_LIFETIME_TRACKING)},
-            std::memory_order_relaxed);
-  });
-  return v;
+  return span_lifetime_tracking_.load(std::memory_order_relaxed);
 }
 
 int32_t Parameters::max_per_cpu_cache_size() {
