@@ -98,7 +98,7 @@ constexpr hot_cold_t kDefaultMinHotAccessHint =
 
 inline bool AbslParseFlag(absl::string_view text,
                           tcmalloc::hot_cold_t* absl_nonnull hotness,
-                          std::string* /* error */) {
+                          std::string* absl_nullable /* error */) {
   uint32_t value;
   if (!absl::SimpleAtoi(text, &value)) {
     return false;
@@ -272,7 +272,7 @@ class Profile final {
     AllocationType type;
 
     int depth;
-    void* stack[kMaxStackDepth];
+    void* absl_nullable stack[kMaxStackDepth];
 
     // The following vars are used by the lifetime (deallocation) profiler.
     uint64_t profile_id;
@@ -720,7 +720,8 @@ extern "C" [[nodiscard]] size_t nallocx(size_t size, int flags) noexcept;
 //
 // The default weak implementation calls free(), but TCMalloc overrides it and
 // uses the size to improve deallocation performance.
-extern "C" void sdallocx(void* ptr, size_t size, int flags) noexcept;
+extern "C" void sdallocx(void* absl_nullable ptr, size_t size,
+                         int flags) noexcept;
 
 #if defined(__GLIBC__) || defined(__Fuchsia__)
 #define TCMALLOC_FREE_SIZED_NOEXCEPT noexcept
@@ -730,18 +731,19 @@ extern "C" void sdallocx(void* ptr, size_t size, int flags) noexcept;
 
 #if !defined(__STDC_VERSION_STDLIB_H__) || __STDC_VERSION_STDLIB_H__ < 202311L
 // Frees ptr allocated with malloc(size) introduced in C23.
-extern "C" void free_sized(void* ptr, size_t size) TCMALLOC_FREE_SIZED_NOEXCEPT;
+extern "C" void free_sized(void* absl_nullable ptr,
+                           size_t size) TCMALLOC_FREE_SIZED_NOEXCEPT;
 
 // Frees ptr allocated with aligned_alloc/posix_memalign with the specified size
 // and alignment introduced in C23.
-extern "C" void free_aligned_sized(void* ptr, size_t alignment,
+extern "C" void free_aligned_sized(void* absl_nullable ptr, size_t alignment,
                                    size_t size) TCMALLOC_FREE_SIZED_NOEXCEPT;
 #endif
 
 // Define __sized_ptr_t in the global namespace so that it can be named by the
 // __size_returning_new implementations defined in tcmalloc.cc.
 struct __sized_ptr_t {
-  void* p;
+  void* absl_nullable p;
   size_t n;
 };
 
@@ -833,33 +835,36 @@ __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
 }  // extern "C"
 
 [[nodiscard]]
-void* operator new(size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false);
+void* absl_nonnull operator new(size_t size,
+                                tcmalloc::hot_cold_t hot_cold) noexcept(false);
 [[nodiscard]]
-void* operator new(size_t size, const std::nothrow_t&,
-                   tcmalloc::hot_cold_t hot_cold) noexcept;
+void* absl_nullable operator new(size_t size, const std::nothrow_t&,
+                                 tcmalloc::hot_cold_t hot_cold) noexcept;
 [[nodiscard]]
-void* operator new[](size_t size,
+void* absl_nonnull operator new[](
+    size_t size,
 
-                     tcmalloc::hot_cold_t hot_cold) noexcept(false);
+    tcmalloc::hot_cold_t hot_cold) noexcept(false);
 [[nodiscard]]
-void* operator new[](size_t size, const std::nothrow_t&,
-                     tcmalloc::hot_cold_t hot_cold) noexcept;
+void* absl_nullable operator new[](size_t size, const std::nothrow_t&,
+                                   tcmalloc::hot_cold_t hot_cold) noexcept;
 
 #ifdef __cpp_aligned_new
 [[nodiscard]]
-void* operator new(size_t size, std::align_val_t alignment,
-                   tcmalloc::hot_cold_t hot_cold) noexcept(false);
+void* absl_nonnull operator new(size_t size, std::align_val_t alignment,
+                                tcmalloc::hot_cold_t hot_cold) noexcept(false);
 [[nodiscard]]
-void* operator new(size_t size, std::align_val_t alignment,
-                   const std::nothrow_t&,
-                   tcmalloc::hot_cold_t hot_cold) noexcept;
+void* absl_nullable operator new(size_t size, std::align_val_t alignment,
+                                 const std::nothrow_t&,
+                                 tcmalloc::hot_cold_t hot_cold) noexcept;
 [[nodiscard]]
-void* operator new[](size_t size, std::align_val_t alignment,
-                     tcmalloc::hot_cold_t hot_cold) noexcept(false);
+void* absl_nonnull operator new[](
+    size_t size, std::align_val_t alignment,
+    tcmalloc::hot_cold_t hot_cold) noexcept(false);
 [[nodiscard]]
-void* operator new[](size_t size, std::align_val_t alignment,
-                     const std::nothrow_t&,
-                     tcmalloc::hot_cold_t hot_cold) noexcept;
+void* absl_nullable operator new[](size_t size, std::align_val_t alignment,
+                                   const std::nothrow_t&,
+                                   tcmalloc::hot_cold_t hot_cold) noexcept;
 #endif  // __cpp_aligned_new
 
 #ifndef MALLOCX_LG_ALIGN
@@ -921,7 +926,7 @@ enum class MadvisePreference {
 
 inline bool AbslParseFlag(absl::string_view text,
                           MadvisePreference* absl_nonnull preference,
-                          std::string* /* error */) {
+                          std::string* absl_nullable /* error */) {
   if (text == "NEVER") {
     *preference = MadvisePreference::kNever;
     return true;
