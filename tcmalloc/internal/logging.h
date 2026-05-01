@@ -119,11 +119,13 @@ ABSL_ATTRIBUTE_NORETURN ABSL_ATTRIBUTE_NOINLINE void CheckFailed(
     const char* func, const char* file, int line,
     const absl::FormatSpec<int, const char*, int, const char*, Args...>& format,
     const Args&... args) {
-  AllocationGuard no_allocations;
   char buf[512];
-  int n =
-      absl::SNPrintF(buf, sizeof(buf), format, absl::base_internal::GetTID(),
-                     file, line, func, args...);
+  int n;
+  {
+    AllocationGuard no_allocations;
+    n = absl::SNPrintF(buf, sizeof(buf), format, absl::base_internal::GetTID(),
+                       file, line, func, args...);
+  }
   buf[sizeof(buf) - 1] = 0;
   CheckFailed(file, line, buf, std::min<size_t>(n, sizeof(buf) - 1));
 }
