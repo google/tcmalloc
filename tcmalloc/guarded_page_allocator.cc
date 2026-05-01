@@ -143,10 +143,10 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
 
     if (stacktrace_filter_.Contains({stack_trace.stack, stack_trace.depth})) {
       // The probability that we skip a currently covered allocation scales
-      // proportional to pool utilization, with pool utilization greater than
-      // 50% resulting in always filtering currently covered allocations.
+      // proportional to pool utilization, with pool utilization of 50% or more
+      // resulting in always filtering currently covered allocations.
       const size_t usage_pct = (allocated_pages() * 100) / max_allocated_pages_;
-      if (rand_.Next() % 50 < usage_pct) {
+      if (rand_.Next() % 50 <= usage_pct) {
         // Decay even if the current allocation is filtered, so that we keep
         // sampling even if we only see the same allocations over and over.
         stacktrace_filter_.Decay();
