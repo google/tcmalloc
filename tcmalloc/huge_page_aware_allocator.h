@@ -759,7 +759,6 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
   }
 
   // we can do better than this, but...
-  // TODO(b/134690769): support higher align.
   TC_CHECK_LE(align, kPagesPerHugePage);
   bool from_released;
   FinalizeType f;
@@ -1031,7 +1030,6 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // This is our long term plan but in current state will lead to insufficient
   // THP coverage. It is however very useful to have the ability to turn this on
   // for testing.
-  // TODO(b/134690769): make this work, remove the flag guard.
   if (hpaa_subrelease()) {
     if (released < num_pages) {
       released += filler_.ReleasePages(
