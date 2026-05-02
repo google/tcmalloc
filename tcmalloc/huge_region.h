@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
@@ -289,6 +290,7 @@ inline HugeLength HugeRegion::Release(Length desired) {
 
   HugeLength release_target = NHugePages(0);
   bool should_unback[kNumHugePages] = {};
+  // TODO(b/73749855): Consider optimizing this search by consulting tracker_.
   for (size_t i = 0; i < kNumHugePages; ++i) {
     if (backed_[i] && pages_used_[i] == Length(0)) {
       should_unback[i] = true;
@@ -467,6 +469,20 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
     HugeLength hl = NHugePages(j - i);
     HugePage p = location_.start() + NHugePages(i);
+
+    // Temporarily block allocations to these pages.
+    //
+    // We both Mark and toggle pages_used_, as allocations use FindAndMark but
+    // Release only uses pages_used_.
+    //
+    // TODO(b/73749855): Optimize release by consulting the bitmap first.
+    tracker_.Mark(NHugePages(i).in_pages().raw_num(), hl.in_pages().raw_num());
+    Length used;
+    for (size_t k = i; k != j; ++k) {
+      used += std::exchange(pages_used_[k], kPagesPerHugePage);
+    }
+    TC_CHECK_EQ(used, Length(0));
+
     if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)).success)) {
       nbacked_ -= hl;
       total_unbacked_ += hl;
@@ -478,6 +494,16 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
       released += hl;
     }
+
+    used = Length(0);
+    for (size_t k = i; k != j; ++k) {
+      used += std::exchange(pages_used_[k], Length(0));
+    }
+    TC_CHECK_EQ(used, hl.in_pages());
+
+    tracker_.Unmark(NHugePages(i).in_pages().raw_num(),
+                    hl.in_pages().raw_num());
+
     i = j;
   }
 

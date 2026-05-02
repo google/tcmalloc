@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -457,6 +458,78 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
   absl::SleepFor(absl::Milliseconds(100));
 
   threads.Stop();
+}
+
+class CallbackRelease final : public MemoryModifyFunction {
+ public:
+  explicit CallbackRelease(std::function<void()> callback)
+      : callback_(callback) {}
+
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+    callback_();
+    regions_.emplace_back(r);
+    return {true, 0};
+  }
+
+  std::vector<Range> regions() const { return regions_; }
+
+ private:
+  std::function<void()> callback_;
+  std::vector<Range> regions_;
+};
+
+TEST_F(HugeRegionTest, ReleaseDuringPut) {
+  HugeLength released;
+  int callback_count = 0;
+  CallbackRelease blocking([&]() {
+    // Simulate a Release from another thread while we are unbacking from put.
+    callback_count++;
+    if (callback_count != 1) {
+      return;
+    }
+
+    released = region_.Release(region_.size().in_pages());
+  });
+  region_.~HugeRegion();
+  new (&region_) HugeRegion({p_, region_.size()}, blocking);
+
+  auto a1 = Allocate(5 * kPagesPerHugePage / 2);
+  EXPECT_EQ(region_.backed(), NHugePages(3));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  auto a2 = Allocate(5 * kPagesPerHugePage / 2);
+  EXPECT_EQ(region_.backed(), NHugePages(5));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  auto a3 = Allocate(3 * kPagesPerHugePage);
+  EXPECT_EQ(region_.backed(), NHugePages(8));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  // Give some free pages for Release() to find.
+  Delete(a1);
+
+  EXPECT_EQ(callback_count, 0);
+  EXPECT_EQ(region_.backed(), NHugePages(8));
+  EXPECT_EQ(region_.free_backed(), NHugePages(2));
+
+  // Delete(a2), but unback it triggering callback.
+  Check(a2);
+  region_.Put(Range(a2.p, a2.n), true);
+
+  EXPECT_EQ(region_.backed(), NHugePages(3));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  // We expect to have gotten a1 rounded down (2).
+  EXPECT_EQ(callback_count, 2);
+  EXPECT_EQ(released, NHugePages(2));
+
+  // Check for intersection.
+  auto regions = blocking.regions();
+  for (const auto& region : regions) {
+    EXPECT_TRUE(a3.p + a3.n <= region.p || region.p + region.n <= a3.p);
+  }
+
+  Delete(a3);
 }
 
 TEST_F(HugeRegionTest, Stats) {
