@@ -162,7 +162,7 @@ TEST(Sampling, AlwaysSampling) {
   for (int i = 0; i < kIters; ++i) {
     allocs.push_back(AllocateZeroByte());
   }
-  const absl::optional<size_t> alloc_size =
+  const std::optional<size_t> alloc_size =
       MallocExtension::GetAllocatedSize(allocs[0]);
   ASSERT_THAT(alloc_size, testing::Ne(std::nullopt));
   EXPECT_GT(*alloc_size, 0);
@@ -200,7 +200,7 @@ TEST(Sampling, InternalFragmentation) {
   low.reserve(kNumLow);
   high.reserve(kNumHigh);
 
-  const absl::optional<size_t> starting_fragmentation =
+  const std::optional<size_t> starting_fragmentation =
       MallocExtension::GetNumericProperty(
           "tcmalloc.sampled_internal_fragmentation");
   ASSERT_THAT(starting_fragmentation, testing::Ne(std::nullopt));
@@ -231,7 +231,7 @@ TEST(Sampling, InternalFragmentation) {
     low.push_back(::operator new(kLowFragmentationSize));
   }
 
-  const absl::optional<size_t> actual_low =
+  const std::optional<size_t> actual_low =
       MallocExtension::GetAllocatedSize(low[0]);
   ASSERT_THAT(actual_low, testing::Ne(std::nullopt));
 
@@ -239,13 +239,13 @@ TEST(Sampling, InternalFragmentation) {
     high.push_back(::operator new(kHighFragmentationSize));
   }
 
-  const absl::optional<size_t> actual_high =
+  const std::optional<size_t> actual_high =
       MallocExtension::GetAllocatedSize(high[0]);
   ASSERT_THAT(actual_high, testing::Ne(std::nullopt));
 
   const size_t ending_profiled_fragmentation = ProfiledFragmentation();
 
-  const absl::optional<size_t> ending_fragmentation =
+  const std::optional<size_t> ending_fragmentation =
       MallocExtension::GetNumericProperty(
           "tcmalloc.sampled_internal_fragmentation");
   ASSERT_THAT(ending_fragmentation, testing::Ne(std::nullopt));
