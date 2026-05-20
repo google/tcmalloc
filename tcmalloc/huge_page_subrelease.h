@@ -268,11 +268,13 @@ class SubreleaseStatsTracker {
   };
 
   explicit constexpr SubreleaseStatsTracker(Clock clock, absl::Duration w,
-                                            absl::Duration summary_interval)
+                                            absl::Duration summary_interval,
+                                            absl::Duration demand_cap_interval)
       : window_(w),
         epoch_length_(window_ / kSlots),
         summary_interval_(summary_interval),
         summary_epochs_(summary_interval_ / epoch_length_),
+        demand_cap_interval_(demand_cap_interval),
         tracker_(clock, epoch_length_),
         skipped_subrelease_correctness_(clock, w, summary_interval_) {
     // The summary_interval is used in two trackers: SubreleaseStatsTracker for
@@ -281,6 +283,7 @@ class SubreleaseStatsTracker {
     // skipped subrelease. Here we check the length of the two trackers are
     // sufficient for the evaluation.
     TC_ASSERT_LE(summary_interval, w);
+    TC_ASSERT_LE(demand_cap_interval, w);
   }
 
   // Not copyable or movable
@@ -333,7 +336,7 @@ class SubreleaseStatsTracker {
   // spikes. The demand is capped to the peak observed in the history window.
   Length GetRecentDemand(absl::Duration short_interval,
                          absl::Duration long_interval) {
-    return GetRecentDemand(short_interval, long_interval, window_);
+    return GetRecentDemand(short_interval, long_interval, demand_cap_interval_);
   }
 
   // Calculates demand requirements for the skip subrelease: we do not
@@ -533,6 +536,10 @@ class SubreleaseStatsTracker {
   // decisions to peaks within this interval.
   const absl::Duration summary_interval_;
   const int64_t summary_epochs_;
+  // The tracker caps the calculated (predicted) demand using the (recent)
+  // maximum demand occured in this interval. The interval can be much shorter
+  // than the recorded demand history.
+  const absl::Duration demand_cap_interval_;
 
   TimeSeriesTracker<SubreleaseStatsEntry, SubreleaseStats, kSlots> tracker_;
   SkippedSubreleaseCorrectnessTracker<kSlots> skipped_subrelease_correctness_;

@@ -58,15 +58,16 @@ class StatsTrackerTest : public testing::Test {
   ClockResetter clock_resetter_;
 
  protected:
-  static constexpr absl::Duration kWindow = absl::Minutes(10);
+  static constexpr absl::Duration kWindow = absl::Minutes(60);
 
-  // Epoch length: 0.5 min (i.e., 10-min window in 20 slots). The tracker can
-  // hold records longer than 10 mins, and we expect it to account the epoch
+  // Epoch length: 0.5 min (i.e., 60-min window in 120 slots). The tracker can
+  // hold records longer than 60 mins, and we expect it to account the epoch
   // coverage correctly.
-  using StatsTrackerType = SubreleaseStatsTracker<20>;
+  using StatsTrackerType = SubreleaseStatsTracker<120>;
   StatsTrackerType tracker_{
       Clock{.now = FakeClock, .freq = GetFakeClockFrequency}, kWindow,
-      /*summary_interval=*/absl::Minutes(5)};
+      /*summary_interval=*/absl::Minutes(5), /*demand_cap_interval=*/
+      absl::Minutes(10)};
 
   void Advance(absl::Duration d) {
     clock_ += static_cast<int64_t>(absl::ToDoubleSeconds(d) *
@@ -112,10 +113,13 @@ void StatsTrackerTest::GenerateDemandPoint(Length num_pages,
 TEST_F(StatsTrackerTest, Works) {
   // Epoch 1.
   GenerateInterestingPoints(Length(1), Length(1));
-  // Epoch 11.
+  // Epoch 101.
+  Advance(absl::Minutes(50));
+  GenerateInterestingPoints(Length(300), Length(100));
+  // Epoch 111.
   Advance(absl::Minutes(5));
   GenerateInterestingPoints(Length(100), Length(200));
-  // Epoch 13.
+  // Epoch 113.
   Advance(absl::Minutes(1));
   GenerateInterestingPoints(Length(200), Length(100));
 
@@ -133,7 +137,7 @@ StatsTracker: at peak demand: 208 pages (and 111 free, 10 unmapped)
 
 StatsTracker: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 StatsTracker: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
-StatsTracker: Subrelease stats last 10 min: total 0 pages subreleased.
+StatsTracker: Subrelease stats last 60 min: total 0 pages subreleased.
 )"));
   }
 }
@@ -175,6 +179,11 @@ TEST_F(StatsTrackerTest, ComputeRecentPeaks) {
 
   Length peak4 = tracker_.GetRecentPeak(absl::Minutes(5));
   EXPECT_EQ(peak4, Length(150));
+  // Checks that the peak demand calculation works for longer interval.
+  Advance(absl::Minutes(50));
+  GenerateDemandPoint(Length(30), Length(3000));
+  Length peak5 = tracker_.GetRecentPeak(absl::Minutes(52));
+  EXPECT_EQ(peak5, Length(150));
 }
 
 TEST_F(StatsTrackerTest, ComputeRecentDemand) {
@@ -223,6 +232,13 @@ TEST_F(StatsTrackerTest, ComputeRecentDemand) {
   // the case.
   EXPECT_EQ(tracker_.GetRecentDemand(absl::Minutes(2), absl::Minutes(1)),
             tracker_.GetRecentDemand(absl::Minutes(1), absl::Minutes(1)));
+  // Checks that the demand calculation works: the calculated demand (100) is
+  // capped by the recent peak (10).
+  Advance(absl::Minutes(50));
+  GenerateDemandPoint(Length(10), Length(7));
+  Length short_long_peak_pages5 =
+      tracker_.GetRecentDemand(absl::ZeroDuration(), absl::Minutes(51));
+  EXPECT_EQ(short_long_peak_pages5, Length(10));
 }
 
 TEST_F(StatsTrackerTest, ComputeRecentDemandAndCappedToPeak) {

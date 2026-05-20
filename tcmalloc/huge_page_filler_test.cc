@@ -4196,8 +4196,10 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
     EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
   }
-  // The tracker can hold record collected longer than 10 mins.
-  FakeClock::Advance(absl::Minutes(10));
+  // The tracker can hold record collected accumulated in more than 60 mins if
+  // the reports were reported sparsely (hence same number of tracker slots can
+  // cover longer period).
+  FakeClock::Advance(absl::Minutes(60));
   // Do some work
   for (int i = 0; i < 5; ++i) {
     result.push_back(AllocateVectorWithSpanAllocInfo(Length(1), kAllocInfo));
@@ -4235,7 +4237,7 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
                     "limit)"));
     ASSERT_THAT(
         buffer,
-        testing::EndsWith("HugePageFiller: Subrelease stats last 10 min: total "
+        testing::EndsWith("HugePageFiller: Subrelease stats last 60 min: total "
                           "21 pages subreleased.\n"));
   } else {
     ASSERT_THAT(buffer,
@@ -4246,7 +4248,7 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
                     "limit)"));
     ASSERT_THAT(
         buffer,
-        testing::EndsWith("HugePageFiller: Subrelease stats last 10 min: total "
+        testing::EndsWith("HugePageFiller: Subrelease stats last 60 min: total "
                           "0 pages subreleased.\n"));
   }
 
@@ -5667,7 +5669,7 @@ HugePageFiller: at peak demand: 3547 pages (and 255 free, 38 unmapped)
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
-HugePageFiller: Subrelease stats last 10 min: total 306 pages subreleased.
+HugePageFiller: Subrelease stats last 60 min: total 306 pages subreleased.
 )"));
 
   absl::flat_hash_set<const PageTracker*> expected_pts, actual_pts;
