@@ -672,8 +672,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
 
 // Fetch memory from the system and add to the central cache freelist.
 template <class Forwarder>
-inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch)
-    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
   // Release central list lock while operating on pageheap
   // Note, this could result in multiple calls to populate each allocating
   // a new span and the pushing those partially full spans onto nonempty.
@@ -681,6 +680,7 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch)
 
   Span* span = AllocateSpan();
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
+    lock_.lock();
     return 0;
   }
 
