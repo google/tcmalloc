@@ -63,6 +63,10 @@ inline bool IsNormalMemory(const void* ptr) {
   return res;
 }
 
+inline bool IsSampledMemory(const void* ptr) {
+  return GetMemoryTag(ptr) == MemoryTag::kSampled;
+}
+
 absl::string_view MemoryTagToLabel(MemoryTag tag);
 
 }  // namespace tcmalloc::tcmalloc_internal

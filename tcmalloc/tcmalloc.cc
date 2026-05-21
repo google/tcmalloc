@@ -778,8 +778,7 @@ ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
   }
   // kNormal allocations should not be misaligned.  GWP-ASan may deliberately
   // misalign small allocations, but they will appear as kSampled.
-  if (ABSL_PREDICT_FALSE(uptr & kBadAlignmentMask) &&
-      GetMemoryTag(ptr) != MemoryTag::kSampled) {
+  if (ABSL_PREDICT_FALSE(uptr & kBadAlignmentMask) && !IsSampledMemory(ptr)) {
     ReportCorruptedFree(tc_globals, kAlignment, ptr);
   }
 
@@ -842,7 +841,7 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
             (tag != MemoryTag::kNormal && tag != MemoryTag::kNormalP1 &&
              tag != MemoryTag::kCold));
 
-  if (ABSL_PREDICT_TRUE(tag == MemoryTag::kSampled)) {
+  if (ABSL_PREDICT_TRUE(IsSampledMemory(ptr))) {
     // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr, size, policy);
   }

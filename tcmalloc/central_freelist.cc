@@ -31,6 +31,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pagemap.h"
@@ -151,7 +152,7 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
   // Unregister size class doesn't require holding any locks.
   for (Span* const free_span : free_spans) {
     TC_ASSERT_EQ(GetMemoryTag(free_span->start_address()), tag);
-    TC_ASSERT_NE(GetMemoryTag(free_span->start_address()), MemoryTag::kSampled);
+    TC_ASSERT(!IsSampledMemory(free_span->start_address()));
     tc_globals.pagemap().UnregisterSizeClass(free_span);
 
     // Before taking pageheap_lock, prefetch the PageTrackers these spans are
