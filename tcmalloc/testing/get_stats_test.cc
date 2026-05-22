@@ -139,7 +139,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   }
   EXPECT_THAT(buf, ContainsRegex("(back_size_threshold_bytes: [1-9][0-9]*)"));
 
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_span_lifetime_tracking: true"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_span_lifetime_tracking: false"));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)) {
@@ -241,7 +241,7 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_enable_unfiltered_collapse 0)"));
 
     EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_span_lifetime_tracking 1)"));
+                HasSubstr(R"(PARAMETER tcmalloc_span_lifetime_tracking 0)"));
 
     EXPECT_THAT(
         buf,
