@@ -233,10 +233,6 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
-// TODO: b/435257627 - Remove this opt out once this has soaked for a while.
-ABSL_CONST_INIT std::atomic<bool>
-    Parameters::use_userspace_collapse_heuristics_(true);
-
 // TODO: b/425749361 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
 
@@ -469,10 +465,6 @@ int32_t TCMalloc_Internal_GetBackSizeThresholdBytes() {
   return Parameters::back_size_threshold_bytes();
 }
 
-bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics() {
-  return Parameters::use_userspace_collapse_heuristics();
-}
-
 bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
   return Parameters::release_pages_from_huge_region();
 }
@@ -639,11 +631,6 @@ void TCMalloc_Internal_SetBackSmallAllocations(bool v) {
 
 void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v) {
   Parameters::back_size_threshold_bytes_.store(v, std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v) {
-  Parameters::use_userspace_collapse_heuristics_.store(
-      v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetEnableUnfilteredCollapse() {

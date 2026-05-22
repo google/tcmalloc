@@ -98,10 +98,6 @@ class Parameters {
     return release_free_swapped_.load(std::memory_order_relaxed);
   }
 
-  static bool use_userspace_collapse_heuristics() {
-    return use_userspace_collapse_heuristics_.load(std::memory_order_relaxed);
-  }
-
   static bool back_small_allocations();
 
   static int32_t back_size_threshold_bytes() {
@@ -211,7 +207,7 @@ class Parameters {
       tcmalloc::tcmalloc_internal::MadvisePreference v);
   friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
   friend void ::TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
-  friend void ::TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(bool v);
+
   friend void ::TCMalloc_Internal_SetBackSmallAllocations(bool v);
   friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
   friend void ::TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
@@ -231,7 +227,7 @@ class Parameters {
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
   static std::atomic<bool> release_free_swapped_;
   static std::atomic<bool> usermode_hugepage_collapse_enabled_;
-  static std::atomic<bool> use_userspace_collapse_heuristics_;
+
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
 };

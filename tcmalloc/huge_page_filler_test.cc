@@ -1103,7 +1103,6 @@ class FillerTest : public testing::Test {
 
   void TreatHugepageTrackers(
       bool enable_collapse, bool enable_release_free_swapped,
-      bool use_userspace_collapse_heuristics,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
       PageFlagsBase* pageflags, Residency* residency) {
     // Note that scoped pageheap lock isn't used here. This is because the
@@ -1112,7 +1111,6 @@ class FillerTest : public testing::Test {
     // allocates, so we use manual lock and unlock here.
     pageheap_lock.lock();
     filler_.TreatHugepageTrackers(enable_collapse, enable_release_free_swapped,
-                                  use_userspace_collapse_heuristics,
                                   enable_unfiltered_collapse, pageflags,
                                   residency);
     pageheap_lock.unlock();
@@ -1256,7 +1254,6 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
@@ -1276,7 +1273,6 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   // haven't advanced the clock, so no pages should be released.
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
@@ -1287,7 +1283,6 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   FakeClock::Advance(absl::Minutes(100));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
@@ -1334,7 +1329,6 @@ TEST_F(FillerTest, CollapseDenseBeforeSparse) {
   ASSERT_EQ(filler_.size(), NHugePages(kNumAllocs * 2));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/true,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -1392,7 +1386,6 @@ TEST_F(FillerTest, CollapseOrderNObjects) {
   ASSERT_EQ(filler_.size(), NHugePages(kNumAllocs * 2));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/true,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -1435,7 +1428,6 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   // We expect to release the two free pages, since the second native page is
@@ -1454,7 +1446,6 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   FakeClock::Advance(absl::Minutes(100));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
@@ -1487,7 +1478,6 @@ TEST_F(FillerTest, ReleaseNoFreePages) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -1538,7 +1528,6 @@ TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
   ASSERT_EQ(filler_.size(), NHugePages(2));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/true,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -1591,7 +1580,6 @@ TEST_F(FillerTest, ParallelCollapseRelease) {
     while (!done.load(std::memory_order_acquire)) {
       TreatHugepageTrackers(/*enable_collapse=*/true,
                             /*enable_release_free_swapped=*/true,
-                            /*use_userspace_collapse_heuristics=*/false,
                             EnableUnfilteredCollapse::kDisabled, &pageflags,
                             &residency);
     }
@@ -1646,7 +1634,6 @@ TEST_F(FillerTest, DontCollapseAlreadyHugepages) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -1679,7 +1666,6 @@ TEST_F(FillerTest, DontCollapseUnknownHugepages) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -1722,7 +1708,6 @@ TEST_F(FillerTest, DontCollapseAlreadyCollapsed) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
@@ -1742,7 +1727,6 @@ TEST_F(FillerTest, DontCollapseAlreadyCollapsed) {
   // occur.
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   for (const auto& pa : p1) {
@@ -1770,7 +1754,6 @@ TEST_F(FillerTest, SetAnonVmaName) {
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
@@ -1780,7 +1763,6 @@ TEST_F(FillerTest, SetAnonVmaName) {
   FakeClock::Advance(absl::Seconds(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
@@ -1796,7 +1778,6 @@ TEST_F(FillerTest, SetAnonVmaName) {
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
@@ -1807,7 +1788,6 @@ TEST_F(FillerTest, SetAnonVmaName) {
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/false,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 3);
@@ -1842,7 +1822,6 @@ TEST_F(FillerTest, CollapseHugepages) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   for (const auto& pa : p1) {
@@ -1883,7 +1862,6 @@ TEST_F(FillerTest, DontCollapseHugepages) {
     ASSERT_EQ(filler_.size(), NHugePages(1));
     TreatHugepageTrackers(/*enable_collapse=*/true,
                           /*enable_release_free_swapped=*/false,
-                          /*use_userspace_collapse_heuristics=*/false,
                           EnableUnfilteredCollapse::kDisabled, &pageflags,
                           &residency);
     for (const auto& pa : p1) {
@@ -1934,7 +1912,6 @@ TEST_F(FillerTest, CollapseHugepagesDueToUnfilteredCollapse) {
 
     TreatHugepageTrackers(/*enable_collapse=*/true,
                           /*enable_release_free_swapped=*/false,
-                          /*use_userspace_collapse_heuristics=*/false,
                           EnableUnfilteredCollapse::kEnabled, &pageflags,
                           &residency);
     for (const auto& pa : p1) {
@@ -1987,7 +1964,6 @@ TEST_F(FillerTest, CollapseLatency) {
   collapse_.SetLatency(latency);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   for (const auto& pa : p1) {
@@ -2054,7 +2030,6 @@ TEST_F(FillerTest, EarlyBackoff) {
 
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -2117,7 +2092,6 @@ TEST_F(FillerTest, BackoffFromCollapse) {
 
       TreatHugepageTrackers(/*enable_collapse=*/true,
                             /*enable_release_free_swapped=*/false,
-                            /*use_userspace_collapse_heuristics=*/false,
                             EnableUnfilteredCollapse::kDisabled, &pageflags,
                             &residency);
       // We exponentially backoff from collapse, depending on the latency.
@@ -2190,7 +2164,6 @@ TEST_F(FillerTest, DontCollapseReleasedPages) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -2243,7 +2216,6 @@ TEST_F(FillerTest, CollapseFailure) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   for (const auto& pa : p1) {
@@ -2259,7 +2231,6 @@ TEST_F(FillerTest, CollapseFailure) {
   collapse_.SetErrorNumber(ENOMEM);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   check_stats(/*expected_eligible=*/2, /*expected_attempted=*/2,
@@ -2270,7 +2241,6 @@ TEST_F(FillerTest, CollapseFailure) {
   collapse_.SetErrorNumber(EBUSY);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   check_stats(/*expected_eligible=*/3, /*expected_attempted=*/3,
@@ -2281,7 +2251,6 @@ TEST_F(FillerTest, CollapseFailure) {
   collapse_.SetErrorNumber(EAGAIN);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   check_stats(/*expected_eligible=*/4, /*expected_attempted=*/4,
@@ -2292,7 +2261,6 @@ TEST_F(FillerTest, CollapseFailure) {
   collapse_.SetErrorNumber(0);
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   check_stats(/*expected_eligible=*/5, /*expected_attempted=*/5,
@@ -2336,7 +2304,6 @@ TEST_F(FillerTest, CollapseClock) {
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   for (const auto& pa : p1) {
@@ -2355,7 +2322,6 @@ TEST_F(FillerTest, CollapseClock) {
 
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   for (const auto& pa : p1) {
@@ -2368,7 +2334,6 @@ TEST_F(FillerTest, CollapseClock) {
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   for (const auto& pa : p1) {
@@ -4639,7 +4604,6 @@ TEST_F(FillerTest, ResidencyTelemetry) {
   ASSERT_EQ(filler_.size(), NHugePages(2));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
   for (const auto& pa : p1) {
@@ -4820,7 +4784,6 @@ TEST_F(FillerTest, CollapseSkippedTelemetry) {
   ASSERT_EQ(filler_.size(), NHugePages(3));
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -4916,7 +4879,6 @@ TEST_F(FillerTest, ResidencyTelemetryPartiallyReleased) {
   // residency state in TCMalloc telemetry records.
   TreatHugepageTrackers(/*enable_collapse=*/true,
                         /*enable_release_free_swapped=*/false,
-                        /*use_userspace_collapse_heuristics=*/false,
                         EnableUnfilteredCollapse::kDisabled, &pageflags,
                         &residency);
 
@@ -6044,7 +6006,6 @@ TEST_F(FillerTest, ConcurrentTreatmentInterferenceStress) {
       FakeClock::Advance(absl::Minutes(10));
       TreatHugepageTrackers(/*enable_collapse=*/true,
                             /*enable_release_free_swapped=*/true,
-                            /*use_userspace_collapse_heuristics=*/true,
                             EnableUnfilteredCollapse::kDisabled, &pageflags,
                             &residency);
     }

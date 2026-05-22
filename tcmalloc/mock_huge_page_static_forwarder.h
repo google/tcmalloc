@@ -79,12 +79,7 @@ class FakeStaticForwarder {
   void set_huge_region_demand_based_release(bool value) {
     huge_region_demand_based_release_ = value;
   }
-  bool use_userspace_collapse_heuristics() const {
-    return use_userspace_collapse_heuristics_;
-  }
-  void set_use_userspace_collapse_heuristics(bool value) {
-    use_userspace_collapse_heuristics_ = value;
-  }
+
   bool BackAllocations() const { return back_allocations_; }
   void SetBackAllocations(bool value) { back_allocations_ = value; }
   int32_t BackSizeThresholdBytes() const { return back_size_threshold_bytes_; }
@@ -218,7 +213,7 @@ class FakeStaticForwarder {
   bool collapse_succeeds_ = true;
   int error_number_ = 0;
   bool huge_region_demand_based_release_ = false;
-  bool use_userspace_collapse_heuristics_ = false;
+
   bool back_allocations_ = false;
   int32_t back_size_threshold_bytes_ = kPageSize;
   EnableUnfilteredCollapse enable_unfiltered_collapse_ =

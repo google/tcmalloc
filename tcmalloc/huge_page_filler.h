@@ -1255,7 +1255,6 @@ class HugePageFiller {
   // page, if `enable_release_free_swapped` is true.
   void TreatHugepageTrackers(
       bool enable_collapse, bool enable_release_free_swapped,
-      bool use_userspace_collapse_heuristics,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
       PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -2490,7 +2489,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       Clock clock, PageFlagsBase* pageflags, Residency* residency,
       MemoryModifyFunction& collapse, HugePageFiller<TrackerType>& page_filler,
       bool enable_collapse, bool enable_release_free_swap,
-      bool use_userspace_collapse_heuristics,
       EnableUnfilteredCollapse enable_unfiltered_collapse)
       : clock_(clock),
         pageflags_(pageflags),
@@ -2499,7 +2497,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         page_filler_(page_filler),
         enable_collapse_(enable_collapse),
         enable_release_free_swap_(enable_release_free_swap),
-        use_userspace_collapse_heuristics_(use_userspace_collapse_heuristics),
         enable_unfiltered_collapse_(enable_unfiltered_collapse) {}
   ~HugePageUnbackedTrackerTreatment() override = default;
 
@@ -2533,10 +2530,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
   void SelectEligibleTrackers(PageTracker& pt) override {
-    if (num_valid_trackers_ >= kTotalTrackersToScan &&
-        !use_userspace_collapse_heuristics_) {
-      return;
-    }
 
     auto PushCandidate = [&](PageTracker& pt) GOOGLE_MALLOC_SECTION {
       if (num_valid_trackers_ < kTotalTrackersToScan) {
@@ -2735,7 +2728,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   HugePageFiller<TrackerType>& page_filler_;
   bool enable_collapse_;
   bool enable_release_free_swap_;
-  bool use_userspace_collapse_heuristics_;
+
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
 };
 
@@ -2768,7 +2761,6 @@ void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     bool enable_collapse, bool enable_release_free_swapped,
-    bool use_userspace_collapse_heuristics,
     EnableUnfilteredCollapse enable_unfiltered_collapse,
     PageFlagsBase* pageflags, Residency* residency) {
   if (enable_collapse && ShouldBackoffFromCollapse()) {
@@ -2781,8 +2773,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
                                                     set_anon_vma_name_);
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
-      enable_release_free_swapped, use_userspace_collapse_heuristics,
-      enable_unfiltered_collapse);
+      enable_release_free_swapped, enable_unfiltered_collapse);
 
   // Collect up to kTotalTrackersToScan trackers from the regular sparse and
   // dense lists. if enable_release_free_swapped is true, we also collect

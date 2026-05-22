@@ -1552,7 +1552,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
   metadata.resize(kAllocThreads);
   allocator_->forwarder().set_collapse_succeeds(true);
   allocator_->forwarder().set_error_number(0);
-  bool use_userspace_collapse_heuristics = false;
+
   bool enable_unfiltered_collapse = false;
 
   auto collapse_func = [&](const std::atomic<bool>& done) {
@@ -1577,9 +1577,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
           allocator_->forwarder().set_error_number(error);
           break;
       }
-      use_userspace_collapse_heuristics = !use_userspace_collapse_heuristics;
-      allocator_->forwarder().set_use_userspace_collapse_heuristics(
-          use_userspace_collapse_heuristics);
+
       enable_unfiltered_collapse = !enable_unfiltered_collapse;
       allocator_->forwarder().set_enable_unfiltered_collapse(
           enable_unfiltered_collapse);

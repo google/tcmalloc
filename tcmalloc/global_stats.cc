@@ -628,8 +628,7 @@ void DumpStats(Printer& out, int level) {
                Parameters::usermode_hugepage_collapse() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_release_free_swapped %d\n",
                Parameters::release_free_swapped() ? 1 : 0);
-    out.printf("PARAMETER tcmalloc_use_userspace_collapse_heuristics %d\n",
-               Parameters::use_userspace_collapse_heuristics() ? 1 : 0);
+
     out.printf("PARAMETER tcmalloc_back_small_allocations %d\n",
                Parameters::back_small_allocations() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_back_size_threshold_bytes %d\n",
@@ -858,8 +857,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("usermode_hugepage_collapse",
                    Parameters::usermode_hugepage_collapse());
   region.PrintBool("release_free_swapped", Parameters::release_free_swapped());
-  region.PrintBool("use_userspace_collapse_heuristics",
-                   Parameters::use_userspace_collapse_heuristics());
+
   region.PrintBool("back_small_allocations",
                    Parameters::back_small_allocations());
   region.PrintI64("back_size_threshold_bytes",

@@ -589,7 +589,6 @@ void FuzzFiller(const std::vector<Instruction>& instructions) {
             PageHeapSpinLockHolder l;
             filler.TreatHugepageTrackers(
                 arg.enable_collapse, arg.enable_release_free_swap,
-                arg.use_userspace_collapse_heuristics,
                 arg.enable_unfiltered_collapse
                     ? EnableUnfilteredCollapse::kEnabled
                     : EnableUnfilteredCollapse::kDisabled,

@@ -242,16 +242,7 @@ struct SetHugeRegionDemandBasedRelease {
   }
 };
 
-struct SetUseUserspaceCollapseHeuristics {
-  bool value;
 
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink,
-                            const SetUseUserspaceCollapseHeuristics& s) {
-    absl::Format(&sink, "SetUseUserspaceCollapseHeuristics{.value=%v}",
-                 s.value);
-  }
-};
 
 struct SetBackAllocations {
   bool value;
@@ -301,9 +292,8 @@ using ParamOp =
                  SetFillerSkipSubreleaseLongInterval,
                  SetReleasePartialAllocPages, SetHpaaSubrelease,
                  SetReleaseSucceeds, SetHugeRegionDemandBasedRelease,
-                 SetUseUserspaceCollapseHeuristics, SetBackAllocations,
-                 SetBackSizeThresholdBytes, ReentrantSubprogram,
-                 SetEnableUnfilteredCollapse>;
+                 SetBackAllocations, SetBackSizeThresholdBytes,
+                 ReentrantSubprogram, SetEnableUnfilteredCollapse>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -580,10 +570,7 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
                                              SetHugeRegionDemandBasedRelease>) {
                       forwarder.set_huge_region_demand_based_release(
                           param_arg.value);
-                    } else if constexpr (
-                        std::is_same_v<P, SetUseUserspaceCollapseHeuristics>) {
-                      forwarder.set_use_userspace_collapse_heuristics(
-                          param_arg.value);
+
                     } else if constexpr (std::is_same_v<P,
                                                         SetBackAllocations>) {
                       forwarder.SetBackAllocations(param_arg.value);
@@ -724,9 +711,7 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
         fuzztest::Map(
             [](SetHugeRegionDemandBasedRelease s) { return ChangeParam{s}; },
             fuzztest::Arbitrary<SetHugeRegionDemandBasedRelease>()),
-        fuzztest::Map(
-            [](SetUseUserspaceCollapseHeuristics s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetUseUserspaceCollapseHeuristics>()),
+
         fuzztest::Map([](SetBackAllocations s) { return ChangeParam{s}; },
                       fuzztest::Arbitrary<SetBackAllocations>()),
         fuzztest::Map(
@@ -766,9 +751,7 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
         fuzztest::Map(
             [](SetHugeRegionDemandBasedRelease s) { return ChangeParam{s}; },
             fuzztest::Arbitrary<SetHugeRegionDemandBasedRelease>()),
-        fuzztest::Map(
-            [](SetUseUserspaceCollapseHeuristics s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetUseUserspaceCollapseHeuristics>()),
+
         fuzztest::Map([](SetBackAllocations s) { return ChangeParam{s}; },
                       fuzztest::Arbitrary<SetBackAllocations>()),
         fuzztest::Map(

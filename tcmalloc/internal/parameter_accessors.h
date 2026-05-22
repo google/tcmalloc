@@ -102,9 +102,7 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadvise(
     tcmalloc::tcmalloc_internal::MadvisePreference v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseFreeSwapped();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetUseUserspaceCollapseHeuristics();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetUseUserspaceCollapseHeuristics(
-    bool v);
+
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetBackSmallAllocations();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackSmallAllocations(bool v);
 ABSL_ATTRIBUTE_WEAK int32_t TCMalloc_Internal_GetBackSizeThresholdBytes();
