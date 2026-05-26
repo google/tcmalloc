@@ -41,10 +41,6 @@ build_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
     },
     {
-        "name": "small_but_slow_with_assertions",
-        "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW", "-DTCMALLOC_INTERNAL_WITH_ASSERTIONS"],
-    },
-    {
         "name": "numa_aware",
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
@@ -89,13 +85,6 @@ test_variants = [
         "name": "small_but_slow",
         "malloc": "//tcmalloc:tcmalloc_small_but_slow",
         "deps": ["//tcmalloc:common_small_but_slow"],
-        "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
-        "tags": ["noubsan"],
-    },
-    {
-        "name": "small_but_slow_with_assertions",
-        "malloc": "//tcmalloc:tcmalloc_small_but_slow_with_assertions",
-        "deps": ["//tcmalloc:common_small_but_slow_with_assertions"],
         "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
         "tags": ["noubsan"],
     },

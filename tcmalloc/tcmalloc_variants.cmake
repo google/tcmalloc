@@ -55,14 +55,6 @@ function(tcmalloc_cc_library_variants)
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS}
   )
-  tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_small_but_slow_with_assertions
-    ALIAS ${TCMALLOC_ALIAS}_small_but_slow_with_assertions
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_SMALL_BUT_SLOW -DTCMALLOC_INTERNAL_WITH_ASSERTIONS
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS}
-  )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_numa_aware
     ALIAS ${TCMALLOC_ALIAS}_numa_aware
     SRCS ${TCMALLOC_SRCS}
