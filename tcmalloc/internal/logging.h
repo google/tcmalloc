@@ -340,6 +340,9 @@ class PbtxtRegion {
   void PrintBool(absl::string_view key, bool value);
   // Useful for enums.
   void PrintRaw(absl::string_view key, absl::string_view value);
+  // TODO(b/484431489): remove the PrintString() function once the bug has been
+  // fixed.
+  void PrintString(absl::string_view key, absl::string_view value);
 
   // Prints 'key subregion'. Return the created subregion.
   PbtxtRegion CreateSubRegion(absl::string_view key)

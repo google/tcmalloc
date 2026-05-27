@@ -51,15 +51,15 @@ struct FDCloser {
 bool GetMemoryStatsFromCallback(
     MemoryStats& stats,
     absl::FunctionRef<ssize_t(char* buf, size_t count)> read) {
-  char buf[1024];
-  ssize_t rc = read(buf, sizeof(buf));
-  if (rc < 0 || rc >= static_cast<ssize_t>(sizeof(buf))) {
+  ssize_t rc = read(stats.buf, MemoryStats::kBufSize);
+  if (rc < 0 || rc >= static_cast<ssize_t>(MemoryStats::kBufSize)) {
     return false;
   }
-  buf[rc] = '\0';
+  stats.rc = rc;
+  stats.buf[rc] = '\0';
 
   const size_t pagesize = GetPageSize();
-  absl::string_view contents(buf, rc);
+  absl::string_view contents(stats.buf, rc);
   absl::string_view::size_type start = 0;
   int index = 0;
   do {

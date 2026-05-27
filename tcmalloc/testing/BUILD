@@ -625,6 +625,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:memory_stats",
         "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",

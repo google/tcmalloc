@@ -22,6 +22,7 @@
 #include "tcmalloc/arena.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/pages.h"
@@ -77,6 +78,11 @@ size_t SlackBytes(const BackingStats& stats);
 // WRITE stats to "out"
 void DumpStats(Printer& out, int level);
 void DumpStatsInPbtxt(Printer& out, int level);
+
+// TODO(b/484431489): remove the functions PrintMemoryStatsInPbtxt from the
+// header file.  These functions had been exposed for testing purposes only.
+void PrintMemoryStatsInPbtxt(PbtxtRegion& region);
+void PrintMemoryStatsInPbtxt(PbtxtRegion& region, const MemoryStats& stats);
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
                         size_t* absl_nonnull value);

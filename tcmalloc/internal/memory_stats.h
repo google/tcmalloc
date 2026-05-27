@@ -34,6 +34,9 @@ struct MemoryStats {
   int64_t shared;
   int64_t code;
   int64_t data;
+  static constexpr int kBufSize = 1024;
+  char buf[kBufSize];
+  int rc;
 };
 
 // Memory stats of a process

@@ -253,6 +253,20 @@ TEST(Check, Optional) {
   EXPECT_DEATH(TC_CHECK_EQ(opt1, noopt), "opt1 == noopt \\(1 == \\?\\?\\?\\)");
 }
 
+TEST(PbtxtRegionTest, Print) {
+  char buf[1024] = {};
+  Printer printer(buf, sizeof(buf));
+  PbtxtRegion region(printer, kTop);
+
+  region.PrintI64("foo", 1);
+  region.PrintDouble("bar", 2.0);
+  region.PrintBool("baz", true);
+  region.PrintRaw("xyzzy", "quux");
+  region.PrintString("grault", "garply");
+
+  EXPECT_STREQ(buf, R"( foo: 1 bar: 2 baz: true xyzzy: quux grault: "garply")");
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

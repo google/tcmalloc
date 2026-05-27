@@ -272,6 +272,12 @@ void PbtxtRegion::PrintRaw(absl::string_view key, absl::string_view value) {
   out_->Append(" ", key, ": ", value);
 }
 
+void PbtxtRegion::PrintString(absl::string_view key, absl::string_view value) {
+  // We need to quote-delimit the string to store it correctly:
+  // https://protobuf.dev/reference/protobuf/textformat-spec/#string.
+  out_->Append(" ", key, ": \"", value, "\"");
+}
+
 #ifndef NDEBUG
 void PbtxtRegion::InjectValues(int64_t* i64, double* d, bool* b) {
   injected_i64.store(i64, std::memory_order_release);
