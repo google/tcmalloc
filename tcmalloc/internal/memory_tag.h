@@ -28,6 +28,7 @@ namespace tcmalloc::tcmalloc_internal {
 enum class MemoryTag : uint8_t {
   // Sampled, infrequently allocated
   kSampled = 0x0,
+  kSampledP1 = kSanitizerAddressSpace ? 0xf8 : 0x1,
   // Normal memory, NUMA or security partition 0
   kNormalP0 = kSanitizerAddressSpace ? 0x1 : 0x4,
   // Normal memory, NUMA or security partition 1
@@ -53,6 +54,7 @@ inline bool IsNormalMemory(const void* ptr) {
   // This is slightly faster than checking kNormalP0/P1 separetly.
   static_assert((static_cast<uint8_t>(MemoryTag::kNormalP0) &
                  (static_cast<uint8_t>(MemoryTag::kSampled) |
+                  static_cast<uint8_t>(MemoryTag::kSampledP1) |
                   static_cast<uint8_t>(MemoryTag::kCold))) == 0);
   bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
               static_cast<uintptr_t>(MemoryTag::kNormal)) != 0;
@@ -64,7 +66,13 @@ inline bool IsNormalMemory(const void* ptr) {
 }
 
 inline bool IsSampledMemory(const void* ptr) {
-  return GetMemoryTag(ptr) == MemoryTag::kSampled;
+  bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
+              ~static_cast<uintptr_t>(MemoryTag::kSampledP1)) == 0;
+  TC_ASSERT(res == (GetMemoryTag(ptr) == MemoryTag::kSampled ||
+                    GetMemoryTag(ptr) == MemoryTag::kSampledP1),
+            "ptr=%p res=%d tag=%d", ptr, res,
+            static_cast<int>(GetMemoryTag(ptr)));
+  return res;
 }
 
 absl::string_view MemoryTagToLabel(MemoryTag tag);

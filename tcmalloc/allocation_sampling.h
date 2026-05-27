@@ -134,6 +134,10 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   GuardedAllocWithStatus alloc_with_status{
       nullptr, Profile::Sample::GuardedStatus::NotAttempted};
 
+  const MemoryTag tag =
+      tc_globals.multiple_non_numa_partitions() && policy.partition() == 1
+          ? MemoryTag::kSampledP1
+          : MemoryTag::kSampled;
   size_t capacity = 0;
   if (size_class != 0) {
     TC_ASSERT_EQ(size_class,
@@ -166,8 +170,8 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
       }
       capacity = requested_size;
     } else if ((span = state.page_allocator().New(
-                    num_pages, {1, AccessDensityPrediction::kSparse},
-                    MemoryTag::kSampled)) == nullptr) {
+                    num_pages, {1, AccessDensityPrediction::kSparse}, tag)) ==
+               nullptr) {
       capacity = stack_trace.allocated_size;
       return {obj, capacity};
     } else {

@@ -416,23 +416,27 @@ void PerformDeallocate(const AllocationRecord& record, bool is_sized) {
   }
 }
 
-static inline bool IsCold(tcmalloc::tcmalloc_internal::MemoryTag tag) {
-  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kCold;
+static inline bool IsColdOrSampled(tcmalloc::tcmalloc_internal::MemoryTag tag) {
+  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kCold ||
+         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampled ||
+         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledP1;
 }
 
 static inline bool IsPartitionZero(tcmalloc::tcmalloc_internal::MemoryTag tag) {
-  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kNormalP0;
+  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kNormalP0 ||
+         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampled;
 }
 
 static inline bool IsPartitionOne(tcmalloc::tcmalloc_internal::MemoryTag tag) {
-  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kNormalP1;
+  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kNormalP1 ||
+         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledP1;
 }
 
 void RandomizedAllocateAndDeallocateFuzzTest(
     const std::vector<Action>& actions) {
   std::vector<AllocationRecord> live_allocs;
   live_allocs.reserve(actions.size());
-  tcmalloc::ScopedNeverSample never_sample;
+  tcmalloc::ScopedGuardedSamplingInterval no_guarded_sampling(-1);
 
   for (const auto& action : actions) {
     if (std::holds_alternative<AllocationOp>(action)) {
@@ -463,7 +467,7 @@ void RandomizedAllocateAndDeallocateFuzzTest(
         if (alloc_op.token_id == AllocTokenId::ID0 &&
             alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint &&
             tcmalloc::tcmalloc_internal::ColdFeatureActive()) {
-          EXPECT_TRUE(IsCold(tag));
+          EXPECT_TRUE(IsColdOrSampled(tag));
         } else if (alloc_op.token_id == AllocTokenId::ID0) {
           if (is_numa_partition_one) {
             EXPECT_TRUE(IsPartitionOne(tag) || has_migrated);
@@ -474,7 +478,7 @@ void RandomizedAllocateAndDeallocateFuzzTest(
           EXPECT_TRUE(IsPartitionOne(tag));
         } else if (alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint &&
                    tcmalloc::tcmalloc_internal::ColdFeatureActive()) {
-          EXPECT_TRUE(IsCold(tag));
+          EXPECT_TRUE(IsColdOrSampled(tag));
         } else {
           if (is_numa_partition_one) {
             EXPECT_TRUE(IsPartitionOne(tag) || has_migrated);

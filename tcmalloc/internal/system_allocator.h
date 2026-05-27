@@ -184,6 +184,8 @@ class SystemAllocator {
 
   static constexpr size_t kNumPartitions =
       std::max(Topology::kNumPartitions, NormalPartitions);
+  static constexpr size_t kSecurityPartitions =
+      Topology::kNumPartitions > 1 ? 1 : NormalPartitions;
 
   mutable absl::base_internal::SpinLock spinlock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
@@ -191,7 +193,8 @@ class SystemAllocator {
   uintptr_t rnd_ ABSL_GUARDED_BY(spinlock_) = 0;
   absl::once_flag rnd_flag_;
 
-  uintptr_t next_sampled_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
+  std::array<uintptr_t, kSecurityPartitions> next_sampled_addr_
+      ABSL_GUARDED_BY(spinlock_) = {0};
   std::array<uintptr_t, kNumPartitions> next_normal_addr_
       ABSL_GUARDED_BY(spinlock_) = {0};
   uintptr_t next_cold_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
@@ -212,7 +215,8 @@ class SystemAllocator {
 
   std::array<AddressRegion*, kNumPartitions> normal_region_
       ABSL_GUARDED_BY(spinlock_){{nullptr}};
-  AddressRegion* sampled_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
+  std::array<AddressRegion*, kSecurityPartitions> sampled_region_
+      ABSL_GUARDED_BY(spinlock_){{nullptr}};
   AddressRegion* cold_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
   AddressRegion* metadata_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
 
@@ -334,7 +338,7 @@ void SystemAllocator<Topology, NormalPartitions>::SetRegionFactory(
 template <typename Topology, size_t NormalPartitions>
 void SystemAllocator<Topology, NormalPartitions>::DiscardMappedRegions() {
   std::fill(normal_region_.begin(), normal_region_.end(), nullptr);
-  sampled_region_ = nullptr;
+  std::fill(sampled_region_.begin(), sampled_region_.end(), nullptr);
   cold_region_ = nullptr;
   metadata_region_ = nullptr;
 }
@@ -464,7 +468,9 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
           case MemoryTag::kNormalP1:
             return &normal_region_[1];
           case MemoryTag::kSampled:
-            return &sampled_region_;
+            return &sampled_region_[0];
+          case MemoryTag::kSampledP1:
+            return &sampled_region_[1];
           case MemoryTag::kCold:
             return &cold_region_;
           case MemoryTag::kMetadata:
@@ -515,7 +521,9 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
       *[&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_) GOOGLE_MALLOC_SECTION {
         switch (tag) {
           case MemoryTag::kSampled:
-            return &next_sampled_addr_;
+            return &next_sampled_addr_[0];
+          case MemoryTag::kSampledP1:
+            return &next_sampled_addr_[1];
           case MemoryTag::kNormalP0:
             numa_partition = 0;
             return &next_normal_addr_[0];
@@ -740,6 +748,7 @@ SystemAllocator<Topology, NormalPartitions>::TagToHint(MemoryTag tag) const {
       }
       return UsageHint::kNormal;
     case MemoryTag::kSampled:
+    case MemoryTag::kSampledP1:
       return UsageHint::kInfrequentAllocation;
     case MemoryTag::kCold:
       return UsageHint::kInfrequentAccess;

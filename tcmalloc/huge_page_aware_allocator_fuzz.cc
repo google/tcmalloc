@@ -676,9 +676,9 @@ auto GetHPAADomain() {
                                        absl::Seconds(3600)),
                             absl::Seconds(1)))};
       },
-      fuzztest::ElementOf({MemoryTag::kSampled, MemoryTag::kNormalP0,
-                           MemoryTag::kNormalP1, MemoryTag::kNormal,
-                           MemoryTag::kCold}),
+      fuzztest::ElementOf({MemoryTag::kSampled, MemoryTag::kSampledP1,
+                           MemoryTag::kNormalP0, MemoryTag::kNormalP1,
+                           MemoryTag::kNormal, MemoryTag::kCold}),
       fuzztest::ElementOf({HugeRegionUsageOption::kDefault,
                            HugeRegionUsageOption::kUseForAllLargeAllocs}),
       AnyPositiveDuration());

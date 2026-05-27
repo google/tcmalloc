@@ -533,6 +533,9 @@ void DumpStats(Printer& out, int level) {
       tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1, pageflags);
     }
     tc_globals.page_allocator().Print(out, MemoryTag::kSampled, pageflags);
+    if (tc_globals.multiple_non_numa_partitions()) {
+      tc_globals.page_allocator().Print(out, MemoryTag::kSampledP1, pageflags);
+    }
     tc_globals.page_allocator().Print(out, MemoryTag::kCold, pageflags);
     tc_globals.guardedpage_allocator().Print(out);
 
@@ -798,6 +801,10 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   }
   tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled,
                                            pageflags);
+  if (tc_globals.multiple_non_numa_partitions()) {
+    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampledP1,
+                                             pageflags);
+  }
   tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold, pageflags);
   // We do not collect tracking information in pbtxt.
 

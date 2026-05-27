@@ -38,6 +38,7 @@ using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
 PageAllocator::PageAllocator() {
   has_cold_impl_ = ColdFeatureActive();
+  heap_partition_active_ = tc_globals.multiple_non_numa_partitions();
   size_t part = 0;
 
   normal_impl_[0] = new (&choices_[part++].hpaa)
@@ -48,8 +49,16 @@ PageAllocator::PageAllocator() {
             HugePageAwareAllocator(
                 HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
-  sampled_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
+  sampled_impl_[0] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
       HugePageAwareAllocatorOptions{MemoryTag::kSampled});
+  if (heap_partition_active_) {
+    // this is not the case for NUMA partitions, hence, we can't use the
+    // active_partitions() check.
+    sampled_impl_[1] =
+        new (tc_globals.arena().Alloc(sizeof(HugePageAwareAllocator)))
+            HugePageAwareAllocator(
+                HugePageAwareAllocatorOptions{MemoryTag::kSampledP1});
+  }
   if (has_cold_impl_) {
     cold_impl_ = new (&choices_[part++].hpaa)
         HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kCold});
@@ -179,10 +188,16 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
         return true;
       }
     }
-
-    ret += static_cast<HugePageAwareAllocator*>(sampled_impl_)
-               ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
-                                                       release_reason);
+    for (int partition = 0;
+         partition < (heap_partition_active_ ? kSecurityPartitions : 1);
+         partition++) {
+      ret += static_cast<HugePageAwareAllocator*>(sampled_impl_[partition])
+                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
+                                                         release_reason);
+      if (ret >= pages) {
+        return true;
+      }
+    }
   }
   // Return "true", if we got back under the limit.
   return (pages <= ret);
