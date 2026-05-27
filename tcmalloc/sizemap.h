@@ -95,11 +95,14 @@ class SizeMap {
   //                                            as cold & for partition 0.
   //   [3*kClassArraySize, 4*kClassArraySize) : Lookups for allocations marked
   //                                            as cold & for partition 1.
-  // If the heap partitioning feature is not active, then the lookups for
-  // partition 1 will contain the same information as for partition 0.
-  // If the heap partitioning feature is active, cold & partition 1 will be
-  // the same as hot & partition 1. Namely, it will point to the
-  // [kNumBaseClasses, kExpandedClassesStart) size classes.
+  // * If the heap partitioning feature is not active, then the lookups for
+  //   partition 1 will contain the same information as for partition 0.
+  // * If the heap partitioning feature is active in kFull mode:
+  //   Cold & partition 1 will be the same as hot & partition 1. Namely, it
+  //   will point to the [kNumBaseClasses, kExpandedClassesStart) size classes.
+  // * If the heap partitioning feature is active in kLight mode:
+  //   Cold & partition 1 will be the same as cold & partition 0. Namely, it
+  //   will point to the [kExpandedClassesStart, kNumClasses) size classes.
   // If NUMA support is compiled in, the partition 1 regions won't exist.
   // Similarly, for cold memory, if expanded classes are not compiled in.
   static constexpr size_t kClassArraySizePartitions =

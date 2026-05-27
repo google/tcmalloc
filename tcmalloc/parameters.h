@@ -33,6 +33,17 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+// The configured heap partitioning mode.
+enum class HeapPartitioningMode {
+  // Heap partitioning is disabled.
+  kOff = 0,
+  // Full heap partitioning with strong isolation is enabled.
+  kFull = 1,
+  // Lightweight heap partitioning with weaker isolation is enabled; this is a
+  // more performant mode with weaker security properties (vs. kFull).
+  kLight = 2,
+};
+
 class Parameters {
  public:
   static MallocExtension::BytesPerSecond background_release_rate();
@@ -175,7 +186,7 @@ class Parameters {
         std::memory_order_relaxed);
   }
 
-  static bool heap_partitioning();
+  static HeapPartitioningMode heap_partitioning_mode();
 
   static central_freelist_internal::LifetimeTracking span_lifetime_tracking();
 

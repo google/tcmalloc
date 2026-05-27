@@ -104,7 +104,7 @@ class Static final {
   }
 
   static bool multiple_non_numa_partitions() {
-    return Parameters::heap_partitioning();
+    return Parameters::heap_partitioning_mode() != HeapPartitioningMode::kOff;
   }
 
   static size_t active_partitions() {

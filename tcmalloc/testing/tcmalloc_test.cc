@@ -1291,13 +1291,13 @@ TYPED_TEST_SUITE(HotColdTest, PointerlessContainingTypes);
 template <typename T>
 static bool IsHot(uint8_t label,
                   tcmalloc::hot_cold_t threshold = kDefaultMinHotAccessHint) {
-  // If heap partitioning is enabled, we treat all pointer-containing
-  // allocations as hot to avoid mixing pointer-containing and
-  // pointerless allocations in the same cold partition.
+  // If full heap partitioning is enabled, we treat all pointer-containing
+  // allocations as hot to avoid mixing pointer-containing and pointerless
+  // allocations in the same cold partition.
   return static_cast<tcmalloc::hot_cold_t>(label) >= threshold ||
          (MallocExtension::GetNumericProperty(
               "tcmalloc.security_partitioning_active")
-              .value_or(0) &&
+                  .value_or(0) == 1 &&
           std::is_same_v<T, char*>);
 }
 

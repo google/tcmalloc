@@ -253,9 +253,10 @@ static std::atomic<bool>& back_small_allocations_enabled() {
   return v;
 }
 
-static std::atomic<bool>& heap_partitioning_enabled() {
+static std::atomic<HeapPartitioningMode>& heap_partitioning_mode_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  ABSL_CONST_INIT static std::atomic<HeapPartitioningMode> v{
+      HeapPartitioningMode::kOff};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     if (kSecurityPartitions == 1) {
       return;
@@ -264,11 +265,16 @@ static std::atomic<bool>& heap_partitioning_enabled() {
     if (hp == nullptr &&
         (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_HEAP_PARTITIONING) ||
          tcmalloc_flag_enable_heap_partitioning_default_on != nullptr)) {
-      v.store(true, std::memory_order_relaxed);
+      v.store(HeapPartitioningMode::kFull, std::memory_order_relaxed);
     }
     if (hp != nullptr) {
-      bool off = strcasecmp(hp, "false") == 0 || std::strcmp(hp, "0") == 0;
-      v.store(!off, std::memory_order_relaxed);
+      if (strcasecmp(hp, "false") == 0 || std::strcmp(hp, "0") == 0) {
+        v.store(HeapPartitioningMode::kOff, std::memory_order_relaxed);
+      } else if (std::strcmp(hp, "2") == 0 || strcasecmp(hp, "light") == 0) {
+        v.store(HeapPartitioningMode::kLight, std::memory_order_relaxed);
+      } else {
+        v.store(HeapPartitioningMode::kFull, std::memory_order_relaxed);
+      }
     }
   });
   return v;
@@ -307,8 +313,8 @@ bool Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
 
-bool Parameters::heap_partitioning() {
-  return heap_partitioning_enabled().load(std::memory_order_relaxed);
+HeapPartitioningMode Parameters::heap_partitioning_mode() {
+  return heap_partitioning_mode_ptr().load(std::memory_order_relaxed);
 }
 
 bool Parameters::back_small_allocations() {

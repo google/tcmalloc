@@ -503,7 +503,9 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.num_released_hard_limit_exceeded_bytes"].value =
       stats.num_released_hard_limit_exceeded.in_bytes();
   (*result)["tcmalloc.security_partitioning_active"].value =
-      kSecurityPartitions > 1 && Parameters::heap_partitioning();
+      kSecurityPartitions > 1
+          ? static_cast<int>(Parameters::heap_partitioning_mode())
+          : 0;
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
@@ -625,7 +627,8 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
 
   MemoryTag tag = MemoryTag::kNormal;
   if (policy.is_cold() &&
-      (!Parameters::heap_partitioning() || policy.security_partition() == 0)) {
+      (Parameters::heap_partitioning_mode() != HeapPartitioningMode::kFull ||
+       policy.security_partition() == 0)) {
     tag = MemoryTag::kCold;
   } else if (tc_globals.active_partitions() > 1) {
     tag = MultiNormalTag(policy.partition());

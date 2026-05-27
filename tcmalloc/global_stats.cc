@@ -289,7 +289,9 @@ static absl::string_view HeapPartitioningModeString() {
   } else if (kSecurityPartitions == 1 && tc_globals.active_partitions() > 1) {
     return "PARTITIONING_MODE_NUMA";
   } else if (tc_globals.active_partitions() > 1) {
-    return "PARTITIONING_MODE_SECURITY";
+    return Parameters::heap_partitioning_mode() == HeapPartitioningMode::kLight
+               ? "PARTITIONING_MODE_SECURITY_LIGHT"
+               : "PARTITIONING_MODE_SECURITY";
   }
   return "PARTITIONING_MODE_UNKNOWN";
 }
@@ -1119,7 +1121,9 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "tcmalloc.security_partitioning_active") {
-    *value = kSecurityPartitions > 1 && Parameters::heap_partitioning();
+    *value = kSecurityPartitions > 1
+                 ? static_cast<int>(Parameters::heap_partitioning_mode())
+                 : 0;
     return true;
   }
 

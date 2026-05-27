@@ -495,7 +495,7 @@ template <typename Manager>
 void TryResizingCaches(Manager& manager) {
   // Resize transfer caches for each set of kNumBaseClasses.
   const size_t num_partitions =
-      Parameters::heap_partitioning()
+      Parameters::heap_partitioning_mode() != HeapPartitioningMode::kOff
           ? Manager::kNormalPartitions
           : Manager::kNormalPartitions / Manager::kSecurityPartitions;
   for (int i = 0; i < num_partitions; ++i) {

@@ -32,6 +32,7 @@
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
@@ -313,7 +314,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     }
     if (kSecurityPartitions > 1) {
       TC_ASSERT_EQ(cold_block_offset, 2);
-      if (heap_partitioning_active) {
+      if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
         // Point all lookups in the third upper register of class_array_
         // (allocations seeking cold memory, with hints for partition 1, i.e.,
         // pointer-containing allocations) to the same classes as the hot

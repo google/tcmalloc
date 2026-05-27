@@ -34,9 +34,9 @@ int main() {
   void* ptr_0_sz0 = __alloc_token_0_malloc(0);
   void* ptr_1_sz0 = __alloc_token_1_malloc(0);
 
-  bool security_partitioning = tcmalloc::MallocExtension::GetNumericProperty(
-                                   "tcmalloc.security_partitioning_active")
-                                   .value_or(0);
+  bool security_partitioning = !!tcmalloc::MallocExtension::GetNumericProperty(
+                                     "tcmalloc.security_partitioning_active")
+                                     .value_or(0);
 
   absl::string_view tag_0 = MemoryTagToLabel(GetMemoryTag(ptr_0));
   absl::string_view tag_1 = MemoryTagToLabel(GetMemoryTag(ptr_1));

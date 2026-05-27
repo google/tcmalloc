@@ -137,6 +137,13 @@ test_variants = [
         "tags": ["noubsan", "noasan", "nomsan", "notsan"],
     },
     {
+        "name": "partitioned_light_runtime",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"TCMALLOC_HEAP_PARTITIONING": "light"},
+        "tags": ["noubsan", "noasan", "nomsan", "notsan"],
+    },
+    {
         "name": "numa_aware_disabled",
         "malloc": "//tcmalloc:tcmalloc_numa_aware",
         "deps": [

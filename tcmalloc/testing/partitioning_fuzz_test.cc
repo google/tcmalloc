@@ -108,6 +108,9 @@ using fuzztest::StructOf;
 using fuzztest::VariantOf;
 using fuzztest::VectorOf;
 
+using tcmalloc::tcmalloc_internal::HeapPartitioningMode;
+using tcmalloc::tcmalloc_internal::Parameters;
+
 enum class AllocTokenId { NO_ALLOC_TOKEN, ID0, ID1 };
 enum class AllocType {
   MALLOC,
@@ -428,8 +431,15 @@ static inline bool IsPartitionZero(tcmalloc::tcmalloc_internal::MemoryTag tag) {
 }
 
 static inline bool IsPartitionOne(tcmalloc::tcmalloc_internal::MemoryTag tag) {
-  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kNormalP1 ||
-         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledP1;
+  if (tag == tcmalloc::tcmalloc_internal::MemoryTag::kNormalP1 ||
+      tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledP1) {
+    return true;
+  }
+  if (tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampled) {
+    return tcmalloc::tcmalloc_internal::Parameters::heap_partitioning_mode() ==
+           tcmalloc::tcmalloc_internal::HeapPartitioningMode::kOff;
+  }
+  return false;
 }
 
 void RandomizedAllocateAndDeallocateFuzzTest(
@@ -462,11 +472,18 @@ void RandomizedAllocateAndDeallocateFuzzTest(
 
       if (ptr != nullptr) {
         const auto tag = tcmalloc::tcmalloc_internal::GetMemoryTag(ptr);
-        bool security_partition =
-            tcmalloc::tcmalloc_internal::Parameters::heap_partitioning();
-        if (alloc_op.token_id == AllocTokenId::ID0 &&
+        const bool security_partition =
+            Parameters::heap_partitioning_mode() !=
+                HeapPartitioningMode::kOff &&
+            tcmalloc::tcmalloc_internal::kSecurityPartitions > 1;
+        const bool security_partition_light =
+            Parameters::heap_partitioning_mode() ==
+            HeapPartitioningMode::kLight;
+        const bool is_cold =
             alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint &&
-            tcmalloc::tcmalloc_internal::ColdFeatureActive()) {
+            tcmalloc::tcmalloc_internal::ColdFeatureActive();
+        if (is_cold && (alloc_op.token_id == AllocTokenId::ID0 ||
+                        security_partition_light)) {
           EXPECT_TRUE(IsColdOrSampled(tag));
         } else if (alloc_op.token_id == AllocTokenId::ID0) {
           if (is_numa_partition_one) {
@@ -476,8 +493,7 @@ void RandomizedAllocateAndDeallocateFuzzTest(
           }
         } else if (security_partition) {
           EXPECT_TRUE(IsPartitionOne(tag));
-        } else if (alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint &&
-                   tcmalloc::tcmalloc_internal::ColdFeatureActive()) {
+        } else if (is_cold) {
           EXPECT_TRUE(IsColdOrSampled(tag));
         } else {
           if (is_numa_partition_one) {

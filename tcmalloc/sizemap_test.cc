@@ -22,8 +22,9 @@
 #include "gtest/gtest.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/parameter_accessors.h"
-#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/internal/size_class_info.h"
+#include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
@@ -191,14 +192,26 @@ TEST(SizeMapTest, PointerPartitionNoCold) {
   SizeMap size_map;
   EXPECT_TRUE(size_map.Init(classes));
   for (const size_t request_size : allowed_alloc_size) {
-    EXPECT_EQ(size_map.SizeClass(CppPolicy()
-                                     .WithSecurityToken<TokenId::kAllocToken1>()
-                                     .AccessAsCold(),
-                                 request_size),
-              size_map.SizeClass(CppPolicy()
-                                     .WithSecurityToken<TokenId::kAllocToken1>()
-                                     .AccessAsHot(),
-                                 request_size));
+    if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
+      EXPECT_EQ(
+          size_map.SizeClass(CppPolicy()
+                                 .WithSecurityToken<TokenId::kAllocToken1>()
+                                 .AccessAsCold(),
+                             request_size),
+          size_map.SizeClass(CppPolicy()
+                                 .WithSecurityToken<TokenId::kAllocToken1>()
+                                 .AccessAsHot(),
+                             request_size));
+    } else {
+      EXPECT_EQ(
+          size_map.SizeClass(CppPolicy()
+                                 .WithSecurityToken<TokenId::kAllocToken1>()
+                                 .AccessAsCold(),
+                             request_size),
+          size_map.SizeClass(
+              CppPolicy().WithSecurityToken<TokenId{0}>().AccessAsCold(),
+              request_size));
+    }
   }
   EXPECT_THAT(size_map.ColdSizeClasses(),
               ElementsAreArray(expected_cold_size_classes));
