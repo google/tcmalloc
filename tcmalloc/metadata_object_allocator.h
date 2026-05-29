@@ -65,13 +65,6 @@ class MetadataObjectAllocator {
                        std::forward<Args>(args)...);
   }
 
-  template <typename... Args>
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(
-      size_t size, std::align_val_t align, Args&&... args) {
-    T* ret = LockAndAllocMemory(size, align);
-    return new (ret) T(std::forward<Args>(args)...);
-  }
-
   void Delete(T* p) ABSL_ATTRIBUTE_NONNULL() {
     p->~T();
     LockAndDeleteMemory(p);
@@ -84,6 +77,12 @@ class MetadataObjectAllocator {
   }
 
  private:
+  template <typename... Args>
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(
+      size_t size, std::align_val_t align, Args&&... args) {
+    T* ret = LockAndAllocMemory(size, align);
+    return new (ret) T(std::forward<Args>(args)...);
+  }
   ABSL_ATTRIBUTE_RETURNS_NONNULL T* LockAndAllocMemory(size_t size,
                                                        std::align_val_t align) {
     TC_ASSERT_GE(static_cast<size_t>(align), alignof(T));
