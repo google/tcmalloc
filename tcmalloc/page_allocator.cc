@@ -38,7 +38,8 @@ using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
 PageAllocator::PageAllocator() {
   has_cold_impl_ = ColdFeatureActive();
-  heap_partition_active_ = tc_globals.multiple_non_numa_partitions();
+  sampled_partition_active_ =
+      Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
   size_t part = 0;
 
   normal_impl_[0] = new (&choices_[part++].hpaa)
@@ -51,7 +52,7 @@ PageAllocator::PageAllocator() {
   }
   sampled_impl_[0] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
       HugePageAwareAllocatorOptions{MemoryTag::kSampled});
-  if (heap_partition_active_) {
+  if (sampled_partition_active_) {
     // this is not the case for NUMA partitions, hence, we can't use the
     // active_partitions() check.
     sampled_impl_[1] =
@@ -189,7 +190,7 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
       }
     }
     for (int partition = 0;
-         partition < (heap_partition_active_ ? kSecurityPartitions : 1);
+         partition < (sampled_partition_active_ ? kSecurityPartitions : 1);
          partition++) {
       ret += static_cast<HugePageAwareAllocator*>(sampled_impl_[partition])
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,

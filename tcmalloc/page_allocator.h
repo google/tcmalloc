@@ -169,7 +169,7 @@ class PageAllocator {
   Interface* cold_impl_;
   Algorithm alg_;
   bool has_cold_impl_;
-  bool heap_partition_active_;
+  bool sampled_partition_active_;
 
   // Max size of backed spans we will attempt to maintain.
   // Crash if we can't maintain below limits_[kHard], which is guaranteed to be
@@ -243,7 +243,7 @@ inline BackingStats PageAllocator::stats() const {
     ret += normal_impl_[partition]->stats();
   }
   ret += sampled_impl_[0]->stats();
-  if (heap_partition_active_) {
+  if (sampled_partition_active_) {
     ret += sampled_impl_[1]->stats();
   }
   if (has_cold_impl_) {
@@ -260,7 +260,7 @@ inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
     normal += part_stats;
   }
   sampled_impl_[0]->GetSmallSpanStats(&sampled);
-  if (heap_partition_active_) {
+  if (sampled_partition_active_) {
     SmallSpanStats part_stats;
     sampled_impl_[1]->GetSmallSpanStats(&part_stats);
     sampled += part_stats;
@@ -281,7 +281,7 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
     normal += part_stats;
   }
   sampled_impl_[0]->GetLargeSpanStats(&sampled);
-  if (heap_partition_active_) {
+  if (sampled_partition_active_) {
     LargeSpanStats part_stats;
     sampled_impl_[1]->GetLargeSpanStats(&part_stats);
     sampled += part_stats;
@@ -321,7 +321,7 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
 
   released += sampled_impl_[0]->ReleaseAtLeastNPages(
       num_pages > released ? num_pages - released : Length(0), reason);
-  if (heap_partition_active_) {
+  if (sampled_partition_active_) {
     released += sampled_impl_[1]->ReleaseAtLeastNPages(
         num_pages > released ? num_pages - released : Length(0), reason);
   }
@@ -340,7 +340,7 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
   }
 
   stats += sampled_impl_[0]->GetReleaseStats();
-  if (heap_partition_active_) {
+  if (sampled_partition_active_) {
     stats += sampled_impl_[1]->GetReleaseStats();
   }
 

@@ -535,7 +535,7 @@ void DumpStats(Printer& out, int level) {
       tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1, pageflags);
     }
     tc_globals.page_allocator().Print(out, MemoryTag::kSampled, pageflags);
-    if (tc_globals.multiple_non_numa_partitions()) {
+    if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
       tc_globals.page_allocator().Print(out, MemoryTag::kSampledP1, pageflags);
     }
     tc_globals.page_allocator().Print(out, MemoryTag::kCold, pageflags);
@@ -803,7 +803,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   }
   tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled,
                                            pageflags);
-  if (tc_globals.multiple_non_numa_partitions()) {
+  if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
     tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampledP1,
                                              pageflags);
   }

@@ -29,6 +29,7 @@
 #include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/tcmalloc_policy.h"
@@ -135,7 +136,8 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
       nullptr, Profile::Sample::GuardedStatus::NotAttempted};
 
   const MemoryTag tag =
-      tc_globals.multiple_non_numa_partitions() && policy.partition() == 1
+      Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull &&
+              policy.partition() == 1
           ? MemoryTag::kSampledP1
           : MemoryTag::kSampled;
   size_t capacity = 0;

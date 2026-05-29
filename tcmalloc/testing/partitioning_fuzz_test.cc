@@ -436,8 +436,8 @@ static inline bool IsPartitionOne(tcmalloc::tcmalloc_internal::MemoryTag tag) {
     return true;
   }
   if (tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampled) {
-    return tcmalloc::tcmalloc_internal::Parameters::heap_partitioning_mode() ==
-           tcmalloc::tcmalloc_internal::HeapPartitioningMode::kOff;
+    return tcmalloc::tcmalloc_internal::Parameters::heap_partitioning_mode() !=
+           tcmalloc::tcmalloc_internal::HeapPartitioningMode::kFull;
   }
   return false;
 }
