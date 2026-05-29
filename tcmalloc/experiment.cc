@@ -55,11 +55,6 @@ bool HasBrittleTestFailures(Experiment exp) {
     return true;
   }
 
-  // TODO(b/134694141): Temporarily add to the brittle tests list.
-  if (exp == Experiment::TCMALLOC_EAGER_BACKING) {
-    return true;
-  }
-
   if (exp == Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE) {
     return true;
   }

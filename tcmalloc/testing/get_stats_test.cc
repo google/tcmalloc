@@ -139,11 +139,7 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   EXPECT_THAT(buf, HasSubstr("release_free_swapped: true"));
 
-  if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING)) {
-    EXPECT_THAT(buf, HasSubstr("back_small_allocations: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("back_small_allocations: false"));
-  }
+  EXPECT_THAT(buf, HasSubstr("back_small_allocations: false"));
   EXPECT_THAT(buf, ContainsRegex("(back_size_threshold_bytes: [1-9][0-9]*)"));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_span_lifetime_tracking: false"));
@@ -231,13 +227,8 @@ TEST_F(GetStatsTest, Parameters) {
 #endif
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 1)"));
 
-    if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING)) {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 1)"));
-    } else {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 0)"));
-    }
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 0)"));
     EXPECT_THAT(
         buf, ContainsRegex("(tcmalloc_back_size_threshold_bytes [1-9][0-9]*)"));
 

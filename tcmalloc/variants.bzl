@@ -255,12 +255,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "tcmalloc_eager_backing",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_EAGER_BACKING"},
-    },
-    {
         "name": "latency_injection",
         "malloc": "//tcmalloc:tcmalloc_latency_injection",
         "deps": ["//tcmalloc:common_latency_injection"],
