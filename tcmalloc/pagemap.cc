@@ -55,7 +55,7 @@ void PageMap::MapRootWithSmallPages() {
   uintptr_t begin = reinterpret_cast<uintptr_t>(map_.RootAddress());
   // Round begin up to the nearest hugepage, this avoids causing memory before
   // the start of the pagemap to become mapped onto small pages.
-  uintptr_t rbegin = (begin + kHugePageSize) & kHugePageMask;
+  uintptr_t rbegin = (begin + kHugePageSize - 1) & kHugePageMask;
   size_t length = map_.RootSize();
   // Round end down to the nearest hugepage, this avoids causing memory after
   // the end of the pagemap becoming mapped onto small pages.
