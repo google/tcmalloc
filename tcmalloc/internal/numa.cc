@@ -74,11 +74,6 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
   // whether to enable NUMA awareness by default, and allow the user to
   // override that either way by setting TCMALLOC_NUMA_AWARE in the
   // environment.
-  //
-  // In cases where we don't enable NUMA awareness we simply return. Since the
-  // cpu_to_scaled_partition & partition_to_nodes arrays are zero initialized
-  // we're trivially done - CPUs all map to partition 0, which contains only
-  // CPU 0 added above.
   bool enabled = true;
   if (e == nullptr) {
     // Enable NUMA awareness iff default_want_numa_aware().
