@@ -56,6 +56,8 @@ for std in ${STD}; do
       echo "--------------------------------------------------------------------"
       time docker run \
         --env="USE_BAZEL_VERSION=8.5.1" \
+        --env="CC=/opt/llvm/bin/clang" \
+        --env="CXX=/opt/llvm/bin/clang++" \
         --volume="${ABSEIL_ROOT}:/abseil-cpp:ro" \
         --workdir=/abseil-cpp \
         --cap-add=SYS_PTRACE \
