@@ -59,7 +59,7 @@ struct SizeClasses {
   SizeClassAssumptions assumptions;
 };
 
-inline constexpr bool SizeClassesAreDivisibleByPageSize(
+constexpr bool SizeClassesAreDivisibleByPageSize(
     absl::Span<const SizeClassInfo> classes, Bytes page_size) {
   for (const auto& c : classes) {
     if (c.bytes % page_size != Bytes(0)) {

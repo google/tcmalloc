@@ -160,7 +160,7 @@ class SystemAllocator {
   // practice we will unconditionally fault the range.)
   //
   // REQUIRES: [start, start + length) is a range aligned to 4KiB boundaries.
-  inline void Back(void* start, size_t length) {
+  void Back(void* start, size_t length) {
     madvise(start, length, MADV_POPULATE_READ | MADV_POPULATE_WRITE);
   }
 
