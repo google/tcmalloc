@@ -1037,7 +1037,7 @@ inline void CpuCache<Forwarder>::Activate() {
   resize_ = reinterpret_cast<ResizeInfo*>(forwarder_.Alloc(
       sizeof(ResizeInfo) * num_cpus, std::align_val_t{alignof(ResizeInfo)}));
 
-  auto max_cache_size = CacheLimit();
+  const uint64_t max_cache_size = CacheLimit();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     new (&resize_[cpu]) ResizeInfo();

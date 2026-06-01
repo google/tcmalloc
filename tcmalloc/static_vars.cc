@@ -197,6 +197,9 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     }
     (void)subtle::percpu::IsFast();
     PerCpuState::state().Init();
+    if (IsExperimentActive(Experiment::TCMALLOC_PER_CPU_CACHE_SIZE_1MB)) {
+      cpu_cache_.SetCacheLimit(/*v=*/1024 * 1024);
+    }
     numa_topology_.Init();
     CacheTopology::Instance().Init();
 
