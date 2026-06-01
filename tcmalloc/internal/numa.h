@@ -110,6 +110,9 @@ class NumaTopology {
     return numa_aware() ? kNumInternalPartitions : 1;
   }
 
+  // Returns the number of NUMA nodes detected in the system.
+  size_t num_nodes() const { return num_nodes_; }
+
   // Return a value indicating how we should behave with regards to binding
   // memory regions to NUMA nodes.
   NumaBindMode bind_mode() const { return bind_mode_; }
@@ -148,6 +151,8 @@ class NumaTopology {
   bool numa_aware_ = false;
   // Desired memory binding behavior.
   NumaBindMode bind_mode_ = NumaBindMode::kAdvisory;
+  // The number of NUMA nodes detected in the system.
+  size_t num_nodes_ = 1;
 
   // We maintain two sets of CPU-to-partition information.  One is
   // unconditionally available in cpu_to_scaled_partition_.
@@ -188,7 +193,8 @@ int OpenSysfsCpulist(size_t node);
 bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
                       uint64_t* partition_to_nodes, NumaBindMode* bind_mode,
                       size_t num_partitions, size_t scale_by,
-                      absl::FunctionRef<int(size_t)> open_node_cpulist);
+                      absl::FunctionRef<int(size_t)> open_node_cpulist,
+                      size_t* num_nodes);
 
 // Returns the NUMA partition to which `node` belongs.
 inline size_t NodeToPartition(const size_t node, const size_t num_partitions) {
@@ -204,7 +210,7 @@ inline void NumaTopology<NumPartitions, ScaleBy>::Init() {
                 "cpu_to_scaled_partition_ is not the last field");
   numa_aware_ = InitNumaTopology(
       cpu_to_scaled_partition_.data(), partition_to_nodes_, &bind_mode_,
-      kNumInternalPartitions, ScaleBy, OpenSysfsCpulist);
+      kNumInternalPartitions, ScaleBy, OpenSysfsCpulist, &num_nodes_);
   if constexpr (NumPartitions > 1) {
     if (numa_aware_) {
       gated_cpu_to_scaled_partition_ = cpu_to_scaled_partition_;
@@ -217,7 +223,7 @@ inline void NumaTopology<NumPartitions, ScaleBy>::InitForTest(
     absl::FunctionRef<int(size_t)> open_node_cpulist) {
   numa_aware_ = InitNumaTopology(
       cpu_to_scaled_partition_.data(), partition_to_nodes_, &bind_mode_,
-      kNumInternalPartitions, ScaleBy, open_node_cpulist);
+      kNumInternalPartitions, ScaleBy, open_node_cpulist, &num_nodes_);
   if constexpr (NumPartitions > 1) {
     if (numa_aware_) {
       gated_cpu_to_scaled_partition_ = cpu_to_scaled_partition_;

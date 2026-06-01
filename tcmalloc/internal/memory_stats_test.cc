@@ -39,6 +39,18 @@ TEST(Stats, ValidRanges) {
   EXPECT_GT(stats.data, 0);
 }
 
+TEST(Stats, HugepageFragmentationRatio) {
+  auto ratio = GetHugepageFragmentationRatio(0);
+#if defined(__linux__)
+  if (ratio.has_value()) {
+    EXPECT_GE(*ratio, 0.0);
+    EXPECT_LE(*ratio, 1.0);
+  }
+#else
+  EXPECT_FALSE(ratio.has_value());
+#endif
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
