@@ -28,6 +28,7 @@
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/range_tracker.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -67,6 +68,8 @@ class PageFlagsBase {
   PageFlagsBase& operator=(PageFlagsBase&&) = delete;
   virtual std::optional<bool> IsHugepageBacked(const void* addr) = 0;
   virtual std::optional<PageStats> Get(const void* addr, size_t size) = 0;
+  virtual absl::StatusCode GetSinglePageBitmaps(const void* addr,
+                                                ResidencyBitmap& stale) = 0;
 };
 
 // PageFlags offers a look at kernel page flags to identify pieces of memory as
@@ -98,6 +101,8 @@ class PageFlags final : public PageFlagsBase {
   // dynamically allocate memory when needed.  Using std::optional allows us to
   // use the function in places where memory allocation is prohibited.
   std::optional<PageStats> Get(const void* addr, size_t size) override;
+  absl::StatusCode GetSinglePageBitmaps(const void* addr,
+                                        ResidencyBitmap& stale) override;
   std::optional<bool> IsHugepageBacked(const void* addr) override;
 
  private:

@@ -241,6 +241,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     bool being_collapsed = false;
     // Records swap and unbacked bitmaps for this hugepage.
     Residency::SinglePageBitmaps bitmaps;
+    ResidencyBitmap stale;
     // Records whether collapse was skipped due to threshold constraints.
     bool collapse_skipped = false;
     // Records whether collapse was skipped due to backoff.
@@ -312,10 +313,12 @@ class PageTracker : public TList<PageTracker>::Elem {
     size_t n_used_swapped;
     size_t n_free_unbacked;
     size_t n_used_unbacked;
+    size_t n_free_stale;
+    size_t n_used_stale;
   };
 
   NativePageResidencyInfo CountInfoInHugePage(
-      Residency::SinglePageBitmaps bitmaps) const;
+      Residency::SinglePageBitmaps bitmaps, ResidencyBitmap stale) const;
 
  private:
   HugePage location_;
@@ -618,6 +621,8 @@ class UsageInfo {
     Histo swapped_histo{};
     Histo free_unbacked_histo{};
     Histo free_swapped_histo{};
+    Histo stale_histo{};
+    Histo free_stale_histo{};
 
     size_t treated_hugepages{};
     size_t hugepage_backed{};
@@ -632,6 +637,8 @@ class UsageInfo {
     Length num_used_swapped{};
     Length num_free_unbacked{};
     Length num_used_unbacked{};
+    Length num_free_stale{};
+    Length num_used_stale{};
   };
 
   template <class TrackerType>
@@ -690,16 +697,21 @@ class UsageInfo {
             bitmaps.unbacked.CountBits())];
         ++records
               .swapped_histo[NativePageBucketNum(bitmaps.swapped.CountBits())];
+        ++records.stale_histo[NativePageBucketNum(
+            hugepage_residency_state.stale.CountBits())];
 
         PageTracker::NativePageResidencyInfo info =
-            pt.CountInfoInHugePage(bitmaps);
+            pt.CountInfoInHugePage(bitmaps, hugepage_residency_state.stale);
         ++records
               .free_unbacked_histo[NativePageBucketNum(info.n_free_unbacked)];
         ++records.free_swapped_histo[NativePageBucketNum(info.n_free_swapped)];
+        ++records.free_stale_histo[NativePageBucketNum(info.n_free_stale)];
         records.num_free_swapped += Length(info.n_free_swapped);
         records.num_used_swapped += Length(info.n_used_swapped);
         records.num_free_unbacked += Length(info.n_free_unbacked);
         records.num_used_unbacked += Length(info.n_used_unbacked);
+        records.num_free_stale += Length(info.n_free_stale);
+        records.num_used_stale += Length(info.n_used_stale);
       }
     }
 
@@ -753,10 +765,14 @@ class UsageInfo {
                          "hps with a <= # of unbacked < b", 0);
     PrintNativePageHisto(out, records.swapped_histo, type,
                          "hps with a <= # of swapped < b", 0);
+    PrintNativePageHisto(out, records.stale_histo, type,
+                         "hps with a <= # of stale < b", 0);
     PrintNativePageHisto(out, records.free_unbacked_histo, type,
                          "hps with a <= # of free AND unbacked < b", 0);
     PrintNativePageHisto(out, records.free_swapped_histo, type,
                          "hps with a <= # of free AND swapped < b", 0);
+    PrintNativePageHisto(out, records.free_stale_histo, type,
+                         "hps with a <= # of free AND stale < b", 0);
 
     out.printf("\nHugePageFiller: %zu of %s free native pages are swapped.",
                records.num_free_swapped.raw_num(), TypeToStr(type));
@@ -766,6 +782,10 @@ class UsageInfo {
                records.num_free_unbacked.raw_num(), TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s used native pages are unbacked.",
                records.num_used_unbacked.raw_num(), TypeToStr(type));
+    out.printf("\nHugePageFiller: %zu of %s free native pages are stale.",
+               records.num_free_stale.raw_num(), TypeToStr(type));
+    out.printf("\nHugePageFiller: %zu of %s used native pages are stale.",
+               records.num_used_stale.raw_num(), TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
                records.hugepage_backed, TypeToStr(type), records.total_pages);
     out.printf(
@@ -1458,7 +1478,7 @@ inline void PageTracker::SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
 }
 
 inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
-    Residency::SinglePageBitmaps bitmaps) const {
+    Residency::SinglePageBitmaps bitmaps, ResidencyBitmap stale) const {
   // TODO(b/424551232): Add support for the scenario when native page size is
   // larger than TCMalloc page size.
   const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
@@ -1477,46 +1497,25 @@ inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
   TC_ASSERT_LT((kNativePagesInHugePage - 1) >> shift_bits,
                kPagesPerHugePage.raw_num());
 
-  size_t swapped_idx = 0;
-  size_t n_free_unbacked = 0;
-  size_t n_used_unbacked = 0;
-  size_t n_free_swapped = 0;
-  size_t n_used_swapped = 0;
-  while (swapped_idx < kNativePagesInHugePage) {
-    swapped_idx = swapped.FindSet(swapped_idx);
-    if (swapped_idx >= kNativePagesInHugePage) {
-      break;
-    }
-    // Compute the number of free pages that are swapped.
-    // In free bitmap, 1 means used and 0 means free
-    const int scaled_idx = swapped_idx >> shift_bits;
-    if (!free.GetBit(scaled_idx)) {
-      ++n_free_swapped;
-    } else {
-      ++n_used_swapped;
-    }
-    ++swapped_idx;
+  size_t n_unbacked[2] = {0, 0};
+  size_t n_swapped[2] = {0, 0};
+  size_t n_stale[2] = {0, 0};
+
+  for (size_t i = 0; i < kNativePagesInHugePage; ++i) {
+    const int scaled_idx = i >> shift_bits;
+    bool is_free = !free.GetBit(scaled_idx);
+
+    n_swapped[is_free] += swapped.GetBit(i);
+    n_unbacked[is_free] += unbacked.GetBit(i);
+    n_stale[is_free] += stale.GetBit(i);
   }
 
-  size_t unbacked_idx = 0;
-  while (unbacked_idx < kNativePagesInHugePage) {
-    unbacked_idx = unbacked.FindSet(unbacked_idx);
-    if (unbacked_idx >= kNativePagesInHugePage) {
-      break;
-    }
-    // Compute the number of free pages that are unbacked
-    const int scaled_idx = unbacked_idx >> shift_bits;
-    if (!free.GetBit(scaled_idx)) {
-      ++n_free_unbacked;
-    } else {
-      ++n_used_unbacked;
-    }
-    ++unbacked_idx;
-  }
-  return {.n_free_swapped = n_free_swapped,
-          .n_used_swapped = n_used_swapped,
-          .n_free_unbacked = n_free_unbacked,
-          .n_used_unbacked = n_used_unbacked};
+  return {.n_free_swapped = n_swapped[1],
+          .n_used_swapped = n_swapped[0],
+          .n_free_unbacked = n_unbacked[1],
+          .n_used_unbacked = n_unbacked[0],
+          .n_free_stale = n_stale[1],
+          .n_used_stale = n_stale[0]};
 }
 
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
@@ -2621,6 +2620,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       if (!is_hugepage) {
         state.bitmaps =
             res->GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
+        if (pf) {
+          pf->GetSinglePageBitmaps(tracker->location().start_addr(),
+                                   state.stale);
+        }
 
         const bool backoff =
             treatment_stats_.collapse_time_max_cycles > max_collapse_cycles;

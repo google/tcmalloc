@@ -286,8 +286,13 @@ class FakePageFlags : public PageFlagsBase {
  public:
   FakePageFlags() = default;
   std::optional<PageStats> Get(const void* addr, size_t size) override {
-    // unimplemented
-    return std::nullopt;
+    return PageStats{};
+  }
+
+  absl::StatusCode GetSinglePageBitmaps(const void* addr,
+                                        ResidencyBitmap& stale) override {
+    stale.SetBit(0);
+    return absl::StatusCode::kOk;
   }
 
   void MarkHugePageBacked(void* addr, bool is_hugepage_backed) {
@@ -1921,8 +1926,8 @@ TEST_F(FillerTest, CollapseHugepagesDueToUnfilteredCollapse) {
     DeleteVector(p1);
   };
 
-  for (auto unbacked : {kMaxResidencyBits, kMaxResidencyBits / 2, 0}) {
-    for (auto swapped : {kMaxResidencyBits, kMaxResidencyBits / 2, 0}) {
+  for (auto unbacked : {kMaxResidencyBits, kMaxResidencyBits / 2, size_t{0}}) {
+    for (auto swapped : {kMaxResidencyBits, kMaxResidencyBits / 2, size_t{0}}) {
       test_collapse(unbacked, swapped);
     }
   }
@@ -5078,6 +5083,14 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: # of sparsely-accessed regular hps with a <= # of free AND unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
@@ -5094,10 +5107,20 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of free AND stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of sparsely-accessed regular free native pages are swapped.
 HugePageFiller: 0 of sparsely-accessed regular used native pages are swapped.
 HugePageFiller: 0 of sparsely-accessed regular free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed regular used native pages are unbacked.
+HugePageFiller: 0 of sparsely-accessed regular free native pages are stale.
+HugePageFiller: 0 of sparsely-accessed regular used native pages are stale.
 HugePageFiller: 0 of sparsely-accessed regular pages hugepage backed out of 3.
 HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed regular, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: Of the hugepage backed pages of type sparsely-accessed regular, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
@@ -5165,6 +5188,14 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of densely-accessed regular hps with a <= # of stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: # of densely-accessed regular hps with a <= # of free AND unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
@@ -5181,10 +5212,20 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of densely-accessed regular hps with a <= # of free AND stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of densely-accessed regular free native pages are swapped.
 HugePageFiller: 0 of densely-accessed regular used native pages are swapped.
 HugePageFiller: 0 of densely-accessed regular free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed regular used native pages are unbacked.
+HugePageFiller: 0 of densely-accessed regular free native pages are stale.
+HugePageFiller: 0 of densely-accessed regular used native pages are stale.
 HugePageFiller: 0 of densely-accessed regular pages hugepage backed out of 6.
 HugePageFiller: Of the non-hugepage backed pages of type densely-accessed regular, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: Of the hugepage backed pages of type densely-accessed regular, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
@@ -5236,6 +5277,14 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of donated hps with a <= # of stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: # of donated hps with a <= # of free AND unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
@@ -5252,10 +5301,20 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of donated hps with a <= # of free AND stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of donated free native pages are swapped.
 HugePageFiller: 0 of donated used native pages are swapped.
 HugePageFiller: 0 of donated free native pages are unbacked.
 HugePageFiller: 0 of donated used native pages are unbacked.
+HugePageFiller: 0 of donated free native pages are stale.
+HugePageFiller: 0 of donated used native pages are stale.
 HugePageFiller: 0 of donated pages hugepage backed out of 1.
 HugePageFiller: Of the non-hugepage backed pages of type donated, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: Of the hugepage backed pages of type donated, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
@@ -5323,6 +5382,14 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of sparsely-accessed partial released hps with a <= # of stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: # of sparsely-accessed partial released hps with a <= # of free AND unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
@@ -5339,10 +5406,20 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of sparsely-accessed partial released hps with a <= # of free AND stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of sparsely-accessed partial released free native pages are swapped.
 HugePageFiller: 0 of sparsely-accessed partial released used native pages are swapped.
 HugePageFiller: 0 of sparsely-accessed partial released free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed partial released used native pages are unbacked.
+HugePageFiller: 0 of sparsely-accessed partial released free native pages are stale.
+HugePageFiller: 0 of sparsely-accessed partial released used native pages are stale.
 HugePageFiller: 0 of sparsely-accessed partial released pages hugepage backed out of 0.
 HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed partial released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: Of the hugepage backed pages of type sparsely-accessed partial released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
@@ -5410,6 +5487,14 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of densely-accessed partial released hps with a <= # of stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: # of densely-accessed partial released hps with a <= # of free AND unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
@@ -5426,10 +5511,20 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of densely-accessed partial released hps with a <= # of free AND stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of densely-accessed partial released free native pages are swapped.
 HugePageFiller: 0 of densely-accessed partial released used native pages are swapped.
 HugePageFiller: 0 of densely-accessed partial released free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed partial released used native pages are unbacked.
+HugePageFiller: 0 of densely-accessed partial released free native pages are stale.
+HugePageFiller: 0 of densely-accessed partial released used native pages are stale.
 HugePageFiller: 0 of densely-accessed partial released pages hugepage backed out of 0.
 HugePageFiller: Of the non-hugepage backed pages of type densely-accessed partial released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: Of the hugepage backed pages of type densely-accessed partial released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
@@ -5497,6 +5592,14 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of sparsely-accessed released hps with a <= # of stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: # of sparsely-accessed released hps with a <= # of free AND unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
@@ -5513,10 +5616,20 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of sparsely-accessed released hps with a <= # of free AND stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of sparsely-accessed released free native pages are swapped.
 HugePageFiller: 0 of sparsely-accessed released used native pages are swapped.
 HugePageFiller: 0 of sparsely-accessed released free native pages are unbacked.
 HugePageFiller: 0 of sparsely-accessed released used native pages are unbacked.
+HugePageFiller: 0 of sparsely-accessed released free native pages are stale.
+HugePageFiller: 0 of sparsely-accessed released used native pages are stale.
 HugePageFiller: 0 of sparsely-accessed released pages hugepage backed out of 4.
 HugePageFiller: Of the non-hugepage backed pages of type sparsely-accessed released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: Of the hugepage backed pages of type sparsely-accessed released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
@@ -5584,6 +5697,14 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of densely-accessed released hps with a <= # of stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: # of densely-accessed released hps with a <= # of free AND unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
@@ -5600,10 +5721,20 @@ HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
 
+HugePageFiller: # of densely-accessed released hps with a <= # of free AND stale < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+
 HugePageFiller: 0 of densely-accessed released free native pages are swapped.
 HugePageFiller: 0 of densely-accessed released used native pages are swapped.
 HugePageFiller: 0 of densely-accessed released free native pages are unbacked.
 HugePageFiller: 0 of densely-accessed released used native pages are unbacked.
+HugePageFiller: 0 of densely-accessed released free native pages are stale.
+HugePageFiller: 0 of densely-accessed released used native pages are stale.
 HugePageFiller: 0 of densely-accessed released pages hugepage backed out of 1.
 HugePageFiller: Of the non-hugepage backed pages of type densely-accessed released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
 HugePageFiller: Of the hugepage backed pages of type densely-accessed released, 0 tcmalloc pages are free, 0 tcmalloc pages are used.
@@ -5661,6 +5792,48 @@ HugePageFiller: Subrelease stats last 60 min: total 306 pages subreleased.
   for (const auto& alloc : allocs) {
     Delete(alloc);
   }
+}
+
+TEST_F(FillerTest, StaleHistograms) {
+  randomize_density_ = false;
+  FakePageFlags pageflags;
+  FakeResidency residency;
+
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(Length(200));
+  PAlloc c = Allocate(Length(129));
+  PAlloc d = Allocate(Length(129));
+
+  // FakePageFlags reports bit 0 as stale for all pages.
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), {}, {});
+  residency.SetUnbackedAndSwappedBitmaps(c.p.start_addr(), {}, {});
+  residency.SetUnbackedAndSwappedBitmaps(d.p.start_addr(), {}, {});
+
+  TreatHugepageTrackers(
+      /*enable_collapse=*/false, /*enable_release_free_swapped=*/true,
+      EnableUnfilteredCollapse::kDisabled, &pageflags, &residency);
+
+  // Delete 'a' to make page 0 of HP1 free and stale.
+  Delete(a);
+
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    PageHeapSpinLockHolder l;
+    filler_.Print(printer, /*everything=*/true, pageflags);
+  });
+
+  EXPECT_THAT(buffer,
+              testing::HasSubstr("HugePageFiller: # of sparsely-accessed "
+                                 "regular hps with a <= # of stale < b\n"
+                                 "HugePageFiller: <  0<=     0 <  1<=     3"));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(
+                          "HugePageFiller: # of sparsely-accessed regular hps "
+                          "with a <= # of free AND stale < b\n"
+                          "HugePageFiller: <  0<=     2 <  1<=     1"));
+
+  Delete(b);
+  Delete(c);
+  Delete(d);
 }
 
 // Test Get and Put operations on the filler work correctly when number of

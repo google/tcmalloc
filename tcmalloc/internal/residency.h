@@ -31,7 +31,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-constexpr int kMaxResidencyBits = 512;
 // Abstract base class for Residency, which offers information about memory
 // residency: whether or not specific spans of memory are resident in core ("m
 // in core"), swapped, or not present.

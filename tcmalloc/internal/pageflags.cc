@@ -178,21 +178,20 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
       return absl::StatusCode::kUnavailable;
     }
     for (int i = 0; i < batch_size; ++i) {
-      if (PageHead(buf_[i])) {
-        last_head_read_ = buf_[i];
+      uint64_t flags = buf_[i];
+      if (PageHead(flags)) {
+        last_head_read_ = flags;
       }
 
-      if (PageTail(buf_[i])) {
+      if (PageTail(flags)) {
         if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
           TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
                  buf_[i]);
           return absl::StatusCode::kFailedPrecondition;
         }
-        auto last_read = last_head_read_;
-        MaybeAddToStats(output, last_read, kPageSize);
-      } else {
-        MaybeAddToStats(output, buf_[i], kPageSize);
+        flags = last_head_read_;
       }
+      MaybeAddToStats(output, flags, kPageSize);
     }
     num_pages -= batch_size;
   }
@@ -230,6 +229,7 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
   last_head_read_ = -1;
 
   PageStats ret;
+
   if (size == 0) return ret;
   uint64_t result_flags = 0;
   bool is_huge = false;
@@ -251,6 +251,7 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
       return std::nullopt;
     }
     MaybeAddToStats(ret, result_flags, size);
+
     if (ret.bytes_stale > 0) {
       ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
     }
@@ -283,6 +284,7 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
     const uint64_t base_page_offset = basePage & (kHugePageSize - 1);
     const uint64_t base_page_index = base_page_offset / kPageSize;
     const int64_t pages_represented = kPagesInHugePage - base_page_index;
+
     remainingPages -= pages_represented;
     if (remainingPages <= 0) {
       // This hugepage represents every single page that this object is on;
@@ -332,6 +334,68 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
     ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
   }
   return ret;
+}
+absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
+                                                 ResidencyBitmap& stale) {
+  uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
+  if ((currPage & (kHugePageSize - 1)) != 0) {
+    TC_LOG("Address is not hugepage aligned");
+    return absl::StatusCode::kFailedPrecondition;
+  }
+
+  if (fd_ < 0) {
+    return absl::StatusCode::kUnavailable;
+  }
+
+  auto res = Seek(currPage);
+  if (res != absl::StatusCode::kOk) {
+    return res;
+  }
+
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
+  const size_t kPagemapEntrySize = 8;
+  const size_t kSizeOfHugepageInPagemap =
+      kPagemapEntrySize * kNativePagesInHugePage;
+
+  auto status = signal_safe_read(fd_, reinterpret_cast<char*>(buf_),
+                                 kSizeOfHugepageInPagemap, nullptr);
+  if (status != kSizeOfHugepageInPagemap) {
+    TC_LOG("Could not read from pageflags file");
+    return absl::StatusCode::kUnavailable;
+  }
+
+  last_head_read_ = -1;
+
+  int stale_start = -1;
+  for (int i = 0; i < kNativePagesInHugePage; ++i) {
+    uint64_t flags = buf_[i];
+
+    if (PageHead(flags)) {
+      last_head_read_ = flags;
+    }
+    if (PageTail(flags)) {
+      if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
+        return absl::StatusCode::kFailedPrecondition;
+      }
+      flags = last_head_read_;
+    }
+
+    if (PageStale(flags)) {
+      if (stale_start == -1) {
+        stale_start = i;
+      }
+    } else {
+      if (stale_start != -1) {
+        stale.SetRange(stale_start, i - stale_start);
+        stale_start = -1;
+      }
+    }
+  }
+  if (stale_start != -1) {
+    stale.SetRange(stale_start, kNativePagesInHugePage - stale_start);
+  }
+
+  return absl::StatusCode::kOk;
 }
 
 uint64_t PageFlags::MaybeReadStaleScanSeconds(const char* filename) {

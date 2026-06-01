@@ -71,6 +71,10 @@ class StubPageFlags final : public PageFlagsBase {
  public:
   StubPageFlags() = default;
   ~StubPageFlags() override = default;
+  absl::StatusCode GetSinglePageBitmaps(const void* addr,
+                                        ResidencyBitmap& stale) override {
+    return absl::StatusCode::kUnimplemented;
+  }
   std::optional<PageStats> Get(const void* addr, size_t size) override {
     PageStats ret;
     uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);

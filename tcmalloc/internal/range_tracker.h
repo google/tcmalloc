@@ -95,6 +95,8 @@ class Bitmap {
   ssize_t FindValueBackwards(size_t index) const;
 };
 
+constexpr size_t kMaxResidencyBits = 512;
+using ResidencyBitmap = Bitmap<kMaxResidencyBits>;
 // Tracks allocations in a range of items of fixed size.  Supports
 // finding an unset range of a given length, while keeping track of
 // the largest remaining unmarked length.
