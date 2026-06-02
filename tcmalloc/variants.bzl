@@ -261,6 +261,12 @@ test_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LATENCY_INJECTION"],
         "tags": ["noubsan"],
     },
+    {
+        "name": "tcmalloc_eager_backing_v2",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_EAGER_BACKING_V2"},
+    },
 ]
 
 def create_tcmalloc_library(

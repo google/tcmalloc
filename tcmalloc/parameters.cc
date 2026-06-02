@@ -236,8 +236,16 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
 // TODO: b/425749361 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
 
-// TODO: b/134694141 - Remove this opt out.
-ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
+static std::atomic<bool>& back_small_allocations_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING_V2)) {
+      v.store(true, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
     kPageSize);
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
@@ -303,6 +311,10 @@ bool Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
 
+bool Parameters::back_small_allocations() {
+  return back_small_allocations_enabled().load(std::memory_order_relaxed);
+}
+
 HeapPartitioningMode Parameters::heap_partitioning_mode() {
   return heap_partitioning_mode_ptr().load(std::memory_order_relaxed);
 }
@@ -341,10 +353,6 @@ Parameters::span_lifetime_tracking() {
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
-}
-
-bool TCMalloc_Internal_GetBackSmallAllocations() {
-  return Parameters::back_small_allocations();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -616,8 +624,13 @@ void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
   Parameters::release_free_swapped_.store(v, std::memory_order_relaxed);
 }
 
+bool TCMalloc_Internal_GetBackSmallAllocations() {
+  return Parameters::back_small_allocations();
+}
+
 void TCMalloc_Internal_SetBackSmallAllocations(bool v) {
-  Parameters::back_small_allocations_.store(v, std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::back_small_allocations_enabled().store(
+      v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v) {
