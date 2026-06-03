@@ -25,7 +25,6 @@ enum class Experiment : int {
   // go/keep-sorted start
   EXTENDED_MUTEX_SPINNING,  // TODO: b/481096853 - Complete experiment.
   TCMALLOC_EAGER_BACKING_V2,  // TODO: b/488404335 - Complete experiment.
-  TCMALLOC_L3_AWARE_VCPU_V2,  // TODO: b/488032418 - Complete experiment.
   TCMALLOC_PER_CPU_CACHE_SIZE_1MB,  // TODO: b/514747820 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TEST_ONLY_L3_AWARE,  // TODO: b/239977380 - Complete experiment.
@@ -52,7 +51,6 @@ inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::EXTENDED_MUTEX_SPINNING, "EXTENDED_MUTEX_SPINNING"},
     {Experiment::TCMALLOC_EAGER_BACKING_V2, "TCMALLOC_EAGER_BACKING_V2"},
-    {Experiment::TCMALLOC_L3_AWARE_VCPU_V2, "TCMALLOC_L3_AWARE_VCPU_V2"},
     {Experiment::TCMALLOC_PER_CPU_CACHE_SIZE_1MB, "TCMALLOC_PER_CPU_CACHE_SIZE_1MB"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
