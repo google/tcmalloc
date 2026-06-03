@@ -40,14 +40,16 @@ using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
 
 class FakeStaticForwarder {
  public:
-  FakeStaticForwarder() : class_size_(0), pages_(), page_size_(kPageSize) {}
+  FakeStaticForwarder()
+      : class_size_(0), pages_(), page_size_(kPageSize), clock_frequency_(0) {}
   void Init(size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
-            size_t page_size = kPageSize) {
+            size_t page_size, double clock_frequency) {
     class_size_ = class_size;
     pages_ = BytesToLengthCeil(span_bytes);
     num_objects_to_move_ = num_objects_to_move;
     clock_ = 1234;
     page_size_ = page_size;
+    clock_frequency_ = clock_frequency;
   }
 
   HookList<InsertRangeHook> insert_range_hooks_;
@@ -62,14 +64,14 @@ class FakeStaticForwarder {
   }
 
   uint64_t clock_now() const { return clock_.load(std::memory_order_relaxed); }
-  double clock_frequency() const {
-    return absl::ToDoubleNanoseconds(absl::Seconds(2));
-  }
+
+  void set_clock_now(uint64_t t) { clock_.store(t, std::memory_order_relaxed); }
   void AdvanceClock(absl::Duration d) {
     clock_.fetch_add(
         static_cast<int64_t>(absl::ToDoubleSeconds(d) * clock_frequency()),
         std::memory_order_relaxed);
   }
+  double clock_frequency() const { return clock_frequency_; }
 
   size_t class_to_size(int size_class) const { return class_size_; }
   Length class_to_pages(int size_class) const { return pages_; }
@@ -146,6 +148,7 @@ class FakeStaticForwarder {
   size_t num_objects_to_move_;
   size_t page_size_;
   std::atomic<uint64_t> clock_;
+  double clock_frequency_;
 };
 
 class RawMockStaticForwarder : public FakeStaticForwarder {
@@ -162,9 +165,10 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
     });
     ON_CALL(*this, Init)
         .WillByDefault([this](size_t size_class, Bytes span_bytes,
-                              size_t num_objects_to_move, size_t page_size) {
+                              size_t num_objects_to_move, size_t page_size,
+                              double clock_frequency) {
           FakeStaticForwarder::Init(size_class, span_bytes, num_objects_to_move,
-                                    page_size);
+                                    page_size, clock_frequency);
         });
 
     ON_CALL(*this, MapObjectsToSpans)
@@ -191,7 +195,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(size_t, num_objects_to_move, ());
   MOCK_METHOD(void, Init,
               (size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
-               size_t page_size));
+               size_t page_size, double clock_frequency));
   MOCK_METHOD(void, MapObjectsToSpans,
               (absl::Span<void*> batch, Span** spans, int expected_size_class));
   MOCK_METHOD(Span*, AllocateSpan,
@@ -222,10 +226,12 @@ class FakeCentralFreeListEnvironment {
   }
   size_t batch_size() { return forwarder().num_objects_to_move(); }
 
-  explicit FakeCentralFreeListEnvironment(size_t class_size, Bytes span_bytes,
-                                          size_t num_objects_to_move,
-                                          size_t page_size = kPageSize) {
-    forwarder().Init(class_size, span_bytes, num_objects_to_move, page_size);
+  explicit FakeCentralFreeListEnvironment(
+      size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
+      size_t page_size = kPageSize,
+      double clock_frequency = absl::ToDoubleNanoseconds(absl::Seconds(2))) {
+    forwarder().Init(class_size, span_bytes, num_objects_to_move, page_size,
+                     clock_frequency);
     cache_.Init(kSizeClass);
   }
 
