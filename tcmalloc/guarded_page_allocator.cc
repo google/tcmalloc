@@ -30,6 +30,7 @@
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
+#include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/numeric/bits.h"
@@ -228,7 +229,7 @@ static ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NORETURN void ForceTouchPage(
   }
 }
 
-void GuardedPageAllocator::Deallocate(void* ptr) {
+void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
   TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t page_addr = GetPageAddr(reinterpret_cast<uintptr_t>(ptr));
   const size_t slot = AddrToSlot(page_addr);
@@ -283,14 +284,15 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
   FreeSlot(slot);
 }
 
-size_t GuardedPageAllocator::GetRequestedSize(const void* ptr) const {
+size_t GuardedPageAllocator::GetRequestedSize(
+    const void* absl_nonnull ptr) const {
   TC_ASSERT(PointerIsMine(ptr));
   size_t slot = AddrToSlot(GetPageAddr(reinterpret_cast<uintptr_t>(ptr)));
   return data_[slot].requested_size;
 }
 
 std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
-    const void* ptr) const {
+    const void* absl_nonnull ptr) const {
   TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   const size_t slot = GetNearestSlot(addr);
@@ -298,7 +300,7 @@ std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
 }
 
 GuardedAllocationsErrorType GuardedPageAllocator::GetStackTraces(
-    const void* ptr, GuardedAllocationsStackTrace** alloc_trace,
+    const void* absl_nonnull ptr, GuardedAllocationsStackTrace** alloc_trace,
     GuardedAllocationsStackTrace** dealloc_trace) const {
   TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
@@ -537,7 +539,7 @@ size_t GuardedPageAllocator::AddrToSlot(uintptr_t addr) const {
 
 void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
                                            std::align_val_t alignment,
-                                           void** ptr) {
+                                           void** absl_nonnull ptr) {
   if (!ShouldRightAlign(slot)) return;
   uintptr_t adjusted_ptr =
       reinterpret_cast<uintptr_t>(*ptr) + page_size_ - size;
