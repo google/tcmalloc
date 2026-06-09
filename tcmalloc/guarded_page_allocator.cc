@@ -507,11 +507,11 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
 GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
     uintptr_t addr, const SlotMetadata& d) const {
   if (!d.allocation_start) return GuardedAllocationsErrorType::kUnknown;
-  if (d.dealloc_count.load(std::memory_order_relaxed) >= 2)
-    return GuardedAllocationsErrorType::kDoubleFree;
+  size_t dealloc_count = d.dealloc_count.load(std::memory_order_relaxed);
+  if (dealloc_count >= 2) return GuardedAllocationsErrorType::kDoubleFree;
   if (d.write_overflow_detected)
     return GuardedAllocationsErrorType::kBufferOverflowOnDealloc;
-  if (d.dealloc_trace.depth > 0) {
+  if (dealloc_count == 1) {
     return GuardedAllocationsErrorType::kUseAfterFree;
   }
   if (addr < d.allocation_start) {
