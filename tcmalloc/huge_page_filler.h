@@ -1272,9 +1272,10 @@ class HugePageFiller {
   // string that is used for naming the region. Once set, the tracker is
   // revisited only after five minutes.
   // 3. Attempt to release free/unreleased pages from trackers with a swapped
-  // page.
+  // page, if `enable_release_free_swapped` is true.
   void TreatHugepageTrackers(
-      bool enable_collapse, EnableUnfilteredCollapse enable_unfiltered_collapse,
+      bool enable_collapse, bool enable_release_free_swapped,
+      EnableUnfilteredCollapse enable_unfiltered_collapse,
       PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -2486,13 +2487,15 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   explicit HugePageUnbackedTrackerTreatment(
       Clock clock, PageFlagsBase* pageflags, Residency* residency,
       MemoryModifyFunction& collapse, HugePageFiller<TrackerType>& page_filler,
-      bool enable_collapse, EnableUnfilteredCollapse enable_unfiltered_collapse)
+      bool enable_collapse, bool enable_release_free_swap,
+      EnableUnfilteredCollapse enable_unfiltered_collapse)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
         collapse_(collapse),
         page_filler_(page_filler),
         enable_collapse_(enable_collapse),
+        enable_release_free_swap_(enable_release_free_swap),
         enable_unfiltered_collapse_(enable_unfiltered_collapse) {}
   ~HugePageUnbackedTrackerTreatment() override = default;
 
@@ -2661,9 +2664,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       // released the pageheap lock. Check that the longest free range is less
       // than kPagesPerHugePage to make sure it's valid to release from that
       // tracker.
-      if (!residency_states_[i].tracker_state.bitmaps.swapped.IsZero() &&
+      if (enable_release_free_swap_ &&
+          !residency_states_[i].tracker_state.bitmaps.swapped.IsZero() &&
           !tracker->fully_freed()) {
-        // TODO: b/425749361 - Clear swapped bit for pages that were freed.
         Length released_length = page_filler_.HandleReleaseFree(tracker);
         if (released_length > Length(0)) {
           treatment_stats_.treated_pages_subreleased +=
@@ -2727,6 +2730,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   HugePageTreatmentStats treatment_stats_;
   HugePageFiller<TrackerType>& page_filler_;
   bool enable_collapse_;
+  bool enable_release_free_swap_;
 
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
 };
@@ -2759,50 +2763,59 @@ void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
-    bool enable_collapse, EnableUnfilteredCollapse enable_unfiltered_collapse,
+    bool enable_collapse, bool enable_release_free_swapped,
+    EnableUnfilteredCollapse enable_unfiltered_collapse,
     PageFlagsBase* pageflags, Residency* residency) {
   if (enable_collapse && ShouldBackoffFromCollapse()) {
     enable_collapse = false;
     ++treatment_stats_.collapse_intervals_skipped;
   }
+  const bool collect_non_hugepage_trackers =
+      enable_collapse || enable_release_free_swapped;
   SampledTrackerTreatment sampled_tracker_treatment(clock_, tag_,
                                                     set_anon_vma_name_);
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
-      enable_unfiltered_collapse);
+      enable_release_free_swapped, enable_unfiltered_collapse);
 
   // Collect up to kTotalTrackersToScan trackers from the regular sparse and
-  // dense lists. we also collect trackers from regular_alloc_partial_released_
-  // and donated_alloc_.
-  regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-      },
-      /*start=*/kChunks);
+  // dense lists. if enable_release_free_swapped is true, we also collect
+  // trackers from regular_alloc_partial_released_ and donated_alloc_.
+  if (enable_release_free_swapped) {
+    regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
+        [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        },
+        /*start=*/kChunks);
 
-  regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-      },
-      /*start=*/kChunks);
+    regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
+        [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        },
+        /*start=*/kChunks);
 
-  donated_alloc_.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-      },
-      /*start=*/0);
+    donated_alloc_.Iter(
+        [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        },
+        /*start=*/0);
+  }
 
   regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
         sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        if (collect_non_hugepage_trackers) {
+          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        }
       },
       /*start=*/0);
 
   regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
         sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        if (collect_non_hugepage_trackers) {
+          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+        }
       },
       /*start=*/0);
 

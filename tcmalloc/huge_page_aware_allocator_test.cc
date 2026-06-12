@@ -276,8 +276,10 @@ class HugePageAwareAllocatorTest
     return allocator_->ReleaseAtLeastNPages(k, reason);
   }
 
-  void TreatHugepageTrackers(bool enable_collapse) {
-    allocator_->TreatHugepageTrackers(enable_collapse);
+  void TreatHugepageTrackers(bool enable_collapse,
+                             bool enable_release_free_swapped) {
+    allocator_->TreatHugepageTrackers(enable_collapse,
+                                      enable_release_free_swapped);
   }
 
   Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
@@ -1504,7 +1506,8 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
       benchmark::DoNotOptimize(Print());
       return;
     } else if (thread_id == 2) {
-      TreatHugepageTrackers(/*enable_collapse=*/true);
+      TreatHugepageTrackers(/*enable_collapse=*/true,
+                            /*enable_release_free_swapped=*/true);
       return;
     }
 
@@ -1578,7 +1581,8 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
       enable_unfiltered_collapse = !enable_unfiltered_collapse;
       allocator_->forwarder().set_enable_unfiltered_collapse(
           enable_unfiltered_collapse);
-      TreatHugepageTrackers(/*enable_collapse=*/true);
+      TreatHugepageTrackers(/*enable_collapse=*/true,
+                            /*enable_release_free_swapped=*/false);
     }
   };
 

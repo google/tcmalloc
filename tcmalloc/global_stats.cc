@@ -645,6 +645,8 @@ void DumpStats(Printer& out, int level) {
                static_cast<int>(Parameters::min_hot_access_hint()));
     out.printf("PARAMETER tcmalloc_usermode_hugepage_collapse %d\n",
                Parameters::usermode_hugepage_collapse() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_release_free_swapped %d\n",
+               Parameters::release_free_swapped() ? 1 : 0);
 
     out.printf("PARAMETER tcmalloc_back_small_allocations %d\n",
                Parameters::back_small_allocations() ? 1 : 0);
@@ -904,6 +906,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   static_cast<int>(Parameters::min_hot_access_hint()));
   region.PrintBool("usermode_hugepage_collapse",
                    Parameters::usermode_hugepage_collapse());
+  region.PrintBool("release_free_swapped", Parameters::release_free_swapped());
 
   region.PrintBool("back_small_allocations",
                    Parameters::back_small_allocations());

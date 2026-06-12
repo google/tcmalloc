@@ -261,6 +261,7 @@ struct GatherSpanStats {
 
 struct TreatTrackers {
   bool enable_collapse;
+  bool enable_release_free_swap;
   bool use_userspace_collapse_heuristics;
   bool enable_unfiltered_collapse;
 
@@ -268,9 +269,11 @@ struct TreatTrackers {
   friend void AbslStringify(Sink& sink, const TreatTrackers& t) {
     absl::Format(&sink,
                  "TreatTrackers{.enable_collapse=%v, "
+                 ".enable_release_free_swap=%v, "
                  ".use_userspace_collapse_heuristics=%v, "
                  ".enable_unfiltered_collapse=%v}",
-                 t.enable_collapse, t.use_userspace_collapse_heuristics,
+                 t.enable_collapse, t.enable_release_free_swap,
+                 t.use_userspace_collapse_heuristics,
                  t.enable_unfiltered_collapse);
   }
 };
@@ -589,7 +592,7 @@ void FuzzFiller(const std::vector<Instruction>& instructions) {
             FakeResidency residency;
             PageHeapSpinLockHolder l;
             filler.TreatHugepageTrackers(
-                arg.enable_collapse,
+                arg.enable_collapse, arg.enable_release_free_swap,
                 arg.enable_unfiltered_collapse
                     ? EnableUnfilteredCollapse::kEnabled
                     : EnableUnfilteredCollapse::kDisabled,
@@ -717,6 +720,7 @@ TEST(HugePageFillerTest, b510326948) {
        Allocate{
            .length = 32767, .num_objects = 2147483647, .density_dense = false},
        TreatTrackers{.enable_collapse = true,
+                     .enable_release_free_swap = true,
                      .use_userspace_collapse_heuristics = false,
                      .enable_unfiltered_collapse = false},
        Deallocate{.tracker_index = 2147483647, .alloc_index = 2147483647},
@@ -753,6 +757,7 @@ TEST(
       Allocate{.length = 1, .num_objects = 1, .density_dense = false},
       Allocate{.length = 1, .num_objects = 4431, .density_dense = false},
       TreatTrackers{.enable_collapse = true,
+                    .enable_release_free_swap = false,
                     .use_userspace_collapse_heuristics = false,
                     .enable_unfiltered_collapse = true},
       SetCollapseLatency{.latency = absl::ZeroDuration()},
@@ -778,9 +783,11 @@ TEST(
       ToggleUnback{},
       Allocate{.length = 1, .num_objects = 7680, .density_dense = false},
       TreatTrackers{.enable_collapse = true,
+                    .enable_release_free_swap = false,
                     .use_userspace_collapse_heuristics = false,
                     .enable_unfiltered_collapse = true},
       TreatTrackers{.enable_collapse = false,
+                    .enable_release_free_swap = false,
                     .use_userspace_collapse_heuristics = false,
                     .enable_unfiltered_collapse = false},
   });
@@ -791,6 +798,7 @@ TEST(
     Regression_clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6512022070886400_test) {
   FuzzFiller({
       TreatTrackers{.enable_collapse = false,
+                    .enable_release_free_swap = false,
                     .use_userspace_collapse_heuristics = false,
                     .enable_unfiltered_collapse = false},
       SetErrorNumber{.error_type = 0, .raw_value = 2483028032},
@@ -861,6 +869,7 @@ TEST(HugePageFillerTest,
 TEST(HugePageFillerTest, Regression_testcase_6686265543557120) {
   FuzzFiller({
       TreatTrackers{.enable_collapse = false,
+                    .enable_release_free_swap = false,
                     .use_userspace_collapse_heuristics = true,
                     .enable_unfiltered_collapse = false},
       ModelTail{.length = 255},
@@ -910,6 +919,7 @@ TEST(HugePageFillerTest, b510325622) {
                .release_partial_allocs = true},
        Allocate{.length = 0, .num_objects = 1, .density_dense = false},
        TreatTrackers{.enable_collapse = true,
+                     .enable_release_free_swap = true,
                      .use_userspace_collapse_heuristics = true,
                      .enable_unfiltered_collapse = true},
        Deallocate{.tracker_index = 4294967295, .alloc_index = 0},
@@ -983,13 +993,15 @@ TEST(HugePageFillerTest, InstructionStringify) {
   }
   {
     Instruction inst = TreatTrackers{.enable_collapse = true,
+                                     .enable_release_free_swap = false,
                                      .use_userspace_collapse_heuristics = true,
                                      .enable_unfiltered_collapse = false};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(s,
-              "TreatTrackers{.enable_collapse=true, "
-              ".use_userspace_collapse_heuristics=true, "
-              ".enable_unfiltered_collapse=false}");
+    EXPECT_EQ(
+        s,
+        "TreatTrackers{.enable_collapse=true, .enable_release_free_swap=false, "
+        ".use_userspace_collapse_heuristics=true, "
+        ".enable_unfiltered_collapse=false}");
   }
   {
     Instruction inst = UpdateBitmaps{.hugepage_backed_set = true,
