@@ -173,6 +173,20 @@ SizeClassConfiguration Static::size_class_configuration() {
     return SizeClassConfiguration::kLegacy;
   }
 
+  // TODO(b/512895228): remove this opt out once we are done experimenting.
+  const char* e_reuse = thread_safe_getenv("TCMALLOC_REUSE_SIZE_CLASSES");
+  if (e_reuse != nullptr) {
+    if (!strcmp(e_reuse, "reuserelaxedbelow64")) {
+      return SizeClassConfiguration::kReuseRelaxedBelow64;
+    } else if (!strcmp(e_reuse, "reuse")) {
+      return SizeClassConfiguration::kReuse;
+    } else if (!strcmp(e_reuse, "0")) {
+      // "0" is a valid value that falls back to the default.
+    } else {
+      TC_BUG("bad TCMALLOC_REUSE_SIZE_CLASSES env var '%s'", e_reuse);
+    }
+  }
+
   const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
   if (e == nullptr) {
     return SizeClassConfiguration::kReuse;

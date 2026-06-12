@@ -55,7 +55,7 @@ static constexpr SizeClassAssumptions Assumptions{
   .large_size_alignment = 128,
 };
 static constexpr SizeClassInfo List[] = {
-//                                                     |      waste       |
+//                                             |      waste       |
 //  bytes  span_bytes batch    class      objs | fixed   sampling |    inc
   {     0,          0,    0},  //  0         0   0.00%      0.00%    0.00%
   {     8,       8192,   32},  //  1      1024   0.78%      0.42%    0.00%
@@ -154,7 +154,7 @@ static constexpr SizeClassAssumptions Assumptions{
   .large_size_alignment = 128,
 };
 static constexpr SizeClassInfo List[] = {
-//                                                     |      waste       |
+//                                             |      waste       |
 //  bytes  span_bytes batch    class      objs | fixed   sampling |    inc
   {     0,          0,    0},  //  0         0   0.00%      0.00%    0.00%
   {     8,      32768,   32},  //  1      4096   0.19%      1.60%    0.00%
@@ -245,7 +245,7 @@ static constexpr SizeClassAssumptions Assumptions{
   .large_size_alignment = 128,
 };
 static constexpr SizeClassInfo List[] = {
-//                                                     |      waste       |
+//                                             |      waste       |
 //  bytes  span_bytes batch    class      objs | fixed   sampling |    inc
   {     0,          0,    0},  //  0         0   0.00%      0.00%    0.00%
   {     8,     262144,   32},  //  1     32768   0.02%     12.53%    0.00%
@@ -347,7 +347,7 @@ static constexpr SizeClassAssumptions Assumptions{
   .large_size_alignment = 128,
 };
 static constexpr SizeClassInfo List[] = {
-//                                                     |      waste       |
+//                                             |      waste       |
 //  bytes  span_bytes batch    class      objs | fixed   sampling |    inc
   {     0,          0,    0},  //  0         0   0.00%      0.00%    0.00%
   {     8,       4096,   32},  //  1       512   1.54%      0.23%    0.00%
@@ -410,7 +410,7 @@ static constexpr SizeClassAssumptions Assumptions{
   .large_size_alignment = 128,
 };
 static constexpr SizeClassInfo List[] = {
-//                                                     |      waste       |
+//                                             |      waste       |
 //  bytes  span_bytes batch    class      objs | fixed   sampling |    inc
   {     0,          0,    0},  //  0         0   0.00%      0.00%    0.00%
   {     8,       8192,   32},  //  1      1024   0.78%      0.42%    0.00%
@@ -509,7 +509,7 @@ static constexpr SizeClassAssumptions Assumptions{
   .large_size_alignment = 128,
 };
 static constexpr SizeClassInfo List[] = {
-//                                                     |      waste       |
+//                                             |      waste       |
 //  bytes  span_bytes batch    class      objs | fixed   sampling |    inc
   {     0,          0,    0},  //  0         0   0.00%      0.00%    0.00%
   {     8,      32768,   32},  //  1      4096   0.19%      1.60%    0.00%
@@ -600,7 +600,7 @@ static constexpr SizeClassAssumptions Assumptions{
   .large_size_alignment = 128,
 };
 static constexpr SizeClassInfo List[] = {
-//                                                     |      waste       |
+//                                             |      waste       |
 //  bytes  span_bytes batch    class      objs | fixed   sampling |    inc
   {     0,          0,    0},  //  0         0   0.00%      0.00%    0.00%
   {     8,     262144,   32},  //  1     32768   0.02%     12.53%    0.00%
@@ -702,7 +702,7 @@ static constexpr SizeClassAssumptions Assumptions{
   .large_size_alignment = 128,
 };
 static constexpr SizeClassInfo List[] = {
-//                                                     |      waste       |
+//                                             |      waste       |
 //  bytes  span_bytes batch    class      objs | fixed   sampling |    inc
   {     0,          0,    0},  //  0         0   0.00%      0.00%    0.00%
   {     8,       4096,   32},  //  1       512   1.54%      0.23%    0.00%

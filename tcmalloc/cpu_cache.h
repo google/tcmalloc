@@ -147,7 +147,10 @@ class StaticForwarder {
   }
 
   bool reuse_size_classes() const {
-    return state_.size_class_configuration() == SizeClassConfiguration::kReuse;
+    return state_.size_class_configuration() ==
+               SizeClassConfiguration::kReuse ||
+           state_.size_class_configuration() ==
+               SizeClassConfiguration::kReuseRelaxedBelow64;
   }
 
   size_t class_to_size(int size_class) const {

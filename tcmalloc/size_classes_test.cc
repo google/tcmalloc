@@ -169,6 +169,7 @@ TEST_F(RunTimeSizeClassesTest, WastedSpan) {
   switch (tc_globals.size_class_configuration()) {
     case SizeClassConfiguration::kLegacy:
     case SizeClassConfiguration::kReuse:
+    case SizeClassConfiguration::kReuseRelaxedBelow64:
       // This test fails for other classes (was passing with a different span
       // size allocation algorithm used between cl/130150125 and cl/139955211).
       GTEST_SKIP();

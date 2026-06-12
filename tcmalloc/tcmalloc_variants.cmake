@@ -203,6 +203,22 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages,tcmalloc::want_legacy_size_classes>
   )
   set_tests_properties(${TCMALLOC_NAME}_legacy_size_classes PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_reuse_size_classes
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+  )
+  set_tests_properties(${TCMALLOC_NAME}_reuse_size_classes PROPERTIES ENVIRONMENT "TCMALLOC_REUSE_SIZE_CLASSES=reuse;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_reuserelaxedbelow64_size_classes
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+  )
+  set_tests_properties(${TCMALLOC_NAME}_reuserelaxedbelow64_size_classes PROPERTIES ENVIRONMENT "TCMALLOC_REUSE_SIZE_CLASSES=reuserelaxedbelow64;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_huge_cache_release_30s
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}

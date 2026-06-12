@@ -42,12 +42,13 @@ extern const SizeClasses kSizeClasses;
 // Experimental size classes:
 extern const SizeClasses kExperimentalPow2SizeClasses;
 extern const SizeClasses kLegacySizeClasses;
-extern const SizeClasses kReuseSizeClasses;
+extern const SizeClasses kReuseRelaxedBelow64SizeClasses;
 
 enum class SizeClassConfiguration {
   kPow2Only = 2,
   kLegacy = 4,
   kReuse = 6,
+  kReuseRelaxedBelow64 = 8,
 };
 
 // Size-class information + mapping
