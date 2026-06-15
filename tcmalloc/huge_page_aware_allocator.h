@@ -79,6 +79,10 @@ class StaticForwarder {
     return Parameters::enable_unfiltered_collapse();
   }
 
+  static bool huge_region_adaptive_release() {
+    return Parameters::huge_region_adaptive_release();
+  }
+
   // Arena state.
   static Arena& arena();
 
@@ -1020,7 +1024,11 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // the experiment is enabled. We can also explore releasing only a desired
   // number of pages.
   if (regions_.UseHugeRegionMoreOften()) {
-    released += regions_.ReleasePages(kFractionToReleaseFromRegion);
+    if (released < num_pages) {
+      released += regions_.ReleasePages(
+          num_pages - released, forwarder_.huge_region_adaptive_release(),
+          /*hit_limit=*/false);
+    }
   }
 
   // This is our long term plan but in current state will lead to insufficient
@@ -1221,7 +1229,11 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += cache_.ReleaseCachedPages(HLFromPages(n)).in_pages();
 
   // We try to release as many free hugepages from HugeRegion as possible.
-  released += regions_.ReleasePages(/*release_fraction=*/1.0);
+  if (released < n) {
+    released += regions_.ReleasePages(n - released,
+                                      forwarder_.huge_region_adaptive_release(),
+                                      /*hit_limit=*/true);
+  }
   if (released >= n) {
     info_.RecordRelease(n, released, reason);
     return released;

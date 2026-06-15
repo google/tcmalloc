@@ -207,19 +207,23 @@ TEST_F(HugeRegionTest, ReleaseFrac) {
 
   Delete(a);
   ExpectUnback({p_ + NHugePages(0), NHugePages(2)});
-  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages()));
+  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages(),
+                                           /*adaptive_release=*/false));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(2), NHugePages(1)});
-  EXPECT_EQ(NHugePages(1), region_.Release(NHugePages(1).in_pages()));
+  EXPECT_EQ(NHugePages(1), region_.Release(NHugePages(1).in_pages(),
+                                           /*adaptive_release=*/false));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(3), NHugePages(8)});
-  EXPECT_EQ(NHugePages(8), region_.Release(NHugePages(8).in_pages()));
+  EXPECT_EQ(NHugePages(8), region_.Release(NHugePages(8).in_pages(),
+                                           /*adaptive_release=*/false));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(11), NHugePages(9)});
-  EXPECT_EQ(NHugePages(9), region_.Release(NHugePages(9).in_pages()));
+  EXPECT_EQ(NHugePages(9), region_.Release(NHugePages(9).in_pages(),
+                                           /*adaptive_release=*/false));
   CheckMock();
 }
 
@@ -247,18 +251,21 @@ TEST_F(HugeRegionTest, Release) {
   // overlap with others.
   Delete(b);
   ExpectUnback({p_ + NHugePages(4), NHugePages(2)});
-  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages()));
+  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages(),
+                                           /*adaptive_release=*/false));
   CheckMock();
 
   // Now we're on exact boundaries so we should unback the whole range.
   Delete(d);
   ExpectUnback({p_ + NHugePages(12), NHugePages(2)});
-  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages()));
+  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages(),
+                                           /*adaptive_release=*/false));
   CheckMock();
 
   Delete(a);
   ExpectUnback({p_ + NHugePages(0), NHugePages(4)});
-  EXPECT_EQ(NHugePages(4), region_.Release(NHugePages(4).in_pages()));
+  EXPECT_EQ(NHugePages(4), region_.Release(NHugePages(4).in_pages(),
+                                           /*adaptive_release=*/false));
   CheckMock();
 
   // Should work just as well with aggressive Put():
@@ -274,6 +281,23 @@ TEST_F(HugeRegionTest, Release) {
   CheckMock();
 }
 
+TEST_F(HugeRegionTest, ReleaseAdaptive) {
+  const Length n = kPagesPerHugePage;
+  bool from_released;
+  auto a = Allocate(n * 4, &from_released);
+  EXPECT_TRUE(from_released);
+
+  Delete(a);
+  // Now we have 4 backed, free hugepages: 0, 1, 2, 3 relative to p_.
+
+  // Release 2 hugepages with adaptive_release = true.
+  // It should release 3 and 2.
+  ExpectUnback({p_ + NHugePages(2), NHugePages(2)});
+  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages(),
+                                           /*adaptive_release=*/true));
+  CheckMock();
+}
+
 TEST_F(HugeRegionTest, ReleaseFailure) {
   const Length n = kPagesPerHugePage;
   bool from_released;
@@ -285,7 +309,8 @@ TEST_F(HugeRegionTest, ReleaseFailure) {
   // overlap with others.
   Delete(a);
   ExpectUnback({p_, NHugePages(4)}, false);
-  EXPECT_EQ(NHugePages(0), region_.Release(NHugePages(4).in_pages()));
+  EXPECT_EQ(NHugePages(0), region_.Release(NHugePages(4).in_pages(),
+                                           /*adaptive_release=*/false));
   EXPECT_EQ(NHugePages(4), region_.backed());
   CheckMock();
 
@@ -448,7 +473,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
             absl::Uniform(rngs[tid], 0u, region_.size().in_pages().raw_num()));
 
         absl::MutexLock l(mu);
-        region_.Release(to_release);
+        region_.Release(to_release, /*adaptive_release=*/false);
 
         break;
       }
@@ -488,7 +513,8 @@ TEST_F(HugeRegionTest, ReleaseDuringPut) {
       return;
     }
 
-    released = region_.Release(region_.size().in_pages());
+    released = region_.Release(region_.size().in_pages(),
+                               /*adaptive_release=*/false);
   });
   region_.~HugeRegion();
   new (&region_) HugeRegion({p_, region_.size()}, blocking);
@@ -740,7 +766,7 @@ class HugeRegionSetTest
 TEST_P(HugeRegionSetTest, Release) {
   absl::BitGen rng;
   PageId p;
-  constexpr Length kSize = kPagesPerHugePage + Length(1);
+  constexpr Length kSize = kPagesPerHugePage;
   bool from_released;
   ASSERT_FALSE(set_.MaybeGet(Length(1), &p, &from_released));
   auto r1 = GetRegion();
@@ -765,7 +791,8 @@ TEST_P(HugeRegionSetTest, Release) {
   // huge-region-more-often feature is enabled.
   EXPECT_EQ(r1->free_backed().raw_num(),
             UseHugeRegionMoreOften() ? Region::size().raw_num() : 0);
-  Length released = set_.ReleasePages(/*release_fraction=*/1.0);
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/false,
+                                      /*hit_limit=*/true);
   stats = set_.stats();
   EXPECT_EQ(released.in_bytes(),
             UseHugeRegionMoreOften() ? stats.system_bytes : 0);
@@ -773,6 +800,157 @@ TEST_P(HugeRegionSetTest, Release) {
   EXPECT_EQ(stats.unmapped_bytes, stats.system_bytes);
 }
 
+TEST_P(HugeRegionSetTest, ReleaseAdaptive) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  // Allocate all space.
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+
+  // Put all back.
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Adaptive release limit is 0, so ReleasePages should release nothing.
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                                      /*hit_limit=*/false);
+  EXPECT_EQ(released.in_pages(), Length(0));
+
+  // Adaptive release limit is now reset to free_backed_count (which is
+  // the total size of region since we put all back).
+  // Let's allocate some.
+  size_t to_alloc = allocs.size() / 2;
+
+  std::vector<Alloc> active_allocs;
+  for (size_t i = 0; i < to_alloc; ++i) {
+    ASSERT_TRUE(set_.MaybeGet(kSize, &p, &from_released));
+    active_allocs.push_back({p, kSize});
+  }
+
+  // Put them back.
+  for (auto a : active_allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Now free_backed is back to full, but adaptive release limit is full -
+  // to_alloc. Verify we release up to the adaptive release limit (low water
+  // mark) when use_adaptive is enabled.
+  released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                               /*hit_limit=*/false);
+  const Length expected_released =
+      NHugePages(allocs.size() - to_alloc).in_pages();
+
+  ASSERT_GT(expected_released.raw_num(), 0);
+  EXPECT_EQ(released, expected_released);
+  EXPECT_LT(released, r1->size().in_pages());
+}
+
+TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithLimit) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  // Allocate all space.
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+
+  // Put all back.
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Low water mark is 0, so ReleasePages should release nothing.
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                                      /*hit_limit=*/false);
+  EXPECT_EQ(released.in_pages(), Length(0));
+
+  // Adaptive release limit is now reset to free_backed_count (which is
+  // the total size of region since we put all back).
+  // Let's allocate some.
+  size_t to_alloc = allocs.size() / 2;
+  std::vector<Alloc> active_allocs;
+  for (size_t i = 0; i < to_alloc; ++i) {
+    ASSERT_TRUE(set_.MaybeGet(kSize, &p, &from_released));
+    active_allocs.push_back({p, kSize});
+  }
+
+  // Put them back.
+  for (auto a : active_allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Now free_backed is back to full, but adaptive release limit is full -
+  // to_alloc.
+  const Length expected_released =
+      NHugePages(allocs.size() - to_alloc).in_pages();
+
+  // We want to release up to a limit which is less than expected_released.
+  // Let's limit it to 1 hugepage.
+  Length limit = kPagesPerHugePage;
+  ASSERT_LT(limit, expected_released);
+
+  released = set_.ReleasePages(limit, /*use_adaptive=*/true,
+                               /*hit_limit=*/false);
+
+  EXPECT_EQ(released, limit);
+}
+
+TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithHitLimit) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  // Allocate all space.
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+
+  // Put all back.
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Low water mark is 0. If we call ReleasePages with hit_limit = false,
+  // it would release nothing.
+  // But with hit_limit = true, it should release everything.
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                                      /*hit_limit=*/true);
+  EXPECT_EQ(released, r1->size().in_pages());
+
+  // Verify everything is unmapped.
+  BackingStats stats = set_.stats();
+  EXPECT_EQ(stats.unmapped_bytes, stats.system_bytes);
+  EXPECT_EQ(r1->free_backed().in_bytes(), 0);
+}
 
 TEST_P(HugeRegionSetTest, Set) {
   absl::BitGen rng;

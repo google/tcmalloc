@@ -82,10 +82,12 @@ struct Deallocate {
 
 struct Release {
   uint32_t length;
+  bool adaptive_release;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Release& r) {
-    absl::Format(&sink, "Release{.length=%d}", r.length);
+    absl::Format(&sink, "Release{.length=%d, .adaptive_release=%v}", r.length,
+                 r.adaptive_release);
   }
 };
 
@@ -195,7 +197,8 @@ void FuzzRegion(const std::vector<Instruction>& instructions,
               const Length len = Length(arg.length % (1 << 18));
               const HugeLength max_expected =
                   std::min(region.free_backed(), HLFromPages(len));
-              const HugeLength actual = region.Release(len);
+              const HugeLength actual =
+                  region.Release(len, arg.adaptive_release);
               if (unback.unback_success_) {
                 if (max_expected > NHugePages(0) && len > Length(0)) {
                   TC_CHECK_GT(actual, NHugePages(0));

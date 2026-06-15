@@ -37,7 +37,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-constexpr double kFractionToReleaseFromRegion = 0.1;
 enum class HugeRegionUsageOption : bool {
   // This is a default behavior. We use slack to determine when to use
   // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
@@ -86,9 +85,11 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // REQUIRES: Range{p, n} was the result of a previous MaybeGet.
   void Put(Range r, bool release);
 
-  // Release <desired> numbae of pages from free-and-backed hugepages from
-  // region.
-  HugeLength Release(Length desired);
+  // Release <desired> number of pages from free-and-backed hugepages from the
+  // region. If adaptive_release is true, we scan the hugepages in reverse order
+  // to select candidates for release. This order is opposite to the allocation
+  // order, so we hope to release pages that won't be soon allocated.
+  HugeLength Release(Length desired, bool adaptive_release);
 
   // Is p located in this region?
   bool contains(PageId p) { return location_.contains(p); }
@@ -141,6 +142,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   bool backed_[kNumHugePages];
   HugeLength nbacked_;
   HugeLength total_unbacked_{NHugePages(0)};
+  HugeLength free_backed_count_;
 
   MemoryModifyFunction& unback_;
 };
@@ -151,7 +153,10 @@ template <typename Region>
 class HugeRegionSet {
  public:
   explicit HugeRegionSet(HugeRegionUsageOption use_huge_region_more_often)
-      : n_(0), use_huge_region_more_often_(use_huge_region_more_often) {}
+      : n_(0),
+        use_huge_region_more_often_(use_huge_region_more_often),
+        free_backed_count_(NHugePages(0)),
+        lowater_free_backed_(NHugePages(0)) {}
 
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
@@ -165,11 +170,13 @@ class HugeRegionSet {
   // Add region to the set.
   void Contribute(Region* region);
 
-  // Release hugepages that are unused but backed.
-  // Releases up to <release_fraction> times number of free-but-backed hugepages
-  // from each huge region. Note that this clamps release_fraction between 0 and
-  // 1 if a fraction outside those bounds is specified.
-  Length ReleasePages(double release_fraction);
+  // Releases unused but backed hugepages from the set.
+  // - If hit_limit is true, we release up to desired pages.
+  // - If hit_limit is false and use_adaptive is true, we release up to the
+  //   low water mark of free backed pages (capped by desired).
+  // - If hit_limit is false and use_adaptive is false, we release a fraction
+  //   of the free backed pages.
+  Length ReleasePages(Length desired, bool use_adaptive, bool hit_limit);
 
   void Print(Printer& out) const;
   void PrintInPbtxt(PbtxtRegion& hpaa) const;
@@ -183,6 +190,8 @@ class HugeRegionSet {
   }
 
  private:
+  static constexpr double kFractionToReleaseFromRegion = 0.1;
+
   void Fix(Region* absl_nonnull r) {
     // We've changed r's fragmentation--move it through the list to the
     // correct home (if needed).
@@ -239,6 +248,8 @@ class HugeRegionSet {
   HugeRegionUsageOption use_huge_region_more_often_;
   // Sorted by longest_free increasing.
   TList<Region> list_;
+  HugeLength free_backed_count_;
+  HugeLength lowater_free_backed_;
 };
 
 // REQUIRES: r.len() == size(); r unbacked.
@@ -254,6 +265,7 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback)
     pages_used_[i] = Length(0);
     backed_[i] = false;
   }
+  free_backed_count_ = NHugePages(0);
 }
 
 inline bool HugeRegion::MaybeGet(Length n, PageId* p, bool* from_released) {
@@ -282,16 +294,20 @@ inline void HugeRegion::Put(Range r, bool release) {
 // free but backed hugepages from the region. We can explore a more
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
-inline HugeLength HugeRegion::Release(Length desired) {
+inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
   if (desired == Length(0)) return NHugePages(0);
 
-  const Length free_yet_backed = free_backed().in_pages();
+  const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
 
   HugeLength release_target = NHugePages(0);
   bool should_unback[kNumHugePages] = {};
+  const int start = adaptive_release ? kNumHugePages - 1 : 0;
+  const int end = adaptive_release ? -1 : kNumHugePages;
+  const int step = adaptive_release ? -1 : 1;
+
   // TODO(b/73749855): Consider optimizing this search by consulting tracker_.
-  for (size_t i = 0; i < kNumHugePages; ++i) {
+  for (int i = start; i != end; i += step) {
     if (backed_[i] && pages_used_[i] == Length(0)) {
       should_unback[i] = true;
       ++release_target;
@@ -358,15 +374,7 @@ inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
   TC_CHECK_EQ(u, unmapped_pages());
 }
 
-inline HugeLength HugeRegion::free_backed() const {
-  HugeLength r = NHugePages(0);
-  for (size_t i = 0; i < kNumHugePages; ++i) {
-    if (backed_[i] && pages_used_[i] == Length(0)) {
-      ++r;
-    }
-  }
-  return r;
-}
+inline HugeLength HugeRegion::free_backed() const { return free_backed_count_; }
 
 inline HugeLength HugeRegion::backed() const {
   HugeLength b;
@@ -418,10 +426,15 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
     const size_t i = (hp - location_.start()) / NHugePages(1);
     const PageId lim = (hp + NHugePages(1)).first_page();
     Length here = std::min(r.n, lim - r.p);
-    if (pages_used_[i] == Length(0) && !backed_[i]) {
-      backed_[i] = true;
-      should_back = true;
-      ++nbacked_;
+    if (pages_used_[i] == Length(0)) {
+      if (backed_[i]) {
+        TC_ASSERT_GT(free_backed_count_, NHugePages(0));
+        --free_backed_count_;
+      } else {
+        backed_[i] = true;
+        should_back = true;
+        ++nbacked_;
+      }
     }
     pages_used_[i] += here;
     TC_ASSERT_LE(pages_used_[i], kPagesPerHugePage);
@@ -444,6 +457,7 @@ inline void HugeRegion::Dec(Range r, bool release) {
     pages_used_[i] -= here;
     if (pages_used_[i] == Length(0)) {
       should_unback[i] = true;
+      ++free_backed_count_;
     }
     r.p += here;
     r.n -= here;
@@ -483,6 +497,11 @@ inline HugeLength HugeRegion::UnbackHugepages(
     }
     TC_CHECK_EQ(used, Length(0));
 
+    // Temporarily decrement free_backed_count_ as these pages are in the
+    // middle of being unbacked and are not eligible for allocation/release.
+    TC_ASSERT_GE(free_backed_count_, hl);
+    free_backed_count_ -= hl;
+
     if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)).success)) {
       nbacked_ -= hl;
       total_unbacked_ += hl;
@@ -493,6 +512,9 @@ inline HugeLength HugeRegion::UnbackHugepages(
       }
 
       released += hl;
+    } else {
+      // Restore the count if unback failed.
+      free_backed_count_ += hl;
     }
 
     used = Length(0);
@@ -517,7 +539,14 @@ template <typename Region>
 inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* page,
                                             bool* from_released) {
   for (Region* region : list_) {
+    HugeLength before = region->free_backed();
     if (region->MaybeGet(n, page, from_released)) {
+      HugeLength after = region->free_backed();
+      TC_ASSERT_LE(after, before);
+      HugeLength diff = before - after;
+      TC_ASSERT_GE(free_backed_count_, diff);
+      free_backed_count_ -= diff;
+      lowater_free_backed_ = std::min(lowater_free_backed_, free_backed_count_);
       Fix(region);
       return true;
     }
@@ -534,7 +563,11 @@ inline bool HugeRegionSet<Region>::MaybePut(Range r) {
   const bool release = !UseHugeRegionMoreOften();
   for (Region* region : list_) {
     if (region->contains(r.p)) {
+      HugeLength before = region->free_backed();
       region->Put(r, release);
+      HugeLength after = region->free_backed();
+      TC_ASSERT_GE(after, before);
+      free_backed_count_ += (after - before);
       Fix(region);
       return true;
     }
@@ -547,21 +580,40 @@ inline bool HugeRegionSet<Region>::MaybePut(Range r) {
 template <typename Region>
 inline void HugeRegionSet<Region>::Contribute(Region* region) {
   n_++;
+  free_backed_count_ += region->free_backed();
   AddToList(region);
 }
 
 template <typename Region>
-inline Length HugeRegionSet<Region>::ReleasePages(double release_fraction) {
-  const Length free_yet_backed = free_backed().in_pages();
-  const size_t to_release =
-      free_yet_backed.raw_num() * std::clamp<double>(release_fraction, 0, 1);
-  const Length to_release_pages = Length(to_release);
+inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
+                                                  bool use_adaptive,
+                                                  bool hit_limit) {
+  Length to_release;
+  if (hit_limit) {
+    to_release = desired;
+  } else if (use_adaptive) {
+    to_release = std::min(lowater_free_backed_.in_pages(), desired);
+  } else {
+    to_release =
+        Length(static_cast<size_t>(free_backed_count_.in_pages().raw_num() *
+                                   kFractionToReleaseFromRegion));
+  }
 
   Length released;
   for (Region* region : list_) {
-    released += region->Release(to_release_pages - released).in_pages();
-    if (released >= to_release_pages) return released;
+    if (released >= to_release) break;
+    Length region_target = to_release - released;
+
+    Length region_released =
+        region->Release(region_target, use_adaptive).in_pages();
+    released += region_released;
   }
+
+  HugeLength released_hl = HLFromPages(released);
+  TC_ASSERT_LE(released_hl, free_backed_count_);
+  free_backed_count_ -= released_hl;
+  lowater_free_backed_ = free_backed_count_;
+
   return released;
 }
 
@@ -630,12 +682,7 @@ inline BackingStats HugeRegionSet<Region>::stats() const {
 
 template <typename Region>
 inline HugeLength HugeRegionSet<Region>::free_backed() const {
-  HugeLength pages;
-  for (Region* region : list_) {
-    pages += region->free_backed();
-  }
-
-  return pages;
+  return free_backed_count_;
 }
 
 }  // namespace tcmalloc_internal

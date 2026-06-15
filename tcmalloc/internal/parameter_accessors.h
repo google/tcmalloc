@@ -109,6 +109,10 @@ ABSL_ATTRIBUTE_WEAK int32_t TCMalloc_Internal_GetBackSizeThresholdBytes();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetEnableUnfilteredCollapse();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
+ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetHugeRegionAdaptiveReleaseEnabled();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(
+    bool v);
 
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
     std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull

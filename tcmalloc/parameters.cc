@@ -250,6 +250,8 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
     kPageSize);
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
+ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
+    false);
 
 static std::atomic<HeapPartitioningMode>& heap_partitioning_mode_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -644,6 +646,14 @@ bool TCMalloc_Internal_GetEnableUnfilteredCollapse() {
 
 void TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v) {
   Parameters::enable_unfiltered_collapse_.store(v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetHugeRegionAdaptiveReleaseEnabled() {
+  return Parameters::huge_region_adaptive_release();
+}
+
+void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v) {
+  Parameters::huge_region_adaptive_release_.store(v, std::memory_order_relaxed);
 }
 
 }  // extern "C"
