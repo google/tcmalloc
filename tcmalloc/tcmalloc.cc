@@ -965,18 +965,18 @@ inline
   // to be used. If partition 1 used, it will be wrongly mapped to NormalP1
   // classes (see above diagrams). Additional note: partition number specified
   // at allocation time is not recorded in the tag for cold objects and
-  // 'ParititionFromPointerFast' will return wrong results for them (and
+  // 'PartitionFromPointerFast' will return wrong results for them (and
   // therefore there is assertion failure if used for kCold ptrs)
   if (policy.is_cold() || PartitionFromPointerFast(ptr) == 0) {
-    const auto [is_small, size_class] =
-        tc_globals.sizemap().GetSizeClass(policy.InPartition(0), size);
+    const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
+        policy.template InPartition<0>(), size);
     if (ABSL_PREDICT_TRUE(is_small)) {
       FreeSmall(ptr, size, size_class);
       return;
     }
   } else {
-    const auto [is_small, size_class] =
-        tc_globals.sizemap().GetSizeClass(policy.InPartition(1), size);
+    const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
+        policy.template InPartition<1>(), size);
     if (ABSL_PREDICT_TRUE(is_small)) {
       FreeSmall(ptr, size, size_class);
       return;

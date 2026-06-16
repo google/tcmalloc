@@ -289,9 +289,9 @@ class SecurityPartitionPolicy {
 
 // The compiler fails to optimize a SecurityPartitionPolicy with a constant
 // partition value, so we define a constant version that can be optimized.
-template <TokenId kTokenId>
+template <TokenId kTokenId, size_t kPartitionId = static_cast<size_t>(kTokenId)>
 struct ConstSecurityPartitionPolicy {
-  constexpr size_t partition() const { return kTokenId > TokenId{0} ? 1 : 0; }
+  constexpr size_t partition() const { return kPartitionId > 0 ? 1 : 0; }
   constexpr TokenId token_id() const { return kTokenId; }
 };
 
@@ -325,7 +325,7 @@ class TCMallocPolicy {
 
   // Allocation type is deduced from the policy characteristics to avoid
   // requiring redundant data.
-  constexpr AllocationType allocation_type() const {
+  static constexpr AllocationType allocation_type() {
     if constexpr (!std::is_same_v<OomPolicy, MallocOomPolicy>) {
       return AllocationType::New;
     } else if constexpr (std::is_same_v<MallocAlignPolicy, AlignPolicy>) {
@@ -463,9 +463,24 @@ class TCMallocPolicy {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
                           SizeReturningPolicy, FixedNumaPartitionPolicy,
                           SecurityPartitionPolicy>(
-        align_, FixedNumaPartitionPolicy{numa_partition},
+        align_, access_, FixedNumaPartitionPolicy{numa_partition},
         SecurityPartitionPolicy{(partition - numa_partition) /
                                 kNumaPartitions});
+  }
+
+  // Returns this policy with a compile-time fixed NUMA/type partition.
+  template <size_t kPartition>
+  constexpr auto InPartition() const {
+    constexpr size_t kNumaPartition = kPartition % kNumaPartitions;
+    constexpr size_t kSecPartition =
+        (kPartition - kNumaPartition) / kNumaPartitions;
+    using ConstSecurityPartitionPolicy =
+        ConstSecurityPartitionPolicy<TokenId::kNoAllocToken, kSecPartition>;
+    return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
+                          SizeReturningPolicy, FixedNumaPartitionPolicy,
+                          ConstSecurityPartitionPolicy>(
+        align_, access_, FixedNumaPartitionPolicy{kNumaPartition},
+        ConstSecurityPartitionPolicy());
   }
 
   // Returns this policy with a fixed partition and token ID.
