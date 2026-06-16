@@ -189,13 +189,13 @@ SizeClassConfiguration Static::size_class_configuration() {
 
   const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
   if (e == nullptr) {
-    return SizeClassConfiguration::kReuse;
+    return SizeClassConfiguration::kReuseRelaxedBelow64;
   } else if (!strcmp(e, "0")) {
-    return SizeClassConfiguration::kReuse;
+    return SizeClassConfiguration::kReuseRelaxedBelow64;
   } else {
     TC_BUG("bad TCMALLOC_LEGACY_SIZE_CLASSES env var '%s'", e);
   }
-  return SizeClassConfiguration::kReuse;
+  return SizeClassConfiguration::kReuseRelaxedBelow64;
 }
 
 ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
