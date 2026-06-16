@@ -24,11 +24,13 @@
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
+#include "absl/strings/str_format.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
@@ -70,8 +72,9 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   static constexpr HugeLength size() { return kRegionSize; }
 
   // REQUIRES: r.len() == size(); r unbacked.
-  HugeRegion(HugeRange r,
-             MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  HugeRegion(
+      HugeRange r, MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MemoryTagFunction& set_anon_vma_name ABSL_ATTRIBUTE_LIFETIME_BOUND);
   HugeRegion() = delete;
 
   // If available, return a range of n free pages, setting *from_released =
@@ -253,7 +256,8 @@ class HugeRegionSet {
 };
 
 // REQUIRES: r.len() == size(); r unbacked.
-inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback)
+inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback,
+                              MemoryTagFunction& set_anon_vma_name)
     : tracker_{},
       location_(r),
       pages_used_{},
@@ -266,6 +270,12 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback)
     backed_[i] = false;
   }
   free_backed_count_ = NHugePages(0);
+
+  char name[256];
+  MemoryTag tag = GetMemoryTag(r.start_addr());
+  absl::SNPrintF(name, sizeof(name), "tcmalloc_huge_region_%s",
+                 MemoryTagToLabel(tag));
+  set_anon_vma_name(Range(r), name);
 }
 
 inline bool HugeRegion::MaybeGet(Length n, PageId* p, bool* from_released) {

@@ -837,7 +837,7 @@ template <class Forwarder>
 inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
   HugeRange r = alloc_.Get(HugeRegion::size());
   if (!r.valid()) return false;
-  HugeRegion* region = region_allocator_.New(r, unback_);
+  HugeRegion* region = region_allocator_.New(r, unback_, set_anon_vma_name_);
   regions_.Contribute(region);
   return true;
 }

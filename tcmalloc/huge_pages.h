@@ -388,6 +388,9 @@ inline std::pair<HugeRange, HugeRange> Split(HugeRange r, HugeLength n) {
   }
 }
 
+inline Range::Range(HugeRange r)
+    : p(r.start().first_page()), n(r.len().in_pages()) {}
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

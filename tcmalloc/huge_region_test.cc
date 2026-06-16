@@ -23,6 +23,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -31,6 +32,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/random/random.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -39,6 +41,7 @@
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
@@ -51,13 +54,26 @@ namespace {
 using testing::NiceMock;
 using testing::Return;
 
+class MockMemoryTagFunction : public MemoryTagFunction {
+ public:
+  MOCK_METHOD(void, Call, (Range r, std::optional<absl::string_view> name));
+  void operator()(Range r, std::optional<absl::string_view> name) override {
+    Call(r, name);
+  }
+};
+
+void* MakeTaggedAddress(MemoryTag tag) {
+  return reinterpret_cast<void*>(uintptr_t{static_cast<uint8_t>(tag)}
+                                 << kTagShift);
+}
+
 class HugeRegionTest : public ::testing::Test {
  protected:
   HugeRegionTest()
       : mock_(std::make_unique<NiceMock<MockBackingInterface>>()),
         // an unlikely magic page
-        p_(HugePageContaining(reinterpret_cast<void*>(0x1faced200000))),
-        region_({p_, region_.size()}, *mock_) {
+        p_(HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal))),
+        region_({p_, region_.size()}, *mock_, mock_set_anon_vma_name_) {
     // we usually don't care about backing calls, unless testing that
     // specifically.
   }
@@ -72,6 +88,7 @@ class HugeRegionTest : public ::testing::Test {
   };
 
   std::unique_ptr<MockBackingInterface> mock_;
+  MockMemoryTagFunction mock_set_anon_vma_name_;
 
   void CheckMock() { testing::Mock::VerifyAndClearExpectations(mock_.get()); }
 
@@ -382,7 +399,8 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
   MemorySimulation simulation(mu, p_.first_page(), absl::MakeSpan(bytes));
 
   region_.~HugeRegion();
-  new (&region_) HugeRegion({p_, region_.size()}, simulation);
+  new (&region_)
+      HugeRegion({p_, region_.size()}, simulation, mock_set_anon_vma_name_);
 
   const int kThreads = 10;
   std::vector<absl::BitGen> rngs(kThreads);
@@ -517,7 +535,8 @@ TEST_F(HugeRegionTest, ReleaseDuringPut) {
                                /*adaptive_release=*/false);
   });
   region_.~HugeRegion();
-  new (&region_) HugeRegion({p_, region_.size()}, blocking);
+  new (&region_)
+      HugeRegion({p_, region_.size()}, blocking, mock_set_anon_vma_name_);
 
   auto a1 = Allocate(5 * kPagesPerHugePage / 2);
   EXPECT_EQ(region_.backed(), NHugePages(3));
@@ -735,6 +754,11 @@ class NilUnback final : public MemoryModifyFunction {
   }
 };
 
+class NilMemoryTagFunction final : public MemoryTagFunction {
+ public:
+  void operator()(Range r, std::optional<absl::string_view> name) override {}
+};
+
 class HugeRegionSetTest
     : public ::testing::TestWithParam<HugeRegionUsageOption> {
  protected:
@@ -746,7 +770,8 @@ class HugeRegionSetTest
 
   std::unique_ptr<Region> GetRegion() {
     // These regions are backed by "real" memory, but we don't touch it.
-    std::unique_ptr<Region> r(new Region({next_, Region::size()}, nil_unback_));
+    std::unique_ptr<Region> r = std::make_unique<Region>(
+        HugeRange{next_, Region::size()}, nil_unback_, nil_set_anon_vma_name_);
     next_ += Region::size();
     return r;
   }
@@ -754,6 +779,7 @@ class HugeRegionSetTest
   bool UseHugeRegionMoreOften() const { return set_.UseHugeRegionMoreOften(); }
 
   NilUnback nil_unback_;
+  NilMemoryTagFunction nil_set_anon_vma_name_;
   HugeRegionSet<Region> set_;
   HugePage next_;
 
@@ -1046,6 +1072,40 @@ TEST_P(HugeRegionSetTest, Set) {
   Printer out(&buf[0], buf.size());
   set_.Print(out);
   printf("%s\n", &buf[0]);
+}
+
+TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {
+  MockMemoryTagFunction mock_set_anon_vma_name;
+  NilUnback nil_unback;
+  HugePage p = HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal));
+
+  Range expected_range{p.first_page(), HugeRegion::size().in_pages()};
+  EXPECT_CALL(
+      mock_set_anon_vma_name,
+      Call(testing::AllOf(testing::Field(&Range::p, expected_range.p),
+                          testing::Field(&Range::n, expected_range.n)),
+           std::optional<absl::string_view>("tcmalloc_huge_region_NORMAL")))
+      .Times(1);
+
+  HugeRegion region({p, HugeRegion::size()}, nil_unback,
+                    mock_set_anon_vma_name);
+}
+
+TEST(HugeRegionNamedVmaTest, NamedVmaCold) {
+  MockMemoryTagFunction mock_set_anon_vma_name;
+  NilUnback nil_unback;
+  HugePage p = HugePageContaining(MakeTaggedAddress(MemoryTag::kCold));
+
+  Range expected_range{p.first_page(), HugeRegion::size().in_pages()};
+  EXPECT_CALL(
+      mock_set_anon_vma_name,
+      Call(testing::AllOf(testing::Field(&Range::p, expected_range.p),
+                          testing::Field(&Range::n, expected_range.n)),
+           std::optional<absl::string_view>("tcmalloc_huge_region_COLD")))
+      .Times(1);
+
+  HugeRegion region({p, HugeRegion::size()}, nil_unback,
+                    mock_set_anon_vma_name);
 }
 
 INSTANTIATE_TEST_SUITE_P(

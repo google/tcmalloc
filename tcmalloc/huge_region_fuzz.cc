@@ -38,6 +38,16 @@
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
+void* MakeTaggedAddress(MemoryTag tag) {
+  return reinterpret_cast<void*>(uintptr_t{static_cast<uint8_t>(tag)}
+                                 << kTagShift);
+}
+
+class NilMemoryTagFunction final : public MemoryTagFunction {
+ public:
+  void operator()(Range r, std::optional<absl::string_view> name) override {}
+};
+
 class MockUnback final : public MemoryModifyFunction {
  public:
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
@@ -142,9 +152,10 @@ void AbslStringify(Sink& sink, const Reentrant& r) {
 void FuzzRegion(const std::vector<Instruction>& instructions,
                 bool reentrant_release) {
   const HugePage start =
-      HugePageContaining(reinterpret_cast<void*>(0x1faced200000));
+      HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal));
   MockUnback unback;
-  HugeRegion region({start, region.size()}, unback);
+  NilMemoryTagFunction nil_set_anon_vma_name;
+  HugeRegion region({start, region.size()}, unback, nil_set_anon_vma_name);
 
   unback.released_.reserve(region.size().in_pages().raw_num());
   for (PageId p = start.first_page(), end = p + region.size().in_pages();

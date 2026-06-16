@@ -165,9 +165,12 @@ class PageId {
   uintptr_t pn_;
 };
 
+struct HugeRange;
+
 struct Range {
   constexpr Range() = default;
   constexpr Range(PageId page, Length len) : p(page), n(len) {}
+  explicit inline Range(HugeRange r);
 
   constexpr Range(const Range&) = default;
   constexpr Range& operator=(const Range&) = default;
