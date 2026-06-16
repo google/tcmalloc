@@ -149,18 +149,17 @@ class RangeTracker {
       return N <= std::numeric_limits<T>::max();
     }
     struct U32 {
-      using type =
-          typename std::conditional<Fit<uint32_t>(), uint32_t, uint64_t>::type;
+      using type = std::conditional_t<Fit<uint32_t>(), uint32_t, uint64_t>;
     };
 
     struct U16 {
-      using type = typename std::conditional<Fit<uint16_t>(), uint16_t,
-                                             typename U32::type>::type;
+      using type =
+          std::conditional_t<Fit<uint16_t>(), uint16_t, typename U32::type>;
     };
 
     struct U8 {
-      using type = typename std::conditional<Fit<uint8_t>(), uint8_t,
-                                             typename U16::type>::type;
+      using type =
+          std::conditional_t<Fit<uint8_t>(), uint8_t, typename U16::type>;
     };
 
    public:
