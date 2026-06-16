@@ -325,13 +325,13 @@ class TCMallocPolicy {
 
   // Allocation type is deduced from the policy characteristics to avoid
   // requiring redundant data.
-  constexpr Profile::Sample::AllocationType allocation_type() const {
+  constexpr AllocationType allocation_type() const {
     if constexpr (!std::is_same_v<OomPolicy, MallocOomPolicy>) {
-      return Profile::Sample::AllocationType::New;
+      return AllocationType::New;
     } else if constexpr (std::is_same_v<MallocAlignPolicy, AlignPolicy>) {
-      return Profile::Sample::AllocationType::Malloc;
+      return AllocationType::Malloc;
     } else {
-      return Profile::Sample::AllocationType::AlignedMalloc;
+      return AllocationType::AlignedMalloc;
     }
   }
 

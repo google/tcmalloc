@@ -192,9 +192,8 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
 }
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedFree(
-    Static& state, const void* ptr, Profile::Sample::AllocationType alloc_type,
-    Profile::Sample::AllocationType dealloc_type,
-    absl::Span<void*> allocation_stack) {
+    Static& state, const void* ptr, AllocationType alloc_type,
+    AllocationType dealloc_type, absl::Span<void*> allocation_stack) {
   void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 

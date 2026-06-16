@@ -124,6 +124,28 @@ class ProfileAccessor;
 class ProfileBase;
 }  // namespace tcmalloc_internal
 
+// How the memory was allocated (new/malloc/etc.).
+enum class AllocationType : uint8_t {
+  New,
+  Malloc,
+  AlignedMalloc,
+};
+
+template <typename Sink>
+GOOGLE_MALLOC_SECTION void AbslStringify(Sink& sink, const AllocationType& t) {
+  switch (t) {
+    case AllocationType::New:
+      sink.Append("new");
+      break;
+    case AllocationType::Malloc:
+      sink.Append("malloc");
+      break;
+    case AllocationType::AlignedMalloc:
+      sink.Append("aligned-malloc");
+      break;
+  }
+}
+
 enum class ProfileType {
   // Approximation of current heap usage
   kHeap,
@@ -245,29 +267,6 @@ class Profile final {
       Guarded = 10,
     };
     GuardedStatus guarded_status;
-
-    // How the memory was allocated (new/malloc/etc.).
-    enum class AllocationType : uint8_t {
-      New,
-      Malloc,
-      AlignedMalloc,
-    };
-
-    template <typename Sink>
-    friend void AbslStringify(Sink& sink,
-                              const AllocationType& t) GOOGLE_MALLOC_SECTION {
-      switch (t) {
-        case AllocationType::New:
-          sink.Append("new");
-          break;
-        case AllocationType::Malloc:
-          sink.Append("malloc");
-          break;
-        case AllocationType::AlignedMalloc:
-          sink.Append("aligned-malloc");
-          break;
-      }
-    }
 
     AllocationType type;
 

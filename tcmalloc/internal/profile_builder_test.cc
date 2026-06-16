@@ -370,7 +370,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.access_allocated = Profile::Sample::Access::Cold;
     sample.token_id = TokenId{0};
     sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
-    sample.type = Profile::Sample::AllocationType::New;
+    sample.type = AllocationType::New;
     samples.push_back(sample);
 
     Profile::Sample sample2 = sample;
@@ -417,7 +417,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.access_allocated = Profile::Sample::Access::Hot;
     sample.token_id = TokenId{0};
     sample.guarded_status = Profile::Sample::GuardedStatus::NoAvailableSlots;
-    sample.type = Profile::Sample::AllocationType::Malloc;
+    sample.type = AllocationType::Malloc;
 
     if (profile_type == ProfileType::kHeap) {
       // Total stale bytes for this sample = 5 * 17 = 85.
@@ -457,7 +457,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.access_allocated = Profile::Sample::Access::Hot;
     sample.token_id = TokenId{0};
     sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
-    sample.type = Profile::Sample::AllocationType::AlignedMalloc;
+    sample.type = AllocationType::AlignedMalloc;
   }
 
   {  // We have three samples here that will be merged (if guarded_status is not
@@ -488,7 +488,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.access_allocated = Profile::Sample::Access::Cold;
     sample.token_id = TokenId{1};
     sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
-    sample.type = Profile::Sample::AllocationType::New;
+    sample.type = AllocationType::New;
     samples.push_back(sample);
 
     Profile::Sample sample2 = sample;

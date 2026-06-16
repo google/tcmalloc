@@ -269,7 +269,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
 
 void MaybeUnsampleAllocation(Static& state, void* absl_nonnull ptr,
                              std::optional<size_t> size, Span& span,
-                             Profile::Sample::AllocationType type);
+                             AllocationType type);
 
 template <typename Policy>
 static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
@@ -289,10 +289,7 @@ static sized_ptr_t SampleSmallAllocation(Static& state, Policy policy,
 
 // Rewrite type so that the allocation type falls into one of the categories we
 // use for deallocations (new or malloc, not aligned new).
-static inline Profile::Sample::AllocationType SimplifyType(
-    Profile::Sample::AllocationType type) {
-  using AllocationType = Profile::Sample::AllocationType;
-
+static inline AllocationType SimplifyType(AllocationType type) {
   switch (type) {
     case AllocationType::New:
     case AllocationType::Malloc:
@@ -388,8 +385,7 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
           ? std::make_optional<std::align_val_t>(policy.align())
           : std::nullopt;
 
-  if ((size.has_value() ||
-       policy.allocation_type() == Profile::Sample::AllocationType::New)) {
+  if ((size.has_value() || policy.allocation_type() == AllocationType::New)) {
     const bool type_mismatch =
         policy.allocation_type() !=
         sampled_allocation->sampled_stack.allocation_type;

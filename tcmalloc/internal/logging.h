@@ -93,7 +93,7 @@ struct StackTrace {
   Profile::Sample::GuardedStatus guarded_status;
 
   // How the memory was allocated (new/malloc/etc.)
-  Profile::Sample::AllocationType allocation_type;
+  AllocationType allocation_type;
 
   // If not nullptr, this is the start address of the span corresponding to this
   // sampled allocation. This may be nullptr for cases where it is not useful

@@ -96,12 +96,12 @@ class GwpAsanState {
     return expected_alignment_;
   }
 
-  Profile::Sample::AllocationType alloc_type() const {
+  AllocationType alloc_type() const {
     TC_ASSERT_EQ(type_, Type::kMismatchedFree);
     return *alloc_type_;
   }
 
-  Profile::Sample::AllocationType dealloc_type() const {
+  AllocationType dealloc_type() const {
     TC_ASSERT_EQ(type_, Type::kMismatchedFree);
     return *dealloc_type_;
   }
@@ -214,9 +214,8 @@ class GwpAsanState {
     deallocation_stack_depth_ = deallocation_stack_depth;
   }
 
-  void RecordMismatchedFree(const void* ptr,
-                            Profile::Sample::AllocationType alloc_type,
-                            Profile::Sample::AllocationType dealloc_type,
+  void RecordMismatchedFree(const void* ptr, AllocationType alloc_type,
+                            AllocationType dealloc_type,
                             absl::Span<void* const> allocation_stack,
                             absl::Span<void* const> deallocation_stack) {
     ptr_ = ptr;
@@ -244,7 +243,7 @@ class GwpAsanState {
   size_t provided_min_ = 0, provided_max_ = 0, minimum_ = 0, maximum_ = 0;
   std::optional<std::align_val_t> actual_alignment_, expected_alignment_;
 
-  std::optional<Profile::Sample::AllocationType> alloc_type_, dealloc_type_;
+  std::optional<AllocationType> alloc_type_, dealloc_type_;
 
   void* allocation_stack_[kMaxStackDepth] = {};
   std::optional<size_t> allocation_stack_depth_ = std::nullopt;

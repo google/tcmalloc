@@ -572,13 +572,13 @@ static void AddCommonSampleTags(const tcmalloc::Profile::Sample& entry,
   type_label.set_key(allocation_type_id);
 
   switch (entry.type) {
-    case Profile::Sample::AllocationType::New:
+    case AllocationType::New:
       type_label.set_str(new_id);
       break;
-    case Profile::Sample::AllocationType::Malloc:
+    case AllocationType::Malloc:
       type_label.set_str(malloc_id);
       break;
-    case Profile::Sample::AllocationType::AlignedMalloc:
+    case AllocationType::AlignedMalloc:
       type_label.set_str(aligned_malloc_id);
       break;
   }
