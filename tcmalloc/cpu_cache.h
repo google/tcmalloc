@@ -1075,7 +1075,7 @@ inline void CpuCache<Forwarder>::Deactivate() {
   }
 
   freelist_.Destroy(&forwarder_.Dealloc);
-  static_assert(std::is_trivially_destructible<decltype(*resize_)>::value,
+  static_assert(std::is_trivially_destructible_v<decltype(*resize_)>,
                 "ResizeInfo is expected to be trivially destructible");
   forwarder_.Dealloc(resize_, sizeof(*resize_) * num_cpus,
                      std::align_val_t{alignof(decltype(*resize_))});

@@ -718,7 +718,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
 
       // second for deallocation
       static_assert(
-          std::is_signed<decltype(tcmalloc::Profile::Sample::count)>::value,
+          std::is_signed_v<decltype(tcmalloc::Profile::Sample::count)>,
           "Deallocation samples are tagged with negative count values.");
       sample.count = -1 * count;
       sample.depth = k.dealloc.stack_trace.depth;
