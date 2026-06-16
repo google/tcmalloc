@@ -22,7 +22,7 @@ load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
-load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
+load("//tcmalloc:variants.bzl", "build_variants", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -614,25 +614,28 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "mock_static_forwarder",
-    testonly = 1,
-    hdrs = ["mock_static_forwarder.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
-    deps = [
-        ":common_8k_pages",
-        "//tcmalloc/internal:config",
-        "//tcmalloc/internal:hook_list",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest",
-    ],
-)
+[
+    cc_library(
+        name = "mock_static_forwarder_" + variant["name"],
+        testonly = 1,
+        hdrs = ["mock_static_forwarder.h"],
+        copts = TCMALLOC_DEFAULT_COPTS + variant.get("copts", []),
+        visibility = [
+            "//tcmalloc:__subpackages__",
+        ],
+        deps = [
+            ":common_" + variant["name"],
+            "//tcmalloc/internal:config",
+            "//tcmalloc/internal:hook_list",
+            "@com_google_absl//absl/base:core_headers",
+            "@com_google_absl//absl/synchronization",
+            "@com_google_absl//absl/time",
+            "@com_google_absl//absl/types:span",
+            "@com_google_googletest//:gtest",
+        ],
+    )
+    for variant in build_variants
+]
 
 cc_library(
     name = "mock_virtual_allocator",
@@ -816,7 +819,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     deps = [
         ":common_8k_pages",
-        ":mock_static_forwarder",
+        ":mock_static_forwarder_8k_pages",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/log:check",
@@ -1448,7 +1451,7 @@ cc_test(
     ],
     deps = [
         ":common_8k_pages",
-        ":mock_static_forwarder",
+        ":mock_static_forwarder_8k_pages",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:size_class_info",
         "//tcmalloc/testing:testutil",
@@ -1478,7 +1481,7 @@ create_tcmalloc_benchmark(
     malloc = "//tcmalloc",
     deps = [
         ":common_8k_pages",
-        ":mock_static_forwarder",
+        ":mock_static_forwarder_8k_pages",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/random",
