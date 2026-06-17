@@ -4721,6 +4721,8 @@ HugePageFiller: 130 of sparsely-accessed regular used native pages are unbacked.
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_swapped: 130"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_unbacked: 126"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_unbacked: 130"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_stale: 0"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_stale: 1"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_treated: 2"));
   DeleteVector(p1);
   DeleteVector(p2);

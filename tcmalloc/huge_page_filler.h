@@ -857,6 +857,8 @@ class UsageInfo {
                     records.num_free_unbacked.raw_num());
     scoped.PrintI64("num_pages_used_unbacked",
                     records.num_used_unbacked.raw_num());
+    scoped.PrintI64("num_pages_free_stale", records.num_free_stale.raw_num());
+    scoped.PrintI64("num_pages_used_stale", records.num_used_stale.raw_num());
   }
 
  private:
