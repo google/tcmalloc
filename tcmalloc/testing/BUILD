@@ -192,6 +192,8 @@ create_tcmalloc_testsuite(
     srcs = ["proc_maps_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    tags = [
+    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
