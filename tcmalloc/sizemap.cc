@@ -258,43 +258,51 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     }
   }
 
-  int cold_block_offset = 0;
-  bool heap_partitioning_active = tc_globals.multiple_non_numa_partitions();
-  if (kSecurityPartitions > 1) {
-    cold_block_offset++;
-    // Point all lookups in first upper register of class_array_ to the normal
-    // size classes. We only overwrite the lookups if heap partitioning is
-    // active with the dedicated size classes.
+  // Point all lookups in hot registers (Malloc P0, New P1, Malloc P1)
+  // directly to New's P0. We only overwrite the lookups if heap
+  // partitioning is active with the dedicated size classes.
+  for (size_t i = 1; i < kHotRegisters; ++i) {
     std::copy(&class_array_[0], &class_array_[kClassArraySize],
-              &class_array_[kClassArraySize]);
-    if (heap_partitioning_active) {
-      next_size = 0;
-      for (int c = kNumBaseClasses + 1; c < kExpandedClassesStart; ++c) {
-        const int max_size_in_class = class_to_size_[c];
+              &class_array_[kClassArraySize * i]);
+  }
 
-        for (int s = next_size; s <= max_size_in_class;
-             s += static_cast<size_t>(kAlignment)) {
-          class_array_[ClassIndex(s) + kClassArraySize] = c;
-        }
-        next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-        if (next_size > kMaxSize) {
-          break;
-        }
+  bool heap_partitioning_active = tc_globals.multiple_non_numa_partitions();
+  if (kSecurityPartitions > 1 && heap_partitioning_active) {
+    bool heap_partitioning_full =
+        Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
+    next_size = 0;
+    for (int c = kNumBaseClasses + 1; c < kExpandedClassesStart; ++c) {
+      const int max_size_in_class = class_to_size_[c];
+
+      for (int s = next_size; s <= max_size_in_class;
+           s += static_cast<size_t>(kAlignment)) {
+        // Route Hot Malloc P1 to security partition P1.
+        class_array_[ClassIndex(s) +
+                     kClassArraySize * (kSecurityPartitions + 1)] = c;
+        // Route Hot New P1 to security partition P1.
+        class_array_[ClassIndex(s) + kClassArraySize] = c;
+        if (heap_partitioning_full) continue;
+        // In kLight mode, route Hot New P0 to P1.
+        class_array_[ClassIndex(s)] = c;
+      }
+      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+      if (next_size > kMaxSize) {
+        break;
       }
     }
   }
 
   if (ColdFeatureActive()) {
     memset(cold_sizes_, 0, sizeof(cold_sizes_));
-    cold_block_offset++;
     cold_sizes_count_ = 0;
+
     // Point all lookups in the first or second upper register of class_array_
     // (allocations seeking cold memory, with hints for partition 0, i.e.,
     // pointerless allocations) to the lower size classes.  This gives us an
     // easy fallback for sizes that are too small for moving to cold memory (due
     // to intrusive span metadata).
     std::copy(&class_array_[0], &class_array_[kClassArraySize],
-              &class_array_[kClassArraySize * cold_block_offset]);
+              &class_array_[kClassArraySize * kColdRegisterStride]);
 
     for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
       size_t max_size_in_class = class_to_size_[c];
@@ -308,7 +316,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
 
       for (int s = next_size; s <= max_size_in_class;
            s += static_cast<size_t>(kAlignment)) {
-        class_array_[ClassIndex(s) + kClassArraySize * cold_block_offset] = c;
+        class_array_[ClassIndex(s) + kClassArraySize * kColdRegisterStride] = c;
       }
       next_size = max_size_in_class + static_cast<size_t>(kAlignment);
       if (next_size > kMaxSize) {
@@ -316,23 +324,17 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
       }
     }
     if (kSecurityPartitions > 1) {
-      TC_ASSERT_EQ(cold_block_offset, 2);
       if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
-        // Point all lookups in the third upper register of class_array_
-        // (allocations seeking cold memory, with hints for partition 1, i.e.,
-        // pointer-containing allocations) to the same classes as the hot
-        // partition 1.
-        std::copy(&class_array_[kClassArraySize],
-                  &class_array_[kClassArraySize * 2],
-                  &class_array_[kClassArraySize * 3]);
+        // Point all lookups in Cold New's P1 register to Hot New's P1.
+        std::copy(
+            &class_array_[kClassArraySize], &class_array_[kClassArraySize * 2],
+            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)]);
       } else {
-        // Point all lookups in the third upper register of class_array_
-        // (allocations seeking cold memory, with hints for partition 1, i.e.,
-        // pointer-containing allocations) to the same classes for the cold
-        // allocations with a hint for partition 0.
-        std::copy(&class_array_[kClassArraySize * 2],
-                  &class_array_[kClassArraySize * 3],
-                  &class_array_[kClassArraySize * 3]);
+        // Point all lookups in Cold New's P1 register to Cold New's P0.
+        std::copy(
+            &class_array_[kClassArraySize * (2 * kSecurityPartitions)],
+            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)],
+            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)]);
       }
     }
   }

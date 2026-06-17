@@ -30,6 +30,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/size_class_info.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pages.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -87,27 +88,31 @@ class SizeMap {
   typedef unsigned char BatchSize;
 
   // If TCMalloc is compiled without NUMA support, and with cold allocations
-  // (expanded classes), then the class_array_ will consist of 4 regions:
-  //   [0, kClassArraySize)                   : Lookups for allocations marked
-  //                                            as hot & for partition 0.
-  //   [kClassArraySize, 2*kClassArraySize)   : Lookups for allocations marked
-  //                                            as hot & for partition 1.
-  //   [2*kClassArraySize, 3*kClassArraySize) : Lookups for allocations marked
-  //                                            as cold & for partition 0.
-  //   [3*kClassArraySize, 4*kClassArraySize) : Lookups for allocations marked
-  //                                            as cold & for partition 1.
+  // (expanded classes), then the class_array_ will consist of 6 regions:
+  //
+  //   [0, kClassArraySize)                   : Hot New P0
+  //   [kClassArraySize, 2*kClassArraySize)   : Hot New P1
+  //   [2*kClassArraySize, 3*kClassArraySize) : Hot Malloc P0
+  //   [3*kClassArraySize, 4*kClassArraySize) : Hot Malloc P1
+  //   [4*kClassArraySize, 5*kClassArraySize) : Cold New P0
+  //   [5*kClassArraySize, 6*kClassArraySize) : Cold New P1
+  //
   // * If the heap partitioning feature is not active, then the lookups for
   //   partition 1 will contain the same information as for partition 0.
   // * If the heap partitioning feature is active in kFull mode:
   //   Cold & partition 1 will be the same as hot & partition 1. Namely, it
   //   will point to the [kNumBaseClasses, kExpandedClassesStart) size classes.
-  // * If the heap partitioning feature is active in kLight mode:
-  //   Cold & partition 1 will be the same as cold & partition 0. Namely, it
-  //   will point to the [kExpandedClassesStart, kNumClasses) size classes.
+  // * If the heap partitioning feature is active in kLight mode: Malloc P0 is
+  //   exclusive to P0; Hot New P0 maps to Hot New P1; Cold P1 maps to Cold P0.
+  //
   // If NUMA support is compiled in, the partition 1 regions won't exist.
   // Similarly, for cold memory, if expanded classes are not compiled in.
+  static constexpr size_t kHotRegisters = 2 * kSecurityPartitions;
+  static constexpr size_t kColdRegisterStride = kHotRegisters;
+  static constexpr size_t kColdRegisters =
+      (kHasExpandedClasses ? 1 : 0) * kSecurityPartitions;
   static constexpr size_t kClassArraySizePartitions =
-      kClassArraySize * ((kHasExpandedClasses ? 2 : 1) * kSecurityPartitions);
+      kClassArraySize * (kHotRegisters + kColdRegisters);
 
   // class_array_ is accessed on every malloc, so is very hot.  We make it the
   // first member so that it inherits the overall alignment of a SizeMap
@@ -220,17 +225,23 @@ class SizeMap {
     // is added to the cold heap. See the comment for kClassArraySizePartitions
     // for more details.
     if (kHasExpandedClasses && policy.is_cold()) {
-      TC_ASSERT_LT(idx + (policy.security_partition() + kSecurityPartitions) *
+      TC_ASSERT(policy.allocation_type() == AllocationType::New);
+      TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegisterStride) *
                              kClassArraySize,
                    kClassArraySizePartitions);
       size_class = class_array_[idx + (policy.security_partition() +
-                                       kSecurityPartitions) *
+                                       kColdRegisterStride) *
                                           kClassArraySize];
     } else {
-      TC_ASSERT_LT(idx + policy.security_partition() * kClassArraySize,
-                   kClassArraySizePartitions);
+      constexpr size_t kTypeOffset =
+          policy.allocation_type() != AllocationType::New ? kSecurityPartitions
+                                                          : 0;
+      TC_ASSERT_LT(
+          idx + (policy.security_partition() + kTypeOffset) * kClassArraySize,
+          kClassArraySizePartitions);
       size_class =
-          class_array_[idx + policy.security_partition() * kClassArraySize] +
+          class_array_[idx + (policy.security_partition() + kTypeOffset) *
+                                 kClassArraySize] +
           policy.scaled_numa_partition();
     }
 

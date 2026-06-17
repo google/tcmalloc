@@ -441,14 +441,16 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   state.deallocation_samples.ReportFree(sampled_alloc_handle);
 
   if (proxy) {
-    const auto policy = CppPolicy().InSamePartitionAs(proxy);
+    const auto proxy_policy = policy.InSamePartitionAs(proxy);
     size_t size_class;
     if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
       size_class = state.sizemap().SizeClass(
-          policy.AccessAsCold().AlignAs(allocated_alignment), allocated_size);
+          proxy_policy.AccessAsCold().AlignAs(allocated_alignment),
+          allocated_size);
     } else {
       size_class = state.sizemap().SizeClass(
-          policy.AccessAsHot().AlignAs(allocated_alignment), allocated_size);
+          proxy_policy.AccessAsHot().AlignAs(allocated_alignment),
+          allocated_size);
     }
     TC_ASSERT_EQ(size_class,
                  state.pagemap().sizeclass(PageIdContainingTagged(proxy)));

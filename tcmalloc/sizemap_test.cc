@@ -34,6 +34,48 @@ namespace tcmalloc::tcmalloc_internal {
 using ::testing::ElementsAreArray;
 using ::testing::Pair;
 
+static void VerifyColdSizeClassRelations(const SizeMap& size_map,
+                                         size_t request_size) {
+  const HeapPartitioningMode mode = Parameters::heap_partitioning_mode();
+
+  {
+    auto policy = CppPolicy().InPartition(0).WithSecurityToken<TokenId{0}>();
+    size_t cold = size_map.SizeClass(policy.AccessAsCold(), request_size);
+    size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
+    if (mode == HeapPartitioningMode::kLight) {
+      // In kLight mode, all C++ allocations are routed to Hot P1 or Cold P0.
+      EXPECT_EQ(cold, hot - kNumBaseClasses + kExpandedClassesStart)
+          << request_size;
+    } else {
+      EXPECT_EQ(cold, hot + kExpandedClassesStart) << request_size;
+    }
+  }
+
+  {
+    auto policy =
+        CppPolicy().InPartition(0).WithSecurityToken<TokenId::kAllocToken1>();
+    size_t cold = size_map.SizeClass(policy.AccessAsCold(), request_size);
+    size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
+    if (mode == HeapPartitioningMode::kLight) {
+      EXPECT_EQ(cold, hot - kNumBaseClasses + kExpandedClassesStart)
+          << request_size;
+    } else if (mode == HeapPartitioningMode::kFull) {
+      // In kFull mode, alloc-token 1 Cold allocations map to Hot P1.
+      EXPECT_EQ(cold, hot) << request_size;
+    } else {
+      EXPECT_EQ(cold, hot + kExpandedClassesStart) << request_size;
+    }
+  }
+
+  if (kNumaPartitions > 1) {
+    auto policy = CppPolicy().InPartition(1).WithSecurityToken<TokenId{0}>();
+    size_t cold = size_map.SizeClass(policy.AccessAsCold(), request_size);
+    size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
+    EXPECT_EQ(cold, hot - kNumBaseClasses + kExpandedClassesStart)
+        << request_size;
+  }
+}
+
 TEST(ColdSizeClassTest, ColdFeatureActivation) {
   if (kPageShift > 12) {
     ASSERT_TRUE(ColdFeatureActive());
@@ -65,31 +107,8 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
 
     SizeMap size_map;
     EXPECT_TRUE(size_map.Init(classes));
-    constexpr size_t kPartition1ColdSizeClassOffset =
-        kNumBaseClasses * kSecurityPartitions;
     for (const size_t request_size : allowed_alloc_size) {
-      EXPECT_EQ(size_map.SizeClass(CppPolicy()
-                                       .InPartition(0)
-                                       .WithSecurityToken<TokenId{0}>()
-                                       .AccessAsCold(),
-                                   request_size),
-                size_map.SizeClass(CppPolicy()
-                                       .InPartition(0)
-                                       .WithSecurityToken<TokenId{0}>()
-                                       .AccessAsHot(),
-                                   request_size) +
-                    kExpandedClassesStart);
-      EXPECT_EQ(size_map.SizeClass(CppPolicy()
-                                       .InPartition(1)
-                                       .WithSecurityToken<TokenId{0}>()
-                                       .AccessAsCold(),
-                                   request_size),
-                size_map.SizeClass(CppPolicy()
-                                       .InPartition(1)
-                                       .WithSecurityToken<TokenId{0}>()
-                                       .AccessAsHot(),
-                                   request_size) +
-                    kPartition1ColdSizeClassOffset);
+      VerifyColdSizeClassRelations(size_map, request_size);
     }
     EXPECT_THAT(size_map.ColdSizeClasses(),
                 ElementsAreArray(expected_cold_size_classes));
@@ -108,33 +127,8 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
 
     // Confirm that sizes are allocated as cold as requested.
     size_t max_size = classes[classes.size() - 1].size;
-    constexpr size_t kPartition1ColdSizeClassOffset =
-        kNumBaseClasses * kSecurityPartitions;
     for (int request_size = 1; request_size <= max_size; ++request_size) {
-      EXPECT_EQ(size_map.SizeClass(CppPolicy()
-                                       .InPartition(0)
-                                       .WithSecurityToken<TokenId{0}>()
-                                       .AccessAsCold(),
-                                   request_size),
-                size_map.SizeClass(CppPolicy()
-                                       .InPartition(0)
-                                       .WithSecurityToken<TokenId{0}>()
-                                       .AccessAsHot(),
-                                   request_size) +
-                    kExpandedClassesStart)
-          << request_size;
-      EXPECT_EQ(size_map.SizeClass(CppPolicy()
-                                       .InPartition(1)
-                                       .WithSecurityToken<TokenId{0}>()
-                                       .AccessAsCold(),
-                                   request_size),
-                size_map.SizeClass(CppPolicy()
-                                       .InPartition(1)
-                                       .WithSecurityToken<TokenId{0}>()
-                                       .AccessAsHot(),
-                                   request_size) +
-                    kPartition1ColdSizeClassOffset)
-          << request_size;
+      VerifyColdSizeClassRelations(size_map, request_size);
     }
   }
 }
@@ -174,7 +168,9 @@ TEST(SizeMapTest, HeapPartitioning) {
     EXPECT_TRUE(size_map.Init(classes));
 
     size_t offset =
-        tc_globals.multiple_non_numa_partitions() ? kNumBaseClasses : 0;
+        Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull
+            ? kNumBaseClasses
+            : 0;
 
     for (size_t i = 1; i < classes.size(); ++i) {
       EXPECT_EQ(size_map.SizeClass(CppPolicy().WithSecurityToken<TokenId{0}>(),
@@ -256,7 +252,10 @@ TEST(SizeMapTest, HeapPartitioningSizeZero) {
         << "Size 0 must belong to Partition 1's range";
     EXPECT_NE(part1_c, kNumBaseClasses)
         << "Size 0 must not map to the dummy class";
-    EXPECT_EQ(part1_c, base_c + kNumBaseClasses);
+    EXPECT_EQ(part1_c, base_c + (Parameters::heap_partitioning_mode() ==
+                                         HeapPartitioningMode::kLight
+                                     ? 0
+                                     : kNumBaseClasses));
   }
 }
 

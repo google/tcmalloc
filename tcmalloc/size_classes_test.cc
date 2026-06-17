@@ -23,6 +23,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/size_class_info.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
@@ -155,9 +156,22 @@ TEST_F(RunTimeSizeClassesTest, Distinguishable) {
       if (max_size_in_class == 0) {
         continue;
       }
-      const int class_index =
-          m_.SizeClass(CppPolicy().InPartition(partition), max_size_in_class);
-
+      const bool malloc_only =
+          partition == 0 &&
+          Parameters::heap_partitioning_mode() == HeapPartitioningMode::kLight;
+      int class_index;
+      if (malloc_only) {
+        // In kLight mode, CppPolicy().InPartition(0) (Hot New P0) is redirected
+        // to Hot New P1. Use MallocOomPolicy + DefaultAlignPolicy since
+        // MallocPolicy's 16-byte alignment skew would skip size class 1.
+        using MallocTestPolicy =
+            TCMallocPolicy<MallocOomPolicy, DefaultAlignPolicy>;
+        class_index =
+            m_.SizeClass(MallocTestPolicy().InPartition(0), max_size_in_class);
+      } else {
+        class_index =
+            m_.SizeClass(CppPolicy().InPartition(partition), max_size_in_class);
+      }
       EXPECT_EQ(c, class_index) << max_size_in_class;
     }
   }

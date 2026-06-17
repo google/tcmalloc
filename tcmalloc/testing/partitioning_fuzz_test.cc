@@ -482,10 +482,14 @@ void RandomizedAllocateAndDeallocateFuzzTest(
         const bool is_cold =
             alloc_op.hot_cold < tcmalloc::kDefaultMinHotAccessHint &&
             tcmalloc::tcmalloc_internal::ColdFeatureActive();
+        const bool is_c_alloc = alloc_op.type == AllocType::MALLOC ||
+                                alloc_op.type == AllocType::CALLOC ||
+                                alloc_op.type == AllocType::MEMALIGN;
+        const bool light_cpp = security_partition_light && !is_c_alloc;
         if (is_cold && (alloc_op.token_id == AllocTokenId::ID0 ||
                         security_partition_light)) {
           EXPECT_TRUE(IsColdOrSampled(tag));
-        } else if (alloc_op.token_id == AllocTokenId::ID0) {
+        } else if (alloc_op.token_id == AllocTokenId::ID0 && !light_cpp) {
           if (is_numa_partition_one) {
             EXPECT_TRUE(IsPartitionOne(tag) || has_migrated);
           } else {
