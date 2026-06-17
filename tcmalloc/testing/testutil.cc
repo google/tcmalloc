@@ -18,7 +18,17 @@
 
 #include <pthread.h>
 #include <stdlib.h>
+#include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/resource.h>
+
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#endif
+
+#ifndef PR_SET_VMA_ANON_NAME
+#define PR_SET_VMA_ANON_NAME 0
+#endif
 
 #include <cmath>
 #include <cstdint>
@@ -169,6 +179,22 @@ double AndersonDarlingTest(absl::Span<const double> random_sample) {
   double ad_statistic = AndersonDarlingStatistic(random_sample);
   double p = AndersonDarlingPValue(random_sample.size(), ad_statistic);
   return p;
+}
+
+bool NamedVMAsSupported() {
+  static bool pr_set_vma_works = [] {
+    constexpr size_t kMmapSize = 4096;
+    void* addr = mmap(NULL, kMmapSize, PROT_NONE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr == MAP_FAILED) {
+      return false;
+    }
+    int err =
+        prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, addr, kMmapSize, "test");
+    munmap(addr, kMmapSize);
+    return err == 0;
+  }();
+  return pr_set_vma_works;
 }
 
 }  // namespace tcmalloc

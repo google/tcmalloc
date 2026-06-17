@@ -157,6 +157,22 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
+    tcmalloc_testing_proc_maps_test
+  SRCS
+    "proc_maps_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::strings"
+    "benchmark::benchmark"
+    "tcmalloc::internal_proc_maps"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
     tcmalloc_testing_threadcachesize_test
   SRCS
     "threadcachesize_test.cc"

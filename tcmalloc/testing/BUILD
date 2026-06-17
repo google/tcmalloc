@@ -188,6 +188,22 @@ create_tcmalloc_testsuite(
 )
 
 create_tcmalloc_testsuite(
+    name = "proc_maps_test",
+    srcs = ["proc_maps_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":testutil",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:proc_maps",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
     name = "threadcachesize_test",
     srcs = ["threadcachesize_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

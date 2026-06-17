@@ -336,6 +336,8 @@ class LongJmpScope {
   inline static void (*previous_)(const char*, int) = nullptr;
 };
 
+bool NamedVMAsSupported();
+
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_TESTING_TESTUTIL_H_

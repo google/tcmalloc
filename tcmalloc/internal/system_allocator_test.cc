@@ -38,14 +38,6 @@
 #include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/testing/testutil.h"
 
-#ifndef PR_SET_VMA
-#define PR_SET_VMA 0x53564d41
-#endif
-
-#ifndef PR_SET_VMA_ANON_NAME
-#define PR_SET_VMA_ANON_NAME 0
-#endif
-
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -90,7 +82,7 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
       EXPECT_EQ(IsNormalMemory(p), tag == MemoryTag::kNormal);
       EXPECT_EQ(GetMemoryTag(p), tag);
       EXPECT_EQ(GetMemoryTag(static_cast<char*>(p) + size - 1), tag);
-      if (PrSetVmaIsSupported()) {
+      if (tcmalloc::NamedVMAsSupported()) {
         EXPECT_THAT(MappingName(p, size),
                     HasSubstr(absl::StrFormat("tcmalloc_region_%s",
                                               MemoryTagToLabel(tag))));
@@ -99,21 +91,6 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
     }
   }
 
-  static bool PrSetVmaIsSupported() {
-    static bool pr_set_vma_works = [] {
-      constexpr size_t kMmapSize = 4096;
-      void* addr = mmap(NULL, kMmapSize, PROT_NONE,
-                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-      if (addr == MAP_FAILED) {
-        return false;
-      }
-      int err =
-          prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, addr, kMmapSize, "test");
-      munmap(addr, kMmapSize);
-      return err == 0;
-    }();
-    return pr_set_vma_works;
-  }
 
   static constexpr size_t kNumaPartitions = 2;
   static constexpr size_t kNumBaseClasses = 50;
