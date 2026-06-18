@@ -55,6 +55,7 @@ class AllocationGuard {
     }
 #endif
   }
+  friend class ScopedAllocationAllow;
 
 #ifndef NDEBUG
   ABSL_CONST_INIT static thread_local int disallowed_;

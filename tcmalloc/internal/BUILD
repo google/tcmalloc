@@ -73,6 +73,19 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "scoped_allow_allocation",
+    testonly = 1,
+    hdrs = ["scoped_allow_allocation.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":allocation_guard",
+    ],
+)
+
 cc_test(
     name = "allocation_guard_test",
     srcs = ["allocation_guard_test.cc"],
