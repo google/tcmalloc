@@ -34,9 +34,9 @@ class LinkedListTest : public ::testing::Test {
  protected:
   LinkedList list_;
 
-  static_assert(!std::is_copy_constructible<LinkedList>::value,
+  static_assert(!std::is_copy_constructible_v<LinkedList>,
                 "LinkedList should not be copyable");
-  static_assert(!std::is_move_constructible<LinkedList>::value,
+  static_assert(!std::is_move_constructible_v<LinkedList>,
                 "LinkedList should not be movable");
 };
 
@@ -121,9 +121,9 @@ class TListTest : public ::testing::Test {
  protected:
   MockSpanList list_;
 
-  static_assert(!std::is_copy_constructible<MockSpanList>::value,
+  static_assert(!std::is_copy_constructible_v<MockSpanList>,
                 "TList should not be copyable");
-  static_assert(!std::is_move_constructible<MockSpanList>::value,
+  static_assert(!std::is_move_constructible_v<MockSpanList>,
                 "TList should not be movable");
 };
 
