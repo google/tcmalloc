@@ -644,6 +644,118 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, ReleaseFromHugeRegionWhenCacheSatisfies) {
+  // We only care about the case where UseHugeRegionMoreOften is true.
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  // Disable adaptive release for huge region.
+  allocator_->forwarder().set_huge_region_adaptive_release(false);
+
+  static constexpr Length kSlack = kPagesPerHugePage / 2 - Length(2);
+  static constexpr Length kSmallSize = kSlack;
+  static constexpr Length kLargeSize = kPagesPerHugePage - kSlack;
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  Length slack;
+  Length small_pages;
+  HugeLength donated_huge_pages;
+  Length abandoned_pages;
+  size_t active_regions;
+  BackingStats region_stats;
+
+  auto RefreshStats = [&]() {
+    PageHeapSpinLockHolder l;
+    slack = allocator_->info().slack();
+    small_pages = allocator_->info().small();
+    donated_huge_pages = allocator_->DonatedHugePages();
+    abandoned_pages = allocator_->AbandonedPages();
+    active_regions = allocator_->region().ActiveRegions();
+    region_stats = allocator_->region().stats();
+  };
+
+  std::vector<Span*> small_spans;
+  std::vector<Span*> large_spans;
+  const Length small_binary_size = HLFromBytes(64 * 1024 * 1024).in_pages();
+  Length expected_abandoned;
+  Length expected_slack;
+
+  // 1. Accumulate abandoned pages to exceed the 64MB threshold to trigger
+  // HugeRegion.
+  while (true) {
+    Span* large = New(kLargeSize, kSpanInfo);
+    Span* small = New(kSmallSize, kSpanInfo);
+    large_spans.emplace_back(large);
+    small_spans.emplace_back(small);
+    expected_abandoned += kLargeSize;
+    expected_slack += kSlack;
+
+    RefreshStats();
+    if (expected_abandoned >= small_binary_size) break;
+  }
+
+  for (auto l : large_spans) {
+    Delete(l, kSpanInfo.objects_per_span);
+  }
+  large_spans.clear();
+
+  // 2. Allocate large spans that will go to HugeRegion (since
+  // UseHugeRegionMoreOften is true).
+  static constexpr Length kSmallSize2 = kSmallSize - Length(1);
+  static constexpr Length kLargeSize2 = kLargeSize + Length(1);
+
+  for (int i = 0; i < 100; ++i) {
+    Span* large = New(kLargeSize2, kSpanInfo);
+    Span* small = New(kSmallSize2, kSpanInfo);
+    large_spans.emplace_back(large);
+    small_spans.emplace_back(small);
+  }
+
+  // Deallocate large spans so they become free and backed in HugeRegion.
+  for (auto l : large_spans) {
+    Delete(l, kSpanInfo.objects_per_span);
+  }
+  large_spans.clear();
+
+  RefreshStats();
+  size_t backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
+  ASSERT_GT(backed_bytes, 0);
+
+  // 3. Populate HugeCache with 1 hugepage.
+  Span* cache_span = New(kPagesPerHugePage, kSpanInfo);
+  Delete(cache_span, kSpanInfo.objects_per_span);
+
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(allocator_->cache()->size(), NHugePages(1));
+  }
+
+  // 4. Call ReleaseAtLeastNPages with 1 page.
+  // Since cache has 1 hugepage, it will satisfy the request (released >= 1).
+  // from_huge_region will be Length(0).
+  // Since adaptive release is false, it should still release from region.
+  Length released;
+  {
+    PageHeapSpinLockHolder l;
+    released = allocator_->ReleaseAtLeastNPages(
+        Length(1), /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
+  }
+
+  // Verify that we released more than what was in the cache.
+  EXPECT_GT(released, kPagesPerHugePage);
+
+  // Verify that HugeRegion stats reflect the release.
+  RefreshStats();
+  size_t backed_after = region_stats.system_bytes - region_stats.unmapped_bytes;
+  EXPECT_LT(backed_after, backed_bytes);
+
+  // Cleanup remaining small spans.
+  for (auto s : small_spans) {
+    Delete(s, kSpanInfo.objects_per_span);
+  }
+}
+
 TEST_P(HugePageAwareAllocatorTest, DonatedHugePages) {
   // This test verifies that we accurately measure the amount of RAM that we
   // donate to the huge page filler when making large allocations, including

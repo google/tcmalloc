@@ -1024,11 +1024,11 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // the experiment is enabled. We can also explore releasing only a desired
   // number of pages.
   if (regions_.UseHugeRegionMoreOften()) {
-    if (released < num_pages) {
-      released += regions_.ReleasePages(
-          num_pages - released, forwarder_.huge_region_adaptive_release(),
-          /*hit_limit=*/false);
-    }
+    Length from_huge_region =
+        num_pages > released ? num_pages - released : Length(0);
+    released += regions_.ReleasePages(from_huge_region,
+                                      forwarder_.huge_region_adaptive_release(),
+                                      /*hit_limit=*/false);
   }
 
   // This is our long term plan but in current state will lead to insufficient
@@ -1229,11 +1229,11 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += cache_.ReleaseCachedPages(HLFromPages(n)).in_pages();
 
   // We try to release as many free hugepages from HugeRegion as possible.
-  if (released < n) {
-    released += regions_.ReleasePages(n - released,
-                                      forwarder_.huge_region_adaptive_release(),
-                                      /*hit_limit=*/true);
-  }
+  Length from_huge_region = n > released ? n - released : Length(0);
+  released += regions_.ReleasePages(from_huge_region,
+                                    forwarder_.huge_region_adaptive_release(),
+                                    /*hit_limit=*/true);
+
   if (released >= n) {
     info_.RecordRelease(n, released, reason);
     return released;
