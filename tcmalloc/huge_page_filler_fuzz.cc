@@ -673,6 +673,12 @@ void FuzzFiller(const std::vector<Instruction>& instructions) {
                   &pageflags, &residency);
               treating_trackers = false;
               while (PageTracker* pt = filler.FetchFullyFreedTracker()) {
+                HugePage hp = pt->location();
+                for (PageId p = hp.first_page(),
+                            end = hp.first_page() + kPagesPerHugePage;
+                     p != end; ++p) {
+                  released_set.erase(p);
+                }
                 delete pt;
               }
             } else if constexpr (std::is_same_v<T, UpdateBitmaps>) {
@@ -1246,6 +1252,31 @@ TEST(HugePageFillerTest, InstructionStringify) {
     std::string s = absl::StrFormat("%v", inst);
     EXPECT_EQ(s, "SetCollapseLatency{.latency=absl::Nanoseconds(5000000000)}");
   }
+}
+
+TEST(HugePageFillerTest, Regression_b525818096) {
+  FuzzFiller({
+      Allocate{
+          .length = 32767, .num_objects = 3840777803, .density_dense = true},
+      UpdateBitmaps{.hugepage_backed_set = false,
+                    .hugepage_backed_val = false,
+                    .unbacked_bitmap_val = 65535,
+                    .swapped_bitmap_val = 49577},
+      ReentrantSubprogram{.subprogram = {MemoryLimitHitRelease{.desired = 1},
+                                         Deallocate{.tracker_index = 1322071847,
+                                                    .alloc_index = 1}}},
+      Allocate{
+          .length = 32767, .num_objects = 460278703, .density_dense = false},
+      Allocate{.length = 5, .num_objects = 3242772467, .density_dense = true},
+      UpdateBitmaps{.hugepage_backed_set = true,
+                    .hugepage_backed_val = false,
+                    .unbacked_bitmap_val = 1,
+                    .swapped_bitmap_val = 0},
+      TreatTrackers{.enable_collapse = true,
+                    .enable_release_free_swap = true,
+                    .use_userspace_collapse_heuristics = false,
+                    .enable_unfiltered_collapse = false},
+  });
 }
 
 }  // namespace
