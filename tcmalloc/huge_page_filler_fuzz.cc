@@ -577,8 +577,8 @@ void FuzzFiller(const std::vector<Instruction>& instructions) {
             } else if constexpr (std::is_same_v<T, AdvanceClock>) {
               // Advance clock
               // amount: Advances clock by this amount in arbitrary units.
-              fake_clock += absl::ToInt64Nanoseconds(std::clamp(
-                  arg.amount, absl::ZeroDuration(), absl::Seconds(1)));
+              fake_clock += absl::ToInt64Nanoseconds(
+                  std::clamp(arg.amount, absl::ZeroDuration(), absl::Hours(1)));
             } else if constexpr (std::is_same_v<T, ToggleUnback>) {
               // Toggle unback, simulating madvise potentially failing or
               // succeeding.
@@ -1051,6 +1051,96 @@ TEST(HugePageFillerTest, DepthDependentDeallocate) {
                      .enable_release_free_swap = true,
                      .use_userspace_collapse_heuristics = false,
                      .enable_unfiltered_collapse = true}});
+}
+
+TEST(HugePageFillerTest, ConcurrentTreatmentInterferenceStress) {
+  std::vector<Instruction> instructions;
+  instructions.push_back(UpdateBitmaps{
+      .hugepage_backed_set = true,
+      .hugepage_backed_val = false,
+      .unbacked_bitmap_val = 0,
+      .swapped_bitmap_val = 0,
+  });
+
+  const size_t half_hp = kPagesPerHugePage.raw_num() / 2;
+
+  // 1. Allocate 47 trackers, full, 4 objects each
+  for (int i = 0; i < 47; ++i) {
+    instructions.push_back(Allocate{
+        .length = static_cast<uint16_t>(half_hp),
+        .num_objects = 2,
+        .density_dense = false,
+    });
+    instructions.push_back(Allocate{
+        .length = static_cast<uint16_t>(half_hp),
+        .num_objects = 2,
+        .density_dense = false,
+    });
+  }
+
+  // 2. Allocate Tracker 48 (X), 1 object, partial (size = half_hp)
+  // X is at index 47 in trackers vector.
+  // X is the 48th contributed tracker, so it will be sampled by RNG.
+  instructions.push_back(Allocate{
+      .length = static_cast<uint16_t>(half_hp),
+      .num_objects = 1,
+      .density_dense = false,
+  });
+
+  // 3. Fill X. Allocating half_hp will reuse X (since it has half_hp free).
+  // X becomes full with 3 objects.
+  instructions.push_back(Allocate{
+      .length = static_cast<uint16_t>(half_hp),
+      .num_objects = 2,
+      .density_dense = false,
+  });
+
+  // 4. Allocate Trackers 49..64 (16 trackers), full, 4 objects each
+  for (int i = 0; i < 16; ++i) {
+    instructions.push_back(Allocate{
+        .length = static_cast<uint16_t>(half_hp),
+        .num_objects = 2,
+        .density_dense = false,
+    });
+    instructions.push_back(Allocate{
+        .length = static_cast<uint16_t>(half_hp),
+        .num_objects = 2,
+        .density_dense = false,
+    });
+  }
+
+  // 5. Allocate Tracker 65, partial, 4 objects
+  instructions.push_back(Allocate{
+      .length = static_cast<uint16_t>(half_hp),
+      .num_objects = 4,
+      .density_dense = false,
+  });
+
+  // Advance clock to make X eligible for scan (elapsed > 5 minutes)
+  instructions.push_back(AdvanceClock{
+      .amount = absl::Minutes(10),
+  });
+
+  // Queue reentrant deallocation of X (index 47) during collapse.
+  // X has 2 allocations, so we must deallocate both to free it.
+  instructions.push_back(
+      ReentrantSubprogram{.subprogram = {Deallocate{
+                                             .tracker_index = 47,
+                                             .alloc_index = 0,
+                                         },
+                                         Deallocate{
+                                             .tracker_index = 47,
+                                             .alloc_index = 0,
+                                         }}});
+
+  instructions.push_back(TreatTrackers{
+      .enable_collapse = true,
+      .enable_release_free_swap = true,
+      .use_userspace_collapse_heuristics = false,
+      .enable_unfiltered_collapse = true,
+  });
+
+  FuzzFiller(instructions);
 }
 
 TEST(HugePageFillerTest, InstructionStringify) {
