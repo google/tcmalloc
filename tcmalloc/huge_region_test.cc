@@ -931,15 +931,16 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithLimit) {
   const Length expected_released =
       NHugePages(allocs.size() - to_alloc).in_pages();
 
-  // We want to release up to a limit which is less than expected_released.
-  // Let's limit it to 1 hugepage.
+  // We pass a limit which is less than expected_released.
+  // Since use_adaptive is true and hit_limit is false, this limit (desired)
+  // should be ignored, and we should release up to the low water mark.
   Length limit = kPagesPerHugePage;
   ASSERT_LT(limit, expected_released);
 
   released = set_.ReleasePages(limit, /*use_adaptive=*/true,
                                /*hit_limit=*/false);
 
-  EXPECT_EQ(released, limit);
+  EXPECT_EQ(released, expected_released);
 }
 
 TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithHitLimit) {

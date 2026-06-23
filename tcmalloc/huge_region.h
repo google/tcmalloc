@@ -602,7 +602,7 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
   if (hit_limit) {
     to_release = desired;
   } else if (use_adaptive) {
-    to_release = std::min(lowater_free_backed_.in_pages(), desired);
+    to_release = lowater_free_backed_.in_pages();
   } else {
     to_release =
         Length(static_cast<size_t>(free_backed_count_.in_pages().raw_num() *
