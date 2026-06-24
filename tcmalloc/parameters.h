@@ -105,10 +105,6 @@ class Parameters {
 
   static bool usermode_hugepage_collapse();
 
-  static bool release_free_swapped() {
-    return release_free_swapped_.load(std::memory_order_relaxed);
-  }
-
   static bool back_small_allocations();
 
   static int32_t back_size_threshold_bytes() {
@@ -241,7 +237,6 @@ class Parameters {
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
-  static std::atomic<bool> release_free_swapped_;
   static std::atomic<bool> usermode_hugepage_collapse_enabled_;
 
   static std::atomic<int32_t> back_size_threshold_bytes_;

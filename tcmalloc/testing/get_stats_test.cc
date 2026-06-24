@@ -137,8 +137,6 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: false"));
 #endif
 
-  EXPECT_THAT(buf, HasSubstr("release_free_swapped: true"));
-
   if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING_V2)) {
     EXPECT_THAT(buf, HasSubstr("back_small_allocations: true"));
   } else {
@@ -229,7 +227,6 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 0)"));
 #endif
-    EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_release_free_swapped 1)"));
 
     if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING_V2)) {
       EXPECT_THAT(buf,

@@ -233,9 +233,6 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
-// TODO: b/425749361 - Remove this opt out.
-ABSL_CONST_INIT std::atomic<bool> Parameters::release_free_swapped_(true);
-
 static std::atomic<bool>& back_small_allocations_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
@@ -616,14 +613,6 @@ uint8_t TCMalloc_Internal_GetMinHotAccessHint() {
 void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v) {
   Parameters::min_hot_access_hint_.store(static_cast<tcmalloc::hot_cold_t>(v),
                                          std::memory_order_relaxed);
-}
-
-bool TCMalloc_Internal_GetReleaseFreeSwapped() {
-  return Parameters::release_free_swapped();
-}
-
-void TCMalloc_Internal_SetReleaseFreeSwapped(bool v) {
-  Parameters::release_free_swapped_.store(v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetBackSmallAllocations() {

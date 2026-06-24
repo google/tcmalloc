@@ -125,8 +125,7 @@ class PageAllocator {
   void ShrinkToUsageLimit(Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void TreatHugepageTrackers(bool enable_collapse,
-                             bool enable_release_free_swapped)
+  void TreatHugepageTrackers(bool enable_collapse)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   const PageAllocInfo& info(MemoryTag tag) const
@@ -294,15 +293,12 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
   }
 }
 
-inline void PageAllocator::TreatHugepageTrackers(
-    bool enable_collapse, bool enable_release_free_swapped) {
-  if (has_cold_impl_ && enable_release_free_swapped) {
-    cold_impl_->TreatHugepageTrackers(/*enable_collapse=*/false,
-                                      enable_release_free_swapped);
+inline void PageAllocator::TreatHugepageTrackers(bool enable_collapse) {
+  if (has_cold_impl_) {
+    cold_impl_->TreatHugepageTrackers(/*enable_collapse=*/false);
   }
   for (int partition = 0; partition < active_partitions(); partition++) {
-    normal_impl_[partition]->TreatHugepageTrackers(enable_collapse,
-                                                   enable_release_free_swapped);
+    normal_impl_[partition]->TreatHugepageTrackers(enable_collapse);
   }
 }
 
