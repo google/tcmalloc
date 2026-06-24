@@ -175,6 +175,12 @@ SizeClassConfiguration Static::size_class_configuration() {
 
   // TODO(b/512895228): remove this opt out once we are done experimenting.
   const char* e_reuse = thread_safe_getenv("TCMALLOC_REUSE_SIZE_CLASSES");
+  const char* e_legacy = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
+
+  if (IsExperimentActive(Experiment::TCMALLOC_REUSE_SIZE_CLASSES_ABLATION)) {
+    return SizeClassConfiguration::kReuse;
+  }
+
   if (e_reuse != nullptr) {
     if (!strcmp(e_reuse, "reuserelaxedbelow64")) {
       return SizeClassConfiguration::kReuseRelaxedBelow64;
@@ -187,13 +193,12 @@ SizeClassConfiguration Static::size_class_configuration() {
     }
   }
 
-  const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
-  if (e == nullptr) {
+  if (e_legacy == nullptr) {
     return SizeClassConfiguration::kReuseRelaxedBelow64;
-  } else if (!strcmp(e, "0")) {
+  } else if (!strcmp(e_legacy, "0")) {
     return SizeClassConfiguration::kReuseRelaxedBelow64;
   } else {
-    TC_BUG("bad TCMALLOC_LEGACY_SIZE_CLASSES env var '%s'", e);
+    TC_BUG("bad TCMALLOC_LEGACY_SIZE_CLASSES env var '%s'", e_legacy);
   }
   return SizeClassConfiguration::kReuseRelaxedBelow64;
 }
