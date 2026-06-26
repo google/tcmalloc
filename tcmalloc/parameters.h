@@ -103,7 +103,7 @@ class Parameters {
     return release_partial_alloc_pages_.load(std::memory_order_relaxed);
   }
 
-  static bool usermode_hugepage_collapse();
+  static EnableCollapse usermode_hugepage_collapse();
 
   static bool back_small_allocations();
 

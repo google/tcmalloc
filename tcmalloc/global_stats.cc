@@ -643,8 +643,11 @@ void DumpStats(Printer& out, int level) {
         "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1\n");
     out.printf("PARAMETER min_hot_access_hint %d\n",
                static_cast<int>(Parameters::min_hot_access_hint()));
-    out.printf("PARAMETER tcmalloc_usermode_hugepage_collapse %d\n",
-               Parameters::usermode_hugepage_collapse() ? 1 : 0);
+    out.printf(
+        "PARAMETER tcmalloc_usermode_hugepage_collapse %d\n",
+        Parameters::usermode_hugepage_collapse() == EnableCollapse::kEnabled
+            ? 1
+            : 0);
 
     out.printf("PARAMETER tcmalloc_back_small_allocations %d\n",
                Parameters::back_small_allocations() ? 1 : 0);
@@ -902,8 +905,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated", true);
   region.PrintI64("min_hot_access_hint",
                   static_cast<int>(Parameters::min_hot_access_hint()));
-  region.PrintBool("usermode_hugepage_collapse",
-                   Parameters::usermode_hugepage_collapse());
+  region.PrintBool(
+      "usermode_hugepage_collapse",
+      Parameters::usermode_hugepage_collapse() == EnableCollapse::kEnabled);
 
   region.PrintBool("back_small_allocations",
                    Parameters::back_small_allocations());

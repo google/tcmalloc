@@ -1088,6 +1088,11 @@ class UsageInfo {
 };
 }  // namespace huge_page_filler_internal
 
+enum class EnableCollapse : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 enum class EnableUnfilteredCollapse : bool {
   kDisabled = false,
   kEnabled = true,
@@ -1276,7 +1281,8 @@ class HugePageFiller {
   // 3. Attempt to release free/unreleased pages from trackers with a swapped
   // page.
   void TreatHugepageTrackers(
-      bool enable_collapse, EnableUnfilteredCollapse enable_unfiltered_collapse,
+      EnableCollapse enable_collapse,
+      EnableUnfilteredCollapse enable_unfiltered_collapse,
       PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -2488,7 +2494,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   explicit HugePageUnbackedTrackerTreatment(
       Clock clock, PageFlagsBase* pageflags, Residency* residency,
       MemoryModifyFunction& collapse, HugePageFiller<TrackerType>& page_filler,
-      bool enable_collapse, EnableUnfilteredCollapse enable_unfiltered_collapse)
+      EnableCollapse enable_collapse,
+      EnableUnfilteredCollapse enable_unfiltered_collapse)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
@@ -2592,7 +2599,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     }
 
     TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
-    if (enable_collapse_) {
+    if (enable_collapse_ == EnableCollapse::kEnabled) {
       treatment_stats_.collapse_eligible += num_valid_trackers_;
     }
     // Outside of the pageheap lock, obtain the residency and pageflags
@@ -2626,7 +2633,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
         const bool backoff =
             treatment_stats_.collapse_time_max_cycles > max_collapse_cycles;
-        if (enable_collapse_ && !backoff) {
+        if (enable_collapse_ == EnableCollapse::kEnabled && !backoff) {
           bool should_collapse = enable_unfiltered_collapse_ ==
                                      EnableUnfilteredCollapse::kEnabled ||
                                  (state.bitmaps.swapped.CountBits() <
@@ -2638,7 +2645,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           } else {
             state.collapse_skipped = true;
           }
-        } else if (enable_collapse_ && backoff) {
+        } else if (enable_collapse_ == EnableCollapse::kEnabled && backoff) {
           state.collapse_skipped = true;
           state.collapse_skipped_due_to_backoff = true;
         }
@@ -2728,7 +2735,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   std::array<ResidencyState, kTotalTrackersToScan> residency_states_;
   HugePageTreatmentStats treatment_stats_;
   HugePageFiller<TrackerType>& page_filler_;
-  bool enable_collapse_;
+  EnableCollapse enable_collapse_;
 
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
 };
@@ -2761,10 +2768,12 @@ void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
-    bool enable_collapse, EnableUnfilteredCollapse enable_unfiltered_collapse,
+    EnableCollapse enable_collapse,
+    EnableUnfilteredCollapse enable_unfiltered_collapse,
     PageFlagsBase* pageflags, Residency* residency) {
-  if (enable_collapse && ShouldBackoffFromCollapse()) {
-    enable_collapse = false;
+  if (enable_collapse == EnableCollapse::kEnabled &&
+      ShouldBackoffFromCollapse()) {
+    enable_collapse = EnableCollapse::kDisabled;
     ++treatment_stats_.collapse_intervals_skipped;
   }
   SampledTrackerTreatment sampled_tracker_treatment(clock_, tag_,

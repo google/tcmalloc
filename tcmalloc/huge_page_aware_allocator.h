@@ -208,9 +208,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  // TODO: b/425749361 - Switch these boolean parameters to strongly typed
-  // enums.
-  void TreatHugepageTrackers(bool enable_collapse)
+  void TreatHugepageTrackers(EnableCollapse enable_collapse)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Prints stats about the page heap to *out.
@@ -1053,7 +1051,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
-    bool enable_collapse) {
+    EnableCollapse enable_collapse) {
   const EnableUnfilteredCollapse enable_unfiltered_collapse =
       forwarder_.enable_unfiltered_collapse();
   PageHeapSpinLockHolder l;

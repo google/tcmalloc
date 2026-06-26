@@ -306,8 +306,10 @@ absl::Duration Parameters::filler_skip_subrelease_long_interval() {
       skip_subrelease_long_interval_ns().load(std::memory_order_relaxed));
 }
 
-bool Parameters::usermode_hugepage_collapse() {
-  return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
+EnableCollapse Parameters::usermode_hugepage_collapse() {
+  return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed)
+             ? EnableCollapse::kEnabled
+             : EnableCollapse::kDisabled;
 }
 
 bool Parameters::back_small_allocations() {
@@ -473,7 +475,8 @@ bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
 }
 
 bool TCMalloc_Internal_GetUsermodeHugepageCollapse() {
-  return Parameters::usermode_hugepage_collapse();
+  return Parameters::usermode_hugepage_collapse() ==
+         tcmalloc::tcmalloc_internal::EnableCollapse::kEnabled;
 }
 
 bool TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled() {

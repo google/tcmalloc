@@ -32,6 +32,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+enum class EnableCollapse : bool;
+
 class PageMap;
 
 class PageAllocatorInterface {
@@ -94,7 +96,7 @@ class PageAllocatorInterface {
   virtual PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
-  virtual void TreatHugepageTrackers(bool enable_collapse)
+  virtual void TreatHugepageTrackers(EnableCollapse enable_collapse)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.
