@@ -222,6 +222,13 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
     }
   }
 
+  // Ensure unsafe experiments are disabled.
+  for (const auto& config : experiments) {
+    if (config.force_disable) {
+      buffer[static_cast<int>(config.id)] = false;
+    }
+  }
+
   return buffer;
 }
 

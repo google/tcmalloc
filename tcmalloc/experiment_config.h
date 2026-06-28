@@ -45,6 +45,7 @@ enum class Experiment : int {
 struct ExperimentConfig {
   Experiment id;
   absl::string_view name;
+  bool force_disable = false;
 };
 
 // clang-format off
