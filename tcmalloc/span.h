@@ -658,9 +658,14 @@ inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
   // objects remaining in the span.
   while (!small_span_state_.bitmap.IsZero() && count < batch.size()) {
     size_t offset = small_span_state_.bitmap.FindSet(0);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    small_span_state_.bitmap.ClearBit(offset);
+#endif
     TC_ASSERT_LT(offset, small_span_state_.bitmap.size());
     batch[count] = BitmapIdxToPtr(offset, size);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     small_span_state_.bitmap.ClearLowestBit();
+#endif
     count++;
   }
 
