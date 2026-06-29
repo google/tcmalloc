@@ -525,6 +525,13 @@ inline Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
       kBitmapScalingDenominator);
 }
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
+  uintptr_t off = first_page().start_uintptr() + idx * size;
+  return reinterpret_cast<void*>(off);
+}
+#endif
+
 inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
                                          uint32_t reciprocal) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
