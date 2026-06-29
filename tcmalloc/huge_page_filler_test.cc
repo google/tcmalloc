@@ -272,6 +272,11 @@ class PageTrackerTest : public testing::Test {
     return tracker_.ReleaseFree(mock_unback_);
   }
 
+  Length ReleaseStaleFree(PageBitmap stale) {
+    PageHeapSpinLockHolder l;
+    return tracker_.ReleaseStaleFree(stale, mock_unback_);
+  }
+
   // strict because release calls should only happen when we ask
   MockMemoryInterface mock_unback_;
 
@@ -290,10 +295,16 @@ class FakePageFlags : public PageFlagsBase {
   }
 
   PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
-    PageFlagsBitmaps ret;
-    ret.stale.SetBit(0);
-    ret.status = absl::StatusCode::kOk;
-    return ret;
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    EXPECT_TRUE(page_flags_bitmaps_.contains(hp.start_addr()));
+    return page_flags_bitmaps_[hp.start_addr()];
+  }
+
+  void SetStaleBitmap(const void* addr, const ResidencyBitmap& stale) {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    page_flags_bitmaps_[hp.start_addr()] = {stale, absl::StatusCode::kOk};
   }
 
   void MarkHugePageBacked(void* addr, bool is_hugepage_backed) {
@@ -320,6 +331,7 @@ class FakePageFlags : public PageFlagsBase {
 
  private:
   absl::flat_hash_map<const void*, std::optional<bool>> is_hugepage_backed_;
+  absl::flat_hash_map<const void*, PageFlagsBitmaps> page_flags_bitmaps_;
 };
 
 class FakeResidency : public Residency {
@@ -552,6 +564,42 @@ TEST_F(PageTrackerTest, ReleasingRetainFailure) {
 
   EXPECT_EQ(tracker_.released_pages(), a1.n + a2.n);
   EXPECT_EQ(tracker_.free_pages(), a1.n + a2.n + a3.n + a4.n);
+}
+
+TEST_F(PageTrackerTest, ReleaseStaleFree) {
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a1 = Get(kAllocSize, info);
+  PAlloc a2 = Get(kAllocSize, info);
+  PAlloc a3 = Get(kAllocSize, info);
+  PAlloc a4 = Get(kAllocSize, info);
+
+  // Free a1.
+  Put(a1);
+
+  PageBitmap stale;
+  stale.Clear();
+
+  // Initially stale is empty, so nothing should be released.
+  EXPECT_EQ(ReleaseStaleFree(stale), Length(0));
+  mock_unback_.VerifyAndClear();
+
+  // Manually set some of the stale bits that are not part of a1 to true. These
+  // don't overlap with the pages freed from a1, so nothing will be freed.
+  stale.SetRange(64, 2);
+  EXPECT_EQ(ReleaseStaleFree(stale), Length(0));
+  mock_unback_.VerifyAndClear();
+
+  stale.SetRange(0, 2);
+
+  ExpectUnbackPages(PAlloc(a1.p, Length(2), info), /*success=*/true);
+  EXPECT_EQ(ReleaseStaleFree(stale), Length(2));
+  mock_unback_.VerifyAndClear();
+
+  // Back to normal.
+  Put(a2);
+  Put(a3);
+  Put(a4);
 }
 
 TEST_F(PageTrackerTest, Defrag) {
@@ -1113,14 +1161,15 @@ class FillerTest : public testing::Test {
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      PageFlagsBase* pageflags, Residency* residency) {
+      PageFlagsBase* pageflags, Residency* residency,
+      ReleaseStalePages release_stale_pages = ReleaseStalePages::kDisabled) {
     // Note that scoped pageheap lock isn't used here. This is because the
     // pageheap lock is manually unlocked before the collapse operation, and the
     // scoped lock doesn't recognize the manual unlock. In tests, collapse
     // allocates, so we use manual lock and unlock here.
     pageheap_lock.lock();
     filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                  pageflags, residency);
+                                  release_stale_pages, pageflags, residency);
     pageheap_lock.unlock();
   }
 
@@ -1246,6 +1295,99 @@ TEST_F(FillerTest, Density) {
     Delete(a);
     ASSERT_EQ(filler_.pages_allocated(), Length(--n));
   }
+}
+
+TEST_F(FillerTest, ReleaseStaleFree) {
+  // Disable randomization for predictable layout
+  randomize_density_ = false;
+
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+
+  PAlloc a1 = AllocateWithSpanAllocInfo(kAllocSize, info);
+  PAlloc a2 = AllocateWithSpanAllocInfo(kAllocSize, info);
+  PAlloc a3 = AllocateWithSpanAllocInfo(kAllocSize, info);
+  PAlloc a4 = AllocateWithSpanAllocInfo(kAllocSize, info);
+
+  ASSERT_EQ(a1.pt, a2.pt);
+  ASSERT_EQ(a1.pt, a3.pt);
+  ASSERT_EQ(a1.pt, a4.pt);
+
+  // Assert locations to ensure layout assumptions hold
+  ASSERT_EQ((a1.p - a1.pt->location().first_page()).raw_num(), 0);
+
+  Delete(a1);  // Free a1
+
+  Bitmap<kMaxResidencyBits> empty_bitmap;
+
+  FakePageFlags pageflags;
+  pageflags.SetStaleBitmap(a1.pt->location().start_addr(), empty_bitmap);
+  pageflags.MarkHugePageBacked(a1.pt->location().start_addr(), false);
+
+  FakeResidency residency;
+  empty_bitmap.Clear();
+  residency.SetUnbackedAndSwappedBitmaps(a1.pt->location().start_addr(),
+                                         empty_bitmap, empty_bitmap);
+
+  // Measure initial stats
+  HugePageTreatmentStats stats_baseline = GetHugePageTreatmentStats();
+
+  // 1. Initially stale is empty, so nothing should be released.
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled, &pageflags,
+                        &residency, ReleaseStalePages::kEnabled);
+
+  HugePageTreatmentStats stats_after = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats_after.treated_pages_subreleased -
+                stats_baseline.treated_pages_subreleased,
+            0);
+
+  // Advance clock to bypass the record interval.
+  FakeClock::Advance(kRecordInterval + absl::Minutes(1));
+
+  // 2. Manually set some of the stale bits that are not part of a1 to true.
+  // These don't overlap with the pages freed from a1, so nothing will be freed.
+  // SetRange(128, 4) corresponds to TCMalloc pages 64-65 (assuming ratio=2).
+  // TCMalloc pages 64-65 belong to a2, which is USED.
+  ResidencyBitmap stale;
+  stale.Clear();
+  stale.SetRange(128, 4);
+  pageflags.SetStaleBitmap(a1.pt->location().start_addr(), stale);
+
+  stats_baseline = GetHugePageTreatmentStats();
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled, &pageflags,
+                        &residency, ReleaseStalePages::kEnabled);
+
+  stats_after = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats_after.treated_pages_subreleased -
+                stats_baseline.treated_pages_subreleased,
+            0);
+
+  // Advance clock to bypass the record interval.
+  FakeClock::Advance(kRecordInterval + absl::Minutes(1));
+
+  // 3. Now set some bits stale corresponding to a1 (which is FREE).
+  // SetRange(0, 3) sets OS pages 0, 1, 2.
+  // They correspond to TCMalloc pages 0 and 1.
+  stale.Clear();
+  stale.SetRange(0, 3);
+  pageflags.SetStaleBitmap(a1.pt->location().start_addr(), stale);
+
+  stats_baseline = GetHugePageTreatmentStats();
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled, &pageflags,
+                        &residency, ReleaseStalePages::kEnabled);
+
+  stats_after = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats_after.treated_pages_subreleased -
+                stats_baseline.treated_pages_subreleased,
+            2);
+
+  // Clean up
+  Delete(a2);
+  Delete(a3);
+  Delete(a4);
 }
 
 TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
