@@ -75,6 +75,12 @@ class Bitmap {
 
   void Clear();
 
+  // Bitwise operators.
+  Bitmap<N> operator~() const;
+  Bitmap<N> operator&(const Bitmap<N>& other) const;
+  Bitmap<N> operator|(const Bitmap<N>& other) const;
+  Bitmap<N> operator^(const Bitmap<N>& other) const;
+
  private:
   static constexpr size_t kWordSize = sizeof(size_t) * 8;
   static constexpr size_t kWords = (N + kWordSize - 1) / kWordSize;
@@ -485,6 +491,48 @@ inline void Bitmap<N>::Clear() {
   for (int i = 0; i < kWords; ++i) {
     bits_[i] = 0;
   }
+}
+
+// Bitwise ~ requires special handling of the dead bits.
+template <size_t N>
+inline Bitmap<N> Bitmap<N>::operator~() const {
+  Bitmap<N> result;
+  for (size_t i = 0; i < kWords; ++i) {
+    result.bits_[i] = ~bits_[i];
+  }
+  if constexpr (kDeadBits > 0) {
+    result.bits_[kWords - 1] &= (~static_cast<size_t>(0)) >> kDeadBits;
+  }
+  return result;
+}
+
+// Bitwise (&, |, ^) do not require special handling of the dead bits, since
+// 0 & 0 = 0, 0 | 0 = 0, and 0 ^ 0 = 0.
+template <size_t N>
+inline Bitmap<N> Bitmap<N>::operator&(const Bitmap<N>& other) const {
+  Bitmap<N> result;
+  for (size_t i = 0; i < kWords; ++i) {
+    result.bits_[i] = bits_[i] & other.bits_[i];
+  }
+  return result;
+}
+
+template <size_t N>
+inline Bitmap<N> Bitmap<N>::operator|(const Bitmap<N>& other) const {
+  Bitmap<N> result;
+  for (size_t i = 0; i < kWords; ++i) {
+    result.bits_[i] = bits_[i] | other.bits_[i];
+  }
+  return result;
+}
+
+template <size_t N>
+inline Bitmap<N> Bitmap<N>::operator^(const Bitmap<N>& other) const {
+  Bitmap<N> result;
+  for (size_t i = 0; i < kWords; ++i) {
+    result.bits_[i] = bits_[i] ^ other.bits_[i];
+  }
+  return result;
 }
 
 template <size_t N>

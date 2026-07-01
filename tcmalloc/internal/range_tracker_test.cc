@@ -257,6 +257,70 @@ TEST_F(BitmapTest, CountBitsFuzz) {
   }
 }
 
+TEST_F(BitmapTest, BitwiseOperators) {
+  // Test with dead bits (N=253 has 3 dead bits in last word)
+  {
+    Bitmap<253> map1;
+    map1.SetBit(1);
+    map1.SetBit(63);
+    map1.SetBit(64);
+    map1.SetBit(252);
+
+    Bitmap<253> map2;
+    map2.SetBit(1);
+    map2.SetBit(62);
+    map2.SetBit(64);
+    map2.SetBit(251);
+
+    // Test AND
+    Bitmap<253> and_map = map1 & map2;
+    EXPECT_THAT(FindSetResults(and_map), ElementsAre(1, 64, 253));
+
+    // Test OR
+    Bitmap<253> or_map = map1 | map2;
+    EXPECT_THAT(FindSetResults(or_map), ElementsAre(1, 62, 63, 64, 251, 252));
+
+    // Test XOR
+    Bitmap<253> xor_map = map1 ^ map2;
+    EXPECT_THAT(FindSetResults(xor_map), ElementsAre(62, 63, 251, 252));
+
+    // Test NOT
+    Bitmap<253> not_map = ~map1;
+    EXPECT_THAT(FindClearResults(not_map), ElementsAre(1, 63, 64, 252));
+    EXPECT_EQ(not_map.CountBits(), 253 - 4);
+
+    // Test that dead bits are not mapped.
+    Bitmap<253> all_ones;
+    all_ones.SetRange(0, 253);
+    Bitmap<253> not_map_dead_bits = ~all_ones;
+    EXPECT_TRUE(not_map_dead_bits.IsZero());
+  }
+
+  // Test without dead bits (N=64)
+  {
+    Bitmap<64> map1;
+    map1.SetBit(0);
+    map1.SetBit(63);
+
+    Bitmap<64> map2;
+    map2.SetBit(0);
+    map2.SetBit(1);
+
+    Bitmap<64> and_map = map1 & map2;
+    EXPECT_THAT(FindSetResults(and_map), ElementsAre(0, 64));
+
+    Bitmap<64> or_map = map1 | map2;
+    EXPECT_THAT(FindSetResults(or_map), ElementsAre(0, 1, 63));
+
+    Bitmap<64> xor_map = map1 ^ map2;
+    EXPECT_THAT(FindSetResults(xor_map), ElementsAre(1, 63));
+
+    Bitmap<64> not_map = ~map1;
+    EXPECT_THAT(FindClearResults(not_map), ElementsAre(0, 63));
+    EXPECT_EQ(not_map.CountBits(), 62);
+  }
+}
+
 class RangeTrackerTest : public ::testing::Test {
  protected:
   std::vector<std::pair<size_t, size_t>> FreeRanges() {
