@@ -1076,6 +1076,47 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
 
+TEST_P(CentralFreeListTest, SpanFragmentation) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  // This test is primarily exercising Span itself to model how tcmalloc.cc uses
+  // it, but this gives us a self-contained (and sanitizable) implementation of
+  // the CentralFreeList.
+  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  // Allocate one object from the CFL to allocate a span.
+  void* initial;
+  int got = e.central_freelist().RemoveRange(absl::MakeSpan(&initial, 1));
+  ASSERT_EQ(got, 1);
+
+  Span* const span = e.central_freelist().forwarder().MapObjectToSpan(initial);
+  const size_t object_size =
+      e.central_freelist().forwarder().class_to_size(TypeParam::kSizeClass);
+
+  ThreadManager fragmentation;
+  fragmentation.Start(1, [&](int) {
+    if (e.objects_per_span() != 1) {
+      benchmark::DoNotOptimize(span->Fragmentation(object_size));
+    }
+  });
+
+  ThreadManager cfl;
+  cfl.Start(1, [&](int) {
+    void* next;
+    int got = e.central_freelist().RemoveRange(absl::MakeSpan(&next, 1));
+    e.central_freelist().InsertRange(absl::MakeSpan(&next, got));
+  });
+
+  absl::SleepFor(absl::Milliseconds(50));
+
+  fragmentation.Stop();
+  cfl.Stop();
+
+  e.central_freelist().InsertRange(absl::MakeSpan(&initial, 1));
+}
+
 TEST_P(CentralFreeListTest, SpanLifetimeWithLongLivedSpans) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP()

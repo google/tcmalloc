@@ -183,6 +183,10 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Total memory bytes in the span.
   size_t bytes_in_span() const;
 
+  // Returns internal fragmentation of the span.
+  // REQUIRES: this is a SMALL_OBJECT span.
+  double Fragmentation(size_t object_size) const;
+
   // Returns number of objects allocated in the span.
   uint16_t Allocated() const {
     return allocated_.load(std::memory_order_relaxed);
