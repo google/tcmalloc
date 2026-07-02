@@ -119,11 +119,6 @@ TEST_P(SpanTest, FreelistBasic) {
     for (;;) {
       size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
       popped += n;
-      EXPECT_NEAR(
-          span_.Fragmentation(size_),
-          static_cast<double>(objects_per_span_) / static_cast<double>(popped) -
-              1.,
-          1e-5);
       EXPECT_EQ(span_.FreelistEmpty(size_), popped == objects_per_span_);
       for (size_t i = 0; i < n; ++i) {
         void* p = batch[i];
@@ -182,11 +177,6 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
     for (;;) {
       size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
       popped += n;
-      EXPECT_NEAR(
-          span_.Fragmentation(size_),
-          static_cast<double>(objects_per_span_) / static_cast<double>(popped) -
-              1.,
-          1e-5);
       EXPECT_EQ(span_.FreelistEmpty(size_), popped == objects_per_span_);
       for (size_t i = 0; i < n; ++i) {
         void* p = batch[i];

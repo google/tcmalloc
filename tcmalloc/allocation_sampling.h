@@ -39,17 +39,6 @@ namespace tcmalloc::tcmalloc_internal {
 
 class Static;
 
-// This function computes a profile that maps a live stack trace to
-// the number of bytes of central-cache memory pinned by an allocation
-// at that stack trace.
-// In the case when span is hosting >= 1 number of small objects (t.proxy !=
-// nullptr), we call span::Fragmentation() and read `span->allocated_`. It is
-// safe to do so since we hold the per-sample lock while iterating over sampled
-// allocations. It prevents the sampled allocation that has the proxy object to
-// complete deallocation, thus `proxy` can not be returned to the span yet. It
-// thus prevents the central free list to return the span to the page heap.
-std::unique_ptr<const ProfileBase> DumpFragmentationProfile(Static& state);
-
 std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state);
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 // For RSEQ enabled builds, we declare the sampler in percpu.h so that we can
@@ -78,16 +67,9 @@ inline Sampler& GetThreadSampler() {
 #endif
 }
 
-void FreeProxyObject(Static& state, void* absl_nonnull ptr, size_t size_class);
-
 // Performs sampling for already occurred allocation of object.
 //
-// For very small object sizes, object is used as 'proxy' and full
-// page with sampled marked is allocated instead.
-//
-// For medium-sized objects that have single instance per span,
-// they're simply freed and fresh page span is allocated to represent
-// sampling.
+// For small object sizes, we allocate a new object in a sampled span.
 //
 // For large objects (i.e. allocated with do_malloc_pages) they are
 // also fully reused and their span is marked as sampled.
@@ -106,12 +88,10 @@ void FreeProxyObject(Static& state, void* absl_nonnull ptr, size_t size_class);
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     Static& state, Policy policy, size_t requested_size, size_t weight,
-    size_t size_class, void* absl_nullable obj, Span* absl_nullable span) {
-  TC_CHECK((size_class != 0 && obj != nullptr && span == nullptr) ||
-           (size_class == 0 && obj == nullptr && span != nullptr));
+    size_t size_class, Span* absl_nullable span) {
+  TC_CHECK_EQ(size_class != 0, span == nullptr);
 
   StackTrace stack_trace;
-  stack_trace.proxy = nullptr;
   stack_trace.requested_size = requested_size;
   // Grab the stack trace outside the heap lock.
   stack_trace.depth = absl::GetStackTrace(stack_trace.stack, kMaxStackDepth, 0);
@@ -142,8 +122,6 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
           : MemoryTag::kSampled;
   size_t capacity = 0;
   if (size_class != 0) {
-    TC_ASSERT_EQ(size_class,
-                 state.pagemap().sizeclass(PageIdContainingTagged(obj)));
     state.per_size_class_counts()[size_class].Add(allocation_estimate);
 
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
@@ -172,24 +150,10 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
       }
       capacity = requested_size;
     } else if ((span = state.page_allocator().New(
-                    num_pages, {1, AccessDensityPrediction::kSparse}, tag)) ==
-               nullptr) {
+                    num_pages, {1, AccessDensityPrediction::kSparse}, tag))) {
       capacity = stack_trace.allocated_size;
-      return {obj, capacity};
     } else {
-      capacity = stack_trace.allocated_size;
-    }
-
-    size_t span_size =
-        Length(state.sizemap().class_to_pages(size_class)).in_bytes();
-    size_t objects_per_span = stack_trace.allocated_size != 0
-                                  ? span_size / stack_trace.allocated_size
-                                  : -1ul;
-
-    if (objects_per_span != 1) {
-      TC_ASSERT_GT(objects_per_span, 1);
-      stack_trace.proxy = obj;
-      obj = nullptr;
+      return {};
     }
   } else {
     // Set stack_trace.allocated_size to the exact size for a page allocation.
@@ -255,12 +219,6 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
 
   state.peak_heap_tracker().MaybeSaveSample();
 
-  if (obj != nullptr) {
-    // We are not maintaining precise statistics on malloc hit/miss rates at our
-    // cache tiers.  We can deallocate into our ordinary cache.
-    TC_ASSERT_NE(size_class, 0);
-    FreeProxyObject(state, obj, size_class);
-  }
   TC_ASSERT_EQ(state.pagemap().sizeclass(span->first_page()), 0);
   return {(alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
                                                : span->start_address(),
@@ -275,16 +233,15 @@ template <typename Policy>
 static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
                                          size_t requested_size, size_t weight,
                                          Span* span) {
-  return SampleifyAllocation(state, policy, requested_size, weight, 0, nullptr,
-                             span);
+  return SampleifyAllocation(state, policy, requested_size, weight, 0, span);
 }
 
 template <typename Policy>
 static sized_ptr_t SampleSmallAllocation(Static& state, Policy policy,
                                          size_t requested_size, size_t weight,
-                                         size_t size_class, sized_ptr_t res) {
+                                         size_t size_class) {
   return SampleifyAllocation(state, policy, requested_size, weight, size_class,
-                             res.p, nullptr);
+                             nullptr);
 }
 
 // Rewrite type so that the allocation type falls into one of the categories we
@@ -334,7 +291,6 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
 
   TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContainingTagged(ptr)), 0);
 
-  void* const proxy = sampled_allocation->sampled_stack.proxy;
   const size_t weight = sampled_allocation->sampled_stack.weight;
   const size_t requested_size =
       sampled_allocation->sampled_stack.requested_size;
@@ -377,18 +333,14 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
                        sampled_allocation->sampled_stack.depth));
   }
 
-  const size_t allocated_alignment = static_cast<size_t>(
-      sampled_allocation->sampled_stack.requested_alignment.value_or(
-          std::align_val_t{1}));
-  const std::optional<std::align_val_t> deallocated_alignment =
-      policy.has_explicit_alignment()
-          ? std::make_optional<std::align_val_t>(policy.align())
-          : std::nullopt;
-
   if ((size.has_value() || policy.allocation_type() == AllocationType::New)) {
     const bool type_mismatch =
         policy.allocation_type() !=
         sampled_allocation->sampled_stack.allocation_type;
+    const std::optional<std::align_val_t> deallocated_alignment =
+        policy.has_explicit_alignment()
+            ? std::make_optional<std::align_val_t>(policy.align())
+            : std::nullopt;
     const bool alignment_mismatch =
         deallocated_alignment !=
         sampled_allocation->sampled_stack.requested_alignment;
@@ -439,23 +391,6 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   MallocHook::InvokeSampledDeleteHook(sampled_alloc);
 
   state.deallocation_samples.ReportFree(sampled_alloc_handle);
-
-  if (proxy) {
-    const auto proxy_policy = policy.InSamePartitionAs(proxy);
-    size_t size_class;
-    if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
-      size_class = state.sizemap().SizeClass(
-          proxy_policy.AccessAsCold().AlignAs(allocated_alignment),
-          allocated_size);
-    } else {
-      size_class = state.sizemap().SizeClass(
-          proxy_policy.AccessAsHot().AlignAs(allocated_alignment),
-          allocated_size);
-    }
-    TC_ASSERT_EQ(size_class,
-                 state.pagemap().sizeclass(PageIdContainingTagged(proxy)));
-    FreeProxyObject(state, proxy, size_class);
-  }
 }
 
 }  // namespace tcmalloc::tcmalloc_internal

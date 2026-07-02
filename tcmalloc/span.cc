@@ -81,30 +81,6 @@ SampledAllocation* Span::Unsample() {
   return sampled_allocation;
 }
 
-double Span::Fragmentation(size_t object_size) const {
-  if (object_size == 0) {
-    // Avoid crashes in production mode code, but report in tests.
-    TC_ASSERT_NE(object_size, 0);
-    return 0;
-  }
-  const size_t span_objects = bytes_in_span() / object_size;
-  const size_t live = allocated_.load(std::memory_order_relaxed);
-  if (live == 0) {
-    // Avoid crashes in production mode code, but report in tests.
-    TC_ASSERT_NE(live, 0);
-    return 0;
-  }
-  // Assume that all in-use objects in this span are spread evenly
-  // through this span.  So charge the free space in span evenly
-  // to each of the live objects.
-  // A note on units here: StackTraceTable::AddTrace(1, *t)
-  // represents usage (of whatever kind: heap space, allocation,
-  // fragmentation) of 1 object of size t->allocated_size.
-  // So we want to report here the number of objects we are "responsible"
-  // for pinning - NOT bytes.
-  return static_cast<double>(span_objects - live) / live;
-}
-
 // Freelist organization.
 //
 // Partially full spans in CentralFreeList contain a list of free objects

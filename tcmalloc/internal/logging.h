@@ -64,15 +64,6 @@ struct StackTrace {
   // memory block.
   AllocHandle sampled_alloc_handle;
 
-  // For small sampled objects, we allocate a full span to hold the
-  // sampled object.  However to avoid disturbing fragmentation
-  // profiles, in such cases we also allocate a small proxy object
-  // using the normal mechanism.
-  //
-  // proxy field is defined only for heap sample stack traces.
-  // For heap samples, proxy==NULL iff size > kMaxSize.
-  void* proxy;
-
   uintptr_t requested_size;
   std::optional<std::align_val_t> requested_alignment;
   uintptr_t allocated_size;  // size after sizeclass/page rounding

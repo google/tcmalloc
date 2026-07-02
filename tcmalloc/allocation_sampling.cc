@@ -48,41 +48,6 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
-std::unique_ptr<const ProfileBase> DumpFragmentationProfile(Static& state) {
-  auto profile = std::make_unique<StackTraceTable>(ProfileType::kFragmentation);
-  state.sampled_allocation_recorder().Iterate(
-      [&state, &profile](const SampledAllocation& sampled_allocation) {
-        // Compute fragmentation to charge to this sample:
-        const StackTrace& t = sampled_allocation.sampled_stack;
-        if (t.proxy == nullptr) {
-          // There is just one object per-span, and neighboring spans
-          // can be released back to the system, so we charge no
-          // fragmentation to this sampled object.
-          return;
-        }
-
-        // Fetch the span on which the proxy lives so we can examine its
-        // co-residents.
-        const PageId p = PageIdContaining(t.proxy);
-        Span* span = state.pagemap().GetDescriptor(p);
-        if (span == nullptr || span == &state.invalid_span()) {
-          // Avoid crashes in production mode code, but report in tests.
-          TC_ASSERT_NE(span, nullptr);
-          TC_ASSERT_NE(span, &state.invalid_span());
-          return;
-        }
-
-        const double frag = span->Fragmentation(t.allocated_size);
-        if (frag > 0) {
-          // Associate the memory warmth with the actual object, not the proxy.
-          // The residency information (t.span_start_address) is likely not very
-          // useful, but we might as well pass it along.
-          profile->AddTrace(frag, t);
-        }
-      });
-  return profile;
-}
-
 std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state) {
   auto profile = std::make_unique<StackTraceTable>(ProfileType::kHeap);
   profile->SetStartTime(absl::Now());
@@ -91,20 +56,6 @@ std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state) {
         profile->AddTrace(1.0, sampled_allocation.sampled_stack);
       });
   return profile;
-}
-
-ABSL_ATTRIBUTE_NOINLINE void FreeProxyObject(Static& state, void* ptr,
-                                             size_t size_class) {
-  if (ABSL_PREDICT_TRUE(UsePerCpuCache(state))) {
-    state.cpu_cache().Deallocate(ptr, size_class);
-  } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent();
-             ABSL_PREDICT_TRUE(cache)) {
-    cache->Deallocate(ptr, size_class);
-  } else {
-    // This thread doesn't have thread-cache yet or already. Delete directly
-    // into transfer cache.
-    state.transfer_cache().InsertRange(size_class, absl::Span<void*>(&ptr, 1));
-  }
 }
 
 }  // namespace tcmalloc::tcmalloc_internal
