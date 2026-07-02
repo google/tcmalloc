@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// test
+
 #include <stddef.h>
 
 #include <algorithm>
@@ -75,6 +77,7 @@ TEST(AllocationSampleTest, TokenAbuse) {
   int count2 = 0;
   profile2.Iterate([&](const Profile::Sample&) { count2++; });
   EXPECT_EQ(count2, 0);
+  EXPECT_GE(count2, 0);
 
   // Delete (on the scope ending) without Claim should also be OK.
   {
