@@ -67,7 +67,7 @@ namespace tcmalloc_internal {
 // allocation is sampled.
 //
 // When an allocation occurs, bytes_until_sample_ is reset to
-// a new independtly sampled geometric number of bytes. The
+// a new independently sampled geometric number of bytes. The
 // memoryless property of the point process means that this may
 // be taken as the number of bytes after the end of the current
 // allocation until the next marked byte. This ensures that
