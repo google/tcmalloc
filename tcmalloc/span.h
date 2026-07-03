@@ -659,20 +659,16 @@ inline bool Span::UseBitmapForSize(size_t size) {
 
 inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
                                    size_t size) __restrict__ {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   size_t before = small_span_state_.bitmap.CountBits();
   size_t count = 0;
   // Want to fill the batch either with batch.size() objects, or the number of
   // objects remaining in the span.
   while (!small_span_state_.bitmap.IsZero() && count < batch.size()) {
     size_t offset = small_span_state_.bitmap.FindSet(0);
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    small_span_state_.bitmap.ClearBit(offset);
-#endif
     TC_ASSERT_LT(offset, small_span_state_.bitmap.size());
     batch[count] = BitmapIdxToPtr(offset, size);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     small_span_state_.bitmap.ClearLowestBit();
-#endif
     count++;
   }
 
@@ -680,6 +676,16 @@ inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
   allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
                    std::memory_order_relaxed);
   return count;
+#else
+  uint8_t offsets[kMaxObjectsToMove];
+  size_t popped = small_span_state_.bitmap.PopBatch(offsets, batch.size());
+  for (size_t i = 0; i < popped; ++i) {
+    batch[i] = BitmapIdxToPtr(offsets[i], size);
+  }
+  allocated_.store(allocated_.load(std::memory_order_relaxed) + popped,
+                   std::memory_order_relaxed);
+  return popped;
+#endif
 }
 
 inline size_t Span::FreelistPopBatch(const absl::Span<void*> batch,

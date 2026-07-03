@@ -1093,6 +1093,20 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "range_tracker_fuzz_test",
+    srcs = ["range_tracker_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    linkstatic = 1,
+    deps = [
+        ":range_tracker",
+        "@com_google_absl//absl/types:span",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
 cc_library(
     name = "sampled_allocation",
     hdrs = ["sampled_allocation.h"],
