@@ -173,7 +173,7 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
-  small_span_state_.alloc_time = alloc_time;
+  small_span_state_.alloc_time = alloc_time >> kAllocTimeShift;
 
   if (UseBitmapForSize(size)) {
     BuildBitmap(size, count);

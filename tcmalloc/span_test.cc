@@ -43,6 +43,16 @@ namespace {
 
 constexpr uint64_t kSpanAllocTime = 1234;
 
+// We bitpack alloc time and do not store the full value.  We are willing to
+// tolerate a small amount of imprecision in the least significant bits
+// because a few nanoseconds should not make or break any decisions we make
+// with it.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+constexpr uint64_t kAllocTimeMask = ~uint64_t{0x0};
+#else
+constexpr uint64_t kAllocTimeMask = ~uint64_t{0xFF};
+#endif
+
 class RawSpan {
  public:
   void Init(size_t size_class) {
@@ -244,7 +254,8 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
 
 TEST_P(SpanTest, AllocTime) {
   Span& span_ = raw_span_.span();
-  EXPECT_EQ(span_.AllocTime(), kSpanAllocTime);
+  EXPECT_EQ(span_.AllocTime() & kAllocTimeMask,
+            kSpanAllocTime & kAllocTimeMask);
 }
 
 TEST_P(SpanTest, FreelistRandomized) {
@@ -291,7 +302,8 @@ TEST_P(SpanTest, FreelistRandomized) {
     }
   }
 
-  EXPECT_EQ(span_.AllocTime(), kSpanAllocTime);
+  EXPECT_EQ(span_.AllocTime() & kAllocTimeMask,
+            kSpanAllocTime & kAllocTimeMask);
   // Now pop everything what's there.
   for (;;) {
     size_t n =

@@ -246,6 +246,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // in that span in fewer (i.e. kMaxNumPageBits) bits.
   static constexpr size_t kMaxNumPageBits = 6;
   static constexpr Length kLargeSpanLength = Length((1 << kMaxNumPageBits) - 1);
+  static_assert(kMaxSize <= kLargeSpanLength.in_bytes());
 
   uint64_t AllocTime() const;
 
@@ -278,7 +279,16 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Actual number of objects that we may cache. This is lower than the total
   // cache array size. Some cache entries are reserved or are used for other
   // purposes.
+  //
+  // TODO(b/527641380): With the enlarged bitmap, microbenchmarks on a single,
+  // cache-resident span regress.  Investigate this.  We use a larger cache
+  // anyways because the multi-span benchmarks that put more pressure on the
+  // memory subsystem improve anyways.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   static constexpr size_t kCacheSize = 8;
+#else
+  static constexpr size_t kCacheSize = 12;
+#endif
   static constexpr size_t kMaxCacheBits = 4;
   static_assert(kCacheSize <= (1 << kMaxCacheBits) - 1);
 
@@ -322,8 +332,18 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     SampledAllocation* sampled_allocation;
   };
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  static constexpr size_t kAllocTimeShift = 0;
+#else
+  static constexpr size_t kAllocTimeShift = kMaxNumPageBits;
+  static constexpr size_t kAllocTimeBits = 64 - kAllocTimeShift;
+#endif
+
   struct SmallSpanState {
     uint64_t num_pages : kMaxNumPageBits;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    uint64_t alloc_time : kAllocTimeBits;
+#endif
     union {
       // Used only for spans in CentralFreeList (SMALL_OBJECT state).
       // Embed cache of free objects.
@@ -334,8 +354,14 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
       // when the object is used.
       Bitmap<kBitmapSize> bitmap{};
     };
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     uint64_t alloc_time;
+#endif
   };
+  // There is nothing inherently fixed about this size, but it is a useful
+  // indicator that we are using the space and not unintentionally regressing
+  // it.
+  static_assert(sizeof(SmallSpanState) == 32);
 
   union {
     // When a span consists of greater than kLargeSpanLength number of pages,
@@ -385,7 +411,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
 inline uint64_t Span::AllocTime() const {
   if (is_large_or_sampled()) return 0;
-  return small_span_state_.alloc_time;
+  return small_span_state_.alloc_time << kAllocTimeShift;
 }
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
