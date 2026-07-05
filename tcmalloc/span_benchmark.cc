@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 #include <vector>
 
 #include "absl/random/random.h"
@@ -66,6 +67,7 @@ class RawSpan {
 
 // BM_single_span repeatedly pushes and pops the same
 // num_objects_to_move(size_class) objects from the span.
+template <typename BatchType>
 void BM_single_span(benchmark::State& state) {
   const int size_class = state.range(0);
 
@@ -88,8 +90,15 @@ void BM_single_span(benchmark::State& state) {
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      (void)span.FreelistPushBatch(absl::MakeSpan(&batch[j], 1), size,
-                                   reciprocal);
+      if constexpr (std::is_same_v<BatchType, void*>) {
+        (void)span.FreelistPushBatch(absl::MakeSpan(&batch[j], 1), size,
+                                     reciprocal);
+      } else {
+        Span::ObjIdx idx = Span::UseBitmapForSize(size)
+                               ? span.BitmapPtrToIdx(batch[j], size, reciprocal)
+                               : span.PtrToIdx(batch[j], size);
+        (void)span.FreelistPushBatch(absl::MakeSpan(&idx, 1), size, reciprocal);
+      }
     }
   }
 
@@ -98,6 +107,7 @@ void BM_single_span(benchmark::State& state) {
 
 // BM_single_span_fulldrain alternates between fully draining and filling the
 // span.
+template <typename BatchType>
 void BM_single_span_fulldrain(benchmark::State& state) {
   const int size_class = state.range(0);
 
@@ -130,8 +140,18 @@ void BM_single_span_fulldrain(benchmark::State& state) {
     // Fill span
     while (oindex > 0) {
       void* p = objects[oindex - 1];
-      if (!span.FreelistPushBatch(absl::MakeSpan(&p, 1), size, reciprocal)) {
-        break;
+      if constexpr (std::is_same_v<BatchType, void*>) {
+        if (!span.FreelistPushBatch(absl::MakeSpan(&p, 1), size, reciprocal)) {
+          break;
+        }
+      } else {
+        Span::ObjIdx idx = Span::UseBitmapForSize(size)
+                               ? span.BitmapPtrToIdx(p, size, reciprocal)
+                               : span.PtrToIdx(p, size);
+        if (!span.FreelistPushBatch(absl::MakeSpan(&idx, 1), size,
+                                    reciprocal)) {
+          break;
+        }
       }
 
       oindex--;
@@ -141,7 +161,7 @@ void BM_single_span_fulldrain(benchmark::State& state) {
   state.SetItemsProcessed(processed);
 }
 
-BENCHMARK(BM_single_span)
+BENCHMARK_TEMPLATE(BM_single_span, void*)
     ->Arg(1)
     ->Arg(2)
     ->Arg(3)
@@ -156,7 +176,37 @@ BENCHMARK(BM_single_span)
     ->Arg(40)
     ->Arg(80);
 
-BENCHMARK(BM_single_span_fulldrain)
+BENCHMARK_TEMPLATE(BM_single_span, Span::ObjIdx)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(3)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(7)
+    ->Arg(10)
+    ->Arg(12)
+    ->Arg(16)
+    ->Arg(20)
+    ->Arg(30)
+    ->Arg(40)
+    ->Arg(80);
+
+BENCHMARK_TEMPLATE(BM_single_span_fulldrain, void*)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(3)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(7)
+    ->Arg(10)
+    ->Arg(12)
+    ->Arg(16)
+    ->Arg(20)
+    ->Arg(30)
+    ->Arg(40)
+    ->Arg(80);
+
+BENCHMARK_TEMPLATE(BM_single_span_fulldrain, Span::ObjIdx)
     ->Arg(1)
     ->Arg(2)
     ->Arg(3)
@@ -198,6 +248,7 @@ void BM_NewDelete(benchmark::State& state) {
 
 BENCHMARK(BM_NewDelete);
 
+template <typename BatchType>
 void BM_multiple_spans(benchmark::State& state) {
   const int size_class = state.range(0);
   const size_t size = tc_globals.sizemap().class_to_size(size_class);
@@ -228,15 +279,40 @@ void BM_multiple_spans(benchmark::State& state) {
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      (void)spans[current_span].span().FreelistPushBatch(
-          absl::MakeSpan(&batch[j], 1), size, reciprocal);
+      if constexpr (std::is_same_v<BatchType, void*>) {
+        (void)spans[current_span].span().FreelistPushBatch(
+            absl::MakeSpan(&batch[j], 1), size, reciprocal);
+      } else {
+        Span::ObjIdx idx =
+            Span::UseBitmapForSize(size)
+                ? spans[current_span].span().BitmapPtrToIdx(batch[j], size,
+                                                            reciprocal)
+                : spans[current_span].span().PtrToIdx(batch[j], size);
+        (void)spans[current_span].span().FreelistPushBatch(
+            absl::MakeSpan(&idx, 1), size, reciprocal);
+      }
     }
   }
 
   state.SetItemsProcessed(processed);
 }
 
-BENCHMARK(BM_multiple_spans)
+BENCHMARK_TEMPLATE(BM_multiple_spans, void*)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(3)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(7)
+    ->Arg(10)
+    ->Arg(12)
+    ->Arg(16)
+    ->Arg(20)
+    ->Arg(30)
+    ->Arg(40)
+    ->Arg(80);
+
+BENCHMARK_TEMPLATE(BM_multiple_spans, Span::ObjIdx)
     ->Arg(1)
     ->Arg(2)
     ->Arg(3)
