@@ -308,7 +308,11 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     uint16_t freelist_;
   };
   std::atomic<uint16_t> allocated_;  // Number of non-free objects
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  uint8_t cache_size_;
+#else
   uint8_t cache_size_ : kMaxCacheBits;
+#endif
   uint8_t is_long_lived_span_ : 1;
   uint8_t nonempty_index_ : kNonemptyIndexBits;  // The nonempty_ list index for
                                                  // this span.
