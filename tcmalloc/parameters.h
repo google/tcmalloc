@@ -59,8 +59,6 @@ class Parameters {
 
   static bool use_all_buckets_for_few_object_spans_in_cfl();
 
-  static absl::Duration huge_cache_release_time();
-
   static int64_t guarded_sampling_interval() {
     return guarded_sampling_interval_.load(std::memory_order_relaxed);
   }

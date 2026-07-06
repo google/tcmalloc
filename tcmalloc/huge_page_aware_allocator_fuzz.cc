@@ -57,7 +57,6 @@ using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 struct FuzzHugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionUsageOption use_huge_region_more_often;
-  int64_t huge_cache_time_ns;
 
   explicit operator HugePageAwareAllocatorOptions() const {
     HugePageAwareAllocatorOptions options;
@@ -66,7 +65,6 @@ struct FuzzHugePageAwareAllocatorOptions {
     options.tag = static_cast<MemoryTag>(
         ((static_cast<uintptr_t>(tag) << kTagShift) & kTagMask) >> kTagShift);
     options.use_huge_region_more_often = use_huge_region_more_often;
-    options.huge_cache_time = absl::Nanoseconds(huge_cache_time_ns);
     return options;
   }
 
@@ -79,11 +77,9 @@ struct FuzzHugePageAwareAllocatorOptions {
         ".tag = static_cast<tcmalloc::tcmalloc_internal::MemoryTag>(%v), "
         ".use_huge_region_more_often = "
         "static_cast<tcmalloc::tcmalloc_internal::"
-        "HugeRegionUsageOption>(%v), "
-        ".huge_cache_time_ns = %v}",
+        "HugeRegionUsageOption>(%v)}",
         static_cast<int>(options.tag),
-        static_cast<int>(options.use_huge_region_more_often),
-        options.huge_cache_time_ns);
+        static_cast<int>(options.use_huge_region_more_often));
   }
 };
 
@@ -676,22 +672,14 @@ auto AnyPositiveDuration() { return fuzztest::Positive<int64_t>(); }
 
 auto GetHPAADomain() {
   return fuzztest::Map(
-      [](MemoryTag tag, HugeRegionUsageOption usage, int64_t ns) {
-        // TODO(b/271282540): Reduce clamp.
-        return FuzzHugePageAwareAllocatorOptions{
-            tag, usage,
-            absl::ToInt64Nanoseconds(
-
-                absl::Floor(std::clamp(absl::Nanoseconds(ns), absl::Seconds(1),
-                                       absl::Seconds(3600)),
-                            absl::Seconds(1)))};
+      [](MemoryTag tag, HugeRegionUsageOption usage) {
+        return FuzzHugePageAwareAllocatorOptions{tag, usage};
       },
       fuzztest::ElementOf({MemoryTag::kSampled, MemoryTag::kSampledP1,
                            MemoryTag::kNormalP0, MemoryTag::kNormalP1,
                            MemoryTag::kNormal, MemoryTag::kCold}),
       fuzztest::ElementOf({HugeRegionUsageOption::kDefault,
-                           HugeRegionUsageOption::kUseForAllLargeAllocs}),
-      AnyPositiveDuration());
+                           HugeRegionUsageOption::kUseForAllLargeAllocs}));
 }
 
 fuzztest::Domain<Instruction> GetInstructionDomain(int depth);
@@ -814,7 +802,6 @@ TEST(HugePageAwareAllocatorTest, FuzzHPAARegression) {
   options.tag = MemoryTag::kNormal;
   options.use_huge_region_more_often =
       HugeRegionUsageOption::kUseForAllLargeAllocs;
-  options.huge_cache_time_ns = absl::ToInt64Nanoseconds(absl::Seconds(44));
 
   std::vector<Instruction> instructions;
   instructions.push_back(Instruction{Alloc{
@@ -833,7 +820,6 @@ TEST(HugePageAwareAllocatorTest, FuzzHPAARegression2) {
   options.tag = MemoryTag::kCold;
   options.use_huge_region_more_often =
       HugeRegionUsageOption::kUseForAllLargeAllocs;
-  options.huge_cache_time_ns = absl::ToInt64Nanoseconds(absl::Seconds(246));
 
   std::vector<Instruction> instructions;
   instructions.push_back(Instruction{Alloc{
@@ -851,8 +837,7 @@ TEST(HugePageAwareAllocatorTest, b471822138) {
   FuzzHPAA(
       FuzzHugePageAwareAllocatorOptions{
           .tag = MemoryTag::kNormalP0,
-          .use_huge_region_more_often = HugeRegionUsageOption::kDefault,
-          .huge_cache_time_ns = 3600000000000},
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
       {Instruction{.instr = Alloc{.length = 15576967129319913528ULL,
                                   .num_objects = 1,
                                   .alignment = 18446744073709551615ULL,
@@ -878,8 +863,7 @@ TEST(HugePageAwareAllocatorTest, b470332457) {
       FuzzHugePageAwareAllocatorOptions{
           .tag = MemoryTag::kNormalP1,
           .use_huge_region_more_often =
-              HugeRegionUsageOption::kUseForAllLargeAllocs,
-          .huge_cache_time_ns = 3600000000000},
+              HugeRegionUsageOption::kUseForAllLargeAllocs},
       {Instruction{.instr = GatherStatsPbtxt{}},
        Instruction{.instr = PrintStats{.everything = false}},
        Instruction{
@@ -896,8 +880,7 @@ TEST(HugePageAwareAllocatorTest, b509249056) {
           .tag = static_cast<tcmalloc::tcmalloc_internal::MemoryTag>(4),
           .use_huge_region_more_often =
               static_cast<tcmalloc::tcmalloc_internal::HugeRegionUsageOption>(
-                  0),
-          .huge_cache_time_ns = 3600000000000},
+                  0)},
       {Instruction{ChangeParam{ReentrantSubprogram{
            {Instruction{ReleasePagesBreakingHugepages{1, false}}}}}},
        Instruction{Alloc{15576967129319913528ULL, 1, 18446744073709551615ULL,

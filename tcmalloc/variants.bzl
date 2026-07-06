@@ -200,12 +200,6 @@ test_variants = [
         "env": {"TCMALLOC_REUSE_SIZE_CLASSES": "reuserelaxedbelow64"},
     },
     {
-        "name": "huge_cache_release_30s",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S"},
-    },
-    {
         "name": "hpaa",
         "malloc": "//tcmalloc",
         "deps": [

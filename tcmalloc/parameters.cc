@@ -160,19 +160,6 @@ void Parameters::set_hpaa_subrelease(bool value) {
   TCMalloc_Internal_SetHPAASubrelease(value);
 }
 
-absl::Duration Parameters::huge_cache_release_time() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int32_t> v{1};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(IsExperimentActive(
-                Experiment::TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S)
-                ? 30
-                : 1,
-            std::memory_order_relaxed);
-  });
-  return absl::Seconds(v.load(std::memory_order_relaxed));
-}
-
 std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<MallocExtension::BytesPerSecond> v{

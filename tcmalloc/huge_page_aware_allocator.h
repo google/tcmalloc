@@ -137,7 +137,6 @@ class StaticForwarder {
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionUsageOption use_huge_region_more_often = huge_region_option();
-  absl::Duration huge_cache_time = Parameters::huge_cache_release_time();
 };
 
 // An implementation of the PageAllocator interface that is hugepage-efficient.
@@ -499,7 +498,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       metadata_allocator_(*this),
       alloc_(vm_allocator_, metadata_allocator_),
       cache_(HugeCache{alloc_, metadata_allocator_, unback_without_lock_,
-                       options.huge_cache_time}) {}
+                       absl::Seconds(1)}) {}
 
 template <class Forwarder>
 inline HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
