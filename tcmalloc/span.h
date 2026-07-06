@@ -703,11 +703,12 @@ inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
                    std::memory_order_relaxed);
   return count;
 #else
-  uint8_t offsets[kMaxObjectsToMove];
-  size_t popped = small_span_state_.bitmap.PopBatch(offsets, batch.size());
-  for (size_t i = 0; i < popped; ++i) {
-    batch[i] = BitmapIdxToPtr(offsets[i], size);
-  }
+  void** ptrs = batch.data();
+  size_t popped = small_span_state_.bitmap.PopBatch(
+      [&](size_t offset) {
+        *ptrs++ = BitmapIdxToPtr(static_cast<ObjIdx>(offset), size);
+      },
+      batch.size());
   allocated_.store(allocated_.load(std::memory_order_relaxed) + popped,
                    std::memory_order_relaxed);
   return popped;

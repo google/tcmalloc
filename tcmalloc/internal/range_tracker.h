@@ -61,18 +61,16 @@ class Bitmap {
   // Clears the lowest set bit. Special case is faster than more flexible code.
   void ClearLowestBit();
 
-  template <typename T>
-  size_t PopBatch(T* dest, size_t limit) {
-    static_assert(std::is_integral_v<T>);
-    static_assert(N == 0 || std::numeric_limits<T>::max() >= N - 1,
-                  "Destination type too narrow for bitmap size");
+  template <typename Visitor>
+  size_t PopBatch(Visitor visitor, size_t limit) {
     size_t count = 0;
     for (size_t i = 0; i < kWords; ++i) {
       if (count >= limit) break;
       size_t word = bits_[i];
       while (word != 0 && count < limit) {
         size_t off = absl::countr_zero(word);
-        dest[count++] = static_cast<T>(i * kWordSize + off);
+        visitor(i * kWordSize + off);
+        count++;
         word &= word - 1;
       }
       bits_[i] = word;

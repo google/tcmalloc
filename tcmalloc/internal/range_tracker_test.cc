@@ -330,25 +330,20 @@ TEST_F(BitmapTest, PopBatch) {
   map.SetBit(63);
   map.SetBit(128);
 
-  // Test popping into uint8_t
-  uint8_t dest_u8[10] = {0};
-  size_t popped = map.PopBatch(dest_u8, 3);
-  EXPECT_EQ(popped, 3);
-  EXPECT_EQ(dest_u8[0], 7);
-  EXPECT_EQ(dest_u8[1], 14);
-  EXPECT_EQ(dest_u8[2], 15);
+  std::vector<size_t> dest;
+  size_t popped = map.PopBatch([&](size_t v) { dest.push_back(v); }, 3);
+  EXPECT_EQ(dest.size(), popped);
+  EXPECT_THAT(dest, ElementsAre(7, 14, 15));
   EXPECT_FALSE(map.GetBit(7));
   EXPECT_FALSE(map.GetBit(14));
   EXPECT_FALSE(map.GetBit(15));
   EXPECT_TRUE(map.GetBit(63));
   EXPECT_TRUE(map.GetBit(128));
 
-  // Test popping remainder into size_t
-  size_t dest_size[10] = {0};
-  popped = map.PopBatch(dest_size, 10);
-  EXPECT_EQ(popped, 2);
-  EXPECT_EQ(dest_size[0], 63);
-  EXPECT_EQ(dest_size[1], 128);
+  dest.clear();
+  popped = map.PopBatch([&](size_t v) { dest.push_back(v); }, 10);
+  EXPECT_EQ(popped, dest.size());
+  EXPECT_THAT(dest, ElementsAre(63, 128));
   EXPECT_TRUE(map.IsZero());
 }
 

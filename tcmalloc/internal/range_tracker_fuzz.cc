@@ -37,19 +37,18 @@ void FuzzBitmapPopBatch(const std::vector<bool>& bits_to_set, size_t limit) {
     }
   }
 
-  uint8_t offsets1[N];
-  size_t popped1 = map1.PopBatch(offsets1, limit);
+  std::vector<size_t> offsets1, offsets2;
+  size_t popped1 =
+      map1.PopBatch([&](size_t v) { offsets1.push_back(v); }, limit);
+  EXPECT_EQ(offsets1.size(), popped1);
 
-  uint8_t offsets2[N];
-  size_t popped2 = 0;
-  while (!map2.IsZero() && popped2 < limit) {
+  while (!map2.IsZero() && offsets2.size() < limit) {
     size_t offset = map2.FindSet(0);
-    offsets2[popped2++] = offset;
+    offsets2.push_back(offset);
     map2.ClearBit(offset);
   }
 
-  EXPECT_THAT(absl::MakeSpan(offsets1, popped1),
-              testing::ElementsAreArray(offsets2, popped2));
+  EXPECT_THAT(offsets1, testing::Eq(offsets2));
 
   for (size_t i = 0; i < N; ++i) {
     EXPECT_EQ(map1.GetBit(i), map2.GetBit(i));
