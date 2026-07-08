@@ -1260,10 +1260,11 @@ class HugePageFiller {
   // Returns true if we should back off from MADV_COLLAPSE. In case of high
   // collapse latency, this is used to reduce the frequency of collapse
   // attempts.
-  bool ShouldBackoffFromCollapse();
+  bool ShouldBackoffFromCollapse() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Based on the <latency>, updates the max backoff delay.
-  void UpdateMaxBackoffDelay(absl::Duration latency);
+  void UpdateMaxBackoffDelay(absl::Duration latency)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Iterates through all hugepage trackers and applies different treatments.
   // Treatments applied include:
@@ -1449,8 +1450,8 @@ class HugePageFiller {
   MemoryModifyFunction& unback_without_lock_;
   MemoryModifyFunction& collapse_;
   MemoryTagFunction& set_anon_vma_name_;
-  int max_backoff_delay_ = 1;
-  int current_backoff_delay_ = 0;
+  int max_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 1;
+  int current_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 0;
   uintptr_t rng_ = 0;
 };
 
@@ -2845,14 +2846,14 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   unbacked_tracker_treatment.Treat();
 
   HugePageTreatmentStats stats = unbacked_tracker_treatment.GetStats();
+
+  // Lock the pageheap lock and update residency information in the tracker.
+  pageheap_lock.lock();
   if (stats.collapse_attempted > 0) {
     absl::Duration max_collapse_latency = absl::Milliseconds(
         stats.collapse_time_max_cycles * 1000 / clock_.freq());
     UpdateMaxBackoffDelay(max_collapse_latency);
   }
-
-  // Lock the pageheap lock and update residency information in the tracker.
-  pageheap_lock.lock();
   sampled_tracker_treatment.Restore();
   unbacked_tracker_treatment.Restore();
 
