@@ -19,6 +19,8 @@ module(
     repo_name = "com_google_tcmalloc",
 )
 
+# noop
+
 bazel_dep(name = "abseil-cpp", version = "20260107.0", repo_name = "com_google_absl")
 bazel_dep(name = "bazel_skylib", version = "1.8.1")
 bazel_dep(name = "protobuf", version = "34.0", repo_name = "com_google_protobuf")
