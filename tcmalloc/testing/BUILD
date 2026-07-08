@@ -822,7 +822,6 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     shard_count = 4,
     tags = [
-        "exclusive-if-local",
         "noasan",
         "nomsan",
         "notsan",

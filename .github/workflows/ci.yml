@@ -1,0 +1,99 @@
+# Copyright 2022 The TCMalloc Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: Tests
+
+on:
+  # continuous runs
+  schedule:
+    # Run every hour
+    - cron: "0 * * * *"
+
+  # postsubmit runs
+  push:
+    branches:
+      - master
+
+  # presubmit runs
+  pull_request:
+    branches:
+      - master
+
+  # manual runs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Avoid running twice at the same time over the same changes.
+concurrency:
+  group: ${{ github.event_name }}-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ contains(fromJSON('["pull_request", "workflow_dispatch", "schedule"]'), github.event_name) }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    name: Linux ${{ matrix.toolchain }} ${{ matrix.compilation_mode }} ${{ matrix.exceptions }} Bazel
+    container:
+      image: gcr.io/google.com/absl-177019/gloop-linux-latest@sha256:903f3d7733dd615bc1542b548fab4b649cf6e48118251a2c6527ce4e30543c6b
+      options: --cap-add=SYS_PTRACE
+      credentials:
+        # TODO(b/530366451) Switch to Workload Identity Federation to avoid the need for secrets and
+        # rotating service account keys.
+        username: _json_key
+        password: ${{ secrets.GAR_SERVICE_ACCOUNT }}
+    strategy:
+      fail-fast: false   # Don't cancel all jobs if one fails.
+      matrix:
+        toolchain: ["clang", "gcc", "libstdc++"]
+        compilation_mode: ["opt", "fastbuild"]
+        exceptions: ["-fexceptions", "-fno-exceptions"]
+        include:
+          - toolchain: libstdc++
+            extra-config: --config=clang
+    env:
+      USE_BAZEL_VERSION: 8.x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # 7.0.0
+
+      - name: Set up Bazel and caches
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+        with:
+          cache-save: true
+          bazelisk-cache: true
+          external-cache: true
+          repository-cache: true
+          google-credentials: ${{ secrets.GAR_SERVICE_ACCOUNT }}
+          bazelrc: |
+            test --test_tag_filters=-benchmark
+            common --config=remote
+
+      - name: Run tests
+        run: bazel test ... --config=${{ matrix.toolchain }} --compilation_mode=${{ matrix.compilation_mode }} --copt=${{ matrix.exceptions }} ${{ matrix.extra-config }}
+
+  # Provide a single predictably-named job for copybara to look for
+  all-blocking-tests:
+    name: All Blocking Tests
+    needs: [linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for cancellations
+        if: ${{ contains(join(needs.*.result, ' '), 'cancelled') }}
+        run: echo "One or more tests were cancelled.  If this was a presubmit job cancelled by a submit job, you can ignore this." && exit 1
+      - name: Check for failures
+        if: ${{ contains(join(needs.*.result, ' '), 'failure') }}
+        run: echo "One or more tests failed.  Please check the logs above and fix the issues." && exit 1
+    # This workflow must run even if one or more of the dependent workflows
+    # failed.
+    if: always()
