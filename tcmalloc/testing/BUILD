@@ -822,6 +822,8 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     shard_count = 4,
     tags = [
+        # Not respected by RBE (see https://github.com/bazelbuild/bazel/issues/17834)
+        "exclusive-if-local",
         "noasan",
         "nomsan",
         "notsan",
