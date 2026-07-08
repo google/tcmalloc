@@ -399,13 +399,14 @@ def create_tcmalloc_test(
 
 # Create test_suite of name containing tests variants.
 def create_tcmalloc_testsuite(name, srcs, **kwargs):
+    tags = kwargs.get("tags")
     variant_targets = create_tcmalloc_test_variant_targets(
         create_tcmalloc_test,
         name,
         srcs,
         **kwargs
     )
-    native.test_suite(name = name, tests = variant_targets)
+    native.test_suite(name = name, tests = variant_targets, tags = tags)
 
 # Declare a single benchmark binary.
 def create_tcmalloc_benchmark(name, srcs, **kwargs):
