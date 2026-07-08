@@ -674,6 +674,7 @@ cc_library(
     srcs = ["mock_transfer_cache.cc"],
     hdrs = ["mock_transfer_cache.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
