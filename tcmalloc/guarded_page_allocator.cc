@@ -520,7 +520,11 @@ GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
   if (addr >= d.allocation_start + d.requested_size) {
     return GuardedAllocationsErrorType::kBufferOverflow;
   }
-  return GuardedAllocationsErrorType::kUnknown;
+  // If addr is within [d.allocation_start, d.allocation_start +
+  // d.requested_size) on a faulted Object Page where dealloc_count == 0,
+  // metadata was reset by concurrent slot recycling. It is guaranteed to be a
+  // Use-After-Free.
+  return GuardedAllocationsErrorType::kUseAfterFree;
 }
 
 uintptr_t GuardedPageAllocator::SlotToAddr(size_t slot) const {
