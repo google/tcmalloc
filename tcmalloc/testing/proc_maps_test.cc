@@ -96,7 +96,12 @@ TEST(ProcMapsTest, InspectMappings) {
       "[anon:tcmalloc_region_SAMPLED]",
   };
 
-  if (!numa_aware) {
+  const bool numa_or_partitioned =
+      numa_aware || MallocExtension::GetNumericProperty(
+                        "tcmalloc.security_partitioning_active")
+                            .value_or(0) > 0;
+
+  if (!numa_or_partitioned) {
     expected.insert("[anon:tcmalloc_region_NORMAL]");
   }
 
@@ -110,7 +115,7 @@ TEST(ProcMapsTest, InspectMappings) {
   }
 
   EXPECT_THAT(tcmalloc_regions, IsSupersetOf(expected));
-  if (numa_aware) {
+  if (numa_or_partitioned) {
     EXPECT_THAT(tcmalloc_regions,
                 AnyOf(Contains("[anon:tcmalloc_region_NORMAL]"),
                       Contains("[anon:tcmalloc_region_NORMAL_P1]")));
