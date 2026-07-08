@@ -48,26 +48,6 @@ const char kDisableExperiments[] = "BORG_DISABLE_EXPERIMENTS";
 constexpr absl::string_view kEnableAll = "enable-all-known-experiments";
 constexpr absl::string_view kDisableAll = "all";
 
-// Experiments that have known issues with brittle tests, are not enabled
-// involuntarily in tests, and shouldn't be enabled widely.
-bool HasBrittleTestFailures(Experiment exp) {
-  if (exp == Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS) {
-    return true;
-  }
-
-  if (exp == Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE) {
-    return true;
-  }
-  // TODO(b/134694141): Temporarily add to the brittle tests list.
-  if (exp == Experiment::TCMALLOC_EAGER_BACKING_V2) {
-    return true;
-  }
-  if (exp == Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING) {
-    return true;
-  }
-  return false;
-}
-
 bool IsCompilerExperiment(Experiment exp ABSL_ATTRIBUTE_UNUSED) {
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT
   return exp == Experiment::NPX_COMPILER_EXPERIMENT;
@@ -198,8 +178,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
     int num_enabled_experiments = 0;
     Experiment experiment_id = Experiment::kMaxExperimentID;
     for (auto config : experiments) {
-      if (IsCompilerExperiment(config.id) ||
-          HasBrittleTestFailures(config.id)) {
+      if (IsCompilerExperiment(config.id) || config.brittle) {
         continue;
       }
       experiment_id = config.id;
