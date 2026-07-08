@@ -209,7 +209,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Indicate whether the Span is empty. Size is used to determine whether
   // the span is using a compressed linked list of objects, or a bitmap
   // to hold available objects.
-  bool FreelistEmpty(size_t size) const;
+  [[nodiscard]] bool FreelistEmpty(size_t size,
+                                   uint32_t objects_per_span) const;
 
   // Pushes ptr onto freelist unless the freelist becomes full, in which case
   // just return false.
@@ -657,13 +658,19 @@ inline size_t Span::bytes_in_span() const ABSL_NO_THREAD_SAFETY_ANALYSIS {
   return Length(small_span_state_.num_pages).in_bytes();
 }
 
-inline bool Span::FreelistEmpty(size_t size) const {
+inline bool Span::FreelistEmpty(size_t size, uint32_t objects_per_span) const {
   TC_ASSERT(!is_large_or_sampled());
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  (void)size;
+  return allocated_.load(std::memory_order_relaxed) == objects_per_span;
+#else
+  (void)objects_per_span;
   if (UseBitmapForSize(size)) {
     return small_span_state_.bitmap.IsZero();
   } else {
     return cache_size_ == 0 && freelist_ == kListEnd;
   }
+#endif
 }
 
 inline void Span::Prefetch() { PrefetchT0(this); }

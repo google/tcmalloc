@@ -141,7 +141,7 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, Alloc>) {
             size_t n = std::min<size_t>(arg.count, num_to_move);
-            if (span->FreelistEmpty(object_size)) {
+            if (span->FreelistEmpty(object_size, objects_per_span)) {
               n = 0;
             }
             if (n == 0) {
@@ -260,7 +260,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     size_t want = std::min(num_to_move, objects_per_span - ptrs.size());
     TC_CHECK_GT(want, 0);
     void* batch[kMaxObjectsToMove];
-    TC_CHECK(!span->FreelistEmpty(object_size));
+    TC_CHECK(!span->FreelistEmpty(object_size, objects_per_span));
     size_t n = span->FreelistPopBatch(absl::MakeSpan(batch, want), object_size);
 
     TC_CHECK_GT(n, 0);
@@ -269,7 +269,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     ptrs.insert(ptrs.end(), batch, batch + n);
   }
 
-  TC_CHECK(span->FreelistEmpty(object_size));
+  TC_CHECK(span->FreelistEmpty(object_size, objects_per_span));
   TC_CHECK_EQ(ptrs.size(), objects_per_span);
   TC_CHECK_EQ(ptrs.size(), span->Allocated());
 
@@ -281,7 +281,8 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     // element onto the freelist.
     //
     // For single object spans, the freelist always stays "empty" as a result.
-    TC_CHECK(popped == 1 || !span->FreelistEmpty(object_size));
+    TC_CHECK(popped == 1 ||
+             !span->FreelistEmpty(object_size, objects_per_span));
   }
 
   // We bitpack alloc time and do not store the full value.  We are willing to
