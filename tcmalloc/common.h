@@ -225,9 +225,9 @@ inline constexpr int kMaxOverages = 3;
 // scavenging code will shrink it down when its contents are not in use.
 inline constexpr size_t kMaxDynamicFreeListLength = 8192;
 
-inline constexpr bool ColdFeatureActive() { return kHasExpandedClasses; }
+constexpr bool ColdFeatureActive() { return kHasExpandedClasses; }
 
-inline constexpr bool IsExpandedSizeClass(unsigned size_class) {
+constexpr bool IsExpandedSizeClass(unsigned size_class) {
   return kHasExpandedClasses && (size_class >= kExpandedClassesStart);
 }
 

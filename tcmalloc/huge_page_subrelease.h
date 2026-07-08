@@ -133,17 +133,13 @@ class SkippedSubreleaseCorrectnessTracker {
     last_confirmed_peak_ = std::max(last_confirmed_peak_, current_peak);
   }
 
-  inline SkippedSubreleaseDecision total_skipped() const {
-    return total_skipped_;
-  }
+  SkippedSubreleaseDecision total_skipped() const { return total_skipped_; }
 
-  inline SkippedSubreleaseDecision correctly_skipped() const {
+  SkippedSubreleaseDecision correctly_skipped() const {
     return correctly_skipped_;
   }
 
-  inline SkippedSubreleaseDecision pending_skipped() const {
-    return pending_skipped_;
-  }
+  SkippedSubreleaseDecision pending_skipped() const { return pending_skipped_; }
 
  private:
   struct SkippedSubreleaseUpdate {
@@ -367,19 +363,19 @@ class SubreleaseStatsTracker {
                                                                  peak_pages);
   }
 
-  inline typename SkippedSubreleaseCorrectnessTracker<
+  typename SkippedSubreleaseCorrectnessTracker<
       kSlots>::SkippedSubreleaseDecision
   total_skipped() const {
     return skipped_subrelease_correctness_.total_skipped();
   }
 
-  inline typename SkippedSubreleaseCorrectnessTracker<
+  typename SkippedSubreleaseCorrectnessTracker<
       kSlots>::SkippedSubreleaseDecision
   correctly_skipped() const {
     return skipped_subrelease_correctness_.correctly_skipped();
   }
 
-  inline typename SkippedSubreleaseCorrectnessTracker<
+  typename SkippedSubreleaseCorrectnessTracker<
       kSlots>::SkippedSubreleaseDecision
   pending_skipped() const {
     return skipped_subrelease_correctness_.pending_skipped();

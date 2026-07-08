@@ -105,7 +105,7 @@ namespace tcmalloc_internal {
 // NullOomPolicy: returns nullptr
 struct NullOomPolicy {
   template <typename Policy, typename Pointer = typename Policy::pointer_type>
-  static inline constexpr Pointer handle_oom(size_t size) {
+  static constexpr Pointer handle_oom(size_t size) {
     return Policy::as_pointer(nullptr, 0);
   }
 };
@@ -113,7 +113,7 @@ struct NullOomPolicy {
 // MallocOomPolicy: sets errno to ENOMEM and returns nullptr
 struct MallocOomPolicy {
   template <typename Policy, typename Pointer = typename Policy::pointer_type>
-  static inline Pointer handle_oom(size_t size) {
+  static Pointer handle_oom(size_t size) {
     errno = ENOMEM;
     return Policy::as_pointer(nullptr, 0);
   }
@@ -212,8 +212,8 @@ struct IsSizeReturningPolicy {
     return {ptr, capacity};
   }
 
-  static ABSL_ATTRIBUTE_ALWAYS_INLINE inline pointer_type to_pointer(
-      void* ptr, size_t size_class) {
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  to_pointer(void* ptr, size_t size_class) {
     return {ptr, tc_globals.sizemap().class_to_size(size_class)};
   }
 };
@@ -226,8 +226,8 @@ struct NonSizeReturningPolicy {
 
   static constexpr pointer_type as_pointer(void* ptr, size_t) { return ptr; }
 
-  static ABSL_ATTRIBUTE_ALWAYS_INLINE inline pointer_type to_pointer(void* ptr,
-                                                                     size_t) {
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type to_pointer(void* ptr,
+                                                              size_t) {
     return ptr;
   }
 };

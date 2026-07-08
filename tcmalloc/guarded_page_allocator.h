@@ -172,13 +172,13 @@ class GuardedPageAllocator {
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Returns true if ptr points to memory managed by this class.
-  inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
+  bool ABSL_ATTRIBUTE_ALWAYS_INLINE
   PointerIsMine(const void* absl_nullable ptr) const {
     uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
     return pages_base_addr_ <= addr && addr < pages_end_addr_;
   }
 
-  [[nodiscard]] inline bool PointerIsCorrectlyAligned(const void* ptr) const {
+  [[nodiscard]] bool PointerIsCorrectlyAligned(const void* ptr) const {
     const uintptr_t addr = absl::bit_cast<uintptr_t>(ptr);
     size_t slot = GetNearestSlot(addr);
     const SlotMetadata& metadata = data_[slot];

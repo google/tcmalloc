@@ -207,8 +207,8 @@ class SizeMap {
   // TODO(b/171978365): Replace the output parameter with returning
   // absl::optional<uint32_t>.
   template <typename Policy>
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMapResult GetSizeClass(
-      Policy policy, size_t size) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE SizeMapResult
+  GetSizeClass(Policy policy, size_t size) const {
     const size_t align = static_cast<size_t>(policy.align());
     TC_ASSERT(absl::has_single_bit(align));
 
@@ -274,8 +274,8 @@ class SizeMap {
   // Returns size class for given size, or 0 if this instance has not been
   // initialized yet. REQUIRES: size <= kMaxSize.
   template <typename Policy>
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t SizeClass(
-      Policy policy, size_t size) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+  SizeClass(Policy policy, size_t size) const {
     ASSUME(size <= kMaxSize);
     return GetSizeClass(policy, size).size_class;
   }

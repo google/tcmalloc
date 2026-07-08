@@ -159,7 +159,7 @@ inline HugeLength& operator--(HugeLength& len) {  // NOLINT(runtime/references)
   return len;
 }
 
-inline constexpr bool operator<(HugeLength lhs, HugeLength rhs) {
+constexpr bool operator<(HugeLength lhs, HugeLength rhs) {
   return lhs.n < rhs.n;
 }
 
@@ -364,7 +364,7 @@ struct HugeRange {
   HugeLength n;
 };
 
-inline constexpr bool operator==(HugeRange lhs, HugeRange rhs) {
+constexpr bool operator==(HugeRange lhs, HugeRange rhs) {
   return lhs.start() == rhs.start() && lhs.len() == rhs.len();
 }
 

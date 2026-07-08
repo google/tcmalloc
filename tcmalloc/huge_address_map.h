@@ -128,7 +128,7 @@ class HugeAddressMap {
   uint64_t seed_{0};
 };
 
-inline constexpr HugeAddressMap::HugeAddressMap(MetadataAllocator& meta)
+constexpr HugeAddressMap::HugeAddressMap(MetadataAllocator& meta)
     : meta_(meta) {}
 
 inline HugeRange HugeAddressMap::Node::range() const { return range_; }
