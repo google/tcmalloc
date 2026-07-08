@@ -33,6 +33,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -81,8 +82,13 @@ class PageFlagsFriend {
     return r_.IsHugepageBacked(addr);
   }
 
-  decltype(auto) GetSinglePageBitmaps(const void* addr,
-                                      ResidencyBitmap& stale) {
+  decltype(auto) GetSinglePageBitmapsInternal(const void* addr,
+                                              ResidencyBitmap& stale) {
+    return r_.GetSinglePageBitmapsInternal(addr, stale);
+  }
+
+  template <size_t N>
+  absl::StatusCode GetSinglePageBitmaps(const void* addr, Bitmap<N>& stale) {
     return r_.GetSinglePageBitmaps(addr, stale);
   }
 
@@ -604,13 +610,14 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
   {
     PageFlagsFriend s;
     ResidencyBitmap stale;
-    EXPECT_EQ(s.GetSinglePageBitmaps(reinterpret_cast<const void*>(1), stale),
-              absl::StatusCode::kFailedPrecondition);
+    EXPECT_EQ(
+        s.GetSinglePageBitmapsInternal(reinterpret_cast<const void*>(1), stale),
+        absl::StatusCode::kFailedPrecondition);
   }
   {
     PageFlagsFriend s("/dev/null/impossible");
     ResidencyBitmap stale;
-    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+    EXPECT_EQ(s.GetSinglePageBitmapsInternal(nullptr, stale),
               absl::StatusCode::kUnavailable);
   }
   {
@@ -619,7 +626,7 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
     SetContents(fake_pageflags, "x");
     PageFlagsFriend s(fake_pageflags);
     ResidencyBitmap stale;
-    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+    EXPECT_EQ(s.GetSinglePageBitmapsInternal(nullptr, stale),
               absl::StatusCode::kUnavailable);
   }
   {
@@ -635,7 +642,7 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
 
     PageFlagsFriend s(fake_pageflags);
     ResidencyBitmap stale;
-    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+    EXPECT_EQ(s.GetSinglePageBitmapsInternal(nullptr, stale),
               absl::StatusCode::kFailedPrecondition);
   }
 }
@@ -659,8 +666,61 @@ TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
   ResidencyBitmap stale;
   stale.Clear();
 
-  EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale), absl::StatusCode::kOk);
+  EXPECT_EQ(s.GetSinglePageBitmapsInternal(nullptr, stale),
+            absl::StatusCode::kOk);
   EXPECT_EQ(stale.CountBits(), kMaxResidencyBits / 2);
+}
+
+template <typename T>
+class GetSinglePageBitmapsWrapperTest : public ::testing::Test {};
+
+using WrapperTestSizes =
+    ::testing::Types<std::integral_constant<size_t, kMaxResidencyBits>,
+                     std::integral_constant<size_t, kMaxResidencyBits / 2>,
+                     std::integral_constant<size_t, kMaxResidencyBits * 2>>;
+
+TYPED_TEST_SUITE(GetSinglePageBitmapsWrapperTest, WrapperTestSizes);
+
+TYPED_TEST(GetSinglePageBitmapsWrapperTest, AlternatingStale) {
+  constexpr size_t N = TypeParam::value;
+
+  std::string fake_pageflags =
+      absl::StrCat(testing::TempDir(), "/fake_pageflags_wrapper_", N);
+  const size_t kPageSize = getpagesize();
+  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  std::vector<uint64_t> data(kNativePagesInHugePage, 0);
+
+  data[0] |= kPageStale;
+  data[1] |= kPageStale;
+  data[2] |= kPageStale;
+
+  std::string content(reinterpret_cast<const char*>(data.data()),
+                      data.size() * sizeof(uint64_t));
+  SetContents(fake_pageflags, content);
+
+  PageFlagsFriend s(fake_pageflags);
+  Bitmap<N> stale;
+  stale.Clear();
+
+  EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale), absl::StatusCode::kOk);
+
+  if constexpr (N == kMaxResidencyBits) {
+    EXPECT_EQ(stale.CountBits(), 3);
+    EXPECT_TRUE(stale.GetBit(0));
+    EXPECT_TRUE(stale.GetBit(1));
+    EXPECT_TRUE(stale.GetBit(2));
+    EXPECT_FALSE(stale.GetBit(3));
+  } else if constexpr (N == kMaxResidencyBits / 2) {
+    EXPECT_EQ(stale.CountBits(), 1);
+    EXPECT_TRUE(stale.GetBit(0));
+    EXPECT_FALSE(stale.GetBit(1));
+  } else if constexpr (N == kMaxResidencyBits * 2) {
+    EXPECT_EQ(stale.CountBits(), 6);
+    for (size_t i = 0; i < 6; ++i) {
+      EXPECT_TRUE(stale.GetBit(i)) << i;
+    }
+    EXPECT_FALSE(stale.GetBit(6));
+  }
 }
 
 }  // namespace

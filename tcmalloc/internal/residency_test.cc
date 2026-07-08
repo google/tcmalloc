@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -55,8 +56,13 @@ class ResidencySpouse {
     return r_.Get(std::forward<Args>(args)...);
   }
 
-  decltype(auto) GetUnbackedAndSwappedBitmaps(const void* const addr) {
-    return r_.GetUnbackedAndSwappedBitmaps(addr);
+  decltype(auto) GetUnbackedAndSwappedBitmapsInternal(const void* const addr) {
+    return r_.GetUnbackedAndSwappedBitmapsInternal(addr);
+  }
+
+  template <size_t N>
+  decltype(auto) GetUnbackedAndSwappedBitmaps(const void* addr) {
+    return r_.GetUnbackedAndSwappedBitmaps<N>(addr);
   }
 
  private:
@@ -208,7 +214,8 @@ void GenerateHolesInSinglePage(absl::string_view filename, int case_num,
   CHECK_EQ(close(write_fd), 0) << errno;
 }
 
-Residency::SinglePageBitmaps GenerateExpectedSinglePageBitmaps(int case_num) {
+Residency::SinglePageBitmaps<512> GenerateExpectedSinglePageBitmaps(
+    int case_num) {
   Bitmap<512> expected_unbacked;
   Bitmap<512> expected_swapped;
   switch (case_num) {
@@ -270,7 +277,8 @@ bool BitmapsAreEqual(const Bitmap<512>& bitmap1, const Bitmap<512>& bitmap2) {
 
 TEST(PageMapTest, GetUnbackedAndSwappedBitmaps) {
   constexpr int kNumCases = 6;
-  std::array<Residency::SinglePageBitmaps, kNumCases> expected;
+  std::array<Residency::SinglePageBitmaps<kMaxResidencyBits>, kNumCases>
+      expected;
   for (int i = 0; i < kNumCases; ++i) {
     expected[i] = GenerateExpectedSinglePageBitmaps(i);
   }
@@ -284,8 +292,8 @@ TEST(PageMapTest, GetUnbackedAndSwappedBitmaps) {
 
     g.emplace();
     ResidencySpouse s(file_path);
-    Residency::SinglePageBitmaps res =
-        s.GetUnbackedAndSwappedBitmaps(reinterpret_cast<void*>(0));
+    auto res = s.GetUnbackedAndSwappedBitmaps<kMaxResidencyBits>(
+        reinterpret_cast<void*>(0));
     g.reset();
     EXPECT_THAT(res.status, expected[i].status);
     EXPECT_TRUE(BitmapsAreEqual(res.unbacked, expected[i].unbacked));
@@ -302,8 +310,8 @@ TEST(PageMapTest, CountHolesWithAddressBeyondFirstPage) {
   Residency::SinglePageBitmaps expected = GenerateExpectedSinglePageBitmaps(5);
   g.emplace();
   ResidencySpouse s(file_path);
-  Residency::SinglePageBitmaps res =
-      s.GetUnbackedAndSwappedBitmaps(reinterpret_cast<void*>(2 << 21));
+  auto res = s.GetUnbackedAndSwappedBitmaps<kMaxResidencyBits>(
+      reinterpret_cast<void*>(2 << 21));
   g.reset();
   EXPECT_THAT(res.status, expected.status);
   EXPECT_TRUE(BitmapsAreEqual(res.unbacked, expected.unbacked));
@@ -317,8 +325,8 @@ TEST(PageMapTest, VerifyAddressAlignmentCheckPasses) {
                             /*num_pages=*/512);
   g.emplace();
   ResidencySpouse s(file_path);
-  Residency::SinglePageBitmaps non_align_addr_res =
-      s.GetUnbackedAndSwappedBitmaps(reinterpret_cast<void*>(0x00001));
+  auto non_align_addr_res = s.GetUnbackedAndSwappedBitmaps<kMaxResidencyBits>(
+      reinterpret_cast<void*>(0x00001));
   g.reset();
   EXPECT_EQ(non_align_addr_res.status, absl::StatusCode::kFailedPrecondition);
 }
@@ -327,8 +335,8 @@ TEST(PageMapTest, VerifyAddressAlignmentBeyondFirstPageFails) {
   std::optional<AllocationGuard> g;
   g.emplace();
   ResidencySpouse s;
-  Residency::SinglePageBitmaps res =
-      s.GetUnbackedAndSwappedBitmaps(reinterpret_cast<void*>((2 << 21) + 1));
+  auto res = s.GetUnbackedAndSwappedBitmaps<kMaxResidencyBits>(
+      reinterpret_cast<void*>((2 << 21) + 1));
   g.reset();
   EXPECT_EQ(res.status, absl::StatusCode::kFailedPrecondition);
 }
@@ -346,7 +354,8 @@ TEST(PageMapIntegrationTest, WorksOnActualData) {
   }
   g.emplace();
   ResidencyPageMap r;
-  Residency::SinglePageBitmaps res = r.GetUnbackedAndSwappedBitmaps(addr);
+  Residency::SinglePageBitmapsInternal res =
+      r.GetUnbackedAndSwappedBitmapsInternal(addr);
   g.reset();
   ASSERT_EQ(res.status, absl::StatusCode::kOk);
   EXPECT_TRUE(res.unbacked.IsZero());
@@ -357,7 +366,7 @@ TEST(PageMapIntegrationTest, WorksOnActualData) {
       << errno;
 
   g.emplace();
-  res = r.GetUnbackedAndSwappedBitmaps(addr);
+  res = r.GetUnbackedAndSwappedBitmapsInternal(addr);
   g.reset();
   ASSERT_EQ(res.status, absl::StatusCode::kOk);
   EXPECT_FALSE(res.unbacked.IsZero());
@@ -365,6 +374,80 @@ TEST(PageMapIntegrationTest, WorksOnActualData) {
   ASSERT_TRUE(res.unbacked.GetBit(17));
   res.unbacked.ClearLowestBit();
   res.unbacked.ClearLowestBit();
+  EXPECT_TRUE(res.unbacked.IsZero());
+  EXPECT_TRUE(res.swapped.IsZero());
+}
+
+template <typename T>
+class PageMapIntegrationTest : public ::testing::Test {};
+
+using WorksOnActualDataTestSizes =
+    ::testing::Types<std::integral_constant<size_t, kMaxResidencyBits>,
+                     std::integral_constant<size_t, kMaxResidencyBits / 2>,
+                     std::integral_constant<size_t, kMaxResidencyBits * 2>>;
+
+TYPED_TEST_SUITE(PageMapIntegrationTest, WorksOnActualDataTestSizes);
+
+TYPED_TEST(PageMapIntegrationTest, WorksOnActualDataWrapper) {
+  constexpr size_t N = TypeParam::value;
+  std::optional<AllocationGuard> g;
+  void* addr = mmap(nullptr, 4 << 20, PROT_WRITE,
+                    MAP_ANONYMOUS | MAP_POPULATE | MAP_PRIVATE, -1, 0);
+  ASSERT_NE(addr, MAP_FAILED) << errno;
+  auto position = reinterpret_cast<uintptr_t>(addr);
+  if ((position & (kHugePageSize - 1)) != 0) {
+    position |= kHugePageSize - 1;
+    position++;
+    addr = reinterpret_cast<void*>(position);
+  }
+  g.emplace();
+  ResidencyPageMap r;
+  auto res = r.GetUnbackedAndSwappedBitmaps<N>(addr);
+  g.reset();
+  ASSERT_EQ(res.status, absl::StatusCode::kOk);
+  EXPECT_TRUE(res.unbacked.IsZero());
+  EXPECT_TRUE(res.swapped.IsZero());
+  // Unmap consecutive pages starting at page 2, and page 16
+  ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 2 * 4096, 2 * 4096), 0)
+      << errno;
+  ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 16 * 4096, 2 * 4096), 0)
+      << errno;
+
+  g.emplace();
+  res = r.GetUnbackedAndSwappedBitmaps<N>(addr);
+  g.reset();
+  ASSERT_EQ(res.status, absl::StatusCode::kOk);
+  EXPECT_FALSE(res.unbacked.IsZero());
+
+  if constexpr (N == kMaxResidencyBits) {
+    ASSERT_TRUE(res.unbacked.GetBit(2));
+    ASSERT_TRUE(res.unbacked.GetBit(3));
+    ASSERT_TRUE(res.unbacked.GetBit(16));
+    ASSERT_TRUE(res.unbacked.GetBit(17));
+    res.unbacked.ClearBit(2);
+    res.unbacked.ClearBit(3);
+    res.unbacked.ClearBit(16);
+    res.unbacked.ClearBit(17);
+  } else if constexpr (N == kMaxResidencyBits / 2) {
+    ASSERT_TRUE(res.unbacked.GetBit(1));
+    ASSERT_TRUE(res.unbacked.GetBit(8));
+    res.unbacked.ClearBit(1);
+    res.unbacked.ClearBit(8);
+  } else if constexpr (N == kMaxResidencyBits * 2) {
+    ASSERT_TRUE(res.unbacked.GetBit(4));
+    ASSERT_TRUE(res.unbacked.GetBit(5));
+    ASSERT_TRUE(res.unbacked.GetBit(32));
+    ASSERT_TRUE(res.unbacked.GetBit(33));
+    res.unbacked.ClearBit(4);
+    res.unbacked.ClearBit(5);
+    res.unbacked.ClearBit(6);
+    res.unbacked.ClearBit(7);
+    res.unbacked.ClearBit(32);
+    res.unbacked.ClearBit(33);
+    res.unbacked.ClearBit(34);
+    res.unbacked.ClearBit(35);
+  }
+
   EXPECT_TRUE(res.unbacked.IsZero());
   EXPECT_TRUE(res.swapped.IsZero());
 }

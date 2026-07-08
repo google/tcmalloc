@@ -347,6 +347,74 @@ TEST_F(BitmapTest, PopBatch) {
   EXPECT_TRUE(map.IsZero());
 }
 
+#ifndef NDEBUG
+TEST_F(BitmapTest, ContractAssertionFailures) {
+  Bitmap<64> map1;
+  // 1. src_len > N (64)
+  EXPECT_DEATH(map1.Contract<64>(128), "");
+  // 2. src_len (64) doesn't divide M (10) and vice versa
+  EXPECT_DEATH(map1.Contract<10>(64), "");
+}
+#endif
+
+TEST_F(BitmapTest, Contract) {
+  // Test case 1: N == M (equal)
+  {
+    Bitmap<64> map1;
+    map1.SetBit(3);
+    map1.SetBit(17);
+    map1.SetBit(63);
+
+    auto map2 = map1.Contract<64>(64);
+    for (size_t i = 0; i < 64; ++i) {
+      EXPECT_EQ(map1.GetBit(i), map2.GetBit(i));
+    }
+  }
+
+  // Test case 2: N > M (Contracting)
+  {
+    Bitmap<64> map1;
+    // We group by 2 bits.
+    // Group 0: bits 0, 1 -> both must be set
+    map1.SetBit(0);
+    map1.SetBit(1);
+
+    // Group 1: bits 2, 3 -> only one set -> should not be set
+    map1.SetBit(2);
+
+    // Group 7: bits 14, 15 -> both set
+    map1.SetBit(14);
+    map1.SetBit(15);
+
+    auto map2 = map1.Contract<8>(16);
+    EXPECT_TRUE(map2.GetBit(0));
+    EXPECT_FALSE(map2.GetBit(1));
+    EXPECT_FALSE(map2.GetBit(2));
+    EXPECT_FALSE(map2.GetBit(3));
+    EXPECT_FALSE(map2.GetBit(4));
+    EXPECT_FALSE(map2.GetBit(5));
+    EXPECT_FALSE(map2.GetBit(6));
+    EXPECT_TRUE(map2.GetBit(7));
+  }
+
+  // Test case 3: N < M (expanding)
+  {
+    Bitmap<64> map1;
+    // We expand by 2 bits.
+    map1.SetBit(0);
+    map1.SetBit(7);
+
+    auto map2 = map1.Contract<16>(8);
+    EXPECT_TRUE(map2.GetBit(0));
+    EXPECT_TRUE(map2.GetBit(1));
+    EXPECT_FALSE(map2.GetBit(2));
+    EXPECT_FALSE(map2.GetBit(3));
+
+    EXPECT_TRUE(map2.GetBit(14));
+    EXPECT_TRUE(map2.GetBit(15));
+  }
+}
+
 class RangeTrackerTest : public ::testing::Test {
  protected:
   std::vector<std::pair<size_t, size_t>> FreeRanges() {

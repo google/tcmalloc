@@ -186,20 +186,20 @@ std::optional<Residency::Info> ResidencyPageMap::Get(const void* const addr,
   return info;
 }
 
-Residency::SinglePageBitmaps ResidencyPageMap::GetUnbackedAndSwappedBitmaps(
-    const void* const addr) {
+Residency::SinglePageBitmapsInternal
+ResidencyPageMap::GetUnbackedAndSwappedBitmapsInternal(const void* const addr) {
   Bitmap<kMaxResidencyBits> page_unbacked;
   Bitmap<kMaxResidencyBits> page_swapped;
   uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
   if ((currPage & kHugePageMask) != currPage) {
     TC_LOG("Address is not hugepage aligned");
-    return SinglePageBitmaps{page_unbacked, page_swapped,
-                             absl::StatusCode::kFailedPrecondition};
+    return SinglePageBitmapsInternal{page_unbacked, page_swapped,
+                                     absl::StatusCode::kFailedPrecondition};
   }
   auto res = Seek(currPage);
   if (res != absl::StatusCode::kOk) {
-    return SinglePageBitmaps{page_unbacked, page_swapped,
-                             absl::StatusCode::kUnavailable};
+    return SinglePageBitmapsInternal{page_unbacked, page_swapped,
+                                     absl::StatusCode::kUnavailable};
   }
   auto status = signal_safe_read(fd_, reinterpret_cast<char*>(buf_),
                                  kSizeOfHugepageInPagemap, nullptr);
@@ -208,8 +208,8 @@ Residency::SinglePageBitmaps ResidencyPageMap::GetUnbackedAndSwappedBitmaps(
         "Could not read from pagemap file due to unexpected number of bytes "
         "read. Expected %d bytes, got %d bytes",
         kSizeOfHugepageInPagemap, status);
-    return SinglePageBitmaps{page_unbacked, page_swapped,
-                             absl::StatusCode::kUnavailable};
+    return SinglePageBitmapsInternal{page_unbacked, page_swapped,
+                                     absl::StatusCode::kUnavailable};
   }
 
   for (int native_page_idx = 0; native_page_idx < kNativePagesInHugePage;
@@ -223,7 +223,8 @@ Residency::SinglePageBitmaps ResidencyPageMap::GetUnbackedAndSwappedBitmaps(
       }
     }
   }
-  return SinglePageBitmaps{page_unbacked, page_swapped, absl::StatusCode::kOk};
+  return SinglePageBitmapsInternal{page_unbacked, page_swapped,
+                                   absl::StatusCode::kOk};
 }
 
 }  // namespace tcmalloc_internal

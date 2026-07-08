@@ -47,18 +47,31 @@ class Residency {
   virtual inline size_t GetNativePagesInHugePage() const = 0;
 
   // Struct is ordered with bitmaps first to optimize cacheline usage.
+  template <size_t N>
   struct SinglePageBitmaps {
-    Bitmap<kMaxResidencyBits> unbacked;
-    Bitmap<kMaxResidencyBits> swapped;
+    Bitmap<N> unbacked;
+    Bitmap<N> swapped;
     absl::StatusCode status;
   };
+
+  using SinglePageBitmapsInternal = SinglePageBitmaps<kMaxResidencyBits>;
 
   // Using a hugepage-aligned address, parse through /proc/self/pagemap
   // to output two bitmaps - one for pages that are unbacked and one for pages
   // that are swapped. Hugepage-sized regions are assumed to be 2MiB in size. A
   // SinglePageBitmaps struct is returned with the status, the page_unbacked
   // bitmap, and the page_swapped bitmap.
-  virtual SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) = 0;
+  virtual SinglePageBitmapsInternal GetUnbackedAndSwappedBitmapsInternal(
+      const void* addr) = 0;
+
+  template <size_t N>
+  SinglePageBitmaps<N> GetUnbackedAndSwappedBitmaps(const void* addr) {
+    SinglePageBitmapsInternal res = GetUnbackedAndSwappedBitmapsInternal(addr);
+    return SinglePageBitmaps{
+        .unbacked = res.unbacked.Contract<N>(GetNativePagesInHugePage()),
+        .swapped = res.swapped.Contract<N>(GetNativePagesInHugePage()),
+        .status = res.status};
+  }
 };
 
 // Residency offers information about memory residency: whether or not specific
@@ -95,7 +108,8 @@ class ResidencyPageMap : public Residency {
   // that are swapped. Hugepage-sized regions are assumed to be 2MiB in size. A
   // SinglePageBitmaps struct is returned with the status, the page_unbacked
   // bitmap, and the page_swapped bitmap.
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override;
+  SinglePageBitmapsInternal GetUnbackedAndSwappedBitmapsInternal(
+      const void* addr) override;
 
  private:
   // This helper seeks the internal file to the correct location for the given

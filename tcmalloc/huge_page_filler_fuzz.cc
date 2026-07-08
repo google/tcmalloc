@@ -124,8 +124,8 @@ class FakePageFlags : public PageFlagsBase {
     return PageStats{};
   }
 
-  absl::StatusCode GetSinglePageBitmaps(const void* addr,
-                                        ResidencyBitmap& stale) override {
+  absl::StatusCode GetSinglePageBitmapsInternal(
+      const void* addr, ResidencyBitmap& stale) override {
     return absl::StatusCode::kUnimplemented;
   }
 
@@ -141,7 +141,8 @@ class FakeResidency : public Residency {
     return std::nullopt;
   };
 
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+  SinglePageBitmapsInternal GetUnbackedAndSwappedBitmapsInternal(
+      const void* addr) override {
     return {unbacked_bitmap, swapped_bitmap, absl::StatusCode::kOk};
   };
 
@@ -151,7 +152,8 @@ class FakeResidency : public Residency {
   };
 
  private:
-  absl::flat_hash_map<const void*, SinglePageBitmaps> residency_bitmaps_;
+  absl::flat_hash_map<const void*, SinglePageBitmapsInternal>
+      residency_bitmaps_;
 };
 
 class MockCollapse final : public MemoryModifyFunction {
