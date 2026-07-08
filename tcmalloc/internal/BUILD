@@ -1055,6 +1055,7 @@ cc_library(
     hdrs = ["range_tracker.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
+        "//tcmalloc:__pkg__",
         "//tcmalloc:__subpackages__",
     ],
     deps = [
