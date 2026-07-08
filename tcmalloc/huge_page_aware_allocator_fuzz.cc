@@ -341,7 +341,6 @@ void AbslStringify(Sink& sink, const ReentrantSubprogram& r) {
 
 void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
               const std::vector<Instruction>& instructions) {
-  GTEST_SKIP() << "Skipping";
   HugePageAwareAllocatorOptions options =
       static_cast<HugePageAwareAllocatorOptions>(fuzz_options);
   // Use kNormalP1 memory tag only if we have more than one partitions.
