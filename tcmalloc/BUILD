@@ -791,7 +791,9 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:sampled_allocation",
         "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
