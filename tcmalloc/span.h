@@ -410,6 +410,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   [[noreturn]] void ReportDoubleFree(const void* ptr);
 
+  ABSL_ATTRIBUTE_RETURNS_NONNULL SampledAllocation* UnsampleSlow();
+
   // Friend class to enable more indepth testing of bitmap code.
   friend class SpanTestPeer;
 };
@@ -790,6 +792,13 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
   allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
                    std::memory_order_relaxed);
   return result;
+}
+
+inline SampledAllocation* absl_nullable Span::Unsample() {
+  if (!sampled_) {
+    return nullptr;
+  }
+  return UnsampleSlow();
 }
 
 }  // namespace tcmalloc_internal

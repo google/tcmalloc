@@ -59,10 +59,8 @@ void Span::Sample(SampledAllocation* sampled_allocation) {
   tc_globals.total_sampled_count_.Add(1);
 }
 
-SampledAllocation* Span::Unsample() {
-  if (!sampled_) {
-    return nullptr;
-  }
+SampledAllocation* Span::UnsampleSlow() {
+  TC_ASSERT(sampled_);
   Length pages_per_span = num_pages();
   TC_CHECK_GT(pages_per_span, Length(0));
   TC_CHECK(sampled_ && large_or_sampled_state_.sampled_allocation);
