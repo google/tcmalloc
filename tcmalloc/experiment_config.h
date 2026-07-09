@@ -36,6 +36,7 @@ enum class Experiment : int {
   TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE,  // TODO: b/450368905 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
   TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE,
+  TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES,  // TODO: b/525422238 - Complete experiment.
   // go/keep-sorted end
   kMaxExperimentID,
   // clang-format on
@@ -64,6 +65,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE, "TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE"},
     {Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS, "TEST_ONLY_TCMALLOC_POW2_SIZECLASS", /*brittle=*/true},
     {Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE, "TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE", /*brittle=*/true},
+    {Experiment::TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES, "TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES"},
     // go/keep-sorted end
 };
 // clang-format on

@@ -31,6 +31,7 @@
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
@@ -159,6 +160,18 @@ bool Parameters::hpaa_subrelease() {
 void Parameters::set_hpaa_subrelease(bool value) {
   TCMalloc_Internal_SetHPAASubrelease(value);
 }
+SubreleaseUnbackedMode Parameters::subrelease_unbacked_hugepages() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES)) {
+      subrelease_unbacked_hugepages_.store(true, std::memory_order_relaxed);
+    }
+  });
+  return subrelease_unbacked_hugepages_.load(std::memory_order_relaxed)
+             ? SubreleaseUnbackedMode::kEnabled
+             : SubreleaseUnbackedMode::kDisabled;
+}
 
 std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -219,6 +232,9 @@ ABSL_CONST_INIT std::atomic<double>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
+
+ABSL_CONST_INIT std::atomic<bool> Parameters::subrelease_unbacked_hugepages_(
+    false);
 
 static std::atomic<bool>& back_small_allocations_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;

@@ -376,7 +376,8 @@ void AbslStringify(Sink& sink, const ReentrantSubprogram& r) {
                              }));
 }
 
-void FuzzFiller(const std::vector<Instruction>& instructions) {
+void FuzzFiller(const std::vector<Instruction>& instructions,
+                SubreleaseUnbackedMode subrelease_unbacked_mode) {
   // Reset global state.
   MockUnback unback;
   MockCollapse collapse;
@@ -393,9 +394,9 @@ void FuzzFiller(const std::vector<Instruction>& instructions) {
   // eliminate the need for this.
   released_set.reserve(kPagesPerHugePage.raw_num() * instructions.size());
 
-  HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
-                                     MemoryTag::kNormal, unback, unback,
-                                     collapse, set_anon_vma_name);
+  HugePageFiller<PageTracker> filler(
+      Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal, unback,
+      unback, collapse, set_anon_vma_name, subrelease_unbacked_mode);
 
   std::vector<PageTracker*> trackers;
   absl::flat_hash_map<PageTracker*,
@@ -580,6 +581,7 @@ void FuzzFiller(const std::vector<Instruction>& instructions) {
               // Toggle unback, simulating madvise potentially failing or
               // succeeding.
               unback_success = !unback_success;
+
             } else if constexpr (std::is_same_v<T, GatherStats>) {
               // Gather stats
               std::string output;
@@ -670,6 +672,7 @@ void FuzzFiller(const std::vector<Instruction>& instructions) {
                       : EnableUnfilteredCollapse::kDisabled,
                   &pageflags, &residency);
               treating_trackers = false;
+              absl::flat_hash_set<PageId>& released_set = ReleasedPages();
               while (PageTracker* pt = filler.FetchFullyFreedTracker()) {
                 HugePage hp = pt->location();
                 for (PageId p = hp.first_page(),
@@ -678,6 +681,19 @@ void FuzzFiller(const std::vector<Instruction>& instructions) {
                   released_set.erase(p);
                 }
                 delete pt;
+              }
+              for (PageTracker* pt : trackers) {
+                HugePage hp = pt->location();
+                Bitmap<kPagesPerHugePage.raw_num()> rel =
+                    pt->released_by_page();
+                for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
+                  PageId p = hp.first_page() + Length(i);
+                  if (rel.GetBit(i)) {
+                    released_set.insert(p);
+                  } else {
+                    released_set.erase(p);
+                  }
+                }
               }
             } else if constexpr (std::is_same_v<T, UpdateBitmaps>) {
               if (arg.hugepage_backed_set) {
@@ -820,8 +836,9 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
 }
 
 FUZZ_TEST(HugePageFillerTest, FuzzFiller)
-    .WithDomains(
-        fuzztest::VectorOf(GetInstructionDomain(5)).WithMaxSize(20000));
+    .WithDomains(fuzztest::VectorOf(GetInstructionDomain(5)).WithMaxSize(20000),
+                 fuzztest::ElementOf({SubreleaseUnbackedMode::kDisabled,
+                                      SubreleaseUnbackedMode::kEnabled}));
 
 TEST(HugePageFillerTest, b510326948) {
   FuzzFiller(
@@ -857,149 +874,168 @@ TEST(HugePageFillerTest, b510326948) {
        AdvanceClock{.amount = absl::Nanoseconds(1237243357567017495)},
        ModelTail{.length = 31734},
        SetCollapseLatency{.latency = absl::Nanoseconds(1)},
-       GatherStats{}});
+       GatherStats{}},
+      SubreleaseUnbackedMode::kEnabled);
 }
 
 TEST(
     HugePageFillerTest,
     Regression_clusterfuzz_testcase_minimized_huge_page_filler_fuzz_5161409228701696_test) {
-  FuzzFiller({
+  FuzzFiller(
+      {
 #include "tcmalloc/testdata/huge_page_filler_fuzz/clusterfuzz_testcase_minimized_huge_page_filler_fuzz_5161409228701696_test.inc"
-  });
+      },
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(
     HugePageFillerTest,
     Regression_clusterfuzz_testcase_minimized_huge_page_filler_fuzz_5516474505363456_test) {
-  FuzzFiller({
-      Allocate{.length = 1, .num_objects = 1, .density_dense = false},
-      Allocate{.length = 1, .num_objects = 4431, .density_dense = false},
-      TreatTrackers{.enable_collapse = true,
-                    .use_userspace_collapse_heuristics = false,
-                    .enable_unfiltered_collapse = true},
-      SetCollapseLatency{.latency = absl::ZeroDuration()},
-      Allocate{.length = 255, .num_objects = 19968, .density_dense = true},
-      Deallocate{.tracker_index = 217, .alloc_index = 286},
-      Allocate{.length = 1, .num_objects = 1, .density_dense = false},
-  });
+  FuzzFiller(
+      {
+          Allocate{.length = 1, .num_objects = 1, .density_dense = false},
+          Allocate{.length = 1, .num_objects = 4431, .density_dense = false},
+          TreatTrackers{.enable_collapse = true,
+                        .use_userspace_collapse_heuristics = false,
+                        .enable_unfiltered_collapse = true},
+          SetCollapseLatency{.latency = absl::ZeroDuration()},
+          Allocate{.length = 255, .num_objects = 19968, .density_dense = true},
+          Deallocate{.tracker_index = 217, .alloc_index = 286},
+          Allocate{.length = 1, .num_objects = 1, .density_dense = false},
+      },
+      SubreleaseUnbackedMode::kEnabled);
 }
 
 TEST(
     HugePageFillerTest,
     Regression_clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6053674183688192_test) {
-  FuzzFiller({
+  FuzzFiller(
+      {
 #include "tcmalloc/testdata/huge_page_filler_fuzz/clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6053674183688192_test.inc"
-  });
+      },
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(
     HugePageFillerTest,
     Regression_clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6159120802381824) {
-  FuzzFiller({
-      SetErrorNumber{.error_type = 0, .raw_value = 1644167168},
-      ToggleUnback{},
-      Allocate{.length = 1, .num_objects = 7680, .density_dense = false},
-      TreatTrackers{.enable_collapse = true,
-                    .use_userspace_collapse_heuristics = false,
-                    .enable_unfiltered_collapse = true},
-      TreatTrackers{.enable_collapse = false,
-                    .use_userspace_collapse_heuristics = false,
-                    .enable_unfiltered_collapse = false},
-  });
+  FuzzFiller(
+      {
+          SetErrorNumber{.error_type = 0, .raw_value = 1644167168},
+          ToggleUnback{},
+          Allocate{.length = 1, .num_objects = 7680, .density_dense = false},
+          TreatTrackers{.enable_collapse = true,
+                        .use_userspace_collapse_heuristics = false,
+                        .enable_unfiltered_collapse = true},
+          TreatTrackers{.enable_collapse = false,
+                        .use_userspace_collapse_heuristics = false,
+                        .enable_unfiltered_collapse = false},
+      },
+      SubreleaseUnbackedMode::kEnabled);
 }
 
 TEST(
     HugePageFillerTest,
     Regression_clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6512022070886400_test) {
-  FuzzFiller({
-      TreatTrackers{.enable_collapse = false,
-                    .use_userspace_collapse_heuristics = false,
-                    .enable_unfiltered_collapse = false},
-      SetErrorNumber{.error_type = 0, .raw_value = 2483028032},
-      Deallocate{.tracker_index = 0, .alloc_index = 255},
-      Allocate{.length = 255, .num_objects = 128, .density_dense = false},
-      Allocate{.length = 255, .num_objects = 529, .density_dense = true},
-  });
+  FuzzFiller(
+      {
+          TreatTrackers{.enable_collapse = false,
+                        .use_userspace_collapse_heuristics = false,
+                        .enable_unfiltered_collapse = false},
+          SetErrorNumber{.error_type = 0, .raw_value = 2483028032},
+          Deallocate{.tracker_index = 0, .alloc_index = 255},
+          Allocate{.length = 255, .num_objects = 128, .density_dense = false},
+          Allocate{.length = 255, .num_objects = 529, .density_dense = true},
+      },
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(
     HugePageFillerTest,
     Regression_clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6622985612820480) {
-  FuzzFiller({
+  FuzzFiller(
+      {
 #include "tcmalloc/testdata/huge_page_filler_fuzz/clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6622985612820480.inc"
-  });
+      },
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest,
      Regression_crash_869dbc1cdf6a1f79b386adf046c7df32257ef684) {
-  FuzzFiller({
-      SetErrorNumber{.error_type = 0, .raw_value = 1644167168},
-      ToggleUnback{},
-      ToggleUnback{},
-      Allocate{.length = 1, .num_objects = 1, .density_dense = false},
-  });
+  FuzzFiller(
+      {
+          SetErrorNumber{.error_type = 0, .raw_value = 1644167168},
+          ToggleUnback{},
+          ToggleUnback{},
+          Allocate{.length = 1, .num_objects = 1, .density_dense = false},
+      },
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest,
      Regression_crash_e9f3aa3ad83e808a5588ec529c6cdf00d5d397fc) {
-  FuzzFiller({
-      GatherSpanStats{},
-      GatherSpanStats{},
-      Allocate{.length = 255, .num_objects = 5841, .density_dense = false},
-      Allocate{.length = 1, .num_objects = 202, .density_dense = false},
-      Allocate{.length = 203, .num_objects = 1, .density_dense = false},
-      UpdateBitmaps{.hugepage_backed_set = true,
-                    .hugepage_backed_val = true,
-                    .unbacked_bitmap_val = 0,
-                    .swapped_bitmap_val = 0},
-      UpdateBitmaps{.hugepage_backed_set = true,
-                    .hugepage_backed_val = true,
-                    .unbacked_bitmap_val = 0,
-                    .swapped_bitmap_val = 0},
-      UpdateBitmaps{.hugepage_backed_set = true,
-                    .hugepage_backed_val = true,
-                    .unbacked_bitmap_val = 0,
-                    .swapped_bitmap_val = 0},
-      UpdateBitmaps{.hugepage_backed_set = true,
-                    .hugepage_backed_val = true,
-                    .unbacked_bitmap_val = 0,
-                    .swapped_bitmap_val = 0},
-      UpdateBitmaps{.hugepage_backed_set = true,
-                    .hugepage_backed_val = true,
-                    .unbacked_bitmap_val = 0,
-                    .swapped_bitmap_val = 0},
-      UpdateBitmaps{.hugepage_backed_set = true,
-                    .hugepage_backed_val = true,
-                    .unbacked_bitmap_val = 0,
-                    .swapped_bitmap_val = 0},
-      UpdateBitmaps{.hugepage_backed_set = false,
-                    .hugepage_backed_val = false,
-                    .unbacked_bitmap_val = 0,
-                    .swapped_bitmap_val = 448},
-      SetErrorNumber{.error_type = 1, .raw_value = 23901},
-  });
+  FuzzFiller(
+      {
+          GatherSpanStats{},
+          GatherSpanStats{},
+          Allocate{.length = 255, .num_objects = 5841, .density_dense = false},
+          Allocate{.length = 1, .num_objects = 202, .density_dense = false},
+          Allocate{.length = 203, .num_objects = 1, .density_dense = false},
+          UpdateBitmaps{.hugepage_backed_set = true,
+                        .hugepage_backed_val = true,
+                        .unbacked_bitmap_val = 0,
+                        .swapped_bitmap_val = 0},
+          UpdateBitmaps{.hugepage_backed_set = true,
+                        .hugepage_backed_val = true,
+                        .unbacked_bitmap_val = 0,
+                        .swapped_bitmap_val = 0},
+          UpdateBitmaps{.hugepage_backed_set = true,
+                        .hugepage_backed_val = true,
+                        .unbacked_bitmap_val = 0,
+                        .swapped_bitmap_val = 0},
+          UpdateBitmaps{.hugepage_backed_set = true,
+                        .hugepage_backed_val = true,
+                        .unbacked_bitmap_val = 0,
+                        .swapped_bitmap_val = 0},
+          UpdateBitmaps{.hugepage_backed_set = true,
+                        .hugepage_backed_val = true,
+                        .unbacked_bitmap_val = 0,
+                        .swapped_bitmap_val = 0},
+          UpdateBitmaps{.hugepage_backed_set = true,
+                        .hugepage_backed_val = true,
+                        .unbacked_bitmap_val = 0,
+                        .swapped_bitmap_val = 0},
+          UpdateBitmaps{.hugepage_backed_set = false,
+                        .hugepage_backed_val = false,
+                        .unbacked_bitmap_val = 0,
+                        .swapped_bitmap_val = 448},
+          SetErrorNumber{.error_type = 1, .raw_value = 23901},
+      },
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest, Regression_testcase_6686265543557120) {
-  FuzzFiller({
-      TreatTrackers{.enable_collapse = false,
-                    .use_userspace_collapse_heuristics = true,
-                    .enable_unfiltered_collapse = false},
-      ModelTail{.length = 255},
-      Release{.hit_limit = false,
-              .use_peak_interval = false,
-              .peak_interval = absl::ZeroDuration(),
-              .short_interval = absl::Seconds(158),
-              .long_interval = absl::Seconds(200),
-              .desired_pages = 2050,
-              .release_partial_allocs = false},
-      Allocate{.length = 255, .num_objects = 4145, .density_dense = false},
-      UpdateBitmaps{.hugepage_backed_set = false,
-                    .hugepage_backed_val = false,
-                    .unbacked_bitmap_val = 72,
-                    .swapped_bitmap_val = 333},
-      Deallocate{.tracker_index = 8241, .alloc_index = 2685},
-  });
+  FuzzFiller(
+      {
+          TreatTrackers{.enable_collapse = false,
+                        .use_userspace_collapse_heuristics = true,
+                        .enable_unfiltered_collapse = false},
+          ModelTail{.length = 255},
+          Release{.hit_limit = false,
+                  .use_peak_interval = false,
+                  .peak_interval = absl::ZeroDuration(),
+                  .short_interval = absl::Seconds(158),
+                  .long_interval = absl::Seconds(200),
+                  .desired_pages = 2050,
+                  .release_partial_allocs = false},
+          Allocate{.length = 255, .num_objects = 4145, .density_dense = false},
+          UpdateBitmaps{.hugepage_backed_set = false,
+                        .hugepage_backed_val = false,
+                        .unbacked_bitmap_val = 72,
+                        .swapped_bitmap_val = 333},
+          Deallocate{.tracker_index = 8241, .alloc_index = 2685},
+      },
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest, b510325622) {
@@ -1035,7 +1071,8 @@ TEST(HugePageFillerTest, b510325622) {
                      .use_userspace_collapse_heuristics = true,
                      .enable_unfiltered_collapse = true},
        Deallocate{.tracker_index = 4294967295, .alloc_index = 0},
-       GatherStatsPbtxt{}});
+       GatherStatsPbtxt{}},
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest, DepthDependentDeallocate) {
@@ -1046,7 +1083,8 @@ TEST(HugePageFillerTest, DepthDependentDeallocate) {
        GatherSpanStats{},
        TreatTrackers{.enable_collapse = true,
                      .use_userspace_collapse_heuristics = false,
-                     .enable_unfiltered_collapse = true}});
+                     .enable_unfiltered_collapse = true}},
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest, ConcurrentTreatmentInterferenceStress) {
@@ -1135,7 +1173,21 @@ TEST(HugePageFillerTest, ConcurrentTreatmentInterferenceStress) {
       .enable_unfiltered_collapse = true,
   });
 
-  FuzzFiller(instructions);
+  FuzzFiller(instructions, SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, SubreleaseUnbackedRegression) {
+  FuzzFiller(
+      {ModelTail{.length = 0}, GatherStatsPbtxt{},
+       TreatTrackers{.enable_collapse = true,
+                     .use_userspace_collapse_heuristics = false,
+                     .enable_unfiltered_collapse = false},
+       SetCollapseLatency{.latency = absl::Nanoseconds(9223372036854775807)},
+       ToggleUnback{},
+       AdvanceClock{.amount = absl::Nanoseconds(386593854685132995)},
+       AdvanceClock{.amount = absl::Nanoseconds(6294226378870810818)},
+       ToggleCollapseSuccess{}},
+      SubreleaseUnbackedMode::kEnabled);
 }
 
 TEST(HugePageFillerTest, InstructionStringify) {
@@ -1242,27 +1294,33 @@ TEST(HugePageFillerTest, InstructionStringify) {
 }
 
 TEST(HugePageFillerTest, Regression_b525818096) {
-  FuzzFiller({
-      Allocate{
-          .length = 32767, .num_objects = 3840777803, .density_dense = true},
-      UpdateBitmaps{.hugepage_backed_set = false,
-                    .hugepage_backed_val = false,
-                    .unbacked_bitmap_val = 65535,
-                    .swapped_bitmap_val = 49577},
-      ReentrantSubprogram{.subprogram = {MemoryLimitHitRelease{.desired = 1},
-                                         Deallocate{.tracker_index = 1322071847,
-                                                    .alloc_index = 1}}},
-      Allocate{
-          .length = 32767, .num_objects = 460278703, .density_dense = false},
-      Allocate{.length = 5, .num_objects = 3242772467, .density_dense = true},
-      UpdateBitmaps{.hugepage_backed_set = true,
-                    .hugepage_backed_val = false,
-                    .unbacked_bitmap_val = 1,
-                    .swapped_bitmap_val = 0},
-      TreatTrackers{.enable_collapse = true,
-                    .use_userspace_collapse_heuristics = false,
-                    .enable_unfiltered_collapse = false},
-  });
+  FuzzFiller(
+      {
+          Allocate{.length = 32767,
+                   .num_objects = 3840777803,
+                   .density_dense = true},
+          UpdateBitmaps{.hugepage_backed_set = false,
+                        .hugepage_backed_val = false,
+                        .unbacked_bitmap_val = 65535,
+                        .swapped_bitmap_val = 49577},
+          ReentrantSubprogram{
+              .subprogram = {MemoryLimitHitRelease{.desired = 1},
+                             Deallocate{.tracker_index = 1322071847,
+                                        .alloc_index = 1}}},
+          Allocate{.length = 32767,
+                   .num_objects = 460278703,
+                   .density_dense = false},
+          Allocate{
+              .length = 5, .num_objects = 3242772467, .density_dense = true},
+          UpdateBitmaps{.hugepage_backed_set = true,
+                        .hugepage_backed_val = false,
+                        .unbacked_bitmap_val = 1,
+                        .swapped_bitmap_val = 0},
+          TreatTrackers{.enable_collapse = true,
+                        .use_userspace_collapse_heuristics = false,
+                        .enable_unfiltered_collapse = false},
+      },
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 }  // namespace

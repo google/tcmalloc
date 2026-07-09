@@ -33,6 +33,7 @@
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
@@ -655,6 +656,11 @@ void DumpStats(Printer& out, int level) {
         Parameters::usermode_hugepage_collapse() == EnableCollapse::kEnabled
             ? 1
             : 0);
+    out.printf("PARAMETER tcmalloc_subrelease_unbacked_hugepages %d\n",
+               Parameters::subrelease_unbacked_hugepages() ==
+                       SubreleaseUnbackedMode::kEnabled
+                   ? 1
+                   : 0);
 
     out.printf("PARAMETER tcmalloc_back_small_allocations %d\n",
                Parameters::back_small_allocations() ? 1 : 0);
@@ -916,6 +922,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool(
       "usermode_hugepage_collapse",
       Parameters::usermode_hugepage_collapse() == EnableCollapse::kEnabled);
+  region.PrintBool("subrelease_unbacked_hugepages",
+                   Parameters::subrelease_unbacked_hugepages() ==
+                       SubreleaseUnbackedMode::kEnabled);
 
   region.PrintBool("back_small_allocations",
                    Parameters::back_small_allocations());

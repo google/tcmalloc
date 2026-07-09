@@ -72,6 +72,9 @@ class StaticForwarder {
     return Parameters::release_partial_alloc_pages();
   }
 
+  static SubreleaseUnbackedMode subrelease_unbacked_hugepages() {
+    return Parameters::subrelease_unbacked_hugepages();
+  }
 
   static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
 
@@ -490,7 +493,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       collapse_(*this),
       set_anon_vma_name_(*this),
       filler_(tag_, unback_, unback_without_lock_, collapse_,
-              set_anon_vma_name_),
+              set_anon_vma_name_, forwarder_.subrelease_unbacked_hugepages()),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),
