@@ -1039,9 +1039,7 @@ cc_library(
     srcs = ["proc_maps.cc"],
     hdrs = ["proc_maps.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":config",
         ":logging",
