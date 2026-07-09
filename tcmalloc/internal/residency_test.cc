@@ -35,6 +35,7 @@
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
@@ -55,8 +56,9 @@ class ResidencySpouse {
     return r_.Get(std::forward<Args>(args)...);
   }
 
-  decltype(auto) GetUnbackedAndSwappedBitmaps(const void* const addr) {
-    return r_.GetUnbackedAndSwappedBitmaps(addr);
+  decltype(auto) GetUnbackedAndSwappedBitmaps(
+      const void* const addr, size_t native_pages_per_element = 1) {
+    return r_.GetUnbackedAndSwappedBitmaps(addr, native_pages_per_element);
   }
 
  private:
@@ -208,51 +210,49 @@ void GenerateHolesInSinglePage(absl::string_view filename, int case_num,
   CHECK_EQ(close(write_fd), 0) << errno;
 }
 
-Residency::SinglePageBitmaps GenerateExpectedSinglePageBitmaps(int case_num) {
+Residency::SinglePageBitmaps GenerateExpectedSinglePageBitmaps(
+    int case_num, size_t native_pages_per_element = 1) {
   Bitmap<512> expected_unbacked;
   Bitmap<512> expected_swapped;
-  switch (case_num) {
-    case 0:
-      // All Pages are present. Both bitmaps are 0
-      break;
-    case 1:
-      // All Pages are swapped. Swapped bitmap is all 1
-      expected_swapped.SetRange(0, 512);
-      break;
-    case 2:
-      // All pages are holes. Unbacked bitmap is all 1
-      expected_unbacked.SetRange(0, 512);
-      break;
-    case 3:
-      // Every other page is a hole, rest are present.
-      // Both bitmaps are 0 and 1 alternating
-      for (int idx = 0; idx < 512; idx += 2) {
-        if (idx % 2 == 0) {
-          expected_unbacked.SetBit(idx);
-        }
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
+  const size_t num_elements = kNativePagesInHugePage / native_pages_per_element;
+
+  for (size_t i = 0; i < num_elements; ++i) {
+    bool all_unbacked = true;
+    bool any_swapped = false;
+    for (size_t j = 0; j < native_pages_per_element; ++j) {
+      size_t idx = i * native_pages_per_element + j;
+      switch (case_num) {
+        case 0:
+          all_unbacked = false;
+          break;
+        case 1:
+          all_unbacked = false;
+          any_swapped = true;
+          break;
+        case 2:
+          break;
+        case 3:
+          if (idx % 2 == 1) all_unbacked = false;
+          break;
+        case 4:
+          if (idx % 2 == 0) {
+            all_unbacked = false;
+            any_swapped = true;
+          } else {
+            all_unbacked = false;
+          }
+          break;
+        case 5:
+          if (idx % 2 == 0) {
+            all_unbacked = false;
+            any_swapped = true;
+          }
+          break;
       }
-      break;
-    case 4:
-      // Every other page is swapped, rest are present,
-      // Swapped bitmap are 0 and 1 alternating
-      for (int idx = 0; idx < 512; idx += 2) {
-        if (idx % 2 == 0) {
-          expected_swapped.SetBit(idx);
-        }
-      }
-      break;
-    case 5:
-      // Every other page is swapped, rest are holes,
-      // Swapped bitmaps are 0 and 1 alternating
-      // Unbacked bitmaps are 1 and 0 alternating
-      for (int idx = 0; idx < 512; idx++) {
-        if (idx % 2 == 0) {
-          expected_swapped.SetBit(idx);
-        } else {
-          expected_unbacked.SetBit(idx);
-        }
-      }
-      break;
+    }
+    if (all_unbacked) expected_unbacked.SetBit(i);
+    if (any_swapped) expected_swapped.SetBit(i);
   }
   return Residency::SinglePageBitmaps{expected_unbacked, expected_swapped,
                                       absl::StatusCode::kOk};
@@ -344,20 +344,27 @@ TEST(PageMapIntegrationTest, WorksOnActualData) {
     position++;
     addr = reinterpret_cast<void*>(position);
   }
+  const size_t native_pages_per_tcmalloc =
+      (kHugePageSize / GetPageSize()) / kPagesPerHugePage.raw_num();
   g.emplace();
   ResidencyPageMap r;
-  Residency::SinglePageBitmaps res = r.GetUnbackedAndSwappedBitmaps(addr);
+  Residency::SinglePageBitmaps res =
+      r.GetUnbackedAndSwappedBitmaps(addr, native_pages_per_tcmalloc);
   g.reset();
   ASSERT_EQ(res.status, absl::StatusCode::kOk);
   EXPECT_TRUE(res.unbacked.IsZero());
-  EXPECT_TRUE(res.swapped.IsZero());
-  ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 1 * 4096, 4096), 0)
+  const size_t tcmalloc_page_size = GetPageSize() * native_pages_per_tcmalloc;
+  ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 1 * tcmalloc_page_size,
+                   tcmalloc_page_size),
+            0)
       << errno;
-  ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 17 * 4096, 4096), 0)
+  ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 17 * tcmalloc_page_size,
+                   tcmalloc_page_size),
+            0)
       << errno;
 
   g.emplace();
-  res = r.GetUnbackedAndSwappedBitmaps(addr);
+  res = r.GetUnbackedAndSwappedBitmaps(addr, native_pages_per_tcmalloc);
   g.reset();
   ASSERT_EQ(res.status, absl::StatusCode::kOk);
   EXPECT_FALSE(res.unbacked.IsZero());

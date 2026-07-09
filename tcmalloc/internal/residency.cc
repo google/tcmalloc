@@ -187,7 +187,7 @@ std::optional<Residency::Info> ResidencyPageMap::Get(const void* const addr,
 }
 
 Residency::SinglePageBitmaps ResidencyPageMap::GetUnbackedAndSwappedBitmaps(
-    const void* const addr) {
+    const void* const addr, size_t native_pages_per_element) {
   Bitmap<kMaxResidencyBits> page_unbacked;
   Bitmap<kMaxResidencyBits> page_swapped;
   uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
@@ -212,15 +212,29 @@ Residency::SinglePageBitmaps ResidencyPageMap::GetUnbackedAndSwappedBitmaps(
                              absl::StatusCode::kUnavailable};
   }
 
-  for (int native_page_idx = 0; native_page_idx < kNativePagesInHugePage;
-       ++native_page_idx) {
-    uint64_t page_map = buf_[native_page_idx];
-    if (!PagePresent(page_map)) {
-      if (PageSwapped(page_map)) {
-        page_swapped.SetBit(native_page_idx);
-      } else {
-        page_unbacked.SetBit(native_page_idx);
+  if (native_pages_per_element == 0) {
+    return SinglePageBitmaps{page_unbacked, page_swapped,
+                             absl::StatusCode::kOk};
+  }
+  const size_t num_elements = kNativePagesInHugePage / native_pages_per_element;
+
+  for (size_t idx = 0; idx < num_elements; ++idx) {
+    bool all_unbacked = true;
+    bool any_swapped = false;
+    for (size_t j = 0; j < native_pages_per_element; ++j) {
+      uint64_t page_map = buf_[idx * native_pages_per_element + j];
+      if (PagePresent(page_map)) {
+        all_unbacked = false;
+      } else if (PageSwapped(page_map)) {
+        all_unbacked = false;
+        any_swapped = true;
       }
+    }
+    if (all_unbacked) {
+      page_unbacked.SetBit(idx);
+    }
+    if (any_swapped) {
+      page_swapped.SetBit(idx);
     }
   }
   return SinglePageBitmaps{page_unbacked, page_swapped, absl::StatusCode::kOk};
