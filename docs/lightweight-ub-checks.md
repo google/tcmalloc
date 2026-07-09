@@ -3,7 +3,7 @@
 
 <!--*
 # Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'ckennelly' reviewed: '2025-12-23' }
+freshness: { owner: 'ckennelly' reviewed: '2026-06-30' }
 *-->
 
 TCMalloc is optimized for performance, but it also adds a number of lightweight
