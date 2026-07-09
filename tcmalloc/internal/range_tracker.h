@@ -575,8 +575,19 @@ inline size_t Bitmap<N>::FindValue(size_t index) const {
   word *= kWordSize;
   ASSUME(here != 0);
   size_t ret = absl::countr_zero(here) + word;
-  if (kDeadBits > 0) {
-    if (ret > N) ret = N;
+  if constexpr (kDeadBits > 0) {
+    if constexpr (Goal
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+                  && false
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+    ) {
+      // We did not early return above, so a set bit was found.  Dead bits are
+      // never set.
+      ASSUME(ret < N);
+    } else {
+      // FindClear inverts the word, so we need to clamp.
+      if (ret > N) ret = N;
+    }
   }
   return ret;
 }
