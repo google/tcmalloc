@@ -2783,20 +2783,20 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
       enable_unfiltered_collapse);
 
-  // Collect up to kTotalTrackersToScan trackers from the regular sparse and
-  // dense lists. we also collect trackers from regular_alloc_partial_released_
-  // and donated_alloc_.
+  // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        sampled_tracker_treatment.SelectEligibleTrackers(pt);
         unbacked_tracker_treatment.SelectEligibleTrackers(pt);
       },
-      /*start=*/kChunks);
+      /*start=*/0);
 
   regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+        sampled_tracker_treatment.SelectEligibleTrackers(pt);
         unbacked_tracker_treatment.SelectEligibleTrackers(pt);
       },
-      /*start=*/kChunks);
+      /*start=*/0);
 
   donated_alloc_.Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
@@ -2818,17 +2818,6 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       },
       /*start=*/0);
 
-  regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-      },
-      /*start=*/0);
-
-  regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-      },
-      /*start=*/0);
   regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
         sampled_tracker_treatment.SelectEligibleTrackers(pt);
