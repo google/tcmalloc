@@ -534,6 +534,13 @@ void DumpStats(Printer& out, int level) {
       tc_globals.central_freelist(size_class).PrintLongLivedSpansMoved(out);
     }
 
+    out.printf("------------------------------------------------\n");
+    out.printf("Central cache freelist: Same-span returns\n");
+    out.printf("------------------------------------------------\n");
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      tc_globals.central_freelist(size_class).PrintSameSpanStats(out);
+    }
+
     tc_globals.transfer_cache().Print(tc_globals.per_size_class_counts(), out);
     tc_globals.sharded_transfer_cache().Print(
         tc_globals.per_size_class_counts(), out);
@@ -809,6 +816,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
       tc_globals.central_freelist(size_class).PrintNumSpansUsedInPbtxt(entry);
       tc_globals.central_freelist(size_class)
           .PrintLongLivedSpansMovedInPbtxt(entry);
+      tc_globals.central_freelist(size_class).PrintSameSpanStatsInPbtxt(entry);
     }
 
     tc_globals.transfer_cache().PrintInPbtxt(tc_globals.per_size_class_counts(),

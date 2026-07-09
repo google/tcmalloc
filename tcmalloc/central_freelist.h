@@ -111,6 +111,7 @@ class StaticForwarder {
                                                         size_t objects_per_span,
                                                         Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  static size_t num_objects_to_move(int size_class);
   static void DeallocateSpans(size_t objects_per_span,
                               absl::Span<Span*> free_spans)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
@@ -195,7 +196,9 @@ class CentralFreeList {
   void PrintSpanLifetimeStats(Printer& out);
   void PrintNumSpansUsed(Printer& out);
   void PrintLongLivedSpansMoved(Printer& out);
+  void PrintSameSpanStats(Printer& out);
   void PrintSpanUtilStatsInPbtxt(PbtxtRegion& region);
+  void PrintSameSpanStatsInPbtxt(PbtxtRegion& region);
   void PrintSpanLifetimeStatsInPbtxt(PbtxtRegion& region);
   void PrintNumSpansUsedInPbtxt(PbtxtRegion& region);
   void PrintLongLivedSpansMovedInPbtxt(PbtxtRegion& region);
@@ -341,6 +344,15 @@ class CentralFreeList {
   // so writes are performed using LossyAdd for speed, the lock still
   // guarantees accuracy.
 
+  uint32_t num_to_move_ = 0;
+
+  // Records histogram of how many consecutive objects fell on the same span for
+  // batches.
+  //
+  // Note:  This goes to kMaxObjectsToMove and not kMaxObjectsToMove+1, since we
+  // ignore the very first object.
+  StatsCounter num_same_spans_[kMaxObjectsToMove];
+
   // Num free objects in cache entry
   StatsCounter counter_;
 
@@ -415,6 +427,7 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
                 std::min<size_t>(absl::bit_width(objects_per_span_), kNumLists);
 
   TC_ASSERT_LE(absl::bit_width(objects_per_span_), kSpanUtilBucketCapacity);
+  num_to_move_ = forwarder_.num_objects_to_move(size_class);
 }
 
 template <class Forwarder>
@@ -541,6 +554,21 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     return;
   }
 
+  // Record how many objects fell on the same span.
+  //
+  // We only look for consecutive runs of the same span to avoid the cost of
+  // sorting, solely for telemetry purposes.
+  const int same_span = [](absl::Span<tcmalloc_internal::Span* const> batch) {
+    int matches = 0;
+    const Span* last = batch[0];
+    for (int i = 1, n = batch.size(); i < n; ++i) {
+      const Span* next = batch[i];
+      matches += last == next;
+      last = next;
+    }
+    return matches;
+  }(absl::MakeConstSpan(spans, batch.size()));
+
   // Use local copy of variables to ensure that they are not reloaded.
   const size_t object_size = object_size_;
   const uint32_t size_reciprocal = size_reciprocal_;
@@ -566,6 +594,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // and collect spans that become completely free.
   {
     CentralFreeListLockHolder h(lock_);
+    num_same_spans_[same_span].LossyAdd(1);
     for (int i = 0; i < batch.size(); ++i) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const absl::Span<void*> b{&batch[i], 1};
@@ -791,6 +820,31 @@ inline void CentralFreeList<Forwarder>::HandleLongLivedSpans() {
 
   // Track how many spans we moved in each bitwidth bucket.
   long_lived_spans_moved_[absl::bit_width(i)].LossyAdd(1);
+}
+
+template <class Forwarder>
+inline void CentralFreeList<Forwarder>::PrintSameSpanStats(Printer& out) {
+  out.printf("class %3d [ %8zu bytes ] :", size_class_, object_size_);
+  // num_same_spans_ is exclusive with num_to_move_, not inclusive.
+  for (int i = 0; i < num_to_move_; ++i) {
+    out.printf(" %6zu", num_same_spans_[i].value());
+  }
+  out.printf("\n");
+}
+
+template <class Forwarder>
+inline void CentralFreeList<Forwarder>::PrintSameSpanStatsInPbtxt(
+    PbtxtRegion& region) {
+  // num_same_spans_ is exclusive with num_to_move_, not inclusive.
+  for (int i = 0; i < num_to_move_; ++i) {
+    auto value = num_same_spans_[i].value();
+    if (value == 0) {
+      continue;
+    }
+    PbtxtRegion histogram = region.CreateSubRegion("same_span_stats");
+    histogram.PrintI64("lower_bound", i);
+    histogram.PrintI64("value", value);
+  }
 }
 
 template <class Forwarder>

@@ -77,6 +77,10 @@ Length StaticForwarder::class_to_pages(int size_class) {
   return Length(tc_globals.sizemap().class_to_pages(size_class));
 }
 
+size_t StaticForwarder::num_objects_to_move(int size_class) {
+  return tc_globals.sizemap().num_objects_to_move(size_class);
+}
+
 void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                                         int expected_size_class) {
   // Prefetch Span objects to reduce cache misses.

@@ -37,9 +37,11 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/synchronization/mutex.h"
@@ -959,6 +961,58 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
                              testing::HasSubstr(absl::StrFormat(
                                  "{ lower_bound: 1 upper_bound: 2 value: %v}",
                                  single_spans))));
+}
+
+TEST_P(CentralFreeListTest, SameSpans) {
+  const int num_to_move = GetParam().num_to_move;
+  TypeParam e(GetParam().size, GetParam().bytes, num_to_move);
+
+  // Roundtrip a batch.
+  void* batch[kMaxObjectsToMove];
+  const int got =
+      e.central_freelist().RemoveRange(absl::MakeSpan(batch, num_to_move));
+  ASSERT_GT(got, 0);
+
+  Span* spans[kMaxObjectsToMove];
+  e.forwarder().MapObjectsToSpans(absl::MakeSpan(batch, got), spans,
+                                  e.kSizeClass);
+  absl::flat_hash_set<Span*> pseudo_spans;
+  for (int i = 0; i < got; ++i) {
+    pseudo_spans.insert(spans[i]);
+  }
+
+  e.central_freelist().InsertRange(absl::MakeSpan(batch, got));
+
+  // Check the stats after the first insertion.
+  {
+    std::string expected_stats = absl::StrFormat(
+        "class %3d [ %8zu bytes ] :", e.kSizeClass, GetParam().size);
+    for (int i = 0; i < num_to_move; ++i) {
+      const bool first_batch =
+          e.objects_per_span() > 1 && i == got - pseudo_spans.size();
+      const int count = first_batch ? 1 : 0;
+      absl::StrAppendFormat(&expected_stats, " %6d", count);
+    }
+    absl::StrAppend(&expected_stats, "\n");
+
+    std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+      e.central_freelist().PrintSameSpanStats(printer);
+    });
+    EXPECT_EQ(buffer, expected_stats) << got;
+  }
+  {
+    std::string expected_pbtxt =
+        e.objects_per_span() > 1
+            ? absl::StrFormat(" same_span_stats { lower_bound: %d value: 1}",
+                              got - pseudo_spans.size())
+            : "";
+
+    std::string buffer_pbtxt =
+        PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
+          e.central_freelist().PrintSameSpanStatsInPbtxt(region);
+        });
+    EXPECT_EQ(buffer_pbtxt, expected_pbtxt) << got;
+  }
 }
 
 TEST_P(CentralFreeListTest, MultipleSpans) {

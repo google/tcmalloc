@@ -75,7 +75,9 @@ class FakeStaticForwarder {
 
   size_t class_to_size(int size_class) const { return class_size_; }
   Length class_to_pages(int size_class) const { return pages_; }
-  size_t num_objects_to_move() const { return num_objects_to_move_; }
+  size_t num_objects_to_move(int size_class) const {
+    return num_objects_to_move_;
+  }
 
   void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                          int expected_size_class) {
@@ -160,8 +162,8 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
     ON_CALL(*this, class_to_pages).WillByDefault([this](int size_class) {
       return FakeStaticForwarder::class_to_pages(size_class);
     });
-    ON_CALL(*this, num_objects_to_move).WillByDefault([this]() {
-      return FakeStaticForwarder::num_objects_to_move();
+    ON_CALL(*this, num_objects_to_move).WillByDefault([this](int size_class) {
+      return FakeStaticForwarder::num_objects_to_move(size_class);
     });
     ON_CALL(*this, Init)
         .WillByDefault([this](size_t size_class, Bytes span_bytes,
@@ -192,7 +194,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
 
   MOCK_METHOD(size_t, class_to_size, (int size_class));
   MOCK_METHOD(Length, class_to_pages, (int size_class));
-  MOCK_METHOD(size_t, num_objects_to_move, ());
+  MOCK_METHOD(size_t, num_objects_to_move, (int size_class));
   MOCK_METHOD(void, Init,
               (size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
                size_t page_size, double clock_frequency));
@@ -224,7 +226,7 @@ class FakeCentralFreeListEnvironment {
     return forwarder().class_to_pages(kSizeClass).in_bytes() /
            forwarder().class_to_size(kSizeClass);
   }
-  size_t batch_size() { return forwarder().num_objects_to_move(); }
+  size_t batch_size() { return forwarder().num_objects_to_move(kSizeClass); }
 
   explicit FakeCentralFreeListEnvironment(
       size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
