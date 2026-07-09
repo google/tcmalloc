@@ -520,6 +520,7 @@ cc_test(
     deps = [
         ":allocation_guard",
         ":pageflags",
+        ":range_tracker",
         ":strerror",
         ":util",
         "@com_github_google_benchmark//:benchmark",

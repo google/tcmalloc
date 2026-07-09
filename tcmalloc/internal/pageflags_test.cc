@@ -51,6 +51,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/strerror.h"
 #include "tcmalloc/internal/util.h"
 
@@ -78,6 +79,11 @@ class PageFlagsFriend {
 
   decltype(auto) IsHugepageBacked(const void* const addr) {
     return r_.IsHugepageBacked(addr);
+  }
+
+  decltype(auto) GetSinglePageBitmaps(const void* addr,
+                                      ResidencyBitmap& stale) {
+    return r_.GetSinglePageBitmaps(addr, stale);
   }
 
   void SetCachedScanSeconds(
@@ -592,6 +598,69 @@ TEST(StaleSeconds, TextOverflow) {
   SetContents(fake_stale_seconds, contents);
 
   ExpectStaleSecondsFailedReadFrom(fake_stale_seconds);
+}
+
+TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
+  {
+    PageFlagsFriend s;
+    ResidencyBitmap stale;
+    EXPECT_EQ(s.GetSinglePageBitmaps(reinterpret_cast<const void*>(1), stale),
+              absl::StatusCode::kFailedPrecondition);
+  }
+  {
+    PageFlagsFriend s("/dev/null/impossible");
+    ResidencyBitmap stale;
+    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+              absl::StatusCode::kUnavailable);
+  }
+  {
+    std::string fake_pageflags =
+        absl::StrCat(testing::TempDir(), "/fake_pageflags_short");
+    SetContents(fake_pageflags, "x");
+    PageFlagsFriend s(fake_pageflags);
+    ResidencyBitmap stale;
+    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+              absl::StatusCode::kUnavailable);
+  }
+  {
+    std::string fake_pageflags =
+        absl::StrCat(testing::TempDir(), "/fake_pageflags_tail");
+    const size_t kPageSize = getpagesize();
+    const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+    std::vector<uint64_t> data(kNativePagesInHugePage, kPageTail);
+
+    std::string content(reinterpret_cast<const char*>(data.data()),
+                        data.size() * sizeof(uint64_t));
+    SetContents(fake_pageflags, content);
+
+    PageFlagsFriend s(fake_pageflags);
+    ResidencyBitmap stale;
+    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+              absl::StatusCode::kFailedPrecondition);
+  }
+}
+
+TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
+  std::string fake_pageflags =
+      absl::StrCat(testing::TempDir(), "/fake_pageflags_correct");
+  std::vector<uint64_t> data(kMaxResidencyBits, 0);
+
+  for (size_t i = 0; i < kMaxResidencyBits; ++i) {
+    if (i % 2 == 0) {
+      data[i] |= kPageStale;
+    }
+  }
+
+  std::string content(reinterpret_cast<const char*>(data.data()),
+                      data.size() * sizeof(uint64_t));
+  SetContents(fake_pageflags, content);
+
+  PageFlagsFriend s(fake_pageflags);
+  ResidencyBitmap stale;
+  stale.Clear();
+
+  EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale), absl::StatusCode::kOk);
+  EXPECT_EQ(stale.CountBits(), kMaxResidencyBits / 2);
 }
 
 }  // namespace
