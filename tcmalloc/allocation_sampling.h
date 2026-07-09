@@ -39,17 +39,6 @@ namespace tcmalloc::tcmalloc_internal {
 
 class Static;
 
-// This function computes a profile that maps a live stack trace to
-// the number of bytes of central-cache memory pinned by an allocation
-// at that stack trace.
-// In the case when span is hosting >= 1 number of small objects (t.proxy !=
-// nullptr), we call span::Fragmentation() and read `span->allocated_`. It is
-// safe to do so since we hold the per-sample lock while iterating over sampled
-// allocations. It prevents the sampled allocation that has the proxy object to
-// complete deallocation, thus `proxy` can not be returned to the span yet. It
-// thus prevents the central free list to return the span to the page heap.
-std::unique_ptr<const ProfileBase> DumpFragmentationProfile(Static& state);
-
 std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state);
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 // For RSEQ enabled builds, we declare the sampler in percpu.h so that we can
