@@ -633,7 +633,7 @@ class MallocExtension final {
   //  tcmalloc.metadata_bytes      -- Used by internal data structures
   //  tcmalloc.thread_cache_count  -- Number of thread caches in use
   //  tcmalloc.experiment.NAME     -- Experiment NAME is running if 1
-  using PropertyMap = std::map<std::string, Property>;
+  using PropertyMap = std::map<std::string, Property, std::less<>>;
   [[nodiscard]] static PropertyMap GetProperties();
 
   [[nodiscard]] static Profile SnapshotCurrent(tcmalloc::ProfileType type);
