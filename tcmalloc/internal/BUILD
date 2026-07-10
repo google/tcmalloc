@@ -355,7 +355,7 @@ cc_library(
     hdrs = ["linux_syscall_support.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
-        "//tcmalloc:friends",
+        "@do_not_use_for_gloop_visibility_only//gloop/base:__subpackages__",
     ],
 )
 
@@ -1304,7 +1304,8 @@ cc_library(
     visibility = [
         "//tcmalloc:__pkg__",
         "//tcmalloc:__subpackages__",
-        "//tcmalloc:friends",
+        "@do_not_use_for_gloop_visibility_only//gloop/base:__subpackages__",
+        "@do_not_use_for_gloop_visibility_only//gloop/concurrent/rcu:__subpackages__",
     ],
     deps = [
         ":config",

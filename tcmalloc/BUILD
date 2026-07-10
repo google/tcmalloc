@@ -48,7 +48,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
         "//tcmalloc:__subpackages__",
-        "//tcmalloc:friends",
+        "@do_not_use_for_gloop_visibility_only//gloop:__subpackages__",
     ],
     deps = [
         ":malloc_extension",
@@ -1600,6 +1600,7 @@ cc_library(
     textual_hdrs = ["malloc_hook_invoke.h"],
     visibility = [
         ":__subpackages__",
+        "@do_not_use_for_gloop_visibility_only//gloop/base:__pkg__",
     ],
     deps = [
         "//tcmalloc/internal:config",
@@ -1631,10 +1632,4 @@ cc_library(
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
-)
-
-# Expose internals to privileged external repositories.
-package_group(
-    name = "friends",
-    packages = [],
 )
