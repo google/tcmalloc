@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/malloc_extension.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -208,7 +209,7 @@ inline constexpr size_t kMinObjectsToMove = 2;
 inline constexpr size_t kMaxObjectsToMove = 128;
 
 inline constexpr size_t kPageSize = 1 << kPageShift;
-
+using PageBitmap = Bitmap<kHugePageSize / kPageSize>;
 inline constexpr std::align_val_t kAlignment{8};
 // log2 (kAlignment)
 inline constexpr size_t kAlignmentShift =

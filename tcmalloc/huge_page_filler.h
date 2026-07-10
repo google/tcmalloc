@@ -1620,47 +1620,27 @@ inline Length PageTracker::MarkSubreleased(Bitmap<kMaxResidencyBits> unbacked,
     return Length(0);
   }
   TC_ASSERT_GT(native_pages_per_tcmalloc_page, 0);
-  Bitmap<kPagesPerHugePage.raw_num()> free = free_.bits();
+  tcmalloc_internal::PageBitmap free = free_.bits();
 
-  size_t count = 0;
-  for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
-    if (!free.GetBit(i) && !released_by_page_.GetBit(i)) {
-      // Check if all native pages corresponding to this TCMalloc page are
-      // unbacked.
-      bool is_unbacked = true;
-      for (int j = 0; j < native_pages_per_tcmalloc_page; ++j) {
-        const int bitmap_index = i * native_pages_per_tcmalloc_page + j;
-        TC_ASSERT_LT(bitmap_index, kMaxResidencyBits);
-        if (!unbacked.GetBit(bitmap_index)) {
-          is_unbacked = false;
-          break;
-        }
-      }
-      // If all native pages corresponding to this TCMalloc page are unbacked,
-      // and as the TCMalloc page was freed but not released, mark this page
-      // as released now.
-      //
-      // TODO(b/525422238): The residency bitmap was captured outside of the
-      // lock. So, in a rare case, it's possible that the page was allocated,
-      // backed and then freed. So, the free page here is actually backed.
-      // While we currently ignore this case (resulting in underestimating
-      // RSS), we can potentially fix this by re-investigating the bitmaps
-      // and marking the pages back to backed to eventually fix this.
-      if (is_unbacked) {
-        released_by_page_.SetBit(i);
-        ++count;
-      }
-    }
-  }
+  // TODO(b/525422238): The residency bitmap was captured outside of the
+  // lock. So, in a rare case, it's possible that the page was allocated,
+  // backed and then freed. So, the free page here is actually backed.
+  // While we currently ignore this case (resulting in underestimating
+  // RSS), we can potentially fix this by re-investigating the bitmaps
+  // and marking the pages back to backed to eventually fix this.
+  auto to_release = (~free) & (~released_by_page_) &
+                    unbacked.Contract<kPagesPerHugePage.raw_num()>(
+                        kHugePageSize / GetPageSize());
+  released_by_page_ = released_by_page_ | to_release;
 
-  released_count_ += count;
+  released_count_ += to_release.CountBits();
   // Mark this is unbroken regardless of whether it had any unbacked free
   // TCMalloc pages. Marking this will move this tracker to one of the
   // released lists.
   unbroken_ = false;
   TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
-  return Length(count);
+  return Length(to_release.CountBits());
 }
 
 inline MemoryModifyStatus PageTracker::Collapse(

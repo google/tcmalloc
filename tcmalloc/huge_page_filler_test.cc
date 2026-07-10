@@ -344,7 +344,7 @@ class FakeResidency : public Residency {
                                            absl::StatusCode::kOk};
   }
 
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
   size_t GetNativePagesInHugePage() const override {
     return kNativePagesInHugePage;
   };
@@ -1428,7 +1428,7 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
     EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
-    swapped.SetRange(/*index=*/1, /*n=*/1);
+    swapped.SetRange(/*index=*/0, /*n=*/2);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
   }
