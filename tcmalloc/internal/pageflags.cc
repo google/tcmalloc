@@ -31,6 +31,7 @@
 #include "absl/strings/numbers.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -335,8 +336,8 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
   }
   return ret;
 }
-absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
-                                                 ResidencyBitmap& stale) {
+absl::StatusCode PageFlags::GetSinglePageBitmapsInternal(
+    const void* addr, ResidencyBitmap& stale) {
   uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
   if ((currPage & (kHugePageSize - 1)) != 0) {
     TC_LOG("Address is not hugepage aligned");
@@ -394,7 +395,6 @@ absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
   if (stale_start != -1) {
     stale.SetRange(stale_start, kNativePagesInHugePage - stale_start);
   }
-
   return absl::StatusCode::kOk;
 }
 

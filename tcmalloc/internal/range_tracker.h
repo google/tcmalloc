@@ -61,6 +61,32 @@ class Bitmap {
   // Clears the lowest set bit. Special case is faster than more flexible code.
   void ClearLowestBit();
 
+  template <size_t M>
+  Bitmap<M> Contract(size_t src_len) const {
+    TC_ASSERT_LE(src_len, N);
+
+    TC_ASSERT(src_len % M == 0 || M % src_len == 0);
+
+    Bitmap<M> res;
+    const size_t src_per_dst = std::max<size_t>(1, src_len / M);
+    const size_t dst_per_src = std::max<size_t>(1, M / src_len);
+
+    size_t dst_idx = 0;
+    for (size_t src_idx = 0; src_idx < src_len; src_idx += src_per_dst) {
+      size_t count = 0;
+      for (size_t j = 0; j < src_per_dst; ++j) {
+        if (GetBit(src_idx + j)) {
+          count++;
+        }
+      }
+      if (count == src_per_dst) {
+        res.SetRange(dst_idx, dst_per_src);
+      }
+      dst_idx += dst_per_src;
+    }
+    return res;
+  }
+
   template <typename Visitor>
   size_t PopBatch(Visitor visitor, size_t limit) {
     size_t count = 0;

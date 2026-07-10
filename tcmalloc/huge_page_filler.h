@@ -218,7 +218,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   Length ReleaseFree(MemoryModifyFunction& unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  Length MarkSubreleased(Bitmap<kMaxResidencyBits> unbacked,
+  Length MarkSubreleased(tcmalloc_internal::PageBitmap unbacked,
                          int native_pages_per_tcmalloc_page)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -249,8 +249,8 @@ class PageTracker : public TList<PageTracker>::Elem {
     // used to avoid subreleasing the pages that are being collapsed.
     bool being_collapsed = false;
     // Records swap and unbacked bitmaps for this hugepage.
-    Residency::SinglePageBitmaps bitmaps;
-    ResidencyBitmap stale;
+    Residency::SinglePageBitmaps<kPagesPerHugePage.raw_num()> bitmaps;
+    tcmalloc_internal::PageBitmap stale;
     // Records whether collapse was skipped due to threshold constraints.
     bool collapse_skipped = false;
     // Records whether collapse was skipped due to backoff.
@@ -327,7 +327,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   };
 
   NativePageResidencyInfo CountInfoInHugePage(
-      Residency::SinglePageBitmaps bitmaps, ResidencyBitmap stale) const;
+      Residency::SinglePageBitmaps<kPagesPerHugePage.raw_num()> bitmaps,
+      tcmalloc_internal::PageBitmap stale) const;
 
  private:
   HugePage location_;
@@ -1310,7 +1311,7 @@ class HugePageFiller {
   // Utility function to handle a non-hugepage backed `page_tracker` and
   // mark its unmapped pages appropriately.
   Length HandleUnbackedHugePage(PageTracker* page_tracker,
-                                Bitmap<kMaxResidencyBits> unbacked)
+                                tcmalloc_internal::PageBitmap unbacked)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  private:
@@ -1509,7 +1510,8 @@ inline void PageTracker::SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
 }
 
 inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
-    Residency::SinglePageBitmaps bitmaps, ResidencyBitmap stale) const {
+    Residency::SinglePageBitmaps<kPagesPerHugePage.raw_num()> bitmaps,
+    tcmalloc_internal::PageBitmap stale) const {
   // TODO(b/424551232): Add support for the scenario when native page size is
   // larger than TCMalloc page size.
   const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
@@ -1518,23 +1520,16 @@ inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
   }
   TC_ASSERT_LE(kNativePagesInHugePage, kMaxResidencyBits);
 
-  Bitmap<kMaxResidencyBits> unbacked = bitmaps.unbacked;
-  Bitmap<kMaxResidencyBits> swapped = bitmaps.swapped;
-  Bitmap<kPagesPerHugePage.raw_num()> free = free_.bits();
-
-  TC_ASSERT_EQ(kNativePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
-  const int shift = kNativePagesInHugePage / kPagesPerHugePage.raw_num();
-  const int shift_bits = absl::bit_width<uint8_t>(shift - 1);
-  TC_ASSERT_LT((kNativePagesInHugePage - 1) >> shift_bits,
-               kPagesPerHugePage.raw_num());
+  tcmalloc_internal::PageBitmap unbacked = bitmaps.unbacked;
+  tcmalloc_internal::PageBitmap swapped = bitmaps.swapped;
+  tcmalloc_internal::PageBitmap free = free_.bits();
 
   size_t n_unbacked[2] = {0, 0};
   size_t n_swapped[2] = {0, 0};
   size_t n_stale[2] = {0, 0};
 
-  for (size_t i = 0; i < kNativePagesInHugePage; ++i) {
-    const int scaled_idx = i >> shift_bits;
-    bool is_free = !free.GetBit(scaled_idx);
+  for (size_t i = 0; i < unbacked.size(); ++i) {
+    bool is_free = !free.GetBit(i);
 
     n_swapped[is_free] += swapped.GetBit(i);
     n_unbacked[is_free] += unbacked.GetBit(i);
@@ -1607,8 +1602,9 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   return Length(count);
 }
 
-inline Length PageTracker::MarkSubreleased(Bitmap<kMaxResidencyBits> unbacked,
-                                           int native_pages_per_tcmalloc_page) {
+inline Length PageTracker::MarkSubreleased(
+    tcmalloc_internal::PageBitmap unbacked,
+    int native_pages_per_tcmalloc_page) {
   // TODO(b/525422238): pass the bitmap in TCMalloc pages directly to avoid this
   // conversion.
 
@@ -1620,47 +1616,25 @@ inline Length PageTracker::MarkSubreleased(Bitmap<kMaxResidencyBits> unbacked,
     return Length(0);
   }
   TC_ASSERT_GT(native_pages_per_tcmalloc_page, 0);
-  Bitmap<kPagesPerHugePage.raw_num()> free = free_.bits();
+  tcmalloc_internal::PageBitmap free = free_.bits();
 
-  size_t count = 0;
-  for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
-    if (!free.GetBit(i) && !released_by_page_.GetBit(i)) {
-      // Check if all native pages corresponding to this TCMalloc page are
-      // unbacked.
-      bool is_unbacked = true;
-      for (int j = 0; j < native_pages_per_tcmalloc_page; ++j) {
-        const int bitmap_index = i * native_pages_per_tcmalloc_page + j;
-        TC_ASSERT_LT(bitmap_index, kMaxResidencyBits);
-        if (!unbacked.GetBit(bitmap_index)) {
-          is_unbacked = false;
-          break;
-        }
-      }
-      // If all native pages corresponding to this TCMalloc page are unbacked,
-      // and as the TCMalloc page was freed but not released, mark this page
-      // as released now.
-      //
-      // TODO(b/525422238): The residency bitmap was captured outside of the
-      // lock. So, in a rare case, it's possible that the page was allocated,
-      // backed and then freed. So, the free page here is actually backed.
-      // While we currently ignore this case (resulting in underestimating
-      // RSS), we can potentially fix this by re-investigating the bitmaps
-      // and marking the pages back to backed to eventually fix this.
-      if (is_unbacked) {
-        released_by_page_.SetBit(i);
-        ++count;
-      }
-    }
-  }
+  // TODO(b/525422238): The residency bitmap was captured outside of the
+  // lock. So, in a rare case, it's possible that the page was allocated,
+  // backed and then freed. So, the free page here is actually backed.
+  // While we currently ignore this case (resulting in underestimating
+  // RSS), we can potentially fix this by re-investigating the bitmaps
+  // and marking the pages back to backed to eventually fix this.
+  auto to_release = (~free) & (~released_by_page_) & unbacked;
+  released_by_page_ = released_by_page_ | to_release;
 
-  released_count_ += count;
+  released_count_ += to_release.CountBits();
   // Mark this is unbroken regardless of whether it had any unbacked free
   // TCMalloc pages. Marking this will move this tracker to one of the
   // released lists.
   unbroken_ = false;
   TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
-  return Length(count);
+  return Length(to_release.CountBits());
 }
 
 inline MemoryModifyStatus PageTracker::Collapse(
@@ -2712,7 +2686,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       state.maybe_hugepage_backed = is_hugepage;
       if (!is_hugepage) {
         state.bitmaps =
-            res->GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
+            res->GetUnbackedAndSwappedBitmaps<kPagesPerHugePage.raw_num()>(
+                tracker->location().start_addr());
         if (pf) {
           pf->GetSinglePageBitmaps(tracker->location().start_addr(),
                                    state.stale);
@@ -2989,7 +2964,7 @@ inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
 
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::HandleUnbackedHugePage(
-    PageTracker* tracker, Bitmap<kMaxResidencyBits> unbacked) {
+    PageTracker* tracker, tcmalloc_internal::PageBitmap unbacked) {
   RemoveFromFillerList(tracker);
   Length unmapped_length =
       tracker->MarkSubreleased(unbacked, native_pages_per_tcmalloc_page_);

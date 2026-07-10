@@ -289,9 +289,10 @@ class FakePageFlags : public PageFlagsBase {
     return PageStats{};
   }
 
-  absl::StatusCode GetSinglePageBitmaps(const void* addr,
-                                        ResidencyBitmap& stale) override {
+  absl::StatusCode GetSinglePageBitmapsInternal(
+      const void* addr, ResidencyBitmap& stale) override {
     stale.SetBit(0);
+    stale.SetBit(1);
     return absl::StatusCode::kOk;
   }
 
@@ -328,7 +329,8 @@ class FakeResidency : public Residency {
     return std::nullopt;
   };
 
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+  SinglePageBitmapsInternal GetUnbackedAndSwappedBitmapsInternal(
+      const void* addr) override {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
     EXPECT_TRUE(residency_bitmaps_.contains(hp.start_addr()));
@@ -344,13 +346,14 @@ class FakeResidency : public Residency {
                                            absl::StatusCode::kOk};
   }
 
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
   size_t GetNativePagesInHugePage() const override {
     return kNativePagesInHugePage;
   };
 
  private:
-  absl::flat_hash_map<const void*, SinglePageBitmaps> residency_bitmaps_;
+  absl::flat_hash_map<const void*, SinglePageBitmaps<kMaxResidencyBits>>
+      residency_bitmaps_;
 };
 
 TEST_F(PageTrackerTest, AllocSane) {
@@ -1428,7 +1431,7 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
     EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
     Bitmap<kMaxResidencyBits> unbacked, swapped;
-    swapped.SetRange(/*index=*/1, /*n=*/1);
+    swapped.SetRange(/*index=*/0, /*n=*/2);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
   }
@@ -2462,7 +2465,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPartial) {
 // free TCMalloc page are unbacked, the TCMalloc page is NOT marked as
 // subreleased.
 TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPartialNativePages) {
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
   const int shift = kNativePagesInHugePage / kPagesPerHugePage.raw_num();
   if (shift <= 1) {
     return;
@@ -5218,8 +5221,8 @@ TEST_F(FillerTest, ResidencyTelemetry) {
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed released hps with a <= # of swapped < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
-HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     1 <264<=     0 <296<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     1
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
 HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
 HugePageFiller: <510<=     0 <511<=     0
@@ -5227,16 +5230,6 @@ HugePageFiller: <510<=     0 <511<=     0
 
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed released hps with a <= # of unbacked < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     0
-HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     1 <264<=     0 <296<=     0
-HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
-HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
-HugePageFiller: <510<=     0 <511<=     0
-)"));
-
-  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: # of sparsely-accessed released hps with a <= # of free AND unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     1
 HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
@@ -5246,9 +5239,19 @@ HugePageFiller: <510<=     0 <511<=     0
 )"));
 
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed released hps with a <= # of free AND unbacked < b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     1 < 72<=     0 <104<=     0
+HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
+HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
+HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
+HugePageFiller: <510<=     0 <511<=     0
+)"));
+
+  EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed released hps with a <= # of free AND swapped < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     0 < 72<=     0 <104<=     1
+HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 40<=     1 < 72<=     0 <104<=     0
 HugePageFiller: <136<=     0 <168<=     0 <200<=     0 <232<=     0 <264<=     0 <296<=     0
 HugePageFiller: <328<=     0 <360<=     0 <392<=     0 <424<=     0 <456<=     0 <488<=     0
 HugePageFiller: <504<=     0 <505<=     0 <506<=     0 <507<=     0 <508<=     0 <509<=     0
@@ -5278,17 +5281,17 @@ HugePageFiller: Of the hugepage backed pages of type sparsely-accessed regular, 
 )"));
 
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 126 of sparsely-accessed released free native pages are swapped.
+HugePageFiller: 63 of sparsely-accessed released free native pages are swapped.
 )"));
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 130 of sparsely-accessed released used native pages are swapped.
+HugePageFiller: 65 of sparsely-accessed released used native pages are swapped.
 )"));
 
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 126 of sparsely-accessed released free native pages are unbacked.
+HugePageFiller: 63 of sparsely-accessed released free native pages are unbacked.
 )"));
   EXPECT_THAT(buffer_text, testing::HasSubstr(R"(
-HugePageFiller: 130 of sparsely-accessed released used native pages are unbacked.
+HugePageFiller: 65 of sparsely-accessed released used native pages are unbacked.
 )"));
 
   std::string buffer_pbtxt =
@@ -5300,17 +5303,17 @@ HugePageFiller: 130 of sparsely-accessed released used native pages are unbacked
   EXPECT_THAT(
       buffer_pbtxt,
       testing::HasSubstr(
-          "unbacked_histogram { lower_bound: 232 upper_bound: 263 value: 1}"));
+          "unbacked_histogram { lower_bound: 104 upper_bound: 135 value: 1}"));
   EXPECT_THAT(
       buffer_pbtxt,
       testing::HasSubstr(
-          "swapped_histogram { lower_bound: 232 upper_bound: 263 value: 1}"));
+          "swapped_histogram { lower_bound: 104 upper_bound: 135 value: 1}"));
   EXPECT_THAT(buffer_pbtxt,
-              testing::HasSubstr("free_unbacked_histogram { lower_bound: 104 "
-                                 "upper_bound: 135 value: 1}"));
+              testing::HasSubstr("free_unbacked_histogram { lower_bound: 40 "
+                                 "upper_bound: 71 value: 1}"));
   EXPECT_THAT(buffer_pbtxt,
-              testing::HasSubstr("free_swapped_histogram { lower_bound: 104 "
-                                 "upper_bound: 135 value: 1}"));
+              testing::HasSubstr("free_swapped_histogram { lower_bound: 40 "
+                                 "upper_bound: 71 value: 1}"));
   EXPECT_THAT(buffer_pbtxt,
               testing::HasSubstr("num_free_pages_non_hugepage_backed: 0"));
   EXPECT_THAT(buffer_pbtxt,
@@ -5319,10 +5322,10 @@ HugePageFiller: 130 of sparsely-accessed released used native pages are unbacked
               testing::HasSubstr("num_free_pages_hugepage_backed: 126"));
   EXPECT_THAT(buffer_pbtxt,
               testing::HasSubstr("num_used_pages_hugepage_backed: 130"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_swapped: 126"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_swapped: 130"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_unbacked: 126"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_unbacked: 130"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_swapped: 63"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_swapped: 65"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_unbacked: 63"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_unbacked: 65"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_stale: 0"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_stale: 1"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_treated: 1"));
