@@ -162,12 +162,12 @@ TYPED_TEST_P(AlignedNew, ArraySizeCheckSampling) {
   // track of the true size of arrays so that the proper number of destructors
   // can be invoked.
   struct NonTrivial {
-    virtual ~NonTrivial() {}
+    virtual ~NonTrivial() = default;
 
     TypeParam p;
   };
 
-  static_assert(!std::is_trivially_destructible<NonTrivial>::value,
+  static_assert(!std::is_trivially_destructible_v<NonTrivial>,
                 "NonTrivial should have a nontrivial destructor.");
 
   // The HeapLeakChecker initializes malloc hooks which we call prior to looking

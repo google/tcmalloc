@@ -512,7 +512,7 @@ TEST(TCMallocTest, NothrowSizedDelete) {
 
 TEST(TCMallocTest, NothrowSizedDeleteArray) {
   struct Foo {
-    ~Foo() {}
+    ~Foo() = default;
     double a;
   };
   // Foo should correspond to a size class used by new, but not by malloc,
@@ -521,7 +521,7 @@ TEST(TCMallocTest, NothrowSizedDeleteArray) {
   static_assert(sizeof(Foo) == 8, "Unexpected size for Foo");
   // With a non-trivially destructible type, we expect the compiler to insert a
   // size cookie so it can invoke sized delete[].
-  static_assert(!std::is_trivially_destructible<Foo>::value,
+  static_assert(!std::is_trivially_destructible_v<Foo>,
                 "Foo should not be trivially destructable, for sized delete[]");
 
   static constexpr int kNum = 100;
