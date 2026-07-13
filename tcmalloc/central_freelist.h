@@ -346,12 +346,14 @@ class CentralFreeList {
 
   uint32_t num_to_move_ = 0;
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Records histogram of how many consecutive objects fell on the same span for
   // batches.
   //
   // Note:  This goes to kMaxObjectsToMove and not kMaxObjectsToMove+1, since we
   // ignore the very first object.
   StatsCounter num_same_spans_[kMaxObjectsToMove];
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   // Num free objects in cache entry
   StatsCounter counter_;
@@ -554,6 +556,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     return;
   }
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Record how many objects fell on the same span.
   //
   // We only look for consecutive runs of the same span to avoid the cost of
@@ -568,6 +571,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     }
     return matches;
   }(absl::MakeConstSpan(spans, batch.size()));
+#endif
 
   // Use local copy of variables to ensure that they are not reloaded.
   const size_t object_size = object_size_;
@@ -594,7 +598,9 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // and collect spans that become completely free.
   {
     CentralFreeListLockHolder h(lock_);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     num_same_spans_[same_span].LossyAdd(1);
+#endif
     for (int i = 0; i < batch.size(); ++i) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const absl::Span<void*> b{&batch[i], 1};
@@ -824,17 +830,20 @@ inline void CentralFreeList<Forwarder>::HandleLongLivedSpans() {
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSameSpanStats(Printer& out) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   out.printf("class %3d [ %8zu bytes ] :", size_class_, object_size_);
   // num_same_spans_ is exclusive with num_to_move_, not inclusive.
   for (int i = 0; i < num_to_move_; ++i) {
     out.printf(" %6zu", num_same_spans_[i].value());
   }
   out.printf("\n");
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 }
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSameSpanStatsInPbtxt(
     PbtxtRegion& region) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // num_same_spans_ is exclusive with num_to_move_, not inclusive.
   for (int i = 0; i < num_to_move_; ++i) {
     auto value = num_same_spans_[i].value();
@@ -845,6 +854,7 @@ inline void CentralFreeList<Forwarder>::PrintSameSpanStatsInPbtxt(
     histogram.PrintI64("lower_bound", i);
     histogram.PrintI64("value", value);
   }
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 }
 
 template <class Forwarder>

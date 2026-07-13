@@ -964,6 +964,9 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
 }
 
 TEST_P(CentralFreeListTest, SameSpans) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  GTEST_SKIP() << "Stats are non-functional when optimization is not enabled.";
+#endif
   const int num_to_move = GetParam().num_to_move;
   TypeParam e(GetParam().size, GetParam().bytes, num_to_move);
 
