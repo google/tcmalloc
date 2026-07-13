@@ -344,9 +344,9 @@ class FakeResidency : public Residency {
                                            absl::StatusCode::kOk};
   }
 
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
-  size_t GetNativePagesInHugePage() const override {
-    return kNativePagesInHugePage;
+  const size_t kHardwarePagesInHugePage = kHugePageSize / kPageSize;
+  size_t GetHardwarePagesInHugePage() const override {
+    return kHardwarePagesInHugePage;
   };
 
  private:
@@ -2461,9 +2461,10 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPartial) {
 // This test confirms that when only some (but not all) native pages within a
 // free TCMalloc page are unbacked, the TCMalloc page is NOT marked as
 // subreleased.
-TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPartialNativePages) {
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
-  const int shift = kNativePagesInHugePage / kPagesPerHugePage.raw_num();
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       SubreleaseUnbackedPartialHardwarePages) {
+  const size_t kHardwarePagesInHugePage = kHugePageSize / kPageSize;
+  const int shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
   if (shift <= 1) {
     return;
   }

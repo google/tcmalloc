@@ -44,7 +44,7 @@ class Residency {
   };
 
   virtual std::optional<Info> Get(const void* addr, size_t size) = 0;
-  virtual inline size_t GetNativePagesInHugePage() const = 0;
+  virtual inline size_t GetHardwarePagesInHugePage() const = 0;
 
   // Struct is ordered with bitmaps first to optimize cacheline usage.
   struct SinglePageBitmaps {
@@ -85,9 +85,9 @@ class ResidencyPageMap : public Residency {
   // threads.
   std::optional<Info> Get(const void* addr, size_t size) override;
 
-  // Getter method for kNativePagesInHugePage.
-  size_t GetNativePagesInHugePage() const override {
-    return kNativePagesInHugePage;
+  // Getter method for kHardwarePagesInHugePage.
+  size_t GetHardwarePagesInHugePage() const override {
+    return kHardwarePagesInHugePage;
   }
 
   // Using a hugepage-aligned address, parse through /proc/self/pagemap
@@ -122,12 +122,12 @@ class ResidencyPageMap : public Residency {
   const size_t kHardwarePageSize = GetPageSize();
 
   static constexpr uintptr_t kHugePageMask = ~(kHugePageSize - 1);
-  const size_t kNativePagesInHugePage = kHugePageSize / kHardwarePageSize;
+  const size_t kHardwarePagesInHugePage = kHugePageSize / kHardwarePageSize;
 
   uint64_t buf_[kEntriesInBuf];
   const int fd_;
   const size_t kSizeOfHugepageInPagemap =
-      kPagemapEntrySize * kNativePagesInHugePage;
+      kPagemapEntrySize * kHardwarePagesInHugePage;
 };
 
 inline std::ostream& operator<<(std::ostream& stream,

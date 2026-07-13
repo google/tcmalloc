@@ -631,8 +631,8 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
     std::string fake_pageflags =
         absl::StrCat(testing::TempDir(), "/fake_pageflags_tail");
     const size_t kHardwarePageSize = getpagesize();
-    const size_t kNativePagesInHugePage = kHugePageSize / kHardwarePageSize;
-    std::vector<uint64_t> data(kNativePagesInHugePage, kPageTail);
+    const size_t kHardwarePagesInHugePage = kHugePageSize / kHardwarePageSize;
+    std::vector<uint64_t> data(kHardwarePagesInHugePage, kPageTail);
 
     std::string content(reinterpret_cast<const char*>(data.data()),
                         data.size() * sizeof(uint64_t));

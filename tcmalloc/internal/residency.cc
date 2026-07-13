@@ -66,7 +66,7 @@ ResidencyPageMap::ResidencyPageMap()
     : fd_(signal_safe_open("/proc/self/pagemap", O_RDONLY)) {
   TC_CHECK_GE(sizeof(buf_), kSizeOfHugepageInPagemap,
               "Buffer size is not large enough to hold the pagemap entries");
-  TC_CHECK_LE(kNativePagesInHugePage, kMaxResidencyBits,
+  TC_CHECK_LE(kHardwarePagesInHugePage, kMaxResidencyBits,
               "Actual number of native pages in a hugepage is larger than the "
               "total capacity of residency bitmaps");
 }
@@ -75,7 +75,7 @@ ResidencyPageMap::ResidencyPageMap(const char* const alternate_filename)
     : fd_(signal_safe_open(alternate_filename, O_RDONLY)) {
   TC_CHECK_GE(sizeof(buf_), kSizeOfHugepageInPagemap,
               "Buffer size is not large enough to hold the pagemap entries");
-  TC_CHECK_LE(kNativePagesInHugePage, kMaxResidencyBits,
+  TC_CHECK_LE(kHardwarePagesInHugePage, kMaxResidencyBits,
               "Actual number of native pages in a hugepage is larger than the "
               "total capacity of residency bitmaps");
 }
@@ -213,7 +213,7 @@ Residency::SinglePageBitmaps ResidencyPageMap::GetUnbackedAndSwappedBitmaps(
                              absl::StatusCode::kUnavailable};
   }
 
-  for (int native_page_idx = 0; native_page_idx < kNativePagesInHugePage;
+  for (int native_page_idx = 0; native_page_idx < kHardwarePagesInHugePage;
        ++native_page_idx) {
     uint64_t page_map = buf_[native_page_idx];
     if (!PagePresent(page_map)) {

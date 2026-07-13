@@ -356,10 +356,10 @@ absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
     return res;
   }
 
-  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
+  const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
   const size_t kPagemapEntrySize = 8;
   const size_t kSizeOfHugepageInPagemap =
-      kPagemapEntrySize * kNativePagesInHugePage;
+      kPagemapEntrySize * kHardwarePagesInHugePage;
 
   auto status = signal_safe_read(fd_, reinterpret_cast<char*>(buf_),
                                  kSizeOfHugepageInPagemap, nullptr);
@@ -371,7 +371,7 @@ absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
   last_head_read_ = -1;
 
   int stale_start = -1;
-  for (int i = 0; i < kNativePagesInHugePage; ++i) {
+  for (int i = 0; i < kHardwarePagesInHugePage; ++i) {
     uint64_t flags = buf_[i];
 
     if (PageHead(flags)) {
@@ -396,7 +396,7 @@ absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
     }
   }
   if (stale_start != -1) {
-    stale.SetRange(stale_start, kNativePagesInHugePage - stale_start);
+    stale.SetRange(stale_start, kHardwarePagesInHugePage - stale_start);
   }
 
   return absl::StatusCode::kOk;

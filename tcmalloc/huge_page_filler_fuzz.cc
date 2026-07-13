@@ -145,9 +145,9 @@ class FakeResidency : public Residency {
     return {unbacked_bitmap, swapped_bitmap, absl::StatusCode::kOk};
   };
 
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
-  size_t GetNativePagesInHugePage() const override {
-    return kNativePagesInHugePage;
+  const size_t kHardwarePagesInHugePage = kHugePageSize / kPageSize;
+  size_t GetHardwarePagesInHugePage() const override {
+    return kHardwarePagesInHugePage;
   };
 
  private:

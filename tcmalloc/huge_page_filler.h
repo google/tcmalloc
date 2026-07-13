@@ -317,7 +317,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
                       std::optional<absl::string_view> name);
 
-  struct NativePageResidencyInfo {
+  struct HardwarePageResidencyInfo {
     size_t n_free_swapped;
     size_t n_used_swapped;
     size_t n_free_unbacked;
@@ -326,7 +326,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     size_t n_used_stale;
   };
 
-  NativePageResidencyInfo CountInfoInHugePage(
+  HardwarePageResidencyInfo CountInfoInHugePage(
       Residency::SinglePageBitmaps bitmaps, ResidencyBitmap stale) const;
 
  private:
@@ -545,26 +545,26 @@ class UsageInfo {
     }
 
     // Native page Histograms bounds
-    const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
-    const int kStep = kNativePagesInHugePage / kBucketsInBetween;
+    const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
+    const int kStep = kHardwarePagesInHugePage / kBucketsInBetween;
     // Ensure that the number of native page buckets is at least the number of
     // buckets at a bound.
-    TC_ASSERT_GE(kNativePagesInHugePage, kBucketsAtBounds);
+    TC_ASSERT_GE(kHardwarePagesInHugePage, kBucketsAtBounds);
     // First kBucketsAtBounds buckets have a step size of 1
     for (int i = 0; i <= kBucketsAtBounds &&
-                    native_page_buckets_size_ < kNativePagesInHugePage;
+                    native_page_buckets_size_ < kHardwarePagesInHugePage;
          ++i) {
       native_page_bucket_bounds_[native_page_buckets_size_] = i;
       ++native_page_buckets_size_;
     }
 
     // All the buckets in between should increment with a step of
-    // kNativePagesInHugePage / kBucketsInBetween
-    for (int i = 0; i < kNativePagesInHugePage - kBucketsAtBounds; ++i) {
+    // kHardwarePagesInHugePage / kBucketsInBetween
+    for (int i = 0; i < kHardwarePagesInHugePage - kBucketsAtBounds; ++i) {
       int bound =
           native_page_bucket_bounds_[native_page_buckets_size_ - 1] + kStep;
       // We break early so that we can log histogram at the end with step 1
-      if (bound >= kNativePagesInHugePage - kBucketsAtBounds) {
+      if (bound >= kHardwarePagesInHugePage - kBucketsAtBounds) {
         break;
       }
       native_page_bucket_bounds_[native_page_buckets_size_] = bound;
@@ -573,7 +573,7 @@ class UsageInfo {
 
     // End kBucketBoundsBuckets have a step size of 1
     for (int i = 0; i < kBucketsAtBounds; ++i) {
-      int end_bound = kNativePagesInHugePage - kBucketsAtBounds + i;
+      int end_bound = kHardwarePagesInHugePage - kBucketsAtBounds + i;
       // Prevent duplicate end bounds from being added to the histogram
       if (native_page_bucket_bounds_[native_page_buckets_size_ - 1] >=
           end_bound) {
@@ -703,19 +703,20 @@ class UsageInfo {
         records.num_free_non_hugepage_backed += (free - pt.released_pages());
         records.num_used_non_hugepage_backed += pt.used_pages();
         Residency::SinglePageBitmaps bitmaps = hugepage_residency_state.bitmaps;
-        ++records.unbacked_histo[NativePageBucketNum(
+        ++records.unbacked_histo[HardwarePageBucketNum(
             bitmaps.unbacked.CountBits())];
-        ++records
-              .swapped_histo[NativePageBucketNum(bitmaps.swapped.CountBits())];
-        ++records.stale_histo[NativePageBucketNum(
+        ++records.swapped_histo[HardwarePageBucketNum(
+            bitmaps.swapped.CountBits())];
+        ++records.stale_histo[HardwarePageBucketNum(
             hugepage_residency_state.stale.CountBits())];
 
-        PageTracker::NativePageResidencyInfo info =
+        PageTracker::HardwarePageResidencyInfo info =
             pt.CountInfoInHugePage(bitmaps, hugepage_residency_state.stale);
         ++records
-              .free_unbacked_histo[NativePageBucketNum(info.n_free_unbacked)];
-        ++records.free_swapped_histo[NativePageBucketNum(info.n_free_swapped)];
-        ++records.free_stale_histo[NativePageBucketNum(info.n_free_stale)];
+              .free_unbacked_histo[HardwarePageBucketNum(info.n_free_unbacked)];
+        ++records
+              .free_swapped_histo[HardwarePageBucketNum(info.n_free_swapped)];
+        ++records.free_stale_histo[HardwarePageBucketNum(info.n_free_stale)];
         records.num_free_swapped += Length(info.n_free_swapped);
         records.num_used_swapped += Length(info.n_used_swapped);
         records.num_free_unbacked += Length(info.n_free_unbacked);
@@ -771,18 +772,18 @@ class UsageInfo {
     PrintHisto(out, records.long_lived_hps_histo, type,
                "hps with a <= # of allocations < b", 0);
 
-    PrintNativePageHisto(out, records.unbacked_histo, type,
-                         "hps with a <= # of unbacked < b", 0);
-    PrintNativePageHisto(out, records.swapped_histo, type,
-                         "hps with a <= # of swapped < b", 0);
-    PrintNativePageHisto(out, records.stale_histo, type,
-                         "hps with a <= # of stale < b", 0);
-    PrintNativePageHisto(out, records.free_unbacked_histo, type,
-                         "hps with a <= # of free AND unbacked < b", 0);
-    PrintNativePageHisto(out, records.free_swapped_histo, type,
-                         "hps with a <= # of free AND swapped < b", 0);
-    PrintNativePageHisto(out, records.free_stale_histo, type,
-                         "hps with a <= # of free AND stale < b", 0);
+    PrintHardwarePageHisto(out, records.unbacked_histo, type,
+                           "hps with a <= # of unbacked < b", 0);
+    PrintHardwarePageHisto(out, records.swapped_histo, type,
+                           "hps with a <= # of swapped < b", 0);
+    PrintHardwarePageHisto(out, records.stale_histo, type,
+                           "hps with a <= # of stale < b", 0);
+    PrintHardwarePageHisto(out, records.free_unbacked_histo, type,
+                           "hps with a <= # of free AND unbacked < b", 0);
+    PrintHardwarePageHisto(out, records.free_swapped_histo, type,
+                           "hps with a <= # of free AND swapped < b", 0);
+    PrintHardwarePageHisto(out, records.free_stale_histo, type,
+                           "hps with a <= # of free AND stale < b", 0);
 
     out.printf("\nHugePageFiller: %zu of %s free native pages are swapped.",
                records.num_free_swapped.raw_num(), TypeToStr(type));
@@ -837,13 +838,14 @@ class UsageInfo {
                        "low_occupancy_lifetime_histogram");
     PrintHisto(scoped, records.long_lived_hps_histo,
                "long_lived_hugepages_histogram", 0);
-    PrintNativePageHisto(scoped, records.unbacked_histo, "unbacked_histogram",
-                         0);
-    PrintNativePageHisto(scoped, records.swapped_histo, "swapped_histogram", 0);
-    PrintNativePageHisto(scoped, records.free_unbacked_histo,
-                         "free_unbacked_histogram", 0);
-    PrintNativePageHisto(scoped, records.free_swapped_histo,
-                         "free_swapped_histogram", 0);
+    PrintHardwarePageHisto(scoped, records.unbacked_histo, "unbacked_histogram",
+                           0);
+    PrintHardwarePageHisto(scoped, records.swapped_histo, "swapped_histogram",
+                           0);
+    PrintHardwarePageHisto(scoped, records.free_unbacked_histo,
+                           "free_unbacked_histogram", 0);
+    PrintHardwarePageHisto(scoped, records.free_swapped_histo,
+                           "free_swapped_histogram", 0);
     PrintSampledTrackers(scoped, type, "sampled_trackers", records);
     scoped.PrintI64("total_pages", records.total_pages);
     scoped.PrintI64("num_pages_hugepage_backed", records.hugepage_backed);
@@ -897,7 +899,7 @@ class UsageInfo {
     return it - lifetime_bucket_bounds_ - 1;
   }
 
-  int NativePageBucketNum(size_t page) {
+  int HardwarePageBucketNum(size_t page) {
     auto it =
         std::upper_bound(native_page_bucket_bounds_,
                          native_page_bucket_bounds_ + buckets_size_, page);
@@ -905,8 +907,8 @@ class UsageInfo {
     return it - native_page_bucket_bounds_ - 1;
   }
 
-  void PrintNativePageHisto(Printer& out, Histo h, Type type,
-                            absl::string_view blurb, size_t offset) {
+  void PrintHardwarePageHisto(Printer& out, Histo h, Type type,
+                              absl::string_view blurb, size_t offset) {
     out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
     for (size_t i = 0; i < native_page_buckets_size_; ++i) {
       if (i % 6 == 0) {
@@ -917,8 +919,8 @@ class UsageInfo {
     out.printf("\n");
   }
 
-  void PrintNativePageHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
-                            size_t offset) {
+  void PrintHardwarePageHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
+                              size_t offset) {
     for (size_t i = 0; i < buckets_size_; ++i) {
       if (h[i] == 0) continue;
       auto hist = hpaa.CreateSubRegion(key);
@@ -1508,31 +1510,31 @@ inline void PageTracker::SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
   set_anon_vma_name(Range(location_.first_page(), kPagesPerHugePage), name);
 }
 
-inline PageTracker::NativePageResidencyInfo PageTracker::CountInfoInHugePage(
+inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
     Residency::SinglePageBitmaps bitmaps, ResidencyBitmap stale) const {
   // TODO(b/424551232): Add support for the scenario when native page size is
   // larger than TCMalloc page size.
-  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
-  if (kNativePagesInHugePage < kPagesPerHugePage.raw_num()) {
+  const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
+  if (kHardwarePagesInHugePage < kPagesPerHugePage.raw_num()) {
     return {.n_free_swapped = 0, .n_free_unbacked = 0};
   }
-  TC_ASSERT_LE(kNativePagesInHugePage, kMaxResidencyBits);
+  TC_ASSERT_LE(kHardwarePagesInHugePage, kMaxResidencyBits);
 
   Bitmap<kMaxResidencyBits> unbacked = bitmaps.unbacked;
   Bitmap<kMaxResidencyBits> swapped = bitmaps.swapped;
   Bitmap<kPagesPerHugePage.raw_num()> free = free_.bits();
 
-  TC_ASSERT_EQ(kNativePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
-  const int shift = kNativePagesInHugePage / kPagesPerHugePage.raw_num();
+  TC_ASSERT_EQ(kHardwarePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
+  const int shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
   const int shift_bits = absl::bit_width<uint8_t>(shift - 1);
-  TC_ASSERT_LT((kNativePagesInHugePage - 1) >> shift_bits,
+  TC_ASSERT_LT((kHardwarePagesInHugePage - 1) >> shift_bits,
                kPagesPerHugePage.raw_num());
 
   size_t n_unbacked[2] = {0, 0};
   size_t n_swapped[2] = {0, 0};
   size_t n_stale[2] = {0, 0};
 
-  for (size_t i = 0; i < kNativePagesInHugePage; ++i) {
+  for (size_t i = 0; i < kHardwarePagesInHugePage; ++i) {
     const int scaled_idx = i >> shift_bits;
     bool is_free = !free.GetBit(scaled_idx);
 
