@@ -328,11 +328,38 @@ class FakeResidency : public Residency {
     return std::nullopt;
   };
 
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(
+      const void* addr, size_t native_pages_per_element) override {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
     EXPECT_TRUE(residency_bitmaps_.contains(hp.start_addr()));
-    return residency_bitmaps_[hp.start_addr()];
+    SinglePageBitmaps native_res = residency_bitmaps_[hp.start_addr()];
+    if (native_pages_per_element <= 1) {
+      return native_res;
+    }
+    SinglePageBitmaps result;
+    result.status = native_res.status;
+    size_t num_elements = kNativePagesInHugePage / native_pages_per_element;
+    for (size_t idx = 0; idx < num_elements; ++idx) {
+      bool all_unbacked = true;
+      bool any_swapped = false;
+      for (size_t j = 0; j < native_pages_per_element; ++j) {
+        size_t native_idx = idx * native_pages_per_element + j;
+        if (!native_res.unbacked.GetBit(native_idx)) {
+          all_unbacked = false;
+        }
+        if (native_res.swapped.GetBit(native_idx)) {
+          any_swapped = true;
+        }
+      }
+      if (all_unbacked) {
+        result.unbacked.SetBit(idx);
+      }
+      if (any_swapped) {
+        result.swapped.SetBit(idx);
+      }
+    }
+    return result;
   };
 
   void SetUnbackedAndSwappedBitmaps(const void* addr,
@@ -344,7 +371,7 @@ class FakeResidency : public Residency {
                                            absl::StatusCode::kOk};
   }
 
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
   size_t GetNativePagesInHugePage() const override {
     return kNativePagesInHugePage;
   };
@@ -2462,7 +2489,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPartial) {
 // free TCMalloc page are unbacked, the TCMalloc page is NOT marked as
 // subreleased.
 TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPartialNativePages) {
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
   const int shift = kNativePagesInHugePage / kPagesPerHugePage.raw_num();
   if (shift <= 1) {
     return;

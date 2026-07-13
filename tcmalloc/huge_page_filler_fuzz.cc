@@ -141,11 +141,39 @@ class FakeResidency : public Residency {
     return std::nullopt;
   };
 
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
-    return {unbacked_bitmap, swapped_bitmap, absl::StatusCode::kOk};
+  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(
+      const void* addr, size_t native_pages_per_element) override {
+    SinglePageBitmaps native_res = {unbacked_bitmap, swapped_bitmap,
+                                    absl::StatusCode::kOk};
+    if (native_pages_per_element <= 1) {
+      return native_res;
+    }
+    SinglePageBitmaps result;
+    result.status = native_res.status;
+    size_t num_elements = kNativePagesInHugePage / native_pages_per_element;
+    for (size_t idx = 0; idx < num_elements; ++idx) {
+      bool all_unbacked = true;
+      bool any_swapped = false;
+      for (size_t j = 0; j < native_pages_per_element; ++j) {
+        size_t native_idx = idx * native_pages_per_element + j;
+        if (!native_res.unbacked.GetBit(native_idx)) {
+          all_unbacked = false;
+        }
+        if (native_res.swapped.GetBit(native_idx)) {
+          any_swapped = true;
+        }
+      }
+      if (all_unbacked) {
+        result.unbacked.SetBit(idx);
+      }
+      if (any_swapped) {
+        result.swapped.SetBit(idx);
+      }
+    }
+    return result;
   };
 
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kNativePagesInHugePage = kHugePageSize / GetPageSize();
   size_t GetNativePagesInHugePage() const override {
     return kNativePagesInHugePage;
   };

@@ -602,6 +602,7 @@ cc_test(
         ":range_tracker",
         ":residency",
         ":util",
+        "//tcmalloc:common_8k_pages",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
