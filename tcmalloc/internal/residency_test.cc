@@ -72,70 +72,73 @@ constexpr uint64_t kPageSwapped = (1ULL << 62);
 constexpr uint64_t kPagePresent = (1ULL << 63);
 
 TEST(ResidenceTest, ThisProcess) {
-  const size_t kPageSize = GetPageSize();
+  const size_t kHardwarePageSize = GetPageSize();
   const int kNumPages = 16;
 
   // Try both private and shared mappings to make sure we have the bit order of
   // /proc/pid/pageflags correct.
   for (const int flags :
        {MAP_ANONYMOUS | MAP_SHARED, MAP_ANONYMOUS | MAP_PRIVATE}) {
-    const size_t kHead = kPageSize * 10;
-    const size_t kTail = kPageSize * 10;
+    const size_t kHead = kHardwarePageSize * 10;
+    const size_t kTail = kHardwarePageSize * 10;
 
     ResidencyPageMap r;
     // Overallocate kNumPages of memory, so we can munmap the page before and
     // after it.
-    void* p = mmap(nullptr, kNumPages * kPageSize + kHead + kTail,
+    void* p = mmap(nullptr, kNumPages * kHardwarePageSize + kHead + kTail,
                    PROT_READ | PROT_WRITE, flags, -1, 0);
     ASSERT_NE(p, MAP_FAILED) << errno;
 
-    EXPECT_THAT(r.Get(p, (kNumPages + 2) * kPageSize),
+    EXPECT_THAT(r.Get(p, (kNumPages + 2) * kHardwarePageSize),
                 Optional(FieldsAre(0, 0)));
-    ASSERT_EQ(munmap(p, kPageSize), 0);
+    ASSERT_EQ(munmap(p, kHardwarePageSize), 0);
     void* q = reinterpret_cast<char*>(p) + kHead;
-    void* last = reinterpret_cast<char*>(p) + kNumPages * kPageSize + kHead;
-    ASSERT_EQ(munmap(last, kPageSize), 0);
+    void* last =
+        reinterpret_cast<char*>(p) + kNumPages * kHardwarePageSize + kHead;
+    ASSERT_EQ(munmap(last, kHardwarePageSize), 0);
 
     EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0)));
     EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0)));
 
-    memset(q, 0, kNumPages * kPageSize);
-    (void)mlock(q, kNumPages * kPageSize);
+    memset(q, 0, kNumPages * kHardwarePageSize);
+    (void)mlock(q, kNumPages * kHardwarePageSize);
     ::benchmark::DoNotOptimize(q);
 
     EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0)));
     EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0)));
 
-    EXPECT_THAT(r.Get(q, kPageSize), Optional(FieldsAre(kPageSize, 0)));
+    EXPECT_THAT(r.Get(q, kHardwarePageSize),
+                Optional(FieldsAre(kHardwarePageSize, 0)));
 
-    EXPECT_THAT(r.Get(q, (kNumPages + 2) * kPageSize),
-                Optional(FieldsAre(kPageSize * kNumPages, 0)));
+    EXPECT_THAT(r.Get(q, (kNumPages + 2) * kHardwarePageSize),
+                Optional(FieldsAre(kHardwarePageSize * kNumPages, 0)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kPageSize - 7),
-                Optional(FieldsAre(kPageSize - 7, 0)));
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kHardwarePageSize - 7),
+                Optional(FieldsAre(kHardwarePageSize - 7, 0)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kPageSize),
-                Optional(FieldsAre(kPageSize, 0)));
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kHardwarePageSize),
+                Optional(FieldsAre(kHardwarePageSize, 0)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, 3 * kPageSize),
-                Optional(FieldsAre(kPageSize * 3, 0)));
-
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kNumPages * kPageSize),
-                Optional(FieldsAre(kPageSize * kNumPages - 7, 0)));
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, 3 * kHardwarePageSize),
+                Optional(FieldsAre(kHardwarePageSize * 3, 0)));
 
     EXPECT_THAT(
-        r.Get(reinterpret_cast<char*>(q) + 7, kNumPages * kPageSize - 7),
-        Optional(FieldsAre(kPageSize * kNumPages - 7, 0)));
+        r.Get(reinterpret_cast<char*>(q) + 7, kNumPages * kHardwarePageSize),
+        Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0)));
 
-    EXPECT_THAT(
-        r.Get(reinterpret_cast<char*>(q) + 7, (kNumPages + 1) * kPageSize),
-        Optional(FieldsAre(kPageSize * kNumPages - 7, 0)));
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
+                      kNumPages * kHardwarePageSize - 7),
+                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0)));
 
-    EXPECT_THAT(
-        r.Get(reinterpret_cast<char*>(q) + 7, (kNumPages + 1) * kPageSize - 7),
-        Optional(FieldsAre(kPageSize * kNumPages - 7, 0)));
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
+                      (kNumPages + 1) * kHardwarePageSize),
+                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0)));
 
-    ASSERT_EQ(munmap(q, kNumPages * kPageSize), 0);
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
+                      (kNumPages + 1) * kHardwarePageSize - 7),
+                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0)));
+
+    ASSERT_EQ(munmap(q, kNumPages * kHardwarePageSize), 0);
   }
 }
 

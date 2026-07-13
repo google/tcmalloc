@@ -136,13 +136,13 @@ class PageFlags final : public PageFlagsBase {
   static constexpr int kPagemapEntrySize = 8;
   static constexpr int kEntriesInBuf = kBufferLength / kPagemapEntrySize;
 
-  const size_t kPageSize = GetPageSize();
+  const size_t kHardwarePageSize = GetPageSize();
   // You can technically not hard-code this but it would involve many more
   // queries to figure out the size of every page. It's a lot easier to just
   // assume any compound pages are 2 MB.
   static constexpr int kHugePageSize = (2 << 20);
   static constexpr uintptr_t kHugePageMask = ~(kHugePageSize - 1);
-  const size_t kPagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kPagesInHugePage = kHugePageSize / kHardwarePageSize;
 
   uint64_t buf_[kEntriesInBuf];
   // Information about the previous head page. For any future-encountered tail

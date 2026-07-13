@@ -119,10 +119,10 @@ class ResidencyPageMap : public Residency {
   static constexpr int kPagemapEntrySize = 8;
   static constexpr int kEntriesInBuf = kBufferLength / kPagemapEntrySize;
 
-  const size_t kPageSize = GetPageSize();
+  const size_t kHardwarePageSize = GetPageSize();
 
   static constexpr uintptr_t kHugePageMask = ~(kHugePageSize - 1);
-  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kNativePagesInHugePage = kHugePageSize / kHardwarePageSize;
 
   uint64_t buf_[kEntriesInBuf];
   const int fd_;

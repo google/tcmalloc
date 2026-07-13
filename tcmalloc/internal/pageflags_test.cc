@@ -147,21 +147,23 @@ TEST(PageFlagsTest, Stack) {
 TEST(PageFlagsTest, Alignment) {
   GTEST_SKIP() << "pageflags not commonly available";
 
-  const size_t kPageSize = getpagesize();
-  const int kNumPages = 6 * kHugePageSize / kPageSize;
+  const size_t kHardwarePageSize = getpagesize();
+  const int kNumPages = 6 * kHugePageSize / kHardwarePageSize;
   for (auto mmap_hint : std::initializer_list<void*>{
            nullptr, reinterpret_cast<void*>(0x00007BADDE000000),
            reinterpret_cast<void*>(0x00007BADDF001000)}) {
     void* p = mmap(
-        mmap_hint, kNumPages * kPageSize, PROT_READ | PROT_WRITE,
+        mmap_hint, kNumPages * kHardwarePageSize, PROT_READ | PROT_WRITE,
         (mmap_hint == nullptr ? 0 : MAP_FIXED) | MAP_ANONYMOUS | MAP_PRIVATE,
         -1, 0);
     ASSERT_NE(p, MAP_FAILED) << errno;
-    ASSERT_EQ(madvise(p, kPageSize * kNumPages, MADV_HUGEPAGE), 0) << errno;
+    ASSERT_EQ(madvise(p, kHardwarePageSize * kNumPages, MADV_HUGEPAGE), 0)
+        << errno;
 
     PageFlags s;
-    EXPECT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{})) << p;
-    munmap(p, kNumPages * kPageSize);
+    EXPECT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}))
+        << p;
+    munmap(p, kNumPages * kHardwarePageSize);
   }
 }
 
@@ -172,13 +174,13 @@ TEST(PageFlagsTest, Alignment) {
 // is page-aligned, this is a zero pointer (not to be confused with a null
 // pointer).
 void* GenerateAllStaleTest(absl::string_view filename, void* obj, size_t size) {
-  const size_t kPageSize = getpagesize();
+  const size_t kHardwarePageSize = getpagesize();
 
   uintptr_t ptr = reinterpret_cast<uintptr_t>(obj);
   uintptr_t pages_start = ptr & kHugePageMask;
   uintptr_t new_offset = ptr - pages_start;
 
-  off_t file_read_offset = pages_start / kPageSize * kPagemapEntrySize;
+  off_t file_read_offset = pages_start / kHardwarePageSize * kPagemapEntrySize;
   int read_fd = signal_safe_open("/proc/self/pageflags", O_RDONLY);
   CHECK_NE(read_fd, -1)
       << StrError(errno)
@@ -208,16 +210,17 @@ void* GenerateAllStaleTest(absl::string_view filename, void* obj, size_t size) {
 TEST(PageFlagsTest, Stale) {
   GTEST_SKIP() << "pageflags not commonly available";
 
-  constexpr size_t kPageSize = 4096;
-  constexpr int kNumPages = 6 * kHugePageSize / kPageSize;
+  constexpr size_t kHardwarePageSize = 4096;
+  constexpr int kNumPages = 6 * kHugePageSize / kHardwarePageSize;
   // This is hardcoded because we need to know number of pages in a hugepage.
-  ASSERT_EQ(getpagesize(), kPageSize);
+  ASSERT_EQ(getpagesize(), kHardwarePageSize);
   char* p = reinterpret_cast<char*>(
-      mmap(reinterpret_cast<void*>(0x00007BADDE001000), kNumPages * kPageSize,
-           PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
+      mmap(reinterpret_cast<void*>(0x00007BADDE001000),
+           kNumPages * kHardwarePageSize, PROT_READ | PROT_WRITE,
+           MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
   ASSERT_NE(p, MAP_FAILED) << errno;
   absl::BitGen rng;
-  for (int i = 0; i < kNumPages * kPageSize; ++i) {
+  for (int i = 0; i < kNumPages * kHardwarePageSize; ++i) {
     p[i] = absl::Uniform(rng, 0, 256);
   }
 
@@ -232,7 +235,7 @@ TEST(PageFlagsTest, Stale) {
   ASSERT_EQ(madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_HUGEPAGE), 0)
       << errno;
   PageFlags s;
-  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{}));
+  ASSERT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}));
 
   // This doesn't work within a short test timeout. But if you have your own
   // machine with appropriate patches, you can try it out!
@@ -240,9 +243,9 @@ TEST(PageFlagsTest, Stale) {
     absl::Time start = absl::Now();
     bool ok = false;
     do {
-      auto res = s.Get(p, kPageSize * kNumPages);
+      auto res = s.Get(p, kHardwarePageSize * kNumPages);
       ASSERT_TRUE(res.has_value());
-      if (res->bytes_stale > kNumPages * kPageSize / 2) {
+      if (res->bytes_stale > kNumPages * kHardwarePageSize / 2) {
         LOG(INFO) << absl::StrFormat("Got %ld bytes stale, pointer is at %p",
                                      res->bytes_stale, p);
         ok = true;
@@ -256,11 +259,11 @@ TEST(PageFlagsTest, Stale) {
     std::string fake_pageflags =
         absl::StrCat(testing::TempDir(), "/fake_pageflags");
     void* fake_p =
-        GenerateAllStaleTest(fake_pageflags, p, kNumPages * kPageSize);
+        GenerateAllStaleTest(fake_pageflags, p, kNumPages * kHardwarePageSize);
     // fake_p is likely already aligned, but might as well make sure. This is
     // likely a zero pointer (not to be confused with nullptr).
     void* base_p = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(fake_p) &
-                                           ~(kPageSize - 1));
+                                           ~(kHardwarePageSize - 1));
     PageFlagsFriend mocks(fake_pageflags);
     constexpr uint64_t kSetScanSeconds = 63;
     mocks.SetCachedScanSeconds(kSetScanSeconds);
@@ -271,48 +274,49 @@ TEST(PageFlagsTest, Stale) {
         // much overhead as adding a custom matcher. But if you add yet another
         // field here it's time to write one.
         uint64_t scan_seconds = kSetScanSeconds;
-        if (num_pages * kPageSize + offset == 0) scan_seconds = 0;
+        if (num_pages * kHardwarePageSize + offset == 0) scan_seconds = 0;
         // CAUTION: If you think this test is very flaky, it's possible it's
         // only passing when the machine you get scheduled on is out of
         // hugepages.
-        EXPECT_THAT(mocks.Get(base_p, num_pages * kPageSize + offset),
-                    Optional(FieldsAre(num_pages * kPageSize + offset, 0,
-                                       scan_seconds)))
+        EXPECT_THAT(mocks.Get(base_p, num_pages * kHardwarePageSize + offset),
+                    Optional(FieldsAre(num_pages * kHardwarePageSize + offset,
+                                       0, scan_seconds)))
             << num_pages << "," << offset;
 
-        EXPECT_THAT(
-            mocks.Get((char*)fake_p - offset, num_pages * kPageSize + offset),
-            Optional(
-                FieldsAre(num_pages * kPageSize + offset, 0, scan_seconds)))
+        EXPECT_THAT(mocks.Get((char*)fake_p - offset,
+                              num_pages * kHardwarePageSize + offset),
+                    Optional(FieldsAre(num_pages * kHardwarePageSize + offset,
+                                       0, scan_seconds)))
             << num_pages << "," << offset;
 
-        EXPECT_THAT(mocks.Get(fake_p, num_pages * kPageSize + offset),
-                    Optional(FieldsAre(num_pages * kPageSize + offset, 0,
-                                       scan_seconds)))
+        EXPECT_THAT(mocks.Get(fake_p, num_pages * kHardwarePageSize + offset),
+                    Optional(FieldsAre(num_pages * kHardwarePageSize + offset,
+                                       0, scan_seconds)))
             << num_pages << "," << offset;
 
-        EXPECT_THAT(
-            mocks.Get((char*)fake_p + offset, num_pages * kPageSize + offset),
-            Optional(
-                FieldsAre(num_pages * kPageSize + offset, 0, scan_seconds)))
+        EXPECT_THAT(mocks.Get((char*)fake_p + offset,
+                              num_pages * kHardwarePageSize + offset),
+                    Optional(FieldsAre(num_pages * kHardwarePageSize + offset,
+                                       0, scan_seconds)))
             << num_pages << "," << offset;
 
         scan_seconds = kSetScanSeconds;
         if (num_pages == 0) scan_seconds = 0;
         EXPECT_THAT(
-            mocks.Get((char*)kHugePageSize + offset, num_pages * kPageSize),
-            Optional(FieldsAre(num_pages * kPageSize, 0, scan_seconds)))
+            mocks.Get((char*)kHugePageSize + offset,
+                      num_pages * kHardwarePageSize),
+            Optional(FieldsAre(num_pages * kHardwarePageSize, 0, scan_seconds)))
             << num_pages << "," << offset;
       }
     }
 
     EXPECT_THAT(mocks.Get(reinterpret_cast<char*>(2 * kHugePageSize +
-                                                  16 * kPageSize + 2),
+                                                  16 * kHardwarePageSize + 2),
                           kHugePageSize * 3),
                 Optional(FieldsAre(kHugePageSize * 3, 0, kSetScanSeconds)));
   }
 
-  ASSERT_EQ(munmap(p, kNumPages * kPageSize), 0) << errno;
+  ASSERT_EQ(munmap(p, kNumPages * kHardwarePageSize), 0) << errno;
 }
 
 TEST(PageFlagsTest, Locked) {
@@ -323,21 +327,22 @@ TEST(PageFlagsTest, Locked) {
   GTEST_SKIP() << "Skipped under sanitizers.";
 #endif
 
-  constexpr size_t kPageSize = 4096;
-  constexpr int kNumPages = 6 * kHugePageSize / kPageSize;
+  constexpr size_t kHardwarePageSize = 4096;
+  constexpr int kNumPages = 6 * kHugePageSize / kHardwarePageSize;
   // This is hardcoded because we need to know number of pages in a hugepage.
-  ASSERT_EQ(getpagesize(), kPageSize);
+  ASSERT_EQ(getpagesize(), kHardwarePageSize);
   char* p = reinterpret_cast<char*>(
-      mmap(reinterpret_cast<void*>(0x00007BADDE000000), kNumPages * kPageSize,
-           PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
+      mmap(reinterpret_cast<void*>(0x00007BADDE000000),
+           kNumPages * kHardwarePageSize, PROT_READ | PROT_WRITE,
+           MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
   ASSERT_NE(p, MAP_FAILED) << errno;
   absl::BitGen rng;
-  for (int i = 0; i < kNumPages * kPageSize; ++i) {
+  for (int i = 0; i < kNumPages * kHardwarePageSize; ++i) {
     p[i] = absl::Uniform(rng, 0, 256);
   }
 
   PageFlags s;
-  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{}));
+  ASSERT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}));
 
   ASSERT_EQ(madvise(p, kHugePageSize, MADV_NOHUGEPAGE), 0) << errno;
   ASSERT_EQ(madvise(p + kHugePageSize, 3 * kHugePageSize, MADV_HUGEPAGE), 0)
@@ -347,20 +352,20 @@ TEST(PageFlagsTest, Locked) {
   ASSERT_EQ(madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_HUGEPAGE), 0)
       << errno;
 
-  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{}));
+  ASSERT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}));
 
-  ASSERT_EQ(mlock(p, kPageSize * kNumPages), 0) << errno;
+  ASSERT_EQ(mlock(p, kHardwarePageSize * kNumPages), 0) << errno;
 
   // Wait until the kernel has had time to propagate flags.
   absl::Time start = absl::Now();
   do {
-    auto res = s.Get(p, kPageSize * kNumPages);
+    auto res = s.Get(p, kHardwarePageSize * kNumPages);
     ASSERT_TRUE(res.has_value());
-    if (res->bytes_locked > kNumPages * kPageSize / 2) {
+    if (res->bytes_locked > kNumPages * kHardwarePageSize / 2) {
       LOG(INFO) << "Got " << res->bytes_locked
                 << " bytes locked, pointer is at " << (uintptr_t)p;
 
-      if (res->bytes_locked == kNumPages * kPageSize) {
+      if (res->bytes_locked == kNumPages * kHardwarePageSize) {
         break;
       }
     }
@@ -368,16 +373,16 @@ TEST(PageFlagsTest, Locked) {
     absl::SleepFor(absl::Milliseconds(100));
   } while (absl::Now() - start < absl::Seconds(60));
 
-  auto res = s.Get(p, kPageSize * kNumPages);
+  auto res = s.Get(p, kHardwarePageSize * kNumPages);
   ASSERT_TRUE(res.has_value());
-  ASSERT_EQ(res->bytes_locked, kPageSize * kNumPages);
+  ASSERT_EQ(res->bytes_locked, kHardwarePageSize * kNumPages);
 
-  ASSERT_EQ(munmap(p, kNumPages * kPageSize), 0) << errno;
+  ASSERT_EQ(munmap(p, kNumPages * kHardwarePageSize), 0) << errno;
 }
 
 TEST(PageFlagsTest, OnlyTails) {
-  const size_t kPageSize = getpagesize();
-  std::vector<uint64_t> data(5 * kHugePageSize / kPageSize);
+  const size_t kHardwarePageSize = getpagesize();
+  std::vector<uint64_t> data(5 * kHugePageSize / kHardwarePageSize);
   for (auto& page : data) {
     page |= kPageTail;
     page |= kPageThp;
@@ -408,8 +413,8 @@ TEST(PageFlagsTest, IsHugepageBackedBadFile) {
 // using MADV_COLLAPSE) to confirm the hugepage status using pageflags.
 TEST(PageFlagsTest, IsHugepageBacked) {
   const auto test_hugepage_status = [&](uint64_t flags, bool expected) {
-    const size_t kPageSize = getpagesize();
-    const size_t kPagesPerHugepage = kHugePageSize / kPageSize;
+    const size_t kHardwarePageSize = getpagesize();
+    const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
 
     std::vector<uint64_t> data(kPagesPerHugepage);
     for (auto& page : data) {
@@ -440,16 +445,16 @@ TEST(PageFlagsTest, IsHugepageBacked) {
 }
 
 TEST(PageFlagsTest, TooManyTails) {
-  const size_t kPageSize = getpagesize();
-  std::vector<uint64_t> data(7 * kHugePageSize / kPageSize);
+  const size_t kHardwarePageSize = getpagesize();
+  std::vector<uint64_t> data(7 * kHugePageSize / kHardwarePageSize);
   for (auto& page : data) {
     page |= kPageTail;
     page |= kPageThp;
   }
-  data[kHugePageSize / kPageSize] = kPageHead | kPageThp;
-  data[2 * kHugePageSize / kPageSize] = kPageHead | kPageThp;
-  data[3 * kHugePageSize / kPageSize] = kPageHead | kPageThp;
-  data[5 * kHugePageSize / kPageSize] = kPageHead | kPageThp;
+  data[kHugePageSize / kHardwarePageSize] = kPageHead | kPageThp;
+  data[2 * kHugePageSize / kHardwarePageSize] = kPageHead | kPageThp;
+  data[3 * kHugePageSize / kHardwarePageSize] = kPageHead | kPageThp;
+  data[5 * kHugePageSize / kHardwarePageSize] = kPageHead | kPageThp;
 
   std::string file_path = absl::StrCat(testing::TempDir(), "/too-many-tails");
   int write_fd = signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY,
@@ -478,8 +483,8 @@ TEST(PageFlagsTest, TooManyTails) {
 }
 
 TEST(PageFlagsTest, NotThp) {
-  const size_t kPageSize = getpagesize();
-  std::vector<uint64_t> data(3 * kHugePageSize / kPageSize);
+  const size_t kHardwarePageSize = getpagesize();
+  std::vector<uint64_t> data(3 * kHugePageSize / kHardwarePageSize);
   for (auto& page : data) {
     page |= kPageHead;
   }
@@ -625,8 +630,8 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
   {
     std::string fake_pageflags =
         absl::StrCat(testing::TempDir(), "/fake_pageflags_tail");
-    const size_t kPageSize = getpagesize();
-    const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
+    const size_t kHardwarePageSize = getpagesize();
+    const size_t kNativePagesInHugePage = kHugePageSize / kHardwarePageSize;
     std::vector<uint64_t> data(kNativePagesInHugePage, kPageTail);
 
     std::string content(reinterpret_cast<const char*>(data.data()),

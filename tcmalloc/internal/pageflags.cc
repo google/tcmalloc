@@ -109,8 +109,8 @@ PageFlags::~PageFlags() {
 }
 
 size_t PageFlags::GetOffset(const uintptr_t vaddr) {
-  TC_ASSERT_EQ(vaddr % kPageSize, 0);
-  return vaddr / kPageSize * kPagemapEntrySize;
+  TC_ASSERT_EQ(vaddr % kHardwarePageSize, 0);
+  return vaddr / kHardwarePageSize * kPagemapEntrySize;
 }
 
 absl::StatusCode PageFlags::Seek(const uintptr_t vaddr) {
@@ -191,7 +191,7 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
         }
         flags = last_head_read_;
       }
-      MaybeAddToStats(output, flags, kPageSize);
+      MaybeAddToStats(output, flags, kHardwarePageSize);
     }
     num_pages -= batch_size;
   }
@@ -207,7 +207,7 @@ std::optional<bool> PageFlags::IsHugepageBacked(const void* const addr) {
   uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
   // Round address down to get the start of the first page that has any bytes
   // corresponding to the span [addr, addr+size).
-  uintptr_t basePage = uaddr & ~(kPageSize - 1);
+  uintptr_t basePage = uaddr & ~(kHardwarePageSize - 1);
   // Seek into fd.
   if (auto res = Seek(basePage); res != absl::StatusCode::kOk) return false;
   // Read entry
@@ -237,13 +237,14 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
   uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
   // Round address down to get the start of the first page that has any bytes
   // corresponding to the span [addr, addr+size).
-  uintptr_t basePage = uaddr & ~(kPageSize - 1);
+  uintptr_t basePage = uaddr & ~(kHardwarePageSize - 1);
   // Round end address up to get the start of the first page that does not
   // have any bytes corresponding to the span [addr, addr+size).
   // The span is a subset of [basePage, endPage).
-  uintptr_t endPage = (uaddr + size + kPageSize - 1) & ~(kPageSize - 1);
+  uintptr_t endPage =
+      (uaddr + size + kHardwarePageSize - 1) & ~(kHardwarePageSize - 1);
 
-  int64_t remainingPages = (endPage - basePage) / kPageSize;
+  int64_t remainingPages = (endPage - basePage) / kHardwarePageSize;
 
   if (remainingPages == 1) {
     if (auto res = MaybeReadOne(basePage, result_flags, is_huge);
@@ -268,7 +269,7 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
       res != absl::StatusCode::kOk) {
     return std::nullopt;
   }
-  size_t firstPageSize = kPageSize - (uaddr - basePage);
+  size_t firstPageSize = kHardwarePageSize - (uaddr - basePage);
   if (is_huge) {
     // The object starts in the middle of a native page, but the entire page
     // might be stale. So the situation looks like, simplifying to four native
@@ -278,11 +279,12 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
     // [....|..XX|XXXX|XXXX]
     //  ^^^^^^^              some other stale object(s)
     //         ^^            firstPageSize
-    //       ^^^^^^^^^^^^^^  `pages_represented` pages, each of kPageSize
+    //       ^^^^^^^^^^^^^^  `pages_represented` pages, each of
+    //       kHardwarePageSize
     // The remainingPages <= 0 case covers the situation where the span ends
     // before the hugepage.
     const uint64_t base_page_offset = basePage & (kHugePageSize - 1);
-    const uint64_t base_page_index = base_page_offset / kPageSize;
+    const uint64_t base_page_index = base_page_offset / kHardwarePageSize;
     const int64_t pages_represented = kPagesInHugePage - base_page_index;
 
     remainingPages -= pages_represented;
@@ -299,8 +301,9 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
 
     // pages_represented - 1 is the number of full pages represented (see
     // diagram)
-    MaybeAddToStats(ret, result_flags,
-                    firstPageSize + (pages_represented - 1) * kPageSize);
+    MaybeAddToStats(
+        ret, result_flags,
+        firstPageSize + (pages_represented - 1) * kHardwarePageSize);
 
     // We've read one uint64_t about a single page, but it represents 512 small
     // pages. So the next page that is of interest is one hugepage away -- seek
@@ -323,8 +326,9 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
 
   // Check final page. It doesn't really matter if is_huge; we just want the
   // statistics about the page that has the last byte of the object.
-  size_t lastPageSize = kPageSize - (endPage - uaddr - size);
-  if (auto res = MaybeReadOne(endPage - kPageSize, result_flags, is_huge);
+  size_t lastPageSize = kHardwarePageSize - (endPage - uaddr - size);
+  if (auto res =
+          MaybeReadOne(endPage - kHardwarePageSize, result_flags, is_huge);
       res != absl::StatusCode::kOk) {
     return std::nullopt;
   }

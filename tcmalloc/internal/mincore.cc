@@ -49,13 +49,14 @@ size_t MInCore::residence_impl(void* addr, size_t size,
     return 0;
   }
   unsigned char res[kArrayLength];
-  const size_t kPageSize = GetPageSize();
+  const size_t kHardwarePageSize = GetPageSize();
 
   uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
   // Round address down to get the start of the page containing the data.
-  uintptr_t basePage = uaddr & ~(kPageSize - 1);
+  uintptr_t basePage = uaddr & ~(kHardwarePageSize - 1);
   // Round end address up to get the end of the page containing the data.
-  uintptr_t endPage = (uaddr + size + kPageSize - 1) & ~(kPageSize - 1);
+  uintptr_t endPage =
+      (uaddr + size + kHardwarePageSize - 1) & ~(kHardwarePageSize - 1);
 
   uintptr_t remainingPages = endPage - basePage;
 
@@ -64,7 +65,7 @@ size_t MInCore::residence_impl(void* addr, size_t size,
   // pages will contribute fewer than that. Easiest way to do this is to
   // handle the special case where the entire object fits into a page,
   // then handle the case where the object spans more than one page.
-  if (remainingPages == kPageSize) {
+  if (remainingPages == kHardwarePageSize) {
     // Find out whether the first page is resident.
     if (mincore->mincore(reinterpret_cast<void*>(basePage), remainingPages,
                          res) != 0) {
@@ -80,7 +81,8 @@ size_t MInCore::residence_impl(void* addr, size_t size,
   // We're calling this outside the loop so that we can get info for the
   // first page, deal with subsequent pages in the loop, and then handle
   // the last page after the loop.
-  size_t scanLength = std::min(remainingPages, kPageSize * kArrayLength);
+  size_t scanLength =
+      std::min(remainingPages, kHardwarePageSize * kArrayLength);
   if (mincore->mincore(reinterpret_cast<void*>(basePage), scanLength, res) !=
       0) {
     return 0;
@@ -89,27 +91,27 @@ size_t MInCore::residence_impl(void* addr, size_t size,
   size_t totalResident = 0;
 
   // Handle the first page.
-  size_t firstPageSize = kPageSize - (uaddr - basePage);
+  size_t firstPageSize = kHardwarePageSize - (uaddr - basePage);
   if ((res[0] & 1) == 1) {
     totalResident += firstPageSize;
   }
-  basePage += kPageSize;
-  remainingPages -= kPageSize;
+  basePage += kHardwarePageSize;
+  remainingPages -= kHardwarePageSize;
 
   int resIndex = 1;
 
   // Handle all pages but the last page.
-  while (remainingPages > kPageSize) {
+  while (remainingPages > kHardwarePageSize) {
     if ((res[resIndex] & 1) == 1) {
-      totalResident += kPageSize;
+      totalResident += kHardwarePageSize;
     }
     resIndex++;
-    basePage += kPageSize;
-    remainingPages -= kPageSize;
+    basePage += kHardwarePageSize;
+    remainingPages -= kHardwarePageSize;
     // Refresh the array if necessary.
     if (resIndex == kArrayLength) {
       resIndex = 0;
-      scanLength = std::min(remainingPages, kPageSize * kArrayLength);
+      scanLength = std::min(remainingPages, kHardwarePageSize * kArrayLength);
       if (mincore->mincore(reinterpret_cast<void*>(basePage), scanLength,
                            res) != 0) {
         return 0;
@@ -118,7 +120,7 @@ size_t MInCore::residence_impl(void* addr, size_t size,
   }
 
   // Check final page
-  size_t lastPageSize = kPageSize - (endPage - uaddr - size);
+  size_t lastPageSize = kHardwarePageSize - (endPage - uaddr - size);
   if ((res[resIndex] & 1) == 1) {
     totalResident += lastPageSize;
   }

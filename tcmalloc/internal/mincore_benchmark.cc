@@ -41,16 +41,16 @@ void BM_mincore(benchmark::State& state) {
   TC_CHECK_LE(size, kMaxArraySize);
   auto resident = std::make_unique<unsigned char[]>(kMaxArraySize);
 
-  const size_t kPageSize = tcmalloc_internal::GetPageSize();
+  const size_t kHardwarePageSize = tcmalloc_internal::GetPageSize();
   // We want to scan the same amount of memory in all cases
   const size_t regionSize = 1 * 1024 * 1024 * 1024;
   for (auto s : state) {
     uintptr_t memory = 0;
     while (memory < regionSize) {
       // Call mincore for the next section
-      int length = std::min(size * kPageSize, (regionSize - memory));
+      int length = std::min(size * kHardwarePageSize, (regionSize - memory));
       ::mincore(reinterpret_cast<void*>(memory), length, resident.get());
-      memory += length * kPageSize;
+      memory += length * kHardwarePageSize;
     }
   }
 }
