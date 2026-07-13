@@ -332,6 +332,54 @@ TEST_P(StaticForwarderTest, Fuzz) {
             bytes_allocated / 2);
 }
 
+TEST(CentralFreeListHelperTest, RecordSameSpanRuns) {
+  Span s1, s2, s3;
+
+  struct TestCase {
+    std::string name;
+    std::vector<Span*> batch;
+    int expected_matches;
+    std::vector<uint8_t> expected_run_lengths;
+  };
+
+  std::vector<TestCase> test_cases = {
+      {
+          .name = "SingleElement",
+          .batch = {&s1},
+          .expected_matches = 0,
+          .expected_run_lengths = {1},
+      },
+      {
+          .name = "AllSame",
+          .batch = {&s1, &s1, &s1},
+          .expected_matches = 2,
+          .expected_run_lengths = {3, 0, 0},
+      },
+      {
+          .name = "AllDifferent",
+          .batch = {&s1, &s2, &s3},
+          .expected_matches = 0,
+          .expected_run_lengths = {1, 1, 1},
+      },
+      {
+          .name = "MixedRuns",
+          .batch = {&s1, &s1, &s2, &s1, &s1, &s1},
+          .expected_matches = 3,
+          .expected_run_lengths = {2, 0, 1, 3, 0, 0},
+      },
+  };
+
+  for (const auto& tc : test_cases) {
+    SCOPED_TRACE(tc.name);
+    std::vector<uint8_t> run_lengths(tc.batch.size(), 0);
+    int matches = RecordSameSpanRuns<kMaxObjectsToMove>(
+        absl::MakeConstSpan(tc.batch), absl::MakeSpan(run_lengths));
+    EXPECT_EQ(matches, tc.expected_matches);
+    EXPECT_THAT(run_lengths,
+                testing::ElementsAreArray(tc.expected_run_lengths));
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
                          testing::Range(size_t(1), kNumClasses));
 
