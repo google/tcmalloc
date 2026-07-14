@@ -86,7 +86,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   constexpr Span()
       : embed_count_(0),
         freelist_(0),
-        allocated_(std::numeric_limits<uint16_t>::max()),
+        allocated_{std::numeric_limits<uint16_t>::max()},
         cache_size_(0),
         is_long_lived_span_(0),
         nonempty_index_(0),
@@ -100,7 +100,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   explicit Span(Range r)
       : embed_count_(0),
         freelist_(0),
-        allocated_(0),
+        allocated_{0},
         cache_size_(0),
         is_long_lived_span_(0),
         nonempty_index_(0),
@@ -304,7 +304,18 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     uint16_t embed_count_;
     uint16_t freelist_;
   };
-  std::atomic<uint16_t> allocated_;  // Number of non-free objects
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  std::atomic<uint16_t>
+#else
+  struct {
+    uint16_t value;
+
+    uint16_t load(std::memory_order) const { return value; }
+
+    void store(uint16_t v, std::memory_order) { value = v; }
+  }
+#endif
+      allocated_;  // Number of non-free objects
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   uint8_t cache_size_;
 #else
