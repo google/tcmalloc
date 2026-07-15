@@ -14,8 +14,11 @@
 
 #include <stdlib.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <numeric>
 #include <optional>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -23,26 +26,29 @@
 #include "absl/types/span.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/tcmalloc_policy.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
 namespace {
 
 constexpr uint64_t kSpanAllocTime = 1234;
 
 class RawSpan {
  public:
-  void Init(size_t size_class) {
-    size_t size = tc_globals.sizemap().class_to_size(size_class);
+  RawSpan() = default;
+  RawSpan(const RawSpan&) = delete;
+  RawSpan& operator=(const RawSpan&) = delete;
+
+  void Init(size_t size, Length npages) {
     TC_CHECK_GT(size, 0);
-    auto npages = tc_globals.sizemap().class_to_pages(size_class);
     size_t objects_per_span = npages.in_bytes() / size;
 
     void* mem;
@@ -65,240 +71,268 @@ class RawSpan {
   std::optional<Span> span_;
 };
 
-// BM_single_span repeatedly pushes and pops the same
-// num_objects_to_move(size_class) objects from the span.
-template <typename BatchType>
-void BM_single_span(benchmark::State& state) {
-  const int size_class = state.range(0);
+int FindSizeClass(size_t target_size) {
+  TC_CHECK_LE(target_size, kMaxSize);
+  auto result = tc_globals.sizemap().GetSizeClass(CppPolicy(), target_size);
+  TC_CHECK(result.is_small);
+  TC_CHECK_EQ(tc_globals.sizemap().class_to_size(result.size_class),
+              target_size);
+  return result.size_class;
+}
 
-  size_t size = tc_globals.sizemap().class_to_size(size_class);
-  if (size == 0) {
-    state.SkipWithMessage("Empty size class");
+// Generalized PopPush benchmark
+template <typename BatchType>
+void BM_SpanPopPush(benchmark::State& state) {
+  const size_t target_size = state.range(0);
+  size_t batch_size = state.range(1);
+  const size_t num_spans = state.range(2);
+
+  const int size_class = FindSizeClass(target_size);
+  const size_t size = tc_globals.sizemap().class_to_size(size_class);
+
+  TC_CHECK_LE(batch_size, kMaxObjectsToMove);
+
+  auto npages = tc_globals.sizemap().class_to_pages(size_class);
+  size_t objects_per_span = npages.in_bytes() / size;
+  // We need at least batch_size + 1 objects to keep 1 allocated and avoid
+  // FreelistPushBatch returning false on empty span.
+  if (objects_per_span < batch_size + 1) {
+    state.SkipWithMessage("Span too small for batch size + 1");
     return;
   }
-  uint32_t reciprocal = Span::CalcReciprocal(size);
-  size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  RawSpan raw_span;
-  raw_span.Init(size_class);
-  Span& span = raw_span.span();
 
-  void* batch[kMaxObjectsToMove];
+  std::vector<RawSpan> spans(num_spans);
+  std::vector<std::vector<void*>> active_batches(num_spans);
+  std::vector<void*> dummy_objects(num_spans);
+
+  for (size_t i = 0; i < num_spans; i++) {
+    spans[i].Init(size, npages);
+    active_batches[i].resize(batch_size);
+
+    void* prepop[kMaxObjectsToMove + 1];
+    int popped = spans[i].span().FreelistPopBatch(
+        absl::MakeSpan(prepop, batch_size + 1), size);
+    TC_CHECK_EQ(popped, batch_size + 1);
+
+    dummy_objects[i] = prepop[0];
+    std::copy(prepop + 1, prepop + batch_size + 1, active_batches[i].begin());
+  }
+
+  uint32_t reciprocal = Span::CalcReciprocal(size);
+
+  // Precompute random sequence of span indices
+  std::vector<size_t> seq(num_spans);
+  absl::BitGen rng;
+  for (size_t& x : seq) x = absl::Uniform<size_t>(rng, 0, num_spans);
+  size_t seq_idx = 0;
 
   int64_t processed = 0;
   while (state.KeepRunningBatch(batch_size)) {
-    int n = span.FreelistPopBatch(absl::MakeSpan(batch, batch_size), size);
-    processed += n;
+    size_t current_span = seq[seq_idx];
+    seq_idx = (seq_idx + 1) % seq.size();
 
-    for (int j = 0; j < n; j++) {
-      if constexpr (std::is_same_v<BatchType, void*>) {
-        (void)span.FreelistPushBatch(absl::MakeSpan(&batch[j], 1), size,
-                                     reciprocal);
-      } else {
-        Span::ObjIdx idx = Span::UseBitmapForSize(size)
-                               ? span.BitmapPtrToIdx(batch[j], size, reciprocal)
-                               : span.PtrToIdx(batch[j], size);
-        (void)span.FreelistPushBatch(absl::MakeSpan(&idx, 1), size, reciprocal);
+    // Push
+    if constexpr (std::is_same_v<BatchType, void*>) {
+      bool ok = spans[current_span].span().FreelistPushBatch(
+          absl::MakeSpan(active_batches[current_span]), size, reciprocal);
+      TC_CHECK(ok);
+    } else {
+      Span::ObjIdx idx_batch[kMaxObjectsToMove];
+      for (size_t j = 0; j < batch_size; j++) {
+        void* p = active_batches[current_span][j];
+        idx_batch[j] =
+            Span::UseBitmapForSize(size)
+                ? spans[current_span].span().BitmapPtrToIdx(p, size, reciprocal)
+                : spans[current_span].span().PtrToIdx(p, size);
       }
+      bool ok = spans[current_span].span().FreelistPushBatch(
+          absl::MakeSpan(idx_batch, batch_size), size, reciprocal);
+      TC_CHECK(ok);
     }
-  }
 
-  state.SetItemsProcessed(processed);
+    // Pop
+    int n = spans[current_span].span().FreelistPopBatch(
+        absl::MakeSpan(active_batches[current_span]), size);
+    TC_CHECK_EQ(n, batch_size);
+    processed += n;
+  }
 }
 
-// BM_single_span_fulldrain alternates between fully draining and filling the
-// span.
+// Generalized DrainFill benchmark
 template <typename BatchType>
-void BM_single_span_fulldrain(benchmark::State& state) {
-  const int size_class = state.range(0);
+void BM_SpanDrainFill(benchmark::State& state) {
+  const size_t target_size = state.range(0);
+  size_t batch_size = state.range(1);
+  const size_t num_spans = state.range(2);
 
-  size_t size = tc_globals.sizemap().class_to_size(size_class);
-  if (size == 0) {
-    state.SkipWithMessage("Empty size class");
+  const int size_class = FindSizeClass(target_size);
+  const size_t size = tc_globals.sizemap().class_to_size(size_class);
+
+  TC_CHECK_LE(batch_size, kMaxObjectsToMove);
+
+  Length npages = tc_globals.sizemap().class_to_pages(size_class);
+  size_t objects_per_span = npages.in_bytes() / size;
+  // We leave 1 object allocated to avoid FreelistPushBatch returning false.
+  size_t run_objects = objects_per_span - 1;
+  if (run_objects == 0) {
+    state.SkipWithMessage("Span too small (needs at least 2 objects)");
     return;
   }
-  uint32_t reciprocal = Span::CalcReciprocal(size);
-  Length npages = tc_globals.sizemap().class_to_pages(size_class);
-  size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  size_t objects_per_span = npages.in_bytes() / size;
-  RawSpan raw_span;
-  raw_span.Init(size_class);
-  Span& span = raw_span.span();
 
-  std::vector<void*> objects(objects_per_span, nullptr);
-  size_t oindex = 0;
+  std::vector<RawSpan> spans(num_spans);
+  std::vector<void*> dummy_objects(num_spans);
+  for (size_t i = 0; i < num_spans; i++) {
+    spans[i].Init(size, npages);
+    void* dummy;
+    int popped =
+        spans[i].span().FreelistPopBatch(absl::MakeSpan(&dummy, 1), size);
+    TC_CHECK_EQ(popped, 1);
+    dummy_objects[i] = dummy;
+  }
+
+  std::vector<std::vector<void*>> all_objects(num_spans);
+  for (size_t i = 0; i < num_spans; i++) {
+    all_objects[i].resize(run_objects, nullptr);
+  }
+
+  uint32_t reciprocal = Span::CalcReciprocal(size);
+
+  std::vector<size_t> drain_order(num_spans);
+  std::iota(drain_order.begin(), drain_order.end(), size_t{0});
+  std::vector<size_t> fill_order = drain_order;
+
+  absl::BitGen rng;
+  std::shuffle(drain_order.begin(), drain_order.end(), rng);
+  std::shuffle(fill_order.begin(), fill_order.end(), rng);
+
+  size_t total_objects = num_spans * run_objects;
 
   size_t processed = 0;
-  while (state.KeepRunningBatch(objects_per_span)) {
-    // Drain span
-    while (oindex < objects_per_span) {
-      size_t popped = span.FreelistPopBatch(
-          absl::MakeSpan(objects).subspan(oindex, batch_size), size);
-      oindex += popped;
-      processed += popped;
-    }
-
-    // Fill span
-    while (oindex > 0) {
-      void* p = objects[oindex - 1];
-      if constexpr (std::is_same_v<BatchType, void*>) {
-        if (!span.FreelistPushBatch(absl::MakeSpan(&p, 1), size, reciprocal)) {
-          break;
-        }
-      } else {
-        Span::ObjIdx idx = Span::UseBitmapForSize(size)
-                               ? span.BitmapPtrToIdx(p, size, reciprocal)
-                               : span.PtrToIdx(p, size);
-        if (!span.FreelistPushBatch(absl::MakeSpan(&idx, 1), size,
-                                    reciprocal)) {
-          break;
+  while (state.KeepRunningBatch(total_objects)) {
+    // 1. Drain all spans (interleaved)
+    std::vector<size_t> pop_offsets(num_spans, 0);
+    bool active = true;
+    while (active) {
+      active = false;
+      for (size_t span_idx : drain_order) {
+        size_t oindex = pop_offsets[span_idx];
+        if (oindex < run_objects) {
+          size_t to_pop = std::min(batch_size, run_objects - oindex);
+          size_t popped = spans[span_idx].span().FreelistPopBatch(
+              absl::MakeSpan(all_objects[span_idx]).subspan(oindex, to_pop),
+              size);
+          pop_offsets[span_idx] = oindex + popped;
+          processed += popped;
+          if (popped > 0) {
+            active = true;
+          }
         }
       }
-
-      oindex--;
     }
-  }
 
-  state.SetItemsProcessed(processed);
-}
+    // 2. Fill all spans (interleaved)
+    std::vector<size_t> push_offsets = pop_offsets;
+    active = true;
+    while (active) {
+      active = false;
+      for (size_t span_idx : fill_order) {
+        size_t oindex = push_offsets[span_idx];
+        if (oindex > 0) {
+          size_t to_push = std::min(batch_size, oindex);
+          size_t start_idx = oindex - to_push;
 
-BENCHMARK_TEMPLATE(BM_single_span, void*)
-    ->Arg(1)
-    ->Arg(2)
-    ->Arg(3)
-    ->Arg(4)
-    ->Arg(5)
-    ->Arg(7)
-    ->Arg(10)
-    ->Arg(12)
-    ->Arg(16)
-    ->Arg(20)
-    ->Arg(30)
-    ->Arg(40)
-    ->Arg(80);
-
-BENCHMARK_TEMPLATE(BM_single_span, Span::ObjIdx)
-    ->Arg(1)
-    ->Arg(2)
-    ->Arg(3)
-    ->Arg(4)
-    ->Arg(5)
-    ->Arg(7)
-    ->Arg(10)
-    ->Arg(12)
-    ->Arg(16)
-    ->Arg(20)
-    ->Arg(30)
-    ->Arg(40)
-    ->Arg(80);
-
-BENCHMARK_TEMPLATE(BM_single_span_fulldrain, void*)
-    ->Arg(1)
-    ->Arg(2)
-    ->Arg(3)
-    ->Arg(4)
-    ->Arg(5)
-    ->Arg(7)
-    ->Arg(10)
-    ->Arg(12)
-    ->Arg(16)
-    ->Arg(20)
-    ->Arg(30)
-    ->Arg(40)
-    ->Arg(80);
-
-BENCHMARK_TEMPLATE(BM_single_span_fulldrain, Span::ObjIdx)
-    ->Arg(1)
-    ->Arg(2)
-    ->Arg(3)
-    ->Arg(4)
-    ->Arg(5)
-    ->Arg(7)
-    ->Arg(10)
-    ->Arg(12)
-    ->Arg(16)
-    ->Arg(20)
-    ->Arg(30)
-    ->Arg(40)
-    ->Arg(80);
-
-template <typename BatchType>
-void BM_multiple_spans(benchmark::State& state) {
-  const int size_class = state.range(0);
-  const size_t size = tc_globals.sizemap().class_to_size(size_class);
-  if (size == 0) {
-    state.SkipWithMessage("Empty size class");
-    return;
-  }
-
-  // Should be large enough to cause cache misses
-  const int num_spans =
-      2 * benchmark::CPUInfo::Get().caches.back().size / sizeof(RawSpan);
-  std::vector<RawSpan> spans(num_spans);
-  uint32_t reciprocal = Span::CalcReciprocal(size);
-  TC_CHECK_GT(size, 0);
-  size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  for (int i = 0; i < num_spans; i++) {
-    spans[i].Init(size_class);
-  }
-  absl::BitGen rng;
-
-  void* batch[kMaxObjectsToMove];
-
-  int64_t processed = 0;
-  while (state.KeepRunningBatch(batch_size)) {
-    int current_span = absl::Uniform(rng, 0, num_spans);
-    int n = spans[current_span].span().FreelistPopBatch(
-        absl::MakeSpan(batch, batch_size), size);
-    processed += n;
-
-    for (int j = 0; j < n; j++) {
-      if constexpr (std::is_same_v<BatchType, void*>) {
-        (void)spans[current_span].span().FreelistPushBatch(
-            absl::MakeSpan(&batch[j], 1), size, reciprocal);
-      } else {
-        Span::ObjIdx idx =
-            Span::UseBitmapForSize(size)
-                ? spans[current_span].span().BitmapPtrToIdx(batch[j], size,
-                                                            reciprocal)
-                : spans[current_span].span().PtrToIdx(batch[j], size);
-        (void)spans[current_span].span().FreelistPushBatch(
-            absl::MakeSpan(&idx, 1), size, reciprocal);
+          if constexpr (std::is_same_v<BatchType, void*>) {
+            bool ok = spans[span_idx].span().FreelistPushBatch(
+                absl::MakeSpan(&all_objects[span_idx][start_idx], to_push),
+                size, reciprocal);
+            TC_CHECK(ok);
+          } else {
+            Span::ObjIdx idx_batch[kMaxObjectsToMove];
+            for (size_t j = 0; j < to_push; j++) {
+              void* p = all_objects[span_idx][start_idx + j];
+              idx_batch[j] = Span::UseBitmapForSize(size)
+                                 ? spans[span_idx].span().BitmapPtrToIdx(
+                                       p, size, reciprocal)
+                                 : spans[span_idx].span().PtrToIdx(p, size);
+            }
+            bool ok = spans[span_idx].span().FreelistPushBatch(
+                absl::MakeSpan(idx_batch, to_push), size, reciprocal);
+            TC_CHECK(ok);
+          }
+          push_offsets[span_idx] = start_idx;
+          active = true;
+        }
       }
     }
   }
-
   state.SetItemsProcessed(processed);
 }
 
-BENCHMARK_TEMPLATE(BM_multiple_spans, void*)
-    ->Arg(1)
-    ->Arg(2)
-    ->Arg(3)
-    ->Arg(4)
-    ->Arg(5)
-    ->Arg(7)
-    ->Arg(10)
-    ->Arg(12)
-    ->Arg(16)
-    ->Arg(20)
-    ->Arg(30)
-    ->Arg(40)
-    ->Arg(80);
+template <typename F>
+void ForEachConfig(F&& f) {
+  std::vector<size_t> sizes = {8, 32, 48, 64, 1024};
+  std::vector<size_t> spans = {1, 100, 10000};
 
-BENCHMARK_TEMPLATE(BM_multiple_spans, Span::ObjIdx)
-    ->Arg(1)
-    ->Arg(2)
-    ->Arg(3)
-    ->Arg(4)
-    ->Arg(5)
-    ->Arg(7)
-    ->Arg(10)
-    ->Arg(12)
-    ->Arg(16)
-    ->Arg(20)
-    ->Arg(30)
-    ->Arg(40)
-    ->Arg(80);
+  for (size_t size : sizes) {
+    int size_class = FindSizeClass(size);
+
+    // Batch size 1
+    for (size_t span_count : spans) {
+      f(size, 1, span_count);
+    }
+
+    // Batch size num_to_move
+    size_t num_to_move = tc_globals.sizemap().num_objects_to_move(size_class);
+    TC_CHECK_GT(num_to_move, 1);
+    for (size_t span_count : spans) {
+      f(size, num_to_move, span_count);
+    }
+  }
+}
+
+class BenchmarkRegistrar {
+ public:
+  BenchmarkRegistrar() {
+    tc_globals.InitIfNecessary();
+    // PopPush void*
+    ForEachConfig([](size_t size, size_t batch, size_t spans) {
+      benchmark::RegisterBenchmark("BM_SpanPopPush/void*",
+                                   BM_SpanPopPush<void*>)
+          ->Args({static_cast<int64_t>(size), static_cast<int64_t>(batch),
+                  static_cast<int64_t>(spans)})
+          ->ArgNames({"size", "batch", "spans"});
+    });
+
+    // PopPush ObjIdx
+    ForEachConfig([](size_t size, size_t batch, size_t spans) {
+      benchmark::RegisterBenchmark("BM_SpanPopPush/Span::ObjIdx",
+                                   BM_SpanPopPush<Span::ObjIdx>)
+          ->Args({static_cast<int64_t>(size), static_cast<int64_t>(batch),
+                  static_cast<int64_t>(spans)})
+          ->ArgNames({"size", "batch", "spans"});
+    });
+
+    // DrainFill void*
+    ForEachConfig([](size_t size, size_t batch, size_t spans) {
+      benchmark::RegisterBenchmark("BM_SpanDrainFill/void*",
+                                   BM_SpanDrainFill<void*>)
+          ->Args({static_cast<int64_t>(size), static_cast<int64_t>(batch),
+                  static_cast<int64_t>(spans)})
+          ->ArgNames({"size", "batch", "spans"});
+    });
+
+    // DrainFill ObjIdx
+    ForEachConfig([](size_t size, size_t batch, size_t spans) {
+      benchmark::RegisterBenchmark("BM_SpanDrainFill/Span::ObjIdx",
+                                   BM_SpanDrainFill<Span::ObjIdx>)
+          ->Args({static_cast<int64_t>(size), static_cast<int64_t>(batch),
+                  static_cast<int64_t>(spans)})
+          ->ArgNames({"size", "batch", "spans"});
+    });
+  }
+};
+
+static BenchmarkRegistrar registrar;
 
 }  // namespace
 }  // namespace tcmalloc_internal
