@@ -390,6 +390,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     data = [
     ],
+    tags = ["nohwasan"],
     deps = [
         ":logging",
         "@com_google_absl//absl/base:core_headers",
@@ -887,7 +888,10 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = ":system_malloc",
-    tags = ["noubsan"],
+    tags = [
+        "nohwasan",
+        "noubsan",
+    ],
     deps = [
         ":affinity",
         ":config",
@@ -1283,6 +1287,7 @@ cc_test(
     srcs = ["system_allocator_mlockall_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
+        "nohwasan",
         "nomsan",
         "notsan",
     ],
