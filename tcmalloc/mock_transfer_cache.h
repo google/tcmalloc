@@ -29,6 +29,7 @@
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/types/span.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/transfer_cache.h"
@@ -145,7 +146,12 @@ class FakeTransferCacheEnvironment {
       ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
   static constexpr int kBatchSize = Manager::num_objects_to_move(1);
 
-  FakeTransferCacheEnvironment() : manager_(), cache_(&manager_, 1) { Init(); }
+  FakeTransferCacheEnvironment()
+      : manager_(),
+        cache_(&manager_, 1,
+               central_freelist_internal::InlineLifetimeTracking::kDisabled) {
+    Init();
+  }
 
   ~FakeTransferCacheEnvironment() { Drain(); }
 
@@ -240,10 +246,12 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
   ThreeSizeClassManager() {
     for (int i = 0; i < 3; ++i) {
       caches_[i] = std::make_unique<TransferCache>(
-          this, i);
+          this, i,
+          central_freelist_internal::InlineLifetimeTracking::kDisabled);
     }
     caches_[kColdSizeClass] = std::make_unique<TransferCache>(
-        this, kColdSizeClass);
+        this, kColdSizeClass,
+        central_freelist_internal::InlineLifetimeTracking::kDisabled);
   }
 
   constexpr static size_t class_to_size(int size_class) {

@@ -277,6 +277,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_EAGER_BACKING_V2"},
     },
+    {
+        "name": "tcmalloc_span_inline_lifetime_tracking",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SPAN_INLINE_LIFETIME_TRACKING"},
+    },
 ]
 
 def create_tcmalloc_library(

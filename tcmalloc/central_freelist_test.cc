@@ -390,7 +390,8 @@ namespace {
 using central_freelist_internal::kNumLists;
 using TypeParam = FakeCentralFreeListEnvironment<
     central_freelist_internal::CentralFreeList<MockStaticForwarder>>;
-using CentralFreeListTest = ::testing::TestWithParam<SizeClassInfo>;
+using CentralFreeListTest = ::testing::TestWithParam<std::tuple<
+    SizeClassInfo, central_freelist_internal::InlineLifetimeTracking>>;
 
 TEST_P(CentralFreeListTest, IsolatedSmoke) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
@@ -398,7 +399,9 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
   absl::FixedArray<void*> batch(e.batch_size());
@@ -455,7 +458,9 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
   constexpr size_t kNumSpans = 10;
 
   // Request kNumSpans spans.
@@ -562,7 +567,9 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
 
   // Make sure that we allocate up to kObjectsPerSpan objects in both the span
   // prioritization states.
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
   // Try to fetch sufficiently large number of objects at startup.
   const int num_objects_to_fetch = kMaxObjectsToMove;
   std::vector<void*> objects(num_objects_to_fetch, nullptr);
@@ -638,7 +645,9 @@ TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
   if (e.objects_per_span() <= 2 * kNumLists) {
     GTEST_SKIP()
         << "Skipping test as one hot encoding used for few object spans.";
@@ -656,7 +665,9 @@ TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
   if (e.objects_per_span() > 2 * kNumLists) {
     GTEST_SKIP() << "Skipping test as one hot encoding not required.";
   }
@@ -679,7 +690,9 @@ TEST_P(CentralFreeListTest, SpanPriority) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
 
   // If the number of objects per span is less than 2, we do not use more than
   // one nonempty_ lists. So, we can not prioritize the spans based on how many
@@ -868,7 +881,9 @@ TEST_P(CentralFreeListTest, HookTracing) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
 
   static int insert_count = 0;
   static int remove_count = 0;
@@ -903,7 +918,9 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
   // Skip the check for objects_per_span = 1 since such spans skip most of the
   // central freelist's logic.
   if (e.objects_per_span() == 1) {
@@ -941,7 +958,9 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span == 1) return;
@@ -1015,8 +1034,9 @@ TEST_P(CentralFreeListTest, SameSpans) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   GTEST_SKIP() << "Stats are non-functional when optimization is not enabled.";
 #endif
-  const int num_to_move = GetParam().num_to_move;
-  TypeParam e(GetParam().size, GetParam().bytes, num_to_move);
+  const int num_to_move = std::get<0>(GetParam()).num_to_move;
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              num_to_move, std::get<1>(GetParam()));
 
   // Roundtrip a batch.
   void* batch[kMaxObjectsToMove];
@@ -1036,8 +1056,9 @@ TEST_P(CentralFreeListTest, SameSpans) {
 
   // Check the stats after the first insertion.
   {
-    std::string expected_stats = absl::StrFormat(
-        "class %3d [ %8zu bytes ] :", e.kSizeClass, GetParam().size);
+    std::string expected_stats =
+        absl::StrFormat("class %3d [ %8zu bytes ] :", e.kSizeClass,
+                        std::get<0>(GetParam()).size);
     for (int i = 0; i < num_to_move; ++i) {
       const bool first_batch =
           e.objects_per_span() > 1 && i == got - pseudo_spans.size();
@@ -1072,7 +1093,9 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
   std::vector<void*> all_objects;
   constexpr size_t kNumSpans = 10;
 
@@ -1158,7 +1181,9 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
   ASSERT_GE(e.objects_per_span(), 1);
   auto test_function = [&](size_t num_objects,
                            AccessDensityPrediction density) {
@@ -1187,7 +1212,9 @@ TEST_P(CentralFreeListTest, SpanLifetimeWithLongLivedSpans) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span < 3) return;
@@ -1282,7 +1309,9 @@ TEST_P(CentralFreeListTest, LongLivedSpansMovedHistogram) {
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span < 2) return;
@@ -1363,7 +1392,9 @@ TEST_P(CentralFreeListTest, ParallelHandleLongLivedSpans) {
 #endif
 
   std::atomic<bool> done(false);
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ;
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span < 2) return;
@@ -1469,10 +1500,149 @@ TEST_P(CentralFreeListTest, ParallelHandleLongLivedSpans) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(CentralFreeList, CentralFreeListTest,
-                         // We skip the first size class since it is set to 0.
-                         testing::ValuesIn(kSizeClasses.classes.begin() + 1,
-                                           kSizeClasses.classes.end()));
+TEST_P(CentralFreeListTest, InlineLifetimeTrackingSequential) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+
+  const int objects_per_span = e.objects_per_span();
+  if (objects_per_span < 3) return;
+
+  void* batch[kMaxObjectsToMove];
+
+  // --- Phase 1: InsertRange Promotion ---
+  {
+    // Allocate all objects from 1 span.
+    size_t fetched = 0;
+    std::vector<void*> objects;
+    while (fetched < objects_per_span) {
+      const size_t n = objects_per_span - fetched;
+      int got = e.central_freelist().RemoveRange(
+          absl::MakeSpan(batch, std::min(n, e.batch_size())));
+      for (int i = 0; i < got; ++i) {
+        objects.push_back(batch[i]);
+      }
+      fetched += got;
+    }
+
+    // Release one object to put the span in the tracker list.
+    e.central_freelist().InsertRange({&objects[0], 1});
+
+    // Verify it is in some normal list.
+    size_t long_lived_count = 0;
+    size_t normal_count = 0;
+    for (int i = 0; i < kNumLists; ++i) {
+      long_lived_count += e.central_freelist().NumSpansInList(i);
+      normal_count += e.central_freelist().NumSpansInList(i + kNumLists);
+    }
+    EXPECT_EQ(long_lived_count, 0);
+    EXPECT_EQ(normal_count, 1);
+
+    // Advance clock beyond threshold.
+    e.forwarder().AdvanceClock(
+        central_freelist_internal::kLongLivedSpanThreshold + absl::Seconds(1));
+
+    // Release another object.
+    e.central_freelist().InsertRange({&objects[1], 1});
+
+    long_lived_count = 0;
+    normal_count = 0;
+    for (int i = 0; i < kNumLists; ++i) {
+      long_lived_count += e.central_freelist().NumSpansInList(i);
+      normal_count += e.central_freelist().NumSpansInList(i + kNumLists);
+    }
+
+    if (std::get<1>(GetParam()) ==
+        central_freelist_internal::InlineLifetimeTracking::kEnabled) {
+      EXPECT_EQ(long_lived_count, 1);
+      EXPECT_EQ(normal_count, 0);
+    } else {
+      EXPECT_EQ(long_lived_count, 0);
+      EXPECT_EQ(normal_count, 1);
+    }
+
+    // Return all objects to completely free the span.
+    for (size_t i = 2; i < objects.size(); ++i) {
+      e.central_freelist().InsertRange({&objects[i], 1});
+    }
+  }
+
+  // --- Phase 2: RemoveRange Promotion ---
+  {
+    // Allocate all objects from 1 span.
+    size_t fetched = 0;
+    std::vector<void*> objects;
+    while (fetched < objects_per_span) {
+      const size_t n = objects_per_span - fetched;
+      int got = e.central_freelist().RemoveRange(
+          absl::MakeSpan(batch, std::min(n, e.batch_size())));
+      for (int i = 0; i < got; ++i) {
+        objects.push_back(batch[i]);
+      }
+      fetched += got;
+    }
+
+    // Release TWO objects so the span is in the tracker list and has room to
+    // allocate.
+    e.central_freelist().InsertRange({&objects[0], 1});
+    e.central_freelist().InsertRange({&objects[1], 1});
+
+    // Verify it is in some normal list.
+    size_t long_lived_count = 0;
+    size_t normal_count = 0;
+    for (int i = 0; i < kNumLists; ++i) {
+      long_lived_count += e.central_freelist().NumSpansInList(i);
+      normal_count += e.central_freelist().NumSpansInList(i + kNumLists);
+    }
+    EXPECT_EQ(long_lived_count, 0);
+    EXPECT_EQ(normal_count, 1);
+
+    // Advance clock beyond threshold.
+    e.forwarder().AdvanceClock(
+        central_freelist_internal::kLongLivedSpanThreshold + absl::Seconds(1));
+
+    // Allocate one object back.
+    int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
+    EXPECT_EQ(got, 1);
+    void* allocated_object = batch[0];
+
+    long_lived_count = 0;
+    normal_count = 0;
+    for (int i = 0; i < kNumLists; ++i) {
+      long_lived_count += e.central_freelist().NumSpansInList(i);
+      normal_count += e.central_freelist().NumSpansInList(i + kNumLists);
+    }
+
+    if (std::get<1>(GetParam()) ==
+        central_freelist_internal::InlineLifetimeTracking::kEnabled) {
+      EXPECT_EQ(long_lived_count, 1);
+      EXPECT_EQ(normal_count, 0);
+    } else {
+      EXPECT_EQ(long_lived_count, 0);
+      EXPECT_EQ(normal_count, 1);
+    }
+
+    // Return all objects.
+    e.central_freelist().InsertRange({&allocated_object, 1});
+    for (size_t i = 2; i < objects.size(); ++i) {
+      e.central_freelist().InsertRange({&objects[i], 1});
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    CentralFreeList, CentralFreeListTest,
+    testing::Combine(
+        // We skip the first size class since it is set to 0.
+        testing::ValuesIn(kSizeClasses.classes.begin() + 1,
+                          kSizeClasses.classes.end()),
+        testing::Values(
+            central_freelist_internal::InlineLifetimeTracking::kDisabled,
+            central_freelist_internal::InlineLifetimeTracking::kEnabled)));
 
 }  // namespace
 }  // namespace tcmalloc_internal

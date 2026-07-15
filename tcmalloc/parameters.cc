@@ -324,33 +324,48 @@ HeapPartitioningMode Parameters::heap_partitioning_mode() {
 }
 
 bool ABSL_ATTRIBUTE_WEAK default_want_disable_span_lifetime_tracking();
-static central_freelist_internal::LifetimeTracking
+static central_freelist_internal::PeriodicLifetimeTracking
 want_span_lifetime_tracking() {
   if (default_want_disable_span_lifetime_tracking != nullptr) {
-    return central_freelist_internal::LifetimeTracking::kDisabled;
+    return central_freelist_internal::PeriodicLifetimeTracking::kDisabled;
   }
   const char* e = thread_safe_getenv("TCMALLOC_DISABLE_SPAN_LIFETIME_TRACKING");
   if (e) {
     switch (e[0]) {
       case '0':
-        return central_freelist_internal::LifetimeTracking::kDisabled;
+        return central_freelist_internal::PeriodicLifetimeTracking::kDisabled;
       case '1':
-        return central_freelist_internal::LifetimeTracking::kDisabled;
+        return central_freelist_internal::PeriodicLifetimeTracking::kDisabled;
       default:
         TC_BUG("bad env var '%s'", e);
     }
   }
-  return central_freelist_internal::LifetimeTracking::kDisabled;
+  return central_freelist_internal::PeriodicLifetimeTracking::kDisabled;
 }
 
-central_freelist_internal::LifetimeTracking
+central_freelist_internal::PeriodicLifetimeTracking
 Parameters::span_lifetime_tracking() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<
-      central_freelist_internal::LifetimeTracking>
-      v{central_freelist_internal::LifetimeTracking::kDisabled};
+      central_freelist_internal::PeriodicLifetimeTracking>
+      v{central_freelist_internal::PeriodicLifetimeTracking::kDisabled};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     v.store(want_span_lifetime_tracking(), std::memory_order_relaxed);
+  });
+  return v.load(std::memory_order_relaxed);
+}
+
+central_freelist_internal::InlineLifetimeTracking
+Parameters::span_inline_lifetime_tracking() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<
+      central_freelist_internal::InlineLifetimeTracking>
+      v{central_freelist_internal::InlineLifetimeTracking::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(
+        central_freelist_internal::InlineLifetimeTracking{IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_SPAN_INLINE_LIFETIME_TRACKING)},
+        std::memory_order_relaxed);
   });
   return v.load(std::memory_order_relaxed);
 }

@@ -111,7 +111,10 @@ class ProdCpuLayout {
 // Forwards calls to the unsharded TransferCache.
 class BackingTransferCache {
  public:
-  void Init(int size_class) { size_class_ = size_class; }
+  void Init(int size_class, central_freelist_internal::InlineLifetimeTracking
+                                inline_lifetime_tracking) {
+    size_class_ = size_class;
+  }
   void InsertRange(absl::Span<void*> batch) const;
   [[nodiscard]] int RemoveRange(absl::Span<void*> batch) const;
   int size_class() const { return size_class_; }
@@ -386,9 +389,12 @@ class ShardedTransferCacheManagerBase {
                                             : LargeCacheCapacity(size_class);
       new (&new_caches[size_class])
           TransferCache(owner_, capacity.capacity > 0 ? size_class : 0,
-                        {capacity.capacity, capacity.max_capacity});
-      new_caches[size_class].freelist().Init(size_class);
+                        {capacity.capacity, capacity.max_capacity},
+                        Parameters::span_inline_lifetime_tracking());
+      new_caches[size_class].freelist().Init(
+          size_class, Parameters::span_inline_lifetime_tracking());
     }
+
     shard.transfer_caches = new_caches;
     active_shards_.fetch_add(1, std::memory_order_relaxed);
     shard.initialized.store(true, std::memory_order_release);
@@ -484,7 +490,8 @@ class TransferCacheManager : public StaticForwarder {
 
   void InitCaches() {
     for (int i = 0; i < kNumClasses; ++i) {
-      new (&cache_[i].tc) TransferCache(this, i);
+      new (&cache_[i].tc)
+          TransferCache(this, i, Parameters::span_inline_lifetime_tracking());
     }
   }
 
@@ -579,7 +586,7 @@ class TransferCacheManager {
 
   void Init() {
     for (int i = 0; i < kNumClasses; ++i) {
-      freelist_[i].Init(i);
+      freelist_[i].Init(i, Parameters::span_inline_lifetime_tracking());
     }
   }
 

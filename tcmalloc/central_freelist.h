@@ -141,7 +141,12 @@ static constexpr size_t kSpanMoveStatBuckets =
 static constexpr size_t kSpansUsedStatBuckets =
     absl::bit_width(kMaxObjectsToMove);
 
-enum class LifetimeTracking : bool { kDisabled = false, kEnabled = true };
+enum class PeriodicLifetimeTracking : bool {
+  kDisabled = false,
+  kEnabled = true
+};
+
+enum class InlineLifetimeTracking : bool { kDisabled = false, kEnabled = true };
 
 template <size_t MaxSize, typename RunLength>
 inline int RecordSameSpanRuns(absl::Span<Span* const> batch,
@@ -182,12 +187,14 @@ class CentralFreeList {
         first_nonempty_index_(0),
         pages_per_span_(0),
         nonempty_(),
-        use_all_buckets_for_few_object_spans_(false) {}
+        use_all_buckets_for_few_object_spans_(false),
+        inline_lifetime_tracking_(InlineLifetimeTracking::kDisabled) {}
 
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;
 
-  void Init(size_t size_class) ABSL_LOCKS_EXCLUDED(lock_);
+  void Init(size_t size_class, InlineLifetimeTracking inline_lifetime_tracking)
+      ABSL_LOCKS_EXCLUDED(lock_);
 
   // These methods all do internal locking.
 
@@ -426,11 +433,14 @@ class CentralFreeList {
   StatsCounters<kSpanMoveStatBuckets> long_lived_spans_moved_;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
+
+  InlineLifetimeTracking inline_lifetime_tracking_;
 };
 
 // Like a constructor and hence we disable thread safety analysis.
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::Init(size_t size_class)
+inline void CentralFreeList<Forwarder>::Init(
+    size_t size_class, InlineLifetimeTracking inline_lifetime_tracking)
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = size_class;
   object_size_ = forwarder_.class_to_size(size_class);
@@ -456,6 +466,8 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
 
   TC_ASSERT_LE(absl::bit_width(objects_per_span_), kSpanUtilBucketCapacity);
   num_to_move_ = forwarder_.num_objects_to_move(size_class);
+  inline_lifetime_tracking_ = inline_lifetime_tracking;
+  inline_lifetime_tracking_ = InlineLifetimeTracking::kEnabled;
 }
 
 template <class Forwarder>
@@ -489,6 +501,16 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   if (cur_bitwidth != prev_bitwidth) {
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
     RecordSpanUtil(cur_bitwidth, /*increase=*/true);
+  }
+  if (inline_lifetime_tracking_ == InlineLifetimeTracking::kEnabled) {
+    if (ABSL_PREDICT_FALSE(!span->is_long_lived_span())) {
+      const uint64_t now = forwarder_.clock_now();
+      const double freq = forwarder_.clock_frequency();
+      if ((now - span->AllocTime()) >
+          (absl::ToDoubleSeconds(kLongLivedSpanThreshold) * freq)) {
+        span->set_is_long_lived_span(true);
+      }
+    }
   }
   // If span allocation changes so that it moved to a different nonempty_ list,
   // we remove it from the previous list and add it to the desired list indexed
@@ -701,6 +723,18 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       if (ABSL_PREDICT_FALSE(!span)) {
         result += Populate(batch.subspan(result));
         break;
+      }
+
+      if (inline_lifetime_tracking_ == InlineLifetimeTracking::kEnabled) {
+        if (ABSL_PREDICT_FALSE(!span->is_long_lived_span())) {
+          const uint64_t now = forwarder_.clock_now();
+          const double frequency = forwarder_.clock_frequency();
+          const uint64_t threshold = static_cast<uint64_t>(
+              absl::ToDoubleSeconds(kLongLivedSpanThreshold) * frequency);
+          if (now - span->AllocTime() > threshold) {
+            span->set_is_long_lived_span(true);
+          }
+        }
       }
 
       const uint16_t prev_allocated = span->Allocated();

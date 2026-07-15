@@ -180,7 +180,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 
       if (Parameters::span_lifetime_tracking() ==
           tcmalloc::tcmalloc_internal::central_freelist_internal::
-              LifetimeTracking::kEnabled) {
+              PeriodicLifetimeTracking::kEnabled) {
         if (now - last_cfl_long_lived_check >= cfl_long_lived_check_period) {
           for (int i = 0; i < tcmalloc::tcmalloc_internal::kNumClasses; ++i) {
             tc_globals.central_freelist(i).HandleLongLivedSpans();
