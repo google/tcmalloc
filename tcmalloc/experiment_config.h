@@ -23,14 +23,12 @@ namespace tcmalloc {
 enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
-  EXTENDED_MUTEX_SPINNING,  // TODO: b/481096853 - Complete experiment.
   TCMALLOC_EAGER_BACKING_V2,  // TODO: b/488404335 - Complete experiment.
   TCMALLOC_PER_CPU_CACHE_SIZE_1MB,  // TODO: b/514747820 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_REUSE_SIZE_CLASSES_ABLATION,  // TODO: b/524296402 - Complete experiment.
   TEST_ONLY_L3_AWARE,  // TODO: b/239977380 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
-  TEST_ONLY_MUTEX_EXTENDED_SPINNING,  // TODO: b/454666418 - Complete experiment.
   TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING,  // TODO: b/328301906 - Complete experiment.
   TEST_ONLY_TCMALLOC_HEAP_PARTITIONING,  // TODO: b/446814339 - Complete experiment.
   TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE,  // TODO: b/450368905 - Complete experiment.
@@ -52,14 +50,12 @@ struct ExperimentConfig {
 // clang-format off
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
-    {Experiment::EXTENDED_MUTEX_SPINNING, "EXTENDED_MUTEX_SPINNING"},
     {Experiment::TCMALLOC_EAGER_BACKING_V2, "TCMALLOC_EAGER_BACKING_V2", /*brittle=*/true},
     {Experiment::TCMALLOC_PER_CPU_CACHE_SIZE_1MB, "TCMALLOC_PER_CPU_CACHE_SIZE_1MB"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_REUSE_SIZE_CLASSES_ABLATION, "TCMALLOC_REUSE_SIZE_CLASSES_ABLATION"},
     {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
-    {Experiment::TEST_ONLY_MUTEX_EXTENDED_SPINNING, "TEST_ONLY_MUTEX_EXTENDED_SPINNING"},
     {Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING, "TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING", /*brittle=*/true},
     {Experiment::TEST_ONLY_TCMALLOC_HEAP_PARTITIONING, "TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"},
     {Experiment::TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE, "TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE"},
