@@ -465,9 +465,9 @@ inline bool Span::FreelistPushBatch(absl::Span<T> batch, size_t size,
     return false;
   }
   allocated_.store(allocated - batch.size(), std::memory_order_relaxed);
-  // Bitmaps are used to record object availability when there are fewer than
-  // 64 objects in a span.
-  if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
+  // Bitmaps are used to record object availability when there are no more than
+  // kBitmapSize objects in a span.
+  if (ABSL_PREDICT_TRUE(UseBitmapForSize(size))) {
     return BitmapPushBatch(batch, size, reciprocal);
   }
   return ListPushBatch(batch, size);
@@ -740,7 +740,7 @@ inline size_t Span::FreelistPopBatch(const absl::Span<void*> batch,
   TC_ASSERT(!is_large_or_sampled());
   // Handle spans with bitmap.size() or fewer objects using a bitmap. We expect
   // spans to frequently hold smaller objects.
-  if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
+  if (ABSL_PREDICT_TRUE(UseBitmapForSize(size))) {
     return BitmapPopBatch(batch, size);
   }
   return ListPopBatch(batch.data(), batch.size(), size);
