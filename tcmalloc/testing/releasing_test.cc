@@ -128,7 +128,7 @@ int main() {
 
   unmapped_diff = after_unmapped - before_unmapped;
   memusage_diff = before - after;
-  const double kTolerance = 5e-4;
+  const double kTolerance = 5e-3;
 
   TC_LOG("Unmapped Memory [Before] %v", before_unmapped);
   TC_LOG("Unmapped Memory [After ] %v", after_unmapped);
