@@ -61,8 +61,10 @@ build:remote-base --remote_cache=grpcs://us-central1-remotebuildexecution.google
 build:remote-base --remote_executor=grpcs://us-central1-remotebuildexecution.googleapis.com
 build:remote-base --remote_instance_name=projects/tcmalloc-94329/instances/ci-central
 build:remote-base --remote_timeout=3600 --bes_timeout=600s
-build:remote-base --jobs=800
+build:remote-base --jobs=400
 build:remote-base --remote_download_minimal
+# Retry up for up to 15 minutes under heavy load (exponential backoff).
+build:remote-base --remote_retries=20 --remote_retry_max_delay=60s
 
 build:remote --config=remote-base
 build:remote --extra_execution_platforms=//ci:rbe
