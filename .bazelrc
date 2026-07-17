@@ -45,15 +45,11 @@ build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing
 build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=libfuzzer
 build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=asan
 
-# TODO(b/530366451) Replace these with a proper toolchain setup
-build:libstdc++ --repo_env=BAZEL_CXXOPTS= --repo_env=BAZEL_LINKOPTS= --repo_env=CPLUS_INCLUDE_PATH=
-build:libstdc++ --action_env=BAZEL_CXXOPTS= --action_env=BAZEL_LINKOPTS= --action_env=CPLUS_INCLUDE_PATH=
-build:libstdc++ --host_action_env=BAZEL_CXXOPTS= --host_action_env=BAZEL_LINKOPTS= --host_action_env=CPLUS_INCLUDE_PATH=
-
-# TODO(b/530366451) This uses gcc 14, replace with a more recent version.
-build:gcc --config=libstdc++
-build:gcc --host_action_env=CC=/usr/local/bin/gcc --action_env=CC=/usr/bin/gcc
-build:gcc --host_action_env=CXX=/usr/local/bin/g++ --action_env=CXX=/usr/bin/g++
+# Configure our Docker toolchain setup.
+build --extra_toolchains=@docker_toolchain//:all
+build:libstdc++ --features=libstdc++
+build:gcc --platforms=//ci:linux_gcc
+build:clang --platforms=//ci:linux_clang
 
 # Remote build configuration for CI.
 build:remote-base --define=EXECUTOR=remote
