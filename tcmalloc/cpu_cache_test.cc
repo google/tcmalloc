@@ -394,9 +394,12 @@ TEST(CpuCacheTest, Metadata) {
 
   const int num_cpus = NumCPUs();
 
-  const int kAttempts = 3;
+  const int kAttempts = 30;
   for (int attempt = 1; attempt <= kAttempts; attempt++) {
     SCOPED_TRACE(absl::StrCat("attempt=", attempt));
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    subtle::percpu::tcmalloc_slabs = 0;
+#endif
 
     CpuCache cache;
     cache.Activate();

@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-24.04
     name: Linux ${{ matrix.toolchain }} ${{ matrix.compilation_mode }} ${{ matrix.exceptions }} Bazel
     container:
-      image: gcr.io/google.com/absl-177019/gloop-linux-toolchain-latest@sha256:a820c79d3f356a64db121a4ee16c4408df18f9d2c8bf6c6abfae21666ac003ba
+      image: gcr.io/google.com/absl-177019/gloop-linux-latest@sha256:903f3d7733dd615bc1542b548fab4b649cf6e48118251a2c6527ce4e30543c6b
       options: --cap-add=SYS_PTRACE
       credentials:
         # TODO(b/530366451) Switch to Workload Identity Federation to avoid the need for secrets and
