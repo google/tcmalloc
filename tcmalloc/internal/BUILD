@@ -672,9 +672,7 @@ cc_library(
     srcs = ["numa.cc"],
     hdrs = ["numa.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":config",
         ":cpu_utils",
