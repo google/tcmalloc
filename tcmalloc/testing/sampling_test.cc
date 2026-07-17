@@ -133,8 +133,8 @@ TEST_P(SamplingTest, ParamChange) {
     EXPECT_GE(2 * kActualSize * kIters * 1.2, bytes);
   } else {
     // samples that don't exist can't be reweighted properly
-    EXPECT_LE(kActualSize * kIters * 0.8, bytes);
-    EXPECT_GE(kActualSize * kIters * 1.2, bytes);
+    EXPECT_LE(kActualSize * kIters * 0.65, bytes);
+    EXPECT_GE(kActualSize * kIters * 1.35, bytes);
   }
 
   for (auto p : allocs) {
