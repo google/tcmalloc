@@ -17,10 +17,28 @@
 
 #include <sched.h>
 
+#if !defined(__linux__)
+#include <cerrno>
+#endif
+
 #include <array>
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
+
+#if !defined(__linux__)
+// Stub types and macros for non-Linux platforms.
+typedef struct {
+  char dummy;
+} cpu_set_t;
+
+#define CPU_ALLOC_SIZE(x) 1
+#define CPU_ZERO_S(size, set)
+#define CPU_SET_S(cpu, size, set)
+#define CPU_ISSET_S(cpu, size, set) ((cpu) == 0)
+#define CPU_CLR_S(cpu, size, set)
+#define CPU_COUNT_S(size, set) 1
+#endif
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -57,14 +75,24 @@ class CpuSet {
   // successful. If returns false, please check the global 'errno' variable to
   // determine the specific error that occurred.
   [[nodiscard]] bool SetAffinity(pid_t pid) {
+#if defined(__linux__)
     return sched_setaffinity(pid, kCpuSetBytes, cpu_set_.data()) == 0;
+#else
+    errno = ENOSYS;
+    return false;
+#endif
   }
 
   // Gets the CPU affinity of the process with the given pid. Return trues if
   // successful. If returns false, please check the global 'errno' variable to
   // determine the specific error that occurred.
   [[nodiscard]] bool GetAffinity(pid_t pid) {
+#if defined(__linux__)
     return sched_getaffinity(pid, kCpuSetBytes, cpu_set_.data()) == 0;
+#else
+    errno = ENOSYS;
+    return false;
+#endif
   }
 
   const cpu_set_t* data() const { return cpu_set_.data(); }
