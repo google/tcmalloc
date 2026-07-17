@@ -52,6 +52,8 @@ const SizeClasses& SizeMap::CurrentClasses() {
     case SizeClassConfiguration::kLegacy:
       // TODO(b/242710633): remove this opt out.
       return kLegacySizeClasses;
+    case SizeClassConfiguration::kLowFrag:
+      return kLowFragSizeClasses;
   }
   TC_BUG("unreachable");
 }

@@ -44,12 +44,14 @@ extern const SizeClasses kSizeClasses;
 extern const SizeClasses kExperimentalPow2SizeClasses;
 extern const SizeClasses kLegacySizeClasses;
 extern const SizeClasses kReuseRelaxedBelow64SizeClasses;
+extern const SizeClasses kLowFragSizeClasses;
 
 enum class SizeClassConfiguration {
   kPow2Only = 2,
   kLegacy = 4,
   kReuse = 6,
   kReuseRelaxedBelow64 = 8,
+  kLowFrag = 9,
 };
 
 // Size-class information + mapping
