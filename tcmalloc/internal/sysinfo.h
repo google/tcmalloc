@@ -17,6 +17,9 @@
 
 #include <sched.h>
 #include <sys/types.h>
+#if !defined(__linux__) && __has_include(<unistd.h>)
+#include <unistd.h>
+#endif
 
 #include <cstddef>
 #include <optional>
@@ -25,7 +28,9 @@
 #include "absl/base/call_once.h"
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
+#if __linux__
 #include "tcmalloc/internal/cpu_utils.h"
+#endif
 #include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -67,7 +72,17 @@ inline std::optional<int> NumCPUsMaybe() {
 
 #else  // __linux__
 
-inline std::optional<int> NumCPUsMaybe() { return std::nullopt; }
+inline std::optional<int> NumCPUsMaybe() {
+#if defined(_SC_NPROCESSORS_ONLN)
+  int n = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
+  if (n == -1) {
+    return std::nullopt;
+  }
+  return n;
+#else
+  return std::nullopt;
+#endif
+}
 
 #endif  // __linux__
 
