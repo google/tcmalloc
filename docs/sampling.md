@@ -43,23 +43,39 @@ We also tell the span that we're sampling it. We can do this because we do
 sampling at tcmalloc page sizes, so each sample corresponds to a particular page
 in the pagemap.
 
-For small allocations, we make two allocations: the returned allocation (which
-uses an entire tcmalloc page, not shared with any other allocations) and a proxy
-allocation in a non-sampled span (the proxy object is used when computing
-fragmentation profiles).
+For small allocations, we make up to two allocations: the returned allocation
+(which uses an entire TCMalloc page, not shared with any other allocations) and
+a proxy allocation in a non-sampled span (the proxy object was formerly used for
+computing fragmentation profiles) for sizes with >1 objects-per-span (mostly
+sizes <8KB in the default configuration). The returned allocation is placed on
+the sampled page heap, allowing us to use the pointer's tag bits to identify
+that the object was sampled and needs special handling on deallocation.
 
-When allocations are sampled, the virtual addresses associated with the
-allocation are
-[`madvise`d with the `MADV_NOHUGEPAGE` flag](https://github.com/google/tcmalloc/blob/master/tcmalloc/system-alloc.cc).
+For the sampled page heap, the virtual addresses associated with the allocation
+are
+[`madvise`d with the `MADV_NOHUGEPAGE` flag](https://github.com/google/tcmalloc/blob/master/tcmalloc/system_allocator.h).
 This, combined with the whole-page behavior above, means that *every allocation
 gets its own native (OS) page(s)* shared with no other allocations.
 
+For large (`>kMaxSize`) allocations, the returned allocation will be on entire
+TCMalloc pages and there is no proxy object. These objects are requested
+directly from the non-sampled page heaps. These objects will be packed by
+[Temeraire](temeraire.md) densely onto hugepages. While objects that are exact
+multiples of 2MB are given their own hugepages (the `HugeCache`), the access
+patterns of other objects may affect statistics for the profiled ones.
+
+| Statistic | Small                         | Large                        |
+| :-------- | :---------------------------- | :--------------------------- |
+| RSS       | Prior allocations may have    | Huge page may make pages     |
+:           : used the page                 : resident even though unused  :
+| Stale     | Accurate for > staleness time | Adjacent allocations on same |
+:           : allocs                        : huge page may skew           :
+
 ## How We Free Sampled Objects
 
-Each sampled allocation is tagged. Using this, we can quickly test whether a
-particular allocation might be a sample.
-
-When we are done with the sampled span we release it using
+Each sampled allocation is either tagged or larger than `kMaxSize`. Using this,
+we can quickly test whether a particular allocation might be a sample. When we
+are done with the sampled span we release it using
 [tcmalloc::Span::Unsample()](https://github.com/google/tcmalloc/blob/master/tcmalloc/span.cc).
 
 ## How Do We Handle Heap and Fragmentation Profiling
