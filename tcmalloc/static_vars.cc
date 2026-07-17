@@ -106,9 +106,9 @@ ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
 ABSL_CONST_INIT GwpAsanState Static::gwp_asan_state_;
 ABSL_CONST_INIT Static::PerSizeClassCounts Static::per_size_class_counts_;
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT SystemAllocator<
-    NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>
-    Static::system_allocator_{numa_topology_, kMinMmapAlloc};
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
+    Static::SystemAllocatorStorage Static::system_allocator_{numa_topology_,
+                                                             kMinMmapAlloc};
 // Force kInvalidSpan to be read-protected.  Span contains a std::atomic, and
 // libc++'s std::atomic implementation contains a mutable field in one of its
 // implementation details.  This prevents Span from being placed in a read-only

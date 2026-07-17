@@ -115,7 +115,7 @@ class Static final {
   static SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
                          kNormalPartitions>&
   system_allocator() {
-    return system_allocator_;
+    return system_allocator_.allocator;
   }
 
   static Arena& arena() { return arena_; }
@@ -252,8 +252,25 @@ class Static final {
   static PageAllocatorStorage page_allocator_;
   static PageMap pagemap_;
 
-  ABSL_CONST_INIT static SystemAllocator<
-      NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>
+  // Avoid destruction of SystemAllocator in a way that works with constinit and
+  // C++17. Once C++17 support is dropped this can be replaced with
+  // absl::NoDestructor. absl::NoDestructor uses a placement new, which doesn't
+  // work with constinit in C++17. Destruction is especially dangerous here
+  // because it can lead to race conditions and crashes on shutdown.
+  union SystemAllocatorStorage {
+    constexpr SystemAllocatorStorage(
+        const NumaTopology<kNumaPartitions, kNumBaseClasses>& topology,
+        size_t min_mmap_size)
+        : allocator(topology, min_mmap_size) {}
+
+    ~SystemAllocatorStorage() {}
+
+    SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
+                    kNormalPartitions>
+        allocator;
+  };
+
+  TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT static SystemAllocatorStorage
       system_allocator_;
 
   static ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro) const Span kInvalidSpan;
