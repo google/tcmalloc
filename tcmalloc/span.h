@@ -540,21 +540,43 @@ inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
 
   const uintptr_t start = absl::bit_cast<uintptr_t>(start_address());
 
+  ObjIdx freelist = freelist_;
+  uint16_t embed_count = embed_count_;
+
+  ObjIdx* __restrict host;
+  if (ABSL_PREDICT_TRUE(freelist != kListEnd)) {
+    host = IdxToPtr(freelist, size, start);
+  } else {
+    ObjIdx idx = batch[0];
+    batch.remove_prefix(1);
+
+    host = IdxToPtr(idx, size, start);
+    *host = kListEnd;
+    freelist = idx;
+    embed_count = 0;
+  }
+
+  TC_ASSERT_NE(freelist, kListEnd);
+
+  // -1 because the first slot is used by freelist link.
+  const size_t limit = size / sizeof(ObjIdx) - 1;
+
   for (const ObjIdx idx : batch) {
-    if (ABSL_PREDICT_TRUE(freelist_ != kListEnd) &&
-        // -1 because the first slot is used by freelist link.
-        ABSL_PREDICT_TRUE(embed_count_ != size / sizeof(ObjIdx) - 1)) {
+    if (ABSL_PREDICT_TRUE(embed_count != limit)) {
       // Push onto the first object on freelist.
-      ObjIdx* __restrict host = IdxToPtr(freelist_, size, start);
-      embed_count_++;
-      host[embed_count_] = idx;
+      embed_count++;
+      host[embed_count] = idx;
     } else {
       // Push onto freelist.
-      *reinterpret_cast<ObjIdx*>(IdxToPtr(idx, size, start)) = freelist_;
-      freelist_ = idx;
-      embed_count_ = 0;
+      ObjIdx* __restrict new_host = IdxToPtr(idx, size, start);
+      *new_host = freelist;
+      freelist = idx;
+      embed_count = 0;
+      host = new_host;
     }
   }
+  freelist_ = freelist;
+  embed_count_ = embed_count;
   return true;
 }
 
