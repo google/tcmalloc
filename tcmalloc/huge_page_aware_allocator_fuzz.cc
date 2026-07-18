@@ -39,6 +39,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/scoped_allow_allocation.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -625,6 +626,7 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
     reentrant_stack.pop_back();
 
     depth++;
+    ScopedAllocationAllow allow;
     run_instructions(ops);
     depth--;
   };

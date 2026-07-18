@@ -716,6 +716,7 @@ cc_test(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:pageflags",
+        "//tcmalloc/internal:scoped_allow_allocation",
         "//tcmalloc/internal:system_allocator",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/log:check",
