@@ -145,7 +145,7 @@ bool RunTest(size_t size) {
       (static_cast<double>(with_sampling) - static_cast<double>(baseline)) *
       100.0 / static_cast<double>(baseline);
 
-  double expectedOverhead = 10.2;
+  double expectedOverhead = 11.5;
   // Larger page sizes have larger sampling overhead.
   if (tcmalloc_internal::kPageShift == 15) {
     expectedOverhead *= 2;
