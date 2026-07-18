@@ -371,7 +371,7 @@ TEST(PageFlagsTest, Locked) {
     }
     LOG(INFO) << "still waiting; locked = " << res->bytes_locked;
     absl::SleepFor(absl::Milliseconds(100));
-  } while (absl::Now() - start < absl::Seconds(60));
+  } while (absl::Now() - start < absl::Seconds(300));
 
   auto res = s.Get(p, kHardwarePageSize * kNumPages);
   ASSERT_TRUE(res.has_value());

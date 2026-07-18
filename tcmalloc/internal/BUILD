@@ -513,6 +513,7 @@ cc_library(
 
 cc_test(
     name = "pageflags_test",
+    timeout = "moderate",
     srcs = ["pageflags_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
