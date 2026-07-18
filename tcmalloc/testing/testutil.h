@@ -95,12 +95,14 @@ class ScopedProfileSamplingInterval {
     // Reset the per-thread sampler.  It may have a very large gap if sampling
     // had been disabled.
     void* ptr = ::operator new(256 * 1024 * 1024);
+    benchmark::DoNotOptimize(ptr);
     ::operator delete(ptr);
   }
 
   ~ScopedProfileSamplingInterval() {
     MallocExtension::SetProfileSamplingInterval(previous_);
     void* ptr = ::operator new(256 * 1024 * 1024);
+    benchmark::DoNotOptimize(ptr);
     ::operator delete(ptr);
   }
 
