@@ -201,6 +201,7 @@ class TcmallocSlab {
 
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <underflow_handler> and returns its result.
+  template <bool IsCold = false>
   [[nodiscard]] void* Pop(size_t size_class);
 
   // Add up to <len> items to the current cpu slab from the array located at
@@ -801,10 +802,11 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 template <size_t NumClasses>
+template <bool IsCold>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     size_t size_class) {
   TC_ASSERT_NE(size_class, 0);
-  void* next;
+  void* next = nullptr;
   void* result;
   uintptr_t scratch, current;
 
@@ -838,7 +840,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   // Important! code below this must not affect any flags (i.e.: ccc)
   // If so, the above code needs to explicitly set a ccc return value.
 #endif
+      ".if %c[is_cold] == 0\n"
       "movq -16(%[scratch], %[current], 8), %[next]\n"
+      ".endif\n"
       "lea -1(%[current]), %[current]\n"
       "movw %w[current], (%[scratch], %[size_class], 4)\n"
       // Commit
@@ -854,7 +858,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 #else
         [begin_mark_bit] "n"(absl::countr_zero(kBeginMark)),
 #endif
-        [size_class] "r"(size_class)
+        [size_class] "r"(size_class), [is_cold] "n"(IsCold ? 1 : 0)
       : "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : underflow_path
@@ -865,14 +869,18 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     goto underflow_path;
   }
 #endif
-  TC_ASSERT(next);
+  if constexpr (!IsCold) {
+    TC_ASSERT(next);
+  }
   TC_ASSERT(result);
   TSANAcquire(result);
 
-  // The next pop will be from current-1, but because we prefetch the previous
-  // element we've already just read that, so prefetch current-2.
-  PrefetchSlabMemory(scratch + (current - 2) * sizeof(void*));
-  PrefetchNextObject(next);
+  if constexpr (!IsCold) {
+    // The next pop will be from current-1, but because we prefetch the previous
+    // element we've already just read that, so prefetch current-2.
+    PrefetchSlabMemory(scratch + (current - 2) * sizeof(void*));
+    PrefetchNextObject(next);
+  }
   return AssumeNotNull(result);
 underflow_path:
   return nullptr;
@@ -881,12 +889,13 @@ underflow_path:
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 template <size_t NumClasses>
+template <bool IsCold>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     size_t size_class) {
   TC_ASSERT_NE(size_class, 0);
   void* result;
+  void* prefetch = nullptr;
   void* region_start;
-  void* prefetch;
   uintptr_t scratch;
   uintptr_t previous;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -914,9 +923,13 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
       // previous = scratch - 1
       "sub %w[previous], %w[scratch], #1\n"
       "add %[scratch],%[region_start], %[scratch], LSL #3\n"
+      ".if %c[is_cold] == 0\n"
       // Note we are using a pre-indexed ldp. After this instruction, scratch
       // points to the next location in slab memory, which we will prefetch.
       "ldp %[prefetch], %[result], [%[scratch], #-16]!\n"
+      ".else\n"
+      "ldr %[result], [%[scratch], #-8]\n"
+      ".endif\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbnz %[result], #%c[begin_mark_bit], %l[underflow_path]\n"
 #else
@@ -946,7 +959,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
         [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
         [begin_mark_mask] "n"(kBeginMark), [scratch2] "=&r"(scratch2),
 #endif
-        [size_class_lsl2] "r"(size_class << 2)
+        [size_class_lsl2] "r"(size_class << 2), [is_cold] "n"(IsCold ? 1 : 0)
       : TCMALLOC_RSEQ_CLOBBER, "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         ,
@@ -960,8 +973,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   }
 #endif
   TSANAcquire(result);
-  PrefetchSlabMemory(scratch);
-  PrefetchNextObject(prefetch);
+  if constexpr (!IsCold) {
+    PrefetchSlabMemory(scratch);
+    PrefetchNextObject(prefetch);
+  }
   return AssumeNotNull(result);
 underflow_path:
   return nullptr;
@@ -970,6 +985,7 @@ underflow_path:
 
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
+template <bool IsCold>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     size_t size_class) {
   return nullptr;

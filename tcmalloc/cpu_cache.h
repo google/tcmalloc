@@ -331,6 +331,7 @@ class CpuCache {
   // Separate allocation fast/slow paths.
   // The fast path succeeds iff the thread has already cached the slab pointer
   // (done by AllocateSlow) and there is an available object in the slab.
+  template <bool IsCold = false>
   [[nodiscard]] void* absl_nullable AllocateFast(size_t size_class);
   [[nodiscard]] void* absl_nullable AllocateSlow(size_t size_class);
   // A slightly faster version of AllocateSlow that may be called only
@@ -773,10 +774,11 @@ void* CpuCache<Forwarder>::Allocate(size_t size_class) {
 }
 
 template <class Forwarder>
+template <bool IsCold>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* CpuCache<Forwarder>::AllocateFast(
     size_t size_class) {
   TC_ASSERT_GT(size_class, 0);
-  return freelist_.Pop(size_class);
+  return freelist_.template Pop<IsCold>(size_class);
 }
 
 template <class Forwarder>

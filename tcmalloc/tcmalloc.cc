@@ -1189,14 +1189,24 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
   if (ABSL_PREDICT_FALSE(size_class == 0)) {
     // This happens on the first call then the size class table is not inited.
     TC_ASSERT(tc_globals.IsInited());
-    auto ret = tc_globals.sizemap().GetSizeClass(policy, size);
+    const bool is_cold = policy.is_cold();
+    auto ret = tc_globals.sizemap().GetSizeClass(policy, size, is_cold);
     size_class = ret.size_class;
     TC_CHECK(ret.is_small);
   }
   void* res;
   // If we are here because of sampling, try AllocateFast first.
-  if (ABSL_PREDICT_TRUE(weight == 0) ||
-      (res = tc_globals.cpu_cache().AllocateFast(size_class)) == nullptr) {
+  if (ABSL_PREDICT_TRUE(weight == 0)) {
+    const bool is_cold = policy.is_cold();
+    if (ABSL_PREDICT_FALSE(is_cold)) {
+      res = tc_globals.cpu_cache().AllocateFast<true>(size_class);
+    } else {
+      res = tc_globals.cpu_cache().AllocateFast<false>(size_class);
+    }
+  } else {
+    res = nullptr;
+  }
+  if (ABSL_PREDICT_FALSE(res == nullptr)) {
     if (UsePerCpuCache(tc_globals)) {
       res = tc_globals.cpu_cache().AllocateSlow(size_class);
     } else {
@@ -1271,8 +1281,9 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
   // path. If malloc is not yet initialized, we may end up with size_class == 0
   // (regardless of size), but in this case should also delegate to the slow
   // path by the fast path check further down.
+  const bool is_cold = policy.is_cold();
   const auto [is_small, size_class] =
-      tc_globals.sizemap().GetSizeClass(policy, size);
+      tc_globals.sizemap().GetSizeClass(policy, size, is_cold);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     SLOW_PATH_BARRIER();
     TCMALLOC_MUSTTAIL return slow_alloc_large(size, policy);
@@ -1294,7 +1305,12 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
   // - cpu / thread cache data has been initialized.
   // - the allocation is not subject to sampling / gwp-asan.
   // - no new/delete hook is installed and required to be called.
-  void* ret = tc_globals.cpu_cache().AllocateFast(size_class);
+  void* ret;
+  if (ABSL_PREDICT_FALSE(is_cold)) {
+    ret = tc_globals.cpu_cache().AllocateFast<true>(size_class);
+  } else {
+    ret = tc_globals.cpu_cache().AllocateFast<false>(size_class);
+  }
   if (ABSL_PREDICT_FALSE(ret == nullptr)) {
     SLOW_PATH_BARRIER();
     return slow_alloc_small(size, size_class, policy);
