@@ -150,22 +150,42 @@ TEST(PageAllocInfo, Large) {
   EXPECT_EQ(slack, info.slack());
 }
 
+struct TimePair {
+  absl::Time time;
+  double cycles_seconds;
+};
+
+TimePair GetTimePair() {
+  TimePair best;
+  absl::Duration best_diff = absl::InfiniteDuration();
+  for (int i = 0; i < 100; ++i) {
+    absl::Time t0 = absl::Now();
+    int64_t cycles = absl::base_internal::CycleClock::Now();
+    absl::Time t1 = absl::Now();
+    absl::Duration diff = t1 - t0;
+    if (diff < best_diff) {
+      best_diff = diff;
+      best.time = t0 + diff / 2;
+      best.cycles_seconds = static_cast<double>(cycles) /
+                            absl::base_internal::CycleClock::Frequency();
+    }
+  }
+  return best;
+}
+
 TEST(ClockTest, ClockTicks) {
   // It's a bit ironic to test this clock against other clocks since
   // this exists because we don't trust other clocks.  But hopefully
   // no one is using libfaketime on this binary, and of course we
   // don't care about signal safety, just ticking.
-  const absl::Time before = absl::Now();
-  const double b = absl::base_internal::CycleClock::Now() /
-                   absl::base_internal::CycleClock::Frequency();
+  const TimePair before = GetTimePair();
   static const absl::Duration kDur = absl::Milliseconds(500);
   absl::SleepFor(kDur);
-  const double a = absl::base_internal::CycleClock::Now() /
-                   absl::base_internal::CycleClock::Frequency();
-  const absl::Time after = absl::Now();
+  const TimePair after = GetTimePair();
 
-  const absl::Duration actual = (after - before);
-  const absl::Duration measured = absl::Seconds(a - b);
+  const absl::Duration actual = (after.time - before.time);
+  const absl::Duration measured =
+      absl::Seconds(after.cycles_seconds - before.cycles_seconds);
   EXPECT_LE(actual * 0.99, measured) << actual;
   EXPECT_GE(actual * 1.01, measured) << actual;
 }
