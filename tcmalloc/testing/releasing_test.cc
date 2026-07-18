@@ -22,6 +22,7 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/types.h>
+#include <time.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -129,6 +130,20 @@ int main() {
   unmapped_diff = after_unmapped - before_unmapped;
   memusage_diff = before - after;
   const double kTolerance = 5e-3;
+
+  // OS RSS statistics might be lagging behind TCMalloc's actual unmapping.
+  // Wait for RSS to catch up if necessary.
+  for (int i = 0; i < 1000; ++i) {
+    if (unmapped_diff * (1. - kTolerance) <= memusage_diff) {
+      break;
+    }
+    struct timespec delay;
+    delay.tv_sec = 0;
+    delay.tv_nsec = 1000000;  // 1 ms
+    nanosleep(&delay, nullptr);
+    after = GetRSS();
+    memusage_diff = before - after;
+  }
 
   TC_LOG("Unmapped Memory [Before] %v", before_unmapped);
   TC_LOG("Unmapped Memory [After ] %v", after_unmapped);
