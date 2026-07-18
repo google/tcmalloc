@@ -520,7 +520,9 @@ GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
   if (addr >= d.allocation_start + d.requested_size) {
     return GuardedAllocationsErrorType::kBufferOverflow;
   }
-  return GuardedAllocationsErrorType::kUnknown;
+  // The allocation is within range, but we have dealloc_count==0.  We likely
+  // raced with another allocation reseting it.
+  return GuardedAllocationsErrorType::kUseAfterFree;
 }
 
 uintptr_t GuardedPageAllocator::SlotToAddr(size_t slot) const {
