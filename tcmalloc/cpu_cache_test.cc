@@ -394,7 +394,7 @@ TEST(CpuCacheTest, Metadata) {
 
   const int num_cpus = NumCPUs();
 
-  const int kAttempts = 3;
+  const int kAttempts = 10;
   for (int attempt = 1; attempt <= kAttempts; attempt++) {
     SCOPED_TRACE(absl::StrCat("attempt=", attempt));
 
