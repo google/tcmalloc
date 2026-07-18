@@ -283,7 +283,7 @@ TEST_P(HugeCacheTest, Growth) {
           Return(MemoryModifyStatus{.success = true, .error_number = 0}));
 
   bool released;
-  absl::BitGen rng;
+  std::mt19937 rng(42);
   // fragmentation is a bit of a challenge
   std::uniform_int_distribution<size_t> sizes(1, 5);
   // fragment the cache badly.
