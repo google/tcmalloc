@@ -327,10 +327,11 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
     }
   }
 }
-
 perftools::profiles::Profile MakeTestProfile(
     std::optional<absl::Time> start_time, const absl::Duration duration,
     const ProfileType profile_type) {
+  static std::vector<char>* bytes1 = new std::vector<char>(16);
+  static std::vector<char>* bytes2 = new std::vector<char>(16);
   std::vector<Profile::Sample> samples;
   StubPageFlags* p = nullptr;
   Residency* r = nullptr;
@@ -354,8 +355,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.requested_size_returning = true;
     sample.allocated_size = 16;
 
-    std::vector<char> bytes(sample.allocated_size);
-    sample.span_start_address = bytes.data();
+    sample.span_start_address = bytes1->data();
 
     // This stack is mostly artificial, but we include a real symbol from the
     // binary to confirm that at least one location was indexed into its
@@ -378,7 +378,7 @@ perftools::profiles::Profile MakeTestProfile(
     samples.push_back(sample2);
 
     Profile::Sample sample3 = sample;
-    sample3.span_start_address = bytes.data();
+    sample3.span_start_address = bytes1->data();
     samples.push_back(sample3);
   }
 
@@ -472,8 +472,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.requested_size_returning = true;
     sample.allocated_size = 16;
 
-    std::vector<char> bytes(sample.allocated_size);
-    sample.span_start_address = bytes.data();
+    sample.span_start_address = bytes2->data();
 
     // This stack is mostly artificial, but we include a real symbol from the
     // binary to confirm that at least one location was indexed into its
