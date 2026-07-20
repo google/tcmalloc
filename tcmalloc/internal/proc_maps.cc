@@ -39,20 +39,19 @@ ProcMapsIterator::ProcMapsIterator(Buffer* buffer) {
   nextline_ = ibuf_;
 
 #if defined(__linux__)
-  // /maps exists in two places: /proc/pid/ and /proc/pid/task/tid (for each
-  // thread in the process.)  The only difference between these is the "global"
-  // view (/proc/pid/maps) attempts to label each VMA which is the stack of a
-  // thread.  This is nice to have, but not critical, and scales quadratically.
-  // Use the main thread's "local" view to ensure adequate performance.
-  pid_t pid = getpid();
-  int path_length = absl::SNPrintF(ibuf_, Buffer::kBufSize,
-                                   "/proc/%d/task/%d/maps", pid, pid);
-  TC_CHECK_LT(path_length, Buffer::kBufSize);
+  // /maps exists in several places:
+  // * /proc/pid/maps (global view),
+  // * /proc/pid/task/tid/maps (local view), and
+  // * /proc/thread-self/maps (local view for current thread).
+  //
+  // The global view attempts to label each VMA which is the stack of a thread,
+  // which is expensive and scales quadratically. We prefer the local view.
+  constexpr char kPath[] = "/proc/thread-self/maps";
 
   // No error logging since this can be called from the crash dump
   // handler at awkward moments. Users should call Valid() before
   // using.
-  TCMALLOC_RETRY_ON_TEMP_FAILURE(fd_ = open(ibuf_, O_RDONLY));
+  TCMALLOC_RETRY_ON_TEMP_FAILURE(fd_ = open(kPath, O_RDONLY));
 #else
   fd_ = -1;  // so Valid() is always false
 #endif
