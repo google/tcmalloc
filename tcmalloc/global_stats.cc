@@ -634,6 +634,8 @@ void DumpStats(Printer& out, int level) {
                Parameters::release_partial_alloc_pages() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_release_pages_from_huge_region %d\n",
                Parameters::release_pages_from_huge_region() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_huge_region_adaptive_release %d\n",
+               Parameters::huge_region_adaptive_release() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
     out.printf("PARAMETER heap_partitioning %d\n",
@@ -908,6 +910,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                    Parameters::release_partial_alloc_pages());
   region.PrintBool("tcmalloc_release_pages_from_huge_region",
                    Parameters::release_pages_from_huge_region());
+  region.PrintBool("tcmalloc_huge_region_adaptive_release",
+                   Parameters::huge_region_adaptive_release());
   region.PrintI64("profile_sampling_interval",
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",
