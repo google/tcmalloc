@@ -454,14 +454,18 @@ TEST_F(TcMallocTest, ReallocLarger) {
   // Note: sizes are chosen so that size + 2 access below
   // does not write out of actual allocation bounds.
   for (size_t size : {2, 29, 60, 505}) {
+    tc_globals.guardedpage_allocator().Reset();
     EXPECT_DEATH(
         {
           fprintf(stderr, "size=%zu\n", size);
           ScopedAlwaysSample always_sample;
           for (size_t i = 0; i < 10000; ++i) {
             char* volatile ptr = static_cast<char*>(malloc(size));
-            ptr = static_cast<char*>(realloc(ptr, size + 1));
-            ptr[size + 2] = 'A';
+            if (tc_globals.guardedpage_allocator().PointerIsMine(ptr) ||
+                kSanitizerPresent) {
+              ptr = static_cast<char*>(realloc(ptr, size + 1));
+              ptr[size + 2] = 'A';
+            }
             free(ptr);
           }
         },
@@ -479,13 +483,16 @@ TEST_F(TcMallocTest, ReallocSmaller) {
 #endif
   for (size_t size : {8, 29, 60, 505}) {
     SCOPED_TRACE(absl::StrCat("size=", size));
+    tc_globals.guardedpage_allocator().Reset();
     EXPECT_DEATH(
         {
           ScopedAlwaysSample always_sample;
           for (size_t i = 0; i < 10000; ++i) {
             char* volatile ptr = static_cast<char*>(malloc(size));
-            ptr = static_cast<char*>(realloc(ptr, size - 1));
-            ptr[size - 1] = 'A';
+            if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
+              ptr = static_cast<char*>(realloc(ptr, size - 1));
+              ptr[size - 1] = 'A';
+            }
             free(ptr);
           }
         },
@@ -500,14 +507,19 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
 #endif
   for (size_t size : {8, 29, 60, 505}) {
     SCOPED_TRACE(absl::StrCat("size=", size));
+    tc_globals.guardedpage_allocator().Reset();
     EXPECT_DEATH(
         {
           ScopedAlwaysSample always_sample;
           for (size_t i = 0; i < 10000; ++i) {
             char* volatile old_ptr = static_cast<char*>(malloc(size));
-            void* volatile new_ptr = realloc(old_ptr, size - 1);
-            old_ptr[0] = 'A';
-            free(new_ptr);
+            if (tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
+              void* volatile new_ptr = realloc(old_ptr, size - 1);
+              old_ptr[0] = 'A';
+              free(new_ptr);
+            } else {
+              free(old_ptr);
+            }
           }
         },
         "has detected a memory error");
