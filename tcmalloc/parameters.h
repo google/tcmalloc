@@ -188,7 +188,11 @@ class Parameters {
 
   static HeapPartitioningMode heap_partitioning_mode();
 
-  static central_freelist_internal::LifetimeTracking span_lifetime_tracking();
+  static central_freelist_internal::PeriodicLifetimeTracking
+  span_lifetime_tracking();
+
+  static central_freelist_internal::InlineLifetimeTracking
+  span_inline_lifetime_tracking();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);

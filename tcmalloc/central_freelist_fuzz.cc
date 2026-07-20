@@ -117,13 +117,15 @@ template <class>
 inline constexpr bool always_false_v = false;
 
 void FuzzCFL(size_t object_size, Length num_pages, size_t num_objects_to_move,
-             const std::vector<Instruction>& instructions) {
+             const std::vector<Instruction>& instructions,
+             central_freelist_internal::InlineLifetimeTracking
+                 inline_lifetime_tracking) {
   // TODO(271282540): Add support for multiple size classes for fuzzing.
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_objects_to_move)) {
     return;
   }
   CentralFreelistEnv env(object_size, Bytes(num_pages.in_bytes()),
-                         num_objects_to_move);
+                         num_objects_to_move, inline_lifetime_tracking);
   std::vector<void*> objects;
 
   for (const auto& instruction_wrapper : instructions) {
@@ -223,7 +225,9 @@ auto GetInstructionDomain() {
 FUZZ_TEST(CentralFreeListTest, FuzzCFL)
     .WithDomains(fuzztest::InRange<size_t>(0, kMaxSize), AnyLength(),
                  fuzztest::Arbitrary<size_t>(),
-                 fuzztest::VectorOf(GetInstructionDomain()));
+                 fuzztest::VectorOf(GetInstructionDomain()),
+                 fuzztest::Arbitrary<
+                     central_freelist_internal::InlineLifetimeTracking>());
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

@@ -666,11 +666,12 @@ void DumpStats(Printer& out, int level) {
                Parameters::back_small_allocations() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_back_size_threshold_bytes %d\n",
                Parameters::back_size_threshold_bytes());
-    out.printf("PARAMETER tcmalloc_span_lifetime_tracking %d\n",
-               Parameters::span_lifetime_tracking() ==
-                       central_freelist_internal::LifetimeTracking::kEnabled
-                   ? 1
-                   : 0);
+    out.printf(
+        "PARAMETER tcmalloc_span_lifetime_tracking %d\n",
+        Parameters::span_lifetime_tracking() ==
+                central_freelist_internal::PeriodicLifetimeTracking::kEnabled
+            ? 1
+            : 0);
     out.printf("PARAMETER background_process_sleep_interval_ns %lld\n",
                absl::ToInt64Nanoseconds(
                    Parameters::background_process_sleep_interval()));
@@ -686,6 +687,12 @@ void DumpStats(Printer& out, int level) {
                        EnableUnfilteredCollapse::kEnabled
                    ? 1
                    : 0);
+    out.printf(
+        "PARAMETER tcmalloc_span_inline_lifetime_tracking %d\n",
+        Parameters::span_inline_lifetime_tracking() ==
+                central_freelist_internal::InlineLifetimeTracking::kEnabled
+            ? 1
+            : 0);
   }
 }
 
@@ -937,9 +944,10 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintRaw("madvise", MadviseString());
   region.PrintBool("tcmalloc_resize_size_class_max_capacity",
                    Parameters::resize_size_class_max_capacity());
-  region.PrintBool("tcmalloc_span_lifetime_tracking",
-                   Parameters::span_lifetime_tracking() ==
-                       central_freelist_internal::LifetimeTracking::kEnabled);
+  region.PrintBool(
+      "tcmalloc_span_lifetime_tracking",
+      Parameters::span_lifetime_tracking() ==
+          central_freelist_internal::PeriodicLifetimeTracking::kEnabled);
 
   region.PrintI64("background_process_sleep_interval_ns",
                   absl::ToInt64Nanoseconds(
@@ -948,6 +956,10 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("tcmalloc_enable_unfiltered_collapse",
                    Parameters::enable_unfiltered_collapse() ==
                        EnableUnfilteredCollapse::kEnabled);
+  region.PrintBool(
+      "tcmalloc_span_inline_lifetime_tracking",
+      Parameters::span_inline_lifetime_tracking() ==
+          central_freelist_internal::InlineLifetimeTracking::kEnabled);
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

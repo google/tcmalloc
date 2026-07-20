@@ -34,6 +34,7 @@ enum class Experiment : int {
   TEST_ONLY_TCMALLOC_MADV_COLD_HUGEPAGE,  // TODO: b/450368905 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
   TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE,
+  TEST_ONLY_TCMALLOC_SPAN_INLINE_LIFETIME_TRACKING,  // TODO: benreisner - Complete experiment.
   TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES,  // TODO: b/525422238 - Complete experiment.
   // go/keep-sorted end
   kMaxExperimentID,

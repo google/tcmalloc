@@ -1331,7 +1331,7 @@ class HugePageFiller {
   // We group hugepages first by longest-free (as a measure of fragmentation),
   // then into kChunks chunks inside there by desirability of
   // allocation.
-  static constexpr size_t kChunks = 8;
+  static constexpr size_t kChunks = 1;
   // Which chunk should this hugepage be in?
   // This returns the largest possible value kChunks - 1 iff
   // pt has a single allocation.
@@ -1349,6 +1349,7 @@ class HugePageFiller {
   // List of hugepages from which no pages have been released to the OS.
   PageTrackerLists<kNumLists>
       regular_alloc_[AccessDensityPrediction::kPredictionCounts];
+  static constexpr size_t kE = sizeof(PageTrackerLists<kNumLists>);
   PageTrackerLists<kPagesPerHugePage.raw_num()> donated_alloc_;
   // Partially released ones that we are trying to release.
   //
