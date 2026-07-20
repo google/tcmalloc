@@ -35,9 +35,7 @@ class ProcMapsIterator {
   };
 
   // Create an iterator with specified storage (for use in signal handler).
-  //
-  // pid can be 0 for "self".
-  ProcMapsIterator(pid_t pid, Buffer* buffer);
+  explicit ProcMapsIterator(Buffer* buffer);
 
   // Returns true if the iterator successfully initialized;
   bool Valid() const;
@@ -54,7 +52,6 @@ class ProcMapsIterator {
   char* nextline_;  // start of next line
   char* ebuf_;      // end of buffer (1 char for a nul)
   int fd_;          // filehandle on /proc/*/maps
-  pid_t pid_;
   char flags_[10];
 };
 

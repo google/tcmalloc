@@ -31,13 +31,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-ProcMapsIterator::ProcMapsIterator(pid_t pid, Buffer* buffer) {
-  if (pid == 0) {
-    pid = getpid();
-  }
-
-  pid_ = pid;
-
+ProcMapsIterator::ProcMapsIterator(Buffer* buffer) {
   ibuf_ = buffer->buf;
 
   stext_ = etext_ = nextline_ = ibuf_;
@@ -50,6 +44,7 @@ ProcMapsIterator::ProcMapsIterator(pid_t pid, Buffer* buffer) {
   // view (/proc/pid/maps) attempts to label each VMA which is the stack of a
   // thread.  This is nice to have, but not critical, and scales quadratically.
   // Use the main thread's "local" view to ensure adequate performance.
+  pid_t pid = getpid();
   int path_length = absl::SNPrintF(ibuf_, Buffer::kBufSize,
                                    "/proc/%d/task/%d/maps", pid, pid);
   TC_CHECK_LT(path_length, Buffer::kBufSize);

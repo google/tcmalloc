@@ -57,7 +57,7 @@ std::string MappingName(void* mmap_start, size_t mmap_size) {
   char *flags, *filename;
 
   ProcMapsIterator::Buffer iterbuf;
-  ProcMapsIterator it(0, &iterbuf);  // 0 means "current pid"
+  ProcMapsIterator it(&iterbuf);
   while (
       it.NextExt(&start, &end, &flags, &offset, &inode, &filename, nullptr)) {
     if (start <= mmap_start_addr && mmap_end_addr <= end) {

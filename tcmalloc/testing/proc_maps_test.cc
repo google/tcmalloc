@@ -66,7 +66,7 @@ TEST(ProcMapsTest, InspectMappings) {
   }
 
   ProcMapsIterator::Buffer buffer;
-  ProcMapsIterator it(0, &buffer);
+  ProcMapsIterator it(&buffer);
   ASSERT_TRUE(it.Valid());
 
   absl::flat_hash_set<std::string> tcmalloc_regions;
