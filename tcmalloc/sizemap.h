@@ -139,7 +139,7 @@ class SizeMap {
       idx = (s + 7) >> 3;
       return true;
     } else if (s <= kMaxSize) {
-      idx = ((s + 127 + 120 * 128) >> 7);
+      idx = ((s + 127) >> 7) + 120;
       return true;
     }
     return false;
