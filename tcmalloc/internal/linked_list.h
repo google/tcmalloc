@@ -131,12 +131,14 @@ template <typename T>
 class TList {
  private:
   class Iter;
+  class RIter;
 
  public:
   // The intrusive element supertype.  Use the CRTP to declare your class:
   // class MyListItems : public TList<MyListItems>::Elem { ...
   class Elem {
     friend class Iter;
+    friend class RIter;
     friend class TList<T>;
     Elem* next_;
     Elem* prev_;
@@ -254,6 +256,9 @@ class TList {
   Iter begin() const { return Iter(head_.next_); }
   Iter end() const { return Iter(const_cast<Elem*>(&head_)); }
 
+  RIter rbegin() const { return RIter(head_.prev_); }
+  RIter rend() const { return RIter(const_cast<Elem*>(&head_)); }
+
   // Iterator pointing to a given list item.
   // REQUIRES: item is a member of the list.
   Iter at(T* item) const { return Iter(item); }
@@ -281,6 +286,28 @@ class TList {
     T* operator->() const { return static_cast<T*>(elem_); }
   };
   friend class Iter;
+
+  class RIter {
+    friend class TList;
+    Elem* elem_;
+    explicit RIter(Elem* elem) : elem_(elem) {}
+
+   public:
+    RIter& operator++() {
+      elem_ = elem_->prev_;
+      return *this;
+    }
+    RIter& operator--() {
+      elem_ = elem_->next_;
+      return *this;
+    }
+
+    bool operator!=(RIter other) const { return elem_ != other.elem_; }
+    bool operator==(RIter other) const { return elem_ == other.elem_; }
+    T* operator*() const { return static_cast<T*>(elem_); }
+    T* operator->() const { return static_cast<T*>(elem_); }
+  };
+  friend class RIter;
 
   Elem head_;
 };

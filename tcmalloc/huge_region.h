@@ -610,13 +610,24 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
   }
 
   Length released;
-  for (Region* region : list_) {
-    if (released >= to_release) break;
+  auto release_from_region = [&](Region& region) {
     Length region_target = to_release - released;
 
     Length region_released =
-        region->Release(region_target, use_adaptive).in_pages();
+        region.Release(region_target, use_adaptive).in_pages();
     released += region_released;
+  };
+
+  if (use_adaptive) {
+    for (auto it = list_.rbegin(); it != list_.rend(); ++it) {
+      if (released >= to_release) break;
+      release_from_region(**it);
+    }
+  } else {
+    for (Region* region : list_) {
+      if (released >= to_release) break;
+      release_from_region(*region);
+    }
   }
 
   HugeLength released_hl = HLFromPages(released);

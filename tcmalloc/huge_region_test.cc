@@ -979,6 +979,61 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithHitLimit) {
   EXPECT_EQ(r1->free_backed().in_bytes(), 0);
 }
 
+TEST_P(HugeRegionSetTest, ReleaseAdaptiveOrder) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  // Allocate memory in r1 and free it so we have backed pages.
+  std::vector<Alloc> r1_allocs;
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    r1_allocs.push_back({p, kSize});
+  }
+  for (size_t i = 1; i < r1_allocs.size(); ++i) {
+    ASSERT_TRUE(set_.MaybePut(Range(r1_allocs[i].p, r1_allocs[i].n)));
+  }
+
+  // Do the same for r2.
+  auto r2 = GetRegion();
+  set_.Contribute(r2.get());
+
+  std::vector<Alloc> r2_allocs;
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    r2_allocs.push_back({p, kSize});
+  }
+
+  for (auto a : r2_allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // r1 has 1 active alloc, so r1->longest_free() < r2->longest_free().
+  // Thus r1 is first in list_, and r2 is last in list_.
+  HugeLength r1_backed_before = r1->free_backed();
+  HugeLength r2_backed_before = r2->free_backed();
+  ASSERT_EQ(r1_backed_before, r1->size() - NHugePages(1));
+  ASSERT_EQ(r2_backed_before, r2->size());
+
+  // Release 1 hugepage with use_adaptive = true.
+  // * Adaptive release iterates list_ in reverse, so r2 (the last region)
+  //   should be released first.
+  // * `hit_limit` ensures we try to release the full desired quantity.
+  Length released = set_.ReleasePages(kSize, /*use_adaptive=*/true,
+                                      /*hit_limit=*/true);
+  EXPECT_EQ(released, kSize);
+
+  // r2 lost 1 hugepage of free_backed, while r1's free_backed is untouched.
+  EXPECT_EQ(r2->free_backed(), r2_backed_before - NHugePages(1));
+  EXPECT_EQ(r1->free_backed(), r1_backed_before);
+
+  ASSERT_TRUE(set_.MaybePut(Range(r1_allocs[0].p, r1_allocs[0].n)));
+}
+
 TEST_P(HugeRegionSetTest, Set) {
   absl::BitGen rng;
   PageId p;
