@@ -12,7 +12,7 @@ new(align)->size           -    -   5   -   6   -    7   -   -    -   1   -     
 new(align,cold)->size      -    1   6   -   6   -    8   -   -    -   1   -     2
 new(align,nothrow)         -    -   5   -   6   -    6   -   -    -   1   -     2
 new(cold)->size            -    1   4   -   4   -    7   -   -    -   1   -     2
-new(cold,token_1)->size    -    1   4   -   4   -    7   -   -    -   1   -     2
+new(cold,token_1)->size    -    -   4   -   5   -    7   -   -    -   1   -     2
 new(nothrow)               -    -   3   -   4   -    5   -   -    -   1   -     2
 new(token_1)               -    -   3   -   4   -    5   -   -    -   1   -     2
 new(token_1)->size         -    -   3   -   4   -    6   -   -    -   1   -     2
