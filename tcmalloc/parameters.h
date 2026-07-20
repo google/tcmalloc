@@ -129,9 +129,7 @@ class Parameters {
                : EnableUnfilteredCollapse::kDisabled;
   }
 
-  static bool huge_region_adaptive_release() {
-    return huge_region_adaptive_release_.load(std::memory_order_relaxed);
-  }
+  static bool huge_region_adaptive_release();
 
   static void set_per_cpu_caches(bool value) {
 #if !defined(TCMALLOC_DEPRECATED_PERTHREAD)
@@ -242,7 +240,6 @@ class Parameters {
 
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
-  static std::atomic<bool> huge_region_adaptive_release_;
 };
 
 }  // namespace tcmalloc_internal

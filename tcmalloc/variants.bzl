@@ -277,6 +277,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_EAGER_BACKING_V2"},
     },
+    {
+        "name": "tcmalloc_huge_region_adaptive_release",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE"},
+    },
 ]
 
 def create_tcmalloc_library(
