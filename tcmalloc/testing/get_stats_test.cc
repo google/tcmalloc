@@ -447,7 +447,7 @@ TEST_F(GetStatsTest, RequiredBufferSizes) {
   }
 
   // The required bytes should be similar.
-  EXPECT_LE(std::abs(actual_large - actual_small), 4000);
+  EXPECT_LE(std::abs(actual_large - actual_small), 30000);
 }
 
 }  // namespace

@@ -205,11 +205,14 @@ extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
 
   size_t required = printer.SpaceRequired();
 
-  if (buffer_length > required) {
+  {
     PageHeapSpinLockHolder l;
+    size_t remaining = buffer_length > required ? buffer_length - required : 0;
+    absl::Span<char> span = remaining > 0
+                                ? absl::Span<char>(buffer + required, remaining)
+                                : absl::Span<char>();
     required +=
-        tc_globals.system_allocator().GetRegionFactory()->GetStatsInPbtxt(
-            absl::Span<char>(buffer + required, buffer_length - required));
+        tc_globals.system_allocator().GetRegionFactory()->GetStatsInPbtxt(span);
   }
 
   return required;

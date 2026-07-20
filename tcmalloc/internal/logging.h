@@ -252,10 +252,12 @@ class Printer {
                      // point
 
  public:
-  // REQUIRES: "length > 0"
+  // Note: if length is 0, the printer acts purely as a space calculator
+  // and will not emit a null terminator.
   Printer(char* buf, size_t length) : buf_(buf), left_(length), required_(0) {
-    TC_ASSERT_GT(length, 0u);
-    buf[0] = '\0';
+    if (length > 0) {
+      buf[0] = '\0';
+    }
   }
 
   Printer(const Printer&) = delete;
