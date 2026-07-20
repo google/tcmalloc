@@ -130,6 +130,22 @@ class ScopedBackgroundProcessActionsEnabled {
   bool previous_;
 };
 
+// Sets a custom background release rate when in scope.
+class ScopedBackgroundReleaseRate {
+ public:
+  explicit ScopedBackgroundReleaseRate(MallocExtension::BytesPerSecond rate)
+      : previous_(MallocExtension::GetBackgroundReleaseRate()) {
+    MallocExtension::SetBackgroundReleaseRate(rate);
+  }
+
+  ~ScopedBackgroundReleaseRate() {
+    MallocExtension::SetBackgroundReleaseRate(previous_);
+  }
+
+ private:
+  MallocExtension::BytesPerSecond previous_;
+};
+
 // Sets a custom background thread process sleep interval when in scope.
 class ScopedBackgroundProcessSleepInterval {
  public:
