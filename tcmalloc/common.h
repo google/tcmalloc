@@ -248,6 +248,17 @@ enum class AllocationAccess {
   kCold,
 };
 
+inline AllocationAccess AccessFromPointer(void* ptr) {
+  if (!kHasExpandedClasses) {
+    TC_ASSERT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+    return AllocationAccess::kHot;
+  }
+
+  return ABSL_PREDICT_FALSE(GetMemoryTag(ptr) == MemoryTag::kCold)
+             ? AllocationAccess::kCold
+             : AllocationAccess::kHot;
+}
+
 inline MemoryTag MultiNormalTag(size_t partition) {
   switch (partition) {
     case 0:
