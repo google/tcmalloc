@@ -151,7 +151,8 @@ enum class ProfileType {
   kHeap,
 
   // Fragmentation report
-  kFragmentation,
+  kFragmentation ABSL_DEPRECATED(
+      "Fragmentation profiles are no longer collected"),
 
   // Sample of objects that were live at a recent peak of total heap usage. The
   // specifics of when exactly this profile is collected are subject to change.

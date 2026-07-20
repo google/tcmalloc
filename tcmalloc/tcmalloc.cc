@@ -119,6 +119,7 @@
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/segv_handler.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/tcmalloc_policy.h"
@@ -1193,21 +1194,19 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
     size_class = ret.size_class;
     TC_CHECK(ret.is_small);
   }
-  void* res;
-  // If we are here because of sampling, try AllocateFast first.
-  if (ABSL_PREDICT_TRUE(weight == 0) ||
-      (res = tc_globals.cpu_cache().AllocateFast(size_class)) == nullptr) {
-    if (UsePerCpuCache(tc_globals)) {
-      res = tc_globals.cpu_cache().AllocateSlow(size_class);
-    } else {
-      res = ThreadCache::GetCache()->Allocate(size_class);
-    }
-    if (ABSL_PREDICT_FALSE(res == nullptr)) return policy.handle_oom(size);
-  }
-  __sized_ptr_t ptr = {res, tc_globals.sizemap().class_to_size(size_class)};
+  __sized_ptr_t ptr;
   if (ABSL_PREDICT_FALSE(weight != 0)) {
-    ptr = SampleSmallAllocation(tc_globals, policy, size, weight, size_class,
-                                ptr);
+    ptr = SampleSmallAllocation(tc_globals, policy, size, weight, size_class);
+  } else {
+    if (UsePerCpuCache(tc_globals)) {
+      ptr.p = tc_globals.cpu_cache().AllocateSlow(size_class);
+    } else {
+      ptr.p = ThreadCache::GetCache()->Allocate(size_class);
+    }
+    ptr.n = tc_globals.sizemap().class_to_size(size_class);
+  }
+  if (ABSL_PREDICT_FALSE(ptr.p == nullptr)) {
+    return policy.handle_oom(size);
   }
   if (Policy::invoke_hooks()) {
     // Size returning tcmallocs call NewHooks with capacity as requested_size.

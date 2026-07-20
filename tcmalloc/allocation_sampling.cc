@@ -58,19 +58,5 @@ std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state) {
   return profile;
 }
 
-ABSL_ATTRIBUTE_NOINLINE void FreeProxyObject(Static& state, void* ptr,
-                                             size_t size_class) {
-  if (ABSL_PREDICT_TRUE(UsePerCpuCache(state))) {
-    state.cpu_cache().Deallocate(ptr, size_class);
-  } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent();
-             ABSL_PREDICT_TRUE(cache)) {
-    cache->Deallocate(ptr, size_class);
-  } else {
-    // This thread doesn't have thread-cache yet or already. Delete directly
-    // into transfer cache.
-    state.transfer_cache().InsertRange(size_class, absl::Span<void*>(&ptr, 1));
-  }
-}
-
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
