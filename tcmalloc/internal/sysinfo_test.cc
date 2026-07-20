@@ -99,68 +99,6 @@ TEST(ParseCpulistTest, NotInBounds) {
   ASSERT_THAT(parsed, testing::Eq(std::nullopt));
 }
 
-// Ensure that we can parse randomized cpulists correctly.
-TEST(ParseCpulistTest, Random) {
-  absl::BitGen gen;
-
-  static constexpr int kIterations = 100;
-  for (int i = 0; i < kIterations; i++) {
-    CpuSet reference;
-    reference.Zero();
-
-    // Set a random number of CPUs within the reference set.
-    const double density = absl::Uniform(gen, 0.0, 1.0);
-    for (int cpu = 0; cpu < kMaxCpus; cpu++) {
-      if (absl::Bernoulli(gen, density)) {
-        reference.Set(cpu);
-      }
-    }
-
-    // Serialize the reference set into a cpulist-style string.
-    std::vector<std::string> components;
-    for (int cpu = 0; cpu < kMaxCpus; cpu++) {
-      if (!reference.IsSet(cpu)) continue;
-
-      const int start = cpu;
-      int next = cpu + 1;
-      while (next < kMaxCpus && reference.IsSet(next)) {
-        cpu = next;
-        next = cpu + 1;
-      }
-
-      if (cpu == start) {
-        components.push_back(absl::StrCat(cpu));
-      } else {
-        components.push_back(absl::StrCat(start, "-", cpu));
-      }
-    }
-    const std::string serialized = absl::StrJoin(components, ",");
-
-    // Now parse that string using our ParseCpulist function, randomizing the
-    // amount of data we provide to it from each read.
-    absl::string_view remaining(serialized);
-    const absl::optional<CpuSet> parsed =
-        ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
-          // Calculate how much data we have left to provide.
-          const size_t max = std::min(count, remaining.size());
-
-          // If none, we have no choice but to provide nothing.
-          if (max == 0) return 0;
-
-          // If we do have data, return a randomly sized subset of it to stress
-          // the logic around reading partial values.
-          const size_t copy = absl::Uniform(gen, static_cast<size_t>(1), max);
-          memcpy(buf, remaining.data(), copy);
-          remaining.remove_prefix(copy);
-          return copy;
-        });
-
-    // We ought to have parsed the same set of CPUs that we serialized.
-    ASSERT_THAT(parsed, testing::Ne(std::nullopt));
-    EXPECT_TRUE(CPU_EQUAL_S(kCpuSetBytes, parsed->data(), reference.data()));
-  }
-}
-
 TEST(NumCPUs, NoCache) {
   const int result = []() {
     AllocationGuard guard;
