@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -25,12 +26,13 @@
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-void FuzzBitmapPopBatch(const std::vector<bool>& bits_to_set, size_t limit) {
+void FuzzBitmapPopBatch(const std::array<bool, 128>& bits_to_set,
+                        size_t limit) {
   constexpr size_t N = 128;
   Bitmap<N> map1;
   Bitmap<N> map2;
 
-  for (size_t i = 0; i < bits_to_set.size() && i < N; ++i) {
+  for (size_t i = 0; i < N; ++i) {
     if (bits_to_set[i]) {
       map1.SetBit(i);
       map2.SetBit(i);
@@ -57,9 +59,38 @@ void FuzzBitmapPopBatch(const std::vector<bool>& bits_to_set, size_t limit) {
 }
 
 FUZZ_TEST(BitmapFuzzTest, FuzzBitmapPopBatch)
-    .WithDomains(
-        fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithMaxSize(128),
-        fuzztest::InRange<size_t>(0, 128));
+    .WithDomains(fuzztest::Arbitrary<std::array<bool, 128>>(),
+                 fuzztest::InRange<size_t>(0, 128));
+
+void FuzzBitmapCountBits(const std::array<bool, 253>& bits_to_set, size_t start,
+                         size_t length) {
+  constexpr size_t N = 253;
+  if (start > N || start + length > N) {
+    return;
+  }
+
+  Bitmap<N> map;
+  for (size_t i = 0; i < N; ++i) {
+    if (bits_to_set[i]) {
+      map.SetBit(i);
+    }
+  }
+
+  size_t expected = 0;
+  for (size_t j = 0; j < length; j++) {
+    size_t idx = start + j;
+    if (bits_to_set[idx]) {
+      expected++;
+    }
+  }
+
+  EXPECT_EQ(expected, map.CountBits(start, length));
+}
+
+FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCountBits)
+    .WithDomains(fuzztest::Arbitrary<std::array<bool, 253>>(),
+                 fuzztest::InRange<size_t>(0, 253),
+                 fuzztest::InRange<size_t>(0, 253));
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

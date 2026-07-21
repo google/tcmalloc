@@ -225,39 +225,6 @@ TEST_F(BitmapTest, CountBits) {
   EXPECT_EQ(map.CountBits(0, 250), 242);
 }
 
-TEST_F(BitmapTest, CountBitsFuzz) {
-  static constexpr size_t kBits = 253;
-  absl::FixedArray<bool> truth(kBits);
-  Bitmap<kBits> map;
-
-  absl::BitGen rng;
-  for (int i = 0; i < kBits; i++) {
-    bool v = absl::Bernoulli(rng, 0.3);
-    truth[i] = v;
-    if (v) {
-      map.SetBit(i);
-    }
-  }
-
-  for (int i = 0; i < 100; i++) {
-    SCOPED_TRACE(i);
-
-    // Pick a random starting point and a length, use a naive loop against truth
-    // to calculate the expected bit count.
-    size_t start = absl::Uniform(rng, 0u, kBits);
-    size_t length = absl::Uniform(rng, 0u, kBits - start);
-
-    size_t expected = 0;
-    for (int j = 0; j < length; j++) {
-      if (truth[start + j]) {
-        expected++;
-      }
-    }
-
-    EXPECT_EQ(expected, map.CountBits(start, length));
-  }
-}
-
 TEST_F(BitmapTest, BitwiseOperators) {
   // Test with dead bits (N=253 has 3 dead bits in last word)
   {
