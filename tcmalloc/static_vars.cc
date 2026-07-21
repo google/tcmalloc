@@ -83,8 +83,9 @@ ABSL_CONST_INIT MetadataObjectAllocator<SampledAllocation>
 ABSL_CONST_INIT MetadataObjectAllocator<Span> Static::span_allocator_{arena_};
 ABSL_CONST_INIT MetadataObjectAllocator<ThreadCache>
     Static::threadcache_allocator_{arena_};
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT SampledAllocationRecorder
-    Static::sampled_allocation_recorder_{sampledallocation_allocator_};
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
+    Static::NoDestructorStorage<SampledAllocationRecorder>
+        Static::sampled_allocation_recorder_{sampledallocation_allocator_};
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter
     Static::sampled_internal_fragmentation_;
@@ -93,8 +94,9 @@ ABSL_CONST_INIT AllocationSampleList Static::allocation_samples;
 ABSL_CONST_INIT deallocationz::DeallocationProfilerList
     Static::deallocation_samples;
 ABSL_CONST_INIT std::atomic<int64_t> Static::sampled_alloc_handle_generator{0};
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT PeakHeapTracker
-    Static::peak_heap_tracker_{sampledallocation_allocator_};
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
+    Static::NoDestructorStorage<PeakHeapTracker>
+        Static::peak_heap_tracker_{sampledallocation_allocator_};
 ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample>
     Static::linked_sample_allocator_{arena_};
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
@@ -107,8 +109,9 @@ ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
 ABSL_CONST_INIT GwpAsanState Static::gwp_asan_state_;
 ABSL_CONST_INIT Static::PerSizeClassCounts Static::per_size_class_counts_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
-    Static::SystemAllocatorStorage Static::system_allocator_{numa_topology_,
-                                                             kMinMmapAlloc};
+    Static::NoDestructorStorage<SystemAllocator<
+        NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>>
+        Static::system_allocator_{numa_topology_, kMinMmapAlloc};
 // Force kInvalidSpan to be read-protected.  Span contains a std::atomic, and
 // libc++'s std::atomic implementation contains a mutable field in one of its
 // implementation details.  This prevents Span from being placed in a read-only

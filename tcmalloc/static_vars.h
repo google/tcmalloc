@@ -97,7 +97,9 @@ class Static final {
 
   auto& cpu_cache() { return cpu_cache_; }
 
-  static PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
+  static PeakHeapTracker& peak_heap_tracker() {
+    return peak_heap_tracker_.value;
+  }
 
   static NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
     return numa_topology_;
@@ -115,7 +117,7 @@ class Static final {
   static SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
                          kNormalPartitions>&
   system_allocator() {
-    return system_allocator_.allocator;
+    return system_allocator_.value;
   }
 
   static Arena& arena() { return arena_; }
@@ -145,7 +147,7 @@ class Static final {
   }
 
   static SampledAllocationRecorder& sampled_allocation_recorder() {
-    return sampled_allocation_recorder_;
+    return sampled_allocation_recorder_.value;
   }
 
   // State kept for sampled allocations (/heapz support).
@@ -233,7 +235,26 @@ class Static final {
       linked_sample_allocator_;
   ABSL_CONST_INIT static std::atomic<bool> inited_;
   ABSL_CONST_INIT static std::atomic<bool> cpu_cache_active_;
-  ABSL_CONST_INIT static PeakHeapTracker peak_heap_tracker_;
+
+  // Avoid destruction of static variables in a way that works with constinit
+  // and C++17. Once C++17 support is dropped this can be replaced with
+  // absl::NoDestructor. absl::NoDestructor uses a placement new, which doesn't
+  // work with constinit in C++17. Destruction is especially dangerous here
+  // because it can lead to race conditions and crashes on shutdown.
+  template <typename T>
+  union NoDestructorStorage {
+    template <typename... Args>
+    constexpr explicit NoDestructorStorage(Args&&... args)
+        : value(std::forward<Args>(args)...) {}
+
+    ~NoDestructorStorage() {}
+
+    T value;
+  };
+
+  TCMALLOC_ATTRIBUTE_NO_DESTROY
+  ABSL_CONST_INIT static NoDestructorStorage<PeakHeapTracker>
+      peak_heap_tracker_;
   ABSL_CONST_INIT static NumaTopology<kNumaPartitions, kNumBaseClasses>
       numa_topology_;
   ABSL_CONST_INIT static GwpAsanState gwp_asan_state_;
@@ -252,32 +273,18 @@ class Static final {
   static PageAllocatorStorage page_allocator_;
   static PageMap pagemap_;
 
-  // Avoid destruction of SystemAllocator in a way that works with constinit and
-  // C++17. Once C++17 support is dropped this can be replaced with
-  // absl::NoDestructor. absl::NoDestructor uses a placement new, which doesn't
-  // work with constinit in C++17. Destruction is especially dangerous here
-  // because it can lead to race conditions and crashes on shutdown.
-  union SystemAllocatorStorage {
-    constexpr SystemAllocatorStorage(
-        const NumaTopology<kNumaPartitions, kNumBaseClasses>& topology,
-        size_t min_mmap_size)
-        : allocator(topology, min_mmap_size) {}
-
-    ~SystemAllocatorStorage() {}
-
-    SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
-                    kNormalPartitions>
-        allocator;
-  };
-
-  TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT static SystemAllocatorStorage
+  TCMALLOC_ATTRIBUTE_NO_DESTROY
+  ABSL_CONST_INIT static NoDestructorStorage<SystemAllocator<
+      NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>>
       system_allocator_;
 
   static ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro) const Span kInvalidSpan;
 
   // Manages sampled allocations and allows iteration over samples free from the
   // global pageheap_lock.
-  static SampledAllocationRecorder sampled_allocation_recorder_;
+  TCMALLOC_ATTRIBUTE_NO_DESTROY
+  ABSL_CONST_INIT static NoDestructorStorage<SampledAllocationRecorder>
+      sampled_allocation_recorder_;
 };
 
 ABSL_CONST_INIT extern Static tc_globals;

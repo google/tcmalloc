@@ -55,9 +55,9 @@ TEST(SampleSizeClassTest, Main) {
 
   // We choose a small tcmalloc sampling parameter because this reduces the
   // random variance in this test's result.
-  MallocExtension::SetProfileSamplingInterval(1024);
+  ScopedProfileSamplingInterval profile_sampling_interval(1024);
   // Disable GWP-ASan since it doesn't use size classes.
-  MallocExtension::SetGuardedSamplingInterval(-1);
+  ScopedGuardedSamplingInterval guarded_sampling_interval(-1);
 
   // Make a huge allocation that's very likely to be sampled to clear
   // out the current sample point; ensures all our allocations are
