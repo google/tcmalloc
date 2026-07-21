@@ -808,8 +808,8 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:size_class_info",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
@@ -1228,7 +1228,6 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         "//tcmalloc/internal:config",
-        "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:size_class_info",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
