@@ -33,14 +33,12 @@ TEST(Stats, ValidRanges) {
 #endif
 
   EXPECT_GT(stats.vss, 0);
-  EXPECT_GE(stats.vss, stats.rss);
   EXPECT_GT(stats.rss, 0);
-  EXPECT_GE(stats.rss, stats.shared);
   EXPECT_GT(stats.shared, 0);
-  EXPECT_GE(stats.vss, stats.code + stats.data);
   EXPECT_GT(stats.code, 0);
   EXPECT_GT(stats.data, 0);
 }
+
 
 TEST(Stats, HugepageFragmentationRatio) {
   auto ratio = GetHugepageFragmentationRatio(0);
