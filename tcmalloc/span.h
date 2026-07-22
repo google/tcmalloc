@@ -704,7 +704,13 @@ inline bool Span::FreelistEmpty(size_t size, uint32_t objects_per_span) const {
 #endif
 }
 
-inline void Span::Prefetch() { PrefetchT0(this); }
+inline void Span::Prefetch() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  PrefetchT0(this);
+#else
+  PrefetchW(this);
+#endif
+}
 
 inline bool Span::IsValidSizeClass(size_t size, Length pages) {
   if (pages > kLargeSpanLength) return false;
