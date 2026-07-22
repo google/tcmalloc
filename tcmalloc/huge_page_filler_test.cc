@@ -5325,7 +5325,7 @@ HugePageFiller: 130 of sparsely-accessed released used native pages are unbacked
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_unbacked: 126"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_unbacked: 130"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_free_stale: 0"));
-  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_stale: 1"));
+  EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_used_stale: 2"));
   EXPECT_THAT(buffer_pbtxt, testing::HasSubstr("num_pages_treated: 1"));
   DeleteVector(p1);
   DeleteVector(p2);
@@ -6430,14 +6430,16 @@ TEST_F(FillerTest, StaleHistograms) {
   });
 
   EXPECT_THAT(buffer,
-              testing::HasSubstr("HugePageFiller: # of sparsely-accessed "
-                                 "regular hps with a <= # of stale < b\n"
-                                 "HugePageFiller: <  0<=     0 <  1<=     3"));
+              testing::HasSubstr(
+                  "HugePageFiller: # of sparsely-accessed "
+                  "regular hps with a <= # of stale < b\n"
+                  "HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     3"));
 
-  EXPECT_THAT(buffer, testing::HasSubstr(
-                          "HugePageFiller: # of sparsely-accessed regular hps "
-                          "with a <= # of free AND stale < b\n"
-                          "HugePageFiller: <  0<=     2 <  1<=     1"));
+  EXPECT_THAT(buffer,
+              testing::HasSubstr(
+                  "HugePageFiller: # of sparsely-accessed regular hps "
+                  "with a <= # of free AND stale < b\n"
+                  "HugePageFiller: <  0<=     2 <  1<=     0 <  2<=     1"));
 
   Delete(b);
   Delete(c);
@@ -6820,6 +6822,95 @@ TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the
   // filler. Make sure it doesn't signal that we should skip the limit.
   EXPECT_FALSE(SkipSubreleaseIntervals{}.SkipSubreleaseEnabled());
+}
+
+TEST(BitmapScaleTest, ScaleAssertionFailures) {
+#ifdef NDEBUG
+  GTEST_SKIP() << "Requires debug mode";
+#endif
+  Bitmap<64> map1;
+  // 1. src_len (64) doesn't divide M (10) and vice versa
+  EXPECT_DEATH(Scale<10>(map1, 64, ReductionOp::kAll), "");
+  // 2. src_len > N (64)
+  EXPECT_DEATH(Scale<256>(map1, 128, ReductionOp::kAll), "");
+}
+
+TEST(BitmapScaleTest, Scale) {
+  // Test case 1: N == M (identity)
+  {
+    Bitmap<64> map1;
+    map1.SetBit(3);
+    map1.SetBit(17);
+    map1.SetBit(63);
+
+    auto map_all = Scale<64>(map1, 64, ReductionOp::kAll);
+    auto map_any = Scale<64>(map1, 64, ReductionOp::kAny);
+    for (size_t i = 0; i < 64; ++i) {
+      EXPECT_EQ(map1.GetBit(i), map_all.GetBit(i));
+      EXPECT_EQ(map1.GetBit(i), map_any.GetBit(i));
+    }
+  }
+
+  // Test case 2: N > M (contracting)
+  {
+    Bitmap<64> map1;
+    // We group by 2 bits.
+    // Group 0: bits 0, 1 -> both must be set
+    map1.SetBit(0);
+    map1.SetBit(1);
+
+    // Group 1: bits 2, 3 -> only one set
+    // Should not be set for kAll, should be set for kAny
+    map1.SetBit(2);
+
+    // Group 7: bits 14, 15 -> both set
+    map1.SetBit(14);
+    map1.SetBit(15);
+
+    auto map_all = Scale<8>(map1, 16, ReductionOp::kAll);
+    auto map_any = Scale<8>(map1, 16, ReductionOp::kAny);
+
+    EXPECT_TRUE(map_all.GetBit(0));
+    EXPECT_TRUE(map_any.GetBit(0));
+
+    EXPECT_FALSE(map_all.GetBit(1));
+    EXPECT_TRUE(map_any.GetBit(1));
+
+    for (size_t i = 2; i <= 6; ++i) {
+      EXPECT_FALSE(map_all.GetBit(i));
+      EXPECT_FALSE(map_any.GetBit(i));
+    }
+
+    EXPECT_TRUE(map_all.GetBit(7));
+    EXPECT_TRUE(map_any.GetBit(7));
+  }
+
+  // Test case 3: N < M (expanding)
+  {
+    Bitmap<64> map1;
+    // We expand by 2 bits.
+    map1.SetBit(0);
+    map1.SetBit(7);
+
+    auto map_all = Scale<16>(map1, 8, ReductionOp::kAll);
+    auto map_any = Scale<16>(map1, 8, ReductionOp::kAny);
+
+    // Both operations behave identically for expanding.
+    EXPECT_TRUE(map_all.GetBit(0));
+    EXPECT_TRUE(map_all.GetBit(1));
+    EXPECT_TRUE(map_any.GetBit(0));
+    EXPECT_TRUE(map_any.GetBit(1));
+
+    EXPECT_FALSE(map_all.GetBit(2));
+    EXPECT_FALSE(map_all.GetBit(3));
+    EXPECT_FALSE(map_any.GetBit(2));
+    EXPECT_FALSE(map_any.GetBit(3));
+
+    EXPECT_TRUE(map_all.GetBit(14));
+    EXPECT_TRUE(map_all.GetBit(15));
+    EXPECT_TRUE(map_any.GetBit(14));
+    EXPECT_TRUE(map_any.GetBit(15));
+  }
 }
 
 }  // namespace
