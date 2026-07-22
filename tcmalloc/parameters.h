@@ -131,6 +131,14 @@ class Parameters {
 
   static bool huge_region_adaptive_release();
 
+  static bool release_max_cold_pages() {
+    return release_max_cold_pages_.load(std::memory_order_relaxed);
+  }
+
+  static void set_release_max_cold_pages(bool value) {
+    TCMalloc_Internal_SetReleaseMaxColdPages(value);
+  }
+
   static void set_per_cpu_caches(bool value) {
 #if !defined(TCMALLOC_DEPRECATED_PERTHREAD)
     if (!value) {
@@ -221,6 +229,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
   friend void ::TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
   friend void ::TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v);
+  friend void ::TCMalloc_Internal_SetReleaseMaxColdPages(bool v);
 
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
@@ -240,6 +249,7 @@ class Parameters {
 
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
+  static std::atomic<bool> release_max_cold_pages_;
 };
 
 }  // namespace tcmalloc_internal

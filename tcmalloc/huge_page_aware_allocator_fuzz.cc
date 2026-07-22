@@ -281,6 +281,15 @@ struct SetEnableUnfilteredCollapse {
   }
 };
 
+struct SetReleaseMaxColdPages {
+  bool value;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetReleaseMaxColdPages& s) {
+    absl::Format(&sink, "SetReleaseMaxColdPages{.value=%v}", s.value);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -295,7 +304,7 @@ using ParamOp = std::variant<
     SetFillerSkipSubreleaseLongInterval, SetReleasePartialAllocPages,
     SetHpaaSubrelease, SetReleaseSucceeds, SetHugeRegionDemandBasedRelease,
     SetHugeRegionAdaptiveRelease, SetBackAllocations, SetBackSizeThresholdBytes,
-    ReentrantSubprogram, SetEnableUnfilteredCollapse>;
+    ReentrantSubprogram, SetEnableUnfilteredCollapse, SetReleaseMaxColdPages>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -588,6 +597,9 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
                     } else if constexpr (std::is_same_v<
                                              P, SetEnableUnfilteredCollapse>) {
                       forwarder.set_enable_unfiltered_collapse(param_arg.value);
+                    } else if constexpr (std::is_same_v<
+                                             P, SetReleaseMaxColdPages>) {
+                      forwarder.set_release_max_cold_pages(param_arg.value);
                     }
                   },
                   arg.op);
@@ -726,7 +738,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                 .WithSize(0)),
         fuzztest::Map(
             [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()));
+            fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
+        fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
+                      fuzztest::Arbitrary<SetReleaseMaxColdPages>()));
   } else {
     return fuzztest::OneOf(
         fuzztest::Map([](ResetSubreleaseIntervals r) { return ChangeParam{r}; },
@@ -767,7 +781,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
             fuzztest::VectorOf(GetInstructionDomain(depth - 1))),
         fuzztest::Map(
             [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()));
+            fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
+        fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
+                      fuzztest::Arbitrary<SetReleaseMaxColdPages>()));
   }
 }
 

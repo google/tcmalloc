@@ -91,6 +91,10 @@ class FakeStaticForwarder {
   void set_huge_region_adaptive_release(bool value) {
     huge_region_adaptive_release_ = value;
   }
+  bool release_max_cold_pages() const { return release_max_cold_pages_; }
+  void set_release_max_cold_pages(bool value) {
+    release_max_cold_pages_ = value;
+  }
 
   bool BackAllocations() const { return back_allocations_; }
   void SetBackAllocations(bool value) { back_allocations_ = value; }
@@ -228,6 +232,7 @@ class FakeStaticForwarder {
   int error_number_ = 0;
   bool huge_region_demand_based_release_ = false;
   bool huge_region_adaptive_release_ = false;
+  bool release_max_cold_pages_ = false;
 
   bool back_allocations_ = false;
   int32_t back_size_threshold_bytes_ = kPageSize;

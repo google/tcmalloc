@@ -86,6 +86,10 @@ class StaticForwarder {
     return Parameters::huge_region_adaptive_release();
   }
 
+  static bool release_max_cold_pages() {
+    return Parameters::release_max_cold_pages();
+  }
+
   // Arena state.
   static Arena& arena();
 
@@ -1034,9 +1038,12 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // THP coverage. It is however very useful to have the ability to turn this on
   // for testing.
   if (hpaa_subrelease()) {
-    if (released < num_pages) {
+    const bool release_max_cold =
+        tag_ == MemoryTag::kCold && forwarder_.release_max_cold_pages();
+    if (released < num_pages || release_max_cold) {
+      Length desired = release_max_cold ? Length::max() : num_pages - released;
       released += filler_.ReleasePages(
-          num_pages - released,
+          desired,
           SkipSubreleaseIntervals{
               .short_interval =
                   forwarder_.filler_skip_subrelease_short_interval(),

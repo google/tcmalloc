@@ -2091,6 +2091,49 @@ TEST_F(GetReleaseStatsTest, b339535705) {
                                }));
 }
 
+TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
+  constexpr SpanAllocInfo kAllocInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr Length kAllocPages = kPagesPerHugePage / 2;
+
+  for (bool release_max_cold_pages : {false, true}) {
+    FakeHugePageAwareAllocator cold_allocator({.tag = MemoryTag::kCold});
+    cold_allocator.forwarder().set_filler_skip_subrelease_short_interval(
+        absl::ZeroDuration());
+    cold_allocator.forwarder().set_filler_skip_subrelease_long_interval(
+        absl::ZeroDuration());
+    cold_allocator.forwarder().set_release_max_cold_pages(
+        release_max_cold_pages);
+
+    Span* s1 = cold_allocator.New(kAllocPages, kAllocInfo);
+    Span* s2 = cold_allocator.New(kAllocPages, kAllocInfo);
+    Span* s3 = cold_allocator.New(kAllocPages, kAllocInfo);
+    Span* s4 = cold_allocator.New(kAllocPages, kAllocInfo);
+
+    SpanDeleter deleter(&cold_allocator);
+    deleter(s1);
+    deleter(s3);
+
+    Length released;
+    {
+      PageHeapSpinLockHolder l;
+      released = cold_allocator.ReleaseAtLeastNPages(
+          kAllocPages, PageReleaseReason::kReleaseMemoryToSystem);
+    }
+
+    if (release_max_cold_pages) {
+      EXPECT_EQ(released, 2 * kAllocPages);
+    } else {
+      EXPECT_EQ(released, kAllocPages);
+    }
+
+    deleter(s2);
+    deleter(s4);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
