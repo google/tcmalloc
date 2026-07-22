@@ -463,7 +463,16 @@ template <typename T>
 inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     absl::Span<T> batch, Span* span, size_t object_size,
     uint32_t size_reciprocal, uint32_t objects_per_span) {
-  if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size, objects_per_span))) {
+  constexpr bool kDeferredNonEmpty =
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      false
+#else
+      true
+#endif
+      ;
+
+  const bool was_empty = span->FreelistEmpty(object_size, objects_per_span);
+  if (!kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
     const uint8_t index = GetFirstNonEmptyIndex();
     nonempty_.Add(span, index);
     span->set_nonempty_index(index);
@@ -477,7 +486,9 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     // Update the histogram as the span is full and will be removed from the
     // nonempty_ list.
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
-    nonempty_.Remove(span, prev_index);
+    if (!kDeferredNonEmpty || ABSL_PREDICT_TRUE(!was_empty)) {
+      nonempty_.Remove(span, prev_index);
+    }
     return span;
   }
   // As the objects are being added to the span, its utilization might change.
@@ -495,7 +506,10 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // by cur_index.
   const uint8_t cur_index =
       IndexFor(span->is_long_lived_span(), cur_allocated, cur_bitwidth);
-  if (cur_index != prev_index) {
+  if (kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
+    nonempty_.Add(span, cur_index);
+    span->set_nonempty_index(cur_index);
+  } else if (cur_index != prev_index) {
     nonempty_.Remove(span, prev_index);
     nonempty_.Add(span, cur_index);
     span->set_nonempty_index(cur_index);
