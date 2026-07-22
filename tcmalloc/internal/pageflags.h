@@ -68,8 +68,13 @@ class PageFlagsBase {
   PageFlagsBase& operator=(PageFlagsBase&&) = delete;
   virtual std::optional<bool> IsHugepageBacked(const void* addr) = 0;
   virtual std::optional<PageStats> Get(const void* addr, size_t size) = 0;
-  virtual absl::StatusCode GetSinglePageBitmaps(const void* addr,
-                                                ResidencyBitmap& stale) = 0;
+
+  struct PageFlagsBitmaps {
+    ResidencyBitmap stale;
+    absl::StatusCode status;
+  };
+
+  virtual PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) = 0;
 };
 
 // PageFlags offers a look at kernel page flags to identify pieces of memory as
@@ -101,8 +106,7 @@ class PageFlags final : public PageFlagsBase {
   // dynamically allocate memory when needed.  Using std::optional allows us to
   // use the function in places where memory allocation is prohibited.
   std::optional<PageStats> Get(const void* addr, size_t size) override;
-  absl::StatusCode GetSinglePageBitmaps(const void* addr,
-                                        ResidencyBitmap& stale) override;
+  PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override;
   std::optional<bool> IsHugepageBacked(const void* addr) override;
 
  private:

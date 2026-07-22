@@ -81,9 +81,8 @@ class PageFlagsFriend {
     return r_.IsHugepageBacked(addr);
   }
 
-  decltype(auto) GetSinglePageBitmaps(const void* addr,
-                                      ResidencyBitmap& stale) {
-    return r_.GetSinglePageBitmaps(addr, stale);
+  decltype(auto) GetSinglePageBitmaps(const void* addr) {
+    return r_.GetSinglePageBitmaps(addr);
   }
 
   void SetCachedScanSeconds(
@@ -608,14 +607,12 @@ TEST(StaleSeconds, TextOverflow) {
 TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
   {
     PageFlagsFriend s;
-    ResidencyBitmap stale;
-    EXPECT_EQ(s.GetSinglePageBitmaps(reinterpret_cast<const void*>(1), stale),
+    EXPECT_EQ(s.GetSinglePageBitmaps(reinterpret_cast<const void*>(1)).status,
               absl::StatusCode::kFailedPrecondition);
   }
   {
     PageFlagsFriend s("/dev/null/impossible");
-    ResidencyBitmap stale;
-    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr).status,
               absl::StatusCode::kUnavailable);
   }
   {
@@ -623,8 +620,7 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
         absl::StrCat(testing::TempDir(), "/fake_pageflags_short");
     SetContents(fake_pageflags, "x");
     PageFlagsFriend s(fake_pageflags);
-    ResidencyBitmap stale;
-    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr).status,
               absl::StatusCode::kUnavailable);
   }
   {
@@ -639,8 +635,7 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
     SetContents(fake_pageflags, content);
 
     PageFlagsFriend s(fake_pageflags);
-    ResidencyBitmap stale;
-    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale),
+    EXPECT_EQ(s.GetSinglePageBitmaps(nullptr).status,
               absl::StatusCode::kFailedPrecondition);
   }
 }
@@ -661,11 +656,10 @@ TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
   SetContents(fake_pageflags, content);
 
   PageFlagsFriend s(fake_pageflags);
-  ResidencyBitmap stale;
-  stale.Clear();
 
-  EXPECT_EQ(s.GetSinglePageBitmaps(nullptr, stale), absl::StatusCode::kOk);
-  EXPECT_EQ(stale.CountBits(), kMaxResidencyBits / 2);
+  auto ret = s.GetSinglePageBitmaps(nullptr);
+  EXPECT_EQ(ret.status, absl::StatusCode::kOk);
+  EXPECT_EQ(ret.stale.CountBits(), kMaxResidencyBits / 2);
 }
 
 }  // namespace

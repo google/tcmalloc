@@ -289,10 +289,11 @@ class FakePageFlags : public PageFlagsBase {
     return PageStats{};
   }
 
-  absl::StatusCode GetSinglePageBitmaps(const void* addr,
-                                        ResidencyBitmap& stale) override {
-    stale.SetBit(0);
-    return absl::StatusCode::kOk;
+  PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
+    PageFlagsBitmaps ret;
+    ret.stale.SetBit(0);
+    ret.status = absl::StatusCode::kOk;
+    return ret;
   }
 
   void MarkHugePageBacked(void* addr, bool is_hugepage_backed) {

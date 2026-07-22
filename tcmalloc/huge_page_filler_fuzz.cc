@@ -124,9 +124,8 @@ class FakePageFlags : public PageFlagsBase {
     return PageStats{};
   }
 
-  absl::StatusCode GetSinglePageBitmaps(const void* addr,
-                                        ResidencyBitmap& stale) override {
-    return absl::StatusCode::kUnimplemented;
+  PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
+    return {.status = absl::StatusCode::kUnimplemented};
   }
 
   std::optional<bool> IsHugepageBacked(const void* addr) override {

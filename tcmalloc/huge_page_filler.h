@@ -2721,14 +2721,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
             bitmaps.unbacked, pages_per_huge_page, ReductionOp::kAll);
         state.swapped = Scale<kPagesPerHugePage.raw_num()>(
             bitmaps.swapped, pages_per_huge_page, ReductionOp::kAny);
-        if (pf) {
-          // TODO(b/525422238): Return by value rather than use an output
-          // parameter.
-          ResidencyBitmap b;
-          pf->GetSinglePageBitmaps(tracker->location().start_addr(), b);
-          state.stale = Scale<kPagesPerHugePage.raw_num()>(
-              b, pages_per_huge_page, ReductionOp::kAny);
-        }
+        auto single_page_bitmaps =
+            pf->GetSinglePageBitmaps(tracker->location().start_addr());
+        state.stale = Scale<kPagesPerHugePage.raw_num()>(
+            single_page_bitmaps.stale, pages_per_huge_page, ReductionOp::kAny);
 
         const bool backoff =
             treatment_stats_.collapse_time_max_cycles > max_collapse_cycles;

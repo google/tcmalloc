@@ -40,6 +40,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -71,9 +72,8 @@ class StubPageFlags final : public PageFlagsBase {
  public:
   StubPageFlags() = default;
   ~StubPageFlags() override = default;
-  absl::StatusCode GetSinglePageBitmaps(const void* addr,
-                                        ResidencyBitmap& stale) override {
-    return absl::StatusCode::kUnimplemented;
+  PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
+    return {.status = absl::StatusCode::kUnimplemented};
   }
   std::optional<PageStats> Get(const void* addr, size_t size) override {
     PageStats ret;

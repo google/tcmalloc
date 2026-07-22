@@ -339,21 +339,25 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
   }
   return ret;
 }
-absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
-                                                 ResidencyBitmap& stale) {
+PageFlagsBase::PageFlagsBitmaps PageFlags::GetSinglePageBitmaps(
+    const void* addr) {
+  PageFlagsBitmaps ret;
   uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
   if ((currPage & (kHugePageSize - 1)) != 0) {
     TC_LOG("Address is not hugepage aligned");
-    return absl::StatusCode::kFailedPrecondition;
+    ret.status = absl::StatusCode::kFailedPrecondition;
+    return ret;
   }
 
   if (fd_ < 0) {
-    return absl::StatusCode::kUnavailable;
+    ret.status = absl::StatusCode::kUnavailable;
+    return ret;
   }
 
   auto res = Seek(currPage);
   if (res != absl::StatusCode::kOk) {
-    return res;
+    ret.status = res;
+    return ret;
   }
 
   const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
@@ -365,7 +369,8 @@ absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
                                  kSizeOfHugepageInPagemap, nullptr);
   if (status != kSizeOfHugepageInPagemap) {
     TC_LOG("Could not read from pageflags file");
-    return absl::StatusCode::kUnavailable;
+    ret.status = absl::StatusCode::kUnavailable;
+    return ret;
   }
 
   last_head_read_ = -1;
@@ -379,7 +384,8 @@ absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
     }
     if (PageTail(flags)) {
       if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
-        return absl::StatusCode::kFailedPrecondition;
+        ret.status = absl::StatusCode::kFailedPrecondition;
+        return ret;
       }
       flags = last_head_read_;
     }
@@ -390,16 +396,17 @@ absl::StatusCode PageFlags::GetSinglePageBitmaps(const void* addr,
       }
     } else {
       if (stale_start != -1) {
-        stale.SetRange(stale_start, i - stale_start);
+        ret.stale.SetRange(stale_start, i - stale_start);
         stale_start = -1;
       }
     }
   }
   if (stale_start != -1) {
-    stale.SetRange(stale_start, kHardwarePagesInHugePage - stale_start);
+    ret.stale.SetRange(stale_start, kHardwarePagesInHugePage - stale_start);
   }
 
-  return absl::StatusCode::kOk;
+  ret.status = absl::StatusCode::kOk;
+  return ret;
 }
 
 uint64_t PageFlags::MaybeReadStaleScanSeconds(const char* filename) {
