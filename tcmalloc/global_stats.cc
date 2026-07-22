@@ -276,6 +276,8 @@ static absl::string_view SizeClassConfigurationString(
     case SizeClassConfiguration::kLegacy:
       // TODO(b/242710633): remove this opt out.
       return "SIZE_CLASS_LEGACY";
+    case SizeClassConfiguration::kLowFrag:
+      return "SIZE_CLASS_LOW_FRAG";
     case SizeClassConfiguration::kReuse:
       return "SIZE_CLASS_REUSE";
     case SizeClassConfiguration::kReuseRelaxedBelow64:

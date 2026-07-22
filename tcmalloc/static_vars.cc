@@ -165,8 +165,14 @@ size_t Static::pagemap_residence() {
 int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
 
 SizeClassConfiguration Static::size_class_configuration() {
+  return SizeClassConfiguration::kLowFrag;
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     return SizeClassConfiguration::kPow2Only;
+  }
+
+  if (IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES_V2)) {
+    return SizeClassConfiguration::kLowFrag;
   }
 
   // TODO(b/242710633): remove this opt out.
