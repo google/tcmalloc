@@ -48,10 +48,9 @@ jobs:
       image: gcr.io/google.com/absl-177019/gloop-linux-toolchain-latest@sha256:a820c79d3f356a64db121a4ee16c4408df18f9d2c8bf6c6abfae21666ac003ba
       options: --cap-add=SYS_PTRACE
       credentials:
-        # TODO(b/530366451) Switch to Workload Identity Federation to avoid the need for secrets and
-        # rotating service account keys.
+        # TODO(b/530366451) Switch to Workload Identity Federation to avoid the need for secrets.
         username: _json_key
-        password: ${{ secrets.GAR_SERVICE_ACCOUNT }}
+        password: ${{ secrets.GCP_SERVICE_ACCOUNT }}
     strategy:
       fail-fast: false   # Don't cancel all jobs if one fails.
       matrix:
@@ -79,7 +78,7 @@ jobs:
           bazelisk-cache: true
           external-cache: true
           repository-cache: true
-          google-credentials: ${{ secrets.GAR_SERVICE_ACCOUNT }}
+          google-credentials: ${{ secrets.GCP_SERVICE_ACCOUNT }}
           bazelrc: |
             test --test_tag_filters=-benchmark
             common --config=remote
