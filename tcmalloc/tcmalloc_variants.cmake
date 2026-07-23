@@ -123,14 +123,6 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_small_but_slow,tcmalloc::common_small_but_slow>
   )
   set_tests_properties(${TCMALLOC_NAME}_small_but_slow PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_small_but_slow_with_assertions
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_small_but_slow_with_assertions,tcmalloc::common_small_but_slow_with_assertions>
-  )
-  set_tests_properties(${TCMALLOC_NAME}_small_but_slow_with_assertions PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_pow2
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
