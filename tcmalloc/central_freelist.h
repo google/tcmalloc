@@ -724,6 +724,15 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       // Clobber prev_index to trigger reload, restoring previous behavior.
       prev_index = span->nonempty_index();
 #endif
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      // Use ASSUME to elide the bounds check in subspan, per
+      // b/538576012#comment3.
+      //
+      // TODO(b/538576012): Use a recommended API for this.
+      size_t size = batch.size();
+      ASSUME(result < size);
+#endif
       int here = span->FreelistPopBatch(batch.subspan(result), object_size);
       // TODO(b/451807659): Return this to an assert after debugging is done.
       TC_CHECK_GT(here, 0, "Failed to make progress.  Freelist corrupted?");
