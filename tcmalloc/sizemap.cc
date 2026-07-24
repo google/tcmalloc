@@ -193,10 +193,17 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
   if (size_classes.empty()) {
     return false;
   }
-  int num_classes = size_classes.size();
-  if (kHasExpandedClasses && num_classes > kNumBaseClasses) {
-    num_classes = kNumBaseClasses;
+  // SetSizeClasses writes one entry per input class into the class_to_size_,
+  // class_to_pages_ and num_objects_to_move_ arrays, which only have room for
+  // kNumBaseClasses distinct classes (the upper registers are filled later by
+  // replication).  A longer list therefore runs past the end of those arrays,
+  // so reject it here instead of silently truncating only the validation.
+  if (size_classes.size() > kNumBaseClasses) {
+    TC_LOG("too many size classes %v (max %v)", size_classes.size(),
+           kNumBaseClasses);
+    return false;
   }
+  const int num_classes = size_classes.size();
 
   if (size_classes[0].size != 0 || size_classes[0].bytes != Bytes(0) ||
       size_classes[0].num_to_move != 0) {
