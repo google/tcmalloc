@@ -58,14 +58,19 @@ class HintedTrackerLists {
   //
   // Unlike GetLeast, this does not remove the pointer from the list when it is
   // found.
-  TrackerType* absl_nullable PeekLeast(const size_t n) {
+  struct PeekResult {
+    TrackerType* absl_nullable tracker;
+    size_t index;
+  };
+
+  PeekResult PeekLeast(const size_t n) {
     TC_ASSERT_LT(n, N);
     size_t i = nonempty_.FindSet(n);
     if (i == N) {
-      return nullptr;
+      return {nullptr, N};
     }
     TC_ASSERT(!lists_[i].empty());
-    return lists_[i].first();
+    return {lists_[i].first(), i};
   }
 
   // Adds pointer <pt> to the nonempty_[i] list.

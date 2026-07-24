@@ -269,7 +269,7 @@ class CentralFreeList {
   // Parses nonempty_ and returns span from the
   // list with the lowest possible index. Returns the span if one exists in the
   // lists. Else, returns nullptr.
-  Span* absl_nullable FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  auto FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Returns first index to the nonempty_ lists that may record spans.
   uint8_t GetFirstNonEmptyIndex() const;
@@ -518,7 +518,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
 }
 
 template <class Forwarder>
-inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
+inline auto CentralFreeList<Forwarder>::FirstNonEmptySpan() {
   // Scan nonempty_ lists in the range [first_nonempty_index_, kNumLists) and
   // return the span from a non-empty list if one exists. If all the lists are
   // empty, return nullptr.
@@ -711,7 +711,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
 
     do {
       num_spans++;
-      Span* span = FirstNonEmptySpan();
+      auto [span, prev_index] = FirstNonEmptySpan();
       if (ABSL_PREDICT_FALSE(!span)) {
         result += Populate(batch.subspan(result));
         break;
@@ -719,7 +719,11 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
 
       const uint16_t prev_allocated = span->Allocated();
       const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
-      const uint8_t prev_index = span->nonempty_index();
+      TC_ASSERT_EQ(prev_index, span->nonempty_index());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      // Clobber prev_index to trigger reload, restoring previous behavior.
+      prev_index = span->nonempty_index();
+#endif
       int here = span->FreelistPopBatch(batch.subspan(result), object_size);
       // TODO(b/451807659): Return this to an assert after debugging is done.
       TC_CHECK_GT(here, 0, "Failed to make progress.  Freelist corrupted?");
