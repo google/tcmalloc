@@ -67,6 +67,9 @@ namespace tcmalloc_internal {
 constexpr absl::Duration kMaxCollapseLatencyThreshold = absl::Milliseconds(30);
 constexpr absl::Duration kMinCollapseLatencyThreshold = absl::Milliseconds(15);
 
+// Interval for Page Tracker treatment.
+constexpr absl::Duration kRecordInterval = absl::Minutes(5);
+
 enum class HugePageTreatmentType : uint8_t {
   kSampled = 1 << 0,
   kCollapse = 1 << 1,
@@ -259,6 +262,9 @@ class PageTracker : public TList<PageTracker>::Elem {
   Bitmap<kPagesPerHugePage.raw_num()> released_by_page() const {
     return released_by_page_;
   }
+
+  Length ReleaseStaleFree(PageBitmap stale, MemoryModifyFunction& unback)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Attempts to collapse memory tracked by this tracker. Returns true if the
   // collapse was successful.
@@ -1153,6 +1159,11 @@ enum class EnableUnfilteredCollapse : bool {
   kEnabled = true,
 };
 
+enum class ReleaseStalePages : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
@@ -1341,7 +1352,8 @@ class HugePageFiller {
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
+      ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags = nullptr,
+      Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to release free pages from a given `page_tracker`
@@ -1355,6 +1367,11 @@ class HugePageFiller {
   // Utility function to handle a non-hugepage backed `page_tracker` and
   // mark its unmapped pages appropriately.
   Length HandleUnbackedHugePage(PageTracker* page_tracker, PageBitmap unbacked)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  // Utility function to release stale free pages in a given `page_tracker`
+  // and handle accounting.
+  Length HandleReleaseStaleFreePages(PageTracker* tracker, PageBitmap stale)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  private:
@@ -1595,6 +1612,33 @@ inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
   num_objects_ -= span_alloc_info.objects_per_span;
 }
 
+inline Length PageTracker::ReleaseStaleFree(PageBitmap stale,
+                                            MemoryModifyFunction& unback) {
+  // We want to release pages that are BACKED (not released), FREE (not used in
+  // free_), and STALE.
+  PageBitmap not_to_release = released_by_page_ | free_.bits() | ~stale;
+
+  size_t count = 0;
+  size_t index = 0;
+  size_t n;
+  while (not_to_release.NextFreeRange(index, &index, &n)) {
+    TC_ASSERT_EQ(released_by_page_.CountBits(index, n), 0);
+    PageId p = location_.first_page() + Length(index);
+
+    if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(n)), unback))) {
+      // Mark pages as released. Amortize the update to released_count_.
+      released_by_page_.SetRange(index, n);
+      count += n;
+    }
+    index += n;
+  }
+
+  released_count_ += count;
+  TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
+  TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
+  return Length(count);
+}
+
 inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   size_t count = 0;
   size_t index = 0;
@@ -1624,7 +1668,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       PageId p = location_.first_page() + Length(free_index);
 
       if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
-        // Mark pages as released.  Amortize the update to release_count_.
+        // Mark pages as released.  Amortize the update to released_count_.
         released_by_page_.SetRange(free_index, length);
         count += length;
       }
@@ -2584,7 +2628,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       MemoryModifyFunction& collapse, HugePageFiller<TrackerType>& page_filler,
       EnableCollapse enable_collapse,
       SubreleaseUnbackedMode subrelease_unbacked_mode,
-      EnableUnfilteredCollapse enable_unfiltered_collapse)
+      EnableUnfilteredCollapse enable_unfiltered_collapse,
+      ReleaseStalePages release_stale_pages)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
@@ -2592,7 +2637,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         page_filler_(page_filler),
         enable_collapse_(enable_collapse),
         subrelease_unbacked_mode_(subrelease_unbacked_mode),
-        enable_unfiltered_collapse_(enable_unfiltered_collapse) {}
+        enable_unfiltered_collapse_(enable_unfiltered_collapse),
+        release_stale_pages_(release_stale_pages) {}
   ~HugePageUnbackedTrackerTreatment() override = default;
 
   static void operator delete(void*) { __builtin_trap(); }
@@ -2777,6 +2823,14 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           treatment_stats_.treated_pages_subreleased +=
               released_length.raw_num();
         }
+      } else if (release_stale_pages_ == ReleaseStalePages::kEnabled &&
+                 !residency_states_[i].tracker_state.stale.IsZero()) {
+        Length released_length = page_filler_.HandleReleaseStaleFreePages(
+            tracker, residency_states_[i].tracker_state.stale);
+        if (released_length > Length(0)) {
+          treatment_stats_.treated_pages_subreleased +=
+              released_length.raw_num();
+        }
       }
 
       if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
@@ -2825,7 +2879,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
   static constexpr size_t kTotalTrackersToScan = 64;
-  static constexpr absl::Duration kRecordInterval = absl::Minutes(5);
   static constexpr size_t kMaxSwappedPagesForCollapse = 128;
   static constexpr size_t kMaxUnbackedPagesForCollapse = 64;
 
@@ -2849,6 +2902,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   SubreleaseUnbackedMode subrelease_unbacked_mode_;
 
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
+  ReleaseStalePages release_stale_pages_;
 };
 
 // Returns true if backoff delay has reached the maximum threshold.
@@ -2881,7 +2935,8 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     EnableCollapse enable_collapse,
     EnableUnfilteredCollapse enable_unfiltered_collapse,
-    PageFlagsBase* pageflags, Residency* residency) {
+    ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags,
+    Residency* residency) {
   if (enable_collapse == EnableCollapse::kEnabled &&
       ShouldBackoffFromCollapse()) {
     enable_collapse = EnableCollapse::kDisabled;
@@ -2894,7 +2949,8 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
                                                     set_anon_vma_name_);
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
-      subrelease_unbacked_mode_, enable_unfiltered_collapse);
+      subrelease_unbacked_mode_, enable_unfiltered_collapse,
+      release_stale_pages);
 
   // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
@@ -3004,6 +3060,18 @@ inline Length HugePageFiller<TrackerType>::HandleUnbackedHugePage(
   unmapping_unaccounted_ += unmapped_length;
   AddToFillerList(tracker);
   return unmapped_length;
+}
+
+template <class TrackerType>
+inline Length HugePageFiller<TrackerType>::HandleReleaseStaleFreePages(
+    PageTracker* tracker, PageBitmap stale) {
+  RemoveFromFillerList(tracker);
+  Length released_length = tracker->ReleaseStaleFree(stale, unback_);
+  subrelease_stats_.total_pages_subreleased += released_length;
+  unmapped_ += released_length;
+  unmapping_unaccounted_ += released_length;
+  AddToFillerList(tracker);
+  return released_length;
 }
 
 template <class TrackerType>

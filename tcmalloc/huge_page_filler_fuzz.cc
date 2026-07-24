@@ -275,15 +275,17 @@ struct TreatTrackers {
   bool enable_collapse;
   bool use_userspace_collapse_heuristics;
   bool enable_unfiltered_collapse;
+  bool enable_release_stale_pages;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const TreatTrackers& t) {
     absl::Format(&sink,
                  "TreatTrackers{.enable_collapse=%v, "
                  ".use_userspace_collapse_heuristics=%v, "
-                 ".enable_unfiltered_collapse=%v}",
+                 ".enable_unfiltered_collapse=%v, "
+                 ".enable_release_stale_pages=%v}",
                  t.enable_collapse, t.use_userspace_collapse_heuristics,
-                 t.enable_unfiltered_collapse);
+                 t.enable_unfiltered_collapse, t.enable_release_stale_pages);
   }
 };
 
@@ -669,7 +671,7 @@ void FuzzFiller(const std::vector<Instruction>& instructions,
                   arg.enable_unfiltered_collapse
                       ? EnableUnfilteredCollapse::kEnabled
                       : EnableUnfilteredCollapse::kDisabled,
-                  &pageflags, &residency);
+                  ReleaseStalePages::kDisabled, &pageflags, &residency);
               treating_trackers = false;
               absl::flat_hash_set<PageId>& released_set = ReleasedPages();
               while (PageTracker* pt = filler.FetchFullyFreedTracker()) {

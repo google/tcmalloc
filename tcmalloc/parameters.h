@@ -196,6 +196,8 @@ class Parameters {
 
   static central_freelist_internal::LifetimeTracking span_lifetime_tracking();
 
+  static ReleaseStalePages release_stale_pages();
+
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v);

@@ -356,6 +356,18 @@ want_span_lifetime_tracking() {
   return central_freelist_internal::LifetimeTracking::kDisabled;
 }
 
+ReleaseStalePages Parameters::release_stale_pages() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<ReleaseStalePages> v{
+      ReleaseStalePages::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(ReleaseStalePages{IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES)},
+            std::memory_order_relaxed);
+  });
+  return v.load(std::memory_order_relaxed);
+}
+
 central_freelist_internal::LifetimeTracking
 Parameters::span_lifetime_tracking() {
   ABSL_CONST_INIT static absl::once_flag flag;
