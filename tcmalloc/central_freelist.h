@@ -179,10 +179,13 @@ class CentralFreeList {
         size_class_(0),
         object_size_(0),
         objects_per_span_(0),
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
         first_nonempty_index_(0),
+#endif
         pages_per_span_(0),
         nonempty_(),
-        use_all_buckets_for_few_object_spans_(false) {}
+        use_all_buckets_for_few_object_spans_(false) {
+  }
 
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;
@@ -311,10 +314,12 @@ class CentralFreeList {
   // Size reciprocal is used to replace division with multiplication when
   // computing object indices in the Span bitmap.
   uint32_t size_reciprocal_ = 0;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Hint used for parsing through the nonempty_ lists. This prevents us from
   // parsing the lists with an index starting zero, if the lowest possible index
   // is higher than that.
   size_t first_nonempty_index_;
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   Length pages_per_span_;
 
   size_t num_spans() const {
@@ -443,6 +448,7 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
   size_reciprocal_ = Span::CalcReciprocal(object_size_);
   use_all_buckets_for_few_object_spans_ = objects_per_span_ <= 2 * kNumLists;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Records nonempty_ list index associated with the span with
   // objects_per_span_ number of allocated objects. Refer to the comment in
   // IndexFor(...) below for a detailed description.
@@ -453,6 +459,7 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
                  : 0)
           : kNumLists -
                 std::min<size_t>(absl::bit_width(objects_per_span_), kNumLists);
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   TC_ASSERT_LE(absl::bit_width(objects_per_span_), kSpanUtilBucketCapacity);
   num_to_move_ = forwarder_.num_objects_to_move(size_class);
@@ -527,7 +534,15 @@ inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
 
 template <class Forwarder>
 inline uint8_t CentralFreeList<Forwarder>::GetFirstNonEmptyIndex() const {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   return first_nonempty_index_;
+#else
+  // Our hinted list bitmap fits into a single word.  Since we will never
+  // populate these, we do not actually need to skip them with a
+  // runtime-controlled parameter that triggers a dependent load for hint
+  // lookup.
+  return 0;
+#endif
 }
 
 template <class Forwarder>
@@ -544,6 +559,13 @@ inline uint8_t CentralFreeList<Forwarder>::IndexFor(bool is_long_lived_span,
   // allocated objects are in the range [1, 8], then we map the spans to buckets
   // 7, 6, ... 0 respectively.  When the allocated objects are more than
   // kNumlists, then we map the span to bucket 0.
+  //
+  // Note: This means that we may have empty, low-indexed lists.  Since our
+  // hinted list bitmap fits into a single word (`kNumLists<=64`), we do not
+  // track it to avoid a dependent load.
+  static_assert(kNumLists <= 64,
+                "kNumLists should fit into a single word to avoid the need for "
+                "tracking the first non-empty list on lookups.");
   ASSUME(allocated > 0);
   size_t lifetime_offset = is_long_lived_span ? 0 : kNumLists;
   if (use_all_buckets_for_few_object_spans_) {
