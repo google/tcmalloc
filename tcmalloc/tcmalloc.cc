@@ -84,6 +84,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/alloc_at_least.h"
 #include "tcmalloc/allocation_sample.h"
