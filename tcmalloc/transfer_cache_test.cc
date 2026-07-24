@@ -493,6 +493,16 @@ TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
   }
 }
 
+TEST(ShardedTransferCacheManagerTest, GenericCacheDisabled) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  ShardedTransferCacheManager manager(nullptr, nullptr);
+  manager.Init();
+  EXPECT_FALSE(manager.UseGenericCache());
+}
+
 TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
   if (!subtle::percpu::IsFast()) {
     return;
