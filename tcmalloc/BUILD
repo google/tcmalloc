@@ -18,6 +18,8 @@
 # https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
 # how this malloc works.
 
+# test
+
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
