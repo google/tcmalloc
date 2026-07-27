@@ -23,6 +23,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
