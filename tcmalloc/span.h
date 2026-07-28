@@ -291,15 +291,10 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
   static constexpr size_t kReservedBits = 24;
-  // Use uint16_t or uint8_t for 16 bit and 8 bit fields instead of bitfields.
-  // LLVM will generate widen load/store and bit masking operations to access
-  // bitfields and this hurts performance. Although compiler flag
-  // -ffine-grained-bitfield-accesses can help the performance if bitfields
-  // are used here, but the flag could potentially hurt performance in other
-  // cases so it is not enabled by default. For more information, please
-  // look at b/35680381 and cl/199502226.
-  // For available objects stored as a compressed linked list, the index of
-  // the first object in recorded in freelist_.
+  // For available objects stored as a compressed linked list, the index of the
+  // first object in recorded in freelist_.
+  //
+  // TODO(b/527641380): Move these into list_.
   struct {
     uint16_t embed_count_;
     uint16_t freelist_;
@@ -351,29 +346,26 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static constexpr size_t kAllocTimeBits = 64 - kAllocTimeShift;
 #endif
 
-  struct SmallSpanState {
-    uint64_t num_pages : kMaxNumPageBits;
+  // When a span consists of < kLargeSpanLength number of pages, we can record
+  // the number of pages in kMaxNumPageBits number of bits. Additionally, it's
+  // likely (although not assured) that the central freelist is tracking that
+  // span. So, we additionally need to record cache or bitmap for that span.
+  //
+  // This field is not used when we are in the LargeOrSampledState.
+  uint64_t small_num_pages_ : kMaxNumPageBits = 0;
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    uint64_t alloc_time : kAllocTimeBits;
+  uint64_t alloc_time_ : kAllocTimeBits = 0;
 #endif
-    union {
-      // Used only for spans in CentralFreeList (SMALL_OBJECT state).
-      // Embed cache of free objects.
-      ObjIdx cache[Span::kCacheSize];
 
-      // Used for spans with in CentralFreeList with fewer than 64 objects.
-      // Each bit is set to one when the object is available, and zero
-      // when the object is used.
-      Bitmap<kBitmapSize> bitmap{};
-    };
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    uint64_t alloc_time;
-#endif
+  struct ListSpanState {
+    // Used only for spans in CentralFreeList (SMALL_OBJECT state).
+    // Embed cache of free objects.
+    ObjIdx cache[Span::kCacheSize];
   };
-  // There is nothing inherently fixed about this size, but it is a useful
-  // indicator that we are using the space and not unintentionally regressing
-  // it.
-  static_assert(sizeof(SmallSpanState) == 32);
+
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  uint64_t alloc_time_ = 0;
+#endif
 
   union {
     // When a span consists of greater than kLargeSpanLength number of pages,
@@ -384,12 +376,26 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     // not need to record that state when the span is sampled.
     LargeOrSampledState large_or_sampled_state_;
 
-    // When a span consists of < kLargeSpanLength number of pages, we can record
-    // the number of pages in kMaxNumPageBits number of bits. Additionally, it's
-    // likely (although not assured) that the central freelist is tracking that
-    // span. So, we additionally need to record cache or bitmap for that span.
-    SmallSpanState small_span_state_;
+    ListSpanState list_;
+
+    // Used for spans with in CentralFreeList with fewer than 192 objects.  Each
+    // bit is set to one when the object is available, and zero when the object
+    // is used.
+    Bitmap<kBitmapSize> bitmap_;
   };
+
+  // There is nothing inherently fixed about this size, but it is a useful
+  // indicator that we are using the space and not unintentionally regressing
+  // it.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  static_assert(sizeof(list_) == 16);
+#else
+  static_assert(sizeof(list_) == 24);
+#endif
+  static_assert(sizeof(bitmap_) == sizeof(list_),
+                "Bitmap and List representations should be equivalent to "
+                "maximize byte efficiency");
+  static_assert(sizeof(large_or_sampled_state_) <= sizeof(list_));
 
   // Helper function for converting a pointer to an index.
   static ObjIdx OffsetToIdx(uintptr_t offset, uint32_t reciprocal);
@@ -425,12 +431,12 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
 inline uint64_t Span::AllocTime() const {
   if (is_large_or_sampled()) return 0;
-  return small_span_state_.alloc_time << kAllocTimeShift;
+  return alloc_time_ << kAllocTimeShift;
 }
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {
-  TC_ASSERT_EQ(small_span_state_.num_pages, 1u);
+  TC_ASSERT_EQ(small_num_pages_, 1u);
   TC_ASSERT_EQ(start, first_page().start_uintptr());
   TC_ASSERT_NE(idx, kListEnd);
   uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
@@ -444,7 +450,7 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   // Classes that use freelist must also use 1 page per span,
   // so don't load first_page_ (may be on a different cache line).
-  TC_ASSERT_EQ(small_span_state_.num_pages, 1u);
+  TC_ASSERT_EQ(small_num_pages_, 1u);
   TC_ASSERT_EQ(PageIdContaining(ptr), first_page());
   uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
   ObjIdx idx = static_cast<ObjIdx>(off);
@@ -480,7 +486,7 @@ inline bool Span::ListPushBatch(absl::Span<void*> batch,
     for (int i = 0; i < cache_writes; ++i) {
       // Have empty space in the cache, push there.
       const ObjIdx idx = PtrToIdx(batch[i], size);
-      small_span_state_.cache[cache_size_ + i] = idx;
+      list_.cache[cache_size_ + i] = idx;
     }
     cache_size_ += cache_writes;
     batch.remove_prefix(cache_writes);
@@ -528,7 +534,7 @@ inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
     for (int i = 0; i < cache_writes; ++i) {
       // Have empty space in the cache, push there.
       const ObjIdx idx = batch[i];
-      small_span_state_.cache[cache_size_ + i] = idx;
+      list_.cache[cache_size_ + i] = idx;
     }
     cache_size_ += cache_writes;
     batch.remove_prefix(cache_writes);
@@ -605,11 +611,11 @@ inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
 
 inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
                                   uint32_t reciprocal) __restrict__ {
-  size_t before = small_span_state_.bitmap.CountBits();
+  size_t before = bitmap_.CountBits();
   for (void* ptr : batch) {
     ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
     // Set the bit indicating where the object was returned.
-    bool prior = small_span_state_.bitmap.SetBit(idx);
+    bool prior = bitmap_.SetBit(idx);
     // Check that the object is not already returned.
     (void)prior;
 #if !defined(NDEBUG)
@@ -618,20 +624,20 @@ inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
     }
 #endif
   }
-  TC_ASSERT_EQ(before + batch.size(), small_span_state_.bitmap.CountBits());
+  TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
   return true;
 }
 
 inline bool Span::BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
                                   uint32_t reciprocal) __restrict__ {
-  size_t before = small_span_state_.bitmap.CountBits();
+  size_t before = bitmap_.CountBits();
   for (const ObjIdx idx : batch) {
     // Check that the object is not already returned.
-    TC_ASSERT_EQ(small_span_state_.bitmap.GetBit(idx), 0);
+    TC_ASSERT_EQ(bitmap_.GetBit(idx), 0);
     // Set the bit indicating where the object was returned.
-    small_span_state_.bitmap.SetBit(idx);
+    bitmap_.SetBit(idx);
   }
-  TC_ASSERT_EQ(before + batch.size(), small_span_state_.bitmap.CountBits());
+  TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
   return true;
 }
 
@@ -649,7 +655,7 @@ inline PageId Span::last_page() const {
   if (is_large_or_sampled()) {
     return first_page() + Length(large_or_sampled_state_.num_pages) - Length(1);
   }
-  return first_page() + Length(small_span_state_.num_pages) - Length(1);
+  return first_page() + Length(small_num_pages_) - Length(1);
 }
 
 inline void Span::set_first_page(PageId p) {
@@ -668,7 +674,7 @@ inline Length Span::num_pages() const {
   if (is_large_or_sampled()) {
     return Length(large_or_sampled_state_.num_pages);
   }
-  return Length(small_span_state_.num_pages);
+  return Length(small_num_pages_);
 }
 
 inline void Span::set_num_pages(Length len) {
@@ -678,7 +684,7 @@ inline void Span::set_num_pages(Length len) {
     return;
   }
   TC_ASSERT_LT(len.raw_num(), 1u << kMaxNumPageBits);
-  small_span_state_.num_pages = len.raw_num();
+  small_num_pages_ = len.raw_num();
   is_large_span_ = 0;
 }
 
@@ -686,7 +692,7 @@ inline size_t Span::bytes_in_span() const ABSL_NO_THREAD_SAFETY_ANALYSIS {
   if (is_large_or_sampled()) {
     return Length(large_or_sampled_state_.num_pages).in_bytes();
   }
-  return Length(small_span_state_.num_pages).in_bytes();
+  return Length(small_num_pages_).in_bytes();
 }
 
 inline bool Span::FreelistEmpty(size_t size, uint32_t objects_per_span) const {
@@ -697,7 +703,7 @@ inline bool Span::FreelistEmpty(size_t size, uint32_t objects_per_span) const {
 #else
   (void)objects_per_span;
   if (UseBitmapForSize(size)) {
-    return small_span_state_.bitmap.IsZero();
+    return bitmap_.IsZero();
   } else {
     return cache_size_ == 0 && freelist_ == kListEnd;
   }
@@ -734,25 +740,25 @@ inline bool Span::UseBitmapForSize(size_t size) {
 inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
                                    size_t size) __restrict__ {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  size_t before = small_span_state_.bitmap.CountBits();
+  size_t before = bitmap_.CountBits();
   size_t count = 0;
   // Want to fill the batch either with batch.size() objects, or the number of
   // objects remaining in the span.
-  while (!small_span_state_.bitmap.IsZero() && count < batch.size()) {
-    size_t offset = small_span_state_.bitmap.FindSet(0);
-    TC_ASSERT_LT(offset, small_span_state_.bitmap.size());
+  while (!bitmap_.IsZero() && count < batch.size()) {
+    size_t offset = bitmap_.FindSet(0);
+    TC_ASSERT_LT(offset, bitmap_.size());
     batch[count] = BitmapIdxToPtr(offset, size);
-    small_span_state_.bitmap.ClearLowestBit();
+    bitmap_.ClearLowestBit();
     count++;
   }
 
-  TC_ASSERT_EQ(small_span_state_.bitmap.CountBits() + count, before);
+  TC_ASSERT_EQ(bitmap_.CountBits() + count, before);
   allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
                    std::memory_order_relaxed);
   return count;
 #else
   void** ptrs = batch.data();
-  size_t popped = small_span_state_.bitmap.PopBatch(
+  size_t popped = bitmap_.PopBatch(
       [&](size_t offset) {
         *ptrs++ = BitmapIdxToPtr(static_cast<ObjIdx>(offset), size);
       },
@@ -784,8 +790,7 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
   auto cache_reads = csize < N ? csize : N;
   const uintptr_t span_start = first_page().start_uintptr();
   for (; result < cache_reads; result++) {
-    batch[result] =
-        IdxToPtr(small_span_state_.cache[csize - result - 1], size, span_start);
+    batch[result] = IdxToPtr(list_.cache[csize - result - 1], size, span_start);
   }
 
   // Store this->cache_size_ one time.

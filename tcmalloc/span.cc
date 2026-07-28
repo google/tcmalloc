@@ -134,12 +134,11 @@ uint32_t Span::CalcReciprocal(size_t size) {
 void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
   // We are using a bitmap to indicate whether objects are used or not. The
   // maximum capacity for the bitmap is bitmap.size() objects.
-  TC_ASSERT_LE(count, small_span_state_.bitmap.size());
+  TC_ASSERT_LE(count, bitmap_.size());
   allocated_.store(0, std::memory_order_relaxed);
-  small_span_state_.bitmap
-      .Clear();  // bitmap can be non-zero from a previous use.
-  small_span_state_.bitmap.SetRange(0, count);
-  TC_ASSERT_EQ(small_span_state_.bitmap.CountBits(), count);
+  bitmap_.Clear();  // bitmap can be non-zero from a previous use.
+  bitmap_.SetRange(0, count);
+  TC_ASSERT_EQ(bitmap_.CountBits(), count);
 }
 
 int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
@@ -147,7 +146,7 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
-  small_span_state_.alloc_time = alloc_time >> kAllocTimeShift;
+  alloc_time_ = alloc_time >> kAllocTimeShift;
 
   if (UseBitmapForSize(size)) {
     BuildBitmap(size, count);
@@ -182,7 +181,7 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   // Then, push as much as we can into the cache.
   int cache_size = 0;
   for (; idx < idxEnd && cache_size < kCacheSize; idx += idxStep) {
-    small_span_state_.cache[cache_size] = idx;
+    list_.cache[cache_size] = idx;
     cache_size++;
   }
   cache_size_ = cache_size;
