@@ -670,7 +670,8 @@ MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Collapse(
   do {
     ret = madvise(start, length, MADV_COLLAPSE);
     ++attempts;
-  } while (ret == -1 && errno == EAGAIN && attempts < kMaxAttempts);
+  } while (ret == -1 && (errno == EAGAIN || errno == EINTR) &&
+           attempts < kMaxAttempts);
   return {ret == 0, errno};
 }
 

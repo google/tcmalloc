@@ -5627,7 +5627,7 @@ HugePageFiller: 5 hugepages partially released, 0.0297 released
 HugePageFiller: 0.6498 of used pages hugepageable
 HugePageFiller: Since startup, 306 pages subreleased, 6 hugepages broken, (0 pages, 0 hugepages due to reaching tcmalloc limit)
 HugePageFiller: Out of 0 eligible hugepages, 0 were attempted, and 0 were collapsed.
-HugePageFiller: Of the failed collapse operations, number of operations that failed per error type, ETYPE_NOMEM: 0, ETYPE_BUSY: 0, ETYPE_INVAL: 0, ETYPE_AGAIN: 0, ETYPE_OTHER: 0
+HugePageFiller: Of the failed collapse operations, number of operations that failed per error type, ETYPE_NOMEM: 0, ETYPE_BUSY: 0, ETYPE_INVAL: 0, ETYPE_AGAIN: 0, ETYPE_INTR: 0, ETYPE_OTHER: 0
 HugePageFiller: Latency of collapse operations: 0.000000 ms (total), 0.000000 us (maximum)
 HugePageFiller: Backoff delay for collapse currently is 1 interval(s), number of intervals skipped due to backoff is 0
 HugePageFiller: In the previous treatment interval, subreleased 0 pages.

@@ -460,6 +460,7 @@ enum class CollapseErrorType : size_t {
   kEBusy,
   kEInval,
   kEAgain,
+  kEIntr,
   kOther,
   kErrorTypes
 };
@@ -488,6 +489,8 @@ struct HugePageTreatmentStats {
         return "ETYPE_INVAL";
       case CollapseErrorType::kEAgain:
         return "ETYPE_AGAIN";
+      case CollapseErrorType::kEIntr:
+        return "ETYPE_INTR";
       case CollapseErrorType::kOther:
         return "ETYPE_OTHER";
       default:
@@ -512,6 +515,9 @@ struct HugePageTreatmentStats {
         break;
       case EAGAIN:
         ++collapse_errors[ErrorTypeToIndex(CollapseErrorType::kEAgain)];
+        break;
+      case EINTR:
+        ++collapse_errors[ErrorTypeToIndex(CollapseErrorType::kEIntr)];
         break;
       default:
         ++collapse_errors[ErrorTypeToIndex(CollapseErrorType::kOther)];
