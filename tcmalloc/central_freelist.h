@@ -628,9 +628,6 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   //
   // We only look for consecutive runs of the same span to avoid the cost of
   // sorting, solely for telemetry purposes.
-  //
-  // TODO(b/175159154): Consider doing this before MapObjectsToSpans based on a
-  // ~(kPageSize - 1u) pointer mask heuristic.
   const int same_span =
       central_freelist_internal::RecordSameSpanRuns<kMaxObjectsToMove>(
           absl::MakeConstSpan(spans, batch.size()),
