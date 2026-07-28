@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
@@ -163,14 +164,14 @@ void ThreadCache::ReleaseToTransferCache(FreeList* src, size_t size_class,
   int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   while (N > batch_size) {
     src->PopBatch(batch_size, batch);
-    static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
+    static_assert(std::size(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
     tc_globals.transfer_cache().InsertRange(
         size_class, absl::Span<void*>(batch, batch_size));
     N -= batch_size;
   }
   src->PopBatch(N, batch);
-  static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
+  static_assert(std::size(batch) >= kMaxObjectsToMove,
                 "not enough space in batch");
   tc_globals.transfer_cache().InsertRange(size_class,
                                           absl::Span<void*>(batch, N));

@@ -15,6 +15,7 @@
 #include "tcmalloc/page_allocator.h"
 
 #include <cstddef>
+#include <iterator>
 #include <limits>
 
 #include "absl/base/macros.h"
@@ -67,7 +68,7 @@ PageAllocator::PageAllocator() {
     cold_impl_ = normal_impl_[0];
   }
   alg_ = HPAA;
-  TC_CHECK_LE(part, ABSL_ARRAYSIZE(choices_));
+  TC_CHECK_LE(part, std::size(choices_));
 }
 
 void PageAllocator::ShrinkToUsageLimit(Length n) {

@@ -20,6 +20,7 @@
 #include <cstdint>  // for uintptr_t
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <new>
@@ -404,7 +405,7 @@ class DeallocationProfiler {
     // underlying arena must stay alive as long as the profile.
     MyAllocator::LowLevelArenaReference arena_ref_;
 
-    static constexpr int kNumCases = ABSL_ARRAYSIZE(kAllCases);
+    static constexpr int kNumCases = std::size(kAllCases);
 
     struct Key {
       DeallocationSampleRecord alloc;
@@ -611,7 +612,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
   double life_time_ns = absl::ToDoubleNanoseconds(life_time);
 
   // Update mean and variance using Welford’s online algorithm.
-  TC_ASSERT_LT(index, ABSL_ARRAYSIZE(v.counts));
+  TC_ASSERT_LT(index, std::size(v.counts));
 
   double old_mean_ns = v.mean_life_times_ns[index];
   v.mean_life_times_ns[index] +=
