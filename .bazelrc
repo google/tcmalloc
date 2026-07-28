@@ -36,6 +36,9 @@ common --incompatible_config_setting_private_default_visibility
 # Link Google Test against Abseil and RE2.
 build --define='absl=1'
 
+# Use thread-safe death tests in Google Test.
+build --copt=-DGTEST_DEFAULT_DEATH_TEST_STYLE='\"threadsafe\"' --host_copt=-DGTEST_DEFAULT_DEATH_TEST_STYLE='\"threadsafe\"'
+
 # AllocationGuard.CooperativeDeathTest checks for "SIGABRT received"
 # message printed by this signal handler.
 test --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1"

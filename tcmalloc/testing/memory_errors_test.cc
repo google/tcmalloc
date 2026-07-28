@@ -126,6 +126,8 @@ TEST_F(GuardedAllocAlignmentTest, AlignedNew) {
 class TcMallocTest : public testing::Test {
  protected:
   TcMallocTest() {
+    MallocExtension::ActivateGuardedSampling();
+
     // Start with clean state to avoid hash collisions.
     tc_globals.guardedpage_allocator().Reset();
     MallocExtension::SetGuardedSamplingInterval(
