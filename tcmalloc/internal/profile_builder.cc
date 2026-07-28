@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 
 #include "absl/base/casts.h"
 #include "absl/base/optimization.h"
@@ -682,7 +683,7 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     perftools::profiles::Sample& sample = *converted.add_sample();
 
-    TC_CHECK_LE(entry.depth, ABSL_ARRAYSIZE(entry.stack));
+    TC_CHECK_LE(entry.depth, std::size(entry.stack));
     builder->InternCallstack(absl::MakeSpan(entry.stack, entry.depth), sample);
 
     auto add_label = [&](int key, int unit, size_t value) {
@@ -882,7 +883,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     perftools::profiles::Profile& profile = builder.profile();
     perftools::profiles::Sample& sample = *profile.add_sample();
 
-    TC_CHECK_LE(entry.depth, ABSL_ARRAYSIZE(entry.stack));
+    TC_CHECK_LE(entry.depth, std::size(entry.stack));
     builder.InternCallstack(absl::MakeSpan(entry.stack, entry.depth), sample);
 
     sample.add_value(data.count);

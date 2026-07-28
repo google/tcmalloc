@@ -15,6 +15,8 @@
 #include "tcmalloc/internal/logging.h"
 
 #include <fcntl.h>
+
+#include <iterator>
 #ifdef _WINDOWS
 #include <io.h>
 #endif
