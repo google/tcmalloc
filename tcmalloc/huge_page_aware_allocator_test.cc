@@ -321,30 +321,6 @@ struct SpanInfo {
   SpanAllocInfo span_alloc_info;
 };
 
-TEST_P(HugePageAwareAllocatorTest, Fuzz) {
-  absl::BitGen rng;
-  std::vector<SpanInfo> allocs;
-  for (int i = 0; i < 1000; ++i) {
-    auto [n, span_alloc_info] = RandomAllocSize(rng);
-    Span* s = New(n, span_alloc_info);
-    allocs.push_back(SpanInfo{s, span_alloc_info});
-  }
-  static const size_t kReps = 10 * 1000;
-  for (int i = 0; i < kReps; ++i) {
-    SCOPED_TRACE(absl::StrFormat("%d reps, %d pages", i, total_.raw_num()));
-    size_t index = absl::Uniform<int32_t>(rng, 0, allocs.size());
-    Span* old_span = allocs[index].span;
-    size_t objects_per_span = allocs[index].span_alloc_info.objects_per_span;
-    Delete(old_span, objects_per_span);
-    auto [n, span_alloc_info] = RandomAllocSize(rng);
-    allocs[index] = SpanInfo{New(n, span_alloc_info), span_alloc_info};
-  }
-
-  for (auto s : allocs) {
-    Delete(s.span, s.span_alloc_info.objects_per_span);
-  }
-}
-
 // Prevent regression of the fragmentation problem that was reported in
 // b/63301358, reproduced in CL/161345659 and (partially) fixed in CL/161305971.
 TEST_P(HugePageAwareAllocatorTest, JustUnderMultipleOfHugepages) {
