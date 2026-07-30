@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdint>
+#include <iterator>
 #include <optional>
 #include <random>
 #include <string>
@@ -195,9 +196,9 @@ class PageTrackerTest : public testing::Test {
   class MockMemoryInterface final : public MemoryModifyFunction {
    public:
     [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
-      TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(actual_));
+      TC_CHECK_LT(actual_index_, std::size(actual_));
       actual_[actual_index_].r = r;
-      TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(expected_));
+      TC_CHECK_LT(actual_index_, std::size(expected_));
       // Assume expected calls occur and use those return values.
       const bool success = expected_[actual_index_].success;
       const int error_number = expected_[actual_index_].error_number;

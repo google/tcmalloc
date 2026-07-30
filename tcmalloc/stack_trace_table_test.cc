@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <initializer_list>
+#include <iterator>
 #include <new>
 #include <optional>
 #include <string>
@@ -112,7 +113,7 @@ void CheckTraces(const StackTraceTable& table,
     tmp.sum = e.sum;
     tmp.count = e.count;
     tmp.depth = e.depth;
-    ASSERT_LE(tmp.depth, ABSL_ARRAYSIZE(tmp.stack));
+    ASSERT_LE(tmp.depth, std::size(tmp.stack));
     std::copy(e.stack, e.stack + e.depth, tmp.stack);
 
     tmp.requested_size = e.requested_size;
