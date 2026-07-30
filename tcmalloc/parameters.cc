@@ -114,9 +114,6 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
 #endif
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING)) {
-      interval = absl::ZeroDuration();
-    }
     // clang-format off
     v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
     // clang-format on
@@ -135,9 +132,6 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
 #endif
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING)) {
-      interval = absl::ZeroDuration();
-    }
     // clang-format off
     v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
     // clang-format on
@@ -180,11 +174,6 @@ std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
           0
       }};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_ALWAYS_DISCARDING)) {
-      v.store(static_cast<MallocExtension::BytesPerSecond>(
-                  std::numeric_limits<int>::max()),
-              std::memory_order_relaxed);
-    }
   });
   return v;
 }
