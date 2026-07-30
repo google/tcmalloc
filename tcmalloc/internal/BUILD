@@ -137,6 +137,22 @@ cc_library(
 )
 
 cc_library(
+    name = "page_allocator_hooks",
+    srcs = ["page_allocator_hooks.cc"],
+    hdrs = ["page_allocator_hooks.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        ":config",
+        ":hook_list",
+        ":logging",
+        ":memory_tag",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_library(
     name = "clock",
     hdrs = ["clock.h"],
     copts = TCMALLOC_DEFAULT_COPTS,

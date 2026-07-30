@@ -15,9 +15,11 @@
 #include "tcmalloc/page_allocator.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 
+#include "absl/base/attributes.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
@@ -26,8 +28,10 @@
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/page_allocator_hooks.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 
@@ -207,6 +211,23 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
 
 size_t PageAllocator::active_partitions() const {
   return tc_globals.active_partitions();
+}
+
+ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeNewHookSlow(
+    Span* span, Length n, Length align, SpanAllocInfo span_alloc_info,
+    MemoryTag tag) {
+  size_t start_page_index = span ? span->first_page().index() : 0;
+  page_allocator_new_hooks.Invoke(
+      start_page_index, n.raw_num(), align.raw_num(),
+      span_alloc_info.objects_per_span,
+      static_cast<uint8_t>(span_alloc_info.density), tag);
+}
+
+ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeDeleteHookSlow(
+    PageId start_page, Length n, SpanAllocInfo span_alloc_info, MemoryTag tag) {
+  page_allocator_delete_hooks.Invoke(
+      start_page.index(), n.raw_num(), span_alloc_info.objects_per_span,
+      static_cast<uint8_t>(span_alloc_info.density), tag);
 }
 
 }  // namespace tcmalloc_internal

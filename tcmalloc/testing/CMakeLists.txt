@@ -1129,3 +1129,22 @@ tcmalloc_cc_test_variants(
     "tcmalloc::malloc_hook"
 )
 
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_page_allocator_tracing_test
+  SRCS
+    "page_allocator_tracing_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::base"
+    "absl::core_headers"
+    "absl::flat_hash_set"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_page_allocator_hooks"
+    "tcmalloc::malloc_hook"
+)
+

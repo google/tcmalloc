@@ -34,6 +34,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/page_allocator_hooks.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pages.h"
@@ -132,6 +133,22 @@ class PageAllocator {
   const PageAllocInfo& info(MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  static void InvokeNewHook(Span* span, Length n, Length align,
+                            SpanAllocInfo span_alloc_info, MemoryTag tag) {
+    if (ABSL_PREDICT_TRUE(page_allocator_new_hooks.empty())) {
+      return;
+    }
+    InvokeNewHookSlow(span, n, align, span_alloc_info, tag);
+  }
+
+  static void InvokeDeleteHook(PageId start_page, Length n,
+                               SpanAllocInfo span_alloc_info, MemoryTag tag) {
+    if (ABSL_PREDICT_TRUE(page_allocator_delete_hooks.empty())) {
+      return;
+    }
+    InvokeDeleteHookSlow(start_page, n, span_alloc_info, tag);
+  }
+
   enum Algorithm {
     PAGE_HEAP = 0,
     HPAA = 1,
@@ -147,6 +164,11 @@ class PageAllocator {
   }
 
  private:
+  static void InvokeNewHookSlow(Span* span, Length n, Length align,
+                                SpanAllocInfo span_alloc_info, MemoryTag tag);
+  static void InvokeDeleteHookSlow(PageId start_page, Length n,
+                                   SpanAllocInfo span_alloc_info,
+                                   MemoryTag tag);
   bool ShrinkHardBy(Length page, LimitKind limit_kind)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -215,18 +237,27 @@ inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
 
 inline Span* PageAllocator::New(Length n, SpanAllocInfo span_alloc_info,
                                 MemoryTag tag) {
-  return impl(tag)->New(n, span_alloc_info);
+  Span* span = impl(tag)->New(n, span_alloc_info);
+  // Unaligned page heap allocations are aligned to a 1-page boundary.
+  InvokeNewHook(span, n, Length(1), span_alloc_info, tag);
+  return span;
 }
 
 inline Span* PageAllocator::NewAligned(Length n, Length align,
                                        SpanAllocInfo span_alloc_info,
                                        MemoryTag tag) {
-  return impl(tag)->NewAligned(n, align, span_alloc_info);
+  Span* span = impl(tag)->NewAligned(n, align, span_alloc_info);
+  InvokeNewHook(span, n, align, span_alloc_info, tag);
+  return span;
 }
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
 inline void PageAllocator::Delete(Span* span, MemoryTag tag,
                                   SpanAllocInfo span_alloc_info) {
+  if (span) {
+    InvokeDeleteHook(span->first_page(), span->num_pages(), span_alloc_info,
+                     tag);
+  }
   impl(tag)->Delete(span, span_alloc_info);
 }
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -234,6 +265,9 @@ inline void PageAllocator::Delete(Span* span, MemoryTag tag,
 inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
                                   MemoryTag tag,
                                   SpanAllocInfo span_alloc_info) {
+  if (s) {
+    InvokeDeleteHook(s.r.p, s.r.n, span_alloc_info, tag);
+  }
   impl(tag)->Delete(s, span_alloc_info);
 }
 

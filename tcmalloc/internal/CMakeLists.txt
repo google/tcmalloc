@@ -120,6 +120,24 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_page_allocator_hooks
+  ALIAS
+    tcmalloc::internal_page_allocator_hooks
+  HDRS
+    "page_allocator_hooks.h"
+  SRCS
+    "page_allocator_hooks.cc"
+  DEPS
+    "absl::base"
+    "absl::core_headers"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_hook_list"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_clock
   ALIAS
     tcmalloc::internal_clock

@@ -1224,3 +1224,20 @@ create_tcmalloc_testsuite(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+create_tcmalloc_testsuite(
+    name = "page_allocator_tracing_test",
+    srcs = ["page_allocator_tracing_test.cc"],
+    linkstatic = 1,
+    deps = [
+        "//tcmalloc:malloc_hook",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:memory_tag",
+        "//tcmalloc/internal:page_allocator_hooks",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

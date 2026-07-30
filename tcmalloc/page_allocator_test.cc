@@ -20,7 +20,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include <new>
 #include <optional>
 #include <string>
 #include <utility>
@@ -34,6 +33,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/page_allocator_hooks.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -244,6 +244,86 @@ TEST_F(PageAllocatorTest, b270916852) {
   Delete(normal, kSpanInfo, MemoryTag::kNormal);
   Delete(sampled, kSpanInfo, MemoryTag::kSampled);
   Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
+struct HookRecord {
+  size_t start_page_index;
+  size_t n;
+  size_t align;
+  size_t objects_per_span;
+  uint8_t density;
+  MemoryTag tag;
+};
+
+constexpr int kMaxRecords = 10;
+
+static HookRecord new_records[kMaxRecords];
+static int new_record_count = 0;
+static HookRecord delete_records[kMaxRecords];
+static int delete_record_count = 0;
+
+static void TestNewHook(size_t start_page_index, size_t n, size_t align,
+                        size_t objects_per_span, uint8_t density,
+                        MemoryTag tag) {
+  if (new_record_count < kMaxRecords) {
+    new_records[new_record_count++] = {start_page_index, n,       align,
+                                       objects_per_span, density, tag};
+  }
+}
+
+static void TestDeleteHook(size_t start_page_index, size_t n,
+                           size_t objects_per_span, uint8_t density,
+                           MemoryTag tag) {
+  if (delete_record_count < kMaxRecords) {
+    delete_records[delete_record_count++] = {start_page_index, n,       0,
+                                             objects_per_span, density, tag};
+  }
+}
+
+TEST_F(PageAllocatorTest, Hooks) {
+  new_record_count = 0;
+  delete_record_count = 0;
+
+  EXPECT_TRUE(page_allocator_new_hooks.Add(&TestNewHook));
+  EXPECT_TRUE(page_allocator_delete_hooks.Add(&TestDeleteHook));
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/5,
+                                       AccessDensityPrediction::kSparse};
+  Span* s = New(Length(3), kSpanInfo, MemoryTag::kNormal);
+  ASSERT_NE(s, nullptr);
+  const size_t expected_page_index = s->first_page().index();
+  EXPECT_GE(new_record_count, 1);
+  bool found_new = false;
+  for (int i = 0; i < new_record_count; ++i) {
+    if (new_records[i].start_page_index == expected_page_index &&
+        new_records[i].n == 3) {
+      found_new = true;
+      EXPECT_EQ(new_records[i].align, 1);
+      EXPECT_EQ(new_records[i].objects_per_span, 5);
+      EXPECT_EQ(new_records[i].density,
+                static_cast<uint8_t>(AccessDensityPrediction::kSparse));
+      EXPECT_EQ(new_records[i].tag, MemoryTag::kNormal);
+    }
+  }
+  EXPECT_TRUE(found_new);
+
+  Delete(s, kSpanInfo, MemoryTag::kNormal);
+  EXPECT_GE(delete_record_count, 1);
+  bool found_delete = false;
+  for (int i = 0; i < delete_record_count; ++i) {
+    if (delete_records[i].start_page_index == expected_page_index &&
+        delete_records[i].n == 3) {
+      found_delete = true;
+      EXPECT_EQ(delete_records[i].objects_per_span, 5);
+      EXPECT_EQ(delete_records[i].density,
+                static_cast<uint8_t>(AccessDensityPrediction::kSparse));
+      EXPECT_EQ(delete_records[i].tag, MemoryTag::kNormal);
+    }
+  }
+  EXPECT_TRUE(found_delete);
+
+  EXPECT_TRUE(page_allocator_new_hooks.Remove(&TestNewHook));
+  EXPECT_TRUE(page_allocator_delete_hooks.Remove(&TestDeleteHook));
 }
 
 }  // namespace
