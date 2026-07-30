@@ -2352,6 +2352,13 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPages) {
                         &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased, 1);
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    PageHeapSpinLockHolder l;
+    filler_.Print(printer, true, pageflags);
+  });
+  EXPECT_THAT(buffer, testing::HasSubstr(
+                          "HugePageFiller: In the previous treatment "
+                          "interval, marked 1 unbacked pages as subreleased."));
   DeleteVector(p1);
 }
 
@@ -5632,6 +5639,7 @@ HugePageFiller: Of the failed collapse operations, number of operations that fai
 HugePageFiller: Latency of collapse operations: 0.000000 ms (total), 0.000000 us (maximum)
 HugePageFiller: Backoff delay for collapse currently is 1 interval(s), number of intervals skipped due to backoff is 0
 HugePageFiller: In the previous treatment interval, subreleased 0 pages.
+HugePageFiller: In the previous treatment interval, marked 0 unbacked pages as subreleased.
 
 HugePageFiller: fullness histograms
 

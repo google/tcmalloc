@@ -3125,6 +3125,11 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
       "subreleased %zu pages.\n",
       treatment_stats_.treated_pages_subreleased);
 
+  out.printf(
+      "HugePageFiller: In the previous treatment interval, "
+      "marked %zu unbacked pages as subreleased.\n",
+      treatment_stats_.treated_pages_unbacked_subreleased);
+
   out.printf("\n");
   out.printf("HugePageFiller: fullness histograms\n");
 
