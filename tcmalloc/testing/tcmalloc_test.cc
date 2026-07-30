@@ -543,7 +543,7 @@ TEST(TCMallocTest, MallocAlignment) {
         static_cast<size_t>(1 << lg),
         static_cast<size_t>((1 << lg) + 1),
     };
-    void* ptrs[kNum * ABSL_ARRAYSIZE(sizes)];
+    void* ptrs[kNum * std::size(sizes)];
     int i = 0;
     for (size_t size : sizes) {
       for (int j = 0; j < kNum; i++, j++) {
@@ -568,7 +568,7 @@ TEST(TCMallocTest, CallocAlignment) {
         static_cast<size_t>(1 << lg),
         static_cast<size_t>((1 << lg) + 1),
     };
-    void* ptrs[kNum * ABSL_ARRAYSIZE(sizes)];
+    void* ptrs[kNum * std::size(sizes)];
     int i = 0;
     for (size_t size : sizes) {
       for (int j = 0; j < kNum; i++, j++) {
@@ -593,7 +593,7 @@ TEST(TCMallocTest, ReallocAlignment) {
         static_cast<size_t>(1 << lg),
         static_cast<size_t>((1 << lg) + 1),
     };
-    void* ptrs[kNum * ABSL_ARRAYSIZE(sizes)];
+    void* ptrs[kNum * std::size(sizes)];
     int i = 0;
     for (size_t size : sizes) {
       for (int j = 0; j < kNum; i++, j++) {

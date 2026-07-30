@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <iterator>
 #include <map>
 #include <string>
 
@@ -97,7 +98,7 @@ int main() {
       "tcmalloc.transfer_cache_free",
       // go/keep-sorted end
   };
-  int scalar_values[ABSL_ARRAYSIZE(kProperties)];
+  int scalar_values[std::size(kProperties)];
 
   if (&MallocExtension_Internal_GetProperties == nullptr ||
       &MallocExtension_Internal_GetNumericProperty == nullptr) {
@@ -119,7 +120,7 @@ int main() {
   // and a second time for the actual read-out.
   MallocExtension_Internal_GetProperties(&properties);
 
-  for (int i = 0; i < ABSL_ARRAYSIZE(kProperties); ++i) {
+  for (int i = 0; i < std::size(kProperties); ++i) {
     absl::string_view property = kProperties[i];
     size_t value;
     bool ret = MallocExtension_Internal_GetNumericProperty(
@@ -129,7 +130,7 @@ int main() {
   }
 
   MallocExtension_Internal_GetProperties(&properties);
-  for (int i = 0; i < ABSL_ARRAYSIZE(kProperties); ++i) {
+  for (int i = 0; i < std::size(kProperties); ++i) {
     absl::string_view property = kProperties[i];
     const size_t scalar_value = scalar_values[i];
     const size_t set_value = properties[std::string(property)].value;

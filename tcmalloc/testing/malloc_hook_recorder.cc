@@ -15,6 +15,7 @@
 #include "tcmalloc/testing/malloc_hook_recorder.h"
 
 #include <cstddef>
+#include <iterator>
 
 #include "absl/base/optimization.h"
 
@@ -130,7 +131,7 @@ void MallocHookRecorder::AddLog(CallEntry entry) {
   if (CheckSectionVars()) {
     entry.caller = kOther;
     void* stack[32];
-    int depth = absl::GetStackTrace(stack, ABSL_ARRAYSIZE(stack), 3);
+    int depth = absl::GetStackTrace(stack, std::size(stack), 3);
     for (int i = depth - 1; i >= 0; --i) {
       if (ADDR_IN_ATTRIBUTE_SECTION(stack[i], google_malloc)) {
         entry.caller = kTCMalloc;
