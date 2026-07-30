@@ -46,6 +46,8 @@ struct ArenaStats {
 
   // The number of blocks allocated by the Arena.
   size_t blocks;
+  // The number of blocks currently on the freelist.
+  size_t freelist_blocks;
 };
 
 // Arena allocation; designed for use by tcmalloc internal data structures like
@@ -76,7 +78,8 @@ class ABSL_CACHELINE_ALIGNED Arena {
 
     ArenaStats s;
     s.bytes_allocated = bytes_allocated_;
-    s.bytes_unallocated = free_avail_;
+    s.bytes_unallocated = free_avail_ + freelist_bytes_unallocated_;
+    s.freelist_blocks = freelist_blocks_;
     s.bytes_unavailable = bytes_unavailable_;
     s.bytes_nonresident = bytes_nonresident_;
     s.blocks = blocks_;
@@ -84,8 +87,21 @@ class ABSL_CACHELINE_ALIGNED Arena {
   }
 
  private:
+  struct Block {
+    Block* next;
+    size_t size;
+  };
+
+  ABSL_ATTRIBUTE_NOINLINE void AllocSlow(size_t bytes, size_t align)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(arena_lock_);
+  void StashRemainingFreeArea() ABSL_EXCLUSIVE_LOCKS_REQUIRED(arena_lock_);
+  Block* TryPopFromFreelist(size_t bytes, size_t align)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(arena_lock_);
+
   // How much to allocate from system at a time
   static constexpr int kAllocIncrement = 128 << 10;
+  // Maximum number of blocks to keep on freelist_.
+  static constexpr int kMaxFreelistBlocks = 100;
 
   mutable absl::base_internal::SpinLock arena_lock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
@@ -93,6 +109,7 @@ class ABSL_CACHELINE_ALIGNED Arena {
   // Free area from which to carve new objects
   char* free_area_ ABSL_GUARDED_BY(arena_lock_) = nullptr;
   size_t free_avail_ ABSL_GUARDED_BY(arena_lock_) = 0;
+  Block* freelist_ ABSL_GUARDED_BY(arena_lock_) = nullptr;
 
   // Total number of bytes allocated from this arena
   size_t bytes_allocated_ ABSL_GUARDED_BY(arena_lock_) = 0;
@@ -103,7 +120,11 @@ class ABSL_CACHELINE_ALIGNED Arena {
   // that these bytes are disjoint from the ones counted in `bytes_allocated`.
   size_t bytes_nonresident_ ABSL_GUARDED_BY(arena_lock_) = 0;
   // Total number of blocks/free areas managed by this Arena.
-  size_t blocks_ ABSL_GUARDED_BY(arena_lock_) = 0;
+  uint16_t blocks_ ABSL_GUARDED_BY(arena_lock_) = 0;
+  // Total number of blocks on the freelist. Capped at kMaxFreelistBlocks.
+  uint8_t freelist_blocks_ ABSL_GUARDED_BY(arena_lock_) = 0;
+  // Total number of bytes on the freelist.
+  uint32_t freelist_bytes_unallocated_ ABSL_GUARDED_BY(arena_lock_) = 0;
 
   Arena(const Arena&) = delete;
   Arena& operator=(const Arena&) = delete;
