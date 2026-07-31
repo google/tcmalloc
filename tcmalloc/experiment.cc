@@ -14,11 +14,13 @@
 
 #include "tcmalloc/experiment.h"
 
-#include <string.h>
-
 #include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -30,8 +32,8 @@
 #include "absl/functional/function_ref.h"
 #include "absl/hash/hash.h"
 #include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
@@ -75,11 +77,14 @@ const bool* GetSelectedExperiments() {
     const char* test_target = thread_safe_getenv("TEST_TARGET");
     const char* active_experiments = thread_safe_getenv(kExperiments);
     const char* disabled_experiments = thread_safe_getenv(kDisableExperiments);
+    absl::string_view hostname = LookupHostname();
+
     SelectExperiments(
         by_id, test_target ? test_target : "",
         active_experiments ? active_experiments : "",
         disabled_experiments ? disabled_experiments : "",
-        active_experiments == nullptr && disabled_experiments == nullptr);
+        active_experiments == nullptr && disabled_experiments == nullptr,
+        hostname);
   });
   return by_id;
 }
@@ -104,14 +109,54 @@ void ParseExperiments(absl::string_view labels, F f) {
 
 }  // namespace
 
+absl::string_view LookupHostname() {
+  return {};
+}
+
+std::optional<uint64_t> CalculateRolloutBucket(absl::string_view hostname,
+                                               absl::string_view salt) {
+  // Ensure no experiments are selected.
+  return std::nullopt;
+}
+
+bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
+                                absl::string_view hostname) {
+  if (hostname.empty()) {
+    return false;
+  }
+
+  // Ensure experiments are i.i.d. from one another by using their own names as
+  // a salt, unless explicitly requested.
+  absl::string_view salt =
+      config.rollout_salt.empty() ? config.name : config.rollout_salt;
+  const std::optional<uint64_t> val = CalculateRolloutBucket(hostname, salt);
+  if (!val.has_value()) {
+    return false;
+  }
+
+  constexpr int digits = std::numeric_limits<double>::digits;
+  // Scale val onto [0, 1.0).
+  const double target = std::ldexp(*val >> (64 - digits), -digits);
+  return target >= config.rollout_lower_bound &&
+         target < config.rollout_upper_bound;
+}
+
 const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
                               absl::string_view active,
-                              absl::string_view disabled,
-                              bool unset) {
+                              absl::string_view disabled, bool unset,
+                              absl::string_view hostname) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {
     std::fill(buffer, buffer + kNumExperiments, true);
+  }
+
+  for (const auto& config : experiments) {
+    if (config.rollout_upper_bound > 0) {
+      if (IsExperimentRolloutEnabled(config, hostname)) {
+        buffer[static_cast<int>(config.id)] = true;
+      }
+    }
   }
 
   ParseExperiments(active, [buffer](absl::string_view token) {
@@ -210,6 +255,16 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
 
   return buffer;
 }
+
+static_assert(
+    [] {
+      for (const auto& e : experiments) {
+        if (e.rollout_lower_bound < 0.0) return false;
+        if (e.rollout_upper_bound > 1.0) return false;
+      }
+      return true;
+    }(),
+    "rollout bounds must be in [0, 1]");
 
 }  // namespace tcmalloc_internal
 

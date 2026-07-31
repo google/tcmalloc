@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 
+#include <cstdint>
 #include <optional>
 
 #include "absl/base/nullability.h"
@@ -55,7 +56,16 @@ const bool* absl_nonnull SelectExperiments(bool* absl_nonnull buffer,
                                            absl::string_view test_target,
                                            absl::string_view active,
                                            absl::string_view disabled,
-                                           bool unset);
+                                           bool unset,
+                                           absl::string_view hostname);
+
+absl::string_view LookupHostname();
+
+std::optional<uint64_t> CalculateRolloutBucket(absl::string_view hostname,
+                                               absl::string_view salt);
+
+bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
+                                absl::string_view hostname);
 
 }  // namespace tcmalloc_internal
 

@@ -44,6 +44,9 @@ struct ExperimentConfig {
   absl::string_view name;
   bool brittle = false;
   bool force_disable = false;
+  double rollout_lower_bound = 0;
+  double rollout_upper_bound = 0;
+  absl::string_view rollout_salt;
 };
 
 // clang-format off

@@ -15,25 +15,26 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
 void FuzzSelectExperiments(absl::string_view test_target,
                            absl::string_view active, absl::string_view disabled,
-                           bool unset) {
+                           bool unset, absl::string_view hostname) {
   if (unset && !test_target.empty() && (!active.empty() || !disabled.empty())) {
     return;
   }
 
   bool buffer[tcmalloc::tcmalloc_internal::kNumExperiments];
 
-  SelectExperiments(buffer, test_target, active, disabled,
-                    unset);
+  SelectExperiments(buffer, test_target, active, disabled, unset, hostname);
 }
 
 FUZZ_TEST(ExperimentTest, FuzzSelectExperiments);
@@ -42,8 +43,21 @@ TEST(ExperimentTest, FuzzSelectExperiments_b395212979) {
   FuzzSelectExperiments(
       "t_fuenchmark&"
       "vvvvvvvvvvvvvvvvvvVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
-      "", "",
-      true);
+      "", "", true, "some_hostname");
+}
+
+void FuzzRolloutEnabled(const ExperimentConfig& config,
+                        absl::string_view hostname) {
+  IsExperimentRolloutEnabled(config, hostname);
+}
+
+FUZZ_TEST(ExperimentTest, FuzzRolloutEnabled);
+
+TEST(ExperimenTest, FuzzRolloutEnabledRegression) {
+  FuzzRolloutEnabled(
+      tcmalloc::ExperimentConfig{tcmalloc::Experiment{12}, "", true, false, -1.,
+                                 1.7976931348623157e+308, ""},
+      "\344\327\344");
 }
 
 }  // namespace
