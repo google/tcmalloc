@@ -62,6 +62,7 @@ void InitialNewHook(size_t start_page_index, size_t n, size_t align,
 ABSL_CONST_INIT HookList<PageAllocatorNewHook> page_allocator_new_hooks{
     &InitialNewHook};
 ABSL_CONST_INIT HookList<PageAllocatorDeleteHook> page_allocator_delete_hooks;
+ABSL_CONST_INIT HookList<PageAllocatorReleaseHook> page_allocator_release_hooks;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

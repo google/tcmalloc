@@ -230,6 +230,12 @@ ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeDeleteHookSlow(
       static_cast<uint8_t>(span_alloc_info.density), tag);
 }
 
+ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeReleaseHookSlow(
+    Length num_pages, Length released, PageReleaseReason reason) {
+  page_allocator_release_hooks.Invoke(num_pages.raw_num(), released.raw_num(),
+                                      reason);
+}
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

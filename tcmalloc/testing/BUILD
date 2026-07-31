@@ -1230,6 +1230,8 @@ create_tcmalloc_testsuite(
     srcs = ["page_allocator_tracing_test.cc"],
     linkstatic = 1,
     deps = [
+        ":testutil",
+        "//tcmalloc:malloc_extension",
         "//tcmalloc:malloc_hook",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",

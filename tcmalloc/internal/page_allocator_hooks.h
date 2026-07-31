@@ -26,6 +26,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+enum class PageReleaseReason : uint8_t;
+
 // Hook invoked after Span allocation attempts in PageAllocator::New and
 // PageAllocator::NewAligned.
 // - start_page_index is 0 if allocation returned nullptr.
@@ -34,7 +36,6 @@ namespace tcmalloc_internal {
 //   or e.g. kPagesPerHugePage for NewAligned).
 // - objects_per_span and density are from SpanAllocInfo.
 //
-// TODO(b/540976286): Add a hook to log release events as well.
 using PageAllocatorNewHook = void (*)(size_t start_page_index, size_t n,
                                       size_t align, size_t objects_per_span,
                                       uint8_t density, MemoryTag tag);
@@ -45,8 +46,17 @@ using PageAllocatorDeleteHook = void (*)(size_t start_page_index, size_t n,
                                          size_t objects_per_span,
                                          uint8_t density, MemoryTag tag);
 
+// Hook invoked after memory release attempts in
+// PageAllocator::ReleaseAtLeastNPages.
+// - num_pages is the requested number of pages to release.
+// - released is the actual number of pages released.
+// - reason is the PageReleaseReason of the release attempt.
+using PageAllocatorReleaseHook = void (*)(size_t num_pages, size_t released,
+                                          PageReleaseReason reason);
+
 extern HookList<PageAllocatorNewHook> page_allocator_new_hooks;
 extern HookList<PageAllocatorDeleteHook> page_allocator_delete_hooks;
+extern HookList<PageAllocatorReleaseHook> page_allocator_release_hooks;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

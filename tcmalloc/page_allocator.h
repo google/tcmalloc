@@ -149,6 +149,14 @@ class PageAllocator {
     InvokeDeleteHookSlow(start_page, n, span_alloc_info, tag);
   }
 
+  static void InvokeReleaseHook(Length num_pages, Length released,
+                                PageReleaseReason reason) {
+    if (ABSL_PREDICT_TRUE(page_allocator_release_hooks.empty())) {
+      return;
+    }
+    InvokeReleaseHookSlow(num_pages, released, reason);
+  }
+
   enum Algorithm {
     PAGE_HEAP = 0,
     HPAA = 1,
@@ -169,6 +177,8 @@ class PageAllocator {
   static void InvokeDeleteHookSlow(PageId start_page, Length n,
                                    SpanAllocInfo span_alloc_info,
                                    MemoryTag tag);
+  static void InvokeReleaseHookSlow(Length num_pages, Length released,
+                                    PageReleaseReason reason);
   bool ShrinkHardBy(Length page, LimitKind limit_kind)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -358,6 +368,7 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
         num_pages > released ? num_pages - released : Length(0), reason);
   }
 
+  InvokeReleaseHook(num_pages, released, reason);
   return released;
 }
 

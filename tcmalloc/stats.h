@@ -92,7 +92,7 @@ void PrintStats(const char* label, Printer& out, const BackingStats& backing,
 void PrintStatsInPbtxt(PbtxtRegion& region, const SmallSpanStats& small,
                        const LargeSpanStats& large);
 
-enum class PageReleaseReason {
+enum class PageReleaseReason : uint8_t {
   // The application explicitly requested memory be released from
   // MallocExtension::ReleaseMemoryToSystem().
   kReleaseMemoryToSystem,

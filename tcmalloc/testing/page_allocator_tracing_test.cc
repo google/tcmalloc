@@ -15,6 +15,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <limits>
+
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
@@ -25,7 +27,10 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_allocator_hooks.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
+#include "tcmalloc/stats.h"
+#include "tcmalloc/testing/testutil.h"
 
 constexpr size_t kMaxTraceObjects = 10000;
 
@@ -35,6 +40,16 @@ static absl::base_internal::SpinLock spinlock(
 static size_t page_allocator_new_count ABSL_GUARDED_BY(spinlock) = 0;
 static size_t page_allocator_new_pages[kMaxTraceObjects] ABSL_GUARDED_BY(
     spinlock);
+
+struct ReleaseRecord {
+  size_t num_pages;
+  size_t released;
+  tcmalloc::tcmalloc_internal::PageReleaseReason reason;
+};
+
+static size_t page_allocator_release_count ABSL_GUARDED_BY(spinlock) = 0;
+static ReleaseRecord
+    page_allocator_release_records[kMaxTraceObjects] ABSL_GUARDED_BY(spinlock);
 
 constexpr size_t kMaxNewObjects = 10000;
 static size_t new_hook_count ABSL_GUARDED_BY(spinlock) = 0;
@@ -52,6 +67,16 @@ static void RecordPageAllocatorNewHook(
   }
 }
 
+static void RecordPageAllocatorReleaseHook(
+    size_t num_pages, size_t released,
+    tcmalloc::tcmalloc_internal::PageReleaseReason reason) {
+  absl::base_internal::SpinLockHolder l(spinlock);
+  if (page_allocator_release_count < kMaxTraceObjects) {
+    page_allocator_release_records[page_allocator_release_count++] = {
+        num_pages, released, reason};
+  }
+}
+
 static void RecordNewHook(const tcmalloc::MallocHook::NewInfo& info) {
   absl::base_internal::SpinLockHolder l(spinlock);
   if (new_hook_count < kMaxNewObjects) {
@@ -66,6 +91,8 @@ extern "C" void MallocHook_InitAtFirstAllocation_ForTesting() {
 extern "C" void TCMalloc_PageAllocator_InitAtFirstNew_Tracing() {
   TC_CHECK(tcmalloc::tcmalloc_internal::page_allocator_new_hooks.Add(
       RecordPageAllocatorNewHook));
+  TC_CHECK(tcmalloc::tcmalloc_internal::page_allocator_release_hooks.Add(
+      RecordPageAllocatorReleaseHook));
 }
 
 namespace tcmalloc {
@@ -138,6 +165,50 @@ TEST(PageAllocatorTracingTest, PageAllocatorNewHook) {
 
   EXPECT_TRUE(found) << "None of the early allocations were found in the "
                         "page allocator batch";
+}
+
+TEST(PageAllocatorTracingTest, PageAllocatorReleaseHook) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+
+  tcmalloc::ScopedBackgroundReleaseRate disable_release(
+      tcmalloc::MallocExtension::BytesPerSecond{0});
+
+  (void)tcmalloc_internal::page_allocator_release_hooks.Add(
+      RecordPageAllocatorReleaseHook);
+
+  // Allocate and delete some memory so there are free pages to release.
+  constexpr size_t kSize = 10 * 1024 * 1024;
+  void* ptr = ::operator new(kSize);
+  ::operator delete(ptr);
+
+  {
+    absl::base_internal::SpinLockHolder l(spinlock);
+    page_allocator_release_count = 0;
+  }
+
+  // Explicitly request memory to be released to the system.
+  tcmalloc::MallocExtension::ReleaseMemoryToSystem(
+      std::numeric_limits<size_t>::max());
+
+  TC_CHECK(tcmalloc::tcmalloc_internal::page_allocator_release_hooks.Remove(
+      RecordPageAllocatorReleaseHook));
+
+  absl::base_internal::SpinLockHolder l(spinlock);
+  EXPECT_GT(page_allocator_release_count, 0);
+  bool found_release_to_system = false;
+  for (size_t i = 0; i < page_allocator_release_count; ++i) {
+    if (page_allocator_release_records[i].reason ==
+        tcmalloc::tcmalloc_internal::PageReleaseReason::
+            kReleaseMemoryToSystem) {
+      found_release_to_system = true;
+      EXPECT_GT(page_allocator_release_records[i].num_pages, 0);
+      EXPECT_GT(page_allocator_release_records[i].released, 0);
+    }
+  }
+  EXPECT_TRUE(found_release_to_system)
+      << "Expected to observe PageReleaseReason::kReleaseMemoryToSystem";
 }
 
 }  // namespace

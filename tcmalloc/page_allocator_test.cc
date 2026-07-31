@@ -94,6 +94,11 @@ class PageAllocatorTest : public testing::Test {
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
+  Length Release(Length n, PageReleaseReason reason) {
+    PageHeapSpinLockHolder l;
+    return allocator_.ReleaseAtLeastNPages(n, reason);
+  }
+
   std::string Print() {
     return PrintToString(1024 * 1024, [&](Printer& out) {
       PageFlags pageflags;
@@ -280,12 +285,30 @@ static void TestDeleteHook(size_t start_page_index, size_t n,
   }
 }
 
+struct ReleaseHookRecord {
+  size_t num_pages;
+  size_t released;
+  PageReleaseReason reason;
+};
+
+static ReleaseHookRecord release_records[kMaxRecords];
+static int release_record_count = 0;
+
+static void TestReleaseHook(size_t num_pages, size_t released,
+                            PageReleaseReason reason) {
+  if (release_record_count < kMaxRecords) {
+    release_records[release_record_count++] = {num_pages, released, reason};
+  }
+}
+
 TEST_F(PageAllocatorTest, Hooks) {
   new_record_count = 0;
   delete_record_count = 0;
+  release_record_count = 0;
 
   EXPECT_TRUE(page_allocator_new_hooks.Add(&TestNewHook));
   EXPECT_TRUE(page_allocator_delete_hooks.Add(&TestDeleteHook));
+  EXPECT_TRUE(page_allocator_release_hooks.Add(&TestReleaseHook));
 
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/5,
                                        AccessDensityPrediction::kSparse};
@@ -322,8 +345,25 @@ TEST_F(PageAllocatorTest, Hooks) {
   }
   EXPECT_TRUE(found_delete);
 
+  constexpr PageReleaseReason kReasons[] = {
+      PageReleaseReason::kReleaseMemoryToSystem,
+      PageReleaseReason::kProcessBackgroundActions,
+      PageReleaseReason::kSoftLimitExceeded,
+      PageReleaseReason::kHardLimitExceeded,
+  };
+  Length requested = Length(1);
+  for (PageReleaseReason reason : kReasons) {
+    release_record_count = 0;
+    Release(requested, reason);
+    EXPECT_GE(release_record_count, 1);
+    EXPECT_EQ(release_records[0].num_pages, requested.raw_num());
+    EXPECT_EQ(release_records[0].reason, reason);
+    ++requested;
+  }
+
   EXPECT_TRUE(page_allocator_new_hooks.Remove(&TestNewHook));
   EXPECT_TRUE(page_allocator_delete_hooks.Remove(&TestDeleteHook));
+  EXPECT_TRUE(page_allocator_release_hooks.Remove(&TestReleaseHook));
 }
 
 }  // namespace
