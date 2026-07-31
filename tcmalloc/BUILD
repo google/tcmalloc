@@ -660,6 +660,7 @@ cc_library(
     ],
     hdrs = ["page_allocator_test_util.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":common_8k_pages",
         ":malloc_extension",
