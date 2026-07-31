@@ -41,6 +41,10 @@ static size_t page_allocator_new_count ABSL_GUARDED_BY(spinlock) = 0;
 static size_t page_allocator_new_pages[kMaxTraceObjects] ABSL_GUARDED_BY(
     spinlock);
 
+static size_t page_allocator_delete_count ABSL_GUARDED_BY(spinlock) = 0;
+static size_t page_allocator_delete_pages[kMaxTraceObjects] ABSL_GUARDED_BY(
+    spinlock);
+
 struct ReleaseRecord {
   size_t num_pages;
   size_t released;
@@ -55,6 +59,10 @@ constexpr size_t kMaxNewObjects = 10000;
 static size_t new_hook_count ABSL_GUARDED_BY(spinlock) = 0;
 static const void* new_hook_objects[kMaxNewObjects] ABSL_GUARDED_BY(spinlock);
 
+static size_t delete_hook_count ABSL_GUARDED_BY(spinlock) = 0;
+static const void* delete_hook_objects[kMaxNewObjects] ABSL_GUARDED_BY(
+    spinlock);
+
 static void RecordPageAllocatorNewHook(
     size_t start_page_index, size_t n, size_t align, size_t objects_per_span,
     uint8_t density, tcmalloc::tcmalloc_internal::MemoryTag tag) {
@@ -62,6 +70,18 @@ static void RecordPageAllocatorNewHook(
   for (size_t i = 0; i < n; ++i) {
     if (page_allocator_new_count < kMaxTraceObjects) {
       page_allocator_new_pages[page_allocator_new_count++] =
+          start_page_index + i;
+    }
+  }
+}
+
+static void RecordPageAllocatorDeleteHook(
+    size_t start_page_index, size_t n, size_t objects_per_span, uint8_t density,
+    tcmalloc::tcmalloc_internal::MemoryTag tag) {
+  absl::base_internal::SpinLockHolder l(spinlock);
+  for (size_t i = 0; i < n; ++i) {
+    if (page_allocator_delete_count < kMaxTraceObjects) {
+      page_allocator_delete_pages[page_allocator_delete_count++] =
           start_page_index + i;
     }
   }
@@ -84,13 +104,23 @@ static void RecordNewHook(const tcmalloc::MallocHook::NewInfo& info) {
   }
 }
 
+static void RecordDeleteHook(const tcmalloc::MallocHook::DeleteInfo& info) {
+  absl::base_internal::SpinLockHolder l(spinlock);
+  if (delete_hook_count < kMaxNewObjects) {
+    delete_hook_objects[delete_hook_count++] = info.ptr;
+  }
+}
+
 extern "C" void MallocHook_InitAtFirstAllocation_ForTesting() {
   TC_CHECK(tcmalloc::MallocHook::AddNewHook(RecordNewHook));
+  TC_CHECK(tcmalloc::MallocHook::AddDeleteHook(RecordDeleteHook));
 }
 
 extern "C" void TCMalloc_PageAllocator_InitAtFirstNew_Tracing() {
   TC_CHECK(tcmalloc::tcmalloc_internal::page_allocator_new_hooks.Add(
       RecordPageAllocatorNewHook));
+  TC_CHECK(tcmalloc::tcmalloc_internal::page_allocator_delete_hooks.Add(
+      RecordPageAllocatorDeleteHook));
   TC_CHECK(tcmalloc::tcmalloc_internal::page_allocator_release_hooks.Add(
       RecordPageAllocatorReleaseHook));
 }
@@ -122,49 +152,75 @@ TEST(PageAllocatorTracingTest, PageAllocatorNewHook) {
     ::operator delete(ptrs[i]);
   }
 
-  // Stop recording allocations.
+  // Stop recording allocations and deallocations.
   TC_CHECK(tcmalloc::MallocHook::RemoveNewHook(RecordNewHook));
+  TC_CHECK(tcmalloc::MallocHook::RemoveDeleteHook(RecordDeleteHook));
   TC_CHECK(tcmalloc::tcmalloc_internal::page_allocator_new_hooks.Remove(
       RecordPageAllocatorNewHook));
+  TC_CHECK(tcmalloc::tcmalloc_internal::page_allocator_delete_hooks.Remove(
+      RecordPageAllocatorDeleteHook));
 
-  absl::flat_hash_set<size_t> pages;
-  pages.reserve(kMaxTraceObjects);
+  absl::flat_hash_set<size_t> new_pages;
+  new_pages.reserve(kMaxTraceObjects);
+  absl::flat_hash_set<size_t> delete_pages;
+  delete_pages.reserve(kMaxTraceObjects);
 
-  bool found = false;
+  bool found_new = false;
+  bool found_delete = false;
   {
     absl::base_internal::SpinLockHolder l(spinlock);
 
     for (size_t i = 0; i < page_allocator_new_count; ++i) {
-      pages.insert(page_allocator_new_pages[i]);
+      new_pages.insert(page_allocator_new_pages[i]);
+    }
+    for (size_t i = 0; i < page_allocator_delete_count; ++i) {
+      delete_pages.insert(page_allocator_delete_pages[i]);
     }
 
     for (size_t i = 0; i < new_hook_count; ++i) {
       const size_t page_index =
           reinterpret_cast<uintptr_t>(new_hook_objects[i]) >>
           tcmalloc::tcmalloc_internal::kPageShift;
-      if (pages.contains(page_index)) {
-        found = true;
+      if (new_pages.contains(page_index)) {
+        found_new = true;
+      }
+    }
+    for (size_t i = 0; i < delete_hook_count; ++i) {
+      const size_t page_index =
+          reinterpret_cast<uintptr_t>(delete_hook_objects[i]) >>
+          tcmalloc::tcmalloc_internal::kPageShift;
+      if (delete_pages.contains(page_index)) {
+        found_delete = true;
       }
     }
 
     // Large allocations (> kMaxSize) allocate a new span from PageAllocator,
-    // so we can strictly assert that each large allocation is in pages.
+    // so we can strictly assert that each large allocation is in new_pages and
+    // delete_pages.
     for (size_t i = 0; i < ABSL_ARRAYSIZE(kSizes); ++i) {
       if (kSizes[i] > tcmalloc::tcmalloc_internal::kMaxSize) {
         const size_t large_page_index = reinterpret_cast<uintptr_t>(ptrs[i]) >>
                                         tcmalloc::tcmalloc_internal::kPageShift;
-        EXPECT_TRUE(pages.contains(large_page_index))
+        EXPECT_TRUE(new_pages.contains(large_page_index))
             << "Large allocation of size " << kSizes[i]
-            << " was not found in the page allocator batch";
+            << " was not found in the page allocator new batch";
+        EXPECT_TRUE(delete_pages.contains(large_page_index))
+            << "Large allocation of size " << kSizes[i]
+            << " was not found in the page allocator delete batch";
       }
     }
 
-    EXPECT_FALSE(pages.empty());
+    EXPECT_FALSE(new_pages.empty());
     EXPECT_NE(new_hook_count, 0);
+    EXPECT_FALSE(delete_pages.empty());
+    EXPECT_NE(delete_hook_count, 0);
   }
 
-  EXPECT_TRUE(found) << "None of the early allocations were found in the "
-                        "page allocator batch";
+  EXPECT_TRUE(found_new) << "None of the early allocations were found in the "
+                            "page allocator new batch";
+  EXPECT_TRUE(found_delete)
+      << "None of the early deallocations were found in the "
+         "page allocator delete batch";
 }
 
 TEST(PageAllocatorTracingTest, PageAllocatorReleaseHook) {
