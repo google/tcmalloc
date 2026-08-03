@@ -67,6 +67,9 @@ namespace tcmalloc_internal {
 constexpr absl::Duration kMaxCollapseLatencyThreshold = absl::Milliseconds(30);
 constexpr absl::Duration kMinCollapseLatencyThreshold = absl::Milliseconds(15);
 
+// Interval for Page Tracker treatment.
+constexpr absl::Duration kRecordInterval = absl::Minutes(5);
+
 enum class HugePageTreatmentType : uint8_t {
   kSampled = 1 << 0,
   kCollapse = 1 << 1,
@@ -473,6 +476,7 @@ struct HugePageTreatmentStats {
       collapse_errors = {0};
   size_t treated_pages_subreleased = 0;
   size_t treated_pages_unbacked_subreleased = 0;
+  size_t treated_pages_stale_subreleased = 0;
 
   // TODO(287498389): Add latency histogram once we have a better idea of the
   // range of values.
@@ -1159,6 +1163,11 @@ enum class EnableUnfilteredCollapse : bool {
   kEnabled = true,
 };
 
+enum class ReleaseStalePages : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
@@ -1347,7 +1356,8 @@ class HugePageFiller {
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
+      ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags = nullptr,
+      Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to release free pages from a given `page_tracker`
@@ -1630,7 +1640,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       PageId p = location_.first_page() + Length(free_index);
 
       if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
-        // Mark pages as released.  Amortize the update to release_count_.
+        // Mark pages as released.  Amortize the update to released_count_.
         released_by_page_.SetRange(free_index, length);
         count += length;
       }
@@ -2590,7 +2600,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       MemoryModifyFunction& collapse, HugePageFiller<TrackerType>& page_filler,
       EnableCollapse enable_collapse,
       SubreleaseUnbackedMode subrelease_unbacked_mode,
-      EnableUnfilteredCollapse enable_unfiltered_collapse)
+      EnableUnfilteredCollapse enable_unfiltered_collapse,
+      ReleaseStalePages release_stale_pages)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
@@ -2598,7 +2609,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         page_filler_(page_filler),
         enable_collapse_(enable_collapse),
         subrelease_unbacked_mode_(subrelease_unbacked_mode),
-        enable_unfiltered_collapse_(enable_unfiltered_collapse) {}
+        enable_unfiltered_collapse_(enable_unfiltered_collapse),
+        release_stale_pages_(release_stale_pages) {}
   ~HugePageUnbackedTrackerTreatment() override = default;
 
   static void operator delete(void*) { __builtin_trap(); }
@@ -2783,6 +2795,13 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           treatment_stats_.treated_pages_subreleased +=
               released_length.raw_num();
         }
+      } else if (release_stale_pages_ == ReleaseStalePages::kEnabled &&
+                 !residency_states_[i].tracker_state.stale.IsZero()) {
+        Length released_length = page_filler_.HandleReleaseFree(tracker);
+        if (released_length > Length(0)) {
+          treatment_stats_.treated_pages_stale_subreleased +=
+              released_length.raw_num();
+        }
       }
 
       if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
@@ -2806,6 +2825,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         treatment_stats_.treated_pages_subreleased;
     stats.treated_pages_unbacked_subreleased =
         treatment_stats_.treated_pages_unbacked_subreleased;
+    stats.treated_pages_stale_subreleased =
+        treatment_stats_.treated_pages_stale_subreleased;
     stats.collapse_time_max_cycles =
         std::max(stats.collapse_time_max_cycles,
                  treatment_stats_.collapse_time_max_cycles);
@@ -2831,7 +2852,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
   static constexpr size_t kTotalTrackersToScan = 64;
-  static constexpr absl::Duration kRecordInterval = absl::Minutes(5);
   static constexpr size_t kMaxSwappedPagesForCollapse = 128;
   static constexpr size_t kMaxUnbackedPagesForCollapse = 64;
 
@@ -2855,6 +2875,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   SubreleaseUnbackedMode subrelease_unbacked_mode_;
 
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
+  ReleaseStalePages release_stale_pages_;
 };
 
 // Returns true if backoff delay has reached the maximum threshold.
@@ -2887,7 +2908,8 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     EnableCollapse enable_collapse,
     EnableUnfilteredCollapse enable_unfiltered_collapse,
-    PageFlagsBase* pageflags, Residency* residency) {
+    ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags,
+    Residency* residency) {
   if (enable_collapse == EnableCollapse::kEnabled &&
       ShouldBackoffFromCollapse()) {
     enable_collapse = EnableCollapse::kDisabled;
@@ -2900,7 +2922,8 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
                                                     set_anon_vma_name_);
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
-      subrelease_unbacked_mode_, enable_unfiltered_collapse);
+      subrelease_unbacked_mode_, enable_unfiltered_collapse,
+      release_stale_pages);
 
   // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
@@ -3124,6 +3147,10 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
       "HugePageFiller: In the previous treatment interval, "
       "subreleased %zu pages.\n",
       treatment_stats_.treated_pages_subreleased);
+  out.printf(
+      "HugePageFiller: In the previous treatment interval, "
+      "subreleased %zu stale pages.\n",
+      treatment_stats_.treated_pages_stale_subreleased);
 
   out.printf(
       "HugePageFiller: In the previous treatment interval, "
@@ -3433,6 +3460,9 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     huge_page_treatment_region.PrintI64(
         "treated_pages_unbacked_subreleased",
         treatment_stats_.treated_pages_unbacked_subreleased);
+    huge_page_treatment_region.PrintI64(
+        "treated_pages_stale_subreleased",
+        treatment_stats_.treated_pages_stale_subreleased);
   }
   PrintLifetimeHistoInPbtxt(hpaa,
                             lifetime_histo_[AccessDensityPrediction::kDense],

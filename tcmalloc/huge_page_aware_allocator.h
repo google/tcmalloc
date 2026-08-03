@@ -90,6 +90,10 @@ class StaticForwarder {
     return Parameters::release_max_cold_pages();
   }
 
+  static ReleaseStalePages release_stale_pages() {
+    return Parameters::release_stale_pages();
+  }
+
   // Arena state.
   static Arena& arena();
 
@@ -1063,8 +1067,11 @@ inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
     EnableCollapse enable_collapse) {
   const EnableUnfilteredCollapse enable_unfiltered_collapse =
       forwarder_.enable_unfiltered_collapse();
+  const ReleaseStalePages release_stale_pages =
+      forwarder_.release_stale_pages();
   PageHeapSpinLockHolder l;
-  filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse);
+  filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
+                                release_stale_pages);
   FillerType::Tracker* pt;
   while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
     ReleaseHugepage(pt);

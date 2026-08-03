@@ -53,6 +53,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
@@ -1638,8 +1639,6 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
   allocator_->forwarder().set_collapse_succeeds(true);
   allocator_->forwarder().set_error_number(0);
 
-  bool enable_unfiltered_collapse = false;
-
   auto collapse_func = [&](const std::atomic<bool>& done) {
     absl::BitGen rng;
     while (!done.load(std::memory_order_acquire)) {
@@ -1663,9 +1662,11 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
           break;
       }
 
-      enable_unfiltered_collapse = !enable_unfiltered_collapse;
       allocator_->forwarder().set_enable_unfiltered_collapse(
-          enable_unfiltered_collapse);
+          absl::Bernoulli(rng, 0.5));
+      allocator_->forwarder().set_release_stale_pages(
+          absl::Bernoulli(rng, 0.5) ? ReleaseStalePages::kEnabled
+                                    : ReleaseStalePages::kDisabled);
       TreatHugepageTrackers(EnableCollapse::kEnabled);
     }
   };

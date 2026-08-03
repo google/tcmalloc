@@ -70,6 +70,7 @@ int error_number = 0;
 std::optional<bool> is_hugepage_backed = true;
 Bitmap<kMaxResidencyBits> unbacked_bitmap;
 Bitmap<kMaxResidencyBits> swapped_bitmap;
+Bitmap<kMaxResidencyBits> stale_bitmap;
 
 int64_t mock_clock() { return fake_clock; }
 
@@ -125,7 +126,7 @@ class FakePageFlags : public PageFlagsBase {
   }
 
   PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
-    return {.status = absl::StatusCode::kUnimplemented};
+    return {stale_bitmap, absl::StatusCode::kOk};
   }
 
   std::optional<bool> IsHugepageBacked(const void* addr) override {
@@ -275,15 +276,17 @@ struct TreatTrackers {
   bool enable_collapse;
   bool use_userspace_collapse_heuristics;
   bool enable_unfiltered_collapse;
+  bool enable_release_stale_pages;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const TreatTrackers& t) {
     absl::Format(&sink,
                  "TreatTrackers{.enable_collapse=%v, "
                  ".use_userspace_collapse_heuristics=%v, "
-                 ".enable_unfiltered_collapse=%v}",
+                 ".enable_unfiltered_collapse=%v, "
+                 ".enable_release_stale_pages=%v}",
                  t.enable_collapse, t.use_userspace_collapse_heuristics,
-                 t.enable_unfiltered_collapse);
+                 t.enable_unfiltered_collapse, t.enable_release_stale_pages);
   }
 };
 
@@ -292,15 +295,17 @@ struct UpdateBitmaps {
   bool hugepage_backed_val;
   uint16_t unbacked_bitmap_val;
   uint16_t swapped_bitmap_val;
+  uint16_t stale_bitmap_val;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const UpdateBitmaps& u) {
     absl::Format(&sink,
                  "UpdateBitmaps{.hugepage_backed_set=%v, "
                  ".hugepage_backed_val=%v, .unbacked_bitmap_val=%d, "
-                 ".swapped_bitmap_val=%d}",
+                 ".swapped_bitmap_val=%d, .stale_bitmap_val=%d}",
                  u.hugepage_backed_set, u.hugepage_backed_val,
-                 u.unbacked_bitmap_val, u.swapped_bitmap_val);
+                 u.unbacked_bitmap_val, u.swapped_bitmap_val,
+                 u.stale_bitmap_val);
   }
 };
 
@@ -669,6 +674,8 @@ void FuzzFiller(const std::vector<Instruction>& instructions,
                   arg.enable_unfiltered_collapse
                       ? EnableUnfilteredCollapse::kEnabled
                       : EnableUnfilteredCollapse::kDisabled,
+                  arg.enable_release_stale_pages ? ReleaseStalePages::kEnabled
+                                                 : ReleaseStalePages::kDisabled,
                   &pageflags, &residency);
               treating_trackers = false;
               absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -703,9 +710,11 @@ void FuzzFiller(const std::vector<Instruction>& instructions,
               if (is_hugepage_backed.value_or(false)) {
                 unbacked_bitmap.Clear();
                 swapped_bitmap.Clear();
+                stale_bitmap.Clear();
               } else {
                 unbacked_bitmap = GetBitmap(arg.unbacked_bitmap_val);
                 swapped_bitmap = GetBitmap(arg.swapped_bitmap_val);
+                stale_bitmap = GetBitmap(arg.stale_bitmap_val);
               }
             } else if constexpr (std::is_same_v<T, ToggleCollapseSuccess>) {
               collapse_success = !collapse_success;
@@ -1257,23 +1266,26 @@ TEST(HugePageFillerTest, InstructionStringify) {
   {
     Instruction inst = TreatTrackers{.enable_collapse = true,
                                      .use_userspace_collapse_heuristics = true,
-                                     .enable_unfiltered_collapse = false};
+                                     .enable_unfiltered_collapse = false,
+                                     .enable_release_stale_pages = true};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(s,
-              "TreatTrackers{.enable_collapse=true, "
-              ".use_userspace_collapse_heuristics=true, "
-              ".enable_unfiltered_collapse=false}");
+    EXPECT_EQ(
+        s,
+        "TreatTrackers{.enable_collapse=true, "
+        ".use_userspace_collapse_heuristics=true, "
+        ".enable_unfiltered_collapse=false, .enable_release_stale_pages=true}");
   }
   {
     Instruction inst = UpdateBitmaps{.hugepage_backed_set = true,
                                      .hugepage_backed_val = false,
                                      .unbacked_bitmap_val = 1,
-                                     .swapped_bitmap_val = 2};
+                                     .swapped_bitmap_val = 2,
+                                     .stale_bitmap_val = 3};
     std::string s = absl::StrFormat("%v", inst);
     EXPECT_EQ(
         s,
         "UpdateBitmaps{.hugepage_backed_set=true, .hugepage_backed_val=false, "
-        ".unbacked_bitmap_val=1, .swapped_bitmap_val=2}");
+        ".unbacked_bitmap_val=1, .swapped_bitmap_val=2, .stale_bitmap_val=3}");
   }
   {
     Instruction inst = ToggleCollapseSuccess{};

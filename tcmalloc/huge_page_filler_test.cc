@@ -291,10 +291,16 @@ class FakePageFlags : public PageFlagsBase {
   }
 
   PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
-    PageFlagsBitmaps ret;
-    ret.stale.SetBit(0);
-    ret.status = absl::StatusCode::kOk;
-    return ret;
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    EXPECT_TRUE(page_flags_bitmaps_.contains(hp.start_addr()));
+    return page_flags_bitmaps_[hp.start_addr()];
+  }
+
+  void SetStaleBitmap(const void* addr, const ResidencyBitmap& stale) {
+    PageId p = PageIdContaining(addr);
+    HugePage hp = HugePageContaining(p);
+    page_flags_bitmaps_[hp.start_addr()] = {stale, absl::StatusCode::kOk};
   }
 
   void MarkHugePageBacked(void* addr, bool is_hugepage_backed) {
@@ -321,6 +327,7 @@ class FakePageFlags : public PageFlagsBase {
 
  private:
   absl::flat_hash_map<const void*, std::optional<bool>> is_hugepage_backed_;
+  absl::flat_hash_map<const void*, PageFlagsBitmaps> page_flags_bitmaps_;
 };
 
 class FakeResidency : public Residency {
@@ -1114,14 +1121,15 @@ class FillerTest : public testing::Test {
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      PageFlagsBase* pageflags, Residency* residency) {
+      ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags,
+      Residency* residency) {
     // Note that scoped pageheap lock isn't used here. This is because the
     // pageheap lock is manually unlocked before the collapse operation, and the
     // scoped lock doesn't recognize the manual unlock. In tests, collapse
     // allocates, so we use manual lock and unlock here.
     pageheap_lock.lock();
     filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                  pageflags, residency);
+                                  release_stale_pages, pageflags, residency);
     pageheap_lock.unlock();
   }
 
@@ -1249,6 +1257,99 @@ TEST_F(FillerTest, Density) {
   }
 }
 
+TEST_F(FillerTest, ReleaseStaleFree) {
+  // Disable randomization for predictable layout
+  randomize_density_ = false;
+
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+
+  PAlloc a1 = AllocateWithSpanAllocInfo(kAllocSize, info);
+  PAlloc a2 = AllocateWithSpanAllocInfo(kAllocSize, info);
+  PAlloc a3 = AllocateWithSpanAllocInfo(kAllocSize, info);
+  PAlloc a4 = AllocateWithSpanAllocInfo(kAllocSize, info);
+
+  ASSERT_EQ(a1.pt, a2.pt);
+  ASSERT_EQ(a1.pt, a3.pt);
+  ASSERT_EQ(a1.pt, a4.pt);
+
+  // Assert locations to ensure layout assumptions hold
+  ASSERT_EQ((a1.p - a1.pt->location().first_page()).raw_num(), 0);
+
+  Delete(a1);  // Free a1
+
+  Bitmap<kMaxResidencyBits> empty_bitmap;
+
+  FakePageFlags pageflags;
+  pageflags.SetStaleBitmap(a1.pt->location().start_addr(), empty_bitmap);
+  pageflags.MarkHugePageBacked(a1.pt->location().start_addr(), false);
+
+  FakeResidency residency;
+  residency.SetUnbackedAndSwappedBitmaps(a1.pt->location().start_addr(),
+                                         empty_bitmap, empty_bitmap);
+
+  // 1. Initially stale is empty, so nothing should be released.
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kEnabled, &pageflags, &residency);
+
+  HugePageTreatmentStats stats_after = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats_after.treated_pages_stale_subreleased, 0);
+
+  // Advance clock to bypass the record interval.
+  FakeClock::Advance(kRecordInterval + absl::Minutes(1));
+
+  // 2. Manually set some of the stale bits that are not part of a1 to true.
+  // These don't overlap with the pages freed from a1, but we'll still release
+  // all free pages because any page is stale..  ResidencyBitmap stale;
+  ResidencyBitmap stale;
+  stale.SetRange(128, 4);
+  pageflags.SetStaleBitmap(a1.pt->location().start_addr(), stale);
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kEnabled, &pageflags, &residency);
+
+  stats_after = GetHugePageTreatmentStats();
+  // Expect that 64 pages are subreleased, corresponding to all of the pages in
+  // a1.
+  EXPECT_EQ(stats_after.treated_pages_stale_subreleased, 64);
+
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    PageHeapSpinLockHolder l;
+    filler_.Print(printer, true, pageflags);
+  });
+  EXPECT_THAT(buffer,
+              testing::HasSubstr("HugePageFiller: In the previous treatment "
+                                 "interval, subreleased 64 stale pages."));
+
+  FakeClock::Advance(kRecordInterval + absl::Minutes(1));
+
+  // 3. Delete a2 and a3. We should subrelease all pages from these two
+  // trackers. Stats are non-cumulative, so we're expecting only to count
+  // a2+a3=128 pages.
+  Delete(a2);
+  Delete(a3);
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kEnabled, &pageflags, &residency);
+
+  stats_after = GetHugePageTreatmentStats();
+  // Expect that 128 pages are subreleased, corresponding to all of the pages in
+  // a2 AND a3.
+  EXPECT_EQ(stats_after.treated_pages_stale_subreleased, 128);
+
+  buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    PageHeapSpinLockHolder l;
+    filler_.Print(printer, true, pageflags);
+  });
+  EXPECT_THAT(buffer,
+              testing::HasSubstr("HugePageFiller: In the previous treatment "
+                                 "interval, subreleased 128 stale pages."));
+  // Clean up
+  Delete(a4);
+}
+
 TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   const Length kAlloc = kPagesPerHugePage;
   std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(1));
@@ -1264,12 +1365,13 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
   // No pages should be released because there aren't any swapped pages.
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
 
@@ -1282,12 +1384,13 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
     swapped.SetRange(/*index=*/0, /*n=*/512);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
   // Though there is now any swapped page and some free/unreleased pages, we
   // haven't advanced the clock, so no pages should be released.
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
 
@@ -1295,8 +1398,8 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   // should be released.
   FakeClock::Advance(absl::Minutes(100));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 1);
   DeleteVector(p1);
@@ -1335,13 +1438,14 @@ TEST_F(FillerTest, CollapseDenseBeforeSparse) {
         swapped.SetRange(/*index=*/0, /*n=*/1);
         residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                                swapped);
+        pageflags.SetStaleBitmap(pa.p.start_addr(), {});
       }
     }
   }
   ASSERT_EQ(filler_.size(), NHugePages(kNumAllocs * 2));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   for (int i = 0; i < kNumAllocs; ++i) {
     for (const auto& pa : dense_allocs[i]) {
@@ -1391,13 +1495,14 @@ TEST_F(FillerTest, CollapseOrderNObjects) {
         swapped.SetRange(/*index=*/0, /*n=*/1);
         residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                                swapped);
+        pageflags.SetStaleBitmap(pa.p.start_addr(), {});
       }
     }
   }
   ASSERT_EQ(filler_.size(), NHugePages(kNumAllocs * 2));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   for (int i = 0; i < kNumAllocs; ++i) {
     for (const auto& pa : multi_object_allocs[i]) {
@@ -1433,12 +1538,13 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
     swapped.SetRange(/*index=*/1, /*n=*/1);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   // We expect to release the two free pages, since the second native page is
   // swapped. We expect to log this correctly.
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
@@ -1454,8 +1560,8 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   // Check that pages are not released again. We have to advance the clock.
   FakeClock::Advance(absl::Minutes(100));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
 
@@ -1481,12 +1587,13 @@ TEST_F(FillerTest, ReleaseNoFreePages) {
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   SubreleaseStats subrelease_stats = filler_.subrelease_stats();
   EXPECT_EQ(subrelease_stats.total_pages_subreleased, Length(0));
@@ -1518,6 +1625,7 @@ TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
     swapped.SetRange(/*index=*/0, /*n=*/5);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   for (const auto& pa : p3) {
@@ -1528,14 +1636,15 @@ TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   // We have two hugepages with free pages. Since the first hugepage has
   // at least one swapped page, we subrelease from that.
   ASSERT_EQ(filler_.size(), NHugePages(2));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // There should be two pages released, from p1's hugepage.
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
@@ -1579,14 +1688,15 @@ TEST_F(FillerTest, ParallelCollapseRelease) {
     swapped.SetRange(/*index=*/128, /*n=*/128);
     residency.SetUnbackedAndSwappedBitmaps(p1.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(p1.p.start_addr(), {});
   }
 
   auto collapse_function = [&]() {
     absl::BitGen rng;
     while (!done.load(std::memory_order_acquire)) {
-      TreatHugepageTrackers(EnableCollapse::kEnabled,
-                            EnableUnfilteredCollapse::kDisabled, &pageflags,
-                            &residency);
+      TreatHugepageTrackers(
+          EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
+          ReleaseStalePages::kDisabled, &pageflags, &residency);
     }
   };
   std::thread collapse_thread = std::thread(collapse_function);
@@ -1635,11 +1745,12 @@ TEST_F(FillerTest, DontCollapseAlreadyHugepages) {
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   for (const auto& pa : p1) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
@@ -1666,11 +1777,12 @@ TEST_F(FillerTest, DontCollapseUnknownHugepages) {
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   for (const auto& pa : p1) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
@@ -1707,11 +1819,12 @@ TEST_F(FillerTest, DontCollapseAlreadyCollapsed) {
     Bitmap<kMaxResidencyBits> unbacked, swapped;
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   check_stats(/*expected_eligible=*/1, /*expected_attempted=*/1,
               /*expected_succeeded=*/1);
 
@@ -1728,8 +1841,8 @@ TEST_F(FillerTest, DontCollapseAlreadyCollapsed) {
   // The first collapse was successful, so the second collapse should not
   // occur.
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
   }
@@ -1755,16 +1868,16 @@ TEST_F(FillerTest, SetAnonVmaName) {
 
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
 
   // Advance clock by 10 seconds, which is not enough to sample the tracker
   // again.
   FakeClock::Advance(absl::Seconds(10));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
 
   // Allocate and advance.  nobjects should round up.
@@ -1777,8 +1890,8 @@ TEST_F(FillerTest, SetAnonVmaName) {
 
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
 
   // Allocate and advance.  nobjects should remain unchanged.
@@ -1786,8 +1899,8 @@ TEST_F(FillerTest, SetAnonVmaName) {
 
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 3);
 
   set_anon_vma_name_.SetExpectedName("tcmalloc_region_NORMAL");
@@ -1815,12 +1928,13 @@ TEST_F(FillerTest, CollapseHugepages) {
     swapped.SetRange(/*index=*/0, /*n=*/1);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
@@ -1854,12 +1968,13 @@ TEST_F(FillerTest, DontCollapseHugepages) {
       swapped.SetRange(/*index=*/0, total_swapped);
       residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                              swapped);
+      pageflags.SetStaleBitmap(pa.p.start_addr(), {});
     }
 
     ASSERT_EQ(filler_.size(), NHugePages(1));
     TreatHugepageTrackers(EnableCollapse::kEnabled,
-                          EnableUnfilteredCollapse::kDisabled, &pageflags,
-                          &residency);
+                          EnableUnfilteredCollapse::kDisabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
     for (const auto& pa : p1) {
       EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
     }
@@ -1902,13 +2017,14 @@ TEST_F(FillerTest, CollapseHugepagesDueToUnfilteredCollapse) {
       if (total_swapped > 0) swapped.SetRange(/*index=*/0, total_swapped);
       residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                              swapped);
+      pageflags.SetStaleBitmap(pa.p.start_addr(), {});
     }
 
     ASSERT_EQ(filler_.size(), NHugePages(1));
 
     TreatHugepageTrackers(EnableCollapse::kEnabled,
-                          EnableUnfilteredCollapse::kEnabled, &pageflags,
-                          &residency);
+                          EnableUnfilteredCollapse::kEnabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
     for (const auto& pa : p1) {
       EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     }
@@ -1947,6 +2063,7 @@ TEST_F(FillerTest, CollapseLatency) {
     swapped.SetRange(/*index=*/0, /*n=*/1);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   ASSERT_EQ(filler_.size(), NHugePages(1));
@@ -1958,8 +2075,8 @@ TEST_F(FillerTest, CollapseLatency) {
   const absl::Duration latency = absl::Microseconds(100);
   collapse_.SetLatency(latency);
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
@@ -2004,6 +2121,7 @@ TEST_F(FillerTest, EarlyBackoff) {
     swapped.SetRange(/*index=*/0, /*n=*/1);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   // Allocate a second hugepage with longer free range than p1. This ensures
@@ -2018,13 +2136,14 @@ TEST_F(FillerTest, EarlyBackoff) {
     swapped.SetRange(/*index=*/0, /*n=*/1);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   ASSERT_EQ(filler_.size(), NHugePages(2));
 
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // As latency of each collapse is high, p1 should have been collapsed, but
   // p2 should have been skipped.
@@ -2079,13 +2198,14 @@ TEST_F(FillerTest, BackoffFromCollapse) {
         swapped.SetRange(/*index=*/0, /*n=*/1);
         residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                                swapped);
+        pageflags.SetStaleBitmap(pa.p.start_addr(), {});
       }
 
       ASSERT_EQ(filler_.size(), NHugePages(1));
 
-      TreatHugepageTrackers(EnableCollapse::kEnabled,
-                            EnableUnfilteredCollapse::kDisabled, &pageflags,
-                            &residency);
+      TreatHugepageTrackers(
+          EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
+          ReleaseStalePages::kDisabled, &pageflags, &residency);
       // We exponentially backoff from collapse, depending on the latency.
       // If the latency is high, increase max_backoff periodically. In case it
       // is low, periodically decrease max_backoff.
@@ -2146,6 +2266,7 @@ TEST_F(FillerTest, DontCollapseReleasedPages) {
     swapped.SetRange(/*index=*/0, kMaxResidencyBits / 2);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   DeleteVector(p2);
@@ -2155,8 +2276,8 @@ TEST_F(FillerTest, DontCollapseReleasedPages) {
 
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
   EXPECT_EQ(treatment_stats.collapse_eligible, 0);
@@ -2202,11 +2323,12 @@ TEST_F(FillerTest, CollapseFailure) {
     unbacked.SetRange(/*index=*/0, 1);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
@@ -2219,8 +2341,8 @@ TEST_F(FillerTest, CollapseFailure) {
   FakeClock::Advance(absl::Minutes(10));
   collapse_.SetErrorNumber(ENOMEM);
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   check_stats(/*expected_eligible=*/2, /*expected_attempted=*/2,
               /*expected_succeeded=*/0, CollapseErrorType::kENoMem,
               /*error_count=*/1);
@@ -2228,8 +2350,8 @@ TEST_F(FillerTest, CollapseFailure) {
   FakeClock::Advance(absl::Minutes(10));
   collapse_.SetErrorNumber(EBUSY);
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   check_stats(/*expected_eligible=*/3, /*expected_attempted=*/3,
               /*expected_succeeded=*/0, CollapseErrorType::kEBusy,
               /*error_count=*/1);
@@ -2237,8 +2359,8 @@ TEST_F(FillerTest, CollapseFailure) {
   FakeClock::Advance(absl::Minutes(10));
   collapse_.SetErrorNumber(EAGAIN);
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   check_stats(/*expected_eligible=*/4, /*expected_attempted=*/4,
               /*expected_succeeded=*/0, CollapseErrorType::kEAgain,
               /*error_count=*/1);
@@ -2246,8 +2368,8 @@ TEST_F(FillerTest, CollapseFailure) {
   FakeClock::Advance(absl::Minutes(10));
   collapse_.SetErrorNumber(0);
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   check_stats(/*expected_eligible=*/5, /*expected_attempted=*/5,
               /*expected_succeeded=*/0, CollapseErrorType::kOther,
               /*error_count=*/1);
@@ -2284,11 +2406,12 @@ TEST_F(FillerTest, CollapseClock) {
     unbacked.SetRange(/*index=*/0, 1);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
   ASSERT_EQ(filler_.size(), NHugePages(1));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
@@ -2304,8 +2427,8 @@ TEST_F(FillerTest, CollapseClock) {
   }
 
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
@@ -2315,8 +2438,8 @@ TEST_F(FillerTest, CollapseClock) {
 
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
     EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 2);
@@ -2345,11 +2468,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPages) {
     unbacked.SetRange(0, kMaxResidencyBits);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased, 1);
   std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
@@ -2379,11 +2503,12 @@ TEST_F(FillerTest, SubreleaseUnbackedPagesDisabled) {
     unbacked.SetRange(0, kMaxResidencyBits);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased, 0);
   DeleteVector(p1);
@@ -2407,11 +2532,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedTelemetry) {
     unbacked.SetRange(0, kMaxResidencyBits);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   std::string buffer_text = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
@@ -2446,10 +2572,11 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPartial) {
   Bitmap<kMaxResidencyBits> unbacked, swapped;
   unbacked.SetRange(0, kMaxResidencyBits);
   residency.SetUnbackedAndSwappedBitmaps(p1.p.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(p1.p.start_addr(), {});
 
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   Delete(p3);
 
@@ -2494,11 +2621,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
     }
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
 
@@ -2523,11 +2651,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedAndSwapped) {
     swapped.SetRange(0, kMaxResidencyBits);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
   DeleteVector(p1);
 }
@@ -2550,11 +2679,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedRecovery) {
     unbacked.SetRange(0, kMaxResidencyBits);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(10));
 
@@ -2589,8 +2719,8 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   }
 
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
   DeleteVector(p1);
 }
@@ -2612,11 +2742,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedDonated) {
     unbacked.SetRange(0, kMaxResidencyBits);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased, 1);
   DeleteVector(p1);
@@ -2956,6 +3087,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, PreferFullyBackedOverUnbackedBroken) {
   Bitmap<kMaxResidencyBits> empty_unbacked, empty_swapped;
   residency.SetUnbackedAndSwappedBitmaps(b.p.start_addr(), empty_unbacked,
                                          empty_swapped);
+  pageflags.SetStaleBitmap(b.p.start_addr(), {});
 
   // Set collapse to fail so that we fail to collapse Tracker B.
   collapse_.SetSuccess(/*success=*/false);
@@ -2966,8 +3098,8 @@ TEST_F(FillerTestWithSubreleaseUnbacked, PreferFullyBackedOverUnbackedBroken) {
   // - EnableCollapse::kEnabled
   // - SubreleaseUnbackedMode::kEnabled
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // Verify their unbroken status after treatment.
   // A should still be unbroken.
@@ -3021,6 +3153,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   // TCMalloc pages 10-14 correspond to native pages 20-29.
   unbacked.SetRange(20, 10);  // 10 native pages = 5 TCMalloc pages.
   residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(a.p.start_addr(), {});
 
   // 2. Mark collapse as failed.
   collapse_.SetSuccess(/*success=*/false);
@@ -3028,8 +3161,8 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
 
   // 3. Trigger treatment (collapse fails, subrelease happens).
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // 4. Verify it is marked broken and has released pages.
   EXPECT_FALSE(a.pt->unbroken());
@@ -3057,8 +3190,8 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   collapse_.SetSuccess(/*success=*/true);
 
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // 7. Confirm that the tracker is marked unbroken.
   EXPECT_TRUE(a.pt->unbroken());
@@ -3093,6 +3226,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, CollapsePartiallyReleasedTrackers) {
   pageflags.MarkHugePageBacked(pa.p.start_addr(), /*is_hugepage_backed=*/false);
   Bitmap<kMaxResidencyBits> unbacked, swapped;
   residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(pa.p.start_addr(), {});
 
   // 2. Set collapse to fail, set free page as backed in residency, treat the
   // tracker. Nothing is released, but tracker is moved to the
@@ -3101,8 +3235,8 @@ TEST_F(FillerTestWithSubreleaseUnbacked, CollapsePartiallyReleasedTrackers) {
   collapse_.SetErrorNumber(EINVAL);
 
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   EXPECT_FALSE(pa.pt->unbroken());
   EXPECT_EQ(pa.pt->released_pages(), Length(0));
@@ -3116,8 +3250,8 @@ TEST_F(FillerTestWithSubreleaseUnbacked, CollapsePartiallyReleasedTrackers) {
 
   // 4. Treat the trackers. Now the tracker should be successfully collapsed.
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   EXPECT_TRUE(pa.pt->unbroken());
   EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(0));
@@ -3160,11 +3294,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked, GardenReleasedTrackers) {
   // TCMalloc page).
   unbacked.SetRange(20, 10);
   residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(pa.p.start_addr(), {});
 
   // 2. Treat this tracker.
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // 3. Confirm it isn't collapsed and remains broken.
   EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
@@ -3755,10 +3890,10 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   pageflags.MarkHugePageBacked(pa.p.start_addr(), /*is_hugepage_backed=*/false);
   Bitmap<kMaxResidencyBits> unbacked, swapped;
   residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked, swapped);
-
+  pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // Verify collapse was tried and succeeded.
   EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
@@ -5197,11 +5332,13 @@ TEST_F(FillerTest, ResidencyTelemetry) {
                                  /*is_hugepage_backed=*/false);
     EXPECT_FALSE(pageflags.IsHugepageBacked(pa.p.start_addr()).value());
 
-    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    Bitmap<kMaxResidencyBits> unbacked, swapped, stale;
     unbacked.SetRange(/*index=*/kMaxResidencyBits / 4, kMaxResidencyBits / 2);
     swapped.SetRange(/*index=*/kMaxResidencyBits / 4, kMaxResidencyBits / 2);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    stale.SetBit(0);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), stale);
   }
 
   for (const auto& pa : p2) {
@@ -5212,8 +5349,8 @@ TEST_F(FillerTest, ResidencyTelemetry) {
 
   ASSERT_EQ(filler_.size(), NHugePages(2));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
   for (const auto& pa : p1) {
     EXPECT_FALSE(collapse_.TriedCollapse(pa.p.start_addr()));
   }
@@ -5371,6 +5508,7 @@ TEST_F(FillerTest, CollapseSkippedTelemetry) {
     swapped.SetRange(0, kMaxResidencyBits / 2);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   // For p2, set swapped and unbacked pages below thresholds.
@@ -5383,6 +5521,7 @@ TEST_F(FillerTest, CollapseSkippedTelemetry) {
     swapped.SetRange(0, kMaxResidencyBits / 16);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   // For p3, set swapped and unbacked pages below thresholds.
@@ -5395,6 +5534,7 @@ TEST_F(FillerTest, CollapseSkippedTelemetry) {
     swapped.SetRange(0, kMaxResidencyBits / 16);
     residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
   }
 
   // Set mock collapse latency to 50ms (exceeds 30ms threshold).
@@ -5402,8 +5542,8 @@ TEST_F(FillerTest, CollapseSkippedTelemetry) {
 
   ASSERT_EQ(filler_.size(), NHugePages(3));
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   std::string buffer_text = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
@@ -5488,6 +5628,7 @@ TEST_F(FillerTest, ResidencyTelemetryPartiallyReleased) {
   unbacked.SetRange(/*index=*/kMaxResidencyBits / 4, kMaxResidencyBits / 2);
   residency.SetUnbackedAndSwappedBitmaps(pt1->location().start_addr(), unbacked,
                                          swapped);
+  pageflags.SetStaleBitmap(pt1->location().start_addr(), {});
 
   // Mark pt2's hugepage as hugepage backed.
   for (const auto& pa : p2) {
@@ -5501,8 +5642,8 @@ TEST_F(FillerTest, ResidencyTelemetryPartiallyReleased) {
   // Step 2: Treat hugepage trackers while pt1 is REGULAR to collect its
   // residency state in TCMalloc telemetry records.
   TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // Step 3: Free p1_a (10 pages) and subrelease it to the OS.
   // This marks these 10 pages as released (unmapped).
@@ -5639,6 +5780,7 @@ HugePageFiller: Of the failed collapse operations, number of operations that fai
 HugePageFiller: Latency of collapse operations: 0.000000 ms (total), 0.000000 us (maximum)
 HugePageFiller: Backoff delay for collapse currently is 1 interval(s), number of intervals skipped due to backoff is 0
 HugePageFiller: In the previous treatment interval, subreleased 0 pages.
+HugePageFiller: In the previous treatment interval, subreleased 0 stale pages.
 HugePageFiller: In the previous treatment interval, marked 0 unbacked pages as subreleased.
 
 HugePageFiller: fullness histograms
@@ -6422,14 +6564,17 @@ TEST_F(FillerTest, StaleHistograms) {
   PAlloc c = Allocate(Length(129));
   PAlloc d = Allocate(Length(129));
 
-  // FakePageFlags reports bit 0 as stale for all pages.
   residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), {}, {});
   residency.SetUnbackedAndSwappedBitmaps(c.p.start_addr(), {}, {});
   residency.SetUnbackedAndSwappedBitmaps(d.p.start_addr(), {}, {});
-
+  ResidencyBitmap stale;
+  stale.SetBit(1);
+  pageflags.SetStaleBitmap(a.p.start_addr(), stale);
+  pageflags.SetStaleBitmap(c.p.start_addr(), stale);
+  pageflags.SetStaleBitmap(d.p.start_addr(), stale);
   TreatHugepageTrackers(EnableCollapse::kDisabled,
-                        EnableUnfilteredCollapse::kDisabled, &pageflags,
-                        &residency);
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // Delete 'a' to make page 0 of HP1 free and stale.
   Delete(a);
@@ -6792,14 +6937,15 @@ TEST_F(FillerTest, ConcurrentTreatmentInterferenceStress) {
     swapped.SetRange(128, 128);
     residency.SetUnbackedAndSwappedBitmaps(p1.p.start_addr(), unbacked,
                                            swapped);
+    pageflags.SetStaleBitmap(p1.p.start_addr(), {});
   }
 
   auto collapse_function = [&]() {
     while (!done.load(std::memory_order_acquire)) {
       FakeClock::Advance(absl::Minutes(10));
-      TreatHugepageTrackers(EnableCollapse::kEnabled,
-                            EnableUnfilteredCollapse::kDisabled, &pageflags,
-                            &residency);
+      TreatHugepageTrackers(
+          EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
+          ReleaseStalePages::kDisabled, &pageflags, &residency);
     }
   };
   std::thread collapse_thread = std::thread(collapse_function);

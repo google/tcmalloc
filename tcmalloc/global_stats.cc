@@ -688,6 +688,10 @@ void DumpStats(Printer& out, int level) {
                        EnableUnfilteredCollapse::kEnabled
                    ? 1
                    : 0);
+    out.printf("PARAMETER tcmalloc_release_stale_pages %d\n",
+               Parameters::release_stale_pages() == ReleaseStalePages::kEnabled
+                   ? 1
+                   : 0);
   }
 }
 
@@ -952,6 +956,10 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("tcmalloc_enable_unfiltered_collapse",
                    Parameters::enable_unfiltered_collapse() ==
                        EnableUnfilteredCollapse::kEnabled);
+
+  region.PrintBool(
+      "tcmalloc_release_stale_pages",
+      Parameters::release_stale_pages() == ReleaseStalePages::kEnabled);
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

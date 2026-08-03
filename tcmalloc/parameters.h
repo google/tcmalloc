@@ -196,6 +196,9 @@ class Parameters {
 
   static central_freelist_internal::LifetimeTracking span_lifetime_tracking();
 
+  // TODO: b/527473378 - Remove this function once the experiment is cleaned up.
+  static ReleaseStalePages release_stale_pages();
+
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v);

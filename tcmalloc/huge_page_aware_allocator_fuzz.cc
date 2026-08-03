@@ -290,6 +290,15 @@ struct SetReleaseMaxColdPages {
   }
 };
 
+struct SetEnableReleaseStalePages {
+  bool value;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetEnableReleaseStalePages& s) {
+    absl::Format(&sink, "SetEnableReleaseStalePages{.value=%v}", s.value);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -304,7 +313,8 @@ using ParamOp = std::variant<
     SetFillerSkipSubreleaseLongInterval, SetReleasePartialAllocPages,
     SetHpaaSubrelease, SetReleaseSucceeds, SetHugeRegionDemandBasedRelease,
     SetHugeRegionAdaptiveRelease, SetBackAllocations, SetBackSizeThresholdBytes,
-    ReentrantSubprogram, SetEnableUnfilteredCollapse, SetReleaseMaxColdPages>;
+    ReentrantSubprogram, SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
+    SetEnableReleaseStalePages>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -600,6 +610,11 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
                     } else if constexpr (std::is_same_v<
                                              P, SetReleaseMaxColdPages>) {
                       forwarder.set_release_max_cold_pages(param_arg.value);
+                    } else if constexpr (std::is_same_v<
+                                             P, SetEnableReleaseStalePages>) {
+                      forwarder.set_release_stale_pages(
+                          param_arg.value ? ReleaseStalePages::kEnabled
+                                          : ReleaseStalePages::kDisabled);
                     }
                   },
                   arg.op);
@@ -740,7 +755,10 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
             [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
             fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
         fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetReleaseMaxColdPages>()));
+                      fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
+        fuzztest::Map(
+            [](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
+            fuzztest::Arbitrary<SetEnableReleaseStalePages>()));
   } else {
     return fuzztest::OneOf(
         fuzztest::Map([](ResetSubreleaseIntervals r) { return ChangeParam{r}; },
@@ -783,7 +801,10 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
             [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
             fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
         fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetReleaseMaxColdPages>()));
+                      fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
+        fuzztest::Map(
+            [](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
+            fuzztest::Arbitrary<SetEnableReleaseStalePages>()));
   }
 }
 

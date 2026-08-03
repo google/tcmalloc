@@ -95,6 +95,10 @@ class FakeStaticForwarder {
   void set_release_max_cold_pages(bool value) {
     release_max_cold_pages_ = value;
   }
+  ReleaseStalePages release_stale_pages() const { return release_stale_pages_; }
+  void set_release_stale_pages(ReleaseStalePages value) {
+    release_stale_pages_ = value;
+  }
 
   bool BackAllocations() const { return back_allocations_; }
   void SetBackAllocations(bool value) { back_allocations_ = value; }
@@ -239,6 +243,7 @@ class FakeStaticForwarder {
   EnableUnfilteredCollapse enable_unfiltered_collapse_ =
       EnableUnfilteredCollapse::kDisabled;
   Arena arena_;
+  ReleaseStalePages release_stale_pages_ = ReleaseStalePages::kDisabled;
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;
 
