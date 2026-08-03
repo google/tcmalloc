@@ -28,6 +28,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "tcmalloc/internal/compressibility.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -44,10 +45,10 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include "tcmalloc/internal/profile.pb.h"
 #include "absl/base/attributes.h"
-#include "absl/base/macros.h"
 #include "absl/status/status.h"
 #include "absl/strings/escaping.h"
 #include "absl/strings/string_view.h"
@@ -111,6 +112,9 @@ struct SampleMergedData {
   std::optional<size_t> stale_size;
   std::optional<size_t> locked_size;
   std::optional<uint64_t> stale_scan_period;
+  size_t compressed_size = 0;
+  size_t zero_size = 0;
+  size_t trailing_zero_size = 0;
 };
 
 // The equality and hash methods of Profile::Sample only use a subset of its
@@ -152,7 +156,7 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
     data.count += entry.count;
     data.sum += entry.sum;
     if (residency) {
-      auto residency_info =
+      std::optional<Residency::Info> residency_info =
           residency->Get(entry.span_start_address, entry.allocated_size);
       // As long as `residency_info` provides data in some samples, the merged
       // data will have their sums.
@@ -197,6 +201,37 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
     }
   });
   return map;
+}
+
+// Calculates zero-byte count and standalone compressed size for all sampled
+// objects in `profile`, updating `merged_map` with the results.
+void AddCompressibilityInfo(const tcmalloc::Profile& profile,
+                            SampleMergedMap& merged_map) {
+  CompressionAnalyzer analyzer;
+  profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
+    if (entry.span_start_address == nullptr || entry.requested_size == 0) {
+      return;
+    }
+
+    auto it = merged_map.find(entry);
+    if (it == merged_map.end()) {
+      return;
+    }
+    SampleMergedData& data = it->second;
+
+    size_t size = entry.requested_size_returning ? entry.allocated_size
+                                                 : entry.requested_size;
+    absl::Span<const char> sample_mem(
+        reinterpret_cast<const char*>(entry.span_start_address), size);
+    absl::StatusOr<CompressionAnalyzer::Results> res =
+        analyzer.Analyze(sample_mem);
+    if (!res.ok()) {
+      return;
+    }
+
+    data.zero_size += entry.count * res->zero_bytes;
+    data.trailing_zero_size += entry.count * res->trailing_zero_bytes;
+  });
 }
 
 }  // namespace
@@ -815,6 +850,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int swapped_space_id = builder.InternString("swapped_space");
   const int stale_space_id = builder.InternString("stale_space");
   const int locked_space_id = builder.InternString("locked_space");
+  const int space_compressed_id = builder.InternString("space_compressed");
+  const int zero_space_id = builder.InternString("zero_space");
+  const int trailing_zero_space_id =
+      builder.InternString("trailing_zero_space");
 
   perftools::profiles::Profile& converted = builder.profile();
 
@@ -861,6 +900,19 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     sample_type->set_unit(bytes_id);
   }
 
+  bool exporting_compressibility = false;
+  if (exporting_compressibility) {
+    perftools::profiles::ValueType* sample_type = nullptr;
+
+    sample_type = converted.add_sample_type();
+    sample_type->set_type(zero_space_id);
+    sample_type->set_unit(bytes_id);
+
+    sample_type = converted.add_sample_type();
+    sample_type->set_type(trailing_zero_space_id);
+    sample_type->set_unit(bytes_id);
+  }
+
   int default_sample_type_id;
   switch (profile.Type()) {
     case tcmalloc::ProfileType::kFragmentation:
@@ -879,6 +931,9 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   SampleMergedMap samples = MergeProfileSamplesAndMaybeGetResidencyInfo(
       profile, pageflags, residency);
+  if (exporting_compressibility) {
+    AddCompressibilityInfo(profile, samples);
+  }
   for (const auto& [entry, data] : samples) {
     perftools::profiles::Profile& profile = builder.profile();
     perftools::profiles::Sample& sample = *profile.add_sample();
@@ -893,6 +948,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       sample.add_value(data.swapped_size.value_or(0));
       sample.add_value(data.stale_size.value_or(0));
       sample.add_value(data.locked_size.value_or(0));
+    }
+    if (exporting_compressibility) {
+      sample.add_value(data.zero_size);
+      sample.add_value(data.trailing_zero_size);
     }
 
     // add fields that are common to all memory profiles

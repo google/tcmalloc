@@ -984,6 +984,51 @@ cc_proto_library(
 )
 
 cc_library(
+    name = "compressibility",
+    srcs = ["compressibility.cc"],
+    hdrs = ["compressibility.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":util",
+        "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "compressibility_test",
+    srcs = ["compressibility_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = ["nompu64"],  # tcmalloc:google3-only
+    deps = [
+        ":compressibility",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "compressibility_fuzz",
+    srcs = ["compressibility_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    tags = ["nompu64"],  # tcmalloc:google3-only
+    deps = [
+        ":compressibility",
+        "@com_google_absl//absl/types:span",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
     name = "profile_builder",
     srcs = ["profile_builder.cc"],
     hdrs = ["profile_builder.h"],
@@ -992,14 +1037,18 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":compressibility",
         ":logging",
         ":pageflags",
+        ":parameter_accessors",
         ":residency",
+        ":util",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/status",

@@ -19,6 +19,9 @@
 #include <signal.h>
 #include <stdarg.h>
 #include <string.h>
+#if defined(__linux__)
+#include <sys/uio.h>
+#endif  // defined(__linux__)
 #include <unistd.h>
 
 #include <type_traits>
@@ -121,6 +124,27 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read) {
   if (rc != -1 || errno == EINTR)
     rc = total_bytes;  // return the cumulative bytes read
   return rc;
+}
+
+bool SafeCopyMemory(const void* src, void* dst, size_t size) {
+  if (src == nullptr || dst == nullptr || size == 0) {
+    return false;
+  }
+#if defined(__linux__)
+  struct iovec local_iov;
+  local_iov.iov_base = dst;
+  local_iov.iov_len = size;
+
+  struct iovec remote_iov;
+  remote_iov.iov_base = const_cast<void*>(src);
+  remote_iov.iov_len = size;
+
+  ssize_t bytes = process_vm_readv(getpid(), &local_iov, /*liovcnt=*/1,
+                                   &remote_iov, /*riovcnt=*/1, /*flags=*/0);
+  return bytes == static_cast<ssize_t>(size);
+#else
+  return false;
+#endif  // defined(__linux__)
 }
 
 }  // namespace tcmalloc_internal

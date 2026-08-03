@@ -92,6 +92,12 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read);
 // involved with the latter.
 int signal_safe_poll(struct ::pollfd* fds, int nfds, absl::Duration timeout);
 
+// Copies `size` bytes from `src` to `dst` safely using process_vm_readv.
+// If `src` points to unmapped or concurrently freed/mprotected memory, this
+// function returns false without triggering a SIGSEGV crash. Returns true if
+// exactly `size` bytes were successfully copied.
+bool SafeCopyMemory(const void* src, void* dst, size_t size);
+
 class ScopedSigmask {
  public:
   // Masks all signal handlers. (SIG_SETMASK, All)
