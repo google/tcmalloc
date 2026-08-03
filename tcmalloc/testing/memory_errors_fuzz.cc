@@ -40,6 +40,21 @@
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
+// Queries pointer ownership.  Many of our UB checks for wild pointers only work
+// on ones that don't conflict with live TCMalloc-managed address space.
+bool IsOwned(void* ptr) {
+  return MallocExtension_Internal_GetOwnership(ptr) ==
+         MallocExtension::Ownership::kOwned;
+}
+
+TEST(MemoryErrorsTest, IsOwnedTest) {
+  // Ensure IsOwned is not tautologically true or false.
+  void* ptr = TCMallocInternalNew(1);
+  EXPECT_TRUE(IsOwned(ptr));
+  EXPECT_FALSE(IsOwned(&ptr));
+  TCMallocInternalFree(ptr);
+}
+
 void WildPointerUnsizedDelete(uintptr_t ptr) {
   GTEST_SKIP() << "Skipping";
 
@@ -48,12 +63,17 @@ void WildPointerUnsizedDelete(uintptr_t ptr) {
     return;
   }
 
+  void* p = absl::bit_cast<void*>(ptr);
+  if (IsOwned(p)) {
+    return;
+  }
+
   LongJmpScope scope;
   if (setjmp(scope.buf_)) {
     return;
   }
 
-  TCMallocInternalDelete(absl::bit_cast<void*>(ptr));
+  TCMallocInternalDelete(p);
   LOG(FATAL) << "should have caught error and not reached this point";
 }
 
@@ -69,12 +89,17 @@ FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerUnsizedDelete);
 void WildPointerRealloc(uintptr_t ptr, size_t new_size) {
   GTEST_SKIP() << "Skipping";
 
+  void* p = absl::bit_cast<void*>(ptr);
+  if (IsOwned(p)) {
+    return;
+  }
+
   LongJmpScope scope;
   if (setjmp(scope.buf_)) {
     return;
   }
 
-  void* new_ptr = TCMallocInternalRealloc(absl::bit_cast<void*>(ptr), new_size);
+  void* new_ptr = TCMallocInternalRealloc(p, new_size);
   // We should have caught the error and not reached this point unless ptr was
   // nullptr.
   EXPECT_EQ(ptr, 0);
@@ -85,8 +110,7 @@ TEST(MemoryErrorsFuzzTest, WildPointerReallocRegression) {
   WildPointerRealloc(4406726867650173363ull, 1);
 }
 
-// TODO: b/457842787 - Re-enable once the test is fixed.
-FUZZ_TEST(DISABLED_MemoryErrorsFuzzTest, WildPointerRealloc);
+FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerRealloc);
 
 void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
   GTEST_SKIP() << "Skipping";
@@ -96,9 +120,14 @@ void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
     return;
   }
 
+  void* p = absl::bit_cast<void*>(ptr);
+  if (IsOwned(p)) {
+    return;
+  }
+
   // The pointer must either be non-normal or larger than kMaxSize.  We don't
   // expect to have lightweight checks otherwise.
-  if (auto tag = GetMemoryTag(absl::bit_cast<void*>(ptr));
+  if (auto tag = GetMemoryTag(p);
       (tag == MemoryTag::kNormal || tag == MemoryTag::kNormalP1) &&
       size <= kMaxSize) {
     return;
@@ -109,22 +138,17 @@ void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
     return;
   }
 
-  TCMallocInternalDeleteSized(absl::bit_cast<void*>(ptr), size);
+  TCMallocInternalDeleteSized(p, size);
   LOG(FATAL) << "should have caught error and not reached this point";
 }
 
 TEST(MemoryErrorsFuzzTest, WildPointerSizedDeleteRegression) {
   WildPointerSizedDelete(18446744073709551615ull, 18446744073709551615ull);
   WildPointerSizedDelete(0, 18446744073709551615ull);
-}
-
-// TODO: b/457842787 - Re-enable once the test is fixed.
-TEST(MemoryErrorsFuzzTest, DISABLED_WildPointerSizedDeleteRegression2) {
   WildPointerSizedDelete(17592186048512ull, 0);
 }
 
-// TODO: b/457842787 - Re-enable once the test is fixed.
-FUZZ_TEST(DISABLED_MemoryErrorsFuzzTest, WildPointerSizedDelete);
+FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerSizedDelete);
 
 void MismatchedSizedDelete(size_t allocated, size_t deallocated) {
   GTEST_SKIP() << "Skipping";
