@@ -26,6 +26,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+#error "This is a test"
+
 void HugeAllocator::Print(Printer& out) {
   out.printf("HugeAllocator: contiguous, unbacked hugepage(s)\n");
   free_.Print(out);
