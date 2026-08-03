@@ -159,7 +159,22 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
-    deps = [":config"],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_test(
+    name = "clock_test",
+    srcs = ["clock_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":clock",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
 )
 
 cc_library(
