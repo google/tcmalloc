@@ -43,6 +43,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/environment.h"
@@ -608,7 +609,8 @@ class CpuCache {
     MissCounts underflows;
     // Tracks number of overflows on deallocate.
     MissCounts overflows;
-    std::atomic<int64_t> last_miss_cycles[2][kNumClasses];
+    // TODO(b/298229521): Evaluate Cycles32 precision for sizing decisions.
+    Cycles32 last_miss_cycles[2][kNumClasses];
     // total cache space available on this CPU. This tracks the total
     // allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
@@ -616,9 +618,6 @@ class CpuCache {
     std::atomic<uint64_t> reclaim_used_bytes;
     // Tracks number of times this CPU has been reclaimed.
     std::atomic<size_t> num_reclaims;
-    // Tracks last time this CPU was reclaimed.  If last underflow/overflow data
-    // appears before this point in time, we ignore the CPU.
-    std::atomic<int64_t> last_reclaim;
   };
 
   // Determines how we distribute memory in the per-cpu cache to the various
@@ -1261,10 +1260,8 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   const bool grow_by_one = capacity < 2 * batch_length;
   uint32_t successive = 0;
   ResizeInfo& resize = resize_[cpu];
-  const int64_t now = absl::base_internal::CycleClock::Now();
   // TODO(ckennelly): Use a strongly typed enum.
-  resize.last_miss_cycles[overflow][size_class].store(
-      now, std::memory_order_relaxed);
+  resize.last_miss_cycles[overflow][size_class].Update();
   bool grow_by_batch =
       resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
   if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
@@ -2182,8 +2179,13 @@ inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
   resize_[cpu].num_reclaims.store(
       resize_[cpu].num_reclaims.load(std::memory_order_relaxed) + 1,
       std::memory_order_relaxed);
-  resize_[cpu].last_reclaim.store(absl::base_internal::CycleClock::Now(),
-                                  std::memory_order_relaxed);
+  // Resetting the whole array of last miss timestamps is infrequent on idle
+  // CPUs; it prevents 32-bit cycle counter epoch exhaustion if no longer
+  // updated when idle.
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    resize_[cpu].last_miss_cycles[0][size_class].Reset();
+    resize_[cpu].last_miss_cycles[1][size_class].Reset();
+  }
 
   return bytes;
 }
@@ -2473,8 +2475,7 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
   // SizeClassCapacityStats struct to make sure we do not end up with SIZE_MAX
   // in stats.min_capacity when num_populated is equal to zero.
   size_t min_capacity = SIZE_MAX;
-  const double now = absl::base_internal::CycleClock::Now();
-  const double frequency = absl::base_internal::CycleClock::Frequency();
+  const Clock::Snapshot clock_snap = Clock{}.GetSnapshot();
 
   // Scan through all per-CPU caches and calculate minimum, average and maximum
   // capacities for the size class <size_class> across all the populated caches.
@@ -2486,25 +2487,19 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
 
     ++num_populated;
 
-    const auto last_reclaim =
-        resize_[cpu].last_reclaim.load(std::memory_order_relaxed);
-
-    const auto last_underflow_cycles =
-        resize_[cpu].last_miss_cycles[0][size_class].load(
-            std::memory_order_relaxed);
-    const auto last_overflow_cycles =
-        resize_[cpu].last_miss_cycles[1][size_class].load(
-            std::memory_order_relaxed);
+    const auto& last_underflow_cycles =
+        resize_[cpu].last_miss_cycles[0][size_class];
+    const auto& last_overflow_cycles =
+        resize_[cpu].last_miss_cycles[1][size_class];
 
     size_t cap = freelist_.Capacity(cpu, size_class);
     stats.max_capacity = std::max(stats.max_capacity, cap);
     min_capacity = std::min(min_capacity, cap);
     stats.avg_capacity += cap;
 
-    if (last_reclaim >= last_underflow_cycles ||
-        last_reclaim >= last_overflow_cycles) {
-      // Don't consider the underflow/overflow time on this CPU if we have
-      // recently reclaimed.
+    if (!last_underflow_cycles || !last_overflow_cycles) {
+      // Don't consider the underflow/overflow time on this CPU if it is
+      // uninitialized (e.g. recently reclaimed or never missed).
       continue;
     }
 
@@ -2515,9 +2510,9 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
     }
 
     const absl::Duration last_underflow =
-        absl::Seconds((now - last_underflow_cycles) / frequency);
+        last_underflow_cycles.AsDuration(clock_snap);
     const absl::Duration last_overflow =
-        absl::Seconds((now - last_overflow_cycles) / frequency);
+        last_overflow_cycles.AsDuration(clock_snap);
 
     if (last_overflow < stats.min_last_overflow) {
       stats.min_last_overflow = last_overflow;
