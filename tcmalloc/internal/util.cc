@@ -21,6 +21,10 @@
 #include <string.h>
 #if defined(__linux__)
 #include <sys/uio.h>
+#if defined(__GLIBC__) && \
+    ((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 15))
+#define HAS_PROCESS_VM_READV 1
+#endif
 #endif  // defined(__linux__)
 #include <unistd.h>
 
@@ -130,7 +134,7 @@ bool SafeCopyMemory(const void* src, void* dst, size_t size) {
   if (src == nullptr || dst == nullptr || size == 0) {
     return false;
   }
-#if defined(__linux__)
+#if defined(HAS_PROCESS_VM_READV)
   struct iovec local_iov;
   local_iov.iov_base = dst;
   local_iov.iov_len = size;
@@ -144,7 +148,7 @@ bool SafeCopyMemory(const void* src, void* dst, size_t size) {
   return bytes == static_cast<ssize_t>(size);
 #else
   return false;
-#endif  // defined(__linux__)
+#endif  // defined(HAS_PROCESS_VM_READV)
 }
 
 }  // namespace tcmalloc_internal
