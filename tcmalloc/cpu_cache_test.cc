@@ -1247,6 +1247,59 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
   EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
 }
 
+TEST_F(DynamicWideSlabTest, PerCpuAsymmetricSlabResizing) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  constexpr double kDynamicSlabGrowThreshold = 0.9;
+  CpuCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.dynamic_slab_enabled_ = true;
+  forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
+  SizeMap size_map;
+  ASSERT_TRUE(size_map.Init(size_map.CurrentClasses().classes));
+  forwarder.size_map_ = size_map;
+
+  cache.Activate();
+
+  constexpr int kCpuId0 = 0;
+  constexpr int kCpuId1 = 1;
+
+  // Accumulate overflows and underflows for kCpuId0 (Hot CPU).
+  HotCacheOperations(cache, kCpuId0);
+  CpuCache::CpuCacheMissStats interval_misses0 =
+      cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
+  ASSERT_GT(interval_misses0.overflows,
+            interval_misses0.underflows * kDynamicSlabGrowThreshold);
+
+  // Perform cold operations on kCpuId1 (Cold CPU).
+  for (int i = 0; i < 1024; ++i) {
+    ColdCacheOperations(cache, kCpuId1, /*size_class=*/1);
+    cache.Reclaim(kCpuId1);
+  }
+
+  cpu_cache_internal::SlabShiftBounds shift_bounds =
+      cache.GetPerCpuSlabShiftBounds();
+  const int initial_shift = shift_bounds.initial_shift;
+
+  EXPECT_EQ(cache.GetCpuSlabShift(kCpuId0), initial_shift);
+  EXPECT_EQ(cache.GetCpuSlabShift(kCpuId1), initial_shift);
+
+  // Perform per-CPU asymmetric resizing!
+  cache.ResizeCpuSlabIfNeeded(kCpuId0);
+  cache.ResizeCpuSlabIfNeeded(kCpuId1);
+
+  // Hot CPU 0 should have grown independently to initial_shift + 1!
+  EXPECT_EQ(cache.GetCpuSlabShift(kCpuId0), initial_shift + 1);
+  // Cold CPU 1 should stay at initial_shift!
+  EXPECT_EQ(cache.GetCpuSlabShift(kCpuId1), initial_shift);
+
+  // When CPU 0 becomes idle (0 overflows, 0 underflows), calling
+  // ResizeCpuSlabIfNeeded should demote it back down to initial_shift.
+  cache.ResizeCpuSlabIfNeeded(kCpuId0);
+  EXPECT_EQ(cache.GetCpuSlabShift(kCpuId0), initial_shift);
+}
+
 // Test that when dynamic slab parameters change, things still work.
 TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
@@ -1866,6 +1919,7 @@ TEST(CpuCacheTest, Fuzz) {
   Printer p(mallocz.data(), mallocz.size());
   env.cache().Print(p);
   std::cout << mallocz;
+  EXPECT_THAT(mallocz, testing::HasSubstr("slab size"));
 }
 
 // TODO(b/179516472):  Enable this test.
