@@ -618,6 +618,41 @@ inline ssize_t Bitmap<N>::FindValueBackwards(size_t index) const {
   return ret;
 }
 
+// Reduction operations for Scale(). In the case of contracting bitmaps,
+// we need to reduce multiple (n) bits to a single bit.
+//
+// - kAny: If any of the n bits are set, the resulting bit is set.
+// - kAll: If all of the n bits are set, the resulting bit is set.
+enum class ReductionOp {
+  kAny,
+  kAll,
+};
+
+// Scales `src` bitmap from `src_len` bits to `M` bits. If it's a contraction,
+// applies `op` to reduce multiple bits to one. If it's an expansion (or
+// identity), `op` is a no-op.
+template <size_t M, size_t N>
+Bitmap<M> Scale(const Bitmap<N>& src, size_t src_len, ReductionOp op) {
+  TC_ASSERT_LE(src_len, N);
+  TC_ASSERT(src_len % M == 0 || M % src_len == 0);
+
+  Bitmap<M> res;
+  const size_t src_per_dst = std::max<size_t>(1, src_len / M);
+  const size_t dst_per_src = std::max<size_t>(1, M / src_len);
+
+  const size_t required_count = (op == ReductionOp::kAll) ? src_per_dst : 1;
+
+  size_t dst_idx = 0;
+  for (size_t src_idx = 0; src_idx < src_len; src_idx += src_per_dst) {
+    size_t count = src.CountBits(src_idx, src_per_dst);
+    if (count >= required_count) {
+      res.SetRange(dst_idx, dst_per_src);
+    }
+    dst_idx += dst_per_src;
+  }
+  return res;
+}
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

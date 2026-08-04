@@ -12,37 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_HUGE_PAGE_OPTIONS_H_
-#define TCMALLOC_HUGE_PAGE_OPTIONS_H_
+#include "tcmalloc/huge_page_treatment.h"
 
-#include <cstdint>
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
-#include "tcmalloc/internal/config.h"
-
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
+namespace {
 
-enum class HugePageTreatmentType : uint8_t {
-  kSampled = 1 << 0,
-  kCollapse = 1 << 1,
-};
+// TODO(b/242550501): Directly test the treatment classes.
 
-enum class EnableCollapse : bool {
-  kDisabled = false,
-  kEnabled = true,
-};
-
-enum class EnableUnfilteredCollapse : bool {
-  kDisabled = false,
-  kEnabled = true,
-};
-
-enum class ReleaseStalePages : bool {
-  kDisabled = false,
-  kEnabled = true,
-};
-
+}  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
-GOOGLE_MALLOC_SECTION_END
-
-#endif  // TCMALLOC_HUGE_PAGE_OPTIONS_H_

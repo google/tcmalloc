@@ -85,7 +85,11 @@
 #define TCMALLOC_ATTRIBUTE_NO_DESTROY
 #endif
 
-#define TCMALLOC_CAPTURED_BY_THIS ABSL_INTERNAL_ATTRIBUTE_CAPTURED_BY(this)
+#ifdef ABSL_INTERNAL_ATTRIBUTE_CAPTURED_BY_THIS
+#define TCMALLOC_CAPTURED_BY_THIS ABSL_INTERNAL_ATTRIBUTE_CAPTURED_BY_THIS
+#else
+#define TCMALLOC_CAPTURED_BY_THIS
+#endif
 
 // TCMalloc uses asm goto with output constraints to optimize its per-CPU
 // implementation, avoiding an otherwise redundant branch.
