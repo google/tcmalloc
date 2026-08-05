@@ -1716,3 +1716,8 @@ cc_library(
     ],
     alwayslink = 1,
 )
+
+package_group(
+    name = "friends",
+    packages = [],
+)
