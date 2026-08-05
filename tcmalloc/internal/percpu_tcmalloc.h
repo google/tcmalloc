@@ -440,9 +440,9 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
 #define TCMALLOC_RSEQ_SET_CS(name) \
   "movq $__rseq_cs_" #name "_%=, %[rseq_cs_addr]\n"
 #else
-#define TCMALLOC_RSEQ_SET_CS(name) \
-  "lea __rseq_cs_" #name           \
-  "_%=(%%rip), %[scratch]\n"       \
+#define TCMALLOC_RSEQ_SET_CS(name)    \
+  "mov __rseq_cs_" #name              \
+  "_%=@GOTPCREL(%%rip), %[scratch]\n" \
   "movq %[scratch], %[rseq_cs_addr]\n"
 #endif
 

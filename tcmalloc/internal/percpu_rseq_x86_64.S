@@ -139,7 +139,7 @@ label##_trampoline:                                               \
   movq %fs:__rseq_abi@TPOFF + TCMALLOC_RSEQ_SLABS_OFFSET, dest
 #define START_RSEQ(src)                        \
   .L##src##_abort:                             \
-  leaq __rseq_cs_##src(%rip), %rax;            \
+  movq __rseq_cs_##src@GOTPCREL(%rip), %rax;   \
   movq %rax, %fs:__rseq_abi@TPOFF+8;           \
   .L##src##_start:
 
@@ -157,7 +157,7 @@ label##_trampoline:                                               \
 #define START_RSEQ(src)                     \
   .L##src##_abort:                          \
   call tcmalloc_internal_tls_fetch_pic@PLT; \
-  leaq __rseq_cs_##src(%rip), %r11;    	    \
+  movq __rseq_cs_##src@GOTPCREL(%rip), %r11;\
   movq %r11, 8(%rax);                       \
   .L##src##_start:
 
