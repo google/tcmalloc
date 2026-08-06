@@ -77,6 +77,10 @@
 #define PR_SET_VMA_ANON_NAME 0
 #endif
 
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -295,6 +299,8 @@ inline size_t RoundUp(const size_t size, const size_t alignment) {
 }
 
 int MapFixedNoReplaceFlagAvailable();
+
+inline constexpr int kMapFixedNoReplace = MAP_FIXED_NOREPLACE;
 
 }  // namespace system_allocator_internal
 
@@ -804,9 +810,12 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   // tag.
   alignment = absl::bit_ceil(std::max(alignment, size));
 
-  rnd_ = ExponentialBiased::NextRandom(rnd_);
-  uintptr_t addr = rnd_ & kAddrMask & ~(alignment - 1) & ~kTagMask;
-  addr |= static_cast<uintptr_t>(tag) << kTagShift;
+  uintptr_t addr;
+  do {
+    rnd_ = ExponentialBiased::NextRandom(rnd_);
+    addr = rnd_ & kAddrMask & ~(alignment - 1) & ~kTagMask;
+    addr |= static_cast<uintptr_t>(tag) << kTagShift;
+  } while (addr == 0);
 
 #if defined(ABSL_HAVE_THREAD_SANITIZER)
 #if defined(__x86_64__)

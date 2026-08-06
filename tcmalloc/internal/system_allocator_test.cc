@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #include <sys/prctl.h>
 
+#include <atomic>
 #include <limits>
 #include <optional>
 #include <string>
@@ -33,6 +34,7 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/proc_maps.h"

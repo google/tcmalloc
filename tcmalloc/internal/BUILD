@@ -1326,6 +1326,7 @@ cc_test(
     deps = [
         ":allocation_guard",
         ":config",
+        ":exponential_biased",
         ":logging",
         ":numa",
         ":proc_maps",
@@ -1351,6 +1352,7 @@ cc_test(
     deps = [
         ":allocation_guard",
         ":config",
+        ":exponential_biased",
         ":logging",
         ":numa",
         ":proc_maps",

@@ -42,10 +42,6 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x100000
-#endif
-
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal::system_allocator_internal {
 
@@ -81,7 +77,7 @@ int MapFixedNoReplaceFlagAvailable() {
     void* target = reinterpret_cast<void*>(uptr - page_size);
 
     void* ptr2 = mmap(target, 2 * page_size, PROT_NONE,
-                      MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                      kMapFixedNoReplace | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     const bool rejected = ptr2 == MAP_FAILED;
     if (!rejected) {
       if (ptr2 == target) {
@@ -95,7 +91,7 @@ int MapFixedNoReplaceFlagAvailable() {
     }
     munmap(ptr, page_size);
 
-    noreplace_flag = rejected ? MAP_FIXED_NOREPLACE : 0;
+    noreplace_flag = rejected ? kMapFixedNoReplace : 0;
   });
 
   return noreplace_flag;

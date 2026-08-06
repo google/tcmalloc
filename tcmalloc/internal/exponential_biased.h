@@ -23,14 +23,14 @@ namespace tcmalloc_internal {
 
 class ExponentialBiased {
  public:
-  static uint64_t NextRandom(uint64_t rnd);
-  static uint32_t GetRandom(uint64_t rnd);
+  static constexpr uint64_t NextRandom(uint64_t rnd);
+  static constexpr uint32_t GetRandom(uint64_t rnd);
 };
 
 // Returns the next prng value.
 // pRNG is: aX+b mod c with a = 0x5DEECE66D, b =  0xB, c = 1<<48
 // This is the lrand64 generator.
-inline uint64_t ExponentialBiased::NextRandom(uint64_t rnd) {
+inline constexpr uint64_t ExponentialBiased::NextRandom(uint64_t rnd) {
   const uint64_t prng_mult = UINT64_C(0x5DEECE66D);
   const uint64_t prng_add = 0xB;
   const uint64_t prng_mod_power = 48;
@@ -42,7 +42,9 @@ inline uint64_t ExponentialBiased::NextRandom(uint64_t rnd) {
 // Extracts higher-quality random bits.
 // The raw value returned from NextRandom has poor randomness low bits
 // and is not directly suitable for things like 'if (rnd % 2)'.
-inline uint32_t ExponentialBiased::GetRandom(uint64_t rnd) { return rnd >> 16; }
+inline constexpr uint32_t ExponentialBiased::GetRandom(uint64_t rnd) {
+  return rnd >> 16;
+}
 
 // Convenience wrapper to initialize a seed and return a sequence of
 // pseudo-random values. Thread-safety: thread safe.
