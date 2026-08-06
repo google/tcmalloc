@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <atomic>
 #include <new>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -37,6 +38,8 @@
 #include "absl/container/fixed_array.h"
 #include "absl/functional/function_ref.h"
 #include "absl/numeric/bits.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
@@ -53,6 +56,7 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/pages.h"
@@ -120,6 +124,13 @@ class StaticForwarder {
 
   void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
     TC_ASSERT(false);
+  }
+
+  void SetAnonVmaName(void* ptr, size_t size,
+                      std::optional<absl::string_view> name) {
+    TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) % kHugePageSize, 0);
+    TC_ASSERT_EQ(size % kHugePageSize, 0);
+    state_.system_allocator().SetAnonVmaName(ptr, size, name);
   }
 
   void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
@@ -720,6 +731,8 @@ class CpuCache {
 
   // madvise-away slab memory, pointed to by <slab_addr> of size <slab_size>.
   void MadviseAwaySlabs(void* slab_addr, size_t slab_size);
+
+  void SetSlabAnonVmaName(void* ptr, size_t size, bool is_drained);
 
   uint8_t PartitionShift() const;
 
@@ -1519,6 +1532,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 
 template <class Forwarder>
 void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
+  SetSlabAnonVmaName(slab_addr, slab_size, /*is_drained=*/true);
   // It is important that we do not MADV_REMOVE the memory, since file-backed
   // pages may SIGSEGV/SIGBUS if another thread sees the previous slab after
   // this point and reads it.
@@ -2252,6 +2266,63 @@ inline void CpuCache<Forwarder>::ClearTouchedCpus() {
   }
 }
 
+// Names the anonymous VMA for a CpuCache slab region [ptr, ptr + size).
+//
+// VMA labels indicate the slab status and hugepage boundary alignment:
+// - Base label:
+//   - "tcmalloc_cpu_slab_<suffix>" for active/allocated slabs.
+//   - "tcmalloc_cpu_slab_drained_<suffix>" for slabs that have been drained /
+//     madvised away and are at rest.
+// - Alignment suffix:
+//   Ranges are rounded up from below and down from above to kHugePageSize
+//   boundaries to avoid fragmenting transparent hugepage coverage:
+//   - "_exact": Exact alignment (neither bound required rounding).
+//   - "_up": Lower bound was unaligned and rounded up.
+//   - "_down": Upper bound was unaligned and rounded down.
+//   - "_both": Both lower and upper bounds were unaligned and rounded.
+template <class Forwarder>
+inline void CpuCache<Forwarder>::SetSlabAnonVmaName(void* ptr, size_t size,
+                                                    bool is_drained) {
+  if (ptr == nullptr || size == 0) return;
+
+  uintptr_t start = reinterpret_cast<uintptr_t>(ptr);
+  if (start > UINTPTR_MAX - kHugePageSize + 1) return;
+  uintptr_t end = start + size;
+
+  uintptr_t rounded_start =
+      system_allocator_internal::RoundUp(start, kHugePageSize);
+  uintptr_t rounded_end =
+      system_allocator_internal::RoundDown(end, kHugePageSize);
+
+  if (rounded_end <= rounded_start) {
+    return;
+  }
+
+  bool rounded_up = (rounded_start > start);
+  bool rounded_down = (rounded_end < end);
+
+  absl::string_view drained = is_drained ? "_drained" : "";
+  absl::string_view suffix;
+  if (rounded_up && rounded_down) {
+    suffix = "both";
+  } else if (rounded_up) {
+    suffix = "up";
+  } else if (rounded_down) {
+    suffix = "down";
+  } else {
+    suffix = "exact";
+  }
+
+  char buf[64];
+  int ret = absl::SNPrintF(buf, sizeof(buf), "tcmalloc_cpu_slab%s_%s", drained,
+                           suffix);
+  TC_CHECK_LT(ret, sizeof(buf));
+
+  absl::string_view name(buf, ret);
+  forwarder_.SetAnonVmaName(reinterpret_cast<void*>(rounded_start),
+                            rounded_end - rounded_start, name);
+}
+
 template <class Forwarder>
 inline std::pair<void*, size_t> CpuCache<Forwarder>::AllocOrReuseSlabs(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
@@ -2275,6 +2346,7 @@ inline std::pair<void*, size_t> CpuCache<Forwarder>::AllocOrReuseSlabs(
     // MSan does not see writes in assembly.
     ANNOTATE_MEMORY_IS_INITIALIZED(reused_slabs, size);
   }
+  SetSlabAnonVmaName(reused_slabs, size, /*is_drained=*/false);
   return {reused_slabs, can_reuse ? size : 0};
 }
 

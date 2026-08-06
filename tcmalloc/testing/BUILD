@@ -704,6 +704,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = ["@com_github_google_benchmark//:benchmark"],
+    alwayslink = 1,
 )
 
 cc_test(

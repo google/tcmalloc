@@ -20,14 +20,17 @@
 #include <cstdint>
 #include <map>
 #include <new>
+#include <optional>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
@@ -135,6 +138,12 @@ class FakeStaticForwarder {
       ::operator delete(span->start_address(), std::align_val_t(page_size_));
       delete span;
     }
+  }
+
+  void SetAnonVmaName(void* ptr, size_t size,
+                      std::optional<absl::string_view> name) {
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) % kHugePageSize, 0);
+    EXPECT_EQ(size % kHugePageSize, 0);
   }
 
  private:

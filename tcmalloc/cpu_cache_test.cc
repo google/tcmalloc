@@ -15,34 +15,47 @@
 #include "tcmalloc/cpu_cache.h"
 
 #include <sys/mman.h>
+#include <sys/prctl.h>
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <new>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/dynamic_annotations.h"
 #include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
@@ -107,6 +120,12 @@ class CpuCachePeer {
   static size_t CpuStateSize(const CpuCache& cpu_cache) {
     return cpu_cache.freelist_.GetCpuStateSize();
   }
+
+  template <typename CpuCache>
+  static void MadviseAwaySlabs(CpuCache& cpu_cache, void* slab_addr,
+                               size_t slab_size) {
+    cpu_cache.MadviseAwaySlabs(slab_addr, slab_size);
+  }
 };
 
 namespace {
@@ -117,6 +136,9 @@ class TestStaticForwarder {
  public:
   TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
     numa_topology_.Init();
+
+    absl::base_internal::SpinLockHolder l(&vma_name_mu_);
+    vma_name_calls_.reserve(10);
   }
 
   void InitializeShardedManager(int num_shards) {
@@ -133,6 +155,39 @@ class TestStaticForwarder {
     arena_reported_impending_bytes_ -= static_cast<int64_t>(size);
     return mmap(nullptr, size, PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  }
+
+  struct SetAnonVmaNameCall {
+    void* ptr;
+    size_t size;
+    char name[64] = {0};
+  };
+  absl::base_internal::SpinLock vma_name_mu_;
+  std::vector<SetAnonVmaNameCall> vma_name_calls_ ABSL_GUARDED_BY(vma_name_mu_);
+
+  std::vector<SetAnonVmaNameCall> vma_name_calls() {
+    absl::base_internal::SpinLockHolder l(vma_name_mu_);
+    return vma_name_calls_;
+  }
+
+  void clear_vma_name_calls() {
+    absl::base_internal::SpinLockHolder l(vma_name_mu_);
+    vma_name_calls_.clear();
+  }
+
+  void SetAnonVmaName(void* ptr, size_t size,
+                      std::optional<absl::string_view> name) {
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) % kHugePageSize, 0);
+    EXPECT_EQ(size % kHugePageSize, 0);
+    TC_CHECK(name.has_value());
+    {
+      absl::base_internal::SpinLockHolder l(vma_name_mu_);
+      auto& elem = vma_name_calls_.emplace_back();
+      elem.ptr = ptr;
+      elem.size = size;
+      memcpy(elem.name, name->data(),
+             std::min(name->size(), sizeof(elem.name) - 1));
+    }
   }
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t /*alignment*/) {
@@ -1001,6 +1056,7 @@ TEST(CpuCacheTest, DynamicSlab) {
       for (DynamicSlab dynamic_slab : ops) {
         EXPECT_EQ(shift, CpuCachePeer::GetSlabShift(cache));
         absl::SleepFor(absl::Milliseconds(100));
+        forwarder.clear_vma_name_calls();
         forwarder.dynamic_slab_ = dynamic_slab;
         // If there were no misses in the current resize interval, then we may
         // not resize so we ensure non-zero misses.
@@ -1011,6 +1067,27 @@ TEST(CpuCacheTest, DynamicSlab) {
                     forwarder.arena_reported_nonresident_bytes_);
           EXPECT_EQ(forwarder.shrink_to_usage_limit_calls_,
                     1 + prev_shrink_to_usage_limit_calls);
+          bool found_drained = false;
+          for (const auto& call : forwarder.vma_name_calls()) {
+            if (absl::StartsWith(call.name, "tcmalloc_cpu_slab_drained_")) {
+              found_drained = true;
+              EXPECT_THAT(absl::string_view(call.name),
+                          testing::AnyOf("tcmalloc_cpu_slab_drained_both",
+                                         "tcmalloc_cpu_slab_drained_up",
+                                         "tcmalloc_cpu_slab_drained_down",
+                                         "tcmalloc_cpu_slab_drained_exact"));
+            }
+          }
+
+          const size_t slab_bytes = static_cast<size_t>(NumCPUs()) << shift;
+          if (slab_bytes >= 2 * kHugePageSize) {
+            // We are guaranteed to span at least one whole hugepage.
+            EXPECT_TRUE(found_drained);
+          } else if (slab_bytes < kHugePageSize) {
+            // We rounded the slab into oblivion.
+            EXPECT_FALSE(found_drained);
+          }
+
           shift += shift_update;
         } else {
           EXPECT_EQ(prev_reported_nonresident_bytes,
@@ -2100,6 +2177,31 @@ TEST(CpuCacheTest, TargetOverflowRefillCount) {
   EXPECT_EQ(F(48, 8, 3), 25);
   EXPECT_EQ(F(56, 8, 3), 29);
   EXPECT_EQ(F(100, 8, 3), 51);
+}
+
+TEST(CpuCacheTest, NamedVma) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Activate();
+
+  TestStaticForwarder& forwarder = cache.forwarder();
+  auto calls = forwarder.vma_name_calls();
+  EXPECT_FALSE(calls.empty());
+
+  bool found_active = false;
+  for (const auto& call : calls) {
+    if (absl::StartsWith(call.name, "tcmalloc_cpu_slab_")) {
+      found_active = true;
+      EXPECT_THAT(
+          absl::string_view(call.name),
+          testing::AnyOf("tcmalloc_cpu_slab_both", "tcmalloc_cpu_slab_up",
+                         "tcmalloc_cpu_slab_down", "tcmalloc_cpu_slab_exact"));
+    }
+  }
+  EXPECT_TRUE(found_active);
+  cache.Deactivate();
 }
 
 }  // namespace

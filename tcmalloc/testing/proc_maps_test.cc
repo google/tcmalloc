@@ -25,6 +25,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/match.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
@@ -37,6 +38,7 @@ namespace {
 using ::testing::AnyOf;
 using ::testing::Contains;
 using ::testing::IsSupersetOf;
+using ::testing::Not;
 
 TEST(ProcMapsTest, InspectMappings) {
   const bool heap_partitioning_active =
@@ -119,6 +121,21 @@ TEST(ProcMapsTest, InspectMappings) {
     EXPECT_THAT(tcmalloc_regions,
                 AnyOf(Contains("[anon:tcmalloc_region_NORMAL]"),
                       Contains("[anon:tcmalloc_region_NORMAL_P1]")));
+  }
+
+  if (UsePerCpuCache(tc_globals)) {
+    auto slab_matcher = Contains(AnyOf(
+        "[anon:tcmalloc_cpu_slab_both]", "[anon:tcmalloc_cpu_slab_up]",
+        "[anon:tcmalloc_cpu_slab_down]", "[anon:tcmalloc_cpu_slab_exact]"));
+
+    auto metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
+    if (metadata.virtual_size >= kHugePageSize) {
+      EXPECT_THAT(tcmalloc_regions, slab_matcher);
+    } else {
+      // If metadata is not currently at least a hugepage, we don't expect to
+      // match.  This can happen on small machines or with small-but-slow.
+      EXPECT_THAT(tcmalloc_regions, Not(slab_matcher));
+    }
   }
 }
 
