@@ -33,6 +33,7 @@
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
@@ -636,6 +637,11 @@ void DumpStats(Printer& out, int level) {
                Parameters::release_pages_from_huge_region() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_huge_region_adaptive_release %d\n",
                Parameters::huge_region_adaptive_release() ? 1 : 0);
+    out.printf("PARAMETER madvise_cold_regions_nohugepage %d\n",
+               Parameters::madvise_cold_regions_nohugepage() ==
+                       MadviseRegionsNoHugepage::kEnabled
+                   ? 1
+                   : 0);
     out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
     out.printf("PARAMETER heap_partitioning %d\n",
@@ -916,6 +922,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                    Parameters::release_pages_from_huge_region());
   region.PrintBool("tcmalloc_huge_region_adaptive_release",
                    Parameters::huge_region_adaptive_release());
+  region.PrintBool("madvise_cold_regions_nohugepage",
+                   Parameters::madvise_cold_regions_nohugepage() ==
+                       MadviseRegionsNoHugepage::kEnabled);
   region.PrintI64("profile_sampling_interval",
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",
@@ -963,7 +972,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
-                        size_t* value) {
+                        size_t* absl_nonnull value) {
   TC_ASSERT(name_data != nullptr || name_size == 0);
   TC_ASSERT_NE(value, nullptr);
   const absl::string_view name(name_data, name_size);

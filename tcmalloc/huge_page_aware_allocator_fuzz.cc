@@ -299,6 +299,15 @@ struct SetEnableReleaseStalePages {
   }
 };
 
+struct SetMadvNoHugepageHugeRegions {
+  bool value;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetMadvNoHugepageHugeRegions& s) {
+    absl::Format(&sink, "SetMadvNoHugepageHugeRegions{.value=%v}", s.value);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -314,7 +323,7 @@ using ParamOp = std::variant<
     SetHpaaSubrelease, SetReleaseSucceeds, SetHugeRegionDemandBasedRelease,
     SetHugeRegionAdaptiveRelease, SetBackAllocations, SetBackSizeThresholdBytes,
     ReentrantSubprogram, SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
-    SetEnableReleaseStalePages>;
+    SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -615,6 +624,12 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
                       forwarder.set_release_stale_pages(
                           param_arg.value ? ReleaseStalePages::kEnabled
                                           : ReleaseStalePages::kDisabled);
+                    } else if constexpr (std::is_same_v<
+                                             P, SetMadvNoHugepageHugeRegions>) {
+                      forwarder.set_madvise_cold_regions_nohugepage(
+                          param_arg.value
+                              ? MadviseRegionsNoHugepage::kEnabled
+                              : MadviseRegionsNoHugepage::kDisabled);
                     }
                   },
                   arg.op);

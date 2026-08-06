@@ -21,7 +21,6 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
-#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/central_freelist.h"
@@ -240,6 +239,20 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_cold_pages_(false);
+static std::atomic<MadviseRegionsNoHugepage>&
+madvise_cold_regions_nohugepage_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<MadviseRegionsNoHugepage> v{
+      MadviseRegionsNoHugepage::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
+      v.store(MadviseRegionsNoHugepage::kEnabled, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 static std::atomic<bool>& huge_region_adaptive_release_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
@@ -319,6 +332,11 @@ bool Parameters::back_small_allocations() {
 
 bool Parameters::huge_region_adaptive_release() {
   return huge_region_adaptive_release_enabled().load(std::memory_order_relaxed);
+}
+
+MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
+  return madvise_cold_regions_nohugepage_enabled().load(
+      std::memory_order_relaxed);
 }
 
 HeapPartitioningMode Parameters::heap_partitioning_mode() {
@@ -672,6 +690,18 @@ bool TCMalloc_Internal_GetReleaseMaxColdPages() {
 
 void TCMalloc_Internal_SetReleaseMaxColdPages(bool v) {
   Parameters::release_max_cold_pages_.store(v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
+  return Parameters::madvise_cold_regions_nohugepage() ==
+         tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled;
+}
+
+void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
+  tcmalloc::tcmalloc_internal::madvise_cold_regions_nohugepage_enabled().store(
+      v ? tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled
+        : tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kDisabled,
+      std::memory_order_relaxed);
 }
 
 }  // extern "C"

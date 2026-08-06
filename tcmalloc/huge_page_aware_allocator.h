@@ -15,7 +15,9 @@
 #ifndef TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_H_
 #define TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_H_
 
+#include <errno.h>
 #include <stddef.h>
+#include <sys/mman.h>
 
 #include <cstdint>
 #include <optional>
@@ -92,6 +94,10 @@ class StaticForwarder {
 
   static ReleaseStalePages release_stale_pages() {
     return Parameters::release_stale_pages();
+  }
+
+  static MadviseRegionsNoHugepage madvise_cold_regions_nohugepage() {
+    return Parameters::madvise_cold_regions_nohugepage();
   }
 
   // Arena state.
@@ -844,6 +850,16 @@ template <class Forwarder>
 inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
   HugeRange r = alloc_.Get(HugeRegion::size());
   if (!r.valid()) return false;
+
+  if (forwarder_.madvise_cold_regions_nohugepage() ==
+      MadviseRegionsNoHugepage::kEnabled) {
+    bool madvise_failed = false;
+    do {
+      madvise_failed =
+          madvise(r.start_addr(), r.len().in_bytes(), MADV_NOHUGEPAGE) != 0;
+    } while (madvise_failed && errno == EAGAIN);
+  }
+
   HugeRegion* region = region_allocator_.New(r, unback_, set_anon_vma_name_);
   regions_.Contribute(region);
   return true;

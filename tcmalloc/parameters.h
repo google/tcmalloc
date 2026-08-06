@@ -24,6 +24,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
@@ -137,6 +138,12 @@ class Parameters {
 
   static void set_release_max_cold_pages(bool value) {
     TCMalloc_Internal_SetReleaseMaxColdPages(value);
+  }
+
+  static MadviseRegionsNoHugepage madvise_cold_regions_nohugepage();
+
+  static void set_madvise_cold_regions_nohugepage(bool value) {
+    TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(value);
   }
 
   static void set_per_cpu_caches(bool value) {

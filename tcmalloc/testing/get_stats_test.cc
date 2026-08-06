@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <ctype.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <string.h>
@@ -21,7 +20,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
-#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -33,12 +31,9 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/global_stats.h"
-#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/malloc_extension.h"
@@ -158,6 +153,12 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
   }
 
+  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
+    EXPECT_THAT(buf, HasSubstr("madvise_cold_regions_nohugepage: true"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("madvise_cold_regions_nohugepage: false"));
+  }
+
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
   if (MallocExtension::PerCpuCachesActive()) {
     EXPECT_THAT(buf, ContainsRegex("cpu_caches_touched: [0-9]+"));
@@ -266,6 +267,14 @@ TEST_F(GetStatsTest, Parameters) {
       EXPECT_THAT(
           buf,
           HasSubstr(R"(PARAMETER tcmalloc_huge_region_adaptive_release 0)"));
+    }
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
+      EXPECT_THAT(buf,
+                  HasSubstr(R"(PARAMETER madvise_cold_regions_nohugepage 1)"));
+    } else {
+      EXPECT_THAT(buf,
+                  HasSubstr(R"(PARAMETER madvise_cold_regions_nohugepage 0)"));
     }
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(using_hpaa_subrelease: false)"));

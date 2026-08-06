@@ -289,6 +289,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES"},
     },
+    {
+        "name": "tcmalloc_madv_nohugepage_regions",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"},
+    },
 ]
 
 def create_tcmalloc_library(

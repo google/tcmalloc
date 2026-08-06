@@ -33,6 +33,7 @@
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -98,6 +99,14 @@ class FakeStaticForwarder {
   ReleaseStalePages release_stale_pages() const { return release_stale_pages_; }
   void set_release_stale_pages(ReleaseStalePages value) {
     release_stale_pages_ = value;
+  }
+
+  MadviseRegionsNoHugepage madvise_cold_regions_nohugepage() const {
+    return madvise_cold_regions_nohugepage_;
+  }
+
+  void set_madvise_cold_regions_nohugepage(MadviseRegionsNoHugepage value) {
+    madvise_cold_regions_nohugepage_ = value;
   }
 
   bool BackAllocations() const { return back_allocations_; }
@@ -244,6 +253,8 @@ class FakeStaticForwarder {
       EnableUnfilteredCollapse::kDisabled;
   Arena arena_;
   ReleaseStalePages release_stale_pages_ = ReleaseStalePages::kDisabled;
+  MadviseRegionsNoHugepage madvise_cold_regions_nohugepage_ =
+      MadviseRegionsNoHugepage::kDisabled;
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;
 
