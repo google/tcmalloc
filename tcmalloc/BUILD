@@ -1723,3 +1723,14 @@ cc_library(
     ],
     alwayslink = 1,
 )
+
+cc_library(
+    name = "want_generic_sharded_transfer_cache",
+    srcs = ["want_generic_sharded_transfer_cache.cc"],
+    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc/testing:__pkg__"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+    ],
+    alwayslink = 1,
+)

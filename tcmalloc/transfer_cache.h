@@ -72,10 +72,17 @@ class StaticForwarder {
                                   std::align_val_t alignment = kAlignment);
 };
 
+extern "C" ABSL_ATTRIBUTE_WEAK bool
+default_want_generic_sharded_transfer_cache();
+
 class ShardedStaticForwarder : public StaticForwarder {
  public:
   static void Init() {
-    use_generic_cache_ = false;
+    use_generic_cache_ =
+        (default_want_generic_sharded_transfer_cache != nullptr &&
+         default_want_generic_sharded_transfer_cache()) &&
+        !IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
     // Traditionally, we enable sharded transfer cache for large size
     // classes alone.
     enable_cache_for_large_classes_only_ = IsExperimentActive(
