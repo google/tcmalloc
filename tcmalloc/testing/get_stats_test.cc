@@ -79,6 +79,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, ContainsRegex(R"(in_use_by_app: [0-9]+)"));
   EXPECT_THAT(buf, ContainsRegex(R"(page_heap_freelist: [0-9]+)"));
   EXPECT_THAT(buf, ContainsRegex(R"(tcmalloc_huge_page_size: [0-9]+)"));
+  EXPECT_THAT(buf, ContainsRegex(R"(pagemap_root_size: [1-9][0-9]*)"));
 #if defined(GTEST_USES_PCRE)
   EXPECT_THAT(buf,
               ContainsRegex(absl::StrCat(

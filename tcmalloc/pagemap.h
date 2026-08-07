@@ -600,6 +600,8 @@ class PageMap {
     return map_.bytes_used();
   }
 
+  constexpr size_t RootSize() const { return map_.RootSize(); }
+
   [[nodiscard]] void* GetHugepage(PageId p) {
     return map_.get_hugepage(p.index());
   }

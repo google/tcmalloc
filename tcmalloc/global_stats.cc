@@ -132,6 +132,7 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
     PageHeapSpinLockHolder l;
     r.metadata_bytes = tc_globals.metadata_bytes();
     r.pagemap_bytes = tc_globals.pagemap().bytes();
+    r.pagemap_root_size = tc_globals.pagemap().RootSize();
     r.pageheap = tc_globals.page_allocator().stats();
     r.peak_stats = tc_globals.page_allocator().peak_stats();
     if (small_spans != nullptr) {
@@ -367,6 +368,7 @@ void DumpStats(Printer& out, int level) {
       "MALLOC:   %12u (%7.1f MiB) Table buckets created\n"
       "MALLOC:   %12u (%7.1f MiB) Pagemap bytes used\n"
       "MALLOC:   %12u (%7.1f MiB) Pagemap root resident bytes\n"
+      "MALLOC:   %12u (%7.1f MiB) Pagemap root size\n"
       "MALLOC:   %12u (%7.1f MiB) per-CPU slab bytes used\n"
       "MALLOC:   %12u (%7.1f MiB) per-CPU slab resident bytes\n"
       "MALLOC:   %12u (%7.1f MiB) malloc metadata Arena non-resident bytes\n"
@@ -405,6 +407,7 @@ void DumpStats(Printer& out, int level) {
       uint64_t(stats.pagemap_bytes),
       stats.pagemap_bytes / MiB,
       stats.pagemap_root_bytes_res, stats.pagemap_root_bytes_res / MiB,
+      uint64_t(stats.pagemap_root_size), stats.pagemap_root_size / MiB,
       uint64_t(stats.percpu_metadata_bytes),
       stats.percpu_metadata_bytes / MiB,
       stats.percpu_metadata_bytes_res, stats.percpu_metadata_bytes_res / MiB,
@@ -765,6 +768,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   uint64_t(stats.linked_sample_stats.total));
   region.PrintI64("pagemap_size", uint64_t(stats.pagemap_bytes));
   region.PrintI64("pagemap_root_residence", stats.pagemap_root_bytes_res);
+  region.PrintI64("pagemap_root_size", uint64_t(stats.pagemap_root_size));
   region.PrintI64("percpu_slab_size", stats.percpu_metadata_bytes);
   region.PrintI64("percpu_slab_residence", stats.percpu_metadata_bytes_res);
   region.PrintI64("peak_backed", stats.peak_stats.backed_bytes);
