@@ -376,7 +376,8 @@ void DumpStats(Printer& out, int level) {
       "MALLOC:   %12u               Tcmalloc page size\n"
       "MALLOC:   %12u               Tcmalloc hugepage size\n"
       "MALLOC:   %12u               CPUs Allowed in Mask\n"
-      "MALLOC:   %12u               Arena blocks\n",
+      "MALLOC:   %12u               Arena blocks\n"
+      "MALLOC:   %12u               Arena freelist blocks\n",
       bytes_in_use_by_app, bytes_in_use_by_app / MiB,
       stats.pageheap.free_bytes, stats.pageheap.free_bytes / MiB,
       stats.central_bytes, stats.central_bytes / MiB,
@@ -417,7 +418,8 @@ void DumpStats(Printer& out, int level) {
       uint64_t(kPageSize),
       uint64_t(kHugePageSize),
       CountAllowedCpus(),
-      stats.arena.blocks
+      stats.arena.blocks,
+      stats.arena.freelist_blocks
   );
   // clang-format on
 
@@ -774,6 +776,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintI64("tcmalloc_huge_page_size", uint64_t(kHugePageSize));
   region.PrintI64("cpus_allowed", CountAllowedCpus());
   region.PrintI64("arena_blocks", stats.arena.blocks);
+  region.PrintI64("arena_freelist_blocks", stats.arena.freelist_blocks);
 
   // Print hooks stats.
   region.PrintI64("new_hooks_present", uint64_t(new_hooks_.size()));
