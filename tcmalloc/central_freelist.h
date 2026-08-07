@@ -517,8 +517,12 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     nonempty_.Add(span, cur_index);
     span->set_nonempty_index(cur_index);
   } else if (cur_index != prev_index) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     nonempty_.Remove(span, prev_index);
     nonempty_.Add(span, cur_index);
+#else
+    nonempty_.Move(span, prev_index, cur_index);
+#endif
     span->set_nonempty_index(cur_index);
   }
   return nullptr;
@@ -774,8 +778,12 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         const uint8_t cur_index =
             IndexFor(span->is_long_lived_span(), cur_allocated, cur_bitwidth);
         if (cur_index != prev_index) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
           nonempty_.Remove(span, prev_index);
           nonempty_.Add(span, cur_index);
+#else
+          nonempty_.Move(span, prev_index, cur_index);
+#endif
           span->set_nonempty_index(cur_index);
         }
       }
