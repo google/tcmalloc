@@ -236,7 +236,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     // state.
     sharded_transfer_cache_.Init();
     new (page_allocator_.memory) PageAllocator;
-    pagemap_.MapRootWithSmallPages();
     guardedpage_allocator_.Init(/*max_allocated_pages=*/64,
                                 /*total_pages=*/128);
 

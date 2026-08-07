@@ -279,9 +279,6 @@ class PageMap2 {
     // Account for size of root node, etc.
     return bytes_used_ + sizeof(*this);
   }
-
-  constexpr size_t RootSize() const { return sizeof(root_); }
-  const void* RootAddress() { return root_; }
 };
 
 // Three-level radix tree
@@ -527,9 +524,6 @@ class PageMap3 {
   }
 
   size_t bytes_used() const { return bytes_used_ + sizeof(*this); }
-
-  constexpr size_t RootSize() const { return sizeof(root_); }
-  const void* RootAddress() { return root_; }
 };
 
 class PageMap {
@@ -606,12 +600,6 @@ class PageMap {
 
   void SetHugepage(PageId p, void* v) { map_.set_hugepage(p.index(), v); }
 
-  // The PageMap root node can be quite large and sparsely used. If this
-  // gets mapped with hugepages we potentially end up holding a large
-  // amount of unused memory. So it is better to map the root node with
-  // small pages to minimise the amount of unused memory.
-  void MapRootWithSmallPages();
-
   // Returns the count of the currently allocated Spans and also adds details
   // of such Spans in the provided allocated_spans vector. This routine avoids
   // allocation events since we hold the pageheap_lock, so no more elements will
@@ -648,11 +636,7 @@ class PageMap {
   }
 
  private:
-#ifdef TCMALLOC_USE_PAGEMAP3
   PageMap3<kAddressBits - kPageShift, MetaDataAlloc> map_;
-#else
-  PageMap2<kAddressBits - kPageShift, MetaDataAlloc> map_;
-#endif
 };
 
 }  // namespace tcmalloc_internal
