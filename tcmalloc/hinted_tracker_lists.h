@@ -95,6 +95,26 @@ class HintedTrackerLists {
     }
     --size_;
   }
+
+  // Moves pointer <pt> from list `from` to list `to`.
+  // REQUIRES: from < N && to < N && pt != nullptr
+  void Move(TrackerType* absl_nonnull pt TCMALLOC_CAPTURED_BY_THIS,
+            const size_t from, const size_t to) {
+    TC_ASSERT_LT(from, N);
+    TC_ASSERT_LT(to, N);
+    // This check is not strictly required, but we should avoid the linked list
+    // manipulations if we can.
+    TC_ASSERT_NE(from, to);
+    TC_ASSERT_NE(pt, nullptr);
+
+    if (lists_[from].remove(pt)) {
+      TC_ASSERT(nonempty_.GetBit(from));
+      nonempty_.ClearBit(from);
+    }
+    lists_[to].prepend(pt);
+    nonempty_.SetBit(to);
+  }
+
   const TrackerList& operator[](const size_t n) const {
     TC_ASSERT_LT(n, N);
     return lists_[n];
