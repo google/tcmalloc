@@ -620,7 +620,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   using RunLength = uint8_t;
-  RunLength run_lengths[kMaxObjectsToMove] = {0};
+  RunLength run_lengths[kMaxObjectsToMove];
   ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(run_lengths, sizeof(run_lengths));
   static_assert(kMaxObjectsToMove <= std::numeric_limits<RunLength>::max());
 
