@@ -814,6 +814,24 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
   // This is a cheaper check than using FreelistEmpty().
   bool span_empty = result == objects_per_span_;
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const uint16_t allocated = result;
+  TC_ASSERT_EQ(allocated, span->Allocated());
+  const uint8_t bitwidth = absl::bit_width(allocated);
+  const uint8_t index =
+      IndexFor(span->is_long_lived_span(), allocated, bitwidth);
+
+  lock_.lock();
+
+  // Update the histogram once we populate the span.
+  RecordSpanUtil(bitwidth, /*increase=*/true);
+  if (!span_empty) {
+    nonempty_.Add(span, index);
+    span->set_nonempty_index(index);
+  }
+  RecordSpanAllocated();
+  return result;
+#else
   lock_.lock();
 
   // Update the histogram once we populate the span.
@@ -829,6 +847,7 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
   }
   RecordSpanAllocated();
   return result;
+#endif
 }
 
 template <class Forwarder>
