@@ -798,6 +798,11 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
     UpdateObjectCounts(-result);
   }
 
+  // Use ASSUME to elide the bounds check in subspan, per b/538576012#comment3.
+  //
+  // TODO(b/538576012): Use a recommended API for this.
+  size_t size = batch.size();
+  ASSUME(result <= size);
   forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
   return result;
 }
