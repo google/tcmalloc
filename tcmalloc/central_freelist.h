@@ -737,6 +737,9 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       }
 
       const uint16_t prev_allocated = span->Allocated();
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ASSUME(prev_allocated > 0);
+#endif
       const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
       TC_ASSERT_EQ(prev_index, span->nonempty_index());
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -753,8 +756,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       ASSUME(result < size);
 #endif
       int here = span->FreelistPopBatch(batch.subspan(result), object_size);
-      // TODO(b/451807659): Return this to an assert after debugging is done.
-      TC_CHECK_GT(here, 0, "Failed to make progress.  Freelist corrupted?");
+      ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
       // As the objects are being popped from the span, its utilization might
       // change. So, we remove the stale utilization from the histogram here and
       // add it again once we pop the objects.
