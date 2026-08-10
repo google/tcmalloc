@@ -624,8 +624,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   using RunLength = uint8_t;
-  RunLength run_lengths[kMaxObjectsToMove] = {0};
-  ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(run_lengths, sizeof(run_lengths));
+  RunLength run_lengths[kMaxObjectsToMove];
   static_assert(kMaxObjectsToMove <= std::numeric_limits<RunLength>::max());
 
   // Record how many objects fell on the same span.
