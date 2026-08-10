@@ -47,6 +47,7 @@ struct TCMallocStats {
   AllocatorStats stack_stats;          // StackTrace objects
   AllocatorStats linked_sample_stats;  // StackTraceTable::LinkedSample objects
   size_t pagemap_bytes;                // included in metadata bytes
+  size_t pagemap_root_size;            // Size of pagemap root node array
   size_t percpu_metadata_bytes;        // included in metadata bytes
   BackingStats pageheap;               // Stats from page heap
   PageAllocator::PeakStats peak_stats;
