@@ -380,6 +380,50 @@ TEST(CentralFreeListHelperTest, RecordSameSpanRuns) {
   }
 }
 
+class CentralFreeListTestPeer {
+ public:
+  template <typename Forwarder>
+  using CFL = CentralFreeList<Forwarder>;
+
+  static void VerifyLegacyLayout() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    using CFLType = CFL<StaticForwarder>;
+    EXPECT_EQ(offsetof(CFLType, lock_), 0);
+    EXPECT_EQ(offsetof(CFLType, size_class_), 8);
+    EXPECT_EQ(offsetof(CFLType, object_size_), 16);
+    EXPECT_EQ(offsetof(CFLType, objects_per_span_), 24);
+    EXPECT_EQ(offsetof(CFLType, size_reciprocal_), 32);
+    EXPECT_EQ(offsetof(CFLType, first_nonempty_index_), 40);
+    EXPECT_EQ(offsetof(CFLType, pages_per_span_), 48);
+    EXPECT_EQ(offsetof(CFLType, completed_spans_), 56);
+    EXPECT_EQ(offsetof(CFLType, span_allocations_tracker_), 120);
+    EXPECT_EQ(offsetof(CFLType, num_to_move_), 184);
+    EXPECT_EQ(offsetof(CFLType, counter_), 192);
+    EXPECT_EQ(offsetof(CFLType, num_spans_requested_), 200);
+    EXPECT_EQ(offsetof(CFLType, num_spans_returned_), 208);
+    EXPECT_EQ(offsetof(CFLType, objects_to_spans_), 216);
+    EXPECT_EQ(offsetof(CFLType, nonempty_), 344);
+#ifdef NDEBUG
+    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 272);
+    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 616);
+    EXPECT_EQ(offsetof(CFLType, long_lived_spans_moved_), 624);
+#else
+    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 400);
+    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 744);
+    EXPECT_EQ(offsetof(CFLType, long_lived_spans_moved_), 752);
+#endif
+#endif
+  }
+};
+
+TEST(CentralFreeListLayoutTest, LegacyOffsets) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  CentralFreeListTestPeer::VerifyLegacyLayout();
+#else
+  GTEST_SKIP() << "Test only applies under TCMALLOC_INTERNAL_LEGACY_LOCKING";
+#endif
+}
+
 INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
                          testing::Range(size_t(1), kNumClasses));
 
