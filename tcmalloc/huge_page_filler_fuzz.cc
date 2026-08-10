@@ -274,7 +274,6 @@ struct GatherSpanStats {
 
 struct TreatTrackers {
   bool enable_collapse;
-  bool use_userspace_collapse_heuristics;
   bool enable_unfiltered_collapse;
   bool enable_release_stale_pages;
 
@@ -282,11 +281,10 @@ struct TreatTrackers {
   friend void AbslStringify(Sink& sink, const TreatTrackers& t) {
     absl::Format(&sink,
                  "TreatTrackers{.enable_collapse=%v, "
-                 ".use_userspace_collapse_heuristics=%v, "
                  ".enable_unfiltered_collapse=%v, "
                  ".enable_release_stale_pages=%v}",
-                 t.enable_collapse, t.use_userspace_collapse_heuristics,
-                 t.enable_unfiltered_collapse, t.enable_release_stale_pages);
+                 t.enable_collapse, t.enable_unfiltered_collapse,
+                 t.enable_release_stale_pages);
   }
 };
 
@@ -864,7 +862,6 @@ TEST(HugePageFillerTest, b510326948) {
        Allocate{
            .length = 32767, .num_objects = 2147483647, .density_dense = false},
        TreatTrackers{.enable_collapse = true,
-                     .use_userspace_collapse_heuristics = false,
                      .enable_unfiltered_collapse = false},
        Deallocate{.tracker_index = 2147483647, .alloc_index = 2147483647},
        ModelTail{.length = 4096},
@@ -904,7 +901,6 @@ TEST(
           Allocate{.length = 1, .num_objects = 1, .density_dense = false},
           Allocate{.length = 1, .num_objects = 4431, .density_dense = false},
           TreatTrackers{.enable_collapse = true,
-                        .use_userspace_collapse_heuristics = false,
                         .enable_unfiltered_collapse = true},
           SetCollapseLatency{.latency = absl::ZeroDuration()},
           Allocate{.length = 255, .num_objects = 19968, .density_dense = true},
@@ -933,10 +929,8 @@ TEST(
           ToggleUnback{},
           Allocate{.length = 1, .num_objects = 7680, .density_dense = false},
           TreatTrackers{.enable_collapse = true,
-                        .use_userspace_collapse_heuristics = false,
                         .enable_unfiltered_collapse = true},
           TreatTrackers{.enable_collapse = false,
-                        .use_userspace_collapse_heuristics = false,
                         .enable_unfiltered_collapse = false},
       },
       SubreleaseUnbackedMode::kEnabled);
@@ -948,7 +942,6 @@ TEST(
   FuzzFiller(
       {
           TreatTrackers{.enable_collapse = false,
-                        .use_userspace_collapse_heuristics = false,
                         .enable_unfiltered_collapse = false},
           SetErrorNumber{.error_type = 0, .raw_value = 2483028032},
           Deallocate{.tracker_index = 0, .alloc_index = 255},
@@ -1026,7 +1019,6 @@ TEST(HugePageFillerTest, Regression_testcase_6686265543557120) {
   FuzzFiller(
       {
           TreatTrackers{.enable_collapse = false,
-                        .use_userspace_collapse_heuristics = true,
                         .enable_unfiltered_collapse = false},
           ModelTail{.length = 255},
           Release{.hit_limit = false,
@@ -1076,7 +1068,6 @@ TEST(HugePageFillerTest, b510325622) {
                .release_partial_allocs = true},
        Allocate{.length = 0, .num_objects = 1, .density_dense = false},
        TreatTrackers{.enable_collapse = true,
-                     .use_userspace_collapse_heuristics = true,
                      .enable_unfiltered_collapse = true},
        Deallocate{.tracker_index = 4294967295, .alloc_index = 0},
        GatherStatsPbtxt{}},
@@ -1090,7 +1081,6 @@ TEST(HugePageFillerTest, DepthDependentDeallocate) {
                                .tracker_index = 4294967295, .alloc_index = 1}}},
        GatherSpanStats{},
        TreatTrackers{.enable_collapse = true,
-                     .use_userspace_collapse_heuristics = false,
                      .enable_unfiltered_collapse = true}},
       SubreleaseUnbackedMode::kDisabled);
 }
@@ -1177,7 +1167,6 @@ TEST(HugePageFillerTest, ConcurrentTreatmentInterferenceStress) {
 
   instructions.push_back(TreatTrackers{
       .enable_collapse = true,
-      .use_userspace_collapse_heuristics = false,
       .enable_unfiltered_collapse = true,
   });
 
@@ -1188,7 +1177,6 @@ TEST(HugePageFillerTest, SubreleaseUnbackedRegression) {
   FuzzFiller(
       {ModelTail{.length = 0}, GatherStatsPbtxt{},
        TreatTrackers{.enable_collapse = true,
-                     .use_userspace_collapse_heuristics = false,
                      .enable_unfiltered_collapse = false},
        SetCollapseLatency{.latency = absl::Nanoseconds(9223372036854775807)},
        ToggleUnback{},
@@ -1265,14 +1253,12 @@ TEST(HugePageFillerTest, InstructionStringify) {
   }
   {
     Instruction inst = TreatTrackers{.enable_collapse = true,
-                                     .use_userspace_collapse_heuristics = true,
                                      .enable_unfiltered_collapse = false,
                                      .enable_release_stale_pages = true};
     std::string s = absl::StrFormat("%v", inst);
     EXPECT_EQ(
         s,
         "TreatTrackers{.enable_collapse=true, "
-        ".use_userspace_collapse_heuristics=true, "
         ".enable_unfiltered_collapse=false, .enable_release_stale_pages=true}");
   }
   {
@@ -1328,7 +1314,6 @@ TEST(HugePageFillerTest, Regression_b525818096) {
                         .unbacked_bitmap_val = 1,
                         .swapped_bitmap_val = 0},
           TreatTrackers{.enable_collapse = true,
-                        .use_userspace_collapse_heuristics = false,
                         .enable_unfiltered_collapse = false},
       },
       SubreleaseUnbackedMode::kDisabled);

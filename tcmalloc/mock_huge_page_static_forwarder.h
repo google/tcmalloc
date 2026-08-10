@@ -80,12 +80,6 @@ class FakeStaticForwarder {
   void set_collapse_succeeds(bool value) { collapse_succeeds_ = value; }
   void set_error_number(int value) { error_number_ = value; }
 
-  bool huge_region_demand_based_release() const {
-    return huge_region_demand_based_release_;
-  }
-  void set_huge_region_demand_based_release(bool value) {
-    huge_region_demand_based_release_ = value;
-  }
   bool huge_region_adaptive_release() const {
     return huge_region_adaptive_release_;
   }
@@ -234,8 +228,6 @@ class FakeStaticForwarder {
   }
   absl::Duration short_interval_ = absl::Seconds(60);
   absl::Duration long_interval_ = absl::Seconds(300);
-  absl::Duration cache_demand_release_short_interval_ = absl::Seconds(10);
-  absl::Duration cache_demand_release_long_interval_ = absl::Seconds(30);
   bool release_partial_alloc_pages_ = false;
   bool hpaa_subrelease_ = true;
   SubreleaseUnbackedMode subrelease_unbacked_hugepages_ =
@@ -243,7 +235,6 @@ class FakeStaticForwarder {
   bool release_succeeds_ = true;
   bool collapse_succeeds_ = true;
   int error_number_ = 0;
-  bool huge_region_demand_based_release_ = false;
   bool huge_region_adaptive_release_ = false;
   bool release_max_cold_pages_ = false;
 

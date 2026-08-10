@@ -1782,8 +1782,6 @@ class GetReleaseStatsTest : public testing::Test {
         FakeHugePageAwareAllocator({.tag = MemoryTag::kNormal});
 
     allocator_->forwarder().set_hpaa_subrelease(/*value=*/false);
-    allocator_->forwarder().set_huge_region_demand_based_release(
-        /*value=*/false);
     allocator_->forwarder().set_filler_skip_subrelease_short_interval(
         absl::ZeroDuration());
     allocator_->forwarder().set_filler_skip_subrelease_long_interval(

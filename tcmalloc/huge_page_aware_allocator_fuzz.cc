@@ -228,16 +228,6 @@ struct SetReleaseSucceeds {
   }
 };
 
-struct SetHugeRegionDemandBasedRelease {
-  bool value;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink,
-                            const SetHugeRegionDemandBasedRelease& s) {
-    absl::Format(&sink, "SetHugeRegionDemandBasedRelease{.value=%v}", s.value);
-  }
-};
-
 struct SetHugeRegionAdaptiveRelease {
   bool value;
 
@@ -320,9 +310,9 @@ struct ReentrantSubprogram {
 using ParamOp = std::variant<
     ResetSubreleaseIntervals, SetFillerSkipSubreleaseShortInterval,
     SetFillerSkipSubreleaseLongInterval, SetReleasePartialAllocPages,
-    SetHpaaSubrelease, SetReleaseSucceeds, SetHugeRegionDemandBasedRelease,
-    SetHugeRegionAdaptiveRelease, SetBackAllocations, SetBackSizeThresholdBytes,
-    ReentrantSubprogram, SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
+    SetHpaaSubrelease, SetReleaseSucceeds, SetHugeRegionAdaptiveRelease,
+    SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
+    SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
     SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions>;
 
 template <typename Sink>
@@ -595,11 +585,6 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
                                                         SetReleaseSucceeds>) {
                       forwarder.set_release_succeeds(param_arg.value);
                     } else if constexpr (std::is_same_v<
-                                             P,
-                                             SetHugeRegionDemandBasedRelease>) {
-                      forwarder.set_huge_region_demand_based_release(
-                          param_arg.value);
-                    } else if constexpr (std::is_same_v<
                                              P, SetHugeRegionAdaptiveRelease>) {
                       forwarder.set_huge_region_adaptive_release(
                           param_arg.value);
@@ -748,9 +733,6 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
         fuzztest::Map([](SetReleaseSucceeds s) { return ChangeParam{s}; },
                       fuzztest::Arbitrary<SetReleaseSucceeds>()),
         fuzztest::Map(
-            [](SetHugeRegionDemandBasedRelease s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetHugeRegionDemandBasedRelease>()),
-        fuzztest::Map(
             [](SetHugeRegionAdaptiveRelease s) { return ChangeParam{s}; },
             fuzztest::Arbitrary<SetHugeRegionAdaptiveRelease>()),
 
@@ -795,9 +777,6 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                       fuzztest::Arbitrary<SetHpaaSubrelease>()),
         fuzztest::Map([](SetReleaseSucceeds s) { return ChangeParam{s}; },
                       fuzztest::Arbitrary<SetReleaseSucceeds>()),
-        fuzztest::Map(
-            [](SetHugeRegionDemandBasedRelease s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetHugeRegionDemandBasedRelease>()),
         fuzztest::Map(
             [](SetHugeRegionAdaptiveRelease s) { return ChangeParam{s}; },
             fuzztest::Arbitrary<SetHugeRegionAdaptiveRelease>()),
