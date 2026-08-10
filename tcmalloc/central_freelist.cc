@@ -81,6 +81,17 @@ size_t StaticForwarder::num_objects_to_move(int size_class) {
   return tc_globals.sizemap().num_objects_to_move(size_class);
 }
 
+[[noreturn]] ABSL_ATTRIBUTE_NOINLINE static void HandleDetectedUB(
+    void* ptr, Span* span, int page_size_class, int expected_size_class) {
+  if (span == nullptr) {
+    ReportCorruptedFree(tc_globals, ptr);
+  } else if (span == &tc_globals.invalid_span()) {
+    ReportDoubleFree(tc_globals, ptr);
+  }
+  ReportMismatchedSizeClass(tc_globals, ptr, page_size_class,
+                            expected_size_class);
+}
+
 void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                                         int expected_size_class) {
   // Prefetch Span objects to reduce cache misses.
@@ -89,14 +100,11 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
     const PageId p = PageIdContaining(ptr);
     auto [span, page_size_class] =
         tc_globals.pagemap().GetDescriptorAndSizeClass(p);
-    if (ABSL_PREDICT_FALSE(span == nullptr)) {
-      ReportCorruptedFree(tc_globals, ptr);
-    } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
-      ReportDoubleFree(tc_globals, ptr);
-    }
+    // If we have a missing span/invalid span, we expect to retrieve
+    // page_size_class=0 causing us to take this overloaded branch since
+    // expected_size_class>0.
     if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
-      ReportMismatchedSizeClass(tc_globals, ptr, page_size_class,
-                                expected_size_class);
+      HandleDetectedUB(ptr, span, page_size_class, expected_size_class);
     }
     span->Prefetch();
     spans[i] = span;

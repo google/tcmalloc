@@ -135,6 +135,47 @@ TEST_P(StaticForwarderTest, Simple) {
   StaticForwarder::DeallocateSpans(objects_per_span_, absl::MakeSpan(&span, 1));
 }
 
+TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
+  constexpr int size_class = 1;
+  const size_t object_size = tc_globals.sizemap().class_to_size(size_class);
+  const Length pages_per_span = tc_globals.sizemap().class_to_pages(size_class);
+  const size_t objects_per_span = pages_per_span.in_bytes() / object_size;
+  const size_t size_reciprocal = Span::CalcReciprocal(object_size);
+
+  Span* span = StaticForwarder::AllocateSpan(size_class, objects_per_span,
+                                             pages_per_span);
+  ASSERT_NE(span, nullptr);
+
+  absl::FixedArray<void*> batch(objects_per_span);
+  const uint64_t alloc_time = StaticForwarder::clock_now();
+  size_t allocated = span->BuildFreelist(object_size, objects_per_span,
+                                         absl::MakeSpan(batch), alloc_time);
+  ASSERT_EQ(allocated, objects_per_span);
+
+  // Mismatched size class
+  void* ptr = batch[0];
+  Span* got = nullptr;
+  EXPECT_DEATH(StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got,
+                                                  /*expected_size_class=*/2),
+               "Mismatched-size-class");
+
+  // Corrupted / unallocated pointer
+  void* invalid_ptr = nullptr;
+  EXPECT_DEATH(
+      StaticForwarder::MapObjectsToSpans({&invalid_ptr, 1}, &got, size_class),
+      "Attempted to free corrupted pointer");
+
+  for (void* p : batch) {
+    (void)span->FreelistPushBatch(absl::MakeSpan(&p, 1), object_size,
+                                  size_reciprocal);
+  }
+  StaticForwarder::DeallocateSpans(objects_per_span, absl::MakeSpan(&span, 1));
+
+  // Double free (after deallocation, span descriptor is invalid)
+  EXPECT_DEATH(StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class),
+               "Possible double free detected");
+}
+
 class StaticForwarderEnvironment {
   struct SpanData {
     Span* span;
