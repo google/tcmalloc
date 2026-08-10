@@ -1210,6 +1210,7 @@ cc_test(
     srcs = ["malloc_extension_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     data = glob(["testdata/malloc_extension_fuzz/*"]),
+    malloc = "//tcmalloc",
     deps = [
         ":malloc_extension",
         "@com_google_absl//absl/strings:string_view",
