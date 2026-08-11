@@ -24,6 +24,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
@@ -332,7 +333,17 @@ class SubreleaseStatsTracker {
   // spikes. The demand is capped to the peak observed in the history window.
   Length GetRecentDemand(absl::Duration short_interval,
                          absl::Duration long_interval) {
-    return GetRecentDemand(short_interval, long_interval, demand_cap_interval_);
+    if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
+      // As the interval value can be updated online, we have to load the
+      // demand_cap_interval here rather than in the constructor.
+      return GetRecentDemand(short_interval, long_interval,
+                             long_interval == absl::ZeroDuration()
+                                 ? short_interval
+                                 : long_interval);
+    } else {
+      return GetRecentDemand(short_interval, long_interval,
+                             demand_cap_interval_);
+    }
   }
 
   // Calculates demand requirements for the skip subrelease: we do not
