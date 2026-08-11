@@ -1058,6 +1058,53 @@ TEST_P(HugePageAwareAllocatorTest, TailDonation) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
+TEST_P(HugePageAwareAllocatorTest, DISABLED_UnbackFailureOnPutClearsReleased) {
+  // Setup: Pack two sparse allocations onto a single hugepage and partially
+  // subrelease it.
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  Span* s1 = New(Length(10), kSpanInfo);
+  Span* s2 = New(Length(10), kSpanInfo);
+  ASSERT_EQ(HugePageContaining(s1->start_address()),
+            HugePageContaining(s2->start_address()));
+
+  auto GetStats = [&]() {
+    PageHeapSpinLockHolder l;
+    return allocator_->stats();
+  };
+  ASSERT_EQ(GetStats().system_bytes, kHugePageSize);
+  ASSERT_EQ(GetStats().free_bytes, (kPagesPerHugePage - Length(20)).in_bytes());
+  ASSERT_EQ(GetStats().unmapped_bytes, 0);
+
+  Delete(s1, 1);
+  ASSERT_EQ(GetStats().system_bytes, kHugePageSize);
+  ASSERT_EQ(GetStats().free_bytes, (kPagesPerHugePage - Length(10)).in_bytes());
+  ASSERT_EQ(GetStats().unmapped_bytes, 0);
+
+  Length released =
+      ReleasePages(Length(10), PageReleaseReason::kProcessBackgroundActions);
+  ASSERT_GT(released, Length(0));
+  ASSERT_EQ(GetStats().system_bytes, kHugePageSize);
+  ASSERT_EQ(GetStats().free_bytes, released.in_bytes());
+  ASSERT_EQ(GetStats().unmapped_bytes, released.in_bytes());
+
+  // Simulate system-level unback/page-release failures.
+  allocator_->forwarder().set_release_succeeds(false);
+
+  // Deallocate the last active chunk. This triggers a full unback of the
+  // remaining pages.
+  //
+  // TODO(b/517968354): Enable this test once the fallback logic is active.
+  // We expect to have no unmapped memory as unbacking failed and we would
+  // rather err high on RSS usage than err low.
+  Delete(s2, 1);
+
+  EXPECT_EQ(GetStats().system_bytes, kHugePageSize);
+  EXPECT_EQ(GetStats().free_bytes, kHugePageSize);
+  EXPECT_EQ(GetStats().unmapped_bytes, 0);
+
+  allocator_->forwarder().set_release_succeeds(true);
+}
+
 TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   // A small allocation of size (kHugePageSize/2,kHugePageSize]-bytes can be
   // considered not donated if it filled in a gap on an otherwise mostly free
