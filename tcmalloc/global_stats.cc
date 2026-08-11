@@ -448,8 +448,9 @@ void DumpStats(Printer& out, int level) {
         "\n"
         "Total process stats (inclusive of non-malloc sources):\n"
         "TOTAL: %12u (%7.1f MiB) Bytes resident (physical memory used)\n"
-        "TOTAL: %12u (%7.1f MiB) Bytes mapped (virtual memory used)\n",
-        rss, rss / MiB, vss, vss / MiB);
+        "TOTAL: %12u (%7.1f MiB) Bytes mapped (virtual memory used)\n"
+        "TOTAL: %12u (%7.1f MiB) Bytes via VmPTE\n",
+        rss, rss / MiB, vss, vss / MiB, memstats.vmpte, memstats.vmpte / MiB);
     // clang-format on
   }
 
@@ -783,6 +784,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   if (GetMemoryStats(memstats)) {
     region.PrintI64("total_resident", uint64_t(memstats.rss));
     region.PrintI64("total_mapped", uint64_t(memstats.vss));
+    region.PrintI64("total_vmpte", uint64_t(memstats.vmpte));
   }
 
   const size_t num_nodes = tc_globals.numa_topology().num_nodes();
