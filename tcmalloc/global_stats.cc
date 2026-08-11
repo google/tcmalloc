@@ -529,16 +529,6 @@ void DumpStats(Printer& out, int level) {
       tc_globals.central_freelist(size_class).PrintNumSpansUsed(out);
     }
 
-    out.printf("\n");
-    out.printf("------------------------------------------------\n");
-    out.printf("Central cache freelist: Long lived spans moved histogram\n");
-    out.printf(
-        "Number of spans moved to the long lived spans list, from 0 to N\n");
-    out.printf("------------------------------------------------\n");
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      tc_globals.central_freelist(size_class).PrintLongLivedSpansMoved(out);
-    }
-
     out.printf("------------------------------------------------\n");
     out.printf("Central cache freelist: Same-span returns\n");
     out.printf("------------------------------------------------\n");
@@ -677,11 +667,7 @@ void DumpStats(Printer& out, int level) {
                Parameters::back_small_allocations() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_back_size_threshold_bytes %d\n",
                Parameters::back_size_threshold_bytes());
-    out.printf("PARAMETER tcmalloc_span_lifetime_tracking %d\n",
-               Parameters::span_lifetime_tracking() ==
-                       central_freelist_internal::LifetimeTracking::kEnabled
-                   ? 1
-                   : 0);
+
     out.printf("PARAMETER background_process_sleep_interval_ns %lld\n",
                absl::ToInt64Nanoseconds(
                    Parameters::background_process_sleep_interval()));
@@ -822,8 +808,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
       tc_globals.central_freelist(size_class)
           .PrintSpanLifetimeStatsInPbtxt(entry);
       tc_globals.central_freelist(size_class).PrintNumSpansUsedInPbtxt(entry);
-      tc_globals.central_freelist(size_class)
-          .PrintLongLivedSpansMovedInPbtxt(entry);
+
       tc_globals.central_freelist(size_class).PrintSameSpanStatsInPbtxt(entry);
     }
 
@@ -944,9 +929,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintRaw("madvise", MadviseString());
   region.PrintBool("tcmalloc_resize_size_class_max_capacity",
                    Parameters::resize_size_class_max_capacity());
-  region.PrintBool("tcmalloc_span_lifetime_tracking",
-                   Parameters::span_lifetime_tracking() ==
-                       central_freelist_internal::LifetimeTracking::kEnabled);
 
   region.PrintI64("background_process_sleep_interval_ns",
                   absl::ToInt64Nanoseconds(

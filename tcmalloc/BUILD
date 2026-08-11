@@ -1716,11 +1716,6 @@ cc_library(
 
 cc_library(
     name = "want_disable_span_lifetime_tracking",
-    srcs = ["want_disable_span_lifetime_tracking.cc"],
-    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    deprecation = "Span lifetime tracking experiment has been removed.",
     visibility = ["//visibility:public"],
-    deps = [
-        "@com_google_absl//absl/base:core_headers",
-    ],
-    alwayslink = 1,
 )

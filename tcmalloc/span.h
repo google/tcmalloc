@@ -88,7 +88,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
         freelist_(0),
         allocated_{std::numeric_limits<uint16_t>::max()},
         cache_size_(0),
-        is_long_lived_span_(0),
         nonempty_index_(0),
         is_donated_(0),
         first_page_(0),
@@ -102,7 +101,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
         freelist_(0),
         allocated_{0},
         cache_size_(0),
-        is_long_lived_span_(0),
         nonempty_index_(0),
         is_donated_(0),
         first_page_(r.p.index()),
@@ -261,10 +259,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   static constexpr size_t kNonemptyIndexBits = 5;
 
-  bool is_long_lived_span() const { return is_long_lived_span_; }
-
-  void set_is_long_lived_span(bool value) { is_long_lived_span_ = value; }
-
  private:
   // Returns if the span is large (i.e. consists of > kLargeSpanLength number of
   // pages) or is sampled.
@@ -290,7 +284,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static_assert(kCacheSize <= (1 << kMaxCacheBits) - 1);
 
   static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
-  static constexpr size_t kReservedBits = 24;
+  static constexpr size_t kReservedBits = 25;
   // For available objects stored as a compressed linked list, the index of the
   // first object in recorded in freelist_.
   //
@@ -316,7 +310,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 #else
   uint8_t cache_size_ : kMaxCacheBits;
 #endif
-  uint8_t is_long_lived_span_ : 1;
   uint8_t nonempty_index_ : kNonemptyIndexBits;  // The nonempty_ list index for
                                                  // this span.
   // Has this span allocation resulted in a donation to the filler in the page

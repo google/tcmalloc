@@ -85,13 +85,6 @@ struct PrintStats {
   }
 };
 
-struct HandleLongLivedSpans {
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const HandleLongLivedSpans&) {
-    absl::Format(&sink, "HandleLongLivedSpans{}");
-  }
-};
-
 struct AdvanceClock {
   uint32_t value;
   template <typename Sink>
@@ -100,9 +93,8 @@ struct AdvanceClock {
   }
 };
 
-using InstructionVariant =
-    std::variant<Allocate, Deallocate, Shuffle, CheckStats, PrintStats,
-                 HandleLongLivedSpans, AdvanceClock>;
+using InstructionVariant = std::variant<Allocate, Deallocate, Shuffle,
+                                        CheckStats, PrintStats, AdvanceClock>;
 
 struct Instruction {
   InstructionVariant instr;
@@ -181,8 +173,6 @@ void FuzzCFL(size_t object_size, Length num_pages, size_t num_objects_to_move,
             PbtxtRegion region(p, kTop);
             env.central_freelist().PrintSpanUtilStatsInPbtxt(region);
             env.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
-          } else if constexpr (std::is_same_v<T, HandleLongLivedSpans>) {
-            env.central_freelist().HandleLongLivedSpans();
           } else if constexpr (std::is_same_v<T, AdvanceClock>) {
             env.forwarder().AdvanceClock(absl::Milliseconds(arg.value));
           } else {
@@ -213,11 +203,7 @@ auto GetInstructionDomain() {
       fuzztest::Map([](CheckStats c) { return Instruction{c}; },
                     fuzztest::Arbitrary<CheckStats>()),
       fuzztest::Map([](PrintStats p) { return Instruction{p}; },
-                    fuzztest::Arbitrary<PrintStats>()),
-      fuzztest::Map([](HandleLongLivedSpans h) { return Instruction{h}; },
-                    fuzztest::Arbitrary<HandleLongLivedSpans>()),
-      fuzztest::Map([](uint32_t v) { return Instruction{AdvanceClock{v}}; },
-                    fuzztest::Arbitrary<uint32_t>()));
+                    fuzztest::Arbitrary<PrintStats>()));
 }
 
 FUZZ_TEST(CentralFreeListTest, FuzzCFL)

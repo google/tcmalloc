@@ -46,7 +46,6 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   absl::Time last_size_class_max_capacity_resize = prev_time;
   absl::Time last_slab_resize_check = prev_time;
   absl::Time last_hpaa_hugepage_check = prev_time;
-  absl::Time last_cfl_long_lived_check = prev_time;
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   absl::Time last_transfer_cache_plunder_check = prev_time;
@@ -96,10 +95,6 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     // different treatments (e.g. usermode collapse, custom name sampled VMAs,
     // etc.) once every hpaa_hugepage_check_period.
     const absl::Duration hpaa_hugepage_check_period = 5 * sleep_time;
-
-    // Iterate through all spans and move long-lived spans to the long-lived
-    // section of nonempty_ once every cfl_long_lived_check_period.
-    const absl::Duration cfl_long_lived_check_period = 5 * sleep_time;
 
     absl::Time now = absl::Now();
 
@@ -178,16 +173,6 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
         last_hpaa_hugepage_check = now;
       }
 
-      if (Parameters::span_lifetime_tracking() ==
-          tcmalloc::tcmalloc_internal::central_freelist_internal::
-              LifetimeTracking::kEnabled) {
-        if (now - last_cfl_long_lived_check >= cfl_long_lived_check_period) {
-          for (int i = 0; i < tcmalloc::tcmalloc_internal::kNumClasses; ++i) {
-            tc_globals.central_freelist(i).HandleLongLivedSpans();
-          }
-          last_cfl_long_lived_check = now;
-        }
-      }
 
       // If time goes backwards, we would like to cap the release rate at 0.
       //

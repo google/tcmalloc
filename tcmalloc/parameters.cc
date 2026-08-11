@@ -343,26 +343,6 @@ HeapPartitioningMode Parameters::heap_partitioning_mode() {
   return heap_partitioning_mode_ptr().load(std::memory_order_relaxed);
 }
 
-bool ABSL_ATTRIBUTE_WEAK default_want_disable_span_lifetime_tracking();
-static central_freelist_internal::LifetimeTracking
-want_span_lifetime_tracking() {
-  if (default_want_disable_span_lifetime_tracking != nullptr) {
-    return central_freelist_internal::LifetimeTracking::kDisabled;
-  }
-  const char* e = thread_safe_getenv("TCMALLOC_DISABLE_SPAN_LIFETIME_TRACKING");
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        return central_freelist_internal::LifetimeTracking::kDisabled;
-      case '1':
-        return central_freelist_internal::LifetimeTracking::kDisabled;
-      default:
-        TC_BUG("bad env var '%s'", e);
-    }
-  }
-  return central_freelist_internal::LifetimeTracking::kDisabled;
-}
-
 ReleaseStalePages Parameters::release_stale_pages() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<ReleaseStalePages> v{
@@ -375,17 +355,6 @@ ReleaseStalePages Parameters::release_stale_pages() {
   return v.load(std::memory_order_relaxed);
 }
 
-central_freelist_internal::LifetimeTracking
-Parameters::span_lifetime_tracking() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<
-      central_freelist_internal::LifetimeTracking>
-      v{central_freelist_internal::LifetimeTracking::kDisabled};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(want_span_lifetime_tracking(), std::memory_order_relaxed);
-  });
-  return v.load(std::memory_order_relaxed);
-}
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();

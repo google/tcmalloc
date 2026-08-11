@@ -126,22 +126,14 @@ class StaticForwarder {
 
 // Specifies number of nonempty_ lists that keep track of non-empty spans.
 static constexpr size_t kNumLists = 8;
-static constexpr size_t kNumListsTotal = kNumLists * 2;
-static_assert(1 << Span::kNonemptyIndexBits >= kNumListsTotal);
+static_assert(1 << Span::kNonemptyIndexBits >= kNumLists);
 // Specifies the threshold for number of objects per span. The threshold is
 // used to consider a span sparsely- vs. densely-accessed.
 static constexpr size_t kFewObjectsAllocMaxLimit = 16;
-// TODO: b/319868990 - Identify the optimal value for this threshold.
-static constexpr absl::Duration kLongLivedSpanThreshold = absl::Seconds(10);
-static constexpr size_t kMaxLongLivedSpansToMove = 10;
-static constexpr size_t kSpanMoveStatBuckets =
-    absl::bit_width(kMaxLongLivedSpansToMove) + 1;
 // Specifies the number of buckets in the histogram that tracks the number of
 // spans used to fill a batch.
 static constexpr size_t kSpansUsedStatBuckets =
     absl::bit_width(kMaxObjectsToMove);
-
-enum class LifetimeTracking : bool { kDisabled = false, kEnabled = true };
 
 template <size_t MaxSize, typename RunLength>
 inline int RecordSameSpanRuns(absl::Span<Span* const> batch,
@@ -218,19 +210,16 @@ class CentralFreeList {
   size_t NumSpansInList(int n) ABSL_LOCKS_EXCLUDED(lock_);
   SpanStats GetSpanStats() const;
 
-  // Reports span utilization, lifetime histogram stats, number of spans
-  // used to fill a batch, and long-lived spans moved to the long-lived section
-  // of nonempty_.
+  // Reports span utilization, lifetime histogram stats, and number of spans
+  // used to fill a batch.
   void PrintSpanUtilStats(Printer& out);
   void PrintSpanLifetimeStats(Printer& out);
   void PrintNumSpansUsed(Printer& out);
-  void PrintLongLivedSpansMoved(Printer& out);
   void PrintSameSpanStats(Printer& out);
   void PrintSpanUtilStatsInPbtxt(PbtxtRegion& region);
   void PrintSameSpanStatsInPbtxt(PbtxtRegion& region);
   void PrintSpanLifetimeStatsInPbtxt(PbtxtRegion& region);
   void PrintNumSpansUsedInPbtxt(PbtxtRegion& region);
-  void PrintLongLivedSpansMovedInPbtxt(PbtxtRegion& region);
 
   // Get number of spans in the histogram bucket. We record spans in the
   // histogram indexed by absl::bit_width(allocated). So, instead of using the
@@ -241,8 +230,6 @@ class CentralFreeList {
 
   Forwarder& forwarder() { return forwarder_; }
 
-  // Move long-lived spans to long-lived section of nonempty_.
-  void HandleLongLivedSpans() ABSL_LOCKS_EXCLUDED(lock_);
   size_t objects_per_span() const { return objects_per_span_; }
 
  private:
@@ -280,12 +267,10 @@ class CentralFreeList {
   uint8_t GetFirstNonEmptyIndex() const;
 
   // Returns index into nonempty_ based on the number of allocated objects for
-  // the span and the span's lifetime. Depending on the number of objects per
-  // span, either the absolute number of allocated objects or the
-  // absl::bit_width(allocated), passed as bitwidth, is used to to calculate the
-  // list index.
-  uint8_t IndexFor(bool is_long_lived_span, uint16_t allocated,
-                   uint8_t bitwidth);
+  // the span. Depending on the number of objects per span, either the absolute
+  // number of allocated objects or the absl::bit_width(allocated), passed as
+  // bitwidth, is used to to calculate the list index.
+  uint8_t IndexFor(uint16_t allocated, uint8_t bitwidth);
 
   // Records span utilization in objects_to_span_ map. Instead of using the
   // absolute number of allocated objects, it uses absl::bit_width(allocated),
@@ -424,13 +409,9 @@ class CentralFreeList {
   // the kNumLists nonempty_ lists based on their allocated objects.
   // If span prioritization is disabled, we add spans to the
   // nonempty_[kNumLists-1] list, leaving other lists unused.
-  HintedTrackerLists<Span, kNumListsTotal> nonempty_ ABSL_GUARDED_BY(lock_);
+  HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
 
   bool use_all_buckets_for_few_object_spans_;
-
-  // Tracks the number of long-lived spans moved to the long-lived section of
-  // nonempty_ per call to HandleLongLivedSpans.
-  StatsCounters<kSpanMoveStatBuckets> long_lived_spans_moved_;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
@@ -513,8 +494,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // If span allocation changes so that it moved to a different nonempty_ list,
   // we remove it from the previous list and add it to the desired list indexed
   // by cur_index.
-  const uint8_t cur_index =
-      IndexFor(span->is_long_lived_span(), cur_allocated, cur_bitwidth);
+  const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
   if (kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
     nonempty_.Add(span, cur_index);
     span->set_nonempty_index(cur_index);
@@ -552,8 +532,7 @@ inline uint8_t CentralFreeList<Forwarder>::GetFirstNonEmptyIndex() const {
 }
 
 template <class Forwarder>
-inline uint8_t CentralFreeList<Forwarder>::IndexFor(bool is_long_lived_span,
-                                                    uint16_t allocated,
+inline uint8_t CentralFreeList<Forwarder>::IndexFor(uint16_t allocated,
                                                     uint8_t bitwidth) {
   // We would like to index into the nonempty_ list based on the number of
   // allocated objects from the span. Given a span with fewer allocated objects
@@ -573,12 +552,11 @@ inline uint8_t CentralFreeList<Forwarder>::IndexFor(bool is_long_lived_span,
                 "kNumLists should fit into a single word to avoid the need for "
                 "tracking the first non-empty list on lookups.");
   ASSUME(allocated > 0);
-  size_t lifetime_offset = is_long_lived_span ? 0 : kNumLists;
   if (use_all_buckets_for_few_object_spans_) {
     if (allocated <= kNumLists) {
-      return kNumLists - allocated + lifetime_offset;
+      return kNumLists - allocated;
     }
-    return lifetime_offset;
+    return 0;
   }
   // Depending on the number of kNumLists and the number of objects per span, we
   // may have to clamp multiple buckets in index 0. It should be ok to do that
@@ -595,13 +573,13 @@ inline uint8_t CentralFreeList<Forwarder>::IndexFor(bool is_long_lived_span,
   const uint8_t offset = std::min<size_t>(bitwidth, kNumLists);
   const uint8_t index = kNumLists - offset;
   ASSUME(index < kNumLists);
-  return index + lifetime_offset;
+  return index;
 }
 
 template <class Forwarder>
 inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
   ASSUME(n >= 0);
-  ASSUME(n < kNumLists * 2);
+  ASSUME(n < kNumLists);
   CentralFreeListLockHolder h(lock_);
   return nonempty_.SizeOfList(n);
 }
@@ -778,8 +756,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         // If span allocation changes so that it must be moved to a different
         // nonempty_ list, we remove it from the previous list and add it to the
         // desired list indexed by cur_index.
-        const uint8_t cur_index =
-            IndexFor(span->is_long_lived_span(), cur_allocated, cur_bitwidth);
+        const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
         if (cur_index != prev_index) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
           nonempty_.Remove(span, prev_index);
@@ -838,8 +815,7 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
   const uint8_t bitwidth = absl::bit_width(allocated);
   RecordSpanUtil(bitwidth, /*increase=*/true);
   if (!span_empty) {
-    const uint8_t index =
-        IndexFor(span->is_long_lived_span(), allocated, bitwidth);
+    const uint8_t index = IndexFor(allocated, bitwidth);
     nonempty_.Add(span, index);
     span->set_nonempty_index(index);
   }
@@ -887,42 +863,6 @@ inline size_t CentralFreeList<Forwarder>::NumSpansWith(
 }
 
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::HandleLongLivedSpans() {
-  std::array<Span*, kMaxLongLivedSpansToMove> spans_to_update;
-  uint64_t now = forwarder_.clock_now();
-  double frequency = forwarder_.clock_frequency();
-  // Convert the threshold from absl::Duration to nanoseconds and scale it by
-  // frequency to avoid dividing by frequency in the iterator.
-  uint64_t threshold =
-      absl::ToInt64Seconds(kLongLivedSpanThreshold) * frequency;
-  CentralFreeListLockHolder h(lock_);
-  size_t i = 0;
-  nonempty_.Iter(
-      [&](Span& s) GOOGLE_MALLOC_SECTION {
-        if (i >= kMaxLongLivedSpansToMove) return;
-        if (now - s.AllocTime() > threshold) {
-          spans_to_update[i] = &s;
-          i++;
-        }
-      },
-      kNumLists);
-
-  for (int a = 0; a < i; ++a) {
-    Span* s = spans_to_update[a];
-    uint8_t prev_index = s->nonempty_index();
-    nonempty_.Remove(s, prev_index);
-    s->set_is_long_lived_span(/*value=*/true);
-    TC_ASSERT_GE(s->nonempty_index(), kNumLists);
-    const uint8_t new_index = s->nonempty_index() - kNumLists;
-    nonempty_.Add(s, new_index);
-    s->set_nonempty_index(new_index);
-  }
-
-  // Track how many spans we moved in each bitwidth bucket.
-  long_lived_spans_moved_[absl::bit_width(i)].LossyAdd(1);
-}
-
-template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSameSpanStats(Printer& out) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   out.printf("class %3d [ %8zu bytes ] :", size_class_, object_size_);
@@ -962,15 +902,6 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer& out) {
   }
   out.printf("\n");
   out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
-  for (size_t i = 0; i < kNumLists; ++i) {
-    out.printf("%6zu: %zu", i, NumSpansInList(i + kNumLists));
-    if (i < kNumLists - 1) {
-      out.printf(",");
-    }
-  }
-  out.printf("\n");
-  out.printf("long-lived: class %3d [ %8zu bytes ] : ", size_class_,
-             object_size_);
   for (size_t i = 0; i < kNumLists; ++i) {
     out.printf("%6zu: %zu", i, NumSpansInList(i));
     if (i < kNumLists - 1) {
@@ -1036,20 +967,6 @@ inline void CentralFreeList<Forwarder>::PrintNumSpansUsed(Printer& out) {
 }
 
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::PrintLongLivedSpansMoved(Printer& out) {
-  out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
-  size_t lower_bound = 0;
-  for (size_t i = 0; i < kSpanMoveStatBuckets; ++i) {
-    out.printf("%3zu < %6zu", lower_bound, long_lived_spans_moved_[i].value());
-    if (i < kSpanMoveStatBuckets - 1) {
-      out.printf(",");
-    }
-    lower_bound = 1 << i;
-  }
-  out.printf("\n");
-}
-
-template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
     PbtxtRegion& region) {
   for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
@@ -1063,8 +980,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
     PbtxtRegion occupancy =
         region.CreateSubRegion("prioritization_list_occupancy");
     occupancy.PrintI64("list_index", i);
-    occupancy.PrintI64("value", NumSpansInList(i + kNumLists));
-    occupancy.PrintI64("long_lived_value", NumSpansInList(i));
+    occupancy.PrintI64("value", NumSpansInList(i));
   }
 }
 
@@ -1119,22 +1035,6 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
                                            ? kLifetimeBucketBounds[i]
                                            : kLifetimeBucketBounds[i + 1]));
     histogram.PrintI64("value", completed_spans_[i].value());
-  }
-}
-
-template <class Forwarder>
-inline void CentralFreeList<Forwarder>::PrintLongLivedSpansMovedInPbtxt(
-    PbtxtRegion& region) {
-  size_t lower_bound = 0;
-  size_t upper_bound = 1;
-  for (size_t i = 0; i < kSpanMoveStatBuckets; ++i) {
-    PbtxtRegion histogram =
-        region.CreateSubRegion("long_lived_spans_moved_histogram");
-    histogram.PrintI64("lower_bound", lower_bound);
-    histogram.PrintI64("upper_bound", upper_bound);
-    histogram.PrintI64("value", long_lived_spans_moved_[i].value());
-    lower_bound = upper_bound;
-    upper_bound *= 2;
   }
 }
 

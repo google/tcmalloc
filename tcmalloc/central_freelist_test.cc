@@ -445,13 +445,11 @@ class CentralFreeListTestPeer {
     EXPECT_EQ(offsetof(CFLType, objects_to_spans_), 216);
     EXPECT_EQ(offsetof(CFLType, nonempty_), 344);
 #ifdef NDEBUG
-    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 272);
-    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 616);
-    EXPECT_EQ(offsetof(CFLType, long_lived_spans_moved_), 624);
+    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 144);
+    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 488);
 #else
-    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 400);
-    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 744);
-    EXPECT_EQ(offsetof(CFLType, long_lived_spans_moved_), 752);
+    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 208);
+    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 552);
 #endif
 #endif
   }
@@ -674,7 +672,7 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
   const int num_objects_to_fetch = e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch);
   size_t fetched = 0;
-  int expected_idx = kNumLists - 1 + kNumLists;
+  int expected_idx = kNumLists - 1;
 
   // Fetch one object at a time from a span and confirm that the span is moved
   // through the nonempty_ lists as we allocate more objects from it.
@@ -691,7 +689,7 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
     } else {
       expected_idx = f(fetched);
       TC_ASSERT_GE(expected_idx, 0);
-      TC_ASSERT_LT(expected_idx, kNumLists * 2);
+      TC_ASSERT_LT(expected_idx, kNumLists);
       // Check that the span exists in the corresponding nonempty_ list.
       EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
     }
@@ -707,14 +705,14 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
     // When allocated objects are more than the threshold, the span is indexed
     // to nonempty_ list 0.
     expected_idx = f(remaining);
-    EXPECT_LT(expected_idx, kNumLists * 2);
+    EXPECT_LT(expected_idx, kNumLists);
     EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
   }
 
   // When the last object is returned, we release the span to the page heap. So,
   // nonempty_[0] should also be empty.
   e.central_freelist().InsertRange({&objects[remaining], 1});
-  EXPECT_EQ(e.central_freelist().NumSpansInList(0 + kNumLists), 0);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(0), 0);
 }
 
 TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
@@ -730,7 +728,7 @@ TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
   }
   auto bitwidth_indexing = [](size_t allocated) {
     size_t bitwidth = absl::bit_width(allocated);
-    return kNumLists - std::min(bitwidth, kNumLists) + kNumLists;
+    return kNumLists - std::min(bitwidth, kNumLists);
   };
   TestIndexing(e, bitwidth_indexing);
 }
@@ -745,9 +743,9 @@ TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
   if (e.objects_per_span() > 2 * kNumLists) {
     GTEST_SKIP() << "Skipping test as one hot encoding not required.";
   }
-  auto direct_indexing = [](int allocated) {
-    if (allocated <= kNumLists) return kNumLists - allocated + kNumLists;
-    return kNumLists;
+  auto direct_indexing = [](int allocated) -> size_t {
+    if (allocated <= kNumLists) return kNumLists - allocated;
+    return 0;
   };
   TestIndexing(e, direct_indexing);
 }
@@ -809,8 +807,7 @@ TEST_P(CentralFreeListTest, SpanPriority) {
   }
 
   // Make sure we have kNumSpans in the expected second-last nonempty_ list.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2 + kNumLists),
-            kNumSpans);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), kNumSpans);
 
   // Release an additional object from all but one spans so that they are
   // deprioritized for subsequent allocations.
@@ -831,9 +828,8 @@ TEST_P(CentralFreeListTest, SpanPriority) {
 
   // Make sure we have kNumSpans-1 spans in the last nonempty_ list and just one
   // span in the second-last list.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1 + kNumLists),
-            kNumSpans - 1);
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2 + kNumLists), 1);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), kNumSpans - 1);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
 
   // Allocate one object to ensure that it is being allocated from the span with
   // the highest number of allocated objects.
@@ -841,24 +837,21 @@ TEST_P(CentralFreeListTest, SpanPriority) {
   EXPECT_EQ(got, 1);
   // Number of spans in the last nonempty_ list should be unchanged (i.e.
   // kNumSpans-1).
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1 + kNumLists),
-            kNumSpans - 1);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), kNumSpans - 1);
   if (e.objects_per_span() == 3) {
     // Since we allocated another object from the span that had two objects
     // allocated from it, so the span would no longer be there in the span list.
     for (int i = kNumLists - 2; i >= 0; --i) {
-      EXPECT_EQ(e.central_freelist().NumSpansInList(i + kNumLists), 0);
+      EXPECT_EQ(e.central_freelist().NumSpansInList(i), 0);
     }
   } else if (e.objects_per_span() <= 2 * kNumLists) {
     // We should have only one span in the third-last nonempty_ list; this is
     // the span from which we should have allocated the last object.
-    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 3 + kNumLists),
-              1);
+    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 3), 1);
   } else {
     // We should have only one span in the second-last nonempty_ list; this is
     // the span from which we should have allocated the last object.
-    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2 + kNumLists),
-              1);
+    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
   }
   // Return previously allocated object.
   e.central_freelist().InsertRange({batch, 1});
@@ -908,10 +901,6 @@ void CheckLifetimeStats(TypeParam& e, SpanLifetimes span_lifetimes) {
       R"(completed spans:   0 ms <      %d,  1 ms <      %d, 10 ms <      %d,100 ms <      %d,1000 ms <      %d,10000 ms <      %d,100000 ms <      %d,1000000 ms <      %d)",
       completed[0], completed[1], completed[10], completed[100],
       completed[1000], completed[10000], completed[100000], completed[1000000]);
-
-  // Move long-lived spans to the long-lived list. This should not impact
-  // lifetime stats.
-  e.central_freelist().HandleLongLivedSpans();
 
   std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     e.central_freelist().PrintSpanLifetimeStats(printer);
@@ -1265,295 +1254,6 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
-
-TEST_P(CentralFreeListTest, SpanLifetimeWithLongLivedSpans) {
-#if ABSL_HAVE_HWADDRESS_SANITIZER
-  GTEST_SKIP()
-      << "Skipping under HWASan, which uses the top bits of the pointer.";
-#endif
-
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
-
-  const int objects_per_span = e.objects_per_span();
-  if (objects_per_span < 3) return;
-
-  constexpr int kNumSpans = 5;
-  // Track objects allocated per span.
-  absl::FixedArray<std::vector<void*>> objects(kNumSpans);
-  void* batch[kMaxObjectsToMove];
-
-  const size_t to_fetch = objects_per_span;
-  // Allocate all objects from kNumSpans.
-  for (int span = 0; span < kNumSpans; ++span) {
-    size_t fetched = 0;
-    while (fetched < to_fetch) {
-      const size_t n = to_fetch - fetched;
-      int got = e.central_freelist().RemoveRange(
-          absl::MakeSpan(batch, std::min(n, e.batch_size())));
-      for (int i = 0; i < got; ++i) {
-        objects[span].push_back(batch[i]);
-      }
-      fetched += got;
-    }
-    if (span == 0) {
-      e.forwarder().AdvanceClock(
-          central_freelist_internal::kLongLivedSpanThreshold -
-          absl::Seconds(1));
-    }
-  }
-
-  size_t to_release = to_fetch - 1;
-  for (int span = 0; span < kNumSpans; ++span) {
-    size_t released = 0;
-    while (released < to_release) {
-      uint64_t n = std::min(to_release - released, e.batch_size());
-      for (int i = 0; i < n; ++i) {
-        batch[i] = objects[span][i + released];
-      }
-      released += n;
-      e.central_freelist().InsertRange({batch, n});
-    }
-    objects[span].erase(objects[span].begin(),
-                        objects[span].begin() + released);
-    // Release one object from each span after the long-lived span has been
-    // processed. The other spans are more desirable from nalloc perspective,
-    // but they won't be prioritized because of lifetime.
-    to_release = 1;
-  }
-
-  // The first span should be in the last priority list of the normal batch,
-  // before calling HandleLongLivedSpans. It only has one allocated object.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1 + kNumLists), 1);
-
-  // This should be a no-op since we advanced the clock by less than
-  // kLongLivedSpanThreshold.
-  e.central_freelist().HandleLongLivedSpans();
-
-  // The first span should be in the last priority list of the normal batch,
-  // before calling HandleLongLivedSpans. It only has one allocated object.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1 + kNumLists), 1);
-
-  // Advance the clock to make the first span a long-lived span. The others
-  // shouldn't change.
-  e.forwarder().AdvanceClock(absl::Seconds(2));
-  e.central_freelist().HandleLongLivedSpans();
-
-  // The long lived span should be in the last priority list of the long-lived
-  // batch, after calling HandleLongLivedSpans.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), 1);
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1 + kNumLists), 0);
-
-  int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
-  objects[0].push_back(batch[0]);
-
-  // The long lived span should be used for RemoveRange, even though it has the
-  // fewest allocations. It should be moved to the second-last priority list of
-  // the normal batch after allocation.
-  EXPECT_EQ(got, 1);
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), 0);
-
-  // Return the rest of the objects.
-  for (int span = 0; span < kNumSpans; ++span) {
-    for (int i = 0; i < objects[span].size(); ++i) {
-      e.central_freelist().InsertRange({&objects[span][i], 1});
-    }
-  }
-}
-
-TEST_P(CentralFreeListTest, LongLivedSpansMovedHistogram) {
-#if ABSL_HAVE_HWADDRESS_SANITIZER
-  GTEST_SKIP()
-      << "Skipping under HWASan, which uses the top bits of the pointer.";
-#endif
-
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
-
-  const int objects_per_span = e.objects_per_span();
-  if (objects_per_span < 2) return;
-
-  constexpr int kNumSpans =
-      central_freelist_internal::kMaxLongLivedSpansToMove + 1;
-  // Track objects allocated per span.
-  absl::FixedArray<std::vector<void*>> objects(kNumSpans);
-  void* batch[kMaxObjectsToMove];
-
-  // Allocate all objects from kNumSpans.
-  for (int span = 0; span < kNumSpans; ++span) {
-    size_t fetched = 0;
-    while (fetched < objects_per_span) {
-      const size_t n = objects_per_span - fetched;
-      int got = e.central_freelist().RemoveRange(
-          absl::MakeSpan(batch, std::min(n, e.batch_size())));
-      for (int i = 0; i < got; ++i) {
-        objects[span].push_back(batch[i]);
-      }
-      fetched += got;
-    }
-  }
-
-  // Release an object from each span so they're in the tracker
-  for (int span = 0; span < kNumSpans; ++span) {
-    batch[0] = objects[span][0];
-    e.central_freelist().InsertRange({batch, 1});
-    objects[span].erase(objects[span].begin());
-  }
-
-  // Advance the clock to make all spans long-lived.
-  e.forwarder().AdvanceClock(
-      central_freelist_internal::kLongLivedSpanThreshold * 2);
-  // First run should move kMaxLongLivedSpansToMove spans.
-  e.central_freelist().HandleLongLivedSpans();
-  // Second run should move 1 span.
-  e.central_freelist().HandleLongLivedSpans();
-  // Third run should move 0 spans.
-  e.central_freelist().HandleLongLivedSpans();
-
-  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
-    e.central_freelist().PrintLongLivedSpansMoved(printer);
-  });
-
-  EXPECT_THAT(buffer, testing::HasSubstr(
-                          "0 <      1,  1 <      1,  2 <      0,  4 <      0,  "
-                          "8 <      1"));
-
-  // Check pbtxt stats
-  std::string buffer_pbtxt =
-      PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
-        e.central_freelist().PrintLongLivedSpansMovedInPbtxt(region);
-      });
-  EXPECT_THAT(
-      buffer_pbtxt,
-      testing::HasSubstr(
-          "long_lived_spans_moved_histogram { lower_bound: 0 upper_bound: 1 "
-          "value: 1} long_lived_spans_moved_histogram { lower_bound: 1 "
-          "upper_bound: 2 value: 1} long_lived_spans_moved_histogram { "
-          "lower_bound: 2 upper_bound: 4 value: 0"
-          "} long_lived_spans_moved_histogram { lower_bound: 4 upper_bound: 8 "
-          "value: 0} long_lived_spans_moved_histogram { lower_bound: 8 "
-          "upper_bound: 16 value: 1}"));
-
-  // Return all objects.
-  for (int span = 0; span < kNumSpans; ++span) {
-    for (int i = 0; i < objects[span].size(); ++i) {
-      e.central_freelist().InsertRange({&objects[span][i], 1});
-    }
-  }
-}
-
-TEST_P(CentralFreeListTest, ParallelHandleLongLivedSpans) {
-#if ABSL_HAVE_HWADDRESS_SANITIZER
-  GTEST_SKIP()
-      << "Skipping under HWASan, which uses the top bits of the pointer.";
-#endif
-
-  std::atomic<bool> done(false);
-  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
-
-  const int objects_per_span = e.objects_per_span();
-  if (objects_per_span < 2) return;
-
-  // Starting spans.
-  constexpr int kNumSpans = 100;
-  // Track objects allocated per span.
-  std::vector<std::vector<void*>> objects(kNumSpans);
-  void* batch[kMaxObjectsToMove];
-  // void* batch_two[kMaxObjectsToMove];
-
-  // Allocate all objects from kNumSpans.
-  for (int span = 0; span < kNumSpans; ++span) {
-    size_t fetched = 0;
-    while (fetched < objects_per_span) {
-      const size_t n = objects_per_span - fetched;
-      int got = e.central_freelist().RemoveRange(
-          absl::MakeSpan(batch, std::min(n, e.batch_size())));
-      for (int i = 0; i < got; ++i) {
-        objects[span].push_back(batch[i]);
-      }
-      fetched += got;
-    }
-  }
-
-  // Release half of the objects from each span so they're in the tracker lists.
-  size_t to_release = objects_per_span / 2;
-  for (int span = 0; span < kNumSpans; ++span) {
-    size_t released = 0;
-    while (released < to_release) {
-      uint64_t n = std::min(to_release - released, e.batch_size());
-      for (int i = 0; i < n; ++i) {
-        batch[i] = objects[span][i + released];
-      }
-      released += n;
-      e.central_freelist().InsertRange({batch, n});
-    }
-    objects[span].erase(objects[span].begin(),
-                        objects[span].begin() + released);
-  }
-
-  std::vector<void*> flat_objects[2];
-  int i = 0;
-  for (const auto& object_list : objects) {
-    for (const auto& object : object_list) {
-      if (i % 2 == 0) {
-        flat_objects[0].push_back(object);
-      } else {
-        flat_objects[1].push_back(object);
-      }
-      i++;
-    }
-  }
-
-  auto handle_long_lived_spans = [&]() {
-    absl::BitGen rng;
-    while (!done.load(std::memory_order_acquire)) {
-      e.central_freelist().HandleLongLivedSpans();
-    }
-  };
-
-  auto allocate_deallocate_advance = [&](std::vector<void*>& objects) {
-    return [&]() {
-      void* b[kMaxObjectsToMove];
-      absl::BitGen rng;
-      while (!done.load(std::memory_order_acquire)) {
-        double fraction = absl::Uniform(rng, 0, 3.0);
-        if (fraction < 1.0) {
-          int got = e.central_freelist().RemoveRange(absl::MakeSpan(b, 1));
-          EXPECT_EQ(got, 1);
-          objects.push_back(b[0]);
-        } else if (fraction < 2.0) {
-          if (objects.empty()) continue;
-          size_t index = absl::Uniform<size_t>(rng, 0, objects.size());
-          e.central_freelist().InsertRange({&objects[index], 1});
-          std::swap(objects[index], objects.back());
-          objects.pop_back();
-        } else {
-          e.forwarder().AdvanceClock(
-              central_freelist_internal::kLongLivedSpanThreshold / 10);
-        }
-      }
-    };
-  };
-
-  std::thread threads[4] = {
-      std::thread{handle_long_lived_spans},
-      std::thread{handle_long_lived_spans},
-      std::thread{allocate_deallocate_advance(flat_objects[0])},
-      std::thread{allocate_deallocate_advance(flat_objects[1])}};
-
-  absl::SleepFor(absl::Milliseconds(150));
-  done = true;
-  for (std::thread& thread : threads) {
-    thread.join();
-  }
-
-  // Return all objects.
-  for (const auto& objects : flat_objects) {
-    for (void* object : objects) {
-      e.central_freelist().InsertRange({&object, 1});
-    }
-  }
-}
-
 INSTANTIATE_TEST_SUITE_P(CentralFreeList, CentralFreeListTest,
                          // We skip the first size class since it is set to 0.
                          testing::ValuesIn(kSizeClasses.classes.begin() + 1,
