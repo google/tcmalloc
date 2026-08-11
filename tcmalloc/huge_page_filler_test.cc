@@ -5223,7 +5223,7 @@ HugePageFiller: Latency of collapse operations: 0.000000 ms (total), 0.000000 us
 HugePageFiller: Backoff delay for collapse currently is 1 interval(s), number of intervals skipped due to backoff is 0
 HugePageFiller: In the previous treatment interval, subreleased 0 pages.
 HugePageFiller: In the previous treatment interval, subreleased 0 stale pages.
-HugePageFiller: In the previous treatment interval, marked 0 unbacked pages as subreleased.
+HugePageFiller: In the previous treatment interval, marked 0 unbacked pages as subreleased. Since startup, 0.
 
 HugePageFiller: fullness histograms
 

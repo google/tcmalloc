@@ -2043,8 +2043,9 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
 
   out.printf(
       "HugePageFiller: In the previous treatment interval, "
-      "marked %zu unbacked pages as subreleased.\n",
-      treatment_stats_.treated_pages_unbacked_subreleased);
+      "marked %zu unbacked pages as subreleased. Since startup, %zu.\n",
+      treatment_stats_.treated_pages_unbacked_subreleased,
+      treatment_stats_.total_treated_pages_unbacked_subreleased);
 
   out.printf("\n");
   out.printf("HugePageFiller: fullness histograms\n");
@@ -2349,6 +2350,9 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     huge_page_treatment_region.PrintI64(
         "treated_pages_unbacked_subreleased",
         treatment_stats_.treated_pages_unbacked_subreleased);
+    huge_page_treatment_region.PrintI64(
+        "total_treated_pages_unbacked_subreleased",
+        treatment_stats_.total_treated_pages_unbacked_subreleased);
     huge_page_treatment_region.PrintI64(
         "treated_pages_stale_subreleased",
         treatment_stats_.treated_pages_stale_subreleased);

@@ -90,6 +90,7 @@ struct HugePageTreatmentStats {
       collapse_errors = {0};
   size_t treated_pages_subreleased = 0;
   size_t treated_pages_unbacked_subreleased = 0;
+  size_t total_treated_pages_unbacked_subreleased = 0;
   size_t treated_pages_stale_subreleased = 0;
 
   // TODO(287498389): Add latency histogram once we have a better idea of the
@@ -529,6 +530,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     stats.treated_pages_subreleased =
         treatment_stats_.treated_pages_subreleased;
     stats.treated_pages_unbacked_subreleased =
+        treatment_stats_.treated_pages_unbacked_subreleased;
+    stats.total_treated_pages_unbacked_subreleased +=
         treatment_stats_.treated_pages_unbacked_subreleased;
     stats.treated_pages_stale_subreleased =
         treatment_stats_.treated_pages_stale_subreleased;
