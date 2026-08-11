@@ -656,9 +656,9 @@ inline void HugeRegionSet<Region>::Print(Printer& out) const {
 
   out.printf(
       "HugeRegionSet: %zu hugepages backed, %zu backed and free, "
-      "out of %zu total\n",
+      "%zu low water mark free backed, out of %zu total\n",
       total_backed.raw_num(), total_free_backed.raw_num(),
-      Region::size().raw_num() * n_);
+      lowater_free_backed_.raw_num(), Region::size().raw_num() * n_);
 
   const Length in_pages = total_backed.in_pages();
   out.printf("HugeRegionSet: %zu pages free in backed region, %.4f free\n",
@@ -672,6 +672,8 @@ template <typename Region>
 inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion& hpaa) const {
   hpaa.PrintI64("min_huge_region_alloc_size", 1024 * 1024);
   hpaa.PrintI64("huge_region_size", Region::size().in_bytes());
+  hpaa.PrintI64("huge_region_low_water_mark_bytes",
+                lowater_free_backed_.in_bytes());
   for (Region* region : list_) {
     auto detail = hpaa.CreateSubRegion("huge_region_details");
     region->PrintInPbtxt(detail);

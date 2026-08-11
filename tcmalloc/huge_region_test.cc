@@ -1128,6 +1128,15 @@ TEST_P(HugeRegionSetTest, Set) {
   Printer out(&buf[0], buf.size());
   set_.Print(out);
   printf("%s\n", &buf[0]);
+  EXPECT_THAT(absl::string_view(&buf[0]),
+              testing::HasSubstr("0 low water mark free backed"));
+
+  std::vector<char> pbtxt_buf(64 * 1024);
+  Printer pbtxt_out(&pbtxt_buf[0], pbtxt_buf.size());
+  PbtxtRegion region(pbtxt_out, kNested);
+  set_.PrintInPbtxt(region);
+  EXPECT_THAT(absl::string_view(&pbtxt_buf[0]),
+              testing::HasSubstr("huge_region_low_water_mark_bytes: 0"));
 }
 
 TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {

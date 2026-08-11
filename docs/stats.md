@@ -833,7 +833,7 @@ contain multiple regions.
 ```
 HugeRegionSet: 1 MiB+ allocations best-fit into 1024 MiB slabs
 HugeRegionSet: 0 total regions
-HugeRegionSet: 0 hugepages backed out of 0 total
+HugeRegionSet: 0 hugepages backed, 0 backed and free, 0 low water mark free backed, out of 0 total
 HugeRegionSet: 0 pages free in backed region, 0.0000 free
 ```
 
@@ -842,8 +842,9 @@ The lines of output indicate:
 *   The size of each region in MiB - this is currently 1GiB.
 *   The total number of regions in the region cache, in the example above there
     are no regions in the cache.
-*   The number of backed hugepages in the cache out of the total number of
-    hugepages in the region cache.
+*   The number of backed hugepages in the cache, backed and free, the low water
+    mark of free backed pages, out of the total number of hugepages in the
+    region cache.
 *   The number of free TCMalloc pages in the regions, and as a ratio of the
     number of backed pages.
 
