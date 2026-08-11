@@ -246,6 +246,8 @@ class CentralFreeList {
   size_t objects_per_span() const { return objects_per_span_; }
 
  private:
+  friend class CentralFreeListTestPeer;
+
   // Release a batch of objects to a span.
   //
   // Returns object's span if it become completely free.
