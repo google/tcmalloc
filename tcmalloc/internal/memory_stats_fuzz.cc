@@ -26,21 +26,22 @@
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-void ParseInput(absl::string_view s) {
+void ParseInput(absl::string_view s, size_t max_chunk_size) {
   const char* data = s.data();
   size_t size = s.size();
 
   MemoryStats stats;
-  bool r = GetMemoryStatsFromCallback(stats,
-                                      [&](char* buf, size_t count) -> ssize_t {
-                                        size_t to_read = std::min(size, count);
-                                        if (to_read > 0) {
-                                          memcpy(buf, data, to_read);
-                                          data += to_read;
-                                          size -= to_read;
-                                        }
-                                        return to_read;
-                                      });
+  bool r =
+      GetMemoryStatsFromStatus(stats, [&](char* buf, size_t count) -> ssize_t {
+        size_t to_read = std::min({size, count, max_chunk_size});
+        if (to_read > 0) {
+          memcpy(buf, data, to_read);
+          data += to_read;
+          size -= to_read;
+        }
+        return to_read;
+      });
+
   if (!r) {
     return;
   }
@@ -50,11 +51,13 @@ void ParseInput(absl::string_view s) {
   // values.
   std::string formatted =
       absl::StrCat(stats.vss, "-", stats.rss, "-", stats.shared, "-",
-                   stats.code, "-", stats.data);
+                   stats.code, "-", stats.data, "-", stats.vmpte);
   EXPECT_GT(formatted.size(), 0);
 }
 
-FUZZ_TEST(MemoryStatsTest, ParseInput);
+FUZZ_TEST(MemoryStatsTest, ParseInput)
+    .WithDomains(fuzztest::String(),
+                 fuzztest::InRange<size_t>(1, 2 * MemoryStats::kBufferSize));
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

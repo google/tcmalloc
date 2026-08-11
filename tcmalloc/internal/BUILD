@@ -450,7 +450,6 @@ cc_library(
     deps = [
         ":config",
         ":logging",
-        ":page_size",
         ":util",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:function_ref",
@@ -464,6 +463,10 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":memory_stats",
+        ":page_size",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1514,6 +1517,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     deps = [
         ":memory_stats",
+        ":page_size",
         "@com_google_absl//absl/strings",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",

@@ -30,11 +30,15 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 struct MemoryStats {
-  int64_t vss;
-  int64_t rss;
-  int64_t shared;
-  int64_t code;
-  int64_t data;
+  // We expose kBufferSize used by GetMemoryStats to facilitate fuzzing.
+  static constexpr size_t kBufferSize = 1024;
+
+  int64_t vss = 0;
+  int64_t rss = 0;
+  int64_t shared = 0;
+  int64_t code = 0;
+  int64_t data = 0;
+  int64_t vmpte = 0;
 };
 
 // Memory stats of a process
@@ -48,7 +52,7 @@ inline bool GetMemoryStats(MemoryStats* stats) {
 }
 
 // For testing
-bool GetMemoryStatsFromCallback(
+bool GetMemoryStatsFromStatus(
     MemoryStats& stats,
     absl::FunctionRef<ssize_t(char* buf, size_t count)> read);
 

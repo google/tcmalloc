@@ -25,15 +25,17 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 
 #include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -54,78 +56,86 @@ struct FDCloser {
 
 }  // namespace
 
-bool GetMemoryStatsFromCallback(
+bool GetMemoryStatsFromStatus(
     MemoryStats& stats,
     absl::FunctionRef<ssize_t(char* buf, size_t count)> read) {
-  char buf[1024];
-  ssize_t rc = read(buf, sizeof(buf));
-  if (rc < 0 || rc >= static_cast<ssize_t>(sizeof(buf))) {
-    return false;
-  }
-  buf[rc] = '\0';
+  char buf[MemoryStats::kBufferSize];
+  size_t buf_len = 0;
 
-  const size_t pagesize = GetPageSize();
-  absl::string_view contents(buf, rc);
-  absl::string_view::size_type start = 0;
-  int index = 0;
-  do {
-    auto end = contents.find(' ', start);
+  // Bitwise tracker for which fields we've seen to ensure stats is fully
+  // populated.
+  size_t seen = 0;
+  while (true) {
+    ssize_t rc = read(buf + buf_len, MemoryStats::kBufferSize - buf_len);
+    if (rc <= 0) break;
+    buf_len += rc;
 
-    absl::string_view value;
-    if (end == absl::string_view::npos) {
-      value = contents.substr(start);
+    absl::string_view contents(buf, buf_len);
+    while (!contents.empty()) {
+      auto nl = contents.find('\n');
+      if (nl == absl::string_view::npos) {
+        break;  // Partial line at end of chunk, wait for next read
+      }
+
+      absl::string_view line = contents.substr(0, nl);
+      contents = contents.substr(nl + 1);
+
+      auto colon = line.find(':');
+      if (colon == absl::string_view::npos) {
+        continue;
+      }
+
+      absl::string_view key = line.substr(0, colon);
+      absl::string_view rest =
+          absl::StripAsciiWhitespace(line.substr(colon + 1));
+
+      constexpr absl::string_view kb = " kB";
+      const bool is_kb = absl::EndsWith(rest, kb);
+      if (is_kb) {
+        rest = rest.substr(0, rest.size() - kb.size());
+      }
+
+      int64_t val;
+      if (!absl::SimpleAtoi(rest, &val)) {
+        continue;
+      }
+
+      if (is_kb) {
+        val *= 1024;
+      }
+      if (key == "VmSize") {
+        stats.vss = val;
+        seen |= 0x1;
+      } else if (key == "VmRSS") {
+        stats.rss = val;
+        seen |= 0x2;
+      } else if (key == "RssFile" || key == "RssShmem") {
+        stats.shared += val;
+        seen |= 0x4;
+      } else if (key == "VmExe") {
+        stats.code = val;
+        seen |= 0x8;
+      } else if (key == "VmData" || key == "VmStk") {
+        stats.data += val;
+        seen |= 0x10;
+      } else if (key == "VmPTE") {
+        stats.vmpte = val;
+        seen |= 0x20;
+      }
+    }
+
+    // Slide remainder back to 0.
+    buf_len = contents.size();
+    if (ABSL_PREDICT_FALSE(buf_len == MemoryStats::kBufferSize)) {
+      // A single string without a newline exceeds the entire buffer. Discard
+      // it.
+      buf_len = 0;
     } else {
-      value = contents.substr(start, end - start);
+      memmove(buf, contents.data(), buf_len);
     }
-
-    int64_t parsed;
-    if (!absl::SimpleAtoi(value, &parsed)) {
-      return false;
-    }
-
-    // Fields in /proc/self/statm:
-    //  [0] = vss
-    //  [1] = rss
-    //  [2] = shared
-    //  [3] = code
-    //  [4] = unused
-    //  [5] = data + stack
-    //  [6] = unused
-    switch (index) {
-      case 0:
-        stats.vss = parsed * pagesize;
-        break;
-      case 1:
-        stats.rss = parsed * pagesize;
-        break;
-      case 2:
-        stats.shared = parsed * pagesize;
-        break;
-      case 3:
-        stats.code = parsed * pagesize;
-        break;
-      case 5:
-        stats.data = parsed * pagesize;
-        break;
-      case 4:
-      case 6:
-      default:
-        // Unused
-        break;
-    }
-
-    if (end == absl::string_view::npos) {
-      break;
-    }
-
-    start = end + 1;
-  } while (start < contents.size() && index++ < 6);
-
-  if (index < 6) {
-    return false;
   }
 
-  return true;
+  return seen == 0x3f;
 }
 
 bool GetMemoryStats(MemoryStats& stats) {
@@ -134,13 +144,13 @@ bool GetMemoryStats(MemoryStats& stats) {
 #endif
 
   FDCloser fd;
-  fd.fd = signal_safe_open("/proc/self/statm", O_RDONLY | O_CLOEXEC);
+  fd.fd = signal_safe_open("/proc/self/status", O_RDONLY | O_CLOEXEC);
   TC_ASSERT_GE(fd.fd, 0);
   if (fd.fd < 0) {
     return false;
   }
 
-  return GetMemoryStatsFromCallback(stats, [&](char* buf, size_t count) {
+  return GetMemoryStatsFromStatus(stats, [&](char* buf, size_t count) {
     return signal_safe_read(fd.fd, buf, count, nullptr);
   });
 }
