@@ -574,16 +574,18 @@ TEST(ProfileConverterTest, HeapProfile) {
   // Require that the default_sample_type appeared in sample_type.
   EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
 
-  constexpr int kNumSamples = 6;
+  constexpr int kNumSampleTypes = 7
+      ;
   // This is slightly redundant with the next line, but we need to loop over
   // each of the samples later.
-  EXPECT_THAT(extracted_sample_type, SizeIs(kNumSamples));
-  EXPECT_THAT(
-      extracted_sample_type,
-      UnorderedElementsAre(
-          Pair("objects", "count"), Pair("space", "bytes"),
-          Pair("resident_space", "bytes"), Pair("stale_space", "bytes"),
-          Pair("locked_space", "bytes"), Pair("swapped_space", "bytes")));
+  constexpr int kNumSamples = 6;
+  EXPECT_THAT(extracted_sample_type, SizeIs(kNumSampleTypes));
+  EXPECT_THAT(extracted_sample_type,
+              UnorderedElementsAre(
+                  Pair("objects", "count"), Pair("space", "bytes"),
+                  Pair("resident_space", "bytes"), Pair("stale_space", "bytes"),
+                  Pair("locked_space", "bytes"), Pair("swapped_space", "bytes"),
+                  Pair("zero_space", "bytes")));
 
   SampleLabels extracted_labels;
   {
