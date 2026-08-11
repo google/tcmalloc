@@ -1014,8 +1014,6 @@ TEST(ProfileBuilderTest, SameTags) {
       MakeTestProfile(start_time, absl::ZeroDuration(), ProfileType::kHeap);
   const auto peakheap =
       MakeTestProfile(start_time, absl::ZeroDuration(), ProfileType::kPeakHeap);
-  const auto fragmentation = MakeTestProfile(start_time, absl::ZeroDuration(),
-                                             ProfileType::kFragmentation);
   const auto allocation =
       MakeTestProfile(start_time, kDuration, ProfileType::kAllocations);
   const auto lifetime = MakeTestLifetimeProfile(start_time, kDuration);
@@ -1033,14 +1031,12 @@ TEST(ProfileBuilderTest, SameTags) {
 
   auto heap_tags = ExtractTags(heap);
   auto peakheap_tags = ExtractTags(peakheap);
-  auto fragmentation_tags = ExtractTags(fragmentation);
   auto allocation_tags = ExtractTags(allocation);
   EXPECT_THAT(heap_tags, testing::Contains("stale_scan_period"));
   heap_tags.erase("stale_scan_period");
 
   EXPECT_THAT(heap_tags, testing::ContainerEq(allocation_tags));
   EXPECT_THAT(heap_tags, testing::ContainerEq(peakheap_tags));
-  EXPECT_THAT(heap_tags, testing::ContainerEq(fragmentation_tags));
 
   const absl::flat_hash_set<absl::string_view> lifetime_only_tags = {
       "callstack-pair-id", "stddev_lifetime", "active thread", "min_lifetime",

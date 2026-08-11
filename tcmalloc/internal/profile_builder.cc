@@ -892,7 +892,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   int default_sample_type_id;
   switch (profile.Type()) {
-    case tcmalloc::ProfileType::kFragmentation:
     case tcmalloc::ProfileType::kHeap:
     case tcmalloc::ProfileType::kPeakHeap:
       default_sample_type_id = space_id;

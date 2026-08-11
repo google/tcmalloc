@@ -73,7 +73,6 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
   // Another few threads busy with iterating different kinds of heap profiles.
   for (auto t : {
            ProfileType::kHeap,
-           ProfileType::kFragmentation,
            ProfileType::kPeakHeap,
        }) {
     manager.Start(2, [&, t](int) {

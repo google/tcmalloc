@@ -278,9 +278,6 @@ extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
   switch (type) {
     case ProfileType::kHeap:
       return DumpHeapProfile(tc_globals).release();
-    case ProfileType::kFragmentation:
-      // This profile is no longer collected.
-      return nullptr;
     case ProfileType::kPeakHeap:
       return tc_globals.peak_heap_tracker().DumpSample().release();
     default:
