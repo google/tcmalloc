@@ -139,7 +139,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   } else {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_huge_region_adaptive_release: false"));
   }
-  if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)) {
+  if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
+  ) {
     EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
   } else {
     EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
@@ -283,7 +284,8 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_skip_subrelease_long_interval_ns: 3000000000)"));
-    if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)) {
+    if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
+    ) {
       EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 2)"));
     } else {
       EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));

@@ -225,7 +225,8 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     numa_topology_.Init();
     CacheTopology::Instance().Init();
 
-    if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)) {
+    if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
+    ) {
       TCMalloc_Internal_SetMinHotAccessHint(/*v=*/2);
     }
 
