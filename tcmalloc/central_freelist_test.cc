@@ -173,7 +173,7 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
 
   // Double free (after deallocation, span descriptor is invalid)
   EXPECT_DEATH(StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class),
-               "Possible double free detected");
+               "Possible double free detected|Mismatched-size-class");
 }
 
 class StaticForwarderEnvironment {

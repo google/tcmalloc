@@ -299,10 +299,10 @@ test_variants = [
 
 def create_tcmalloc_library(
         name,
-        copts,
-        linkopts,
-        srcs,
-        deps,
+        copts = [],
+        linkopts = [],
+        srcs = [],
+        deps = [],
         **kwargs):
     cc_library(
         name = name,
@@ -313,7 +313,7 @@ def create_tcmalloc_library(
         **kwargs
     )
 
-def create_tcmalloc_build_variant_targets(create_one, name, srcs, **kwargs):
+def create_tcmalloc_build_variant_targets(create_one, name, srcs = [], **kwargs):
     """ Invokes create_one once per TCMalloc variant
 
     Args:
@@ -328,6 +328,7 @@ def create_tcmalloc_build_variant_targets(create_one, name, srcs, **kwargs):
     """
     copts = kwargs.pop("copts", [])
     deps = kwargs.pop("deps", [])
+    variant_deps = kwargs.pop("variant_deps", [])
     linkopts = kwargs.pop("linkopts", [])
     tags = kwargs.pop("tags", [])
 
@@ -340,7 +341,10 @@ def create_tcmalloc_build_variant_targets(create_one, name, srcs, **kwargs):
             copts = copts + variant.get("copts", []),
             linkopts = linkopts + variant.get("linkopts", []),
             srcs = srcs,
-            deps = deps + variant.get("deps", []),
+            deps = deps + variant.get("deps", []) + [
+                d + "_" + variant["name"]
+                for d in variant_deps
+            ],
             tags = tags + variant.get("tags", []),
             **kwargs
         )
@@ -348,7 +352,7 @@ def create_tcmalloc_build_variant_targets(create_one, name, srcs, **kwargs):
     return variant_targets
 
 # Create test_suite of name containing build variants.
-def create_tcmalloc_libraries(name, srcs, **kwargs):
+def create_tcmalloc_libraries(name, srcs = [], **kwargs):
     create_tcmalloc_build_variant_targets(
         create_tcmalloc_library,
         name,
@@ -356,7 +360,7 @@ def create_tcmalloc_libraries(name, srcs, **kwargs):
         **kwargs
     )
 
-def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
+def create_tcmalloc_test_variant_targets(create_one, name, srcs = [], **kwargs):
     """ Invokes create_one once per TCMalloc variant
 
     Args:
@@ -371,6 +375,7 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
     """
     copts = kwargs.pop("copts", [])
     deps = kwargs.pop("deps", [])
+    variant_deps = kwargs.pop("variant_deps", [])
     linkopts = kwargs.pop("linkopts", [])
     tags = kwargs.pop("tags", [])
 
@@ -382,13 +387,26 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
         variant_targets.append(inner_target_name)
         env = dict(variant.get("env", {}))
         env.update(env0)
+
+        build_variant = variant.get("build_variant")
+        if not build_variant:
+            for d in variant.get("deps", []):
+                if "common_" in d:
+                    build_variant = d.rsplit("common_", 1)[1]
+                    break
+        if not build_variant:
+            build_variant = variant["name"]
+
         create_one(
             inner_target_name,
             copts = copts + variant.get("copts", []),
             linkopts = linkopts + variant.get("linkopts", []),
             malloc = variant.get("malloc"),
             srcs = srcs,
-            deps = deps + variant.get("deps", []),
+            deps = deps + variant.get("deps", []) + [
+                d + "_" + build_variant
+                for d in variant_deps
+            ],
             env = env,
             tags = tags + variant.get("tags", []),
             **kwargs
@@ -399,11 +417,11 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
 # Declare an individual test.
 def create_tcmalloc_test(
         name,
-        copts,
-        linkopts,
-        malloc,
-        srcs,
-        deps,
+        copts = [],
+        linkopts = [],
+        malloc = None,
+        srcs = [],
+        deps = [],
         **kwargs):
     cc_test(
         name = name,
@@ -416,7 +434,7 @@ def create_tcmalloc_test(
     )
 
 # Create test_suite of name containing tests variants.
-def create_tcmalloc_testsuite(name, srcs, **kwargs):
+def create_tcmalloc_testsuite(name, srcs = [], **kwargs):
     tags = kwargs.get("tags")
     variant_targets = create_tcmalloc_test_variant_targets(
         create_tcmalloc_test,
