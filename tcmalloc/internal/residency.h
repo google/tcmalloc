@@ -21,7 +21,6 @@
 
 #include <optional>
 #include <ostream>
-
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
@@ -41,6 +40,10 @@ class Residency {
   struct Info {
     size_t bytes_resident = 0;
     size_t bytes_swapped = 0;
+    // Bitmap of the resident pages. In the case that the queried range is
+    // larger than the size of the residency bitmap, the bitmap will only
+    // cover some prefix of the queried range.
+    ResidencyBitmap page_is_resident;
   };
 
   virtual std::optional<Info> Get(const void* addr, size_t size) = 0;
@@ -106,9 +109,10 @@ class ResidencyPageMap : public Residency {
   // operation.
   std::optional<uint64_t> ReadOne();
   // This helper reads information for `num_pages` worth of _full_ pages and
-  // puts the results into `info`. It continues the read from the last Seek() or
+  // puts the results into `info`, starting at `page_index`.
+  // It continues the read from the last Seek() or
   // last Read operation.
-  absl::StatusCode ReadMany(int64_t num_pages, Info& info);
+  absl::StatusCode ReadMany(int64_t num_pages, size_t page_index, Info& info);
 
   // For testing.
   friend class ResidencySpouse;

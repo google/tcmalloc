@@ -515,7 +515,6 @@ cc_library(
         ":config",
         ":logging",
         ":page_size",
-        ":pageflags",
         ":range_tracker",
         ":util",
         "@com_google_absl//absl/status",
@@ -995,10 +994,15 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":page_size",
+        ":residency",
         ":util",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
     ],
 )
@@ -1010,8 +1014,11 @@ cc_test(
     tags = ["nompu64"],  # tcmalloc:google3-only
     deps = [
         ":compressibility",
+        ":page_size",
+        ":range_tracker",
+        ":residency",
         "@com_google_absl//absl/status:status_matchers",
-        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
@@ -1024,6 +1031,8 @@ cc_test(
     tags = ["nompu64"],  # tcmalloc:google3-only
     deps = [
         ":compressibility",
+        ":page_size",
+        ":residency",
         "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
@@ -1043,15 +1052,12 @@ cc_library(
         ":compressibility",
         ":logging",
         ":pageflags",
-        ":parameter_accessors",
         ":residency",
-        ":util",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:btree",
-        "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/status",
@@ -1494,7 +1500,9 @@ cc_library(
     deps = [
         ":config",
         ":logging",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
     ],
 )
 

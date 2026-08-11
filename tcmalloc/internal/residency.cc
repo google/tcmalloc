@@ -50,12 +50,18 @@ constexpr bool PagePresent(uint64_t flags) {
 
 // Small helper to interpret /proc/pid/pagemap. Bit 62 represents if the page is
 // swapped, and bit 63 represents if the page is present.
-void Update(const uint64_t input, const size_t size, Residency::Info& info) {
+void Update(const uint64_t input, const size_t size, const size_t page_index,
+            Residency::Info& info) {
   // From fs/proc/task_mmu.c:
-  if (PagePresent(input)) {
+  bool present = PagePresent(input);
+  bool swapped = PageSwapped(input);
+  if (present) {
     info.bytes_resident += size;
+    if (page_index < kMaxResidencyBits) {
+      info.page_is_resident.SetBit(page_index);
+    }
   }
-  if (PageSwapped(input)) {
+  if (swapped) {
     info.bytes_swapped += size;
   }
 }
@@ -111,6 +117,7 @@ std::optional<uint64_t> ResidencyPageMap::ReadOne() {
 }
 
 absl::StatusCode ResidencyPageMap::ReadMany(int64_t num_pages,
+                                            size_t page_index,
                                             Residency::Info& info) {
   while (num_pages > 0) {
     const size_t batch_size = std::min<int64_t>(kEntriesInBuf, num_pages);
@@ -123,8 +130,8 @@ absl::StatusCode ResidencyPageMap::ReadMany(int64_t num_pages,
     if (status != to_read) {
       return absl::StatusCode::kUnavailable;
     }
-    for (int i = 0; i < batch_size; ++i) {
-      Update(buf_[i], kHardwarePageSize, info);
+    for (size_t i = 0; i < batch_size; ++i) {
+      Update(buf_[i], kHardwarePageSize, page_index++, info);
     }
     num_pages -= batch_size;
   }
@@ -149,6 +156,7 @@ std::optional<Residency::Info> ResidencyPageMap::Get(const void* const addr,
       (uaddr + size + kHardwarePageSize - 1) & ~(kHardwarePageSize - 1);
 
   int64_t remainingPages = (endPage - basePage) / kHardwarePageSize;
+  size_t page_index = 0;
 
   if (auto res = Seek(basePage); res != absl::StatusCode::kOk) {
     return std::nullopt;
@@ -157,7 +165,7 @@ std::optional<Residency::Info> ResidencyPageMap::Get(const void* const addr,
   if (remainingPages == 1) {
     auto res = ReadOne();
     if (!res.has_value()) return std::nullopt;
-    Update(res.value(), size, info);
+    Update(res.value(), size, page_index++, info);
     return info;
   }
 
@@ -170,20 +178,23 @@ std::optional<Residency::Info> ResidencyPageMap::Get(const void* const addr,
 
   // Handle the first page.
   size_t firstPageSize = kHardwarePageSize - (uaddr - basePage);
-  Update(res.value(), firstPageSize, info);
+  Update(res.value(), firstPageSize, page_index++, info);
   remainingPages--;
 
   // Handle all pages but the last page.
-  if (auto res = ReadMany(remainingPages - 1, info);
+  if (auto res = ReadMany(remainingPages - 1, page_index, info);
       res != absl::StatusCode::kOk) {
     return std::nullopt;
   }
+  page_index += remainingPages - 1;
+  remainingPages = 1;
 
   // Check final page
   size_t lastPageSize = kHardwarePageSize - (endPage - uaddr - size);
   res = ReadOne();
   if (!res.has_value()) return std::nullopt;
-  Update(res.value(), lastPageSize, info);
+  Update(res.value(), lastPageSize, page_index++, info);
+
   return info;
 }
 

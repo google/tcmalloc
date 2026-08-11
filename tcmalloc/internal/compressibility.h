@@ -21,6 +21,7 @@
 #include "absl/container/fixed_array.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
+#include "tcmalloc/internal/residency.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -34,10 +35,10 @@ class CompressionAnalyzer {
 
   struct Results {
     size_t zero_bytes = 0;
-    size_t trailing_zero_bytes = 0;
   };
 
-  absl::StatusOr<Results> Analyze(absl::Span<const char> data);
+  absl::StatusOr<Results> Analyze(absl::Span<const char> data,
+                                  const Residency::Info& residency_info);
 
  private:
   absl::FixedArray<char> local_copy_;

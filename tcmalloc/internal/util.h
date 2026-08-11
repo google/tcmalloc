@@ -24,7 +24,9 @@
 #include <sys/types.h>
 #include <time.h>
 
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 
@@ -91,6 +93,13 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read);
 // not attempting to re-enable them.  Protecting us from the traditional races
 // involved with the latter.
 int signal_safe_poll(struct ::pollfd* fds, int nfds, absl::Duration timeout);
+
+// Copies memory from multiple source memory chunks (`src_chunks`) to `dst`
+// safely using process_vm_readv. If any source chunk points to unmapped or
+// concurrently freed/mprotected memory, this function returns false without
+// triggering a SIGSEGV crash. Returns true if all chunks were successfully
+// copied.
+bool SafeCopyMemory(absl::Span<const absl::string_view> src_chunks, void* dst);
 
 // Copies `size` bytes from `src` to `dst` safely using process_vm_readv.
 // If `src` points to unmapped or concurrently freed/mprotected memory, this

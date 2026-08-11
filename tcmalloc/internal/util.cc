@@ -19,6 +19,7 @@
 #include <signal.h>
 #include <stdarg.h>
 #include <string.h>
+
 #if defined(__linux__)
 #include <sys/uio.h>
 #if defined(__GLIBC__) && \
@@ -28,10 +29,13 @@
 #endif  // defined(__linux__)
 #include <unistd.h>
 
+#include <algorithm>
 #include <type_traits>
 
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -130,25 +134,51 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read) {
   return rc;
 }
 
-bool SafeCopyMemory(const void* src, void* dst, size_t size) {
-  if (src == nullptr || dst == nullptr || size == 0) {
+bool SafeCopyMemory(absl::Span<const absl::string_view> src_chunks, void* dst) {
+  if (src_chunks.empty() || dst == nullptr) {
     return false;
   }
 #if defined(HAS_PROCESS_VM_READV)
-  struct iovec local_iov;
-  local_iov.iov_base = dst;
-  local_iov.iov_len = size;
+  size_t dst_offset = 0;
+  constexpr size_t kMaxIov = 64;
+  static_assert(kMaxIov <= IOV_MAX);
+  struct iovec src_vec[kMaxIov];
 
-  struct iovec remote_iov;
-  remote_iov.iov_base = const_cast<void*>(src);
-  remote_iov.iov_len = size;
+  while (!src_chunks.empty()) {
+    // Process in batches of up to kMaxIov chunks.
+    const size_t batch_count = std::min<size_t>(src_chunks.size(), kMaxIov);
+    size_t batch_bytes = 0;
+    for (size_t i = 0; i < batch_count; ++i) {
+      src_vec[i] =
+          iovec{const_cast<char*>(src_chunks[i].data()), src_chunks[i].size()};
+      batch_bytes += src_chunks[i].size();
+    }
+    src_chunks.remove_prefix(batch_count);
 
-  ssize_t bytes = process_vm_readv(getpid(), &local_iov, /*liovcnt=*/1,
-                                   &remote_iov, /*riovcnt=*/1, /*flags=*/0);
-  return bytes == static_cast<ssize_t>(size);
+    struct iovec dst_iov;
+    dst_iov.iov_base = static_cast<char*>(dst) + dst_offset;
+    dst_iov.iov_len = batch_bytes;
+
+    ssize_t bytes = process_vm_readv(getpid(), &dst_iov, /*liovcnt=*/1, src_vec,
+                                     /*riovcnt=*/batch_count, /*flags=*/0);
+    if (bytes != batch_bytes) {
+      return false;
+    }
+
+    dst_offset += batch_bytes;
+  }
+  return true;
 #else
   return false;
 #endif  // defined(HAS_PROCESS_VM_READV)
+}
+
+bool SafeCopyMemory(const void* src, void* dst, size_t size) {
+  if (size == 0) {
+    return false;
+  }
+  const absl::string_view chunk(static_cast<const char*>(src), size);
+  return SafeCopyMemory(absl::MakeConstSpan(&chunk, 1), dst);
 }
 
 }  // namespace tcmalloc_internal

@@ -65,6 +65,7 @@ class ResidencySpouse {
 
 namespace {
 
+using ::testing::_;
 using ::testing::FieldsAre;
 using ::testing::Optional;
 
@@ -90,53 +91,60 @@ TEST(ResidenceTest, ThisProcess) {
     ASSERT_NE(p, MAP_FAILED) << errno;
 
     EXPECT_THAT(r.Get(p, (kNumPages + 2) * kHardwarePageSize),
-                Optional(FieldsAre(0, 0)));
-    ASSERT_EQ(munmap(p, kHardwarePageSize), 0);
+                Optional(FieldsAre(0, 0, _)));
     void* q = reinterpret_cast<char*>(p) + kHead;
     void* last =
         reinterpret_cast<char*>(p) + kNumPages * kHardwarePageSize + kHead;
+    ASSERT_EQ(munmap(p, kHardwarePageSize), 0);
     ASSERT_EQ(munmap(last, kHardwarePageSize), 0);
 
-    EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0)));
-    EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0)));
+    EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0, _)));
+    EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0, _)));
 
     memset(q, 0, kNumPages * kHardwarePageSize);
     (void)mlock(q, kNumPages * kHardwarePageSize);
     ::benchmark::DoNotOptimize(q);
 
-    EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0)));
-    EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0)));
+    EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0, _)));
+    EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0, _)));
 
     EXPECT_THAT(r.Get(q, kHardwarePageSize),
-                Optional(FieldsAre(kHardwarePageSize, 0)));
+                Optional(FieldsAre(kHardwarePageSize, 0, _)));
 
     EXPECT_THAT(r.Get(q, (kNumPages + 2) * kHardwarePageSize),
-                Optional(FieldsAre(kHardwarePageSize * kNumPages, 0)));
+                Optional(FieldsAre(kHardwarePageSize * kNumPages, 0, _)));
 
     EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kHardwarePageSize - 7),
-                Optional(FieldsAre(kHardwarePageSize - 7, 0)));
+                Optional(FieldsAre(kHardwarePageSize - 7, 0, _)));
 
     EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kHardwarePageSize),
-                Optional(FieldsAre(kHardwarePageSize, 0)));
+                Optional(FieldsAre(kHardwarePageSize, 0, _)));
 
     EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, 3 * kHardwarePageSize),
-                Optional(FieldsAre(kHardwarePageSize * 3, 0)));
+                Optional(FieldsAre(kHardwarePageSize * 3, 0, _)));
 
     EXPECT_THAT(
         r.Get(reinterpret_cast<char*>(q) + 7, kNumPages * kHardwarePageSize),
-        Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0)));
+        Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
 
     EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
                       kNumPages * kHardwarePageSize - 7),
-                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0)));
+                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
 
     EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
                       (kNumPages + 1) * kHardwarePageSize),
-                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0)));
+                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
 
     EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
                       (kNumPages + 1) * kHardwarePageSize - 7),
-                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0)));
+                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
+
+    auto q_info = r.Get(q, kNumPages * kHardwarePageSize);
+    ASSERT_TRUE(q_info.has_value());
+    EXPECT_THAT(*q_info, FieldsAre(kHardwarePageSize * kNumPages, 0, _));
+    for (size_t i = 0; i < kNumPages; ++i) {
+      EXPECT_TRUE(q_info->page_is_resident.GetBit(i));
+    }
 
     ASSERT_EQ(munmap(q, kNumPages * kHardwarePageSize), 0);
   }

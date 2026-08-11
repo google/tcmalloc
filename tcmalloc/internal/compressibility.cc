@@ -17,50 +17,127 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/status/status.h"
+#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/util.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+namespace {
+
+constexpr uintptr_t AlignDown(uintptr_t addr, size_t alignment) {
+  return addr & ~(alignment - 1);
+}
+
+constexpr uintptr_t AlignUp(uintptr_t addr, size_t alignment) {
+  return (addr + alignment - 1) & ~(alignment - 1);
+}
+
+// Copies up to `dst.size()` resident bytes from `data` into `dst`, skipping any
+// unbacked or swapped pages and concatenating the resident pages.
+// Returns the number of bytes copied.
+absl::StatusOr<size_t> CopyResidentPages(absl::Span<const char> data,
+                                         const Residency::Info& residency_info,
+                                         absl::Span<char> dst) {
+  const size_t hardware_page_size = GetPageSize();
+
+  const uintptr_t uaddr = reinterpret_cast<uintptr_t>(data.data());
+  const uintptr_t start_page_addr = AlignDown(uaddr, hardware_page_size);
+  const uintptr_t end_page_addr =
+      AlignUp(uaddr + data.size(), hardware_page_size);
+  const size_t num_pages =
+      (end_page_addr - start_page_addr) / hardware_page_size;
+  const size_t pages_to_scan =
+      std::min(num_pages, residency_info.page_is_resident.size());
+
+  std::vector<absl::string_view> remote_chunks;
+  size_t total_resident_bytes = 0;
+  size_t page_index = 0;
+
+  do {
+    // Find the next range of resident pages.
+    size_t start_page_index =
+        residency_info.page_is_resident.FindSet(page_index);
+    if (start_page_index >= pages_to_scan) {
+      break;
+    }
+    size_t end_page_index =
+        residency_info.page_is_resident.FindClear(start_page_index);
+    end_page_index = std::min(end_page_index, pages_to_scan);
+
+    const uintptr_t chunk_start = std::max(
+        uaddr, start_page_addr + start_page_index * hardware_page_size);
+    const uintptr_t chunk_end =
+        std::min(uaddr + data.size(),
+                 start_page_addr + end_page_index * hardware_page_size);
+    const size_t chunk_bytes = chunk_end - chunk_start;
+    const size_t to_copy =
+        std::min(chunk_bytes, dst.size() - total_resident_bytes);
+    remote_chunks.push_back(
+        absl::string_view(reinterpret_cast<const char*>(chunk_start), to_copy));
+    total_resident_bytes += to_copy;
+
+    page_index = end_page_index;
+  } while (page_index < pages_to_scan && total_resident_bytes < dst.size());
+
+  if (total_resident_bytes > 0) {
+    if (!SafeCopyMemory(remote_chunks, /*dst=*/dst.data())) {
+      return absl::InternalError("SafeCopyMemory failed");
+    }
+  }
+
+  return total_resident_bytes;
+}
+
+// Extrapolates total zero bytes in the allocation by combining zeroes measured
+// within the resident sample with known unbacked pages.
+size_t EstimateZeroBytes(size_t alloc_size,
+                         const Residency::Info& residency_info,
+                         absl::Span<const char> resident_sample) {
+  const size_t backed_bytes = std::min(
+      alloc_size, residency_info.bytes_resident + residency_info.bytes_swapped);
+  const size_t unbacked_bytes = alloc_size - backed_bytes;
+  if (resident_sample.empty()) {
+    return unbacked_bytes;
+  }
+
+  const size_t sample_zeroes = absl::c_count(resident_sample, '\0');
+  const double zero_ratio =
+      static_cast<double>(sample_zeroes) / resident_sample.size();
+  const size_t estimated_backed_zeroes =
+      static_cast<size_t>(zero_ratio * backed_bytes);
+
+  return unbacked_bytes + estimated_backed_zeroes;
+}
+
+}  // namespace
 
 CompressionAnalyzer::CompressionAnalyzer(size_t max_local_copy_size)
     : local_copy_(max_local_copy_size)
 {}
 
 absl::StatusOr<CompressionAnalyzer::Results> CompressionAnalyzer::Analyze(
-    absl::Span<const char> data) {
+    absl::Span<const char> data, const Residency::Info& residency_info) {
+  // Sample resident pages up to local buffer capacity (2MB).
+  ASSIGN_OR_RETURN(
+      const size_t copied_bytes,
+      CopyResidentPages(data, residency_info, absl::MakeSpan(local_copy_)));
+
+  const absl::Span<const char> resident_sample =
+      absl::MakeConstSpan(local_copy_).first(copied_bytes);
+
   Results results;
-  bool still_in_trailing_zeroes = true;
-
-  // Walk backwards from the end of the data, copying chunks.
-  int64_t end_offset = data.size();
-  while (end_offset > 0) {
-    int64_t chunk_size =
-        std::min(end_offset, static_cast<int64_t>(local_copy_.size()));
-    if (!SafeCopyMemory(/*src=*/data.data() + end_offset - chunk_size,
-                        /*dst=*/local_copy_.data(), /*size=*/chunk_size)) {
-      return absl::InternalError("SafeCopyMemory failed");
-    }
-    auto chunk = absl::MakeConstSpan(local_copy_.data(), chunk_size);
-
-    // Count zero bytes and trailing zero bytes in chunk.
-    for (size_t i = chunk.size(); i > 0; --i) {
-      char c = chunk[i - 1];
-      if (c == 0) {
-        results.zero_bytes++;
-        if (still_in_trailing_zeroes) {
-          results.trailing_zero_bytes++;
-        }
-      } else {
-        still_in_trailing_zeroes = false;
-      }
-    }
-
-    end_offset -= chunk_size;
-  }
+  results.zero_bytes =
+      EstimateZeroBytes(data.size(), residency_info, resident_sample);
 
   return results;
 }
