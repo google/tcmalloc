@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <setjmp.h>
-
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -36,7 +34,6 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
-#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
@@ -80,15 +77,6 @@ struct Dealloc {
   }
 };
 
-struct DeallocNoRemove {
-  uint8_t count;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const DeallocNoRemove& d) {
-    absl::Format(&sink, "DeallocNoRemove(%d)", d.count);
-  }
-};
-
 // Pushes objects into the Span using the ObjIdx interface.
 struct DeallocIndex {
   uint8_t count;
@@ -99,7 +87,6 @@ struct DeallocIndex {
   }
 };
 
-// TODO(b/457842787): Include DeallocNoRemove in variant list.
 using Instruction = std::variant<Alloc, Shuffle, Dealloc, DeallocIndex>;
 
 void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
@@ -113,11 +100,6 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
   std::vector<void*> live_ptrs;
   std::vector<void*> batch;
   std::mt19937 rng;
-
-  LongJmpScope scope;
-  if (setjmp(scope.buf_)) {
-    return;
-  }
 
   // Truncate ranges to better explore state space.
   const size_t object_size =
@@ -146,7 +128,6 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
 
   live_ptrs.reserve(objects_per_span);
   batch.resize(kMaxObjectsToMove);
-  bool did_double_free = false;
 
   for (const auto& instruction : instructions) {
     std::visit(
@@ -168,8 +149,7 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
           } else if constexpr (std::is_same_v<T, Shuffle>) {
             std::shuffle(live_ptrs.begin(), live_ptrs.end(), rng);
           } else if constexpr (std::is_same_v<T, Dealloc> ||
-                               std::is_same_v<T, DeallocIndex> ||
-                               std::is_same_v<T, DeallocNoRemove>) {
+                               std::is_same_v<T, DeallocIndex>) {
             size_t n = std::min<size_t>(arg.count, num_to_move);
             n = std::min(n, live_ptrs.size());
             if (n == 0) {
@@ -200,14 +180,7 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
               (void)span->FreelistPushBatch(ptrs, object_size, size_reciprocal);
             }
 
-            if constexpr (!std::is_same_v<T, DeallocNoRemove>) {
-              live_ptrs.resize(live_ptrs.size() - n);
-            } else {
-              // double free: don't remove from live_ptrs
-              did_double_free = true;
-
-              // TODO(b/457842787): Detect the double free immediately.
-            }
+            live_ptrs.resize(live_ptrs.size() - n);
           }
         },
         instruction);
@@ -223,10 +196,6 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
   }
 
   free(mem);
-
-  // We expect to have crashed when draining `live_ptrs` if there was a double
-  // free.
-  EXPECT_FALSE(did_double_free);
 }
 
 FUZZ_TEST(SpanTest, FuzzSpanInstructions)
