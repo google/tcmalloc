@@ -29,13 +29,10 @@
 #include "absl/base/config.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
-#include "tcmalloc/global_stats.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/testutil.h"
@@ -43,12 +40,7 @@
 namespace tcmalloc {
 namespace {
 
-using tcmalloc_internal::kTop;
-using tcmalloc_internal::MemoryStats;
 using tcmalloc_internal::Parameters;
-using tcmalloc_internal::PbtxtRegion;
-using tcmalloc_internal::Printer;
-using tcmalloc_internal::PrintMemoryStatsInPbtxt;
 using ::testing::AnyOf;
 using ::testing::ContainsRegex;
 using ::testing::HasSubstr;

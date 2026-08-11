@@ -39,7 +39,6 @@
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
-#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/percpu.h"
@@ -704,25 +703,6 @@ void DumpStats(Printer& out, int level) {
   }
 }
 
-void PrintMemoryStatsInPbtxt(PbtxtRegion& region) {
-  MemoryStats memstats;
-  if (GetMemoryStats(memstats)) {
-    PrintMemoryStatsInPbtxt(region, memstats);
-  }
-}
-
-void PrintMemoryStatsInPbtxt(PbtxtRegion& region, const MemoryStats& stats) {
-  // We have observed negative and large positive values for total_resident
-  // memory.  We record the data from the /proc/self/statm file to identify
-  // the underlying issue.
-  if (stats.rss < 0 || stats.rss >= (1LL << 60)) {
-    region.PrintString("proc_self_statm",
-                       absl::string_view(stats.buf, stats.rc));
-  }
-  region.PrintI64("total_resident", uint64_t(stats.rss));
-  region.PrintI64("total_mapped", uint64_t(stats.vss));
-}
-
 void DumpStatsInPbtxt(Printer& out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
@@ -799,7 +779,11 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   }
 
   // Print total process stats (inclusive of non-malloc sources).
-  PrintMemoryStatsInPbtxt(region);
+  MemoryStats memstats;
+  if (GetMemoryStats(memstats)) {
+    region.PrintI64("total_resident", uint64_t(memstats.rss));
+    region.PrintI64("total_mapped", uint64_t(memstats.vss));
+  }
 
   const size_t num_nodes = tc_globals.numa_topology().num_nodes();
   for (size_t node = 0; node < num_nodes; node++) {
