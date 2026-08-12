@@ -73,7 +73,8 @@ class PageMapTest : public ::testing::TestWithParam<int> {
   }
 
  public:
-  using Map = PageMap2<20, alloc>;
+  static constexpr int kTestBits = kAddressBits - kPageShift;
+  using Map = PageMap3<kTestBits, alloc>;
   Map* map;
 
  private:
@@ -117,7 +118,7 @@ TEST_P(PageMapTest, Bulk) {
 }
 
 TEST_P(PageMapTest, Overflow) {
-  const intptr_t kLimit = 1 << 20;
+  const uintptr_t kLimit = uintptr_t{1} << kTestBits;
   ASSERT_FALSE(map->Ensure(kLimit, kLimit + 1));
 }
 

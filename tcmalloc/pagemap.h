@@ -76,214 +76,6 @@ class PackedSpanAndSizeclass {
   static constexpr uintptr_t kSpanMask = (uintptr_t{1} << kSizeclassShift) - 1;
 };
 
-template <int BITS, PagemapAllocator Allocator>
-class PageMap2 {
- private:
-  // The leaf node (regardless of pointer size) always maps 2^15 entries;
-  // with 8K pages, this gives us 256MB mapped per leaf node.
-  static constexpr int kLeafBits = 15;
-  static constexpr int kLeafLength = 1 << kLeafBits;
-  static constexpr int kRootBits = (BITS >= kLeafBits) ? (BITS - kLeafBits) : 0;
-  // (1<<kRootBits) must not overflow an "int"
-  static_assert(kRootBits < sizeof(int) * 8 - 1, "kRootBits is too large");
-  static constexpr int kRootLength = 1 << kRootBits;
-
-  static constexpr size_t kLeafCoveredBytes = 1ul << (kLeafBits + kPageShift);
-  static_assert(kLeafCoveredBytes >= kHugePageSize, "leaf too small");
-  static constexpr size_t kLeafHugeBits =
-      (kLeafBits + kPageShift - kHugePageShift);
-  static constexpr size_t kLeafHugepages = kLeafCoveredBytes / kHugePageSize;
-  static_assert(kLeafHugepages == 1 << kLeafHugeBits, "sanity");
-  struct Leaf {
-    // We keep parallel arrays indexed by page number.  One keeps the
-    // size class; another span pointers; the last hugepage-related
-    // information.  The size class information is kept segregated
-    // since small object deallocations are so frequent and do not
-    // need the other information kept in a Span.
-    CompactSizeClass sizeclass[kLeafLength];
-    // Span pointers, with the top two most significant bytes used to also
-    // store a redundant copy of the sizeclass. This allows us to avoid two
-    // separate memory loads when fetching both the span and the sizeclass.
-    PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
-    void* hugepage[kLeafHugepages];
-
-    Span* absl_nullable span(int i) const {
-      return span_and_sizeclass[i].span();
-    }
-  };
-
-  Leaf* absl_nullable root_[kRootLength];  // Top-level node
-  size_t bytes_used_;
-
- public:
-  typedef uintptr_t Number;
-
-  constexpr PageMap2() : root_{}, bytes_used_(0) {}
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  Span* absl_nullable get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    const Number i1 = k >> kLeafBits;
-    const Number i2 = k & (kLeafLength - 1);
-    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
-        ABSL_PREDICT_FALSE(root_[i1] == nullptr)) {
-      return nullptr;
-    }
-    return root_[i1]->span(i2);
-  }
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  std::optional<Number> get_next_set_page(Number k) const {
-    Number next_k = k + 1;
-    Number i1 = next_k >> kLeafBits;
-    Number i2 = next_k & (kLeafLength - 1);
-    for (; i1 < kRootLength; ++i1, i2 = 0) {
-      if (root_[i1] == nullptr) continue;
-      for (; i2 < kLeafLength; ++i2) {
-        if (root_[i1]->span(i2) != nullptr) return (i1 << kLeafBits) | i2;
-      }
-    }
-    return std::nullopt;
-  }
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  // Requires that the span is known to already exist.
-  //
-  // ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED is to disable array-bounds sanitizer.
-  // This function is hot, and we can manually prove the array accesses.
-  //
-  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
-  // optimizes out the array bounds check.
-  template <bool check_bounds>
-  std::pair<Span* absl_nullable, int> get_existing_with_sizeclass(
-      Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS
-#ifdef __clang__
-      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
-#endif  // __clang__
-  {
-    const Number i1 = k >> kLeafBits;
-    const Number i2 = k & (kLeafLength - 1);
-    if constexpr (check_bounds) {
-      if (ABSL_PREDICT_FALSE((k >> BITS > 0)) ||
-          ABSL_PREDICT_FALSE(root_[i1] == nullptr)) {
-        return std::make_pair(nullptr, 0);
-      }
-    }
-    TC_ASSERT_EQ(k >> BITS, 0);
-    TC_ASSERT_NE(root_[i1], nullptr);
-    // This is a static_assert to ensure that the index into root_ is within
-    // bounds. The index into span_and_sizeclass is trivially within bounds,
-    // because kLeafLength = 1 << kLeafBits, and i2 masks to kLeafLength - 1
-    // bits.
-    static_assert((((Number(1) << BITS) - 1) >> kLeafBits) < kRootLength);
-    PackedSpanAndSizeclass span_and_sizeclass =
-        root_[i1]->span_and_sizeclass[i2];
-    return std::make_pair(span_and_sizeclass.span(),
-                          span_and_sizeclass.sizeclass());
-  }
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  // Requires that the span is known to already exist.
-  Span* absl_nullable get_existing(Number k) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    const Number i1 = k >> kLeafBits;
-    const Number i2 = k & (kLeafLength - 1);
-    TC_ASSERT_EQ(k >> BITS, 0);
-    TC_ASSERT_NE(root_[i1], nullptr);
-    return root_[i1]->span(i2);
-  }
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  // REQUIRES: Must be a valid page number previously Ensure()d.
-  CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
-      sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    const Number i1 = k >> kLeafBits;
-    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
-        ABSL_PREDICT_FALSE(root_[i1] == nullptr)) {
-      return 0;
-    }
-    const Number i2 = k & (kLeafLength - 1);
-    auto ret = root_[i1]->sizeclass[i2];
-    TC_ASSERT_EQ(ret, root_[i1]->span_and_sizeclass[i2].sizeclass());
-    return ret;
-  }
-
-  void set(Number k, Span* s) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> kLeafBits;
-    const Number i2 = k & (kLeafLength - 1);
-    Leaf* leaf = root_[i1];
-    // This function should be used just after allocating a new Span;
-    // in that case, the sizeclass should have been left at zero when the
-    // old span was deallocated/unregistered (or it would have been zero
-    // at initialization time.)
-    TC_ASSERT_EQ(leaf->sizeclass[i2], 0);
-    leaf->span_and_sizeclass[i2].set(s, 0);
-  }
-
-  void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> kLeafBits;
-    const Number i2 = k & (kLeafLength - 1);
-    Leaf* leaf = root_[i1];
-    leaf->span_and_sizeclass[i2].set(s, sc);
-    leaf->sizeclass[i2] = sc;
-  }
-
-  void clear_sizeclass(Number k) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> kLeafBits;
-    const Number i2 = k & (kLeafLength - 1);
-    root_[i1]->sizeclass[i2] = 0;
-  }
-
-  void* get_hugepage(Number k) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> kLeafBits;
-    const Number i2 = k & (kLeafLength - 1);
-    const Leaf* leaf = root_[i1];
-    TC_ASSERT_NE(leaf, nullptr);
-    return leaf->hugepage[i2 >> (kLeafBits - kLeafHugeBits)];
-  }
-
-  void set_hugepage(Number k, void* v) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> kLeafBits;
-    const Number i2 = k & (kLeafLength - 1);
-    root_[i1]->hugepage[i2 >> (kLeafBits - kLeafHugeBits)] = v;
-  }
-
-  bool Ensure(Number start, size_t n) {
-    TC_ASSERT_GT(n, 0);
-    for (Number key = start; key <= start + n - 1;) {
-      const Number i1 = key >> kLeafBits;
-
-      // Check for overflow
-      if (i1 >= kRootLength) return false;
-
-      // Make 2nd level node if necessary
-      if (root_[i1] == nullptr) {
-        Leaf* leaf = reinterpret_cast<Leaf*>(Allocator(sizeof(Leaf)));
-        if (leaf == nullptr) return false;
-        bytes_used_ += sizeof(Leaf);
-        memset(leaf, 0, sizeof(*leaf));
-        root_[i1] = leaf;
-      }
-
-      // Advance key past whatever is covered by this leaf node
-      key = ((key >> kLeafBits) + 1) << kLeafBits;
-    }
-    return true;
-  }
-
-  size_t bytes_used() const {
-    // Account for size of root node, etc.
-    return bytes_used_ + sizeof(*this);
-  }
-
-  constexpr size_t RootSize() const { return sizeof(root_); }
-  const void* RootAddress() { return root_; }
-};
-
 // Three-level radix tree
 // Currently only used for TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 template <int BITS, PagemapAllocator Allocator>
@@ -529,7 +321,6 @@ class PageMap3 {
   size_t bytes_used() const { return bytes_used_ + sizeof(*this); }
 
   constexpr size_t RootSize() const { return sizeof(root_); }
-  const void* RootAddress() { return root_; }
 };
 
 class PageMap {
@@ -608,12 +399,6 @@ class PageMap {
 
   void SetHugepage(PageId p, void* v) { map_.set_hugepage(p.index(), v); }
 
-  // The PageMap root node can be quite large and sparsely used. If this
-  // gets mapped with hugepages we potentially end up holding a large
-  // amount of unused memory. So it is better to map the root node with
-  // small pages to minimise the amount of unused memory.
-  void MapRootWithSmallPages();
-
   // Returns the count of the currently allocated Spans and also adds details
   // of such Spans in the provided allocated_spans vector. This routine avoids
   // allocation events since we hold the pageheap_lock, so no more elements will
@@ -650,11 +435,7 @@ class PageMap {
   }
 
  private:
-#ifdef TCMALLOC_USE_PAGEMAP3
   PageMap3<kAddressBits - kPageShift, MetaDataAlloc> map_;
-#else
-  PageMap2<kAddressBits - kPageShift, MetaDataAlloc> map_;
-#endif
 };
 
 }  // namespace tcmalloc_internal

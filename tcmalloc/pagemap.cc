@@ -50,27 +50,6 @@ void PageMap::UnregisterSizeClass(Span* span) {
   }
 }
 
-void PageMap::MapRootWithSmallPages() {
-  constexpr size_t kHugePageMask = ~(kHugePageSize - 1);
-  uintptr_t begin = reinterpret_cast<uintptr_t>(map_.RootAddress());
-  // Round begin up to the nearest hugepage, this avoids causing memory before
-  // the start of the pagemap to become mapped onto small pages.
-  uintptr_t rbegin = (begin + kHugePageSize - 1) & kHugePageMask;
-  size_t length = map_.RootSize();
-  // Round end down to the nearest hugepage, this avoids causing memory after
-  // the end of the pagemap becoming mapped onto small pages.
-  size_t rend = (begin + length) & kHugePageMask;
-  // Since we have rounded the start up, and the end down, we also want to
-  // confirm that there is something left between them for us to modify.
-  // For small but slow, the root pagemap is less than a hugepage in size,
-  // so we will not end up forcing it to be small pages.
-  if (rend > rbegin) {
-    size_t rlength = rend - rbegin;
-    ErrnoRestorer errno_restorer;
-    madvise(reinterpret_cast<void*>(rbegin), rlength, MADV_NOHUGEPAGE);
-  }
-}
-
 void* MetaDataAlloc(size_t bytes) { return tc_globals.arena().Alloc(bytes); }
 
 }  // namespace tcmalloc_internal
