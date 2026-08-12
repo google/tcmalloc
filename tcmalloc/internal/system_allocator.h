@@ -66,6 +66,10 @@
 #define MADV_POPULATE_WRITE 23
 #endif
 
+#ifndef MADV_DONTNEED_LOCKED
+#define MADV_DONTNEED_LOCKED 24
+#endif
+
 // The <sys/prctl.h> on some systems may not define these macros yet even though
 // the kernel may have support for the new PR_SET_VMA syscall, so we explicitly
 // define them here.
@@ -267,7 +271,14 @@ class SystemAllocator {
   [[nodiscard]] void* MmapAlignedLocked(size_t size, size_t alignment,
                                         MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
-  [[nodiscard]] bool ReleasePages(void* start, size_t length) const;
+
+  enum class ReleaseStatus {
+    kSuccess,
+    kFailure,
+    kRetryAfterMunlock,
+  };
+
+  [[nodiscard]] ReleaseStatus ReleasePages(void* start, size_t length) const;
 };
 
 namespace system_allocator_internal {
@@ -299,6 +310,7 @@ inline size_t RoundUp(const size_t size, const size_t alignment) {
 }
 
 int MapFixedNoReplaceFlagAvailable();
+int MadvDontNeedAdviceAvailable();
 
 inline constexpr int kMapFixedNoReplace = MAP_FIXED_NOREPLACE;
 
@@ -619,8 +631,6 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
 template <typename Topology, size_t NormalPartitions>
 MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
     void* start, size_t length) {
-  bool result = false;
-
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
   ErrnoRestorer errno_restorer;
   const size_t pagemask = GetPageSize() - 1;
@@ -639,31 +649,33 @@ MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
   TC_ASSERT_GE(new_start, reinterpret_cast<size_t>(start));
   TC_ASSERT_LE(new_end, end);
 
-  if (new_end > new_start) {
-    void* new_ptr = reinterpret_cast<void*>(new_start);
-    size_t new_length = new_end - new_start;
+  if (new_end <= new_start) {
+    return {false, errno};
+  }
 
-    if (!ReleasePages(new_ptr, new_length)) {
-      // Try unlocking.
-      int ret;
-      do {
-        ret = munlock(reinterpret_cast<char*>(new_start), new_end - new_start);
-      } while (ret == -1 && errno == EAGAIN);
+  void* new_ptr = reinterpret_cast<void*>(new_start);
+  size_t new_length = new_end - new_start;
 
-      if (ret != 0 || !ReleasePages(new_ptr, new_length)) {
-        // If we fail to munlock *or* fail our second attempt at madvise,
-        // increment our failure count.
-        release_errors_.fetch_add(1, std::memory_order_relaxed);
-      } else {
-        result = true;
-      }
-    } else {
-      result = true;
+  ReleaseStatus result = ReleasePages(new_ptr, new_length);
+  if (result == ReleaseStatus::kSuccess) {
+    return {true, errno};
+  } else if (result == ReleaseStatus::kRetryAfterMunlock) {
+    // Try unlocking.
+    int ret;
+    do {
+      ret = munlock(reinterpret_cast<char*>(new_start), new_length);
+    } while (ret == -1 && errno == EAGAIN);
+
+    if (ret == 0 &&
+        ReleasePages(new_ptr, new_length) == ReleaseStatus::kSuccess) {
+      return {true, errno};
     }
   }
+
+  release_errors_.fetch_add(1, std::memory_order_relaxed);
 #endif
 
-  return {result, errno};
+  return {false, errno};
 }
 
 template <typename Topology, size_t NormalPartitions>
@@ -859,8 +871,9 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
 }
 
 template <typename Topology, size_t NormalPartitions>
-inline bool SystemAllocator<Topology, NormalPartitions>::ReleasePages(
-    void* start, size_t length) const {
+inline typename SystemAllocator<Topology, NormalPartitions>::ReleaseStatus
+SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
+                                                          size_t length) const {
   // TODO(b/424551232): madvise rounds up length to the multiple of page size.
   // If TCMalloc's page size is lower than the system's page size, madvise may
   // corrupt the in-use memory. Check that the requested size and start address
@@ -869,7 +882,7 @@ inline bool SystemAllocator<Topology, NormalPartitions>::ReleasePages(
   const uintptr_t e = s + length;
   const uintptr_t mask = GetPageSize() - 1;
   if ((s & mask) != 0 || (e & mask) != 0) {
-    return false;
+    return ReleaseStatus::kFailure;
   }
 
   int ret;
@@ -885,7 +898,7 @@ inline bool SystemAllocator<Topology, NormalPartitions>::ReleasePages(
   } while (ret == -1 && errno == EAGAIN);
 
   if (ret == 0) {
-    return true;
+    return ReleaseStatus::kSuccess;
   }
 #endif
 
@@ -909,6 +922,7 @@ inline bool SystemAllocator<Topology, NormalPartitions>::ReleasePages(
     } while (ret == -1 && errno == EAGAIN);
   }
 #endif
+  ReleaseStatus status = ReleaseStatus::kFailure;
 #ifdef MADV_DONTNEED
   const bool do_madvdontneed = [&]() {
     switch (madvise_preference()) {
@@ -925,16 +939,21 @@ inline bool SystemAllocator<Topology, NormalPartitions>::ReleasePages(
 
   // MADV_DONTNEED drops page table info and any anonymous pages.
   if (do_madvdontneed) {
+    const int advice = system_allocator_internal::MadvDontNeedAdviceAvailable();
     do {
-      ret = madvise(start, length, MADV_DONTNEED);
+      ret = madvise(start, length, advice);
     } while (ret == -1 && errno == EAGAIN);
+
+    if (advice == MADV_DONTNEED) {
+      status = ReleaseStatus::kRetryAfterMunlock;
+    }
   }
 #endif
   if (ret == 0) {
-    return true;
+    return ReleaseStatus::kSuccess;
   }
 
-  return false;
+  return status;
 }
 
 }  // namespace tcmalloc_internal

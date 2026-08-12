@@ -37,6 +37,7 @@
 #include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -118,6 +119,24 @@ TEST_P(MmapAlignedTest, CorrectAlignmentAndTag) {
 // and end of the mapping.
 TEST_F(MmapAlignedTest, LargeSizeSmallAlignment) {
   MmapAndCheck(uintptr_t{1} << kTagShift, 1 << 12);
+}
+
+TEST(SystemAllocatorTest, ReleaseLockedMemory) {
+  constexpr size_t kMinMmapAlloc = 1 << 30;
+  NumaTopology<2> topology;
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+
+  const size_t kPageSize = GetPageSize();
+  AddressRange res =
+      allocator.Allocate(kPageSize, kPageSize, MemoryTag::kNormal);
+  ASSERT_NE(res.ptr, nullptr);
+
+  if (mlock(res.ptr, res.bytes) == 0) {
+    memset(res.ptr, 0xAB, res.bytes);
+  }
+  MemoryModifyStatus status = allocator.Release(res.ptr, res.bytes);
+  EXPECT_TRUE(status.success);
+  EXPECT_EQ(allocator.release_errors(), 0);
 }
 
 }  // namespace
