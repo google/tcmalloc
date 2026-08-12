@@ -128,7 +128,7 @@ CompressionAnalyzer::CompressionAnalyzer(size_t max_local_copy_size)
 absl::StatusOr<CompressionAnalyzer::Results> CompressionAnalyzer::Analyze(
     absl::Span<const char> data, const Residency::Info& residency_info) {
   // Sample resident pages up to local buffer capacity (2MB).
-  ASSIGN_OR_RETURN(
+  ABSL_ASSIGN_OR_RETURN(
       const size_t copied_bytes,
       CopyResidentPages(data, residency_info, absl::MakeSpan(local_copy_)));
 
