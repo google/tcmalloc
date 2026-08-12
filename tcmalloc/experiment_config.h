@@ -23,7 +23,6 @@ namespace tcmalloc {
 enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
-  TCMALLOC_EAGER_BACKING_V2,  // TODO: b/488404335 - Complete experiment.
   TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE,  // TODO: b/535197873 - Complete experiment.
   TCMALLOC_PER_CPU_CACHE_SIZE_1MB,  // TODO: b/514747820 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
@@ -54,7 +53,6 @@ struct ExperimentConfig {
 // clang-format off
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
-    {Experiment::TCMALLOC_EAGER_BACKING_V2, "TCMALLOC_EAGER_BACKING_V2", /*brittle=*/true},
     {Experiment::TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE, "TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE"},
     {Experiment::TCMALLOC_PER_CPU_CACHE_SIZE_1MB, "TCMALLOC_PER_CPU_CACHE_SIZE_1MB"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},

@@ -224,16 +224,8 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::subrelease_unbacked_hugepages_(
     false);
 
-static std::atomic<bool>& back_small_allocations_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING_V2)) {
-      v.store(true, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
+// TODO: b/134694141 - Remove this opt out.
+ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
     kPageSize);
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
@@ -326,10 +318,6 @@ EnableCollapse Parameters::usermode_hugepage_collapse() {
              : EnableCollapse::kDisabled;
 }
 
-bool Parameters::back_small_allocations() {
-  return back_small_allocations_enabled().load(std::memory_order_relaxed);
-}
-
 bool Parameters::huge_region_adaptive_release() {
   return huge_region_adaptive_release_enabled().load(std::memory_order_relaxed);
 }
@@ -358,6 +346,10 @@ ReleaseStalePages Parameters::release_stale_pages() {
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
+}
+
+bool TCMalloc_Internal_GetBackSmallAllocations() {
+  return Parameters::back_small_allocations();
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -622,13 +614,8 @@ void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v) {
                                          std::memory_order_relaxed);
 }
 
-bool TCMalloc_Internal_GetBackSmallAllocations() {
-  return Parameters::back_small_allocations();
-}
-
 void TCMalloc_Internal_SetBackSmallAllocations(bool v) {
-  tcmalloc::tcmalloc_internal::back_small_allocations_enabled().store(
-      v, std::memory_order_relaxed);
+  Parameters::back_small_allocations_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v) {

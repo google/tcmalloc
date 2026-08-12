@@ -125,11 +125,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: false"));
 #endif
 
-  if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING_V2)) {
-    EXPECT_THAT(buf, HasSubstr("back_small_allocations: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("back_small_allocations: false"));
-  }
+  EXPECT_THAT(buf, HasSubstr("back_small_allocations: false"));
   EXPECT_THAT(buf, ContainsRegex("(back_size_threshold_bytes: [1-9][0-9]*)"));
 
 
@@ -233,13 +229,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_usermode_hugepage_collapse 0)"));
 #endif
 
-    if (IsExperimentActive(Experiment::TCMALLOC_EAGER_BACKING_V2)) {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 1)"));
-    } else {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 0)"));
-    }
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 0)"));
     EXPECT_THAT(
         buf, ContainsRegex("(tcmalloc_back_size_threshold_bytes [1-9][0-9]*)"));
 

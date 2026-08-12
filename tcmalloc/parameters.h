@@ -106,7 +106,9 @@ class Parameters {
 
   static SubreleaseUnbackedMode subrelease_unbacked_hugepages();
 
-  static bool back_small_allocations();
+  static bool back_small_allocations() {
+    return back_small_allocations_.load(std::memory_order_relaxed);
+  }
 
   static int32_t back_size_threshold_bytes() {
     return back_size_threshold_bytes_.load(std::memory_order_relaxed);
@@ -255,7 +257,7 @@ class Parameters {
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
   static std::atomic<bool> subrelease_unbacked_hugepages_;
   static std::atomic<bool> usermode_hugepage_collapse_enabled_;
-
+  static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
   static std::atomic<bool> release_max_cold_pages_;
