@@ -541,6 +541,37 @@ ActiveObjectPool SetupFreelistOccupancy(BenchmarkEnv& env,
     }
   }
 
+  // Pre-insert a realistic background distribution of free objects across spans
+  // into the central freelist to match fleet distributions.
+  std::vector<void*> prefill_objects;
+  for (size_t s = 0; s < span_objects.size(); ++s) {
+    if (span_objects[s].empty()) continue;
+    // ~40% of spans have >= batch_size free objects (List 0-5)
+    // ~60% of spans have < batch_size free objects (List 6-7)
+    int target_for_span;
+    if (s % 5 < 2) {
+      target_for_span = std::min<int>(
+          2 * batch_size, static_cast<int>(span_objects[s].size()) / 2);
+    } else {
+      target_for_span = std::min<int>(std::max(1, batch_size / 4),
+                                      static_cast<int>(span_objects[s].size()));
+    }
+    for (int i = 0; i < target_for_span && !span_objects[s].empty(); ++i) {
+      prefill_objects.push_back(span_objects[s].back());
+      span_objects[s].pop_back();
+    }
+  }
+
+  // Insert prefill objects into central freelist in batch_size chunks
+  int prefill_idx = 0;
+  int prefill_size = static_cast<int>(prefill_objects.size());
+  while (prefill_idx < prefill_size) {
+    int count = std::min(batch_size, prefill_size - prefill_idx);
+    env.central_freelist().InsertRange(
+        {&prefill_objects[prefill_idx], static_cast<size_t>(count)});
+    prefill_idx += count;
+  }
+
   int total_free_objects = 0;
   for (const auto& objects : span_objects) {
     total_free_objects += static_cast<int>(objects.size());
