@@ -41,6 +41,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/numeric/bits.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
 #include "absl/strings/match.h"
@@ -147,8 +148,40 @@ class TestStaticForwarder {
   }
 
   static void* Alloc(size_t size, std::align_val_t alignment) {
-    return mmap(nullptr, size, PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    const size_t align = static_cast<size_t>(alignment);
+    TC_ASSERT(absl::has_single_bit(align));
+
+    size_t alloc_size = size;
+    if (align > EXEC_PAGESIZE) {
+      // Allocate enough memory that we know for sure
+      // we will be able to satisfy the request.
+      // We will free the part we don't use, below.
+      alloc_size += align - EXEC_PAGESIZE;
+    }
+    void* ptr = mmap(nullptr, alloc_size, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (ptr == MAP_FAILED) {
+      return ptr;
+    }
+    if (alloc_size > size) {
+      uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+
+      // Release the area before the aligned block, if any.
+      uintptr_t offset = addr & (align - 1);
+      if (offset != 0) {
+        size_t before = align - offset;
+        munmap(ptr, before);
+        addr += before;
+        alloc_size -= before;
+        ptr = reinterpret_cast<void*>(addr);
+      }
+
+      // Release the area after the aligned block, if any.
+      if (alloc_size > size) {
+        munmap(reinterpret_cast<void*>(addr + size), alloc_size - size);
+      }
+    }
+    return ptr;
   }
 
   void* AllocReportedImpending(size_t size, std::align_val_t alignment) {

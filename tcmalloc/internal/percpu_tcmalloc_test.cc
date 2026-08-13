@@ -89,7 +89,7 @@ void* AllocSlabs(absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
                  size_t raw_shift) {
   Shift shift = ToShiftType(raw_shift);
   const size_t slabs_size = GetSlabsAllocSize(shift, NumCPUs());
-  return alloc(slabs_size, kPhysicalPageAlign);
+  return alloc(slabs_size, subtle::percpu::SlabAlignment(shift));
 }
 
 void InitSlab(TcmallocSlab& slab,
@@ -493,7 +493,7 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
     ASSERT_NE(old_slabs, nullptr);
     mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
     sized_aligned_delete(old_slabs, old_slabs_size,
-                         std::align_val_t{EXEC_PAGESIZE});
+                         subtle::percpu::SlabAlignment(ToShiftType(kShift)));
 
     // Make sure that the capacity is zero as UpdateMaxCapacity should
     // initialize slabs.

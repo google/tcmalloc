@@ -2381,7 +2381,7 @@ inline std::pair<void*, size_t> CpuCache<Forwarder>::AllocOrReuseSlabs(
     ErrnoRestorer errno_restorer;
     madvise(reused_slabs, size, MADV_HUGEPAGE);
   } else {
-    reused_slabs = alloc(size, subtle::percpu::kPhysicalPageAlign);
+    reused_slabs = alloc(size, subtle::percpu::SlabAlignment(shift));
     // MSan does not see writes in assembly.
     ANNOTATE_MEMORY_IS_INITIALIZED(reused_slabs, size);
   }

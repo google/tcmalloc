@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <new>
@@ -83,14 +84,24 @@ inline size_t GetSlabsAllocSize(Shift shift, int num_cpus) {
 }
 
 // Since we lazily initialize our slab, we expect it to be mmap'd and not
-// resident.  We align it to a page size so neighboring allocations (from
+// resident.  We align it to the slab size so that it is easier to make
+// entire hugepages nonresident when we get to clearing out metadata
+// from drained CPUs.
+//
+// For small-but-slow, we instead prefer a small page size (EXEC_PAGESIZE)
+// to allocate the slab in the tail of its existing Arena block.
+// We still align it a page size so neighboring allocations (from
 // TCMalloc's internal arena) do not necessarily cause the metadata to be
 // faulted in.
-//
-// We prefer a small page size (EXEC_PAGESIZE) over the anticipated huge page
-// size to allow small-but-slow to allocate the slab in the tail of its
-// existing Arena block.
-static constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
+constexpr std::align_val_t SlabAlignment(Shift shift) {
+  constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+  return kPhysicalPageAlign;
+#else
+  return std::max(std::align_val_t{size_t{1} << ToUint8(shift)},
+                  kPhysicalPageAlign);
+#endif
+}
 
 // Tcmalloc slab for per-cpu caching mode.
 // Conceptually it is equivalent to an array of NumClasses PerCpuSlab's,
@@ -1392,7 +1403,8 @@ void* TcmallocSlab<NumClasses>::Destroy(
        std::align_val_t{ABSL_CACHELINE_SIZE});
   begins_ = nullptr;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  free(slabs, GetSlabsAllocSize(shift, n_cpus), kPhysicalPageAlign);
+  size_t slabs_size = GetSlabsAllocSize(shift, n_cpus);
+  free(slabs, slabs_size, SlabAlignment(shift));
   slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
   FenceAllCpus();
   return slabs;
