@@ -952,6 +952,35 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "percpu_tcmalloc_fuzz",
+    srcs = ["percpu_tcmalloc_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    linkstatic = 1,
+    malloc = ":system_malloc",
+    tags = [
+        "nohwasan",
+        "noubsan",
+    ],
+    deps = [
+        ":affinity",
+        ":config",
+        ":logging",
+        ":percpu",
+        ":percpu_tcmalloc",
+        ":sysinfo",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/testing:testutil",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
 cc_library(
     name = "prefetch",
     hdrs = ["prefetch.h"],

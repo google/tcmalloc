@@ -272,6 +272,16 @@ class ScopedFakeCpuId {
 #endif
   }
 
+  // Simulate migrating across cores.
+  void SwitchTo(const int cpu_id) {
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    // Now that our unregister_rseq_ member has prevented the kernel from
+    // modifying __rseq_abi, we can inject our own CPU ID.
+    tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
+    test_vcpu_ = cpu_id;
+#endif
+  }
+
  private:
 
   const ScopedUnregisterRseq unregister_rseq_;
