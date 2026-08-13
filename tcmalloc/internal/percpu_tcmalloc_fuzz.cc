@@ -103,8 +103,8 @@ struct State {
   void FreeObject(void* obj, size_t size_class);
 };
 
-// We select different sizes for different sizes, so that ASan can notice if we
-// confuse objects across size classes.
+// We select different sizes for different size classes, so that ASan can notice
+// if we confuse objects across size classes.
 static size_t FakeSizeForSizeClass(size_t size_class) {
   return 16 + size_class;
 }
