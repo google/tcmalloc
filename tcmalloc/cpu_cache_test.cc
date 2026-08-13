@@ -1797,7 +1797,7 @@ class CpuCacheEnvironment {
 
   void RandomlyPoke(absl::BitGenRef rng) {
     // We run a random operation based on our random number generated.
-    const int coin = absl::Uniform(rng, 0, 18);
+    const int coin = absl::Uniform(rng, 0, 21);
     const bool ready = ready_.load(std::memory_order_acquire);
 
     // Pick a random CPU and size class.  We will likely need one or both.
@@ -1866,10 +1866,25 @@ class CpuCacheEnvironment {
         cache_.Reclaim(cpu);
         break;
       }
-      case 13:
+      case 13: {
+        absl::MutexLock lock(background_mutex_);
+        cache_.ResizeSizeClasses();
+        break;
+      }
+      case 14: {
+        absl::MutexLock lock(background_mutex_);
+        cache_.ResizeSizeClassMaxCapacities();
+        break;
+      }
+      case 15: {
+        absl::MutexLock lock(background_mutex_);
+        cache_.ResizeSlabIfNeeded();
+        break;
+      }
+      case 16:
         benchmark::DoNotOptimize(cache_.GetNumReclaims(cpu));
         break;
-      case 14: {
+      case 17: {
         const auto total_misses = cache_.GetTotalCacheMissStats(cpu);
         const auto reclaim_misses =
             cache_.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
@@ -1881,13 +1896,13 @@ class CpuCacheEnvironment {
         benchmark::DoNotOptimize(shuffle_misses);
         break;
       }
-      case 15: {
+      case 18: {
         const auto stats = cache_.GetSizeClassCapacityStats(size_class);
         EXPECT_GE(stats.max_capacity, stats.avg_capacity);
         EXPECT_GE(stats.avg_capacity, stats.min_capacity);
         break;
       }
-      case 16: {
+      case 19: {
         std::string out;
         out.resize(128 << 10);
         ANNOTATE_MEMORY_IS_UNINITIALIZED(out.data(), out.size());
@@ -1899,7 +1914,7 @@ class CpuCacheEnvironment {
         benchmark::DoNotOptimize(out.data());
         break;
       }
-      case 17: {
+      case 20: {
         std::string out;
         out.resize(128 << 10);
         ANNOTATE_MEMORY_IS_UNINITIALIZED(out.data(), out.size());
