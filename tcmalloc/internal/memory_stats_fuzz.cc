@@ -55,6 +55,10 @@ void ParseInput(absl::string_view s, size_t max_chunk_size) {
   EXPECT_GT(formatted.size(), 0);
 }
 
+TEST(MemoryStatsTest, b546134512) {
+  ParseInput("\n:-388888888888888888 kB\n", 1024);
+}
+
 FUZZ_TEST(MemoryStatsTest, ParseInput)
     .WithDomains(fuzztest::String(),
                  fuzztest::InRange<size_t>(1, 2 * MemoryStats::kBufferSize));

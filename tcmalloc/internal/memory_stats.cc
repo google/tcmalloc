@@ -95,7 +95,7 @@ bool GetMemoryStatsFromStatus(
         rest = rest.substr(0, rest.size() - kb.size());
       }
 
-      int64_t val;
+      size_t val;
       if (!absl::SimpleAtoi(rest, &val)) {
         continue;
       }
