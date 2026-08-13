@@ -117,6 +117,10 @@ class TimeSeriesTracker {
     // first real data point taken, as it would be the time diff between "now"
     // and "then". If the first data point is taken immediately, this record
     // will be updated with real data.
+    current_slot_ = 0;
+    for (auto& entry : entries_) {
+      entry = TimeSeriesContent();
+    }
     size_t delta = 1;
     last_epoch_ = GetCurrentEpoch();
     entries_[current_slot_] = TimeSeriesContent(delta);
@@ -153,14 +157,19 @@ class TimeSeriesTracker {
 template <class T, class S, size_t kSlots>
 bool TimeSeriesTracker<T, S, kSlots>::UpdateClock() {
   const size_t epoch = GetCurrentEpoch();
-  // How much time had passed?
-  size_t delta = epoch - last_epoch_;
-  if (delta == 0) {
+  if (ABSL_PREDICT_FALSE(epoch < last_epoch_)) {
+    // If the clock has regressed (e.g., across snapshot restore or container
+    // migration to a host with a lower monotonic clock), reset the tracker to
+    // prevent unsigned underflow in delta calculations and discard stale
+    // history.
+    InitTracker();
     return false;
   }
-  // Epoch value is very unlikely overflow if uses real clocks but can be in
-  // tests (using fake clocks).
-  TC_ASSERT_LT(last_epoch_, epoch);
+  if (epoch == last_epoch_) {
+    return false;
+  }
+  // How much time had passed?
+  size_t delta = epoch - last_epoch_;
   last_epoch_ = epoch;
   // We update the time series in a constant manner: advances the current epoch
   // by 1 and records the delta as how many epochs have passed.

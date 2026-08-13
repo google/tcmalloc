@@ -155,7 +155,7 @@ void PrintStatsInPbtxt(PbtxtRegion& region, const SmallSpanStats& small,
 }
 
 void PageAllocInfo::Print(Printer& out) const {
-  int64_t ticks = TimeTicks();
+  int64_t ticks = std::max<int64_t>(TimeTicks(), 1);
   double hz = freq_ / ticks;
   out.printf("%s: stats on allocation sizes\n", label_);
   out.printf("%s: %zu pages live small allocation\n", label_,
@@ -221,7 +221,7 @@ void PageAllocInfo::Print(Printer& out) const {
 
 void PageAllocInfo::PrintInPbtxt(PbtxtRegion& region,
                                  absl::string_view stat_name) const {
-  int64_t ticks = TimeTicks();
+  int64_t ticks = std::max<int64_t>(TimeTicks(), 1);
   double hz = freq_ / ticks;
   region.PrintI64("num_small_allocation_pages", total_small_.raw_num());
   region.PrintI64("num_slack_pages", total_slack_.raw_num());

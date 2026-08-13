@@ -678,10 +678,11 @@ template <class Forwarder>
 void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
   // Size classes with 1 object per span skip CentralFreeList entirely.
   if (objects_per_span_ > 1) {
-    const uint64_t now = forwarder_.clock_now();
+    const double now = forwarder_.clock_now();
     const double frequency = forwarder_.clock_frequency();
     for (Span* span : spans) {
-      const double elapsed = std::max<double>(now - span->AllocTime(), 0);
+      const double elapsed =
+          std::max<double>(now - static_cast<double>(span->AllocTime()), 0.0);
       const absl::Duration lifetime =
           absl::Milliseconds(elapsed * 1000 / frequency);
       completed_spans_[LifetimeBucketNum(lifetime)].LossyAdd(1);
@@ -913,7 +914,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer& out) {
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
-  uint64_t now = forwarder_.clock_now();
+  const double now = forwarder_.clock_now();
   double frequency = forwarder_.clock_frequency();
   LifetimeHistogram lifetime_histo{};
 
@@ -921,7 +922,8 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
     CentralFreeListLockHolder h(lock_);
     nonempty_.Iter(
         [&](const Span& s) GOOGLE_MALLOC_SECTION {
-          const double elapsed = std::max<double>(now - s.AllocTime(), 0);
+          const double elapsed =
+              std::max<double>(now - static_cast<double>(s.AllocTime()), 0.0);
           const absl::Duration lifetime =
               absl::Milliseconds(elapsed * 1000 / frequency);
           ++lifetime_histo[LifetimeBucketNum(lifetime)];
@@ -1003,7 +1005,7 @@ inline void CentralFreeList<Forwarder>::PrintNumSpansUsedInPbtxt(
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
     PbtxtRegion& region) {
-  uint64_t now = forwarder_.clock_now();
+  const double now = forwarder_.clock_now();
   double frequency = forwarder_.clock_frequency();
   LifetimeHistogram lifetime_histo{};
 
@@ -1011,7 +1013,8 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
     CentralFreeListLockHolder h(lock_);
     nonempty_.Iter(
         [&](const Span& s) GOOGLE_MALLOC_SECTION {
-          const double elapsed = std::max<double>(now - s.AllocTime(), 0);
+          const double elapsed =
+              std::max<double>(now - static_cast<double>(s.AllocTime()), 0.0);
           const absl::Duration lifetime =
               absl::Milliseconds(elapsed * 1000 / frequency);
           ++lifetime_histo[LifetimeBucketNum(lifetime)];

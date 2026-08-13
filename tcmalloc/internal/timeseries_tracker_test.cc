@@ -286,6 +286,65 @@ TEST_F(TimeSeriesTrackerTest, NoValidRecord) {
   EXPECT_TRUE(recent_record.data.empty());
 }
 
+// Tests that a monotonic clock regression (e.g. restoring a snapshot on a
+// machine with a lower monotonic clock) resets the tracker without underflow.
+TEST_F(TimeSeriesTrackerTest, ClockRegression) {
+  // Advances 8 epochs and reports data.
+  Advance(absl::Seconds(2));
+  tracker_.Report(1);
+  // Advances 2 epochs and reports data.
+  Advance(absl::Seconds(0.5));
+  tracker_.Report(2);
+
+  // Simulates monotonic clock rollback (e.g. across snapshot restore).
+  Advance(-absl::Seconds(1.5));
+  // Reporting on the regressed clock resets the tracker and records in slot 0.
+  tracker_.Report(3);
+
+  // Time base update in regressed state is also safe.
+  tracker_.UpdateTimeBase();
+
+  // Multiple regressions in a row safely reset the tracker.
+  Advance(-absl::Seconds(0.25));
+  tracker_.Report(4);
+
+  // Time moves forward again on the new host (advances 2 epochs).
+  Advance(absl::Seconds(0.5));
+  tracker_.Report(5);
+
+  // Verify that stale history prior to the regression was discarded and the
+  // new history is tracked accurately.
+  std::vector<std::vector<int>> all_values;
+  std::vector<size_t> deltas;
+  tracker_.Iter([&](size_t offset, size_t epoch_delta, const TestEntry& e) {
+    deltas.push_back(epoch_delta);
+    all_values.push_back(e.values_);
+  });
+
+  EXPECT_THAT(all_values, ElementsAre(ElementsAre(4), ElementsAre(5)));
+  EXPECT_THAT(deltas, ElementsAre(1, 2));
+
+  // Verify backwards iteration.
+  int num_timestamps = 0;
+  tracker_.IterBackwards(
+      [&](size_t offset, size_t epoch_delta, const TestEntry& e) {
+        if (num_timestamps == 0) {
+          EXPECT_EQ(epoch_delta, 2);
+          EXPECT_THAT(e.values_, ElementsAre(5));
+        } else if (num_timestamps == 1) {
+          EXPECT_EQ(epoch_delta, 1);
+          EXPECT_THAT(e.values_, ElementsAre(4));
+        }
+        num_timestamps++;
+      },
+      absl::InfiniteDuration());
+  EXPECT_EQ(num_timestamps, 2);
+
+  auto recent_record = tracker_.GetMostRecentRecord();
+  EXPECT_EQ(recent_record.epoch_taken, 2);
+  EXPECT_THAT(recent_record.data.values_, ElementsAre(4));
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

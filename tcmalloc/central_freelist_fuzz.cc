@@ -86,7 +86,7 @@ struct PrintStats {
 };
 
 struct AdvanceClock {
-  uint32_t value;
+  int32_t value;
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const AdvanceClock& a) {
     absl::Format(&sink, "AdvanceClock{.value=%d}", a.value);
@@ -203,7 +203,9 @@ auto GetInstructionDomain() {
       fuzztest::Map([](CheckStats c) { return Instruction{c}; },
                     fuzztest::Arbitrary<CheckStats>()),
       fuzztest::Map([](PrintStats p) { return Instruction{p}; },
-                    fuzztest::Arbitrary<PrintStats>()));
+                    fuzztest::Arbitrary<PrintStats>()),
+      fuzztest::Map([](int32_t v) { return Instruction{AdvanceClock{v}}; },
+                    fuzztest::Arbitrary<int32_t>()));
 }
 
 FUZZ_TEST(CentralFreeListTest, FuzzCFL)

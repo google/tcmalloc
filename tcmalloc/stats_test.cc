@@ -148,6 +148,13 @@ TEST(PageAllocInfo, Large) {
 
   EXPECT_EQ(Length(0), info.small());
   EXPECT_EQ(slack, info.slack());
+
+  char buf[4096];
+  Printer p(buf, sizeof(buf));
+  info.Print(p);
+
+  PbtxtRegion region(p, kTop);
+  info.PrintInPbtxt(region, "page_alloc_info");
 }
 
 TEST(ClockTest, ClockTicks) {

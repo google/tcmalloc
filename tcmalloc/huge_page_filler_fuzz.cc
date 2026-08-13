@@ -578,7 +578,7 @@ void FuzzFiller(const std::vector<Instruction>& instructions,
               // Advance clock
               // amount: Advances clock by this amount in arbitrary units.
               fake_clock += absl::ToInt64Nanoseconds(
-                  std::clamp(arg.amount, absl::ZeroDuration(), absl::Hours(1)));
+                  std::clamp(arg.amount, -absl::Hours(1), absl::Hours(1)));
             } else if constexpr (std::is_same_v<T, ToggleUnback>) {
               // Toggle unback, simulating madvise potentially failing or
               // succeeding.
@@ -787,6 +787,11 @@ auto NonNegativeDurationDomain() {
                        fuzztest::NonNegative<int64_t>());
 }
 
+auto AnyDurationDomain() {
+  return fuzztest::Map([](int64_t ns) { return absl::Nanoseconds(ns); },
+                       fuzztest::Arbitrary<int64_t>());
+}
+
 fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
   auto base_domain = fuzztest::OneOf(
       fuzztest::Map([](Allocate a) { return Instruction{a}; },
@@ -804,7 +809,7 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
           fuzztest::Arbitrary<bool>()),
       fuzztest::Map(
           [](absl::Duration d) { return Instruction{AdvanceClock{d}}; },
-          NonNegativeDurationDomain()),
+          AnyDurationDomain()),
       fuzztest::Map([](ToggleUnback t) { return Instruction{t}; },
                     fuzztest::Arbitrary<ToggleUnback>()),
       fuzztest::Map([](GatherStats g) { return Instruction{g}; },

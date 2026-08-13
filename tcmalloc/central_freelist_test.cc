@@ -1007,6 +1007,14 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
   e.central_freelist().InsertRange({batch, 1});
   e.forwarder().AdvanceClock(absl::Seconds(1000));
   CheckLifetimeStats(e, {.completed = {{100000, 1}}});
+
+  // Allocate another span, regress the clock before its allocation time,
+  // and ensure deallocation clamps to bucket 0 instead of underflowing.
+  got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
+  ASSERT_EQ(got, 1);
+  e.forwarder().AdvanceClock(absl::Seconds(-500));
+  e.central_freelist().InsertRange({batch, 1});
+  CheckLifetimeStats(e, {.completed = {{0, 1}, {100000, 1}}});
 }
 
 TEST_P(CentralFreeListTest, SpanAllocationTracker) {
