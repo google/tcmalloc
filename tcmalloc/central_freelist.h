@@ -651,7 +651,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       const size_t step = 1;
 #else
       const size_t step = run_lengths[i];
-      TC_ASSERT_GT(step, 0);
+      ASSUME(step > 0);
       const absl::Span<Span::ObjIdx> b{&idx[i], step};
 #endif
 
