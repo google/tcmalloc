@@ -327,7 +327,7 @@ class CpuCache {
 
   template <typename... Args>
   explicit constexpr CpuCache(Args&&... u)
-      : forwarder_(std::forward<Args>(u)...){};
+      : forwarder_(std::forward<Args>(u)...) {};
 
   // tcmalloc explicitly initializes its global state (to be safe for
   // use in global constructors) so our constructor must be trivial;
@@ -600,8 +600,47 @@ class CpuCache {
   };
 
   struct ABSL_CACHELINE_ALIGNED ResizeInfo {
-    // cache space on this CPU we're not using.  Modify atomically;
-    // we don't want to lose space.
+    // In addition to the limits imposed by how much metadata
+    // we can store in our slab, each per-CPU cache has a policy limit
+    // for how many bytes it can own in its freelist (before we start
+    // returning allocations to the transfer cache). This is stored in
+    // "capacity". The metadata slab is not counted.
+    //
+    // Each byte can be accounted to a specific size class' freelist
+    // (whether that freelist is filled or not). This gives us a way
+    // to calculate "allocated" bytes (as calculated by CpuCache::Allocated();
+    // it is not stored as a single number anywhere), by summing over all
+    // size classes:
+    //
+    //   sum(sizeclass_size * (end - begin))
+    //
+    // Bytes which are not allocated (and thus is free to be moved
+    // into any size class on-demand) are "available", also known as
+    // "unused", "unallocated" or sometimes "slack". This is how far
+    // we are from hitting that capacity; when it goes to zero,
+    // we can no longer grow any of the freelists, and deallocations
+    // to a full freelist must return memory to the transfer cache.
+    //
+    // For a freshly initiated cache, all of the size classes' freelists
+    // are zero-length, and thus available == capacity. When we grow
+    // a freelist (perhaps because the user deallocates and the size
+    // class' freelist was full), we increase the end pointer and available
+    // goes _down_. (capacity stays unchanged by this operation.)
+    // Similarly, when we shrink the freelist (e.g., because another
+    // size class wants to steal from it), end pointer moves closer
+    // to begin, and available goes up. Allocations and deallocations
+    // do not in themselves change available; this is purely a scheme
+    // to limit the size classes' quotas. capacity can change when
+    // e.g. CPUs steal from each other (although the invariants below
+    // are maintained).
+    //
+    // At any given point, we have 0 <= available <= capacity.
+    // We also have:
+    //
+    //   capacity = available + allocated
+    //            = available + sum(sizeclass_size * (end - begin))
+    //
+    // Modify atomically; we don't want to lose space.
     std::atomic<size_t> available;
     // Size class to steal from for the clock-wise algorithm.
     size_t next_steal = 1;
@@ -622,8 +661,8 @@ class CpuCache {
     MissCounts overflows;
     // TODO(b/298229521): Evaluate Cycles32 precision for sizing decisions.
     Cycles32 last_miss_cycles[2][kNumClasses];
-    // total cache space available on this CPU. This tracks the total
-    // allocated and unallocated bytes on this CPU cache.
+    // Total cache space available on this CPU (see above).
+    // This tracks the total allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
     // Used bytes in the cache as of the end of the last resize interval.
     std::atomic<uint64_t> reclaim_used_bytes;
