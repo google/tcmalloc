@@ -446,10 +446,13 @@ class CpuCache {
   void ResizeSizeClassMaxCapacities();
 
   // Empty out the cache on <cpu>; move all objects to the central
-  // cache.  (If other threads run concurrently on that cpu, we can't
+  // cache and set all size classes' freelists to be zero length.
+  // (If other threads run concurrently on that cpu, we can't
   // guarantee it will be fully empty on return, but if the cpu is
   // unused, this will eliminate stranded memory.)  Returns the number
   // of bytes we sent back.  This function is thread safe.
+  //
+  // Reclaim is called Drain in the lower levels.
   uint64_t Reclaim(int cpu);
 
   // Reports number of times the size classes were resized for <cpu>.
