@@ -52,19 +52,78 @@ auto AnyPageId() {
       1, (size_t{1} << (kAddressBits - kPageShift)) - 1));
 }
 
+struct State {
+  size_t object_size;
+  Length pages;
+  size_t num_to_move;
+  size_t objects_per_span;
+  uint32_t size_reciprocal;
+  void* mem = nullptr;
+  std::unique_ptr<Span> span;
+  std::vector<void*> live_ptrs;
+  std::vector<void*> batch;
+  std::mt19937 rng;
+
+  State(size_t object_size, Length pages, size_t num_to_move)
+      : object_size(object_size),
+        pages(pages),
+        num_to_move(num_to_move),
+        objects_per_span(pages.in_bytes() / object_size),
+        size_reciprocal(Span::CalcReciprocal(object_size)) {
+    TC_CHECK_EQ(posix_memalign(&mem, kPageSize, pages.in_bytes()), 0);
+
+    span = std::make_unique<Span>(Range(PageIdContaining(mem), pages));
+    TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {},
+                                    /*alloc_time=*/0),
+                0);
+
+    live_ptrs.reserve(objects_per_span);
+    batch.resize(kMaxObjectsToMove);
+  }
+
+  ~State() {
+    for (size_t i = 0; i < live_ptrs.size();) {
+      size_t limit = std::min<size_t>(live_ptrs.size() - i, num_to_move);
+      (void)span->FreelistPushBatch(absl::MakeSpan(live_ptrs.data() + i, limit),
+                                    object_size, size_reciprocal);
+      i += limit;
+    }
+    free(mem);
+  }
+};
+
 struct Alloc {
   uint8_t count;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Alloc& a) {
-    absl::Format(&sink, "Alloc(%d)", a.count);
+    absl::Format(&sink, "Alloc{.count=%v}", a.count);
+  }
+
+  void Perform(State& state) const {
+    if (state.span->FreelistEmpty(state.object_size, state.objects_per_span)) {
+      return;
+    }
+    size_t n = std::min<size_t>(count, state.num_to_move);
+    if (n == 0) {
+      return;
+    }
+
+    size_t popped = state.span->FreelistPopBatch(
+        absl::MakeSpan(state.batch.data(), n), state.object_size);
+    state.live_ptrs.insert(state.live_ptrs.end(), state.batch.data(),
+                           state.batch.data() + popped);
   }
 };
 
 struct Shuffle {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Shuffle& s) {
-    absl::Format(&sink, "Shuffle");
+    absl::Format(&sink, "Shuffle{}");
+  }
+
+  void Perform(State& state) const {
+    std::shuffle(state.live_ptrs.begin(), state.live_ptrs.end(), state.rng);
   }
 };
 
@@ -73,7 +132,21 @@ struct Dealloc {
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Dealloc& d) {
-    absl::Format(&sink, "Dealloc(%d)", d.count);
+    absl::Format(&sink, "Dealloc{.count=%v}", d.count);
+  }
+
+  void Perform(State& state) const {
+    size_t n = std::min<size_t>(count, state.num_to_move);
+    n = std::min(n, state.live_ptrs.size());
+    if (n == 0) {
+      return;
+    }
+
+    absl::Span<void*> ptrs =
+        absl::MakeSpan(state.live_ptrs.data() + state.live_ptrs.size() - n, n);
+    (void)state.span->FreelistPushBatch(ptrs, state.object_size,
+                                        state.size_reciprocal);
+    state.live_ptrs.resize(state.live_ptrs.size() - n);
   }
 };
 
@@ -83,23 +156,52 @@ struct DeallocIndex {
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const DeallocIndex& d) {
-    absl::Format(&sink, "DeallocIndex(%d)", d.count);
+    absl::Format(&sink, "DeallocIndex{.count=%v}", d.count);
+  }
+
+  void Perform(State& state) const {
+    size_t n = std::min<size_t>(count, state.num_to_move);
+    n = std::min(n, state.live_ptrs.size());
+    if (n == 0) {
+      return;
+    }
+
+    absl::Span<void*> ptrs =
+        absl::MakeSpan(state.live_ptrs.data() + state.live_ptrs.size() - n, n);
+
+    Span::ObjIdx idx[kMaxObjectsToMove];
+    if (Span::UseBitmapForSize(state.object_size)) {
+      for (size_t i = 0; i < ptrs.size(); ++i) {
+        idx[i] = state.span->BitmapPtrToIdx(ptrs[i], state.object_size,
+                                            state.size_reciprocal);
+      }
+    } else {
+      for (size_t i = 0; i < ptrs.size(); ++i) {
+        idx[i] = state.span->PtrToIdx(ptrs[i], state.object_size);
+      }
+    }
+
+    (void)state.span->FreelistPushBatch(
+        absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
+        state.size_reciprocal);
+    state.live_ptrs.resize(state.live_ptrs.size() - n);
   }
 };
 
 using Instruction = std::variant<Alloc, Shuffle, Dealloc, DeallocIndex>;
 
+template <typename Sink>
+void AbslStringify(Sink& sink, const Instruction& i) {
+  std::visit([&](const auto& arg) { absl::Format(&sink, "%v", arg); }, i);
+}
+
 void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
                           uint8_t num_objects_to_move,
-                          std::vector<Instruction> instructions) {
+                          const std::vector<Instruction>& instructions) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP()
       << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
-
-  std::vector<void*> live_ptrs;
-  std::vector<void*> batch;
-  std::mt19937 rng;
 
   // Truncate ranges to better explore state space.
   const size_t object_size =
@@ -112,90 +214,11 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
     return;
   }
 
-  const auto pages = Length(num_pages);
-  const size_t objects_per_span = pages.in_bytes() / object_size;
-  const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
-
-  void* mem;
-  int res = posix_memalign(&mem, kPageSize, pages.in_bytes());
-  TC_CHECK_EQ(res, 0);
-
-  auto span = std::make_unique<Span>(Range(PageIdContaining(mem), pages));
-
-  TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {},
-                                  /*alloc_time=*/0),
-              0);
-
-  live_ptrs.reserve(objects_per_span);
-  batch.resize(kMaxObjectsToMove);
+  State state(object_size, Length(num_pages), num_to_move);
 
   for (const auto& instruction : instructions) {
-    std::visit(
-        [&](auto&& arg) {
-          using T = std::decay_t<decltype(arg)>;
-          if constexpr (std::is_same_v<T, Alloc>) {
-            size_t n = std::min<size_t>(arg.count, num_to_move);
-            if (span->FreelistEmpty(object_size, objects_per_span)) {
-              n = 0;
-            }
-            if (n == 0) {
-              return;
-            }
-
-            size_t popped = span->FreelistPopBatch(
-                absl::MakeSpan(batch.data(), n), object_size);
-            live_ptrs.insert(live_ptrs.end(), batch.data(),
-                             batch.data() + popped);
-          } else if constexpr (std::is_same_v<T, Shuffle>) {
-            std::shuffle(live_ptrs.begin(), live_ptrs.end(), rng);
-          } else if constexpr (std::is_same_v<T, Dealloc> ||
-                               std::is_same_v<T, DeallocIndex>) {
-            size_t n = std::min<size_t>(arg.count, num_to_move);
-            n = std::min(n, live_ptrs.size());
-            if (n == 0) {
-              return;
-            }
-
-            absl::Span<void*> ptrs =
-                absl::MakeSpan(live_ptrs.data() + live_ptrs.size() - n, n);
-
-            if constexpr (std::is_same_v<T, DeallocIndex>) {
-              Span::ObjIdx idx[kMaxObjectsToMove];
-
-              if (Span::UseBitmapForSize(object_size)) {
-                for (int i = 0; i < ptrs.size(); ++i) {
-                  idx[i] = span->BitmapPtrToIdx(ptrs[i], object_size,
-                                                size_reciprocal);
-                }
-              } else {
-                for (int i = 0; i < ptrs.size(); ++i) {
-                  idx[i] = span->PtrToIdx(ptrs[i], object_size);
-                }
-              }
-
-              (void)span->FreelistPushBatch(
-                  absl::MakeSpan(idx).subspan(0, ptrs.size()), object_size,
-                  size_reciprocal);
-            } else {
-              (void)span->FreelistPushBatch(ptrs, object_size, size_reciprocal);
-            }
-
-            live_ptrs.resize(live_ptrs.size() - n);
-          }
-        },
-        instruction);
+    std::visit([&](const auto& arg) { arg.Perform(state); }, instruction);
   }
-
-  for (int i = 0; i < live_ptrs.size();) {
-    size_t limit = std::min<size_t>(live_ptrs.size() - i, num_objects_to_move);
-
-    (void)span->FreelistPushBatch(absl::MakeSpan(live_ptrs.data() + i, limit),
-                                  object_size, size_reciprocal);
-
-    i += limit;
-  }
-
-  free(mem);
 }
 
 FUZZ_TEST(SpanTest, FuzzSpanInstructions)
