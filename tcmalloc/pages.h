@@ -28,6 +28,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/bytes.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 
@@ -195,7 +196,7 @@ inline constexpr Length LengthFromBytes(size_t bytes) {
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length BytesToLengthCeil(size_t bytes) {
   return Length((bytes >> kPageShift) +
-                ((bytes & (kPageSize - 1)) > 0 ? 1 : 0));
+                (IsAlignedTo(bytes, kPageSize) ? 0 : 1));
 }
 
 TCMALLOC_ATTRIBUTE_CONST

@@ -27,6 +27,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/sampled_allocation.h"
@@ -109,7 +110,7 @@ bool SizeMap::IsValidSizeClass(size_t size, Length pages,
   const size_t alignment = size > SizeMap::kLargeSize
                                ? kLargeSizeAlignment
                                : static_cast<size_t>(kAlignment);
-  if ((size & (alignment - 1)) != 0) {
+  if (!IsAlignedTo(size, alignment)) {
     TC_LOG("%v not aligned properly %v", size, alignment);
     return false;
   }

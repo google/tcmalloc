@@ -533,6 +533,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":is_aligned_to",
         ":logging",
         ":page_size",
         ":range_tracker",
@@ -617,6 +618,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     deps = [
+        ":is_aligned_to",
         ":mincore",
         ":page_size",
         "@com_github_google_benchmark//:benchmark",
@@ -632,6 +634,7 @@ cc_test(
     deps = [
         ":allocation_guard",
         ":config",
+        ":is_aligned_to",
         ":page_size",
         ":range_tracker",
         ":residency",
@@ -900,6 +903,7 @@ cc_library(
     ],
     deps = [
         ":delay_injection",
+        ":is_aligned_to",
         ":logging",
         ":mincore",
         ":optimization",
@@ -1335,6 +1339,7 @@ cc_library(
         ":config",
         ":environment",
         ":exponential_biased",
+        ":is_aligned_to",
         ":logging",
         ":memory_tag",
         ":numa",
@@ -1573,5 +1578,20 @@ cc_library(
     deps = [
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_library(
+    name = "is_aligned_to",
+    hdrs = ["is_aligned_to.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__pkg__",
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        "@com_google_absl//absl/numeric:bits",
     ],
 )

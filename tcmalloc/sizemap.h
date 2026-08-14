@@ -27,6 +27,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/size_class_info.h"
@@ -263,10 +264,11 @@ class SizeMap {
     static_assert((kMaxSize % kPageSize) == 0, "the loop below won't work");
     // Profiles say we usually get the right class based on the size,
     // so avoid the loop overhead on the fast path.
-    if (ABSL_PREDICT_FALSE(class_to_size(size_class) & (align - 1))) {
+    if (ABSL_PREDICT_FALSE(!IsAlignedTo(class_to_size(size_class), align))) {
       do {
         ++size_class;
-      } while (ABSL_PREDICT_FALSE(class_to_size(size_class) & (align - 1)));
+      } while (
+          ABSL_PREDICT_FALSE(!IsAlignedTo(class_to_size(size_class), align)));
     }
     return {true, size_class};
   }

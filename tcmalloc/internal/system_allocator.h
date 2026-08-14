@@ -25,6 +25,7 @@
 
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #ifdef __linux__
 #include <linux/mempolicy.h>
@@ -557,7 +558,7 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
       }();
 
   bool first = !next_addr;
-  if (!next_addr || next_addr & (alignment - 1) ||
+  if (!next_addr || !IsAlignedTo(next_addr, alignment) ||
       GetMemoryTag(reinterpret_cast<void*>(next_addr)) != tag ||
       GetMemoryTag(reinterpret_cast<void*>(next_addr + size - 1)) != tag) {
     next_addr = RandomMmapHint(size, alignment, tag);

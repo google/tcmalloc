@@ -74,6 +74,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/parameter_accessors.h"
@@ -903,7 +904,7 @@ TEST(TCMallocTest, FreeAlignedSized) {
       void* ptr = aligned_alloc(alignment, size);
       if (!kSanitizerPresent) {
         ASSERT_NE(ptr, nullptr) << alignment << " " << size;
-        ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) & (alignment - 1), 0);
+        ASSERT_TRUE(IsAlignedTo(ptr, alignment));
         memset(ptr, 0, size);
         benchmark::DoNotOptimize(ptr);
       }
@@ -938,7 +939,7 @@ TEST(TCMallocTest, sdallocx_alignment) {
       void* ptr;
       int err = posix_memalign(&ptr, alignment, size);
       ASSERT_EQ(err, 0) << alignment << " " << size;
-      ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) & (alignment - 1), 0);
+      ASSERT_TRUE(IsAlignedTo(ptr, alignment));
       memset(ptr, 0, size);
       benchmark::DoNotOptimize(ptr);
       sdallocx(ptr, size, MALLOCX_LG_ALIGN(align));
@@ -975,7 +976,7 @@ TEST(TCMallocTest, aligned_alloc_at_least) {
       auto result = aligned_alloc_at_least(alignment, size);
       if (!kSanitizerPresent) {
         ASSERT_NE(result.ptr, nullptr) << alignment << " " << size;
-        ASSERT_EQ(reinterpret_cast<uintptr_t>(result.ptr) & (alignment - 1), 0);
+        ASSERT_TRUE(IsAlignedTo(result.ptr, alignment));
         ASSERT_GE(result.size, size);
         memset(result.ptr, 0, result.size);
         benchmark::DoNotOptimize(result);

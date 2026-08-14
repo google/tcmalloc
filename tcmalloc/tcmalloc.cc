@@ -98,6 +98,7 @@
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
@@ -1091,8 +1092,7 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
     align = std::max(align, kPageSize);
   }
 
-  if (ABSL_PREDICT_FALSE((reinterpret_cast<uintptr_t>(ptr) & (align - 1)) !=
-                         0)) {
+  if (ABSL_PREDICT_FALSE(!IsAlignedTo(ptr, align))) {
     ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(align), ptr);
     return false;
   }

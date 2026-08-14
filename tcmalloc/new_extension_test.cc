@@ -26,9 +26,12 @@
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
+
+using tcmalloc::tcmalloc_internal::IsAlignedTo;
 
 namespace tcmalloc {
 namespace {
@@ -285,9 +288,7 @@ TEST(HotColdNew, OperatorNewAligned) {
 
     void* ptr = ::operator new(size, alignment, static_cast<hot_cold_t>(label));
     ASSERT_NE(ptr, nullptr);
-    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) &
-                  (static_cast<size_t>(alignment) - 1u),
-              0);
+    EXPECT_TRUE(IsAlignedTo(ptr, alignment));
     benchmark::DoNotOptimize(memset(ptr, 0xBF, size));
     ptrs.emplace_back(SizedAlignedPtr{ptr, size, alignment});
   }
@@ -298,7 +299,7 @@ TEST(HotColdNew, OperatorNewAligned) {
       ::operator new(kSmall, static_cast<std::align_val_t>(kSmallAlignment),
                      static_cast<__hot_cold_t>(0));
   ASSERT_NE(ptr, nullptr);
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) & (kSmallAlignment - 1u), 0);
+  EXPECT_TRUE(IsAlignedTo(ptr, kSmallAlignment));
   benchmark::DoNotOptimize(memset(ptr, 0xBF, kSmall));
   ptrs.emplace_back(SizedAlignedPtr{
       ptr, kSmall, static_cast<std::align_val_t>(kSmallAlignment)});
@@ -341,9 +342,7 @@ TEST(HotColdNew, OperatorNewAlignedNothrow) {
     void* ptr = ::operator new(size, alignment, std::nothrow,
                                static_cast<hot_cold_t>(label));
     ASSERT_NE(ptr, nullptr);
-    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) &
-                  (static_cast<size_t>(alignment) - 1u),
-              0);
+    EXPECT_TRUE(IsAlignedTo(ptr, alignment));
     benchmark::DoNotOptimize(memset(ptr, 0xBF, size));
     ptrs.emplace_back(SizedAlignedPtr{ptr, size, alignment});
   }
@@ -354,7 +353,7 @@ TEST(HotColdNew, OperatorNewAlignedNothrow) {
       ::operator new(kSmall, static_cast<std::align_val_t>(kSmallAlignment),
                      std::nothrow, static_cast<__hot_cold_t>(0));
   ASSERT_NE(ptr, nullptr);
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) & (kSmallAlignment - 1u), 0);
+  EXPECT_TRUE(IsAlignedTo(ptr, kSmallAlignment));
   benchmark::DoNotOptimize(memset(ptr, 0xBF, kSmall));
   ptrs.emplace_back(SizedAlignedPtr{
       ptr, kSmall, static_cast<std::align_val_t>(kSmallAlignment)});
@@ -397,9 +396,7 @@ TEST(HotColdNew, OperatorNewArrayAligned) {
     void* ptr =
         ::operator new[](size, alignment, static_cast<hot_cold_t>(label));
     ASSERT_NE(ptr, nullptr);
-    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) &
-                  (static_cast<size_t>(alignment) - 1u),
-              0);
+    EXPECT_TRUE(IsAlignedTo(ptr, alignment));
     benchmark::DoNotOptimize(memset(ptr, 0xBF, size));
     ptrs.emplace_back(SizedAlignedPtr{ptr, size, alignment});
   }
@@ -410,7 +407,7 @@ TEST(HotColdNew, OperatorNewArrayAligned) {
       ::operator new[](kSmall, static_cast<std::align_val_t>(kSmallAlignment),
                        static_cast<__hot_cold_t>(0));
   ASSERT_NE(ptr, nullptr);
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) & (kSmallAlignment - 1u), 0);
+  EXPECT_TRUE(IsAlignedTo(ptr, kSmallAlignment));
   benchmark::DoNotOptimize(memset(ptr, 0xBF, kSmall));
   ptrs.emplace_back(SizedAlignedPtr{
       ptr, kSmall, static_cast<std::align_val_t>(kSmallAlignment)});
@@ -453,9 +450,7 @@ TEST(HotColdNew, OperatorNewArrayAlignedNothrow) {
     void* ptr = ::operator new[](size, alignment, std::nothrow,
                                  static_cast<hot_cold_t>(label));
     ASSERT_NE(ptr, nullptr);
-    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) &
-                  (static_cast<size_t>(alignment) - 1u),
-              0);
+    EXPECT_TRUE(IsAlignedTo(ptr, alignment));
     benchmark::DoNotOptimize(memset(ptr, 0xBF, size));
     ptrs.emplace_back(SizedAlignedPtr{ptr, size, alignment});
   }
@@ -466,7 +461,7 @@ TEST(HotColdNew, OperatorNewArrayAlignedNothrow) {
       ::operator new[](kSmall, static_cast<std::align_val_t>(kSmallAlignment),
                        std::nothrow, static_cast<__hot_cold_t>(0));
   ASSERT_NE(ptr, nullptr);
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) & (kSmallAlignment - 1u), 0);
+  EXPECT_TRUE(IsAlignedTo(ptr, kSmallAlignment));
   benchmark::DoNotOptimize(memset(ptr, 0xBF, kSmall));
   ptrs.emplace_back(SizedAlignedPtr{
       ptr, kSmall, static_cast<std::align_val_t>(kSmallAlignment)});

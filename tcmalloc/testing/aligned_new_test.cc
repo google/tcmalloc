@@ -27,8 +27,11 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/debugging/leak_check.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
+
+using tcmalloc::tcmalloc_internal::IsAlignedTo;
 
 namespace tcmalloc {
 namespace {
@@ -87,7 +90,7 @@ TYPED_TEST_P(AlignedNew, AlignedTest) {
   for (int i = 0; i < kAllocations; i++) {
     TypeParam* p = new TypeParam();
     benchmark::DoNotOptimize(p);
-    ASSERT_EQ(0, reinterpret_cast<uintptr_t>(p) & (alignof(TypeParam) - 1));
+    ASSERT_TRUE(IsAlignedTo(p, alignof(TypeParam)));
 
     this->ptrs.emplace_back(p);
   }

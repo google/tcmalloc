@@ -30,6 +30,7 @@
 #include "absl/status/status.h"
 #include "absl/strings/numbers.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 
@@ -343,7 +344,7 @@ PageFlagsBase::PageFlagsBitmaps PageFlags::GetSinglePageBitmaps(
     const void* addr) {
   PageFlagsBitmaps ret;
   uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
-  if ((currPage & (kHugePageSize - 1)) != 0) {
+  if (!IsAlignedTo(currPage, kHugePageSize)) {
     TC_LOG("Address is not hugepage aligned");
     ret.status = absl::StatusCode::kFailedPrecondition;
     return ret;

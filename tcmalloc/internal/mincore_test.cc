@@ -25,6 +25,7 @@
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/page_size.h"
 
 namespace tcmalloc {
@@ -44,7 +45,7 @@ class MInCoreMock : public MInCoreInterface {
     const size_t kHardwarePageSize = GetPageSize();
     uintptr_t uAddress = reinterpret_cast<uintptr_t>(addr);
     // Check that we only pass page aligned addresses into mincore().
-    EXPECT_THAT(uAddress & (kHardwarePageSize - 1), Eq(0));
+    EXPECT_TRUE(IsAlignedTo(uAddress, kHardwarePageSize));
 
     uintptr_t uEndAddress = uAddress + length;
     int index = 0;

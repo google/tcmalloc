@@ -37,6 +37,7 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/util.h"
@@ -350,7 +351,7 @@ TEST(PageMapIntegrationTest, WorksOnActualData) {
                     MAP_ANONYMOUS | MAP_POPULATE | MAP_PRIVATE, -1, 0);
   ASSERT_NE(addr, MAP_FAILED) << errno;
   auto position = reinterpret_cast<uintptr_t>(addr);
-  if ((position & (kHugePageSize - 1)) != 0) {
+  if (!IsAlignedTo(position, kHugePageSize)) {
     position |= kHugePageSize - 1;
     position++;
     addr = reinterpret_cast<void*>(position);
