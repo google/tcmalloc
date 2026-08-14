@@ -317,8 +317,7 @@ void* __alloc_token_1__ZnwmRKSt9nothrow_t(size_t size, std::nothrow_t);
 
 TEST(ProfileTest, HeapProfile) {
 #if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER || \
-    ABSL_HAVE_MEMORY_SANITIZER || ABSL_HAVE_THREAD_SANITIZER ||     \
-    defined(__SANITIZE_ALLOC_TOKEN__)
+    ABSL_HAVE_MEMORY_SANITIZER || ABSL_HAVE_THREAD_SANITIZER
   GTEST_SKIP() << "Skipping heap profile test under sanitizers.";
 #endif
 
