@@ -490,6 +490,14 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
         },
         new_max_capacity,
         /*classes_to_resize=*/2);
+
+    // UpdateMaxCapacities() zeroes out our thread's slabs pointer,
+    // which Grow() expects to be there. Normally, any other caller
+    // of Grow() would be from deallocation, which updates the slab
+    // pointer before doing anything, so explicitly put it back here.
+    auto [cpu, cached] = slab_.CacheCpuSlab();
+    EXPECT_TRUE(cached);
+
     ASSERT_NE(old_slabs, nullptr);
     mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
     sized_aligned_delete(old_slabs, old_slabs_size,

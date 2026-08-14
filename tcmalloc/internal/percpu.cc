@@ -402,6 +402,17 @@ void FenceCpu(int vcpu) {
 
 void FenceAllCpus() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  // An effect of fencing all CPUs is that the cached slabs pointer is reset
+  // because our rseq machinery resets it on every thread schedule. This is
+  // desirable if e.g. because we don't want to hit the fast path the next time
+  // the CPU allocates (i.e., we changed something under the thread).
+  // This also happens to our own thread due to the syscall (depending a bit
+  // on the kernel version). However, when fake CPUs are enabled in tests,
+  // we've unsubscribed from rseq and thus the syscall doesn't reset the
+  // slabs pointer, so uncache it explicitly here so that all CPUs are
+  // handled equal in this respect.
+  tcmalloc_slabs = 0;
+
   if (using_upstream_fence.load(std::memory_order_relaxed)) {
     UpstreamRseqFenceCpu(-1);
     return;
