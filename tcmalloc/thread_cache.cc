@@ -284,7 +284,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
     // and added to the linked list.  So we search for that first.
     if (maybe_reentrant) {
       for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
-        if (h->tid_ == me) {
+        if (pthread_equal(h->tid_, me) != 0) {
           heap = h;
           break;
         }
