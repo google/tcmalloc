@@ -165,6 +165,16 @@ enum class ProfileType {
   // Lifetimes of sampled objects that are live during the profiling session.
   kLifetimes,
 
+  // Temporal trace of alloc/dealloc events.
+  //
+  // This is a deallocation profiler in sprit, hence its position under
+  // kLifetimes -- use that if you seek a time-aggregated view of the same data.
+  //
+  // Note that the memory overhead of this profile is necessarily larger than
+  // that of typical profiles; as a result, event traces are truncated after
+  // reaching TCMalloc_Internal_GetEventTraceMemoryLimit.
+  kEventTrace,
+
   // Only present to prevent switch statements without a default clause so that
   // we can extend this enumeration without breaking code.
   kDoNotUse,
@@ -289,10 +299,15 @@ class Profile final {
     // For the *_matched vars below we use true = "same", false = "different".
     // When the value is unavailable the profile contains "none". For
     // right-censored observations, CPU and thread matched values are "none".
+    std::optional<int> cpu_id;
     std::optional<bool> allocator_deallocator_physical_cpu_matched;
+    std::optional<int> vcpu_id;
     std::optional<bool> allocator_deallocator_virtual_cpu_matched;
+    std::optional<int> l3_id;
     std::optional<bool> allocator_deallocator_l3_matched;
+    std::optional<int> numa_id;
     std::optional<bool> allocator_deallocator_numa_matched;
+    std::optional<pid_t> thread_id;
     std::optional<bool> allocator_deallocator_thread_matched;
 
     // The start address of the sampled allocation, used to calculate the
@@ -673,6 +688,10 @@ class MallocExtension final {
   // Start recording lifetimes of objects live during this profiling
   // session. Returns null if the implementation does not support profiling.
   [[nodiscard]] static AllocationProfilingToken StartLifetimeProfiling();
+
+  // Start recording a temporal trace of alloc/free events.
+  // Returns null if the implementation does not support profiling.
+  [[nodiscard]] static AllocationProfilingToken StartEventTracing();
 
   // Runs housekeeping actions for the allocator off of the main allocation path
   // of new/delete.  As of 2020, this includes:
