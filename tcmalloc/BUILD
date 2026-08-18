@@ -747,6 +747,27 @@ cc_test(
 )
 
 cc_test(
+    name = "huge_cache_fuzz",
+    srcs = ["huge_cache_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    deps = [
+        ":common_8k_pages",
+        ":mock_virtual_allocator",
+        "//tcmalloc/internal:clock",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:mock_metadata_allocator",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_test(
     name = "huge_region_fuzz",
     srcs = ["huge_region_fuzz.cc"],
     args = ["--fuzztest_stack_limit_kb=2048"],
