@@ -35,6 +35,24 @@ void FuzzSelectExperiments(absl::string_view test_target,
   bool buffer[tcmalloc::tcmalloc_internal::kNumExperiments];
 
   SelectExperiments(buffer, test_target, active, disabled, unset, hostname);
+
+  auto IsCompilerExperiment = [](Experiment exp) {
+#ifdef NPX_COMPILER_ENABLED_EXPERIMENT
+    return exp == Experiment::NPX_COMPILER_EXPERIMENT;
+#else
+    return false;
+#endif
+  };
+
+  for (const auto& config : experiments) {
+    if (config.force_disable) {
+      EXPECT_FALSE(buffer[static_cast<int>(config.id)]);
+    }
+
+    if (disabled == "all" && !IsCompilerExperiment(config.id)) {
+      EXPECT_FALSE(buffer[static_cast<int>(config.id)]);
+    }
+  }
 }
 
 FUZZ_TEST(ExperimentTest, FuzzSelectExperiments);
@@ -53,7 +71,7 @@ void FuzzRolloutEnabled(const ExperimentConfig& config,
 
 FUZZ_TEST(ExperimentTest, FuzzRolloutEnabled);
 
-TEST(ExperimenTest, FuzzRolloutEnabledRegression) {
+TEST(ExperimentTest, FuzzRolloutEnabledRegression) {
   FuzzRolloutEnabled(
       tcmalloc::ExperimentConfig{tcmalloc::Experiment{12}, "", true, false, -1.,
                                  1.7976931348623157e+308, ""},

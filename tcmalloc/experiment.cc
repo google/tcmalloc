@@ -141,10 +141,9 @@ bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
          target < config.rollout_upper_bound;
 }
 
-const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
-                              absl::string_view active,
-                              absl::string_view disabled, bool unset,
-                              absl::string_view hostname) {
+void SelectExperiments(bool* buffer, absl::string_view test_target,
+                       absl::string_view active, absl::string_view disabled,
+                       bool unset, absl::string_view hostname) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {
@@ -216,33 +215,31 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
     const size_t target_hash = absl::HashOf(test_target, seed);
     constexpr size_t kVanillaOneOf = 11;
     constexpr size_t kEnableOneOf = 3;
-    if ((target_hash % kVanillaOneOf) == 0) {
-      return buffer;
-    }
+    if ((target_hash % kVanillaOneOf) != 0) {
+      int num_enabled_experiments = 0;
+      Experiment experiment_id = Experiment::kMaxExperimentID;
+      for (auto config : experiments) {
+        if (IsCompilerExperiment(config.id) || config.brittle) {
+          continue;
+        }
+        experiment_id = config.id;
 
-    int num_enabled_experiments = 0;
-    Experiment experiment_id = Experiment::kMaxExperimentID;
-    for (auto config : experiments) {
-      if (IsCompilerExperiment(config.id) || config.brittle) {
-        continue;
+        // Enabling is specifically based on the experiment name so that it's
+        // stable when experiments are added/removed.
+        bool enabled =
+            ((target_hash ^ absl::HashOf(config.name)) % kEnableOneOf) == 0;
+        buffer[static_cast<int>(config.id)] |= enabled;
+        num_enabled_experiments += enabled;
       }
-      experiment_id = config.id;
-
-      // Enabling is specifically based on the experiment name so that it's
-      // stable when experiments are added/removed.
-      bool enabled =
-          ((target_hash ^ absl::HashOf(config.name)) % kEnableOneOf) == 0;
-      buffer[static_cast<int>(config.id)] |= enabled;
-      num_enabled_experiments += enabled;
-    }
-    // In case the hash-based selection above did not work out, select the last
-    // experiment.
-    if (num_enabled_experiments == 0 &&
-        experiment_id != Experiment::kMaxExperimentID) {
-      // TODO: b/454666418 - Replace with TC_CHECK when the synchronization
-      // experimentation is finished.
-      assert(!buffer[static_cast<int>(experiment_id)]);
-      buffer[static_cast<int>(experiment_id)] = true;
+      // In case the hash-based selection above did not work out, select the
+      // last experiment.
+      if (num_enabled_experiments == 0 &&
+          experiment_id != Experiment::kMaxExperimentID) {
+        // TODO: b/454666418 - Replace with TC_CHECK when the synchronization
+        // experimentation is finished.
+        assert(!buffer[static_cast<int>(experiment_id)]);
+        buffer[static_cast<int>(experiment_id)] = true;
+      }
     }
   }
 
@@ -252,8 +249,6 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
       buffer[static_cast<int>(config.id)] = false;
     }
   }
-
-  return buffer;
 }
 
 static_assert(
