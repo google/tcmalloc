@@ -231,6 +231,8 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_cold_pages_(false);
+ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
+    16 << 20);
 static std::atomic<MadviseRegionsNoHugepage>&
 madvise_cold_regions_nohugepage_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -658,6 +660,14 @@ void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
       v ? tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled
         : tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kDisabled,
       std::memory_order_relaxed);
+}
+
+int64_t TCMalloc_Internal_GetEventTraceMemoryLimit() {
+  return Parameters::event_trace_memory_limit();
+}
+
+void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v) {
+  Parameters::event_trace_memory_limit_.store(v, std::memory_order_relaxed);
 }
 
 }  // extern "C"
