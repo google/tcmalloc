@@ -47,27 +47,100 @@ auto AnyLength() {
   return fuzztest::ConstructorOf<Length>(fuzztest::Arbitrary<size_t>());
 }
 
+struct State {
+  CentralFreelistEnv env;
+  std::vector<void*> objects;
+
+  State(size_t object_size, Length num_pages, size_t num_objects_to_move)
+      : env(object_size, Bytes(num_pages.in_bytes()), num_objects_to_move) {}
+
+  ~State();
+
+  void CheckInvariants();
+};
+
+void State::CheckInvariants() {
+  if (env.objects_per_span() == 1) {
+    return;
+  }
+
+  const tcmalloc_internal::SpanStats stats =
+      env.central_freelist().GetSpanStats();
+  TC_CHECK_EQ(env.central_freelist().length() + objects.size(),
+              stats.obj_capacity);
+  if (objects.empty()) {
+    TC_CHECK_EQ(stats.num_live_spans(), 0);
+  } else {
+    TC_CHECK_GT(stats.num_live_spans(), 0);
+  }
+}
+
+State::~State() {
+  const size_t allocated = objects.size();
+  size_t returned = 0;
+  while (returned < allocated) {
+    const size_t to_return =
+        std::min(allocated - returned, static_cast<size_t>(kMaxObjectsToMove));
+    env.central_freelist().InsertRange({&objects[returned], to_return});
+    returned += to_return;
+  }
+  objects.clear();
+
+  CheckInvariants();
+}
+
 struct Allocate {
   uint8_t num_objects;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Allocate& a) {
-    absl::Format(&sink, "Allocate{.num_objects=%d}", a.num_objects);
+    absl::Format(&sink, "Allocate{.num_objects=%v}", a.num_objects);
+  }
+
+  void Perform(State& state) const {
+    void* batch[kMaxObjectsToMove];
+    const size_t n = num_objects;
+    int allocated =
+        state.env.central_freelist().RemoveRange(absl::MakeSpan(batch, n));
+    state.objects.insert(state.objects.end(), batch, batch + allocated);
   }
 };
 
 struct Deallocate {
   uint8_t num_objects;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Deallocate& d) {
-    absl::Format(&sink, "Deallocate{.num_objects=%d}", d.num_objects);
+    absl::Format(&sink, "Deallocate{.num_objects=%v}", d.num_objects);
+  }
+
+  void Perform(State& state) const {
+    if (state.objects.empty()) return;
+
+    const size_t n = std::min<size_t>(num_objects, state.objects.size());
+    state.env.central_freelist().InsertRange(
+        {&state.objects[state.objects.size() - n], n});
+    state.objects.resize(state.objects.size() - n);
   }
 };
 
 struct Shuffle {
   int seed;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Shuffle& s) {
-    absl::Format(&sink, "Shuffle{.seed=%d}", s.seed);
+    absl::Format(&sink, "Shuffle{.seed=%v}", s.seed);
+  }
+
+  void Perform(State& state) const {
+    std::mt19937 rng(seed);
+    constexpr int kMaxToShuffle = 10 * kMaxObjectsToMove;
+    if (state.objects.size() <= kMaxToShuffle) {
+      std::shuffle(state.objects.begin(), state.objects.end(), rng);
+    } else {
+      std::shuffle(state.objects.end() - kMaxToShuffle, state.objects.end(),
+                   rng);
+    }
   }
 };
 
@@ -76,6 +149,8 @@ struct CheckStats {
   friend void AbslStringify(Sink& sink, const CheckStats&) {
     absl::Format(&sink, "CheckStats{}");
   }
+
+  void Perform(State& state) const { state.CheckInvariants(); }
 };
 
 struct PrintStats {
@@ -83,30 +158,40 @@ struct PrintStats {
   friend void AbslStringify(Sink& sink, const PrintStats&) {
     absl::Format(&sink, "PrintStats{}");
   }
+
+  void Perform(State& state) const {
+    std::string s;
+    s.resize(1 << 20);
+    Printer p(&s[0], s.size());
+    state.env.central_freelist().PrintSpanUtilStats(p);
+    state.env.central_freelist().PrintSpanLifetimeStats(p);
+
+    PbtxtRegion region(p, kTop);
+    state.env.central_freelist().PrintSpanUtilStatsInPbtxt(region);
+    state.env.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
+  }
 };
 
 struct AdvanceClock {
   int32_t value;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const AdvanceClock& a) {
-    absl::Format(&sink, "AdvanceClock{.value=%d}", a.value);
+    absl::Format(&sink, "AdvanceClock{.value=%v}", a.value);
+  }
+
+  void Perform(State& state) const {
+    state.env.forwarder().AdvanceClock(absl::Milliseconds(value));
   }
 };
 
-using InstructionVariant = std::variant<Allocate, Deallocate, Shuffle,
-                                        CheckStats, PrintStats, AdvanceClock>;
+using Instruction = std::variant<Allocate, Deallocate, Shuffle, CheckStats,
+                                 PrintStats, AdvanceClock>;
 
-struct Instruction {
-  InstructionVariant instr;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const Instruction& i) {
-    std::visit([&](auto&& arg) { AbslStringify(sink, arg); }, i.instr);
-  }
-};
-
-template <class>
-inline constexpr bool always_false_v = false;
+template <typename Sink>
+void AbslStringify(Sink& sink, const Instruction& i) {
+  std::visit([&](const auto& arg) { absl::Format(&sink, "%v", arg); }, i);
+}
 
 void FuzzCFL(size_t object_size, Length num_pages, size_t num_objects_to_move,
              const std::vector<Instruction>& instructions) {
@@ -114,81 +199,11 @@ void FuzzCFL(size_t object_size, Length num_pages, size_t num_objects_to_move,
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_objects_to_move)) {
     return;
   }
-  CentralFreelistEnv env(object_size, Bytes(num_pages.in_bytes()),
-                         num_objects_to_move);
-  std::vector<void*> objects;
+  State state(object_size, num_pages, num_objects_to_move);
 
-  for (const auto& instruction_wrapper : instructions) {
-    std::visit(
-        [&](auto&& arg) {
-          using T = std::decay_t<decltype(arg)>;
-          if constexpr (std::is_same_v<T, Allocate>) {
-            void* batch[kMaxObjectsToMove];
-            const size_t n = arg.num_objects;
-            int allocated =
-                env.central_freelist().RemoveRange(absl::MakeSpan(batch, n));
-            objects.insert(objects.end(), batch, batch + allocated);
-          } else if constexpr (std::is_same_v<T, Deallocate>) {
-            if (objects.empty()) return;
-
-            const size_t n = std::min<size_t>(arg.num_objects, objects.size());
-            env.central_freelist().InsertRange(
-                {&objects[objects.size() - n], n});
-            objects.resize(objects.size() - n);
-          } else if constexpr (std::is_same_v<T, Shuffle>) {
-            // Shuffle allocated objects such that we don't return them in the
-            // same order we allocated them.
-            std::mt19937 rng(arg.seed);
-            // Limit number of elements to shuffle so that we don't spend a lot
-            // of time in shuffling a large number of objects.
-            constexpr int kMaxToShuffle = 10 * kMaxObjectsToMove;
-            if (objects.size() <= kMaxToShuffle) {
-              std::shuffle(objects.begin(), objects.end(), rng);
-            } else {
-              std::shuffle(objects.end() - kMaxToShuffle, objects.end(), rng);
-            }
-          } else if constexpr (std::is_same_v<T, CheckStats>) {
-            // Check stats.
-            tcmalloc_internal::SpanStats stats =
-                env.central_freelist().GetSpanStats();
-            // Spans with objects_per_span = 1 skip most of the logic in the
-            // central freelist including stats updates.  So skip the check for
-            // objects_per_span = 1.
-            if (env.objects_per_span() != 1) {
-              CHECK_EQ(env.central_freelist().length() + objects.size(),
-                       stats.obj_capacity);
-              if (objects.empty()) {
-                CHECK_EQ(stats.num_live_spans(), 0);
-              } else {
-                CHECK_GT(stats.num_live_spans(), 0);
-              }
-            }
-          } else if constexpr (std::is_same_v<T, PrintStats>) {
-            std::string s;
-            s.resize(1 << 20);
-            Printer p(&s[0], s.size());
-            env.central_freelist().PrintSpanUtilStats(p);
-            env.central_freelist().PrintSpanLifetimeStats(p);
-
-            PbtxtRegion region(p, kTop);
-            env.central_freelist().PrintSpanUtilStatsInPbtxt(region);
-            env.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
-          } else if constexpr (std::is_same_v<T, AdvanceClock>) {
-            env.forwarder().AdvanceClock(absl::Milliseconds(arg.value));
-          } else {
-            static_assert(always_false_v<T>, "Unhandled type");
-          }
-        },
-        instruction_wrapper.instr);
-  }
-
-  // Clean up.
-  const size_t allocated = objects.size();
-  size_t returned = 0;
-  while (returned < allocated) {
-    const size_t to_return = std::min(allocated - returned, kMaxObjectsToMove);
-    env.central_freelist().InsertRange({&objects[returned], to_return});
-    returned += to_return;
+  for (const auto& instruction : instructions) {
+    std::visit([&](const auto& arg) { arg.Perform(state); }, instruction);
+    state.CheckInvariants();
   }
 }
 
