@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
 #include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
 #include "absl/strings/str_format.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
@@ -34,10 +37,46 @@ using TransferCache =
                                            FakeTransferCacheManager>;
 using TransferCacheEnv = FakeTransferCacheEnvironment<TransferCache>;
 
+constexpr int kNumObjectsToMove =
+    TransferCache::Manager::num_objects_to_move(1);
+
+struct State {
+  TransferCacheEnv env;
+
+  State() = default;
+
+  ~State() {
+    CheckInvariants();
+    Drain();
+    CheckInvariants();
+    CHECK_EQ(env.transfer_cache().tc_length(), 0);
+  }
+
+  void CheckInvariants() {
+    const TransferCacheStats stats = env.transfer_cache().GetStats();
+    CHECK_GE(stats.used, 0);
+    CHECK_LE(stats.used, stats.capacity);
+    CHECK_LE(stats.capacity, stats.max_capacity);
+    CHECK_EQ(stats.used, env.transfer_cache().tc_length());
+    CHECK_EQ(stats.max_capacity, env.transfer_cache().max_capacity());
+  }
+
+  void Drain() { env.Drain(); }
+};
+
 struct Grow {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Grow& g) {
     absl::Format(&sink, "Grow{}");
+  }
+
+  void Perform(State& state) const {
+    const TransferCacheStats stats = state.env.transfer_cache().GetStats();
+    // Confirm that we are always able to grow the cache provided we
+    // have sufficient capacity to grow.
+    const bool expected =
+        stats.capacity + kNumObjectsToMove <= stats.max_capacity;
+    CHECK_EQ(state.env.Grow(), expected);
   }
 };
 
@@ -46,6 +85,14 @@ struct Shrink {
   friend void AbslStringify(Sink& sink, const Shrink& s) {
     absl::Format(&sink, "Shrink{}");
   }
+
+  void Perform(State& state) const {
+    const TransferCacheStats stats = state.env.transfer_cache().GetStats();
+    // Confirm that we are always able to shrink the cache provided we
+    // have sufficient capacity to shrink.
+    const bool expected = stats.capacity > kNumObjectsToMove;
+    CHECK_EQ(state.env.Shrink(), expected);
+  }
 };
 
 struct TryPlunder {
@@ -53,12 +100,21 @@ struct TryPlunder {
   friend void AbslStringify(Sink& sink, const TryPlunder& t) {
     absl::Format(&sink, "TryPlunder{}");
   }
+
+  void Perform(State& state) const { state.env.TryPlunder(); }
 };
 
 struct GetStats {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const GetStats& g) {
     absl::Format(&sink, "GetStats{}");
+  }
+
+  void Perform(State& state) const {
+    const TransferCacheStats stats = state.env.transfer_cache().GetStats();
+    CHECK_GE(stats.used, 0);
+    CHECK_LE(stats.used, stats.capacity);
+    CHECK_LE(stats.capacity, stats.max_capacity);
   }
 };
 
@@ -69,6 +125,13 @@ struct Insert {
   friend void AbslStringify(Sink& sink, const Insert& i) {
     absl::Format(&sink, "Insert{.batch=%d}", i.batch);
   }
+
+  void Perform(State& state) const {
+    if (batch <= 0) {
+      return;
+    }
+    state.env.Insert(batch);
+  }
 };
 
 struct Remove {
@@ -78,57 +141,25 @@ struct Remove {
   friend void AbslStringify(Sink& sink, const Remove& r) {
     absl::Format(&sink, "Remove{.batch=%d}", r.batch);
   }
-};
 
-using InstructionVariant =
-    std::variant<Grow, Shrink, TryPlunder, GetStats, Insert, Remove>;
-
-struct Instruction {
-  InstructionVariant instr;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const Instruction& i) {
-    std::visit([&](auto&& arg) { AbslStringify(sink, arg); }, i.instr);
+  void Perform(State& state) const {
+    if (batch <= 0) {
+      return;
+    }
+    state.env.Remove(batch);
   }
 };
 
-constexpr int kNumObjectsToMove =
-    TransferCache::Manager::num_objects_to_move(1);
+using Instruction =
+    std::variant<Grow, Shrink, TryPlunder, GetStats, Insert, Remove>;
 
 void FuzzTransferCache(const std::vector<Instruction>& instructions) {
-  TransferCacheEnv env;
   // TODO(b/271282540): We should also add a capability to fuzz-test multiple
   // size classes.
-  for (const auto& instruction_wrapper : instructions) {
-    std::visit(
-        [&](auto&& arg) {
-          using T = std::decay_t<decltype(arg)>;
-          if constexpr (std::is_same_v<T, Grow>) {
-            const tcmalloc_internal::TransferCacheStats stats =
-                env.transfer_cache().GetStats();
-            // Confirm that we are always able to grow the cache provided we
-            // have sufficient capacity to grow.
-            const bool expected =
-                stats.capacity + kNumObjectsToMove <= stats.max_capacity;
-            CHECK_EQ(env.Grow(), expected);
-          } else if constexpr (std::is_same_v<T, Shrink>) {
-            const tcmalloc_internal::TransferCacheStats stats =
-                env.transfer_cache().GetStats();
-            // Confirm that we are always able to shrink the cache provided we
-            // have sufficient capacity to shrink.
-            const bool expected = stats.capacity > kNumObjectsToMove;
-            CHECK_EQ(env.Shrink(), expected);
-          } else if constexpr (std::is_same_v<T, TryPlunder>) {
-            env.TryPlunder();
-          } else if constexpr (std::is_same_v<T, GetStats>) {
-            env.transfer_cache().GetStats();
-          } else if constexpr (std::is_same_v<T, Insert>) {
-            env.Insert(arg.batch);
-          } else if constexpr (std::is_same_v<T, Remove>) {
-            env.Remove(arg.batch);
-          }
-        },
-        instruction_wrapper.instr);
+  State state;
+  for (const auto& instruction : instructions) {
+    std::visit([&](const auto& instr) { instr.Perform(state); }, instruction);
+    state.CheckInvariants();
   }
 }
 
