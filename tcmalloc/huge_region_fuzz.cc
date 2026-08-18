@@ -15,9 +15,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <functional>
-#include <type_traits>
+#include <optional>
+#include <string>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -27,6 +27,7 @@
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
+#include "absl/types/span.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
@@ -70,6 +71,8 @@ class MockUnback final : public MemoryModifyFunction {
   std::function<void()> release_callback_;
 };
 
+struct State;
+
 struct Allocate {
   uint32_t length;
 
@@ -77,6 +80,8 @@ struct Allocate {
   friend void AbslStringify(Sink& sink, const Allocate& a) {
     absl::Format(&sink, "Allocate{.length=%d}", a.length);
   }
+
+  void Perform(State& state) const;
 };
 
 struct Deallocate {
@@ -88,6 +93,8 @@ struct Deallocate {
     absl::Format(&sink, "Deallocate{.index=%d, .release=%v}", d.index,
                  d.release);
   }
+
+  void Perform(State& state) const;
 };
 
 struct Release {
@@ -99,20 +106,26 @@ struct Release {
     absl::Format(&sink, "Release{.length=%d, .adaptive_release=%v}", r.length,
                  r.adaptive_release);
   }
+
+  void Perform(State& state) const;
 };
 
 struct Stats {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Stats&) {
-    sink.Append("Stats");
+    sink.Append("Stats{}");
   }
+
+  void Perform(State& state) const;
 };
 
 struct Toggle {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Toggle&) {
-    sink.Append("Toggle");
+    sink.Append("Toggle{}");
   }
+
+  void Perform(State& state) const;
 };
 
 struct Reentrant;
@@ -120,15 +133,19 @@ struct Reentrant;
 struct GatherStatsPbtxt {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const GatherStatsPbtxt&) {
-    sink.Append("GatherStatsPbtxt");
+    sink.Append("GatherStatsPbtxt{}");
   }
+
+  void Perform(State& state) const;
 };
 
 struct PrintStats {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const PrintStats&) {
-    sink.Append("PrintStats");
+    sink.Append("PrintStats{}");
   }
+
+  void Perform(State& state) const;
 };
 
 using Instruction = std::variant<Allocate, Deallocate, Release, Stats, Toggle,
@@ -136,133 +153,168 @@ using Instruction = std::variant<Allocate, Deallocate, Release, Stats, Toggle,
 
 struct Reentrant {
   std::vector<Instruction> subprogram;
+
+  void Perform(State& state) const;
 };
 
 template <typename Sink>
-void AbslStringify(Sink& sink, const Reentrant& r) {
-  absl::Format(
-      &sink, "Reentrant{.subprogram={%s}}",
-      absl::StrJoin(
-          r.subprogram, ", ", [](std::string* out, const Instruction& i) {
-            std::visit(
-                [&](auto&& arg) { absl::StrAppend(out, absl::StrCat(arg)); },
-                i);
-          }));
+void AbslStringify(Sink& sink, const Instruction& i) {
+  std::visit([&](const auto& arg) { absl::Format(&sink, "%v", arg); }, i);
 }
-void FuzzRegion(const std::vector<Instruction>& instructions,
-                bool reentrant_release) {
-  const HugePage start =
-      HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal));
+
+template <typename Sink>
+void AbslStringify(Sink& sink, const Reentrant& r) {
+  absl::Format(&sink, "Reentrant{.subprogram={%s}}",
+               absl::StrJoin(r.subprogram, ", ",
+                             [](std::string* out, const Instruction& i) {
+                               absl::StrAppend(out, i);
+                             }));
+}
+
+struct State {
+  bool reentrant_release;
+  const HugePage start;
   MockUnback unback;
   NilMemoryTagFunction nil_set_anon_vma_name;
-  HugeRegion region({start, region.size()}, unback, nil_set_anon_vma_name);
-
-  unback.released_.reserve(region.size().in_pages().raw_num());
-  for (PageId p = start.first_page(), end = p + region.size().in_pages();
-       p != end; ++p) {
-    unback.released_.insert(p);
-  }
+  HugeRegion region;
 
   std::vector<Range> allocs;
-  std::vector<std::vector<Instruction>> reentrant_stack;
-
+  std::vector<absl::Span<const Instruction>> reentrant_stack;
   std::string output;
-  output.resize(1 << 20);
+  int depth = 0;
 
-  auto run_instructions = [&](auto& self,
-                              const std::vector<Instruction>& instrs) -> void {
-    for (const auto& inst : instrs) {
-      std::visit(
-          [&](auto&& arg) {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, Allocate>) {
-              const Length n =
-                  Length(std::max<size_t>(arg.length % (1 << 18), 1));
-              PageId p;
-              bool from_released;
-              if (!region.MaybeGet(n, &p, &from_released)) {
-                return;
-              }
-              allocs.emplace_back(p, n);
-              if (from_released) {
-                bool did_release = false;
-                for (PageId q = p, end = p + n; q != end; ++q) {
-                  auto it = unback.released_.find(q);
-                  if (it != unback.released_.end()) {
-                    unback.released_.erase(it);
-                    did_release = true;
-                  }
-                }
-                CHECK(did_release);
-              }
-            } else if constexpr (std::is_same_v<T, Deallocate>) {
-              if (allocs.empty()) return;
-              int index = arg.index % allocs.size();
-              const bool release = arg.release;
-              auto alloc = allocs[index];
-              using std::swap;
-              swap(allocs[index], allocs.back());
-              allocs.resize(allocs.size() - 1);
-              region.Put(alloc, release);
-            } else if constexpr (std::is_same_v<T, Release>) {
-              const Length len = Length(arg.length % (1 << 18));
-              const HugeLength max_expected =
-                  std::min(region.free_backed(), HLFromPages(len));
-              const HugeLength actual =
-                  region.Release(len, arg.adaptive_release);
-              if (unback.unback_success_) {
-                if (max_expected > NHugePages(0) && len > Length(0)) {
-                  TC_CHECK_GT(actual, NHugePages(0));
-                }
-                TC_CHECK_LE(actual, max_expected);
-              } else {
-                TC_CHECK_EQ(actual, NHugePages(0));
-              }
-            } else if constexpr (std::is_same_v<T, Stats>) {
-              region.stats();
-              SmallSpanStats small;
-              LargeSpanStats large;
-              region.AddSpanStats(&small, &large);
-            } else if constexpr (std::is_same_v<T, Toggle>) {
-              unback.unback_success_ = !unback.unback_success_;
-            } else if constexpr (std::is_same_v<T, Reentrant>) {
-              reentrant_stack.push_back(arg.subprogram);
-            } else if constexpr (std::is_same_v<T, GatherStatsPbtxt>) {
-              Printer p(&output[0], output.size());
-              {
-                PbtxtRegion r(p, kTop);
-                region.PrintInPbtxt(r);
-              }
-              CHECK_LE(p.SpaceRequired(), output.size());
-            } else if constexpr (std::is_same_v<T, PrintStats>) {
-              Printer p(&output[0], output.size());
-              region.Print(p);
-            }
-          },
-          inst);
+  explicit State(bool reentrant_release)
+      : reentrant_release(reentrant_release),
+        start(HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal))),
+        region({start, HugeRegion::size()}, unback, nil_set_anon_vma_name) {
+    unback.released_.reserve(HugeRegion::size().in_pages().raw_num());
+    for (PageId p = start.first_page(), end = p + HugeRegion::size().in_pages();
+         p != end; ++p) {
+      unback.released_.insert(p);
     }
-  };
+    output.resize(1 << 20);
 
-  unback.release_callback_ = [&]() {
-    if (!reentrant_release) return;
-    if (reentrant_stack.empty()) return;
-    ABSL_CONST_INIT static int depth = 0;
-    if (depth >= 5) return;
+    unback.release_callback_ = [this]() {
+      if (!this->reentrant_release) return;
+      if (reentrant_stack.empty()) return;
+      if (depth >= 5) return;
 
-    auto prog = std::move(reentrant_stack.back());
-    reentrant_stack.pop_back();
+      auto prog = std::move(reentrant_stack.back());
+      reentrant_stack.pop_back();
 
-    depth++;
-    run_instructions(run_instructions, prog);
-    depth--;
-  };
-
-  run_instructions(run_instructions, instructions);
-
-  reentrant_stack.clear();
-  for (const auto& alloc : allocs) {
-    region.Put(alloc, false);
+      depth++;
+      Execute(prog);
+      depth--;
+    };
   }
+
+  ~State() {
+    reentrant_stack.clear();
+    for (const auto& alloc : allocs) {
+      region.Put(alloc, false);
+    }
+    allocs.clear();
+    CheckInvariants();
+  }
+
+  void Execute(absl::Span<const Instruction> instructions) {
+    for (const auto& inst : instructions) {
+      std::visit([&](const auto& arg) { arg.Perform(*this); }, inst);
+    }
+  }
+
+  void CheckInvariants() {
+    TC_CHECK_EQ(region.used_pages(), Length(0));
+    SmallSpanStats small;
+    LargeSpanStats large;
+    region.AddSpanStats(&small, &large);
+    TC_CHECK_LE(region.free_backed(), region.backed());
+    TC_CHECK_LE(region.backed(), region.size());
+  }
+};
+
+void Allocate::Perform(State& state) const {
+  const Length n = Length(std::max<size_t>(length % (1 << 18), 1));
+  PageId p;
+  bool from_released;
+  if (!state.region.MaybeGet(n, &p, &from_released)) {
+    return;
+  }
+  state.allocs.emplace_back(p, n);
+  if (!from_released) {
+    return;
+  }
+  bool did_release = false;
+  for (PageId q = p, end = p + n; q != end; ++q) {
+    auto it = state.unback.released_.find(q);
+    if (it != state.unback.released_.end()) {
+      state.unback.released_.erase(it);
+      did_release = true;
+    }
+  }
+  CHECK(did_release);
+}
+
+void Deallocate::Perform(State& state) const {
+  if (state.allocs.empty()) {
+    return;
+  }
+  const int target_index = index % state.allocs.size();
+  const Range alloc = state.allocs[target_index];
+  using std::swap;
+  swap(state.allocs[target_index], state.allocs.back());
+  state.allocs.pop_back();
+  state.region.Put(alloc, release);
+}
+
+void Release::Perform(State& state) const {
+  const Length len = Length(length % (1 << 18));
+  const HugeLength max_expected =
+      std::min(state.region.free_backed(), HLFromPages(len));
+  const HugeLength actual = state.region.Release(len, adaptive_release);
+  if (!state.unback.unback_success_) {
+    TC_CHECK_EQ(actual, NHugePages(0));
+    return;
+  }
+  if (max_expected > NHugePages(0) && len > Length(0)) {
+    TC_CHECK_GT(actual, NHugePages(0));
+  }
+  TC_CHECK_LE(actual, max_expected);
+}
+
+void Stats::Perform(State& state) const {
+  state.region.stats();
+  SmallSpanStats small;
+  LargeSpanStats large;
+  state.region.AddSpanStats(&small, &large);
+}
+
+void Toggle::Perform(State& state) const {
+  state.unback.unback_success_ = !state.unback.unback_success_;
+}
+
+void Reentrant::Perform(State& state) const {
+  state.reentrant_stack.push_back(subprogram);
+}
+
+void GatherStatsPbtxt::Perform(State& state) const {
+  Printer p(&state.output[0], state.output.size());
+  {
+    PbtxtRegion r(p, kTop);
+    state.region.PrintInPbtxt(r);
+  }
+  CHECK_LE(p.SpaceRequired(), state.output.size());
+}
+
+void PrintStats::Perform(State& state) const {
+  Printer p(&state.output[0], state.output.size());
+  state.region.Print(p);
+}
+
+void FuzzRegion(const std::vector<Instruction>& instructions,
+                bool reentrant_release) {
+  State state(reentrant_release);
+  state.Execute(instructions);
 }
 
 fuzztest::Domain<Instruction> GetInstructionDomain(int depth);
