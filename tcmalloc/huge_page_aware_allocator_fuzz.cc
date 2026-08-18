@@ -103,12 +103,16 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
   std::function<void()> release_callback_;
 };
 
+struct State;
+
 struct Alloc {
   size_t length;
   size_t num_objects;
   size_t alignment;
   bool use_aligned;
   bool dense;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Alloc& a) {
@@ -122,6 +126,8 @@ struct Alloc {
 struct Dealloc {
   size_t index;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Dealloc& d) {
     absl::Format(&sink, "Dealloc{.index=%v}", d.index);
@@ -131,6 +137,8 @@ struct Dealloc {
 struct ReleasePages {
   size_t desired;
   bool release_memory_to_system;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const ReleasePages& r) {
@@ -144,6 +152,8 @@ struct ReleasePagesBreakingHugepages {
   size_t desired;
   bool soft_limit_exceeded;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink,
                             const ReleasePagesBreakingHugepages& r) {
@@ -155,14 +165,18 @@ struct ReleasePagesBreakingHugepages {
 };
 
 struct GatherStatsPbtxt {
+  void Perform(State& state) const;
+
   template <typename Sink>
-  friend void AbslStringify(Sink& sink, const GatherStatsPbtxt& g) {
-    absl::Format(&sink, "GatherStatsPbtxt{}");
+  friend void AbslStringify(Sink& sink, const GatherStatsPbtxt&) {
+    sink.Append("GatherStatsPbtxt{}");
   }
 };
 
 struct PrintStats {
   bool everything;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const PrintStats& p) {
@@ -171,14 +185,18 @@ struct PrintStats {
 };
 
 struct GatherAndCheckStats {
+  void Perform(State& state) const;
+
   template <typename Sink>
-  friend void AbslStringify(Sink& sink, const GatherAndCheckStats& g) {
-    absl::Format(&sink, "GatherAndCheckStats{}");
+  friend void AbslStringify(Sink& sink, const GatherAndCheckStats&) {
+    sink.Append("GatherAndCheckStats{}");
   }
 };
 
 struct SetFillerSkipSubreleaseShortInterval {
   int64_t duration_ns;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink,
@@ -192,6 +210,8 @@ struct SetFillerSkipSubreleaseShortInterval {
 struct SetFillerSkipSubreleaseLongInterval {
   int64_t duration_ns;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink,
                             const SetFillerSkipSubreleaseLongInterval& s) {
@@ -204,6 +224,8 @@ struct SetFillerSkipSubreleaseLongInterval {
 struct SetReleasePartialAllocPages {
   bool value;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetReleasePartialAllocPages& s) {
     absl::Format(&sink, "SetReleasePartialAllocPages{.value=%v}", s.value);
@@ -212,6 +234,8 @@ struct SetReleasePartialAllocPages {
 
 struct SetHpaaSubrelease {
   bool value;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetHpaaSubrelease& s) {
@@ -222,6 +246,8 @@ struct SetHpaaSubrelease {
 struct SetReleaseSucceeds {
   bool value;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetReleaseSucceeds& s) {
     absl::Format(&sink, "SetReleaseSucceeds{.value=%v}", s.value);
@@ -230,6 +256,8 @@ struct SetReleaseSucceeds {
 
 struct SetHugeRegionAdaptiveRelease {
   bool value;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetHugeRegionAdaptiveRelease& s) {
@@ -240,6 +268,8 @@ struct SetHugeRegionAdaptiveRelease {
 struct SetBackAllocations {
   bool value;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetBackAllocations& s) {
     absl::Format(&sink, "SetBackAllocations{.value=%v}", s.value);
@@ -249,6 +279,8 @@ struct SetBackAllocations {
 struct SetBackSizeThresholdBytes {
   int32_t value;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetBackSizeThresholdBytes& s) {
     absl::Format(&sink, "SetBackSizeThresholdBytes{.value=%v}", s.value);
@@ -256,14 +288,18 @@ struct SetBackSizeThresholdBytes {
 };
 
 struct ResetSubreleaseIntervals {
+  void Perform(State& state) const;
+
   template <typename Sink>
-  friend void AbslStringify(Sink& sink, const ResetSubreleaseIntervals& r) {
-    absl::Format(&sink, "ResetSubreleaseIntervals{}");
+  friend void AbslStringify(Sink& sink, const ResetSubreleaseIntervals&) {
+    sink.Append("ResetSubreleaseIntervals{}");
   }
 };
 
 struct SetEnableUnfilteredCollapse {
   bool value;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetEnableUnfilteredCollapse& s) {
@@ -274,6 +310,8 @@ struct SetEnableUnfilteredCollapse {
 struct SetReleaseMaxColdPages {
   bool value;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetReleaseMaxColdPages& s) {
     absl::Format(&sink, "SetReleaseMaxColdPages{.value=%v}", s.value);
@@ -283,6 +321,8 @@ struct SetReleaseMaxColdPages {
 struct SetEnableReleaseStalePages {
   bool value;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetEnableReleaseStalePages& s) {
     absl::Format(&sink, "SetEnableReleaseStalePages{.value=%v}", s.value);
@@ -291,6 +331,8 @@ struct SetEnableReleaseStalePages {
 
 struct SetMadvNoHugepageHugeRegions {
   bool value;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetMadvNoHugepageHugeRegions& s) {
@@ -305,6 +347,8 @@ void AbslStringify(Sink& sink, const Instruction& i);
 
 struct ReentrantSubprogram {
   std::vector<Instruction> subprogram;
+
+  void Perform(State& state) const;
 };
 
 using ParamOp = std::variant<
@@ -322,6 +366,8 @@ void AbslStringify(Sink& sink, const ParamOp& p) {
 
 struct ChangeParam {
   ParamOp op;
+
+  void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const ChangeParam& c) {
@@ -342,6 +388,8 @@ void AbslStringify(Sink& sink, const InstructionVariant& v) {
 struct Instruction {
   InstructionVariant instr;
 
+  void Perform(State& state) const;
+
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Instruction& i) {
     absl::Format(&sink, "Instruction{.instr=%v}", i.instr);
@@ -357,6 +405,297 @@ void AbslStringify(Sink& sink, const ReentrantSubprogram& r) {
                              }));
 }
 
+struct SpanInfo {
+  Span* span;
+  size_t objects_per_span;
+};
+
+struct State {
+  explicit State(HugePageAwareAllocatorOptions options) : allocator(options) {
+    allocs.reserve(100000);
+    reentrant_stack.reserve(1000);
+    output.resize(1 << 20);
+
+    allocator.forwarder().release_callback_ = [this]() {
+      if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
+        // This permits a slight degree of nondeterminism when linked against
+        // TCMalloc for the real memory allocator, as a background thread could
+        // also be holding the lock.  Nevertheless, HPAA doesn't make it clear
+        // when we are releasing with/without the pageheap_lock.
+        //
+        // TODO(b/73749855): When all release paths unconditionally release the
+        // lock, remove this check and take the lock for an instant to ensure it
+        // can be taken.
+        return;
+      }
+
+      if (reentrant_stack.empty()) {
+        return;
+      }
+
+      if (depth >= 5) {
+        return;
+      }
+
+      absl::Span<const Instruction> ops = reentrant_stack.back();
+      reentrant_stack.pop_back();
+
+      depth++;
+      RunInstructions(ops);
+      depth--;
+    };
+  }
+
+  void RunInstructions(absl::Span<const Instruction> instrs) {
+    for (const auto& instruction_wrapper : instrs) {
+      instruction_wrapper.Perform(*this);
+    }
+  }
+
+  HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator;
+  std::vector<SpanInfo> allocs;
+  Length allocated;
+  PageReleaseStats expected_stats;
+  std::vector<absl::Span<const Instruction>> reentrant_stack;
+  int depth = 0;
+  std::string output;
+};
+
+void ChangeParam::Perform(State& state) const {
+  std::visit([&](const auto& o) { o.Perform(state); }, op);
+}
+
+void Instruction::Perform(State& state) const {
+  std::visit([&](const auto& i) { i.Perform(state); }, instr);
+}
+
+void Alloc::Perform(State& state) const {
+  Length len(std::clamp<size_t>(length, 1, kPagesPerHugePage.raw_num() - 1));
+  size_t num_obj = std::max<size_t>(num_objects, 1);
+  size_t object_size = len.in_bytes() / num_obj;
+  const Length align(
+      use_aligned
+          ? std::clamp<size_t>(alignment, 1, kPagesPerHugePage.raw_num() - 1)
+          : 1);
+  AccessDensityPrediction density = dense ? AccessDensityPrediction::kDense
+                                          : AccessDensityPrediction::kSparse;
+
+  if (object_size > kMaxSize || align > Length(1)) {
+    // Truncate to a single object.
+    num_obj = 1;
+    // TODO(b/283843066): Revisit this once we have fluid partitioning.
+    density = AccessDensityPrediction::kSparse;
+  } else if (!SizeMap::IsValidSizeClass(object_size, len, kMinObjectsToMove)) {
+    // This is an invalid size class, so skip it.
+    return;
+  } else if (density == AccessDensityPrediction::kDense) {
+    len = Length(1);
+  }
+
+  // Allocation is too big for filler if we try to allocate >
+  // kPagesPerHugePage / 2 run of pages. The allocations may go to HugeRegion
+  // and that might lead to donations with kSparse density.
+  if (len > kPagesPerHugePage / 2) {
+    density = AccessDensityPrediction::kSparse;
+  }
+
+  SpanAllocInfo alloc_info = {.objects_per_span = num_obj, .density = density};
+  TC_CHECK(density == AccessDensityPrediction::kSparse || len == Length(1));
+  Span* s = use_aligned ? state.allocator.NewAligned(len, align, alloc_info)
+                        : state.allocator.New(len, alloc_info);
+  TC_CHECK_NE(s, nullptr);
+  TC_CHECK_GE(s->num_pages().raw_num(), len.raw_num());
+
+  state.allocs.push_back(SpanInfo{s, num_obj});
+  state.allocated += s->num_pages();
+}
+
+void Dealloc::Perform(State& state) const {
+  if (state.allocs.empty()) {
+    return;
+  }
+
+  const size_t pos = index % state.allocs.size();
+  std::swap(state.allocs[pos], state.allocs.back());
+
+  SpanInfo span_info = state.allocs.back();
+  state.allocs.pop_back();
+  state.allocated -= span_info.span->num_pages();
+
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  PageHeapSpinLockHolder l;
+  state.allocator.Delete(span_info.span,
+                         {.objects_per_span = span_info.objects_per_span,
+                          .density = AccessDensityPrediction::kSparse});
+#else
+  PageAllocatorInterface::AllocationState a{
+      Range(span_info.span->first_page(), span_info.span->num_pages()),
+      span_info.span->donated(),
+  };
+  state.allocator.forwarder().DeleteSpan(span_info.span);
+  PageHeapSpinLockHolder l;
+  state.allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
+                             .density = AccessDensityPrediction::kSparse});
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+}
+
+void ReleasePages::Perform(State& state) const {
+  const Length desired_len(desired);
+  const PageReleaseReason reason =
+      release_memory_to_system ? PageReleaseReason::kReleaseMemoryToSystem
+                               : PageReleaseReason::kProcessBackgroundActions;
+  Length released;
+  PageReleaseStats actual_stats;
+  {
+    PageHeapSpinLockHolder l;
+    released = state.allocator.ReleaseAtLeastNPages(desired_len, reason);
+    actual_stats = state.allocator.GetReleaseStats();
+  }
+
+  state.expected_stats.total += released;
+  if (reason == PageReleaseReason::kReleaseMemoryToSystem) {
+    state.expected_stats.release_memory_to_system += released;
+  } else {
+    state.expected_stats.process_background_actions += released;
+  }
+
+  TC_CHECK_EQ(actual_stats, state.expected_stats);
+}
+
+void ReleasePagesBreakingHugepages::Perform(State& state) const {
+  const Length desired_len(desired);
+  const PageReleaseReason reason = soft_limit_exceeded
+                                       ? PageReleaseReason::kSoftLimitExceeded
+                                       : PageReleaseReason::kHardLimitExceeded;
+  Length released;
+  size_t releasable_bytes;
+  PageReleaseStats actual_stats;
+  // If we might run other operations when we simulate the lock being
+  // released, we might not get the results we expected.
+  const bool reentrant_was_pending = !state.reentrant_stack.empty();
+  {
+    PageHeapSpinLockHolder l;
+    releasable_bytes = state.allocator.FillerStats().free_bytes +
+                       state.allocator.RegionsFreeBacked().in_bytes() +
+                       state.allocator.CacheStats().free_bytes;
+    released = state.allocator.ReleaseAtLeastNPagesBreakingHugepages(
+        desired_len, reason);
+    actual_stats = state.allocator.GetReleaseStats();
+  }
+
+  if (state.allocator.forwarder().release_succeeds() &&
+      !reentrant_was_pending) {
+    const size_t min_released =
+        std::min(desired_len.in_bytes(), releasable_bytes);
+    EXPECT_GE(released.in_bytes(), min_released);
+  } else {
+    // TODO(b/271282540):  This is not strict equality due to
+    // HugePageFiller's unmapping_unaccounted_ state.  Narrow this bound.
+    TC_CHECK_GE(released.in_bytes(), 0);
+  }
+
+  state.expected_stats.total += released;
+  if (reason == PageReleaseReason::kSoftLimitExceeded) {
+    state.expected_stats.soft_limit_exceeded += released;
+  } else {
+    state.expected_stats.hard_limit_exceeded += released;
+  }
+
+  TC_CHECK_EQ(actual_stats, state.expected_stats);
+}
+
+void GatherStatsPbtxt::Perform(State& state) const {
+  Printer p(&state.output[0], state.output.size());
+  PageFlags pageflags;
+  {
+    PbtxtRegion region(p, kTop);
+    state.allocator.PrintInPbtxt(region, pageflags);
+  }
+  CHECK_LE(p.SpaceRequired(), state.output.size());
+}
+
+void PrintStats::Perform(State& state) const {
+  PageFlags pageflags;
+  Printer p(&state.output[0], state.output.size());
+  state.allocator.Print(p, everything, pageflags);
+}
+
+void GatherAndCheckStats::Perform(State& state) const {
+  BackingStats stats;
+  {
+    PageHeapSpinLockHolder l;
+    stats = state.allocator.stats();
+  }
+  uint64_t used_bytes =
+      stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
+  TC_CHECK_EQ(used_bytes,
+              state.allocated.in_bytes() +
+                  state.allocator.forwarder().pending_release_.in_bytes());
+}
+
+void ResetSubreleaseIntervals::Perform(State& state) const {
+  auto& forwarder = state.allocator.forwarder();
+  forwarder.set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
+  forwarder.set_filler_skip_subrelease_long_interval(absl::ZeroDuration());
+}
+
+void SetFillerSkipSubreleaseShortInterval::Perform(State& state) const {
+  state.allocator.forwarder().set_filler_skip_subrelease_short_interval(
+      absl::Nanoseconds(duration_ns));
+}
+
+void SetFillerSkipSubreleaseLongInterval::Perform(State& state) const {
+  state.allocator.forwarder().set_filler_skip_subrelease_long_interval(
+      absl::Nanoseconds(duration_ns));
+}
+
+void SetReleasePartialAllocPages::Perform(State& state) const {
+  state.allocator.forwarder().set_release_partial_alloc_pages(value);
+}
+
+void SetHpaaSubrelease::Perform(State& state) const {
+  state.allocator.forwarder().set_hpaa_subrelease(value);
+}
+
+void SetReleaseSucceeds::Perform(State& state) const {
+  state.allocator.forwarder().set_release_succeeds(value);
+}
+
+void SetHugeRegionAdaptiveRelease::Perform(State& state) const {
+  state.allocator.forwarder().set_huge_region_adaptive_release(value);
+}
+
+void SetBackAllocations::Perform(State& state) const {
+  state.allocator.forwarder().SetBackAllocations(value);
+}
+
+void SetBackSizeThresholdBytes::Perform(State& state) const {
+  state.allocator.forwarder().SetBackSizeThresholdBytes(value);
+}
+
+void ReentrantSubprogram::Perform(State& state) const {
+  state.reentrant_stack.push_back(subprogram);
+}
+
+void SetEnableUnfilteredCollapse::Perform(State& state) const {
+  state.allocator.forwarder().set_enable_unfiltered_collapse(value);
+}
+
+void SetReleaseMaxColdPages::Perform(State& state) const {
+  state.allocator.forwarder().set_release_max_cold_pages(value);
+}
+
+void SetEnableReleaseStalePages::Perform(State& state) const {
+  state.allocator.forwarder().set_release_stale_pages(
+      value ? ReleaseStalePages::kEnabled : ReleaseStalePages::kDisabled);
+}
+
+void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
+  state.allocator.forwarder().set_madvise_cold_regions_nohugepage(
+      value ? MadviseRegionsNoHugepage::kEnabled
+            : MadviseRegionsNoHugepage::kDisabled);
+}
+
 void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
               const std::vector<Instruction>& instructions) {
   HugePageAwareAllocatorOptions options =
@@ -366,330 +705,41 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
     options.tag = MemoryTag::kNormalP0;
   }
 
-  HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator(options);
-  auto& forwarder = allocator.forwarder();
-
-  struct SpanInfo {
-    Span* span;
-    size_t objects_per_span;
-  };
-  std::vector<SpanInfo> allocs;
-  allocs.reserve(100000);
-  Length allocated;
-  PageReleaseStats expected_stats;
-
-  std::vector<std::vector<Instruction>> reentrant_stack;
-  reentrant_stack.reserve(1000);
-  int depth = 0;
-
-  std::string output;
-  output.resize(1 << 20);
-
-  auto run_instructions = [&](const std::vector<Instruction>& instrs) {
-    for (const auto& instruction_wrapper : instrs) {
-      std::visit(
-          [&](auto&& arg) {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, Alloc>) {
-              Length length(std::clamp<size_t>(
-                  arg.length, 1, kPagesPerHugePage.raw_num() - 1));
-              size_t num_objects = std::max<size_t>(arg.num_objects, 1);
-              size_t object_size = length.in_bytes() / num_objects;
-              const bool use_aligned = arg.use_aligned;
-              const Length align(
-                  use_aligned
-                      ? std::clamp<size_t>(arg.alignment, 1,
-                                           kPagesPerHugePage.raw_num() - 1)
-                      : 1);
-              AccessDensityPrediction density =
-                  arg.dense ? AccessDensityPrediction::kDense
-                            : AccessDensityPrediction::kSparse;
-
-              if (object_size > kMaxSize || align > Length(1)) {
-                // Truncate to a single object.
-                num_objects = 1;
-                // TODO(b/283843066): Revisit this once we have fluid
-                // partitioning.
-                density = AccessDensityPrediction::kSparse;
-              } else if (!SizeMap::IsValidSizeClass(object_size, length,
-                                                    kMinObjectsToMove)) {
-                // This is an invalid size class, so skip it.
-                return;
-              } else if (density == AccessDensityPrediction::kDense) {
-                length = Length(1);
-              }
-
-              // Allocation is too big for filler if we try to allocate >
-              // kPagesPerHugePage / 2 run of pages. The allocations may go to
-              // HugeRegion and that might lead to donations with kSparse
-              // density.
-              if (length > kPagesPerHugePage / 2) {
-                density = AccessDensityPrediction::kSparse;
-              }
-
-              Span* s;
-              SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
-                                          .density = density};
-              TC_CHECK(density == AccessDensityPrediction::kSparse ||
-                       length == Length(1));
-              if (use_aligned) {
-                s = allocator.NewAligned(length, align, alloc_info);
-              } else {
-                s = allocator.New(length, alloc_info);
-              }
-              TC_CHECK_NE(s, nullptr);
-              TC_CHECK_GE(s->num_pages().raw_num(), length.raw_num());
-
-              allocs.push_back(SpanInfo{s, num_objects});
-              allocated += s->num_pages();
-            } else if constexpr (std::is_same_v<T, Dealloc>) {
-              if (allocs.empty()) return;
-
-              const size_t pos = arg.index % allocs.size();
-              std::swap(allocs[pos], allocs[allocs.size() - 1]);
-
-              SpanInfo span_info = allocs[allocs.size() - 1];
-              allocs.resize(allocs.size() - 1);
-              allocated -= span_info.span->num_pages();
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-              PageHeapSpinLockHolder l;
-              allocator.Delete(span_info.span,
-                               {.objects_per_span = span_info.objects_per_span,
-                                .density = AccessDensityPrediction::kSparse});
-#else
-              PageAllocatorInterface::AllocationState a{
-                  Range(span_info.span->first_page(),
-                        span_info.span->num_pages()),
-                  span_info.span->donated(),
-              };
-              allocator.forwarder().DeleteSpan(span_info.span);
-              PageHeapSpinLockHolder l;
-              allocator.Delete(a,
-                               {.objects_per_span = span_info.objects_per_span,
-                                .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-            } else if constexpr (std::is_same_v<T, ReleasePages>) {
-              Length desired(arg.desired);
-              const PageReleaseReason reason =
-                  arg.release_memory_to_system
-                      ? PageReleaseReason::kReleaseMemoryToSystem
-                      : PageReleaseReason::kProcessBackgroundActions;
-              Length released;
-              PageReleaseStats actual_stats;
-              {
-                PageHeapSpinLockHolder l;
-                released = allocator.ReleaseAtLeastNPages(desired, reason);
-                actual_stats = allocator.GetReleaseStats();
-              }
-
-              expected_stats.total += released;
-              if (reason == PageReleaseReason::kReleaseMemoryToSystem) {
-                expected_stats.release_memory_to_system += released;
-              } else {
-                expected_stats.process_background_actions += released;
-              }
-
-              TC_CHECK_EQ(actual_stats, expected_stats);
-            } else if constexpr (std::is_same_v<
-                                     T, ReleasePagesBreakingHugepages>) {
-              Length desired(arg.desired);
-              const PageReleaseReason reason =
-                  arg.soft_limit_exceeded
-                      ? PageReleaseReason::kSoftLimitExceeded
-                      : PageReleaseReason::kHardLimitExceeded;
-              Length released;
-              size_t releasable_bytes;
-              PageReleaseStats actual_stats;
-              // If we might run other operations when we simulate the lock
-              // being released, we might not get the results we expected.
-              const bool reentrant_was_pending = !reentrant_stack.empty();
-              {
-                PageHeapSpinLockHolder l;
-                releasable_bytes = allocator.FillerStats().free_bytes +
-                                   allocator.RegionsFreeBacked().in_bytes() +
-                                   allocator.CacheStats().free_bytes;
-                released = allocator.ReleaseAtLeastNPagesBreakingHugepages(
-                    desired, reason);
-                actual_stats = allocator.GetReleaseStats();
-              }
-
-              if (forwarder.release_succeeds() && !reentrant_was_pending) {
-                const size_t min_released =
-                    std::min(desired.in_bytes(), releasable_bytes);
-                EXPECT_GE(released.in_bytes(), min_released);
-              } else {
-                // TODO(b/271282540):  This is not strict equality due to
-                // HugePageFiller's unmapping_unaccounted_ state.  Narrow this
-                // bound.
-                TC_CHECK_GE(released.in_bytes(), 0);
-              }
-
-              expected_stats.total += released;
-              if (reason == PageReleaseReason::kSoftLimitExceeded) {
-                expected_stats.soft_limit_exceeded += released;
-              } else {
-                expected_stats.hard_limit_exceeded += released;
-              }
-
-              TC_CHECK_EQ(actual_stats, expected_stats);
-            } else if constexpr (std::is_same_v<T, GatherStatsPbtxt>) {
-              Printer p(&output[0], output.size());
-              PageFlags pageflags;
-              {
-                PbtxtRegion region(p, kTop);
-                allocator.PrintInPbtxt(region, pageflags);
-              }
-              CHECK_LE(p.SpaceRequired(), output.size());
-            } else if constexpr (std::is_same_v<T, PrintStats>) {
-              PageFlags pageflags;
-              Printer p(&output[0], output.size());
-              allocator.Print(p, arg.everything, pageflags);
-            } else if constexpr (std::is_same_v<T, GatherAndCheckStats>) {
-              BackingStats stats;
-              {
-                PageHeapSpinLockHolder l;
-                stats = allocator.stats();
-              }
-              uint64_t used_bytes =
-                  stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
-              TC_CHECK_EQ(
-                  used_bytes,
-                  allocated.in_bytes() + forwarder.pending_release_.in_bytes());
-            } else if constexpr (std::is_same_v<T, ChangeParam>) {
-              std::visit(
-                  [&](auto&& param_arg) {
-                    using P = std::decay_t<decltype(param_arg)>;
-                    if constexpr (std::is_same_v<P, ResetSubreleaseIntervals>) {
-                      forwarder.set_filler_skip_subrelease_short_interval(
-                          absl::ZeroDuration());
-                      forwarder.set_filler_skip_subrelease_long_interval(
-                          absl::ZeroDuration());
-                    } else if constexpr (
-                        std::is_same_v<P,
-                                       SetFillerSkipSubreleaseShortInterval>) {
-                      forwarder.set_filler_skip_subrelease_short_interval(
-                          absl::Nanoseconds(param_arg.duration_ns));
-                    } else if constexpr (
-                        std::is_same_v<P,
-                                       SetFillerSkipSubreleaseLongInterval>) {
-                      forwarder.set_filler_skip_subrelease_long_interval(
-                          absl::Nanoseconds(param_arg.duration_ns));
-                    } else if constexpr (std::is_same_v<
-                                             P, SetReleasePartialAllocPages>) {
-                      forwarder.set_release_partial_alloc_pages(
-                          param_arg.value);
-                    } else if constexpr (std::is_same_v<P, SetHpaaSubrelease>) {
-                      forwarder.set_hpaa_subrelease(param_arg.value);
-                    } else if constexpr (std::is_same_v<P,
-                                                        SetReleaseSucceeds>) {
-                      forwarder.set_release_succeeds(param_arg.value);
-                    } else if constexpr (std::is_same_v<
-                                             P, SetHugeRegionAdaptiveRelease>) {
-                      forwarder.set_huge_region_adaptive_release(
-                          param_arg.value);
-
-                    } else if constexpr (std::is_same_v<P,
-                                                        SetBackAllocations>) {
-                      forwarder.SetBackAllocations(param_arg.value);
-                    } else if constexpr (std::is_same_v<
-                                             P, SetBackSizeThresholdBytes>) {
-                      forwarder.SetBackSizeThresholdBytes(param_arg.value);
-                    } else if constexpr (std::is_same_v<P,
-                                                        ReentrantSubprogram>) {
-                      reentrant_stack.push_back(param_arg.subprogram);
-                    } else if constexpr (std::is_same_v<
-                                             P, SetEnableUnfilteredCollapse>) {
-                      forwarder.set_enable_unfiltered_collapse(param_arg.value);
-                    } else if constexpr (std::is_same_v<
-                                             P, SetReleaseMaxColdPages>) {
-                      forwarder.set_release_max_cold_pages(param_arg.value);
-                    } else if constexpr (std::is_same_v<
-                                             P, SetEnableReleaseStalePages>) {
-                      forwarder.set_release_stale_pages(
-                          param_arg.value ? ReleaseStalePages::kEnabled
-                                          : ReleaseStalePages::kDisabled);
-                    } else if constexpr (std::is_same_v<
-                                             P, SetMadvNoHugepageHugeRegions>) {
-                      forwarder.set_madvise_cold_regions_nohugepage(
-                          param_arg.value
-                              ? MadviseRegionsNoHugepage::kEnabled
-                              : MadviseRegionsNoHugepage::kDisabled);
-                    }
-                  },
-                  arg.op);
-            }
-          },
-          instruction_wrapper.instr);
-    }
-  };
-
-  forwarder.release_callback_ = [&]() {
-    if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
-      // This permits a slight degree of nondeterminism when linked against
-      // TCMalloc for the real memory allocator, as a background thread could
-      // also be holding the lock.  Nevertheless, HPAA doesn't make it clear
-      // when we are releasing with/without the pageheap_lock.
-      //
-      // TODO(b/73749855): When all release paths unconditionally release the
-      // lock, remove this check and take the lock for an instant to ensure it
-      // can be taken.
-      return;
-    }
-
-    if (reentrant_stack.empty()) {
-      return;
-    }
-
-    if (depth >= 5) {
-      return;
-    }
-
-    // std::move avoids a new allocation, but we will still delete the memory
-    // afterwards.  AllocationGuard currently only looks for calls to new and
-    // not delete, though.
-    auto ops = std::move(reentrant_stack.back());
-    reentrant_stack.pop_back();
-
-    depth++;
-    run_instructions(ops);
-    depth--;
-  };
-
-  run_instructions(instructions);
+  State state(options);
+  state.RunInstructions(instructions);
 
   // Stop recursing, since allocator.Delete below might cause us to "release"
   // more pages to the system.
-  reentrant_stack.clear();
+  state.reentrant_stack.clear();
 
   // Clean up.
   const PageReleaseStats final_stats = [&] {
-    for (auto span_info : allocs) {
+    for (auto span_info : state.allocs) {
       Span* span = span_info.span;
-      allocated -= span->num_pages();
+      state.allocated -= span->num_pages();
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       PageHeapSpinLockHolder l;
-      allocator.Delete(span_info.span,
-                       {.objects_per_span = span_info.objects_per_span,
-                        .density = AccessDensityPrediction::kSparse});
+      state.allocator.Delete(span_info.span,
+                             {.objects_per_span = span_info.objects_per_span,
+                              .density = AccessDensityPrediction::kSparse});
 #else
       PageAllocatorInterface::AllocationState a{
           Range(span_info.span->first_page(), span_info.span->num_pages()),
           span_info.span->donated(),
       };
-      allocator.forwarder().DeleteSpan(span_info.span);
+      state.allocator.forwarder().DeleteSpan(span_info.span);
       PageHeapSpinLockHolder l;
-      allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
-                           .density = AccessDensityPrediction::kSparse});
+      state.allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
+                                 .density = AccessDensityPrediction::kSparse});
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     }
 
     PageHeapSpinLockHolder l;
-    return allocator.GetReleaseStats();
+    return state.allocator.GetReleaseStats();
   }();
 
-  TC_CHECK_EQ(allocated.in_bytes(), 0);
-  TC_CHECK_EQ(final_stats, expected_stats);
+  TC_CHECK_EQ(state.allocated.in_bytes(), 0);
+  TC_CHECK_EQ(final_stats, state.expected_stats);
 }
 
 auto AnyDuration() { return fuzztest::NonNegative<int64_t>(); }
@@ -946,6 +996,11 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
   EXPECT_EQ(absl::StrCat(r),
             "ReentrantSubprogram{.subprogram={Instruction{.instr=Dealloc{."
             "index=5}}}}");
+
+  EXPECT_EQ(absl::StrCat(GatherStatsPbtxt{}), "GatherStatsPbtxt{}");
+  EXPECT_EQ(absl::StrCat(GatherAndCheckStats{}), "GatherAndCheckStats{}");
+  EXPECT_EQ(absl::StrCat(ResetSubreleaseIntervals{}),
+            "ResetSubreleaseIntervals{}");
 }
 
 }  // namespace
