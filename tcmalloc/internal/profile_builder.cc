@@ -684,19 +684,33 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
   // Common intern string ids which are going to be used for each sample.
   const int count_id = builder->InternString("count");
   const int nanoseconds_id = builder->InternString("nanoseconds");
+  const int cpu_raw_id = builder->InternString("cpu_id");
+  const int active_cpu_id = builder->InternString("active CPU");
+  const int vcpu_raw_id = builder->InternString("vcpu_id");
+  const int active_vcpu_id = builder->InternString("active vCPU");
+  const int l3_raw_id = builder->InternString("l3_id");
+  const int active_l3_id = builder->InternString("active L3");
+  const int numa_raw_id = builder->InternString("numa_id");
+  const int active_numa_id = builder->InternString("active NUMA");
+  const int thread_raw_id = builder->InternString("thread_id");
+  const int active_thread_id = builder->InternString("active thread");
+
+  // Lifetime profiling.
   const int avg_lifetime_id = builder->InternString("avg_lifetime");
   const int stddev_lifetime_id = builder->InternString("stddev_lifetime");
   const int min_lifetime_id = builder->InternString("min_lifetime");
   const int max_lifetime_id = builder->InternString("max_lifetime");
-  const int active_cpu_id = builder->InternString("active CPU");
-  const int active_vcpu_id = builder->InternString("active vCPU");
-  const int active_l3_id = builder->InternString("active L3");
-  const int active_numa_id = builder->InternString("active NUMA");
   const int same_id = builder->InternString("same");
   const int different_id = builder->InternString("different");
-  const int active_thread_id = builder->InternString("active thread");
-  const int callstack_pair_id = builder->InternString("callstack-pair-id");
   const int none_id = builder->InternString("none");
+  const int callstack_pair_id = builder->InternString("callstack-pair-id");
+
+  // Event tracing.
+  const int bytes_id = builder->InternString("bytes");
+  const int alloc_handle_id = builder->InternString("alloc_handle");
+  const int allocation_time_id = builder->InternString("allocation_time");
+  const int deallocation_time_id = builder->InternString("deallocation_time");
+  const int requested_size_id = builder->InternString("requested_size");
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     perftools::profiles::Sample& sample = *converted.add_sample();
@@ -714,6 +728,13 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
     auto add_positive_label = [&](int key, int unit, size_t value) {
       if (value <= 0) return;
       add_label(key, unit, value);
+    };
+
+    auto add_optional_int_label = [&](int key, int unit,
+                                      std::optional<int> opt_value) {
+      if (opt_value.has_value()) {
+        add_label(key, unit, static_cast<size_t>(opt_value.value()));
+      }
     };
 
     auto add_optional_string_label =
@@ -744,24 +765,44 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
     add_positive_label(max_lifetime_id, nanoseconds_id,
                        absl::ToInt64Nanoseconds(entry.max_lifetime));
 
+    add_optional_int_label(cpu_raw_id, 0, entry.cpu_id);
     add_optional_string_label(active_cpu_id,
                               entry.allocator_deallocator_physical_cpu_matched,
                               same_id, different_id);
+    add_optional_int_label(vcpu_raw_id, 0, entry.vcpu_id);
     add_optional_string_label(active_vcpu_id,
                               entry.allocator_deallocator_virtual_cpu_matched,
                               same_id, different_id);
+    add_optional_int_label(l3_raw_id, 0, entry.l3_id);
     add_optional_string_label(active_l3_id,
                               entry.allocator_deallocator_l3_matched, same_id,
                               different_id);
+    add_optional_int_label(numa_raw_id, 0, entry.numa_id);
     add_optional_string_label(active_numa_id,
                               entry.allocator_deallocator_numa_matched, same_id,
                               different_id);
+    add_optional_int_label(thread_raw_id, 0, entry.thread_id);
     add_optional_string_label(active_thread_id,
                               entry.allocator_deallocator_thread_matched,
                               same_id, different_id);
 
     int64_t count = abs(entry.count);
     int64_t weight = entry.sum;
+
+    if (auto handle = static_cast<uint64_t>(entry.alloc_handle); handle != 0) {
+      add_label(alloc_handle_id, count_id, handle);
+    }
+    // Set during event tracing, unset (epoch) during lifetime profiling.
+    if (entry.allocation_time > absl::UnixEpoch()) {
+      if (entry.count < 0) {  // Deallocation event
+        add_label(deallocation_time_id, nanoseconds_id,
+                  absl::ToUnixNanos(entry.allocation_time));
+      } else {  // Allocation event or censored allocation
+        add_label(allocation_time_id, nanoseconds_id,
+                  absl::ToUnixNanos(entry.allocation_time));
+        add_label(requested_size_id, bytes_id, entry.requested_size);
+      }
+    }
 
     // Handle censored allocations first since we distinguish
     // the samples based on the is_censored flag.
@@ -815,7 +856,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   ProfileBuilder builder;
   builder.AddCurrentMappings();
 
-  if (profile.Type() == ProfileType::kLifetimes) {
+  if (profile.Type() == ProfileType::kLifetimes ||
+      profile.Type() == ProfileType::kEventTrace) {
     absl::Status error = MakeLifetimeProfileProto(profile, &builder);
     if (!error.ok()) {
       return error;
