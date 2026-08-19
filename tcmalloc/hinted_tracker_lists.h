@@ -145,9 +145,15 @@ class HintedTrackerLists {
   }
 
  private:
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   TrackerList lists_[N];
   size_t size_;
   Bitmap<N> nonempty_;
+#else
+  size_t size_;
+  Bitmap<N> nonempty_;
+  TrackerList lists_[N];
+#endif
 };
 
 }  // namespace tcmalloc_internal
