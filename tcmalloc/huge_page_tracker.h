@@ -212,9 +212,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   Length MarkSubreleased(PageBitmap unbacked)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  Bitmap<kPagesPerHugePage.raw_num()> released_by_page() const {
-    return released_by_page_;
-  }
+  PageBitmap released_by_page() const { return released_by_page_; }
 
   // Attempts to collapse memory tracked by this tracker. Returns true if the
   // collapse was successful.
@@ -366,7 +364,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   // kPagesPerHugePage-1 parallel subreleases in-flight.
   //
   // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
-  Bitmap<kPagesPerHugePage.raw_num()> released_by_page_;
+  PageBitmap released_by_page_;
 
   static_assert(kPagesPerHugePage.raw_num() <
                     std::numeric_limits<uint16_t>::max(),
@@ -432,7 +430,7 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   }
   TC_ASSERT_LE(kHardwarePagesInHugePage, kMaxResidencyBits);
 
-  const Bitmap<kPagesPerHugePage.raw_num()> free = free_.bits();
+  const PageBitmap free = free_.bits();
 
   TC_ASSERT_EQ(kHardwarePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
   const int shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
