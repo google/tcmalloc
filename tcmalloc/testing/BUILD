@@ -833,7 +833,6 @@ create_tcmalloc_testsuite(
         "//tcmalloc:malloc_extension",
         "//tcmalloc:profile_marshaler",
         "//tcmalloc/internal:linked_list",
-        "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",

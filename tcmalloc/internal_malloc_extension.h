@@ -73,8 +73,6 @@ ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::AllocationProfilingTokenBase*
 MallocExtension_Internal_StartAllocationProfiling();
 ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::AllocationProfilingTokenBase*
 MallocExtension_Internal_StartLifetimeProfiling();
-ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::AllocationProfilingTokenBase*
-MallocExtension_Internal_StartEventTracing();
 
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_ActivateGuardedSampling();
 ABSL_ATTRIBUTE_WEAK tcmalloc::MallocExtension::Ownership

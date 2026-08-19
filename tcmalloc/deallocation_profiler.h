@@ -17,8 +17,8 @@
 
 #include <memory>
 
+#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/nullability.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -46,16 +46,10 @@ class DeallocationProfilerList {
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
 };
 
-// Lifetime profiling is essentially a time-aggregated view of an event trace,
-// so we share the majority of the implementation and switch internally in the
-// cases where the implementations must diverge.
-enum class Mode { kLifetimes, kEventTrace };
-
 class DeallocationSample final
     : public tcmalloc_internal::AllocationProfilingTokenBase {
  public:
-  explicit DeallocationSample(DeallocationProfilerList* absl_nonnull list,
-                              Mode mode);
+  explicit DeallocationSample(DeallocationProfilerList* absl_nonnull list);
   // We define the dtor to ensure it is placed in the desired text section.
   ~DeallocationSample() override;
 

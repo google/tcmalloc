@@ -305,20 +305,6 @@ MallocExtension::StartLifetimeProfiling() {
 #endif
 }
 
-MallocExtension::AllocationProfilingToken MallocExtension::StartEventTracing() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&MallocExtension_Internal_StartEventTracing == nullptr) {
-    return {};
-  }
-
-  return tcmalloc_internal::AllocationProfilingTokenAccessor::MakeToken(
-      std::unique_ptr<tcmalloc_internal::AllocationProfilingTokenBase>(
-          MallocExtension_Internal_StartEventTracing()));
-#else
-  return {};
-#endif
-}
-
 void MallocExtension::MarkThreadIdle() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_MarkThreadIdle == nullptr) {

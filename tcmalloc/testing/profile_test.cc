@@ -44,7 +44,6 @@
 #include "google/protobuf/io/gzip_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "tcmalloc/internal/linked_list.h"
-#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/profile_marshaler.h"
 #include "tcmalloc/testing/testutil.h"
@@ -510,125 +509,6 @@ TEST(ProfileTest, HeapProfile) {
     const int mapping_id = location.mapping_id();
     ASSERT_TRUE(mappings.contains(mapping_id)) << mapping_id;
   }
-}
-
-class ScopedEventTraceMemoryLimit {
- public:
-  explicit ScopedEventTraceMemoryLimit(int64_t limit)
-      : previous_(TCMalloc_Internal_GetEventTraceMemoryLimit()) {
-    TCMalloc_Internal_SetEventTraceMemoryLimit(limit);
-  }
-
-  ~ScopedEventTraceMemoryLimit() {
-    TCMalloc_Internal_SetEventTraceMemoryLimit(previous_);
-  }
-
- private:
-  int64_t previous_;
-};
-
-TEST(ProfileTest, EventTraceTruncation) {
-#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER || \
-    ABSL_HAVE_MEMORY_SANITIZER || ABSL_HAVE_THREAD_SANITIZER
-  GTEST_SKIP() << "Skipping event trace test under sanitizers.";
-#endif
-
-  // Sample every allocation to make the test deterministic.
-  ScopedProfileSamplingInterval sample_interval(1);
-
-  // Set a small memory limit to force truncation.
-  // Note: A single matched allocation produces 2 records (alloc + dealloc),
-  // each ~600B, requiring at least ~1.3kB to *admit* the first pair.
-  constexpr int64_t kEventTraceMemoryLimit = 2048;
-  constexpr size_t kApproximateDeallocationSampleRecordSize = 600;
-  constexpr int kExpectedSampleCount =
-      kEventTraceMemoryLimit / kApproximateDeallocationSampleRecordSize;
-  ASSERT_GT(kExpectedSampleCount, 0) << "Event tracing requires more headroom.";
-
-  ScopedEventTraceMemoryLimit limit(kEventTraceMemoryLimit);
-
-  constexpr size_t kEarlySize = 1009;
-  constexpr size_t kFillerSize = 2003;
-  constexpr size_t kLateSize = 8009;
-
-  const absl::Time test_start = absl::Now();
-  auto token = MallocExtension::StartEventTracing();
-
-  // Sleep slightly to guarantee a non-zero, measurable duration.
-  absl::SleepFor(absl::Milliseconds(20));
-
-  // Early allocations (should be captured in the trace).
-  void* early_ptr = ::operator new(kEarlySize);
-  ::operator delete(early_ptr);
-
-  // Trigger enough allocations to exceed the memory limit.
-  constexpr int kNumFillerAllocs = 50;
-  for (int i = 0; i < kNumFillerAllocs; ++i) {
-    void* p = ::operator new(kFillerSize);
-    ::operator delete(p);
-  }
-
-  absl::SleepFor(absl::Milliseconds(20));
-
-  // Late allocations (should be truncated / dropped due to memory limit).
-  void* late_ptr = ::operator new(kLateSize);
-  ::operator delete(late_ptr);
-
-  Profile profile = std::move(token).Stop();
-  const absl::Time test_stop = absl::Now();
-
-  EXPECT_EQ(profile.Type(), ProfileType::kEventTrace);
-  EXPECT_GE(profile.Duration(), absl::Milliseconds(40));
-  EXPECT_LE(profile.Duration(), test_stop - test_start + absl::Seconds(1));
-  ASSERT_TRUE(profile.StartTime().has_value());
-  EXPECT_GE(*profile.StartTime(), test_start);
-  EXPECT_LE(*profile.StartTime(), test_stop);
-
-  absl::StatusOr<std::string> encoded_or = Marshal(profile);
-  ASSERT_TRUE(encoded_or.ok());
-
-  // NOLINTNEXTLINE - clang-tidy can't associate ASSERT_TRUE as checked access.
-  const absl::string_view encoded = *encoded_or;
-  google::protobuf::io::ArrayInputStream stream(encoded.data(), encoded.size());
-  google::protobuf::io::GzipInputStream gzip_stream(&stream);
-  google::protobuf::io::CodedInputStream coded(&gzip_stream);
-
-  perftools::profiles::Profile converted;
-  ASSERT_TRUE(converted.ParseFromCodedStream(&coded));
-
-  EXPECT_EQ(converted.duration_nanos(),
-            absl::ToInt64Nanoseconds(profile.Duration()));
-  EXPECT_EQ(converted.time_nanos(), absl::ToUnixNanos(*profile.StartTime()));
-
-  std::optional<int> requested_size_id;
-  for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
-    if (converted.string_table(i) == "requested_size") {
-      requested_size_id = i;
-      break;
-    }
-  }
-  EXPECT_TRUE(requested_size_id.has_value());
-
-  int sample_count = 0;
-  bool contains_early = false;
-  bool contains_late = false;
-  for (const auto& sample : converted.sample()) {
-    sample_count++;
-    for (const auto& label : sample.label()) {
-      if (label.key() == requested_size_id) {
-        if (label.num() == kEarlySize) {
-          contains_early = true;
-        } else if (label.num() == kLateSize) {
-          contains_late = true;
-        }
-      }
-    }
-  }
-
-  EXPECT_LE(sample_count, kExpectedSampleCount)
-      << "Profile should be truncated.";
-  EXPECT_TRUE(contains_early);
-  EXPECT_FALSE(contains_late);
 }
 
 }  // namespace

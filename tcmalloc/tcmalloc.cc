@@ -293,14 +293,8 @@ MallocExtension_Internal_StartAllocationProfiling() {
 
 extern "C" tcmalloc_internal::AllocationProfilingTokenBase*
 MallocExtension_Internal_StartLifetimeProfiling() {
-  return new deallocationz::DeallocationSample(&tc_globals.deallocation_samples,
-                                               deallocationz::Mode::kLifetimes);
-}
-
-extern "C" tcmalloc_internal::AllocationProfilingTokenBase*
-MallocExtension_Internal_StartEventTracing() {
   return new deallocationz::DeallocationSample(
-      &tc_globals.deallocation_samples, deallocationz::Mode::kEventTrace);
+      &tc_globals.deallocation_samples);
 }
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {
