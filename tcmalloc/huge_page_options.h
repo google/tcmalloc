@@ -27,10 +27,22 @@ enum class HugePageTreatmentType : uint8_t {
   kCollapse = 1 << 1,
 };
 
-enum class EnableCollapse : bool {
+enum class EnableCollapse : uint8_t {
   kDisabled = false,
   kEnabled = true,
 };
+
+template <typename Sink>
+inline void AbslStringify(Sink& sink, EnableCollapse v) {
+  switch (v) {
+    case EnableCollapse::kDisabled:
+      sink.Append("EnableCollapse::kDisabled");
+      return;
+    case EnableCollapse::kEnabled:
+      sink.Append("EnableCollapse::kEnabled");
+      return;
+  }
+}
 
 enum class EnableUnfilteredCollapse : bool {
   kDisabled = false,

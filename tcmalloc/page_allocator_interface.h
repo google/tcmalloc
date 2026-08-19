@@ -32,7 +32,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-enum class EnableCollapse : bool;
+enum class EnableCollapse : uint8_t;
 
 class PageMap;
 

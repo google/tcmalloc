@@ -34,6 +34,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/logging.h"
@@ -85,6 +86,13 @@ struct FuzzHugePageAwareAllocatorOptions {
 
 class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
  public:
+  AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
+    if (!allocate_succeeds_) {
+      return AddressRange{nullptr, 0};
+    }
+    return FakeStaticForwarder::AllocatePages(bytes, align, tag);
+  }
+
   MemoryModifyStatus ReleasePages(Range r) {
     pending_release_ += r.n;
     release_callback_();
@@ -99,6 +107,7 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     return FakeStaticForwarder::Back(r);
   }
 
+  bool allocate_succeeds_ = true;
   Length pending_release_;
   std::function<void()> release_callback_;
 };
@@ -193,6 +202,27 @@ struct GatherAndCheckStats {
   }
 };
 
+struct GatherSpanStats {
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const GatherSpanStats&) {
+    sink.Append("GatherSpanStats{}");
+  }
+};
+
+struct TreatTrackers {
+  EnableCollapse enable_collapse;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const TreatTrackers& t) {
+    absl::Format(&sink, "TreatTrackers{.enable_collapse=%v}",
+                 t.enable_collapse);
+  }
+};
+
 struct SetFillerSkipSubreleaseShortInterval {
   int64_t duration_ns;
 
@@ -243,6 +273,18 @@ struct SetHpaaSubrelease {
   }
 };
 
+struct SetSubreleaseUnbackedHugepages {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const SetSubreleaseUnbackedHugepages& s) {
+    absl::Format(&sink, "SetSubreleaseUnbackedHugepages{.value=%v}", s.value);
+  }
+};
+
 struct SetReleaseSucceeds {
   bool value;
 
@@ -254,6 +296,17 @@ struct SetReleaseSucceeds {
   }
 };
 
+struct SetCollapseSucceeds {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetCollapseSucceeds& s) {
+    absl::Format(&sink, "SetCollapseSucceeds{.value=%v}", s.value);
+  }
+};
+
 struct SetHugeRegionAdaptiveRelease {
   bool value;
 
@@ -262,6 +315,17 @@ struct SetHugeRegionAdaptiveRelease {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetHugeRegionAdaptiveRelease& s) {
     absl::Format(&sink, "SetHugeRegionAdaptiveRelease{.value=%v}", s.value);
+  }
+};
+
+struct SetAllocateSucceeds {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetAllocateSucceeds& s) {
+    absl::Format(&sink, "SetAllocateSucceeds{.value=%v}", s.value);
   }
 };
 
@@ -354,7 +418,8 @@ struct ReentrantSubprogram {
 using ParamOp = std::variant<
     ResetSubreleaseIntervals, SetFillerSkipSubreleaseShortInterval,
     SetFillerSkipSubreleaseLongInterval, SetReleasePartialAllocPages,
-    SetHpaaSubrelease, SetReleaseSucceeds, SetHugeRegionAdaptiveRelease,
+    SetHpaaSubrelease, SetSubreleaseUnbackedHugepages, SetReleaseSucceeds,
+    SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
     SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions>;
@@ -378,7 +443,7 @@ struct ChangeParam {
 using InstructionVariant =
     std::variant<Alloc, Dealloc, ReleasePages, ReleasePagesBreakingHugepages,
                  GatherStatsPbtxt, PrintStats, GatherAndCheckStats,
-                 ChangeParam>;
+                 GatherSpanStats, TreatTrackers, ChangeParam>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const InstructionVariant& v) {
@@ -470,7 +535,7 @@ void Instruction::Perform(State& state) const {
 }
 
 void Alloc::Perform(State& state) const {
-  Length len(std::clamp<size_t>(length, 1, kPagesPerHugePage.raw_num() - 1));
+  Length len(std::clamp<size_t>(length, 1, 4 * kPagesPerHugePage.raw_num()));
   size_t num_obj = std::max<size_t>(num_objects, 1);
   size_t object_size = len.in_bytes() / num_obj;
   const Length align(
@@ -480,7 +545,8 @@ void Alloc::Perform(State& state) const {
   AccessDensityPrediction density = dense ? AccessDensityPrediction::kDense
                                           : AccessDensityPrediction::kSparse;
 
-  if (object_size > kMaxSize || align > Length(1)) {
+  if (object_size > kMaxSize || align > Length(1) ||
+      len > kPagesPerHugePage / 2) {
     // Truncate to a single object.
     num_obj = 1;
     // TODO(b/283843066): Revisit this once we have fluid partitioning.
@@ -503,7 +569,9 @@ void Alloc::Perform(State& state) const {
   TC_CHECK(density == AccessDensityPrediction::kSparse || len == Length(1));
   Span* s = use_aligned ? state.allocator.NewAligned(len, align, alloc_info)
                         : state.allocator.New(len, alloc_info);
-  TC_CHECK_NE(s, nullptr);
+  if (s == nullptr) {
+    return;
+  }
   TC_CHECK_GE(s->num_pages().raw_num(), len.raw_num());
 
   state.allocs.push_back(SpanInfo{s, num_obj});
@@ -633,6 +701,18 @@ void GatherAndCheckStats::Perform(State& state) const {
                   state.allocator.forwarder().pending_release_.in_bytes());
 }
 
+void GatherSpanStats::Perform(State& state) const {
+  SmallSpanStats small;
+  LargeSpanStats large;
+  PageHeapSpinLockHolder l;
+  state.allocator.GetSmallSpanStats(&small);
+  state.allocator.GetLargeSpanStats(&large);
+}
+
+void TreatTrackers::Perform(State& state) const {
+  state.allocator.TreatHugepageTrackers(enable_collapse);
+}
+
 void ResetSubreleaseIntervals::Perform(State& state) const {
   auto& forwarder = state.allocator.forwarder();
   forwarder.set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
@@ -657,12 +737,26 @@ void SetHpaaSubrelease::Perform(State& state) const {
   state.allocator.forwarder().set_hpaa_subrelease(value);
 }
 
+void SetSubreleaseUnbackedHugepages::Perform(State& state) const {
+  state.allocator.forwarder().set_subrelease_unbacked_hugepages(
+      value ? SubreleaseUnbackedMode::kEnabled
+            : SubreleaseUnbackedMode::kDisabled);
+}
+
 void SetReleaseSucceeds::Perform(State& state) const {
   state.allocator.forwarder().set_release_succeeds(value);
 }
 
+void SetCollapseSucceeds::Perform(State& state) const {
+  state.allocator.forwarder().set_collapse_succeeds(value);
+}
+
 void SetHugeRegionAdaptiveRelease::Perform(State& state) const {
   state.allocator.forwarder().set_huge_region_adaptive_release(value);
+}
+
+void SetAllocateSucceeds::Perform(State& state) const {
+  state.allocator.forwarder().allocate_succeeds_ = value;
 }
 
 void SetBackAllocations::Perform(State& state) const {
@@ -761,95 +855,68 @@ auto GetHPAADomain() {
 fuzztest::Domain<Instruction> GetInstructionDomain(int depth);
 
 fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
+  auto base_domain = fuzztest::OneOf(
+      fuzztest::Map([](ResetSubreleaseIntervals r) { return ChangeParam{r}; },
+                    fuzztest::Arbitrary<ResetSubreleaseIntervals>()),
+      fuzztest::Map(
+          [](int64_t d) {
+            return ChangeParam{SetFillerSkipSubreleaseShortInterval{d}};
+          },
+          AnyDuration()),
+      fuzztest::Map(
+          [](int64_t d) {
+            return ChangeParam{SetFillerSkipSubreleaseLongInterval{d}};
+          },
+          AnyDuration()),
+      fuzztest::Map(
+          [](SetReleasePartialAllocPages s) { return ChangeParam{s}; },
+          fuzztest::Arbitrary<SetReleasePartialAllocPages>()),
+      fuzztest::Map([](SetHpaaSubrelease s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetHpaaSubrelease>()),
+      fuzztest::Map(
+          [](SetSubreleaseUnbackedHugepages s) { return ChangeParam{s}; },
+          fuzztest::Arbitrary<SetSubreleaseUnbackedHugepages>()),
+      fuzztest::Map([](SetReleaseSucceeds s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetReleaseSucceeds>()),
+      fuzztest::Map([](SetCollapseSucceeds s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetCollapseSucceeds>()),
+      fuzztest::Map(
+          [](SetHugeRegionAdaptiveRelease s) { return ChangeParam{s}; },
+          fuzztest::Arbitrary<SetHugeRegionAdaptiveRelease>()),
+      fuzztest::Map([](SetAllocateSucceeds s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetAllocateSucceeds>()),
+      fuzztest::Map([](SetBackAllocations s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetBackAllocations>()),
+      fuzztest::Map([](SetBackSizeThresholdBytes s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetBackSizeThresholdBytes>()),
+      fuzztest::Map(
+          [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
+          fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
+      fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
+      fuzztest::Map([](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
+      fuzztest::Map(
+          [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
+          fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()));
+
   if (depth <= 0) {
     return fuzztest::OneOf(
-        fuzztest::Map([](ResetSubreleaseIntervals r) { return ChangeParam{r}; },
-                      fuzztest::Arbitrary<ResetSubreleaseIntervals>()),
-        fuzztest::Map(
-            [](int64_t d) {
-              return ChangeParam{SetFillerSkipSubreleaseShortInterval{d}};
-            },
-            AnyDuration()),
-        fuzztest::Map(
-            [](int64_t d) {
-              return ChangeParam{SetFillerSkipSubreleaseLongInterval{d}};
-            },
-            AnyDuration()),
-        fuzztest::Map(
-            [](SetReleasePartialAllocPages s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetReleasePartialAllocPages>()),
-        fuzztest::Map([](SetHpaaSubrelease s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetHpaaSubrelease>()),
-        fuzztest::Map([](SetReleaseSucceeds s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetReleaseSucceeds>()),
-        fuzztest::Map(
-            [](SetHugeRegionAdaptiveRelease s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetHugeRegionAdaptiveRelease>()),
-
-        fuzztest::Map([](SetBackAllocations s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetBackAllocations>()),
-        fuzztest::Map(
-            [](SetBackSizeThresholdBytes s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetBackSizeThresholdBytes>()),
-        fuzztest::Map(
-            [](std::vector<Instruction> v) {
-              return ChangeParam{ReentrantSubprogram{v}};
-            },
-            fuzztest::VectorOf(
-                fuzztest::Just(Instruction{Alloc{1, 1, 1, false, false}}))
-                .WithSize(0)),
-        fuzztest::Map(
-            [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
-        fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
-        fuzztest::Map(
-            [](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetEnableReleaseStalePages>()));
-  } else {
-    return fuzztest::OneOf(
-        fuzztest::Map([](ResetSubreleaseIntervals r) { return ChangeParam{r}; },
-                      fuzztest::Arbitrary<ResetSubreleaseIntervals>()),
-        fuzztest::Map(
-            [](int64_t d) {
-              return ChangeParam{SetFillerSkipSubreleaseShortInterval{d}};
-            },
-            AnyDuration()),
-        fuzztest::Map(
-            [](int64_t d) {
-              return ChangeParam{SetFillerSkipSubreleaseLongInterval{d}};
-            },
-            AnyDuration()),
-        fuzztest::Map(
-            [](SetReleasePartialAllocPages s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetReleasePartialAllocPages>()),
-        fuzztest::Map([](SetHpaaSubrelease s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetHpaaSubrelease>()),
-        fuzztest::Map([](SetReleaseSucceeds s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetReleaseSucceeds>()),
-        fuzztest::Map(
-            [](SetHugeRegionAdaptiveRelease s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetHugeRegionAdaptiveRelease>()),
-
-        fuzztest::Map([](SetBackAllocations s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetBackAllocations>()),
-        fuzztest::Map(
-            [](SetBackSizeThresholdBytes s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetBackSizeThresholdBytes>()),
-        fuzztest::Map(
-            [](std::vector<Instruction> v) {
-              return ChangeParam{ReentrantSubprogram{v}};
-            },
-            fuzztest::VectorOf(GetInstructionDomain(depth - 1))),
-        fuzztest::Map(
-            [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
-        fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
-                      fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
-        fuzztest::Map(
-            [](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
-            fuzztest::Arbitrary<SetEnableReleaseStalePages>()));
+        base_domain, fuzztest::Map(
+                         [](std::vector<Instruction> v) {
+                           return ChangeParam{ReentrantSubprogram{v}};
+                         },
+                         fuzztest::VectorOf(fuzztest::Just(Instruction{
+                                                Alloc{1, 1, 1, false, false}}))
+                             .WithSize(0)));
   }
+
+  return fuzztest::OneOf(
+      base_domain, fuzztest::Map(
+                       [](std::vector<Instruction> v) {
+                         return ChangeParam{ReentrantSubprogram{v}};
+                       },
+                       fuzztest::VectorOf(GetInstructionDomain(depth - 1))));
 }
 
 fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
@@ -869,6 +936,10 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
                     fuzztest::Arbitrary<PrintStats>()),
       fuzztest::Map([](GatherAndCheckStats g) { return Instruction{g}; },
                     fuzztest::Arbitrary<GatherAndCheckStats>()),
+      fuzztest::Map([](GatherSpanStats g) { return Instruction{g}; },
+                    fuzztest::Arbitrary<GatherSpanStats>()),
+      fuzztest::Map([](TreatTrackers t) { return Instruction{t}; },
+                    fuzztest::Arbitrary<TreatTrackers>()),
       fuzztest::Map([](ChangeParam c) { return Instruction{c}; },
                     GetChangeParamDomain(depth)));
 }
@@ -999,8 +1070,18 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
 
   EXPECT_EQ(absl::StrCat(GatherStatsPbtxt{}), "GatherStatsPbtxt{}");
   EXPECT_EQ(absl::StrCat(GatherAndCheckStats{}), "GatherAndCheckStats{}");
+  EXPECT_EQ(absl::StrCat(GatherSpanStats{}), "GatherSpanStats{}");
+  EXPECT_EQ(
+      absl::StrCat(TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}),
+      "TreatTrackers{.enable_collapse=EnableCollapse::kEnabled}");
   EXPECT_EQ(absl::StrCat(ResetSubreleaseIntervals{}),
             "ResetSubreleaseIntervals{}");
+  EXPECT_EQ(absl::StrCat(SetAllocateSucceeds{.value = false}),
+            "SetAllocateSucceeds{.value=false}");
+  EXPECT_EQ(absl::StrCat(SetCollapseSucceeds{.value = true}),
+            "SetCollapseSucceeds{.value=true}");
+  EXPECT_EQ(absl::StrCat(SetSubreleaseUnbackedHugepages{.value = false}),
+            "SetSubreleaseUnbackedHugepages{.value=false}");
 }
 
 }  // namespace
