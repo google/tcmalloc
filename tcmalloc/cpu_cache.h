@@ -663,7 +663,11 @@ class CpuCache {
     // Tracks number of overflows on deallocate.
     MissCounts overflows;
     // TODO(b/298229521): Evaluate Cycles32 precision for sizing decisions.
-    Cycles32 last_miss_cycles[2][kNumClasses];
+    struct LastMiss {
+      Cycles32 last_overflow_cycles;
+      Cycles32 last_underflow_cycles;
+    };
+    LastMiss last_miss[kNumClasses];
     // Total cache space available on this CPU (see above).
     // This tracks the total allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
@@ -1316,7 +1320,11 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   uint32_t successive = 0;
   ResizeInfo& resize = resize_[cpu];
   // TODO(ckennelly): Use a strongly typed enum.
-  resize.last_miss_cycles[overflow][size_class].Update();
+  if (overflow) {
+    resize.last_miss[size_class].last_overflow_cycles.Update();
+  } else {
+    resize.last_miss[size_class].last_underflow_cycles.Update();
+  }
   bool grow_by_batch =
       resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
   if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
@@ -2239,8 +2247,8 @@ inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
   // CPUs; it prevents 32-bit cycle counter epoch exhaustion if no longer
   // updated when idle.
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    resize_[cpu].last_miss_cycles[0][size_class].Reset();
-    resize_[cpu].last_miss_cycles[1][size_class].Reset();
+    resize_[cpu].last_miss[size_class].last_overflow_cycles.Reset();
+    resize_[cpu].last_miss[size_class].last_underflow_cycles.Reset();
   }
 
   return bytes;
@@ -2601,17 +2609,15 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
 
     ++num_populated;
 
-    const auto& last_underflow_cycles =
-        resize_[cpu].last_miss_cycles[0][size_class];
-    const auto& last_overflow_cycles =
-        resize_[cpu].last_miss_cycles[1][size_class];
+    const typename ResizeInfo::LastMiss& last_miss =
+        resize_[cpu].last_miss[size_class];
 
     size_t cap = freelist_.Capacity(cpu, size_class);
     stats.max_capacity = std::max(stats.max_capacity, cap);
     min_capacity = std::min(min_capacity, cap);
     stats.avg_capacity += cap;
 
-    if (!last_underflow_cycles || !last_overflow_cycles) {
+    if (!last_miss.last_underflow_cycles || !last_miss.last_overflow_cycles) {
       // Don't consider the underflow/overflow time on this CPU if it is
       // uninitialized (e.g. recently reclaimed or never missed).
       continue;
@@ -2624,9 +2630,9 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
     }
 
     const absl::Duration last_underflow =
-        last_underflow_cycles.AsDuration(clock_snap);
+        last_miss.last_underflow_cycles.AsDuration(clock_snap);
     const absl::Duration last_overflow =
-        last_overflow_cycles.AsDuration(clock_snap);
+        last_miss.last_overflow_cycles.AsDuration(clock_snap);
 
     if (last_overflow < stats.min_last_overflow) {
       stats.min_last_overflow = last_overflow;
