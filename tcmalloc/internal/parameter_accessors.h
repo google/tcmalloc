@@ -122,6 +122,9 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
     std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull
         size_classes);
 ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetPageSize();
+
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(
+    bool v);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

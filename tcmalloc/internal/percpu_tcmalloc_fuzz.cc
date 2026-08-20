@@ -412,6 +412,45 @@ struct Drain {
   }
 };
 
+struct ReleasePerCPUSlabMetadata {
+  bool madvise_fail;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const ReleasePerCPUSlabMetadata& r) {
+    absl::Format(&sink, "ReleasePerCPUSlabMetadata{.madvise_fail=%v}",
+                 r.madvise_fail);
+  }
+
+  void Perform(State& state) const {
+    // Requires all CPUs to be started (it will stop them itself).
+    for (int cpu = 0; cpu < state.num_cpus; ++cpu) {
+      if (state.cpu_stopped[cpu]) {
+        state.slab.StartCpu(cpu);
+        state.cpu_stopped[cpu] = false;
+      }
+    }
+
+    state.slab.ReleaseSlabMetadataForDrainedCpus(
+        [&state](int cpu) { return state.cpu_initialized[cpu]; },
+        [&state](int cpu) {
+          state.cpu_initialized[cpu] = false;
+          for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+            TC_CHECK_EQ(state.slab.Length(cpu, size_class), 0);
+            TC_CHECK_EQ(state.slab.Capacity(cpu, size_class), 0);
+          }
+        },
+        [&](void* slab_addr, size_t slab_size) {
+          if (madvise_fail) {
+            // Simulate that the madvise failed.
+            return -1;
+          } else {
+            madvise(slab_addr, slab_size, MADV_NOHUGEPAGE);
+            return madvise(slab_addr, slab_size, MADV_DONTNEED);
+          }
+        });
+  }
+};
+
 struct SwitchCpu {
   uint8_t cpu_index;
 
@@ -475,7 +514,7 @@ struct StartCpu {
 
 using Instruction =
     std::variant<Push, Pop, PushBatch, PopBatch, Grow, ShrinkOtherCache, Drain,
-                 SwitchCpu, StopCpu, StartCpu>;
+                 ReleasePerCPUSlabMetadata, SwitchCpu, StopCpu, StartCpu>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {

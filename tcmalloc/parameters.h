@@ -209,8 +209,15 @@ class Parameters {
         std::memory_order_relaxed);
   }
 
-  static HeapPartitioningMode heap_partitioning_mode();
+  static bool release_drained_slab_metadata() {
+    return release_drained_slab_metadata_.load(std::memory_order_relaxed);
+  }
 
+  static void set_release_drained_slab_metadata(bool value) {
+    TCMalloc_Internal_SetReleaseDrainedSlabMetadata(value);
+  }
+
+  static HeapPartitioningMode heap_partitioning_mode();
 
   // TODO: b/527473378 - Remove this function once the experiment is cleaned up.
   static ReleaseStalePages release_stale_pages();
@@ -250,6 +257,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v);
   friend void ::TCMalloc_Internal_SetReleaseMaxColdPages(bool v);
   friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
+  friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
 
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
@@ -271,6 +279,7 @@ class Parameters {
   static std::atomic<bool> enable_unfiltered_collapse_;
   static std::atomic<bool> release_max_cold_pages_;
   static std::atomic<int64_t> event_trace_memory_limit_;
+  static std::atomic<bool> release_drained_slab_metadata_;
 };
 
 }  // namespace tcmalloc_internal

@@ -587,25 +587,33 @@ struct Context {
   absl::Span<absl::Mutex> mutexes;
   std::atomic<size_t>* capacity;
   std::atomic<bool>* stop;
-  absl::Span<absl::once_flag> init;
+  absl::Span<bool> init;
   absl::Span<std::atomic<bool>> has_init;
   std::atomic<size_t>* max_capacity;
 
   GetMaxCapacity GetMaxCapacityFunctor() const { return {max_capacity}; }
 };
 
-void InitCpuOnce(Context& ctx, int cpu) {
-  if (cpu < 0) {
-    cpu = ctx.slab->CacheCpuSlab().first;
-    if (cpu < 0) {
-      return;
-    }
-  }
-  absl::base_internal::LowLevelCallOnce(&ctx.init[cpu], [&]() {
-    absl::MutexLock lock(ctx.mutexes[cpu]);
+// NOTE: Once you release the lock, the CPU may be uninit-ed (to have its
+// per-CPU slab metadata released).
+void InitCpuOnceLockHeld(Context& ctx, int cpu)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(ctx.mutexes[cpu]) {
+  if (!ctx.init[cpu]) {
     ctx.slab->InitCpu(cpu, ctx.GetMaxCapacityFunctor());
     ctx.has_init[cpu].store(true, std::memory_order_relaxed);
-  });
+    ctx.init[cpu] = true;
+  }
+}
+
+// See comment on InitCpuOnceLockHeld(); the CPU is not guaranteed to remain
+// initialized after the call.
+void InitCurrentCpuOnce(Context& ctx) {
+  int cpu = ctx.slab->CacheCpuSlab().first;
+  if (cpu < 0) {
+    return;
+  }
+  absl::MutexLock lock(ctx.mutexes[cpu]);
+  InitCpuOnceLockHeld(ctx, cpu);
 }
 
 int GetResizedMaxCapacities(Context& ctx,
@@ -641,13 +649,13 @@ void StressThread(size_t thread_id,
   absl::BitGen rnd(absl::SeedSeq({thread_id}));
   while (!*ctx.stop) {
     size_t size_class = absl::Uniform<int32_t>(rnd, 1, kStressSlabs);
-    const int what = absl::Uniform<int32_t>(rnd, 0, 91);
+    const int what = absl::Uniform<int32_t>(rnd, 0, 101);
     if (what < 10) {
       if (!block.empty()) {
         if (ctx.slab->Push(size_class, block.back())) {
           block.pop_back();
         } else {
-          InitCpuOnce(ctx, -1);
+          InitCurrentCpuOnce(ctx);
         }
       }
     } else if (what < 20) {
@@ -657,7 +665,7 @@ void StressThread(size_t thread_id,
         EXPECT_NE(item, nullptr);
         block.push_back(item);
       } else {
-        InitCpuOnce(ctx, -1);
+        InitCurrentCpuOnce(ctx);
       }
     } else if (what < 30) {
       if (!block.empty()) {
@@ -701,7 +709,8 @@ void StressThread(size_t thread_id,
         if (cpu >= 0) {
           // Grow mutates the header array and must be operating on
           // an initialized core.
-          InitCpuOnce(ctx, cpu);
+          absl::MutexLock lock(ctx.mutexes[cpu]);
+          InitCpuOnceLockHeld(ctx, cpu);
 
           res = ctx.slab->Grow(cpu, size_class, n, [&](uint8_t shift) {
             return ctx.GetMaxCapacityFunctor()(size_class);
@@ -721,11 +730,12 @@ void StressThread(size_t thread_id,
     } else if (what < 70) {
       int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
 
+      absl::MutexLock lock(ctx.mutexes[cpu]);
+
       // ShrinkOtherCache mutates the header array and must be operating on an
       // initialized core.
-      InitCpuOnce(ctx, cpu);
+      InitCpuOnceLockHeld(ctx, cpu);
 
-      absl::MutexLock lock(ctx.mutexes[cpu]);
       size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
       ctx.slab->StopCpu(cpu);
       size_t total_shrunk = ctx.slab->ShrinkOtherCache(
@@ -758,11 +768,12 @@ void StressThread(size_t thread_id,
       if (to_grow != 0) {
         int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
 
+        absl::MutexLock lock(ctx.mutexes[cpu]);
+
         // GrowOtherCache mutates the header array and must be operating on an
         // initialized core.
-        InitCpuOnce(ctx, cpu);
+        InitCpuOnceLockHeld(ctx, cpu);
 
-        absl::MutexLock lock(ctx.mutexes[cpu]);
         ctx.slab->StopCpu(cpu);
         size_t grown = ctx.slab->GrowOtherCache(
             cpu, size_class, to_grow,
@@ -772,17 +783,18 @@ void StressThread(size_t thread_id,
         EXPECT_GE(grown, 0);
         ctx.capacity->fetch_add(to_grow - grown);
       }
-    } else {
+    } else if (what < 90) {
       int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
       // Flip coin on whether to unregister rseq on this thread.
       const bool unregister = absl::Bernoulli(rnd, 0.5);
 
-      // Drain mutates the header array and must be operating on an initialized
-      // core.
-      InitCpuOnce(ctx, cpu);
-
       {
         absl::MutexLock lock(ctx.mutexes[cpu]);
+
+        // Drain mutates the header array and must be operating on an
+        // initialized core.
+        InitCpuOnceLockHeld(ctx, cpu);
+
         std::optional<ScopedUnregisterRseq> scoped_rseq;
         if (unregister) {
           scoped_rseq.emplace();
@@ -806,6 +818,60 @@ void StressThread(size_t thread_id,
 
       // Verify we re-registered with rseq as required.
       TC_ASSERT(IsFastNoInit());
+    } else {
+      // Drain a large subset (~90%) of CPUs, then try to release
+      // per-CPU slab metadata.
+
+      for (int cpu = 0; cpu < num_cpus; ++cpu) {
+        ctx.mutexes[cpu].lock();
+      }
+      for (int cpu = 0; cpu < num_cpus; ++cpu) {
+        if (absl::Bernoulli(rnd, 0.1) ||
+            !ctx.has_init[cpu].load(std::memory_order_relaxed)) {
+          continue;
+        }
+
+        ctx.slab->Drain(
+            cpu, [&block, &ctx, cpu](int cpu_arg, size_t size_class,
+                                     void** batch, size_t size, size_t cap) {
+              EXPECT_EQ(cpu, cpu_arg);
+              EXPECT_LT(size_class, kStressSlabs);
+              EXPECT_LE(size, kMaxStressCapacity);
+              EXPECT_LE(cap, kMaxStressCapacity);
+              for (size_t i = 0; i < size; ++i) {
+                EXPECT_NE(batch[i], nullptr);
+                block.push_back(batch[i]);
+              }
+              ctx.capacity->fetch_add(cap);
+            });
+      }
+
+      ctx.slab->ReleaseSlabMetadataForDrainedCpus(
+          [&ctx](int cpu) {
+            return ctx.has_init[cpu].load(std::memory_order_relaxed);
+          },
+          [&ctx](int cpu) {
+            ctx.init[cpu] = false;
+            ctx.has_init[cpu].store(false, std::memory_order_release);
+            for (size_t size_class = 1; size_class < kStressSlabs;
+                 ++size_class) {
+              EXPECT_EQ(ctx.slab->Length(cpu, size_class), 0);
+              EXPECT_EQ(ctx.slab->Capacity(cpu, size_class), 0);
+            }
+          },
+          [&rnd](void* slab_addr, size_t slab_size) {
+            if (absl::Bernoulli(rnd, 0.1)) {
+              // Simulate that the madvise failed.
+              return -1;
+            } else {
+              madvise(slab_addr, slab_size, MADV_NOHUGEPAGE);
+              return madvise(slab_addr, slab_size, MADV_DONTNEED);
+            }
+          });
+
+      for (int cpu = 0; cpu < num_cpus; ++cpu) {
+        ctx.mutexes[cpu].unlock();
+      }
     }
   }
 }
@@ -1021,8 +1087,10 @@ TEST_P(StressThreadTest, Stress) {
     max_capacity[size_class].store(kStressCapacity, std::memory_order_relaxed);
   }
 
-  // once_flag's protect InitCpu on a CPU.
-  std::vector<absl::once_flag> init(num_cpus);
+  // Protect InitCpu on a CPU. Each flag is protected by that CPU's mutex;
+  // we cannot use absl::once_flag because we need to be able to unpopulate
+  // the CPU (i.e., set the flag back to false).
+  absl::FixedArray<bool, 0> init(num_cpus, false);
   // Tracks whether init has occurred on a CPU for use in ResizeSlabs.
   std::vector<std::atomic<bool>> has_init(num_cpus);
 

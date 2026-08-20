@@ -128,7 +128,6 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("back_small_allocations: false"));
   EXPECT_THAT(buf, ContainsRegex("(back_size_threshold_bytes: [1-9][0-9]*)"));
 
-
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   if (IsExperimentActive(Experiment::TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE)) {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_huge_region_adaptive_release: true"));
@@ -159,6 +158,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   } else {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_release_stale_pages: false"));
   }
+
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: false"));
 
   sized_delete(alloc, kSize);
 }
@@ -237,7 +238,6 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_enable_unfiltered_collapse 0)"));
 
-
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_release_pages_from_huge_region 1)"));
@@ -290,6 +290,10 @@ TEST_F(GetStatsTest, Parameters) {
       EXPECT_THAT(buf,
                   HasSubstr(R"(PARAMETER tcmalloc_release_stale_pages 0)"));
     }
+
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 0)"));
   }
 
   Parameters::set_hpaa_subrelease(true);

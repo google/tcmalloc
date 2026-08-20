@@ -158,6 +158,10 @@ class StaticForwarder {
     return Parameters::per_cpu_caches_dynamic_slab_shrink_threshold();
   }
 
+  static bool release_drained_slab_metadata() {
+    return Parameters::release_drained_slab_metadata();
+  }
+
   bool reuse_size_classes() const {
     return state_.size_class_configuration() ==
                SizeClassConfiguration::kReuse ||
@@ -467,6 +471,14 @@ class CpuCache {
   // Reports total number of times any CPU has been reclaimed.
   uint64_t GetNumReclaims() const;
 
+  // Reports number of times the <cpu> has been unpopulated
+  // (which happens when its metadata gets released, after all per-CPU
+  // metadata slabs on the same hugepage ave been reclaimed).
+  uint64_t GetNumUnpopulates(int cpu) const;
+
+  // Reports total number of times any CPU has been unpopulated.
+  uint64_t GetNumUnpopulates() const;
+
   // Reports number of cpus that have touched set to true.
   int CountTouchedCpus() const;
 
@@ -675,6 +687,9 @@ class CpuCache {
     std::atomic<uint64_t> reclaim_used_bytes;
     // Tracks number of times this CPU has been reclaimed.
     std::atomic<size_t> num_reclaims;
+    // Tracks number of times this CPU has been unpopulated
+    // (see GetNumUnpopulates()).
+    std::atomic<size_t> num_unpopulates;
   };
 
   // Determines how we distribute memory in the per-cpu cache to the various
@@ -1415,8 +1430,11 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::TryReclaimingCaches() {
+inline void CpuCache<Forwarder>::TryReclaimingCaches()
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
   const int num_cpus = NumCPUs();
+
+  bool any_drained = false;
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     // Nothing to reclaim if the cpu is not populated.
@@ -1439,6 +1457,7 @@ inline void CpuCache<Forwarder>::TryReclaimingCaches() {
     // stayed constant since the last interval.
     if (used_bytes != 0 && used_bytes == prev_used_bytes && misses == 0) {
       Reclaim(cpu);
+      any_drained = true;
     }
 
     // Takes a snapshot of used bytes in the cache at the end of this interval
@@ -1448,6 +1467,24 @@ inline void CpuCache<Forwarder>::TryReclaimingCaches() {
     // is safe.
     resize_[cpu].reclaim_used_bytes.store(used_bytes,
                                           std::memory_order_relaxed);
+  }
+
+  if (any_drained && forwarder_.release_drained_slab_metadata()) {
+    for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
+    freelist_.ReleaseSlabMetadataForDrainedCpus(
+        [this](int cpu) { return HasPopulated(cpu); },
+        [this](int cpu) {
+          TC_CHECK_EQ(
+              resize_[cpu].available, resize_[cpu].capacity,
+              "CPU %u was not actually drained, or available is out of sync",
+              cpu);
+          resize_[cpu].populated.store(false, std::memory_order_release);
+          resize_[cpu].num_unpopulates.fetch_add(1, std::memory_order_relaxed);
+        },
+        [this](void* slab_addr, size_t slab_size) {
+          return MadviseAwaySlabs(slab_addr, slab_size);
+        });
+    for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
   }
 }
 
@@ -2279,6 +2316,20 @@ inline uint64_t CpuCache<Forwarder>::GetNumReclaims() const {
   const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu)
     reclaims += resize_[cpu].num_reclaims.load(std::memory_order_relaxed);
+  return reclaims;
+}
+
+template <class Forwarder>
+inline uint64_t CpuCache<Forwarder>::GetNumUnpopulates(int cpu) const {
+  return resize_[cpu].num_unpopulates.load(std::memory_order_relaxed);
+}
+
+template <class Forwarder>
+inline uint64_t CpuCache<Forwarder>::GetNumUnpopulates() const {
+  uint64_t reclaims = 0;
+  const int num_cpus = NumCPUs();
+  for (int cpu = 0; cpu < num_cpus; ++cpu)
+    reclaims += resize_[cpu].num_unpopulates.load(std::memory_order_relaxed);
   return reclaims;
 }
 

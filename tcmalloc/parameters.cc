@@ -233,6 +233,9 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_cold_pages_(false);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
     16 << 20);
+ABSL_CONST_INIT
+std::atomic<bool> Parameters::release_drained_slab_metadata_(false);
+
 static std::atomic<MadviseRegionsNoHugepage>&
 madvise_cold_regions_nohugepage_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -344,7 +347,6 @@ ReleaseStalePages Parameters::release_stale_pages() {
   });
   return v.load(std::memory_order_relaxed);
 }
-
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
@@ -606,7 +608,6 @@ void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
   Parameters::per_cpu_caches_dynamic_slab_.store(v, std::memory_order_relaxed);
 }
 
-
 uint8_t TCMalloc_Internal_GetMinHotAccessHint() {
   return static_cast<uint8_t>(Parameters::min_hot_access_hint());
 }
@@ -670,6 +671,10 @@ void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v) {
   Parameters::event_trace_memory_limit_.store(v, std::memory_order_relaxed);
 }
 
+void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v) {
+  Parameters::release_drained_slab_metadata_.store(v,
+                                                   std::memory_order_relaxed);
+}
 }  // extern "C"
 
 GOOGLE_MALLOC_SECTION_END

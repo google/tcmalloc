@@ -337,6 +337,10 @@ class TestStaticForwarder {
     return false;
   }
 
+  bool release_drained_slab_metadata() const {
+    return release_drained_slab_metadata_;
+  }
+
   size_t arena_reported_nonresident_bytes_ = 0;
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;
@@ -345,6 +349,7 @@ class TestStaticForwarder {
   double dynamic_slab_shrink_threshold_ = -1;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   std::optional<SizeMap> size_map_;
+  bool release_drained_slab_metadata_ = false;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
@@ -1267,7 +1272,7 @@ static void ColdCacheOperations(CpuCache& cache, int cpu_id,
 // Runs multiple allocate and deallocate operation on the cpu cache to collect
 // misses. Once we collect enough misses on this cache, we can shuffle cpu
 // caches to steal capacity from colder caches to the hot cache.
-static void HotCacheOperations(CpuCache& cache, int cpu_id) {
+static void HotCacheOperations(CpuCache& cache, int cpu_id, bool reclaim) {
   constexpr size_t kPtrs = 4096;
   std::vector<void*> ptrs;
   ptrs.resize(kPtrs);
@@ -1288,10 +1293,13 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
     }
   }
 
-  // We reclaim the cache to reset it so that we record underflows/overflows the
-  // next time we allocate and deallocate objects. Without reclaim, the cache
-  // would stay warmed up and it would take more time to drain the colder cache.
-  cache.Reclaim(cpu_id);
+  if (reclaim) {
+    // We reclaim the cache to reset it so that we record underflows/overflows
+    // the next time we allocate and deallocate objects. Without reclaim, the
+    // cache would stay warmed up and it would take more time to drain the
+    // colder cache.
+    cache.Reclaim(cpu_id);
+  }
 }
 
 class DynamicWideSlabTest : public testing::Test {};
@@ -1319,7 +1327,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
   constexpr int kCpuId1 = 1;
 
   // Accumulate overflows and underflows for kCpuId0.
-  HotCacheOperations(cache, kCpuId0);
+  HotCacheOperations(cache, kCpuId0, /*reclaim=*/true);
   CpuCache::CpuCacheMissStats interval_misses =
       cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
   // Make sure that overflows/underflows ratio is greater than the threshold
@@ -1539,7 +1547,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
            CpuCache::kCacheCapacityThreshold * max_cpu_cache_size;
        ++num_tries) {
     ColdCacheOperations(cache, cold_cpu_id, size_class);
-    HotCacheOperations(cache, hot_cpu_id);
+    HotCacheOperations(cache, hot_cpu_id, /*reclaim=*/true);
     cache.ShuffleCpuCaches();
 
     // Check that the capacity is preserved.
@@ -1568,7 +1576,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   // change the capacity of either of the caches.
   for (int i = 0; i < 100; ++i) {
     ColdCacheOperations(cache, cold_cpu_id, size_class);
-    HotCacheOperations(cache, hot_cpu_id);
+    HotCacheOperations(cache, hot_cpu_id, /*reclaim=*/true);
     cache.ShuffleCpuCaches();
 
     // Check that the capacity is preserved.
@@ -1611,6 +1619,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
 
     // None of the caches should have been reclaimed yet.
     EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
+    EXPECT_EQ(cache.GetNumUnpopulates(cpu), 0);
 
     // Check that caches are empty.
     uint64_t used_bytes = cache.UsedBytes(cpu);
@@ -1707,6 +1716,110 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   }
 
   cache.Deactivate();
+}
+
+TEST(CpuCacheTest, ReclaimCpuCacheAndUnpopulate) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  absl::BitGen rng;
+
+  for (bool enabled : {false, true}) {
+    SCOPED_TRACE(absl::StrFormat("Feature enabled: %d", enabled));
+
+    CpuCache cache;
+    cache.forwarder().release_drained_slab_metadata_ = enabled;
+    cache.Activate();
+
+    const size_t size_class = absl::Uniform(rng, 1, 3);
+    SCOPED_TRACE(absl::StrFormat("Chosen size class: %zu", size_class));
+
+    const int num_cpus = NumCPUs();
+
+    // Verify that we fill at least three hugepages; one (or more)
+    // to be unpopulated, one not to be, and one account for misalignment
+    // before or after.
+    uint8_t per_cpu_shift = CpuCachePeer::GetSlabShift(cache);
+    const auto shift = subtle::percpu::ToShiftType(per_cpu_shift);
+    const size_t slabs_size =
+        subtle::percpu::GetSlabsAllocSize(shift, num_cpus);
+    if (slabs_size < 3 * kHugePageSize) {
+      TC_LOG("Not enough CPUs to run test; skipping.");
+      return;
+    }
+
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
+      ColdCacheOperations(cache, cpu, size_class);
+      EXPECT_TRUE(cache.HasPopulated(cpu));
+      EXPECT_EQ(cache.GetNumUnpopulates(cpu), 0);
+    }
+
+    // None of the caches are stable, so nothing should be reclaimed
+    // and nothing should be unpopulated.
+    cache.TryReclaimingCaches();
+    EXPECT_EQ(cache.GetNumReclaims(), 0);
+    EXPECT_EQ(cache.GetNumUnpopulates(), 0);
+
+    // Do some work on every other CPUs. This should block all unpopulates,
+    // as no hugepage will contain all-reclaimed caches. The other ones
+    // should be reclaimed, though.
+    int num_idle_cpus = 0;
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      if (cpu % 2 == 0) {
+        HotCacheOperations(cache, cpu, /*reclaim=*/false);
+      } else {
+        ++num_idle_cpus;
+      }
+    }
+    cache.TryReclaimingCaches();
+    EXPECT_EQ(cache.GetNumReclaims(), num_idle_cpus);
+    EXPECT_EQ(cache.GetNumUnpopulates(), 0);
+
+    // Now do work on only one CPU, to record some misses on that,
+    // but let the others stay idle. (We do an extra reclaim first,
+    // or HotCacheOperations() wouldn't actually cause misses.
+    // This reclaim gets included in GetNumReclaims() below.)
+    // We should have unpopulates after another round of reclaim,
+    // but not everything.
+    //
+    // The “arbitrary” CPU must already be touched (so even),
+    // and we'd like it to be so far in that we know that it
+    // would actually get unpopulated if untouched.
+    int arbitrary_cpu = (num_cpus / 2) & ~1;  // Must already be touched.
+    if (arbitrary_cpu == 0 || arbitrary_cpu + 1 >= num_cpus) {
+      TC_LOG("Not enough CPUs to run test; skipping.");
+      return;
+    }
+    HotCacheOperations(cache, arbitrary_cpu, /*reclaim=*/false);
+    cache.TryReclaimingCaches();
+
+    EXPECT_EQ(cache.GetNumReclaims(arbitrary_cpu), 0);
+    EXPECT_EQ(cache.GetNumReclaims(), num_cpus - 1);
+
+    if (enabled) {
+      // The touched CPU cannot be unpopulated, and since it shares hugepage
+      // with at least one of its neighbors, at least one of those (probably
+      // both) must remain, too.
+      EXPECT_EQ(cache.GetNumUnpopulates(arbitrary_cpu), 0);
+      EXPECT_LT(cache.GetNumUnpopulates(arbitrary_cpu - 1) +
+                    cache.GetNumUnpopulates(arbitrary_cpu + 1),
+                2);
+
+      EXPECT_GT(cache.GetNumUnpopulates(), 0);
+      EXPECT_LT(cache.GetNumUnpopulates(), num_cpus);
+    } else {
+      EXPECT_EQ(cache.GetNumUnpopulates(), 0);
+    }
+
+    // Flip the flag and run a new reclaim, to test the transition.
+    cache.forwarder().release_drained_slab_metadata_ = !enabled;
+    cache.TryReclaimingCaches();
+    EXPECT_EQ(cache.GetNumReclaims(), num_cpus);
+
+    cache.Deactivate();
+  }
 }
 
 TEST(CpuCacheTest, SizeClassCapacityTest) {

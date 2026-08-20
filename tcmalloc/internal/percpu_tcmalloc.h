@@ -38,6 +38,7 @@
 #include "absl/functional/function_ref.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/internal/delay_injection.h"
+#include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/optimization.h"
@@ -293,6 +294,18 @@ class TcmallocSlab {
   // Push/Pop/Grow/Shrink concurrently (even on the same CPU) is safe.
   void Drain(int cpu, DrainHandler drain_handler);
 
+  enum HugePageStatus : uint8_t { kNotTouched = 0, kCannotFree, kShouldFree };
+
+  // Find whether enough consecutive CPUs are drained so that their metadata
+  // spans an entire hugepage, and if so, release their metadata.
+  //
+  // All CPUs' ResizeInfo must be locked before calling this function.
+  // The function stops them itself.
+  void ReleaseSlabMetadataForDrainedCpus(
+      absl::FunctionRef<bool(size_t)> populated,
+      absl::FunctionRef<void(size_t)> unpopulate,
+      absl::FunctionRef<void(void*, size_t)> madvise_away_slabs);
+
   PerCPUMetadataState MetadataMemoryUsage() const;
 
   // Gets the current shift of the slabs. Intended for use by the thread that
@@ -378,6 +391,7 @@ class TcmallocSlab {
   static Header LoadHeader(AtomicHeader* hdrp);
   static void StoreHeader(AtomicHeader* hdrp, Header hdr);
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
+  bool CpuIsDrained(void* slabs, Shift shift, int cpu);
   void DrainOldSlabs(void* slabs, Shift shift, int cpu,
                      const std::array<uint16_t, NumClasses>& old_begins,
                      DrainHandler drain_handler);
@@ -1263,6 +1277,19 @@ void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
 }
 
 template <size_t NumClasses>
+bool TcmallocSlab<NumClasses>::CpuIsDrained(void* slabs, Shift shift, int cpu) {
+  for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
+    uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
+    auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
+    Header hdr = LoadHeader(hdrp);
+    if (hdr.end != 0 && hdr.end != begin) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::DrainOldSlabs(
     void* slabs, Shift shift, int cpu,
     const std::array<uint16_t, NumClasses>& old_begins,
@@ -1461,6 +1488,122 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, DrainHandler drain_handler) {
   ScopedSlabCpuStop<NumClasses> cpu_stop(*this, cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   DrainCpu(slabs, shift, cpu, drain_handler);
+}
+
+template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
+    absl::FunctionRef<bool(size_t)> populated,
+    absl::FunctionRef<void(size_t)> unpopulate,
+    absl::FunctionRef<void(void*, size_t)> madvise_away_slabs) {
+  const int n_cpus = num_cpus();
+
+  // For each hugepage touched by our slabs, track whether there is something
+  // there that needs to be freed (because all CPUs belonging to that hugepage
+  // are drained).
+  //
+  // // The max per-CPU metadata size is smaller than a hugepage (asserted
+  // below) and we are aligned to it (also checked below), so it's fine to
+  // allocate tracking for as many hugepages as we can have CPUs. Still,
+  // we add + 1 as a buffer.
+  constexpr int kMaxHugePagesTouched = kMaxCpus + 1;
+  std::array<HugePageStatus, kMaxHugePagesTouched> hugepage_status;
+  std::fill(hugepage_status.begin(), hugepage_status.end(), kNotTouched);
+
+  // We can't allocate while holding the per-cpu spinlocks.
+  AllocationGuard enforce_no_alloc;
+
+  // Stop all CPUs. They must also be locked, since we are touching the
+  // populated bit later.
+  for (auto& state : state_) {
+    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
+    state.stopped.store(true, std::memory_order_relaxed);
+  }
+  FenceAllCpus();
+
+  // See which ones are actually drained, and which hugepages we can free.
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  const size_t slab_size_bytes = 1ULL << static_cast<uint8_t>(shift);
+  TC_CHECK_LT(slab_size_bytes, kHugePageSize);
+
+  // If the slab is not aligned to its own size, freeing any hugepage
+  // would tear through a CPU's data, and we can do nothing.
+  if (!IsAlignedTo(slabs, slab_size_bytes)) {
+    TC_BUG("Slabs are not properly aligned");
+    return;
+  }
+
+  auto address_to_hugepage_number = [](const void* addr) {
+    return reinterpret_cast<uintptr_t>(addr) >> kHugePageShift;
+  };
+  const size_t base_hugepage_nr = address_to_hugepage_number(slabs);
+
+  void* slabs_start = CpuMemoryStart(slabs, shift, 0);
+  if (!IsAlignedTo(slabs_start, kHugePageSize)) {
+    // If our slab doesn't doesn't start hugepage-aligned,
+    // we cannot free the first hugepage.
+    hugepage_status[0] = kCannotFree;
+  }
+
+  // We cannot free the last page page either, if the slabs doesn't
+  // end perfectly on a hugepage boundary. (At the very least,
+  // we'd risk tearing a hugepage.)
+  void* slabs_end = CpuMemoryStart(slabs, shift, n_cpus);
+  hugepage_status[address_to_hugepage_number(slabs_end) - base_hugepage_nr] =
+      kCannotFree;
+
+  // Go through all the CPUs and figure out which hugepage its slab
+  // lives in. (Because we've already tested that slabs are slab-aligned
+  // and not larger than a hugepage, and they are also powers of two,
+  // it can never cross hugepages.)
+  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
+    if (!populated(cpu)) {
+      continue;
+    }
+
+    size_t slab_hugepage =
+        address_to_hugepage_number(CpuMemoryStart(slabs, shift, cpu));
+    TC_CHECK_GE(slab_hugepage, base_hugepage_nr);
+    HugePageStatus& status = hugepage_status[slab_hugepage - base_hugepage_nr];
+
+    if (status == kCannotFree) {
+      // No need to check, don't do anything.
+    } else if (CpuIsDrained(slabs, shift, cpu)) {
+      status = kShouldFree;
+    } else {
+      status = kCannotFree;
+    }
+  }
+
+  for (size_t hugepage_idx = 0; hugepage_idx < hugepage_status.size();
+       ++hugepage_idx) {
+    if (hugepage_status[hugepage_idx] != kShouldFree) {
+      continue;
+    }
+
+    void* hugepage_start = reinterpret_cast<void*>(
+        (base_hugepage_nr + hugepage_idx) * kHugePageSize);
+
+    // Coalesce neighboring madvises.
+    size_t bytes_to_free = kHugePageSize;
+    while (hugepage_idx + 1 < hugepage_status.size() &&
+           hugepage_status[hugepage_idx + 1] == kShouldFree) {
+      bytes_to_free += kHugePageSize;
+      ++hugepage_idx;
+    }
+
+    madvise_away_slabs(hugepage_start, bytes_to_free);
+    size_t first_cpu = (reinterpret_cast<uintptr_t>(hugepage_start) -
+                        reinterpret_cast<uintptr_t>(slabs)) /
+                       slab_size_bytes;
+    for (unsigned i = 0; i < bytes_to_free / slab_size_bytes; ++i) {
+      unpopulate(first_cpu + i);
+    }
+  }
+
+  // Restart the CPUs again.
+  for (auto& state : state_) {
+    state.stopped.store(false, std::memory_order_release);
+  }
 }
 
 template <size_t NumClasses>
