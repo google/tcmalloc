@@ -19,6 +19,8 @@
 // operations.  No sequence of instructions reachable with a fuzzer should be
 // able to violate our invariants.
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -56,11 +58,6 @@ constexpr Shift kShift{18};
 
 using SlabsType = TcmallocSlab<kNumClasses>;
 
-size_t MaxCapacity(size_t size_class) {
-  if (size_class == 0 || size_class >= kNumClasses) return 0;
-  return kMaxCapacity;
-}
-
 void* Malloc(size_t size, std::align_val_t alignment) {
   void* ptr = ::operator new(size, alignment);
   memset(ptr, 0, size);
@@ -74,6 +71,7 @@ struct State {
   SlabsType slab;
   std::vector<bool> cpu_initialized;
   std::vector<bool> cpu_stopped;
+  std::array<size_t, kNumClasses> max_capacity;
 
   absl::flat_hash_set<void*> allocated_objects[kNumClasses];
   std::vector<void*> available_objects[kNumClasses];
@@ -83,15 +81,24 @@ struct State {
         active_cpu(current_cpu),
         cpu_initialized(num_cpus, false),
         cpu_stopped(num_cpus, false) {
+    for (size_t sc = 0; sc < kNumClasses; ++sc) {
+      max_capacity[sc] = (sc == 0) ? 0 : kMaxCapacity;
+    }
     const Shift shift = kShift;
     const size_t slabs_size = GetSlabsAllocSize(shift, num_cpus);
     void* slabs_mem = Malloc(slabs_size, SlabAlignment(shift));
     slab.Init(
-        Malloc, slabs_mem, [](size_t sc) { return MaxCapacity(sc); }, shift);
+        Malloc, slabs_mem, [this](size_t sc) { return MaxCapacity(sc); },
+        shift);
     EnsureCpuInitialized(current_cpu);
   }
 
   ~State();
+
+  size_t MaxCapacity(size_t size_class) const {
+    if (size_class == 0 || size_class >= kNumClasses) return 0;
+    return max_capacity[size_class];
+  }
 
   void EnsureCpuInitialized(int cpu);
   void CheckInvariants();
@@ -113,7 +120,7 @@ void* State::AllocateObject(size_t size_class) {
   void* obj = ::operator new(FakeSizeForSizeClass(size_class));
   allocated_objects[size_class].insert(obj);
   return obj;
-};
+}
 
 void State::FreeObject(void* obj, size_t size_class) {
   auto it = allocated_objects[size_class].find(obj);
@@ -126,20 +133,24 @@ void State::FreeObject(void* obj, size_t size_class) {
 void State::EnsureCpuInitialized(int cpu) {
   if (cpu >= 0 && cpu < num_cpus && !cpu_initialized[cpu] &&
       !cpu_stopped[cpu]) {
-    slab.InitCpu(cpu, [](size_t sc) { return MaxCapacity(sc); });
+    slab.InitCpu(cpu, [this](size_t sc) { return MaxCapacity(sc); });
     cpu_initialized[cpu] = true;
   }
 }
 
 void State::CheckInvariants() {
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    for (size_t sc = 1; sc < kNumClasses; ++sc) {
+  for (size_t sc = 1; sc < kNumClasses; ++sc) {
+    size_t total_in_slabs = 0;
+    const size_t max_cap = MaxCapacity(sc);
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
       const size_t len = slab.Length(cpu, sc);
       const size_t cap = slab.Capacity(cpu, sc);
-      const size_t max_cap = MaxCapacity(sc);
       TC_CHECK_LE(len, cap);
       TC_CHECK_LE(cap, max_cap);
+      total_in_slabs += len;
     }
+    TC_CHECK_EQ(available_objects[sc].size() + total_in_slabs,
+                allocated_objects[sc].size());
   }
 }
 
@@ -272,11 +283,8 @@ struct PushBatch {
         TC_CHECK_LE(pushed, count);
       }
     }
-    if (pushed < count) {
-      // Discard any objects we didn't successfully push.
-      for (size_t i = 0; i < count - pushed; ++i) {
-        state.FreeObject(batch[i], sc);
-      }
+    for (size_t i = 0; i < count - pushed; ++i) {
+      state.FreeObject(batch[i], sc);
     }
   }
 };
@@ -327,17 +335,55 @@ struct Grow {
     if (state.cpu_stopped[state.current_cpu]) {
       return;
     }
-
     state.EnsureCpuInitialized(state.current_cpu);
-    size_t grew = state.slab.Grow(state.current_cpu, sc, len,
-                                  [sc](uint8_t) { return MaxCapacity(sc); });
+    size_t grew = state.slab.Grow(
+        state.current_cpu, sc, len,
+        [&state, sc](uint8_t) { return state.MaxCapacity(sc); });
     TC_CHECK_LE(grew, len);
   }
 };
 
-struct ShrinkOtherCache {
-  unsigned size_class;
+struct GrowOtherClass {
   uint8_t cpu_index;
+  unsigned size_class;
+  uint8_t len;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const GrowOtherClass& g) {
+    absl::Format(&sink,
+                 "GrowOtherClass{.cpu_index=%v, .size_class=%v, .len=%v}",
+                 g.cpu_index, g.size_class, g.len);
+  }
+
+  void Perform(State& state) const {
+    const int target_cpu = cpu_index % state.num_cpus;
+    const size_t sc = 1 + (size_class % (kNumClasses - 1));
+    const size_t len = 1 + (this->len % kMaxCapacity);
+    if (!state.cpu_initialized[target_cpu]) {
+      if (state.cpu_stopped[target_cpu]) {
+        return;
+      }
+      state.EnsureCpuInitialized(target_cpu);
+    }
+    const bool was_stopped = state.cpu_stopped[target_cpu];
+    if (!was_stopped) {
+      state.slab.StopCpu(target_cpu);
+      state.cpu_stopped[target_cpu] = true;
+    }
+    size_t grew = state.slab.GrowOtherCache(
+        target_cpu, sc, len,
+        [&state, sc](uint8_t) { return state.MaxCapacity(sc); });
+    TC_CHECK_LE(grew, len);
+    if (!was_stopped) {
+      state.slab.StartCpu(target_cpu);
+      state.cpu_stopped[target_cpu] = false;
+    }
+  }
+};
+
+struct ShrinkOtherCache {
+  uint8_t cpu_index;
+  unsigned size_class;
   uint8_t len;
 
   template <typename Sink>
@@ -352,11 +398,10 @@ struct ShrinkOtherCache {
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
     const size_t len = 1 + (this->len % kMaxCapacity);
     if (!state.cpu_initialized[target_cpu]) {
-      if (!state.cpu_stopped[target_cpu]) {
-        state.EnsureCpuInitialized(target_cpu);
-      } else {
+      if (state.cpu_stopped[target_cpu]) {
         return;
       }
+      state.EnsureCpuInitialized(target_cpu);
     }
     const bool was_stopped = state.cpu_stopped[target_cpu];
     if (!was_stopped) {
@@ -405,7 +450,7 @@ struct Drain {
     for (size_t sc = 1; sc < kNumClasses; ++sc) {
       TC_CHECK_EQ(state.slab.Length(target_cpu, sc), 0);
       const size_t cap = state.slab.Capacity(target_cpu, sc);
-      const size_t max_cap = MaxCapacity(sc);
+      const size_t max_cap = state.MaxCapacity(sc);
       TC_CHECK_LE(0, cap);
       TC_CHECK_LE(cap, max_cap);
     }
@@ -449,6 +494,120 @@ struct ReleasePerCPUSlabMetadata {
           }
         });
   }
+};
+
+struct ResizeSlabs {
+  uint8_t shift_index;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const ResizeSlabs& r) {
+    absl::Format(&sink, "ResizeSlabs{.shift_index=%v}", r.shift_index);
+  }
+
+  void Perform(State& state) const {
+    if (absl::c_any_of(state.cpu_stopped, [](bool s) { return s; })) {
+      return;
+    }
+    const uint8_t current_shift = state.slab.GetShift();
+    constexpr uint8_t kMinShift = 14;
+    constexpr uint8_t kMaxShift = 18;
+    uint8_t target_shift =
+        kMinShift + (shift_index % (kMaxShift - kMinShift + 1));
+    if (target_shift == current_shift) {
+      target_shift =
+          (current_shift == kMaxShift) ? kMinShift : current_shift + 1;
+    }
+    const Shift new_shift = ToShiftType(target_shift);
+    const size_t new_slabs_size = GetSlabsAllocSize(new_shift, state.num_cpus);
+    void* new_slabs = Malloc(new_slabs_size, SlabAlignment(new_shift));
+    const auto [old_slabs, old_slabs_size] = state.slab.ResizeSlabs(
+        new_shift, new_slabs,
+        [&state](size_t sc) { return state.MaxCapacity(sc); },
+        [&state](size_t cpu) { return state.cpu_initialized[cpu]; },
+        [&state](int cpu, size_t size_class, void** batch, size_t size,
+                 size_t cap) {
+          TC_CHECK_LT(size_class, kNumClasses);
+          for (size_t i = 0; i < size; ++i) {
+            state.CheckValidObject(batch[i], size_class);
+            state.available_objects[size_class].push_back(batch[i]);
+          }
+        });
+    const Shift old_shift = ToShiftType(current_shift);
+    sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(old_shift));
+    auto [got_cpu, cached] = state.slab.CacheCpuSlab();
+    if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
+      state.EnsureCpuInitialized(got_cpu);
+    }
+  }
+};
+
+struct UpdateMaxCapacities {
+  unsigned size_class;
+  uint8_t new_max_capacity;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const UpdateMaxCapacities& u) {
+    absl::Format(&sink,
+                 "UpdateMaxCapacities{.size_class=%v, .new_max_capacity=%v}",
+                 u.size_class, u.new_max_capacity);
+  }
+
+  void Perform(State& state) const {
+    if (absl::c_any_of(state.cpu_stopped, [](bool s) { return s; })) {
+      return;
+    }
+    const size_t sc = 1 + (size_class % (kNumClasses - 1));
+    const size_t target_cap = 1 + (new_max_capacity % kMaxCapacity);
+    PerSizeClassMaxCapacity new_caps[1] = {
+        {.size_class = sc, .max_capacity = target_cap}};
+    const Shift shift = ToShiftType(state.slab.GetShift());
+    const size_t slabs_size = GetSlabsAllocSize(shift, state.num_cpus);
+    void* new_slabs = Malloc(slabs_size, SlabAlignment(shift));
+    const auto [old_slabs, old_slabs_size] = state.slab.UpdateMaxCapacities(
+        new_slabs,
+        [&state](size_t size_class) { return state.MaxCapacity(size_class); },
+        [&state](int size_class, uint16_t cap) {
+          state.max_capacity[size_class] = cap;
+        },
+        [&state](size_t cpu) { return state.cpu_initialized[cpu]; },
+        [&state](int cpu, size_t size_class, void** batch, size_t size,
+                 size_t cap) {
+          TC_CHECK_LT(size_class, kNumClasses);
+          for (size_t i = 0; i < size; ++i) {
+            state.CheckValidObject(batch[i], size_class);
+            state.available_objects[size_class].push_back(batch[i]);
+          }
+        },
+        new_caps, 1);
+    sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(shift));
+    auto [got_cpu, cached] = state.slab.CacheCpuSlab();
+    if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
+      state.EnsureCpuInitialized(got_cpu);
+    }
+  }
+};
+
+struct CacheCpuSlab {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const CacheCpuSlab&) {
+    absl::Format(&sink, "CacheCpuSlab{}");
+  }
+
+  void Perform(State& state) const {
+    auto [got_cpu, cached] = state.slab.CacheCpuSlab();
+    if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
+      state.EnsureCpuInitialized(got_cpu);
+    }
+  }
+};
+
+struct UncacheCpuSlab {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const UncacheCpuSlab&) {
+    absl::Format(&sink, "UncacheCpuSlab{}");
+  }
+
+  void Perform(State& state) const { state.slab.UncacheCpuSlab(); }
 };
 
 struct SwitchCpu {
@@ -507,14 +666,11 @@ struct StartCpu {
   }
 };
 
-// TODO(b/271282540): Add additional coverage for
-// * GrowOtherClass
-// * ResizeSlabs
-// * UpdateMaxCapacities
-
 using Instruction =
-    std::variant<Push, Pop, PushBatch, PopBatch, Grow, ShrinkOtherCache, Drain,
-                 ReleasePerCPUSlabMetadata, SwitchCpu, StopCpu, StartCpu>;
+    std::variant<Push, Pop, PushBatch, PopBatch, Grow, GrowOtherClass,
+                 ShrinkOtherCache, Drain, ReleasePerCPUSlabMetadata,
+                 ResizeSlabs, UpdateMaxCapacities, CacheCpuSlab, UncacheCpuSlab,
+                 SwitchCpu, StopCpu, StartCpu>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {
@@ -545,6 +701,14 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
   FuzzPercpuTcmalloc({Grow{.size_class = 2147483647, .len = 185},
                       Push{.size_class = 0},
                       PushBatch{.size_class = 0, .count = 56}});
+
+  FuzzPercpuTcmalloc(
+      {GrowOtherClass{.cpu_index = 0, .size_class = 1, .len = 5},
+       ShrinkOtherCache{.cpu_index = 0, .size_class = 1, .len = 2},
+       Drain{.cpu_index = 0}, ResizeSlabs{.shift_index = 1},
+       UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
+       UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
+       StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}});
 }
 
 FUZZ_TEST(PercpuTcmallocTest, FuzzPercpuTcmalloc)
