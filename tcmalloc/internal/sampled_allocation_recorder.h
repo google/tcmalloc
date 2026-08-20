@@ -89,7 +89,7 @@ class SampleRecorder {
   void UnregisterAll();
 
   // Iterates over all the registered samples.
-  void Iterate(const absl::FunctionRef<void(const T& sample)>& f);
+  void Iterate(const absl::FunctionRef<void(const T& sample)> f);
 
  private:
   void PushNew(T* sample);
