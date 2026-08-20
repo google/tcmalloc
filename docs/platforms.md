@@ -13,7 +13,7 @@ We guarantee that our code will compile under the following compilation flags:
 
 Linux:
 
-*   gcc 9.2+, clang 9.0+: `-std=c++17`
+*   gcc 9.2+, clang 11.0+: `-std=c++17`
 
 (TL;DR; All code at this time must be built under C++17. We will update this
 list if circumstances change.)
@@ -42,7 +42,7 @@ Architecture, Specific Compiler, and Standard Library implementation.
       <td>Linux</td>
       <td>little-endian, 64-bit</td>
       <td>x86, AArch64</td>
-      <td>gcc 9.2+<br/>clang 9.0+</td>
+      <td>gcc 9.2+<br/>clang 11.0+</td>
       <td>libstdc++<br/>libc++</td>
     </tr>
   </tbody>
@@ -68,7 +68,7 @@ release should also work.
       <td>Linux</td>
       <td>little-endian, 64-bit</td>
       <td>PPC</td>
-      <td>gcc 9.2+<br/>clang 9.0+</td>
+      <td>gcc 9.2+<br/>clang 11.0+</td>
       <td>libstdc++<br/>libc++</td>
     </tr>
   </tbody>
