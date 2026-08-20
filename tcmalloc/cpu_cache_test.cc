@@ -407,7 +407,7 @@ TEST(CpuCacheTest, MinimumShardsForGenericCache) {
   EXPECT_EQ(forwarder.transfer_cache().tc_length(kSizeClass), 0);
 
   cache.Deallocate(ptr, kSizeClass);
-  cache.Reclaim(0);
+  cache.Drain(0);
   EXPECT_EQ(sharded_transfer_cache.tc_length(kCpuId, kSizeClass), 0);
   EXPECT_FALSE(sharded_transfer_cache.shard_initialized(0));
   EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 0);
@@ -459,7 +459,7 @@ TEST(CpuCacheTest, UsesShardedAsBackingCache) {
   // Free objects to confirm that they are indeed released back to the sharded
   // transfer cache.
   cache.Deallocate(ptr, kSizeClass);
-  cache.Reclaim(0);
+  cache.Drain(0);
   sharded_stats = sharded_transfer_cache.GetStats(kSizeClass);
   EXPECT_EQ(sharded_stats.insert_hits, 1);
   EXPECT_EQ(sharded_stats.insert_misses, 0);
@@ -901,7 +901,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
     EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
               resized_max_capacity);
   }
-  // Reclaim caches.
+  // Drain caches.
   cache.Deactivate();
 }
 
@@ -1254,7 +1254,7 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
   EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), batch_size_small);
 
-  // Reclaim caches.
+  // Drain caches.
   cache.Deactivate();
 }
 
@@ -1272,7 +1272,7 @@ static void ColdCacheOperations(CpuCache& cache, int cpu_id,
 // Runs multiple allocate and deallocate operation on the cpu cache to collect
 // misses. Once we collect enough misses on this cache, we can shuffle cpu
 // caches to steal capacity from colder caches to the hot cache.
-static void HotCacheOperations(CpuCache& cache, int cpu_id, bool reclaim) {
+static void HotCacheOperations(CpuCache& cache, int cpu_id, bool drain) {
   constexpr size_t kPtrs = 4096;
   std::vector<void*> ptrs;
   ptrs.resize(kPtrs);
@@ -1293,12 +1293,12 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id, bool reclaim) {
     }
   }
 
-  if (reclaim) {
-    // We reclaim the cache to reset it so that we record underflows/overflows
-    // the next time we allocate and deallocate objects. Without reclaim, the
+  if (drain) {
+    // We drain the cache to reset it so that we record underflows/overflows
+    // the next time we allocate and deallocate objects. Without drain, the
     // cache would stay warmed up and it would take more time to drain the
     // colder cache.
-    cache.Reclaim(cpu_id);
+    cache.Drain(cpu_id);
   }
 }
 
@@ -1327,7 +1327,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
   constexpr int kCpuId1 = 1;
 
   // Accumulate overflows and underflows for kCpuId0.
-  HotCacheOperations(cache, kCpuId0, /*reclaim=*/true);
+  HotCacheOperations(cache, kCpuId0, /*drain=*/true);
   CpuCache::CpuCacheMissStats interval_misses =
       cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
   // Make sure that overflows/underflows ratio is greater than the threshold
@@ -1336,11 +1336,11 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
             interval_misses.underflows * kDynamicSlabGrowThreshold);
 
   // Perform allocations on kCpuId1 so that we accumulate only underflows.
-  // Reclaim after each allocation such that we have no objects in the cache
+  // Drain after each allocation such that we have no objects in the cache
   // for the next allocation.
   for (int i = 0; i < 1024; ++i) {
     ColdCacheOperations(cache, kCpuId1, /*size_class=*/1);
-    cache.Reclaim(kCpuId1);
+    cache.Drain(kCpuId1);
   }
 
   // Total overflows/underflows ratio must be less than grow threshold now.
@@ -1547,7 +1547,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
            CpuCache::kCacheCapacityThreshold * max_cpu_cache_size;
        ++num_tries) {
     ColdCacheOperations(cache, cold_cpu_id, size_class);
-    HotCacheOperations(cache, hot_cpu_id, /*reclaim=*/true);
+    HotCacheOperations(cache, hot_cpu_id, /*drain=*/true);
     cache.ShuffleCpuCaches();
 
     // Check that the capacity is preserved.
@@ -1576,7 +1576,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   // change the capacity of either of the caches.
   for (int i = 0; i < 100; ++i) {
     ColdCacheOperations(cache, cold_cpu_id, size_class);
-    HotCacheOperations(cache, hot_cpu_id, /*reclaim=*/true);
+    HotCacheOperations(cache, hot_cpu_id, /*drain=*/true);
     cache.ShuffleCpuCaches();
 
     // Check that the capacity is preserved.
@@ -1595,11 +1595,11 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   EXPECT_EQ(cache.Capacity(cold_cpu_id) + cache.Capacity(hot_cpu_id),
             2 * max_cpu_cache_size);
 
-  // Reclaim caches.
+  // Drain caches.
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, ReclaimCpuCache) {
+TEST(CpuCacheTest, DrainCpuCache) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -1611,14 +1611,14 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
-    // Check that reclaim miss metrics are reset.
-    CpuCache::CpuCacheMissStats reclaim_misses =
-        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
-    EXPECT_EQ(reclaim_misses.underflows, 0);
-    EXPECT_EQ(reclaim_misses.overflows, 0);
+    // Check that drain miss metrics are reset.
+    CpuCache::CpuCacheMissStats drain_misses =
+        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kDrain);
+    EXPECT_EQ(drain_misses.underflows, 0);
+    EXPECT_EQ(drain_misses.overflows, 0);
 
-    // None of the caches should have been reclaimed yet.
-    EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
+    // None of the caches should have been drained yet.
+    EXPECT_EQ(cache.GetNumDrains(cpu), 0);
     EXPECT_EQ(cache.GetNumUnpopulates(cpu), 0);
 
     // Check that caches are empty.
@@ -1644,11 +1644,11 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     CpuCache::CpuCacheMissStats misses_last_interval =
-        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
+        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kDrain);
     CpuCache::CpuCacheMissStats total_misses =
         cache.GetTotalCacheMissStats(cpu);
 
-    // Misses since the last reclaim (i.e. since we initialized the caches)
+    // Misses since the last drain (i.e. since we initialized the caches)
     // should match the total miss metrics.
     EXPECT_EQ(misses_last_interval.underflows, total_misses.underflows);
     EXPECT_EQ(misses_last_interval.overflows, total_misses.overflows);
@@ -1657,25 +1657,25 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
     EXPECT_GT(cache.UsedBytes(cpu), 0);
   }
 
-  cache.TryReclaimingCaches();
+  cache.TryDrainingCaches();
 
   // Miss metrics since the last interval were non-zero and the change in used
-  // bytes was non-zero, so none of the caches should get reclaimed.
+  // bytes was non-zero, so none of the caches should get drained.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
-    // As no cache operations were performed since the last reclaim
-    // operation, the reclaim misses captured during the last interval (i.e.
-    // since the last reclaim) should be zero.
-    CpuCache::CpuCacheMissStats reclaim_misses =
-        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
-    EXPECT_EQ(reclaim_misses.underflows, 0);
-    EXPECT_EQ(reclaim_misses.overflows, 0);
+    // As no cache operations were performed since the last drain
+    // operation, the drain misses captured during the last interval (i.e.
+    // since the last drain) should be zero.
+    CpuCache::CpuCacheMissStats drain_misses =
+        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kDrain);
+    EXPECT_EQ(drain_misses.underflows, 0);
+    EXPECT_EQ(drain_misses.overflows, 0);
 
-    // None of the caches should have been reclaimed as the caches were
+    // None of the caches should have been drained as the caches were
     // accessed in the previous interval.
-    EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
+    EXPECT_EQ(cache.GetNumDrains(cpu), 0);
 
-    // Caches should not have been reclaimed; used bytes should be non-zero.
+    // Caches should not have been drained; used bytes should be non-zero.
     EXPECT_GT(cache.UsedBytes(cpu), 0);
   }
 
@@ -1685,40 +1685,40 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   ColdCacheOperations(cache, busy_cpu, kBusySizeClass);
   EXPECT_GT(cache.UsedBytes(busy_cpu), prev_used);
 
-  // Try reclaiming caches again.
-  cache.TryReclaimingCaches();
+  // Try draining caches again.
+  cache.TryDrainingCaches();
 
   // All caches, except the busy cpu cache against which we performed some
-  // operations in the previous interval, should have been reclaimed exactly
+  // operations in the previous interval, should have been drained exactly
   // once.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     if (cpu == busy_cpu) {
       EXPECT_GT(cache.UsedBytes(cpu), 0);
-      EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
+      EXPECT_EQ(cache.GetNumDrains(cpu), 0);
     } else {
       EXPECT_EQ(cache.UsedBytes(cpu), 0);
-      EXPECT_EQ(cache.GetNumReclaims(cpu), 1);
+      EXPECT_EQ(cache.GetNumDrains(cpu), 1);
     }
   }
 
-  // Try reclaiming caches again.
-  cache.TryReclaimingCaches();
+  // Try draining caches again.
+  cache.TryDrainingCaches();
 
-  // All caches, including the busy cache, should have been reclaimed this
-  // time. Note that the caches that were reclaimed in the previous interval
-  // should not be reclaimed again and the number of reclaims reported for them
+  // All caches, including the busy cache, should have been drained this
+  // time. Note that the caches that were drained in the previous interval
+  // should not be drained again and the number of drains reported for them
   // should still be one.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     EXPECT_EQ(cache.UsedBytes(cpu), 0);
-    EXPECT_EQ(cache.GetNumReclaims(cpu), 1);
+    EXPECT_EQ(cache.GetNumDrains(cpu), 1);
   }
 
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, ReclaimCpuCacheAndUnpopulate) {
+TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -1756,32 +1756,32 @@ TEST(CpuCacheTest, ReclaimCpuCacheAndUnpopulate) {
       EXPECT_EQ(cache.GetNumUnpopulates(cpu), 0);
     }
 
-    // None of the caches are stable, so nothing should be reclaimed
+    // None of the caches are stable, so nothing should be drained
     // and nothing should be unpopulated.
-    cache.TryReclaimingCaches();
-    EXPECT_EQ(cache.GetNumReclaims(), 0);
+    cache.TryDrainingCaches();
+    EXPECT_EQ(cache.GetNumDrains(), 0);
     EXPECT_EQ(cache.GetNumUnpopulates(), 0);
 
     // Do some work on every other CPUs. This should block all unpopulates,
-    // as no hugepage will contain all-reclaimed caches. The other ones
-    // should be reclaimed, though.
+    // as no hugepage will contain all-drained caches. The other ones
+    // should be drained, though.
     int num_idle_cpus = 0;
     for (int cpu = 0; cpu < num_cpus; ++cpu) {
       if (cpu % 2 == 0) {
-        HotCacheOperations(cache, cpu, /*reclaim=*/false);
+        HotCacheOperations(cache, cpu, /*drain=*/false);
       } else {
         ++num_idle_cpus;
       }
     }
-    cache.TryReclaimingCaches();
-    EXPECT_EQ(cache.GetNumReclaims(), num_idle_cpus);
+    cache.TryDrainingCaches();
+    EXPECT_EQ(cache.GetNumDrains(), num_idle_cpus);
     EXPECT_EQ(cache.GetNumUnpopulates(), 0);
 
     // Now do work on only one CPU, to record some misses on that,
-    // but let the others stay idle. (We do an extra reclaim first,
+    // but let the others stay idle. (We do an extra drain first,
     // or HotCacheOperations() wouldn't actually cause misses.
-    // This reclaim gets included in GetNumReclaims() below.)
-    // We should have unpopulates after another round of reclaim,
+    // This drain gets included in GetNumDrains() below.)
+    // We should have unpopulates after another round of drain,
     // but not everything.
     //
     // The “arbitrary” CPU must already be touched (so even),
@@ -1792,11 +1792,11 @@ TEST(CpuCacheTest, ReclaimCpuCacheAndUnpopulate) {
       TC_LOG("Not enough CPUs to run test; skipping.");
       return;
     }
-    HotCacheOperations(cache, arbitrary_cpu, /*reclaim=*/false);
-    cache.TryReclaimingCaches();
+    HotCacheOperations(cache, arbitrary_cpu, /*drain=*/false);
+    cache.TryDrainingCaches();
 
-    EXPECT_EQ(cache.GetNumReclaims(arbitrary_cpu), 0);
-    EXPECT_EQ(cache.GetNumReclaims(), num_cpus - 1);
+    EXPECT_EQ(cache.GetNumDrains(arbitrary_cpu), 0);
+    EXPECT_EQ(cache.GetNumDrains(), num_cpus - 1);
 
     if (enabled) {
       // The touched CPU cannot be unpopulated, and since it shares hugepage
@@ -1813,10 +1813,10 @@ TEST(CpuCacheTest, ReclaimCpuCacheAndUnpopulate) {
       EXPECT_EQ(cache.GetNumUnpopulates(), 0);
     }
 
-    // Flip the flag and run a new reclaim, to test the transition.
+    // Flip the flag and run a new drain, to test the transition.
     cache.forwarder().release_drained_slab_metadata_ = !enabled;
-    cache.TryReclaimingCaches();
-    EXPECT_EQ(cache.GetNumReclaims(), num_cpus);
+    cache.TryDrainingCaches();
+    EXPECT_EQ(cache.GetNumDrains(), num_cpus);
 
     cache.Deactivate();
   }
@@ -1860,21 +1860,21 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
     }
   }
 
-  // Next, we reclaim per-cpu caches, one at a time, to drain all the kSizeClass
-  // objects cached by them. As we progressively reclaim per-cpu caches, the
+  // Next, we drain per-cpu caches, one at a time, to drain all the kSizeClass
+  // objects cached by them. As we progressively drain per-cpu caches, the
   // capacity for kSizeClass averaged over all CPUs should also drop linearly.
-  // We reclaim all but one per-cpu caches (we reclaim last per-cpu cache
+  // We drain all but one per-cpu caches (we drain last per-cpu cache
   // outside the loop so that we can check for max_capacity=0 separately).
   for (int cpu = 0; cpu < num_cpus - 1; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
-    cache.Reclaim(cpu);
+    cache.Drain(cpu);
 
     CpuCache::SizeClassCapacityStats capacity_stats =
         cache.GetSizeClassCapacityStats(kSizeClass);
-    // Reclaiming even one per-cpu cache should set min_capacity to zero.
+    // Draining even one per-cpu cache should set min_capacity to zero.
     EXPECT_EQ(capacity_stats.min_capacity, 0);
 
-    // (cpu+1) number of caches have been reclaimed. So, (num_cpus-cpu-1) number
+    // (cpu+1) number of caches have been drained. So, (num_cpus-cpu-1) number
     // of caches are currently populated, with each cache storing batch_size
     // number of kSizeClass objects.
     double expected_avg =
@@ -1886,9 +1886,9 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
     EXPECT_EQ(capacity_stats.max_capacity, batch_size);
   }
 
-  // We finally reclaim last per-cpu cache. All the reported capacity stats
+  // We finally drain last per-cpu cache. All the reported capacity stats
   // should drop to zero as none of the caches hold any objects.
-  cache.Reclaim(num_cpus - 1);
+  cache.Drain(num_cpus - 1);
   CpuCache::SizeClassCapacityStats capacity_stats =
       cache.GetSizeClassCapacityStats(kSizeClass);
   EXPECT_EQ(capacity_stats.min_capacity, 0);
@@ -1971,12 +1971,12 @@ class CpuCacheEnvironment {
       }
       case 11: {
         absl::MutexLock lock(background_mutex_);
-        cache_.TryReclaimingCaches();
+        cache_.TryDrainingCaches();
         break;
       }
       case 12: {
         absl::MutexLock lock(background_mutex_);
-        cache_.Reclaim(cpu);
+        cache_.Drain(cpu);
         break;
       }
       case 13: {
@@ -1995,17 +1995,17 @@ class CpuCacheEnvironment {
         break;
       }
       case 16:
-        benchmark::DoNotOptimize(cache_.GetNumReclaims(cpu));
+        benchmark::DoNotOptimize(cache_.GetNumDrains(cpu));
         break;
       case 17: {
         const auto total_misses = cache_.GetTotalCacheMissStats(cpu);
-        const auto reclaim_misses =
-            cache_.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
+        const auto drain_misses =
+            cache_.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kDrain);
         const auto shuffle_misses =
             cache_.GetIntervalCacheMissStats(cpu, MissCount::kShuffle);
 
         benchmark::DoNotOptimize(total_misses);
-        benchmark::DoNotOptimize(reclaim_misses);
+        benchmark::DoNotOptimize(drain_misses);
         benchmark::DoNotOptimize(shuffle_misses);
         break;
       }

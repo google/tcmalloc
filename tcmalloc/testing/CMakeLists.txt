@@ -711,9 +711,9 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
-    tcmalloc_testing_reclaim_test
+    tcmalloc_testing_drain_test
   SRCS
-    "reclaim_test.cc"
+    "drain_test.cc"
   DEPS
     "GTest::gtest"
     "GTest::gmock"

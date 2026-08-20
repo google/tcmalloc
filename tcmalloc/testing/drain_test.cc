@@ -81,7 +81,7 @@ void GetMallocStats(std::string* buffer) {
   buffer->resize(std::min(required, buffer->size()));
 }
 
-TEST(ReclaimTest, ReclaimWorks) {
+TEST(DrainTest, DrainWorks) {
   if (!MallocExtension::PerCpuCachesActive()) {
     GTEST_SKIP() << "Skipping test without per-CPU caches";
     return;
@@ -130,15 +130,15 @@ TEST(ReclaimTest, ReclaimWorks) {
   EXPECT_EQ(0, ParseCpuCacheSize(after, cpu));
 }
 
-TEST(ReclaimTest, ReclaimStable) {
+TEST(DrainTest, DrainStable) {
   if (!MallocExtension::PerCpuCachesActive()) {
     GTEST_SKIP() << "Skipping test without per-CPU caches";
     return;
   }
 
-  // make sure that reclamation under heavy load doesn't lead to
+  // Make sure that draining under heavy load doesn't lead to
   // corruption.
-  struct Reclaimer {
+  struct Drainer {
     static void Go(std::atomic<bool>* sync, bool initialize_rseq) {
       if (initialize_rseq) {
         // Require initialization to succeed.
@@ -158,8 +158,8 @@ TEST(ReclaimTest, ReclaimStable) {
   };
 
   std::atomic<bool> sync{false};
-  std::thread releaser(Reclaimer::Go, &sync, true);
-  std::thread no_rseq_releaser(Reclaimer::Go, &sync, false);
+  std::thread releaser(Drainer::Go, &sync, true);
+  std::thread no_rseq_releaser(Drainer::Go, &sync, false);
 
   const int kThreads = 10;
   ThreadManager mgr;

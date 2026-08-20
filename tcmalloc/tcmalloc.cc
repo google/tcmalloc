@@ -519,7 +519,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
 
   size_t bytes = 0;
   if (tc_globals.CpuCacheActive()) {
-    bytes = tc_globals.cpu_cache().Reclaim(cpu);
+    bytes = tc_globals.cpu_cache().Drain(cpu);
   }
   return bytes;
 }

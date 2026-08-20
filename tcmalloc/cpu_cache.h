@@ -298,7 +298,7 @@ class CpuCache {
     kShuffle,
     // Tracks number of misses recorded as of the end of the last resize
     // interval.
-    kReclaim,
+    kDrain,
     // Tracks number of misses recorded as of the end of the last slab resize
     // interval.
     kSlabResize,
@@ -408,11 +408,11 @@ class CpuCache {
   // ShuffleCpuCaches.
   void ShuffleCpuCaches();
 
-  // Tries to reclaim inactive per-CPU caches. It iterates through the set of
-  // populated cpu caches and reclaims the caches that:
+  // Tries to drain/reclaim inactive per-CPU caches. It iterates through
+  // the set of populated cpu caches and drains the caches that:
   // (1) had same number of used bytes since the last interval,
   // (2) had no change in the number of misses since the last interval.
-  void TryReclaimingCaches();
+  void TryDrainingCaches();
 
   // Resize size classes for up to kNumCpuCachesToResize cpu caches per
   // interval.
@@ -455,9 +455,7 @@ class CpuCache {
   // guarantee it will be fully empty on return, but if the cpu is
   // unused, this will eliminate stranded memory.)  Returns the number
   // of bytes we sent back.  This function is thread safe.
-  //
-  // Reclaim is called Drain in the lower levels.
-  uint64_t Reclaim(int cpu);
+  uint64_t Drain(int cpu);
 
   // Reports number of times the size classes were resized for <cpu>.
   uint64_t GetNumResizes(int cpu) const;
@@ -465,15 +463,15 @@ class CpuCache {
   // Reports total number of times size classes were resized.
   uint64_t GetNumResizes() const;
 
-  // Reports number of times the <cpu> has been reclaimed.
-  uint64_t GetNumReclaims(int cpu) const;
+  // Reports number of times the <cpu> has been drained.
+  uint64_t GetNumDrains(int cpu) const;
 
-  // Reports total number of times any CPU has been reclaimed.
-  uint64_t GetNumReclaims() const;
+  // Reports total number of times any CPU has been drained.
+  uint64_t GetNumDrains() const;
 
   // Reports number of times the <cpu> has been unpopulated
   // (which happens when its metadata gets released, after all per-CPU
-  // metadata slabs on the same hugepage ave been reclaimed).
+  // metadata slabs on the same hugepage have been drained).
   uint64_t GetNumUnpopulates(int cpu) const;
 
   // Reports total number of times any CPU has been unpopulated.
@@ -684,9 +682,9 @@ class CpuCache {
     // This tracks the total allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
     // Used bytes in the cache as of the end of the last resize interval.
-    std::atomic<uint64_t> reclaim_used_bytes;
-    // Tracks number of times this CPU has been reclaimed.
-    std::atomic<size_t> num_reclaims;
+    std::atomic<uint64_t> drain_used_bytes;
+    // Tracks number of times this CPU has been drained.
+    std::atomic<size_t> num_drains;
     // Tracks number of times this CPU has been unpopulated
     // (see GetNumUnpopulates()).
     std::atomic<size_t> num_unpopulates;
@@ -1142,7 +1140,7 @@ template <class Forwarder>
 inline void CpuCache<Forwarder>::Deactivate() {
   int num_cpus = NumCPUs();
   for (int i = 0; i < num_cpus; i++) {
-    Reclaim(i);
+    Drain(i);
   }
 
   freelist_.Destroy(&forwarder_.Dealloc);
@@ -1430,43 +1428,42 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::TryReclaimingCaches()
+inline void CpuCache<Forwarder>::TryDrainingCaches()
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   const int num_cpus = NumCPUs();
 
   bool any_drained = false;
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    // Nothing to reclaim if the cpu is not populated.
+    // Nothing to drain if the cpu is not populated.
     if (!HasPopulated(cpu)) {
       continue;
     }
 
     uint64_t used_bytes = UsedBytes(cpu);
     uint64_t prev_used_bytes =
-        resize_[cpu].reclaim_used_bytes.load(std::memory_order_relaxed);
+        resize_[cpu].drain_used_bytes.load(std::memory_order_relaxed);
 
-    // Get reclaim miss and used bytes stats that were captured at the end of
+    // Get drain miss and used bytes stats that were captured at the end of
     // the previous interval.
     const CpuCacheMissStats miss_stats =
-        GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
+        GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kDrain);
     uint64_t misses =
         uint64_t{miss_stats.underflows} + uint64_t{miss_stats.overflows};
 
-    // Reclaim the cache if the number of used bytes and total number of misses
+    // Drain the cache if the number of used bytes and total number of misses
     // stayed constant since the last interval.
     if (used_bytes != 0 && used_bytes == prev_used_bytes && misses == 0) {
-      Reclaim(cpu);
+      Drain(cpu);
       any_drained = true;
     }
 
     // Takes a snapshot of used bytes in the cache at the end of this interval
     // so that we can calculate if cache usage changed in the next interval.
     //
-    // Reclaim occurs on a single thread. So, the relaxed store to used_bytes
+    // Drain occurs on a single thread. So, the relaxed store to used_bytes
     // is safe.
-    resize_[cpu].reclaim_used_bytes.store(used_bytes,
-                                          std::memory_order_relaxed);
+    resize_[cpu].drain_used_bytes.store(used_bytes, std::memory_order_relaxed);
   }
 
   if (any_drained && forwarder_.release_drained_slab_metadata()) {
@@ -2263,7 +2260,7 @@ struct DrainHandler {
 };
 
 template <class Forwarder>
-inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
+inline uint64_t CpuCache<Forwarder>::Drain(int cpu) {
   AllocationGuardSpinLockHolder h(resize_[cpu].lock);
 
   // If we haven't populated this core, freelist_.Drain() will touch the memory
@@ -2276,9 +2273,9 @@ inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
   uint64_t bytes = 0;
   freelist_.Drain(cpu, DrainHandler<CpuCache>{*this, &bytes});
 
-  // Record that the reclaim occurred for this CPU.
-  resize_[cpu].num_reclaims.store(
-      resize_[cpu].num_reclaims.load(std::memory_order_relaxed) + 1,
+  // Record that the drain occurred for this CPU.
+  resize_[cpu].num_drains.store(
+      resize_[cpu].num_drains.load(std::memory_order_relaxed) + 1,
       std::memory_order_relaxed);
   // Resetting the whole array of last miss timestamps is infrequent on idle
   // CPUs; it prevents 32-bit cycle counter epoch exhaustion if no longer
@@ -2306,17 +2303,17 @@ inline uint64_t CpuCache<Forwarder>::GetNumResizes() const {
 }
 
 template <class Forwarder>
-inline uint64_t CpuCache<Forwarder>::GetNumReclaims(int cpu) const {
-  return resize_[cpu].num_reclaims.load(std::memory_order_relaxed);
+inline uint64_t CpuCache<Forwarder>::GetNumDrains(int cpu) const {
+  return resize_[cpu].num_drains.load(std::memory_order_relaxed);
 }
 
 template <class Forwarder>
-inline uint64_t CpuCache<Forwarder>::GetNumReclaims() const {
-  uint64_t reclaims = 0;
+inline uint64_t CpuCache<Forwarder>::GetNumDrains() const {
+  uint64_t drains = 0;
   const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu)
-    reclaims += resize_[cpu].num_reclaims.load(std::memory_order_relaxed);
-  return reclaims;
+    drains += resize_[cpu].num_drains.load(std::memory_order_relaxed);
+  return drains;
 }
 
 template <class Forwarder>
@@ -2326,11 +2323,11 @@ inline uint64_t CpuCache<Forwarder>::GetNumUnpopulates(int cpu) const {
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::GetNumUnpopulates() const {
-  uint64_t reclaims = 0;
+  uint64_t drains = 0;
   const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu)
-    reclaims += resize_[cpu].num_unpopulates.load(std::memory_order_relaxed);
-  return reclaims;
+    drains += resize_[cpu].num_unpopulates.load(std::memory_order_relaxed);
+  return drains;
 }
 
 template <class Forwarder>
@@ -2670,7 +2667,7 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
 
     if (!last_miss.last_underflow_cycles || !last_miss.last_overflow_cycles) {
       // Don't consider the underflow/overflow time on this CPU if it is
-      // uninitialized (e.g. recently reclaimed or never missed).
+      // uninitialized (e.g. recently drained or never missed).
       continue;
     }
 
@@ -2766,24 +2763,23 @@ inline void CpuCache<Forwarder>::Print(Printer& out) const {
   }
 
   out.printf("------------------------------------------------\n");
-  out.printf("Number of per-CPU cache underflows, overflows, and reclaims\n");
+  out.printf("Number of per-CPU cache underflows, overflows, and drains\n");
   out.printf("------------------------------------------------\n");
   const auto print_miss_stats = [&out](CpuCacheMissStats miss_stats,
-                                       uint64_t reclaims, uint64_t resizes) {
+                                       uint64_t drains, uint64_t resizes) {
     out.printf(
         "%12u underflows,"
         "%12u overflows, overflows / underflows: %5.2f, "
-        "%12u reclaims,"
+        "%12u drains (reclaims),"
         "%12u resizes\n",
         miss_stats.underflows, miss_stats.overflows,
-        safe_div(miss_stats.overflows, miss_stats.underflows), reclaims,
-        resizes);
+        safe_div(miss_stats.overflows, miss_stats.underflows), drains, resizes);
   };
   out.printf("Total  :");
-  print_miss_stats(GetTotalCacheMissStats(), GetNumReclaims(), GetNumResizes());
+  print_miss_stats(GetTotalCacheMissStats(), GetNumDrains(), GetNumResizes());
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     out.printf("cpu %3d:", cpu);
-    print_miss_stats(GetTotalCacheMissStats(cpu), GetNumReclaims(cpu),
+    print_miss_stats(GetTotalCacheMissStats(cpu), GetNumDrains(cpu),
                      GetNumResizes(cpu));
   }
 
@@ -2817,7 +2813,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
     total_populated += populated;
     uint64_t unallocated = Unallocated(cpu);
     CpuCacheMissStats miss_stats = GetTotalCacheMissStats(cpu);
-    uint64_t reclaims = GetNumReclaims(cpu);
+    uint64_t drains = GetNumDrains(cpu);
     uint64_t resizes = GetNumResizes(cpu);
     entry.PrintI64("cpu", cpu);
     entry.PrintI64("used", rbytes);
@@ -2826,7 +2822,8 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
     entry.PrintBool("populated", populated);
     entry.PrintI64("underflows", miss_stats.underflows);
     entry.PrintI64("overflows", miss_stats.overflows);
-    entry.PrintI64("reclaims", reclaims);
+    // Name kept for backward compatibility.
+    entry.PrintI64("reclaims", drains);
     entry.PrintI64("size_class_resizes", resizes);
   }
 

@@ -25,7 +25,7 @@
 namespace tcmalloc {
 namespace {
 
-// This test reclaims per-CPU memory while continuously creating and destroying
+// This test drains per-CPU memory while continuously creating and destroying
 // a thread.  We should not access any thread related state after its
 // destruction.
 TEST(PercpuStaleTest, Integration) {

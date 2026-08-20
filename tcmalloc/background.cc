@@ -40,7 +40,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   tcmalloc::MallocExtension::MarkThreadIdle();
 
   absl::Time prev_time = absl::Now();
-  absl::Time last_reclaim = prev_time;
+  absl::Time last_drain = prev_time;
   absl::Time last_shuffle = prev_time;
   absl::Time last_size_class_resize = prev_time;
   absl::Time last_size_class_max_capacity_resize = prev_time;
@@ -62,14 +62,14 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     const absl::Duration sleep_time =
         tcmalloc::MallocExtension::GetBackgroundProcessSleepInterval();
 
-    // Reclaim inactive per-cpu caches once per cpu_cache_shuffle_period.
+    // Drain inactive per-cpu caches once per cpu_cache_shuffle_period.
     //
-    // We use a longer 30 sleep cycle reclaim period to make sure that caches
-    // are indeed idle. Reclaim drains entire cache, as opposed to cache shuffle
+    // We use a longer 30 sleep cycle drain period to make sure that caches
+    // are indeed idle. Drain drains entire cache, as opposed to cache shuffle
     // for instance that only shrinks a cache by a few objects at a time. So, we
-    // might have larger performance degradation if we use a shorter reclaim
+    // might have larger performance degradation if we use a shorter drain
     // interval and drain caches that weren't supposed to.
-    const absl::Duration cpu_cache_reclaim_period = 30 * sleep_time;
+    const absl::Duration cpu_cache_drain_period = 30 * sleep_time;
 
     // Shuffle per-cpu caches once per cpu_cache_shuffle_period.
     const absl::Duration cpu_cache_shuffle_period = 5 * sleep_time;
@@ -84,7 +84,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     const absl::Duration cpu_cache_slab_resize_period = 29 * sleep_time;
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    // We reclaim unused objects from the transfer caches once per
+    // We drain unused objects from the transfer caches once per
     // transfer_cache_plunder_period.
     const absl::Duration transfer_cache_plunder_period = 5 * sleep_time;
     // Resize transfer caches once per transfer_cache_resize_period.
@@ -115,11 +115,11 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
         // and some threads unable to).
         TC_CHECK(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
 
-        // Try to reclaim per-cpu caches once every cpu_cache_reclaim_period
+        // Try to drain per-cpu caches once every cpu_cache_drain_period
         // when enabled.
-        if (now - last_reclaim >= cpu_cache_reclaim_period) {
-          tc_globals.cpu_cache().TryReclaimingCaches();
-          last_reclaim = now;
+        if (now - last_drain >= cpu_cache_drain_period) {
+          tc_globals.cpu_cache().TryDrainingCaches();
+          last_drain = now;
         }
 
         if (now - last_shuffle >= cpu_cache_shuffle_period) {
@@ -172,7 +172,6 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
             Parameters::usermode_hugepage_collapse());
         last_hpaa_hugepage_check = now;
       }
-
 
       // If time goes backwards, we would like to cap the release rate at 0.
       //

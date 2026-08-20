@@ -795,8 +795,8 @@ create_tcmalloc_testsuite(
 )
 
 create_tcmalloc_testsuite(
-    name = "reclaim_test",
-    srcs = ["reclaim_test.cc"],
+    name = "drain_test",
+    srcs = ["drain_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
         "noasan",
