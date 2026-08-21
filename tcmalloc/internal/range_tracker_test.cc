@@ -453,6 +453,137 @@ TEST(BitmapScaleTest, Scale) {
   }
 }
 
+TEST(BitmapCopyBitsTest, ZeroLength) {
+  Bitmap<128> src;
+  src.SetRange(0, 128);
+  Bitmap<128> dst;
+
+  CopyBits(dst, 0, src, 0, 0);
+  EXPECT_TRUE(dst.IsZero());
+
+  CopyBits(dst, 50, src, 30, 0);
+  EXPECT_TRUE(dst.IsZero());
+
+  CopyBits(dst, 128, src, 128, 0);
+  EXPECT_TRUE(dst.IsZero());
+}
+
+TEST(BitmapCopyBitsTest, SingleBit) {
+  for (size_t src_pos : {0, 1, 63, 64, 65, 127, 200, 252}) {
+    for (size_t dst_pos : {0, 1, 63, 64, 65, 127, 200, 252}) {
+      Bitmap<253> src;
+      src.SetBit(src_pos);
+
+      Bitmap<253> dst;
+      CopyBits(dst, dst_pos, src, src_pos, 1);
+
+      EXPECT_TRUE(dst.GetBit(dst_pos));
+      EXPECT_EQ(dst.CountBits(), 1);
+    }
+  }
+}
+
+TEST(BitmapCopyBitsTest, AlignedWords) {
+  Bitmap<256> src;
+  // Set pattern in word 1 (bits 64..127)
+  src.SetBit(64 + 1);
+  src.SetBit(64 + 10);
+  src.SetBit(64 + 63);
+
+  Bitmap<256> dst;
+  // Copy full word from word 1 to word 2
+  CopyBits(dst, 128, src, 64, 64);
+
+  EXPECT_FALSE(dst.GetBit(128 + 0));
+  EXPECT_TRUE(dst.GetBit(128 + 1));
+  EXPECT_TRUE(dst.GetBit(128 + 10));
+  EXPECT_TRUE(dst.GetBit(128 + 63));
+  EXPECT_EQ(dst.CountBits(), 3);
+}
+
+TEST(BitmapCopyBitsTest, UnalignedOffsets) {
+  // Test straddling word boundaries in source and destination
+  Bitmap<256> src;
+  // Set bits [50, 80)
+  src.SetRange(50, 30);
+
+  Bitmap<256> dst;
+  // Copy [50, 80) in src (crosses 64-bit boundary) to [100, 130) in dst
+  // (crosses 128-bit boundary)
+  CopyBits(dst, 100, src, 50, 30);
+
+  for (size_t i = 0; i < 256; ++i) {
+    if (i >= 100 && i < 130) {
+      EXPECT_TRUE(dst.GetBit(i)) << "Bit " << i << " should be set";
+    } else {
+      EXPECT_FALSE(dst.GetBit(i)) << "Bit " << i << " should be clear";
+    }
+  }
+}
+
+TEST(BitmapCopyBitsTest, PreservesSurroundingBits) {
+  Bitmap<128> src;
+  src.SetBit(10);
+  src.SetBit(12);
+
+  Bitmap<128> dst;
+  dst.SetRange(0, 128);  // All ones initially
+
+  // Copy [8, 16) from src (where only 10 and 12 are set) to [40, 48) in dst.
+  CopyBits(dst, 40, src, 8, 8);
+
+  for (size_t i = 0; i < 128; ++i) {
+    if (i < 40 || i >= 48) {
+      EXPECT_TRUE(dst.GetBit(i))
+          << "Surrounding bit " << i << " should remain set";
+    } else if (i == 40 + 2 || i == 40 + 4) {
+      EXPECT_TRUE(dst.GetBit(i)) << "Copied set bit " << i << " should be set";
+    } else {
+      EXPECT_FALSE(dst.GetBit(i))
+          << "Copied clear bit " << i << " should be clear";
+    }
+  }
+}
+
+TEST(BitmapCopyBitsTest, DifferentSizes) {
+  Bitmap<64> src;
+  src.SetBit(5);
+  src.SetBit(40);
+
+  Bitmap<253> dst;
+  CopyBits(dst, 100, src, 0, 64);
+
+  EXPECT_TRUE(dst.GetBit(105));
+  EXPECT_TRUE(dst.GetBit(140));
+  EXPECT_EQ(dst.CountBits(), 2);
+
+  Bitmap<30> dst_small;
+  CopyBits(dst_small, 0, dst, 100, 30);
+  EXPECT_TRUE(dst_small.GetBit(5));
+  EXPECT_FALSE(dst_small.GetBit(0));
+  EXPECT_EQ(dst_small.CountBits(), 1);
+}
+
+TEST(BitmapCopyBitsTest, SelfCopyAssertionFailure) {
+#ifdef NDEBUG
+  GTEST_SKIP() << "Requires debug mode";
+#endif
+  Bitmap<64> map;
+  EXPECT_DEATH(CopyBits(map, 0, map, 0, 1), "");
+}
+
+TEST(BitmapCopyBitsTest, DeadBitsPreserved) {
+  Bitmap<253> src;
+  src.SetRange(0, 253);
+
+  Bitmap<253> dst;
+  CopyBits(dst, 0, src, 0, 253);
+
+  EXPECT_EQ(dst.CountBits(), 253);
+  Bitmap<253> inverted = ~dst;
+  EXPECT_TRUE(inverted.IsZero());
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

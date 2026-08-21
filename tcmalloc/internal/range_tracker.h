@@ -105,6 +105,18 @@ class Bitmap {
 
   size_t bits_[kWords];
 
+  template <size_t OtherN>
+  friend class Bitmap;
+
+  template <size_t DstN, size_t SrcN>
+  friend void CopyBits(Bitmap<DstN>& dst_bitmap, size_t dst,
+                       const Bitmap<SrcN>& src_bitmap, size_t src, size_t len);
+
+  // Reads bits [src_idx, src_idx+k) into a size_t.  k must be <=kWordSize.
+  static size_t ExtractBits(const Bitmap<N>& src, size_t src_idx, size_t k);
+  // Writes the first k bits of val to [dst_idx, dst_idx+k).
+  static void WriteBits(Bitmap<N>& dst, size_t dst_idx, size_t val, size_t k);
+
   size_t CountWordBits(size_t i, size_t from, size_t to) const;
 
   template <bool Value>
@@ -651,6 +663,82 @@ Bitmap<M> Scale(const Bitmap<N>& src, size_t src_len, ReductionOp op) {
     dst_idx += dst_per_src;
   }
   return res;
+}
+
+template <size_t N>
+inline size_t Bitmap<N>::ExtractBits(const Bitmap<N>& src, size_t src_idx,
+                                     size_t k) {
+  TC_ASSERT_GT(k, 0);
+  TC_ASSERT_LE(k, kWordSize);
+  TC_ASSERT_LE(src_idx, N);
+  TC_ASSERT_LE(k, N - src_idx);
+
+  const size_t word_idx = src_idx / kWordSize;
+  const size_t bit_offset = src_idx % kWordSize;
+  ASSUME(word_idx < kWords);
+
+  size_t val = src.bits_[word_idx] >> bit_offset;
+  if (bit_offset + k > kWordSize) {
+    ASSUME(word_idx + 1 < kWords);
+    val |= src.bits_[word_idx + 1] << (kWordSize - bit_offset);
+  }
+  if (k < kWordSize) {
+    val &= (size_t{1} << k) - 1;
+  }
+  return val;
+}
+
+template <size_t N>
+inline void Bitmap<N>::WriteBits(Bitmap<N>& dst, size_t dst_idx, size_t val,
+                                 size_t k) {
+  TC_ASSERT_GT(k, 0);
+  TC_ASSERT_LE(k, kWordSize);
+  TC_ASSERT_LE(dst_idx, N);
+  TC_ASSERT_LE(k, N - dst_idx);
+
+  const size_t word_idx = dst_idx / kWordSize;
+  const size_t bit_offset = dst_idx % kWordSize;
+  TC_ASSERT_LE(bit_offset + k, kWordSize);
+  ASSUME(word_idx < kWords);
+
+  const size_t mask =
+      (k == kWordSize) ? ~size_t{0} : (((size_t{1} << k) - 1) << bit_offset);
+  dst.bits_[word_idx] =
+      (dst.bits_[word_idx] & ~mask) | ((val << bit_offset) & mask);
+}
+
+// Copies [src, src+len) bits from src_bitmap into the [dst, dst+len) bits of
+// dst_bitmap.  dst_bitmap and src_bitmap must not alias one another.
+template <size_t DstN, size_t SrcN>
+inline void CopyBits(Bitmap<DstN>& dst_bitmap, size_t dst,
+                     const Bitmap<SrcN>& src_bitmap, size_t src, size_t len) {
+  if constexpr (DstN == SrcN) {
+    TC_ASSERT_NE(&dst_bitmap, &src_bitmap);
+  }
+
+  TC_ASSERT_LE(dst, DstN);
+  TC_ASSERT_LE(src, SrcN);
+  TC_ASSERT_LE(len, DstN - dst);
+  TC_ASSERT_LE(len, SrcN - src);
+
+  if (len == 0) {
+    return;
+  }
+
+  constexpr size_t kWordSize = sizeof(size_t) * 8;
+
+  size_t remaining = len;
+  size_t cur_src = src;
+  size_t cur_dst = dst;
+  while (remaining > 0) {
+    const size_t dst_offset = cur_dst % kWordSize;
+    const size_t k = std::min(remaining, kWordSize - dst_offset);
+    const size_t val = Bitmap<SrcN>::ExtractBits(src_bitmap, cur_src, k);
+    Bitmap<DstN>::WriteBits(dst_bitmap, cur_dst, val, k);
+    cur_src += k;
+    cur_dst += k;
+    remaining -= k;
+  }
 }
 
 }  // namespace tcmalloc_internal

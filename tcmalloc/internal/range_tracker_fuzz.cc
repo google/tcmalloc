@@ -92,5 +92,133 @@ FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCountBits)
                  fuzztest::InRange<size_t>(0, 253),
                  fuzztest::InRange<size_t>(0, 253));
 
+void FuzzBitmapCopyBits(const std::array<bool, 256>& src_bits,
+                        const std::array<bool, 256>& dst_initial_bits,
+                        size_t src_offset, size_t dst_offset, size_t length) {
+  constexpr size_t N = 256;
+  if (src_offset > N || src_offset + length > N || dst_offset > N ||
+      dst_offset + length > N) {
+    return;
+  }
+
+  Bitmap<N> src_map;
+  Bitmap<N> dst_map;
+  std::array<bool, N> expected_dst = dst_initial_bits;
+
+  for (size_t i = 0; i < N; ++i) {
+    if (src_bits[i]) {
+      src_map.SetBit(i);
+    }
+    if (dst_initial_bits[i]) {
+      dst_map.SetBit(i);
+    }
+  }
+
+  for (size_t i = 0; i < length; ++i) {
+    expected_dst[dst_offset + i] = src_bits[src_offset + i];
+  }
+
+  CopyBits(dst_map, dst_offset, src_map, src_offset, length);
+
+  for (size_t i = 0; i < N; ++i) {
+    EXPECT_EQ(dst_map.GetBit(i), expected_dst[i]);
+  }
+}
+
+FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCopyBits)
+    .WithDomains(fuzztest::Arbitrary<std::array<bool, 256>>(),
+                 fuzztest::Arbitrary<std::array<bool, 256>>(),
+                 fuzztest::InRange<size_t>(0, 256),
+                 fuzztest::InRange<size_t>(0, 256),
+                 fuzztest::InRange<size_t>(0, 256));
+
+void FuzzBitmapCopyBitsDifferentSizes(
+    const std::array<bool, 127>& src_bits,
+    const std::array<bool, 300>& dst_initial_bits, size_t src_offset,
+    size_t dst_offset, size_t length) {
+  constexpr size_t SrcN = 127;
+  constexpr size_t DstN = 300;
+  if (src_offset > SrcN || src_offset + length > SrcN || dst_offset > DstN ||
+      dst_offset + length > DstN) {
+    return;
+  }
+
+  Bitmap<SrcN> src_map;
+  Bitmap<DstN> dst_map;
+  std::array<bool, DstN> expected_dst = dst_initial_bits;
+
+  for (size_t i = 0; i < SrcN; ++i) {
+    if (src_bits[i]) {
+      src_map.SetBit(i);
+    }
+  }
+  for (size_t i = 0; i < DstN; ++i) {
+    if (dst_initial_bits[i]) {
+      dst_map.SetBit(i);
+    }
+  }
+
+  for (size_t i = 0; i < length; ++i) {
+    expected_dst[dst_offset + i] = src_bits[src_offset + i];
+  }
+
+  CopyBits(dst_map, dst_offset, src_map, src_offset, length);
+
+  for (size_t i = 0; i < DstN; ++i) {
+    EXPECT_EQ(dst_map.GetBit(i), expected_dst[i]);
+  }
+}
+
+FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCopyBitsDifferentSizes)
+    .WithDomains(fuzztest::Arbitrary<std::array<bool, 127>>(),
+                 fuzztest::Arbitrary<std::array<bool, 300>>(),
+                 fuzztest::InRange<size_t>(0, 127),
+                 fuzztest::InRange<size_t>(0, 300),
+                 fuzztest::InRange<size_t>(0, 300));
+
+void FuzzBitmapCopyBitsContractingSizes(
+    const std::array<bool, 300>& src_bits,
+    const std::array<bool, 127>& dst_initial_bits, size_t src_offset,
+    size_t dst_offset, size_t length) {
+  constexpr size_t SrcN = 300;
+  constexpr size_t DstN = 127;
+  if (src_offset > SrcN || src_offset + length > SrcN || dst_offset > DstN ||
+      dst_offset + length > DstN) {
+    return;
+  }
+
+  Bitmap<SrcN> src_map;
+  Bitmap<DstN> dst_map;
+  std::array<bool, DstN> expected_dst = dst_initial_bits;
+
+  for (size_t i = 0; i < SrcN; ++i) {
+    if (src_bits[i]) {
+      src_map.SetBit(i);
+    }
+  }
+  for (size_t i = 0; i < DstN; ++i) {
+    if (dst_initial_bits[i]) {
+      dst_map.SetBit(i);
+    }
+  }
+
+  for (size_t i = 0; i < length; ++i) {
+    expected_dst[dst_offset + i] = src_bits[src_offset + i];
+  }
+
+  CopyBits(dst_map, dst_offset, src_map, src_offset, length);
+
+  for (size_t i = 0; i < DstN; ++i) {
+    EXPECT_EQ(dst_map.GetBit(i), expected_dst[i]);
+  }
+}
+
+FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCopyBitsContractingSizes)
+    .WithDomains(fuzztest::Arbitrary<std::array<bool, 300>>(),
+                 fuzztest::Arbitrary<std::array<bool, 127>>(),
+                 fuzztest::InRange<size_t>(0, 300),
+                 fuzztest::InRange<size_t>(0, 127),
+                 fuzztest::InRange<size_t>(0, 127));
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
