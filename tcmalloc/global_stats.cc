@@ -637,6 +637,8 @@ void DumpStats(Printer& out, int level) {
                        MadviseRegionsNoHugepage::kEnabled
                    ? 1
                    : 0);
+    out.printf("PARAMETER tcmalloc_madvise_sampled_allocations %d\n",
+               Parameters::madvise_sampled_allocations() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
     out.printf("PARAMETER heap_partitioning %d\n",
@@ -923,6 +925,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("subrelease_unbacked_hugepages",
                    Parameters::subrelease_unbacked_hugepages() ==
                        SubreleaseUnbackedMode::kEnabled);
+  region.PrintBool("tcmalloc_madvise_sampled_allocations",
+                   Parameters::madvise_sampled_allocations());
 
   region.PrintBool("back_small_allocations",
                    Parameters::back_small_allocations());

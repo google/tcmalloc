@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -34,16 +35,20 @@
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/profile_builder.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/test_allocator_harness.h"
+#include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
@@ -247,6 +252,154 @@ TEST(HeapProfilingTest, CheckResidency) {
   for (int i = 0; i < num_allocations; i++) {
     ::operator delete(allocations[i]);
   }
+}
+
+TEST(HeapProfilingTest, MadviseSampledAllocations) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizers intercept allocations";
+  }
+
+  const ScopedProfileSamplingInterval sample_interval(1);
+
+  const size_t kPageSize = tcmalloc_internal::GetPageSize();
+  constexpr int kNumAllocations = 50;
+
+  enum class AllocationHeap {
+    kSampled,
+    kCold,
+    kNormal,
+  };
+
+  struct TestCase {
+    absl::string_view name;
+    bool madvise_sampled;
+    AllocationHeap heap;
+    bool expect_madvised;
+    bool guarded;
+  };
+
+  const TestCase kTestCases[] = {
+      {"disabled_sampled", /*madvise_sampled=*/false, AllocationHeap::kSampled,
+       /*expect_madvised=*/false, /*guarded=*/false},
+      {"enabled_sampled", /*madvise_sampled=*/true, AllocationHeap::kSampled,
+       /*expect_madvised=*/true, /*guarded=*/false},
+      {"enabled_guarded", /*madvise_sampled=*/true, AllocationHeap::kSampled,
+       /*expect_madvised=*/true, /*guarded=*/true},
+      {"enabled_cold", /*madvise_sampled=*/true, AllocationHeap::kCold,
+       /*expect_madvised=*/true, /*guarded=*/false},
+      {"enabled_normal", /*madvise_sampled=*/true, AllocationHeap::kNormal,
+       /*expect_madvised=*/false, /*guarded=*/false},
+  };
+
+  tcmalloc_internal::ResidencyPageMap residency;
+  const bool old_madvise =
+      tcmalloc_internal::Parameters::madvise_sampled_allocations();
+
+  for (const auto& test_case : kTestCases) {
+    SCOPED_TRACE(test_case.name);
+    if (test_case.heap == AllocationHeap::kCold &&
+        (!tcmalloc_internal::ColdFeatureActive() ||
+         tcmalloc_internal::Parameters::heap_partitioning_mode() ==
+             tcmalloc_internal::HeapPartitioningMode::kFull)) {
+      continue;
+    }
+
+    tcmalloc_internal::Parameters::set_madvise_sampled_allocations(
+        test_case.madvise_sampled);
+
+    const int num_allocations = test_case.guarded ? 1 : kNumAllocations;
+    const ScopedGuardedSamplingInterval guarded_interval(
+        test_case.guarded ? 1 : -1);
+
+    const size_t alloc_size = (test_case.heap == AllocationHeap::kNormal ||
+                               test_case.heap == AllocationHeap::kCold)
+                                  ? tcmalloc_internal::kMaxSize + 2 * kPageSize
+                                  : (test_case.guarded ? 32 : 2 * kPageSize);
+
+    auto allocate = [&]() -> void* {
+      if (test_case.heap == AllocationHeap::kCold) {
+        return ::operator new(alloc_size, tcmalloc::hot_cold_t{0});
+      }
+      return ::operator new(alloc_size);
+    };
+
+    void* allocs[kNumAllocations];
+    for (int i = 0; i < num_allocations; ++i) {
+      allocs[i] = allocate();
+      switch (test_case.heap) {
+        case AllocationHeap::kSampled:
+          EXPECT_TRUE(tcmalloc_internal::IsSampledMemory(allocs[i]));
+          break;
+        case AllocationHeap::kCold:
+          EXPECT_EQ(tcmalloc_internal::GetMemoryTag(allocs[i]),
+                    tcmalloc_internal::MemoryTag::kCold);
+          break;
+        case AllocationHeap::kNormal:
+          EXPECT_TRUE(tcmalloc_internal::IsNormalMemory(allocs[i]));
+          break;
+      }
+      memset(allocs[i], 0xAB, alloc_size);
+    }
+    for (int i = 0; i < num_allocations; ++i) {
+      sized_delete(allocs[i], alloc_size);
+    }
+
+    // Reallocate and touch only the first page.
+    const size_t touch_size = std::min(alloc_size, kPageSize);
+    for (int i = 0; i < num_allocations; ++i) {
+      allocs[i] = allocate();
+      memset(allocs[i], 0xCD, touch_size);
+    }
+
+    size_t total_resident = 0;
+    for (int i = 0; i < num_allocations; ++i) {
+      auto info = residency.Get(allocs[i], alloc_size);
+      ASSERT_TRUE(info.has_value());
+      total_resident += info->bytes_resident;
+    }
+
+    if (test_case.expect_madvised) {
+      EXPECT_LE(total_resident, num_allocations * touch_size);
+      EXPECT_GE(total_resident, (num_allocations - 1) * touch_size);
+    } else {
+      EXPECT_GT(total_resident, num_allocations * touch_size);
+    }
+
+    auto converted_or = tcmalloc_internal::MakeProfileProto(
+        MallocExtension::SnapshotCurrent(ProfileType::kHeap));
+    ASSERT_TRUE(converted_or.ok());
+    const auto& converted = **converted_or;
+
+    std::optional<int> resident_space_id;
+    for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
+      if (converted.string_table(i) == "resident_space") {
+        resident_space_id = i;
+        break;
+      }
+    }
+    ASSERT_TRUE(resident_space_id.has_value());
+
+    std::optional<int> resident_value_index;
+    for (int i = 0; i < converted.sample_type_size(); ++i) {
+      if (converted.sample_type(i).type() == resident_space_id) {
+        resident_value_index = i;
+        break;
+      }
+    }
+    ASSERT_TRUE(resident_value_index.has_value());
+
+    size_t profile_resident = 0;
+    for (const auto& sample : converted.sample()) {
+      profile_resident += sample.value(*resident_value_index);
+    }
+    EXPECT_GE(profile_resident, total_resident * 9 / 10);
+
+    for (int i = 0; i < num_allocations; ++i) {
+      sized_delete(allocs[i], alloc_size);
+    }
+  }
+
+  tcmalloc_internal::Parameters::set_madvise_sampled_allocations(old_madvise);
 }
 
 // Make sure users can allocate when iterating over the heap samples. For now
