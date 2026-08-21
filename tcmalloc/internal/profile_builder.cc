@@ -177,19 +177,6 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
       }
     }
 
-    if (exporting_compressibility && residency_info.has_value() &&
-        entry.span_start_address != nullptr && entry.requested_size > 0) {
-      size_t size = entry.requested_size_returning ? entry.allocated_size
-                                                   : entry.requested_size;
-      absl::Span<const char> sample_mem(
-          reinterpret_cast<const char*>(entry.span_start_address), size);
-      absl::StatusOr<CompressionAnalyzer::Results> res =
-          compression_analyzer.Analyze(sample_mem, *residency_info);
-      if (res.ok()) {
-        data.zero_size += entry.count * res->zero_bytes;
-      }
-    }
-
     if (pageflags) {
       auto page_stats =
           pageflags->Get(entry.span_start_address, entry.allocated_size);
@@ -211,6 +198,19 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
           // is; explicitly set to the default of zero.
           data.stale_scan_period = 0;
         }
+      }
+    }
+
+    if (exporting_compressibility && residency_info.has_value() &&
+        entry.span_start_address != nullptr && entry.requested_size > 0) {
+      size_t size = entry.requested_size_returning ? entry.allocated_size
+                                                   : entry.requested_size;
+      absl::Span<const char> sample_mem(
+          reinterpret_cast<const char*>(entry.span_start_address), size);
+      absl::StatusOr<CompressionAnalyzer::Results> res =
+          compression_analyzer.Analyze(sample_mem, *residency_info);
+      if (res.ok()) {
+        data.zero_size += entry.count * res->zero_bytes;
       }
     }
   });
