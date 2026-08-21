@@ -24,9 +24,12 @@
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/global_stats.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -175,6 +178,48 @@ TEST(ClockTest, ClockTicks) {
   const absl::Duration measured = absl::Seconds(a - b);
   EXPECT_LE(actual * 0.99, measured) << actual;
   EXPECT_GE(actual * 1.01, measured) << actual;
+}
+
+TEST(GlobalStatsTest, PageMapMemoryAccounted) {
+  TCMallocStats before;
+  ExtractTCMallocStats(before, /*report_residence=*/true);
+  const size_t pagemap_bytes_before = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.pagemap().bytes();
+  }();
+
+  // Ensure several distant pages that require allocating new internal and leaf
+  // nodes in the PageMap radix tree.
+  const PageId p1{100000000};
+  const PageId p2{200000000};
+  {
+    PageHeapSpinLockHolder l;
+    ASSERT_TRUE(tc_globals.pagemap().Ensure(Range(p1, Length(1))));
+    ASSERT_TRUE(tc_globals.pagemap().Ensure(Range(p2, Length(1))));
+  }
+  const size_t pagemap_bytes_after = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.pagemap().bytes();
+  }();
+  ASSERT_GT(pagemap_bytes_after, pagemap_bytes_before);
+  const size_t pagemap_increase = pagemap_bytes_after - pagemap_bytes_before;
+
+  TCMallocStats after;
+  ExtractTCMallocStats(after, /*report_residence=*/true);
+
+  // Metadata bytes must properly account for newly allocated pagemap
+  // nodes/leaves.
+  EXPECT_GE(after.metadata_bytes, before.metadata_bytes + pagemap_increase);
+
+  TCMallocStats without_residence;
+  ExtractTCMallocStats(without_residence, /*report_residence=*/false);
+
+  // The difference in metadata bytes between reporting residence or not should
+  // only reflect unresident portions of the pagemap root and per-CPU slabs,
+  // not the entire pagemap dynamically allocated memory.
+  EXPECT_GE(after.metadata_bytes, without_residence.metadata_bytes -
+                                      sizeof(PageMap) -
+                                      after.percpu_metadata_bytes);
 }
 
 }  // namespace
