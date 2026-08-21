@@ -350,6 +350,26 @@ TEST_P(HugeAllocatorTest, OOM) {
   }
 }
 
+TEST_P(HugeAllocatorTest, Contains) {
+  HugeRange r1 = allocator_.Get(NHugePages(4));
+  ASSERT_TRUE(r1.valid());
+
+  // Before release, free_ does not contain r1.
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_FALSE(allocator_.Contains(r1.start() + NHugePages(i)));
+  }
+
+  allocator_.Release(r1);
+
+  // After release, free_ contains r1.
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_TRUE(allocator_.Contains(r1.start() + NHugePages(i)));
+  }
+
+  // Pages before r1 are not contained.
+  EXPECT_FALSE(allocator_.Contains(r1.start() - NHugePages(1)));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     NormalOverAlloc, HugeAllocatorTest, testing::Values(false, true),
     +[](const testing::TestParamInfo<bool>& info) {

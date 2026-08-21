@@ -212,7 +212,13 @@ class PageTracker : public TList<PageTracker>::Elem {
   Length MarkSubreleased(PageBitmap unbacked)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  PageBitmap released_by_page() const { return released_by_page_; }
+  [[nodiscard]] PageBitmap released_by_page() const {
+    return released_by_page_;
+  }
+
+  [[nodiscard]] PageBitmap allocated_pages_bitmap() const {
+    return free_.bits();
+  }
 
   // Attempts to collapse memory tracked by this tracker. Returns true if the
   // collapse was successful.

@@ -132,9 +132,9 @@ void HugeAddressMap::PrintInPbtxt(PbtxtRegion& hpaa) const {
   hpaa.PrintI64("contiguous_free_bytes", longest);
 }
 
-HugeAddressMap::Node* HugeAddressMap::Predecessor(HugePage p) {
-  Node* n = root();
-  Node* best = nullptr;
+const HugeAddressMap::Node* HugeAddressMap::Predecessor(HugePage p) const {
+  const Node* n = root();
+  const Node* best = nullptr;
   while (n) {
     HugeRange here = n->range_;
     if (here.contains(p)) return n;
@@ -151,6 +151,11 @@ HugeAddressMap::Node* HugeAddressMap::Predecessor(HugePage p) {
   }
 
   return best;
+}
+
+HugeAddressMap::Node* HugeAddressMap::Predecessor(HugePage p) {
+  const Node* n = static_cast<const HugeAddressMap*>(this)->Predecessor(p);
+  return const_cast<Node*>(n);
 }
 
 void HugeAddressMap::Merge(Node* b, HugeRange r, Node* a) {

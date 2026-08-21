@@ -77,6 +77,8 @@
 #include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/page_allocation_status.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pages.h"
@@ -1839,6 +1841,51 @@ TEST(TCMalloc, MallocUsableSizeNullptr) {
 TEST(TCMalloc, Misc) {
   constexpr std::align_val_t kAlignment{2097152};
   ::operator delete(::operator new(0, kAlignment), 0, kAlignment);
+}
+
+TEST(TCMalloc, GetPageAllocationStatus) {
+  // Allocate an object and verify its hugepage status is found and marked
+  // allocated.
+  const size_t kAllocSize = 128 * 1024;
+  void* ptr;
+  {
+    ScopedNeverSample never;
+    ptr = ::operator new(kAllocSize);
+  }
+  ASSERT_NE(ptr, nullptr);
+
+  HugePage hp = HugePageContaining(ptr);
+
+  // Unaligned pointer must be rejected.
+  EXPECT_EQ(GetPageAllocationStatus(static_cast<char*>(hp.start_addr()) + 1),
+            std::nullopt);
+
+  auto status = GetPageAllocationStatus(hp.start_addr());
+  if (kSanitizerPresent) {
+    // Under sanitizers, TCMalloc is replaced and the weak symbol is not
+    // available.
+    EXPECT_EQ(status, std::nullopt);
+  } else {
+    ASSERT_TRUE(status.has_value());
+
+    const size_t hardware_page_size = GetPageSize();
+    const size_t start_page = (reinterpret_cast<uintptr_t>(ptr) -
+                               reinterpret_cast<uintptr_t>(hp.start_addr())) /
+                              hardware_page_size;
+    const size_t num_pages = kAllocSize / hardware_page_size;
+
+    // All pages overlapping with ptr must be allocated in the bitmap.
+    EXPECT_EQ(status->allocated.CountBits(start_page, num_pages), num_pages);
+  }
+
+  ::operator delete(ptr, kAllocSize);
+
+  // Random addresses do not crash and unmanaged addresses return std::nullopt.
+  void* random_unaligned = reinterpret_cast<void*>(0x12345678);
+  EXPECT_EQ(GetPageAllocationStatus(random_unaligned), std::nullopt);
+
+  void* random_aligned = reinterpret_cast<void*>(0x123400000);
+  EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
 }  // namespace

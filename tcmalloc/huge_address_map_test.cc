@@ -68,6 +68,41 @@ TEST_F(HugeAddressMapTest, Merging) {
   EXPECT_THAT(Contents(), testing::ElementsAre(all));
 }
 
+TEST_F(HugeAddressMapTest, Predecessor) {
+  const HugeRange r1 = HugeRange::Make(hp(10), hl(5));
+  const HugeRange r2 = HugeRange::Make(hp(20), hl(5));
+  map_.Insert(r1);
+  map_.Insert(r2);
+
+  // Predecessor before r1.
+  EXPECT_EQ(map_.Predecessor(hp(5)), nullptr);
+
+  // Predecessor at start of r1.
+  const auto* node = map_.Predecessor(hp(10));
+  ASSERT_NE(node, nullptr);
+  EXPECT_EQ(node->range(), r1);
+
+  // Predecessor in middle of r1.
+  node = map_.Predecessor(hp(12));
+  ASSERT_NE(node, nullptr);
+  EXPECT_EQ(node->range(), r1);
+
+  // Predecessor at end of r1.
+  node = map_.Predecessor(hp(14));
+  ASSERT_NE(node, nullptr);
+  EXPECT_EQ(node->range(), r1);
+
+  // Predecessor between r1 and r2.
+  node = map_.Predecessor(hp(17));
+  ASSERT_NE(node, nullptr);
+  EXPECT_EQ(node->range(), r1);
+
+  // Predecessor in r2.
+  node = map_.Predecessor(hp(22));
+  ASSERT_NE(node, nullptr);
+  EXPECT_EQ(node->range(), r2);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

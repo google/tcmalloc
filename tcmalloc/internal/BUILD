@@ -153,6 +153,20 @@ cc_library(
 )
 
 cc_library(
+    name = "page_allocation_status",
+    srcs = ["page_allocation_status.cc"],
+    hdrs = ["page_allocation_status.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":parameter_accessors",
+        ":range_tracker",
+    ],
+)
+
+cc_library(
     name = "clock",
     hdrs = ["clock.h"],
     copts = TCMALLOC_DEFAULT_COPTS,

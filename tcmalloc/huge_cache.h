@@ -198,6 +198,11 @@ class HugeCache {
     return s;
   }
 
+  [[nodiscard]] bool Contains(HugePage p) const {
+    const HugeAddressMap::Node* node = cache_.Predecessor(p);
+    return node != nullptr && node->range().contains(p);
+  }
+
   void Print(Printer& out);
   void PrintInPbtxt(PbtxtRegion& hpaa);
 

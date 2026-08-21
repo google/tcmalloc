@@ -26,11 +26,15 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+struct PageAllocationStatus;
+
 struct TracerSizeClassInfo {
   size_t size;
   size_t span_size_in_bytes;
   size_t num_objects_to_move;
 };
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
@@ -122,9 +126,11 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
     std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull
         size_classes);
 ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetPageSize();
-
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(
     bool v);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPageAllocationStatus(
+    const void* ptr,
+    tcmalloc::tcmalloc_internal::PageAllocationStatus* absl_nonnull status);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

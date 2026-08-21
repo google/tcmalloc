@@ -82,6 +82,11 @@ class HugeAllocator {
     return s;
   }
 
+  [[nodiscard]] bool Contains(HugePage p) const {
+    const HugeAddressMap::Node* node = free_.Predecessor(p);
+    return node != nullptr && node->range().contains(p);
+  }
+
   void Print(Printer& out);
   void PrintInPbtxt(PbtxtRegion& hpaa) const;
 

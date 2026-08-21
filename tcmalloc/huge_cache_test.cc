@@ -563,6 +563,27 @@ TEST_F(MinMaxTrackerTest, Works) {
   EXPECT_EQ(NHugePages(1), tracker.MinOverTime(kDuration));
 }
 
+TEST_P(HugeCacheTest, Contains) {
+  bool from;
+  HugeRange r = cache_.Get(NHugePages(4), &from);
+  ASSERT_TRUE(r.valid());
+
+  // Before release into cache, cache does not contain r.
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_FALSE(cache_.Contains(r.start() + NHugePages(i)));
+  }
+
+  Release(r);
+
+  // After release into cache, cache contains r.
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_TRUE(cache_.Contains(r.start() + NHugePages(i)));
+  }
+
+  EXPECT_FALSE(cache_.Contains(r.start() - NHugePages(1)));
+  EXPECT_FALSE(cache_.Contains(r.start() + NHugePages(4)));
+}
+
 INSTANTIATE_TEST_SUITE_P(All, HugeCacheTest,
                          testing::Values(absl::Seconds(1), absl::Seconds(30)));
 

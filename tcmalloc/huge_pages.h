@@ -305,7 +305,7 @@ inline HugePage HugePageContaining(PageId p) {
 }
 
 TCMALLOC_ATTRIBUTE_CONST
-inline HugePage HugePageContaining(void* p) {
+inline HugePage HugePageContaining(const void* p) {
   return HugePageContaining(PageIdContaining(p));
 }
 

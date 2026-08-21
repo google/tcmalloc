@@ -88,6 +88,7 @@ class HugeAddressMap {
   // Returns the highest-addressed range that does not lie completely
   // after p (if any).
   Node* Predecessor(HugePage p);
+  const Node* Predecessor(HugePage p) const;
 
   // Expensive consistency check.
   void Check();

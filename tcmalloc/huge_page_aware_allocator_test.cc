@@ -2156,6 +2156,87 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  PageBitmap pages;
+
+  // 1. Small allocation in PageTracker (filler).
+  Span* small1 = New(Length(1), kSpanInfo);
+  ASSERT_NE(small1, nullptr);
+  HugePage small_hp = HugePageContaining(small1->first_page());
+
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
+  }
+  const size_t page_idx1 =
+      (small1->first_page() - small_hp.first_page()).raw_num();
+
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 1);
+  EXPECT_TRUE(pages.GetBit(page_idx1));
+
+  // Allocate another small span and verify combined exact bitmask.
+  Span* small2 = New(Length(2), kSpanInfo);
+  ASSERT_NE(small2, nullptr);
+  ASSERT_EQ(HugePageContaining(small2->first_page()), small_hp);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
+  }
+  const size_t page_idx2 =
+      (small2->first_page() - small_hp.first_page()).raw_num();
+
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 3);
+  EXPECT_TRUE(pages.GetBit(page_idx1));
+  EXPECT_TRUE(pages.GetBit(page_idx2));
+  EXPECT_TRUE(pages.GetBit(page_idx2 + 1));
+
+  Delete(small1, 1);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
+  }
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 2);
+  EXPECT_TRUE(pages.GetBit(page_idx2));
+  EXPECT_TRUE(pages.GetBit(page_idx2 + 1));
+
+  Delete(small2, 1);
+
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
+  }
+  // After deleting all small spans, the huge page has 0 allocated pages.
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
+
+  // 2. Raw huge page allocation straight from HugeCache.
+  Span* large = New(kPagesPerHugePage * 2, kSpanInfo);
+  ASSERT_NE(large, nullptr);
+  HugePage hp0 = HugePageContaining(large->first_page());
+  HugePage hp1 = hp0 + NHugePages(1);
+
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp0, pages));
+    EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()),
+              kPagesPerHugePage.raw_num());
+
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp1, pages));
+    EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()),
+              kPagesPerHugePage.raw_num());
+  }
+
+  Delete(large, 1);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp0, pages));
+    EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
+
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp1, pages));
+    EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

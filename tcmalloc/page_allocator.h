@@ -100,6 +100,22 @@ class PageAllocator {
   PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp, PageBitmap& pages,
+                                             MemoryTag tag)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    switch (tag) {
+      case MemoryTag::kNormal:
+      case MemoryTag::kNormalP1:
+      case MemoryTag::kSampled:
+      case MemoryTag::kSampledP1:
+      case MemoryTag::kCold:
+        return impl(tag)->GetPageAllocationStatus(hp, pages);
+      case MemoryTag::kMetadata:
+        return false;
+    }
+    return false;
+  }
+
   // Prints stats about the page heap to *out.
   void Print(Printer& out, MemoryTag tag, PageFlagsBase& pageflags)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);

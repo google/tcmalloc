@@ -278,6 +278,16 @@ class PageMap3 {
     return leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)];
   }
 
+  [[nodiscard]] bool has_leaf(Number k) const {
+    if (ABSL_PREDICT_FALSE((k >> BITS) > 0)) return false;
+    const Number i1 = k >> (kLeafBits + kMidBits);
+    if (ABSL_PREDICT_FALSE(i1 >= kRootLength)) return false;
+    const Node* node = root_[i1];
+    if (ABSL_PREDICT_FALSE(node == nullptr)) return false;
+    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
+    return node->leafs[i2] != nullptr;
+  }
+
   void set_hugepage(Number k, void* v) {
     TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
@@ -395,6 +405,10 @@ class PageMap {
 
   [[nodiscard]] void* GetHugepage(PageId p) {
     return map_.get_hugepage(p.index());
+  }
+
+  [[nodiscard]] bool HasLeaf(PageId p) const {
+    return map_.has_leaf(p.index());
   }
 
   void SetHugepage(PageId p, void* v) { map_.set_hugepage(p.index(), v); }

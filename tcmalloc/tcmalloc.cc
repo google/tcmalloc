@@ -103,8 +103,10 @@
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/overflow.h"
+#include "tcmalloc/internal/page_allocation_status.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/internal_malloc_extension.h"
@@ -1346,6 +1348,41 @@ extern "C" void TCMalloc_Internal_MarkThreadBusy() {
 
   // Force creation of the cache.
   tcmalloc::tcmalloc_internal::ThreadCache::GetCache();
+}
+
+extern "C" bool TCMalloc_Internal_GetPageAllocationStatus(
+    const void* ptr,
+    tcmalloc::tcmalloc_internal::PageAllocationStatus* absl_nonnull status) {
+  if (ptr == nullptr || status == nullptr) {
+    return false;
+  }
+  if (ABSL_PREDICT_FALSE(!tc_globals.IsInited())) {
+    return false;
+  }
+  tcmalloc::tcmalloc_internal::HugePage hp =
+      tcmalloc::tcmalloc_internal::HugePageContaining(ptr);
+  if (hp.start_addr() != ptr) {
+    return false;
+  }
+  if (!tc_globals.pagemap().HasLeaf(hp.first_page())) {
+    return false;
+  }
+  // TODO(b/548699586): Check GWP-ASan.
+  auto tag = tcmalloc::tcmalloc_internal::GetMemoryTag(ptr);
+  tcmalloc::tcmalloc_internal::PageBitmap pages;
+  bool ok;
+  {
+    tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder l;
+    ok = tc_globals.page_allocator().GetPageAllocationStatus(hp, pages, tag);
+  }
+  if (!ok) {
+    return false;
+  }
+  // Scale from TCMalloc pages to 4K pages.
+  status->allocated = tcmalloc::tcmalloc_internal::Scale<512>(
+      pages, tcmalloc::tcmalloc_internal::kPagesPerHugePage.raw_num(),
+      tcmalloc::tcmalloc_internal::ReductionOp::kAny);
+  return true;
 }
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY

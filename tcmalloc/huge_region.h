@@ -95,7 +95,23 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   HugeLength Release(Length desired, bool adaptive_release);
 
   // Is p located in this region?
-  bool contains(PageId p) { return location_.contains(p); }
+  [[nodiscard]] bool contains(PageId p) const { return location_.contains(p); }
+
+  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp,
+                                             PageBitmap& pages) const {
+    if (!contains(hp.first_page())) {
+      return false;
+    }
+    pages.Clear();
+    size_t hp_offset = (hp - location_.start()).raw_num();
+    if (!backed_[hp_offset]) {
+      return true;
+    }
+    size_t start_page = hp_offset * kPagesPerHugePage.raw_num();
+    CopyBits(pages, 0, tracker_.bits(), start_page,
+             kPagesPerHugePage.raw_num());
+    return true;
+  }
 
   // Stats
   Length used_pages() const { return Length(tracker_.used()); }
@@ -190,6 +206,16 @@ class HugeRegionSet {
   bool UseHugeRegionMoreOften() const {
     return use_huge_region_more_often_ ==
            HugeRegionUsageOption::kUseForAllLargeAllocs;
+  }
+
+  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp,
+                                             PageBitmap& pages) const {
+    for (const Region* r : list_) {
+      if (r->GetPageAllocationStatus(hp, pages)) {
+        return true;
+      }
+    }
+    return false;
   }
 
  private:

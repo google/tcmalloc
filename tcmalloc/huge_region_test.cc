@@ -747,6 +747,37 @@ TEST_F(HugeRegionTest, StatBreakdownReleaseFailure) {
   Delete(d);
 }
 
+TEST_F(HugeRegionTest, GetPageAllocationStatus) {
+  PageBitmap pages;
+
+  // HugePage outside the region returns false.
+  HugePage outside_hp = p_ - NHugePages(1);
+  EXPECT_FALSE(region_.GetPageAllocationStatus(outside_hp, pages));
+
+  // Before any allocations, first hugepage is unbacked.
+  // GetPageAllocationStatus returns true, but pages bitmap is empty (all 0s).
+  EXPECT_TRUE(region_.GetPageAllocationStatus(p_, pages));
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
+
+  // Allocate 10 pages in the first hugepage.
+  Alloc a1 = Allocate(Length(10));
+  EXPECT_EQ(a1.p, p_.first_page());
+
+  EXPECT_TRUE(region_.GetPageAllocationStatus(p_, pages));
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 10);
+  for (size_t i = 0; i < 10; ++i) {
+    EXPECT_TRUE(pages.GetBit(i));
+  }
+
+  // Deallocate a1.
+  Delete(a1);
+
+  // After deallocation without unbacking, hugepage is backed but all pages are
+  // free.
+  EXPECT_TRUE(region_.GetPageAllocationStatus(p_, pages));
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
+}
+
 class NilUnback final : public MemoryModifyFunction {
  public:
   MemoryModifyStatus operator()(Range r) override {
@@ -1137,6 +1168,33 @@ TEST_P(HugeRegionSetTest, Set) {
   set_.PrintInPbtxt(region);
   EXPECT_THAT(absl::string_view(&pbtxt_buf[0]),
               testing::HasSubstr("huge_region_low_water_mark_bytes: 0"));
+}
+
+TEST_P(HugeRegionSetTest, GetPageAllocationStatus) {
+  PageBitmap pages;
+  HugePage hp = next_;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  HugePage outside_hp = hp + Region::size();
+  EXPECT_FALSE(set_.GetPageAllocationStatus(outside_hp, pages));
+
+  // Region is in set_, unbacked initially.
+  EXPECT_TRUE(set_.GetPageAllocationStatus(hp, pages));
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
+
+  PageId p;
+  bool from_released;
+  ASSERT_TRUE(set_.MaybeGet(Length(7), &p, &from_released));
+  EXPECT_EQ(p, hp.first_page());
+
+  EXPECT_TRUE(set_.GetPageAllocationStatus(hp, pages));
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 7);
+  for (size_t i = 0; i < 7; ++i) {
+    EXPECT_TRUE(pages.GetBit(i));
+  }
+
+  ASSERT_TRUE(set_.MaybePut(Range(p, Length(7))));
 }
 
 TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {

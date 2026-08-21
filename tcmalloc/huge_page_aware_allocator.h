@@ -41,6 +41,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/metadata_allocator.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/metadata_object_allocator.h"
@@ -278,6 +279,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   // IsValidSizeClass verifies size class parameters from the HPAA perspective.
   static bool IsValidSizeClass(size_t size, Length pages);
+
+  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp, PageBitmap& pages)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   Forwarder& forwarder() { return forwarder_; }
 
@@ -518,7 +522,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
                        absl::Seconds(1)}) {}
 
 template <class Forwarder>
-inline HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
+inline typename HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
 HugePageAwareAllocator<Forwarder>::GetTracker(HugePage p) {
   void* v = forwarder_.GetHugepage(p);
   FillerType::Tracker* pt = reinterpret_cast<FillerType::Tracker*>(v);
@@ -888,7 +892,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
   const Length n = s.r.n;
   info_.RecordFree(Range(p, n));
 
-  // Clear the descriptor of the page so a second pass through the same page
+  // Clear the descriptor of the pages so a second pass through the same page
   // could trigger the check in InvokeHooksAndFreePages.
   forwarder_.ClearSpan(p);
 
@@ -1300,6 +1304,33 @@ inline bool HugePageAwareAllocator<Forwarder>::hpaa_subrelease() const {
   } else {
     return forwarder_.hpaa_subrelease();
   }
+}
+
+template <class Forwarder>
+inline bool HugePageAwareAllocator<Forwarder>::GetPageAllocationStatus(
+    HugePage hp, PageBitmap& pages) {
+  // 1. Check PageTracker (HugePageFiller).
+  FillerType::Tracker* pt = GetTracker(hp);
+  if (ABSL_PREDICT_TRUE(pt != nullptr)) {
+    pages = pt->allocated_pages_bitmap();
+    return true;
+  }
+
+  // 2. Check HugeRegions.
+  if (regions_.GetPageAllocationStatus(hp, pages)) {
+    return true;
+  }
+
+  // 3. Check HugeCache / HugeAllocator (unallocated / free hugepages).
+  if (cache_.Contains(hp) || alloc_.Contains(hp)) {
+    pages.Clear();
+    return true;
+  }
+
+  // 4. If the pagemap leaf exists, the hugepage was allocated to TCMalloc and
+  // is in active use (e.g. allocated via AllocRawHugepages).
+  pages.SetRange(0, kPagesPerHugePage.raw_num());
+  return true;
 }
 
 }  // namespace huge_page_allocator_internal
