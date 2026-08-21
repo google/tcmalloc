@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_IS_ALIGNED_TO_H_
-#define TCMALLOC_IS_ALIGNED_TO_H_
+#ifndef TCMALLOC_INTERNAL_IS_ALIGNED_TO_H_
+#define TCMALLOC_INTERNAL_IS_ALIGNED_TO_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -48,4 +48,4 @@ inline bool IsAlignedTo(const void* addr, std::align_val_t alignment) {
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
 
-#endif
+#endif  // TCMALLOC_INTERNAL_IS_ALIGNED_TO_H_
