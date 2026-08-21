@@ -25,6 +25,8 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/residency.h"
+#include "tcmalloc/internal/util.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/malloc_hook_invoke.h"
@@ -170,12 +172,36 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   // A span must be provided or created by this point.
   TC_ASSERT_NE(span, nullptr);
 
+  // Do not madvise guarded (GWP-ASan) allocations: GWP-ASan initializes magic
+  // canary bytes in the allocated page to detect buffer overflows on
+  // deallocation; releasing memory zeroes the page and corrupts the canaries.
+  if (Parameters::madvise_sampled_allocations() &&
+      alloc_with_status.status != Profile::Sample::GuardedStatus::Guarded) {
+    switch (GetMemoryTag(span->start_address())) {
+      case MemoryTag::kSampled:
+      case MemoryTag::kSampledP1:
+      case MemoryTag::kCold:
+        (void)state.system_allocator().Release(span->start_address(),
+                                               span->bytes_in_span());
+        break;
+      case MemoryTag::kNormal:
+      case MemoryTag::kNormalP1:
+      case MemoryTag::kMetadata:
+        break;
+    }
+  }
+
   // TODO(b/414876446): Add entropy to the handles generated.
   stack_trace.sampled_alloc_handle =
       AllocHandle(state.sampled_alloc_handle_generator.fetch_add(
                       1, std::memory_order_relaxed) +
                   1);
-  stack_trace.span_start_address = span->start_address();
+  // For guarded allocations under large page sizes, span->start_address()
+  // rounds down to a PROT_NONE guard page; record the object address instead
+  // so residency queries (e.g. mincore) inspect the accessible page.
+  stack_trace.span_start_address = (alloc_with_status.alloc != nullptr)
+                                       ? alloc_with_status.alloc
+                                       : span->start_address();
   stack_trace.allocation_time = absl::Now();
   stack_trace.guarded_status = alloc_with_status.status;
   stack_trace.allocation_type = policy.allocation_type();
@@ -195,9 +221,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
       .weight = allocation_estimate,
       .stack = absl::MakeSpan(stack_trace.stack, stack_trace.depth),
       .allocation_time = stack_trace.allocation_time,
-      .ptr = (alloc_with_status.alloc != nullptr)
-                 ? alloc_with_status.alloc
-                 : stack_trace.span_start_address,
+      .ptr = stack_trace.span_start_address,
       .access_hint = stack_trace.access_hint,
       .access_allocated = stack_trace.cold_allocated ? MallocHook::Access::Cold
                                                      : MallocHook::Access::Hot,
@@ -213,6 +237,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   // heap profile, and won't need any information from Span::Sample() next.
   SampledAllocation* sampled_allocation =
       state.sampled_allocation_recorder().Register(std::move(stack_trace));
+
   // No pageheap_lock required. The span is freshly allocated and no one else
   // can access it. It is visible after we return from this allocation path.
   span->Sample(sampled_allocation);

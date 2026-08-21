@@ -92,6 +92,8 @@ TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(absl::Duration v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     bool v);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseSampledAllocations();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseSampledAllocations(bool v);
 ABSL_ATTRIBUTE_WEAK int64_t TCMalloc_Internal_GetEventTraceMemoryLimit();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
 ABSL_ATTRIBUTE_WEAK uint8_t TCMalloc_Internal_GetMinHotAccessHint();
