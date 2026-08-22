@@ -233,6 +233,24 @@ TEST_F(NumaTopologyTest, LongCpuLists) {
   }
 }
 
+// Ensure that NUMA nodes with an index >= 32 are recorded in the partition
+// bitmap.  partition_to_nodes is a uint64_t bitmap, so the node index must be
+// shifted in a 64-bit type; shifting a 32-bit int by >= 31 would be undefined
+// behavior and would drop (or corrupt) the bit for such nodes.
+TEST_F(NumaTopologyTest, HighNodeIndex) {
+  // 33 nodes (indices 0..32).  Node 32 maps to partition 0 (32 % 4 == 0) and
+  // must set bit 32 of the partition 0 node bitmap.
+  std::vector<SyntheticCpuList> nodes;
+  for (size_t node = 0; node < 33; ++node) {
+    nodes.emplace_back(absl::StrCat(node));
+  }
+
+  const auto nt = CreateNumaTopology<4>(nodes);
+
+  EXPECT_EQ(nt.numa_aware(), true);
+  EXPECT_EQ(nt.GetPartitionNodes(0) & (uint64_t{1} << 32), uint64_t{1} << 32);
+}
+
 // Ensure we can initialize using the host system's real NUMA topology
 // information.
 TEST_F(NumaTopologyTest, Host) {
