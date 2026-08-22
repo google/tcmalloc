@@ -490,6 +490,15 @@ class CpuCache {
   // the slab based on miss-counts and resizes if so.
   void ResizeSlabIfNeeded();
 
+  // Resizes the slab for a single <cpu> if needed based on its miss-counts.
+  void ResizeCpuSlabIfNeeded(int cpu);
+  DynamicSlabResize ShouldResizeCpuSlab(int cpu);
+  uint8_t GetCpuSlabShift(int cpu) const {
+    uint8_t s = cpu_shift_[cpu].load(std::memory_order_relaxed);
+    if (s != 0) return s;
+    return freelist_.GetShift();
+  }
+
   // Reports total cache underflows and overflows for <cpu>.
   CpuCacheMissStats GetTotalCacheMissStats(int cpu) const;
 
@@ -832,6 +841,15 @@ class CpuCache {
   // ResizeSlabs. This memory is allocated on the arena, and it is nonresident
   // while not in use.
   void* slabs_by_shift_[kTotalPossibleSlabs] = {nullptr};
+
+  // For per-cpu asymmetric slab sizing prototype:
+  // Tracks current shift per cpu.
+  std::atomic<uint8_t> cpu_shift_[kMaxCpus] = {0};
+  // Standalone slab allocations per cpu.
+  std::atomic<void*> cpu_slab_base_[kMaxCpus] = {nullptr};
+  // Reusable standalone slab allocations per cpu and shift offset:
+  std::atomic<void*> cpu_slabs_by_shift_[kMaxCpus][kNumPossiblePerCpuShifts] =
+      {};
 };
 
 template <class Forwarder>
@@ -1064,6 +1082,9 @@ inline void CpuCache<Forwarder>::Activate() {
   TC_CHECK_LE(per_cpu_shift, shift_bounds_.max_shift);
   TC_CHECK_EQ(shift_bounds_.max_shift - shift_bounds_.initial_shift + 1,
               kNumPossiblePerCpuShifts);
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    cpu_shift_[cpu].store(per_cpu_shift, std::memory_order_relaxed);
+  }
 
   // Deal with size classes that correspond only to partitions that are in
   // use. If NUMA awareness and security partitions are disabled then we may
@@ -1694,6 +1715,9 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
         new_resize_slab_offset);
 
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      freelist_.UnbindCpuSlab(cpu, DrainHandler<CpuCache>{*this, nullptr});
+    }
     info = freelist_.UpdateMaxCapacities(
         new_slabs,
         GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
@@ -1784,7 +1808,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   {
     AllocationGuardSpinLockHolder h(resize_[cpu].lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
-    const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
+    const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetCpuShift(cpu));
     size_t size_classes_to_resize = 5;
     TC_ASSERT_LT(size_classes_to_resize, kNumClasses);
     for (size_t i = 0; i < size_classes_to_resize; ++i) {
@@ -2503,56 +2527,167 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   const DynamicSlabResize resize = ShouldResizeSlab();
 
   if (resize == DynamicSlabResize::kGrow) {
-    if (per_cpu_shift == shift_bounds_.max_shift) return;
+    if (per_cpu_shift == shift_bounds_.max_shift) goto percpu_resize;
     ++per_cpu_shift;
     dynamic_slab_info_
         .grow_count[ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift)]
         .fetch_add(1, std::memory_order_relaxed);
   } else if (resize == DynamicSlabResize::kShrink) {
-    if (per_cpu_shift == shift_bounds_.initial_shift) return;
+    if (per_cpu_shift == shift_bounds_.initial_shift) goto percpu_resize;
     --per_cpu_shift;
     dynamic_slab_info_
         .shrink_count[ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift)]
         .fetch_add(1, std::memory_order_relaxed);
   } else {
+    goto percpu_resize;
+  }
+
+  {
+    const auto new_shift = subtle::percpu::ToShiftType(per_cpu_shift);
+    const int64_t new_slabs_size =
+        subtle::percpu::GetSlabsAllocSize(new_shift, num_cpus);
+    forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
+
+    for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
+    ResizeSlabsInfo info;
+    const uint8_t resize_offset =
+        resize_slab_offset_.load(std::memory_order_relaxed);
+    int64_t reused_bytes;
+    {
+      AllocationGuard enforce_no_alloc;
+
+      void* new_slabs;
+      std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
+          [&](size_t size, std::align_val_t align) {
+            return forwarder_.AllocReportedImpending(size, align);
+          },
+          new_shift, num_cpus,
+          ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
+          resize_offset);
+      for (int cpu = 0; cpu < num_cpus; ++cpu) {
+        freelist_.UnbindCpuSlab(cpu, DrainHandler<CpuCache>{*this, nullptr});
+      }
+      info = freelist_.ResizeSlabs(
+          new_shift, new_slabs,
+          GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
+          [this](int cpu) { return HasPopulated(cpu); },
+          DrainHandler<CpuCache>{*this, nullptr});
+    }
+    for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
+
+    MadviseAwaySlabs(info.old_slabs, info.old_slabs_size);
+    const int64_t old_slabs_size = info.old_slabs_size;
+    forwarder_.ArenaUpdateAllocatedAndNonresident(
+        -old_slabs_size, old_slabs_size - reused_bytes);
+  }
+
+percpu_resize:
+  if (forwarder_.per_cpu_caches_dynamic_slab_enabled()) {
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      if (HasPopulated(cpu)) {
+        ResizeCpuSlabIfNeeded(cpu);
+      }
+    }
+  }
+}
+
+template <class Forwarder>
+inline typename CpuCache<Forwarder>::DynamicSlabResize
+CpuCache<Forwarder>::ShouldResizeCpuSlab(int cpu) {
+  CpuCacheMissStats misses =
+      GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kSlabResize);
+
+  if (misses.overflows == 0 && misses.underflows == 0) {
+    uint8_t current_shift = cpu_shift_[cpu].load(std::memory_order_relaxed);
+    if (current_shift > shift_bounds_.initial_shift) {
+      return DynamicSlabResize::kShrink;
+    }
+    return DynamicSlabResize::kNoop;
+  }
+
+  if (misses.overflows + 1 >
+      (misses.underflows + 1) *
+          forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
+    return DynamicSlabResize::kGrow;
+  } else if (misses.overflows <
+             misses.underflows *
+                 forwarder_.per_cpu_caches_dynamic_slab_shrink_threshold()) {
+    return DynamicSlabResize::kShrink;
+  }
+
+  return DynamicSlabResize::kNoop;
+}
+
+template <class Forwarder>
+void CpuCache<Forwarder>::ResizeCpuSlabIfNeeded(int cpu)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  if (!forwarder_.per_cpu_caches_dynamic_slab_enabled()) return;
+
+  uint8_t current_shift = cpu_shift_[cpu].load(std::memory_order_relaxed);
+  if (current_shift == 0) {
+    current_shift = shift_bounds_.initial_shift;
+  }
+
+  const DynamicSlabResize resize = ShouldResizeCpuSlab(cpu);
+  uint8_t new_shift = current_shift;
+
+  if (resize == DynamicSlabResize::kGrow) {
+    if (current_shift >= shift_bounds_.max_shift) return;
+    new_shift = current_shift + 1;
+  } else if (resize == DynamicSlabResize::kShrink) {
+    if (current_shift <= shift_bounds_.initial_shift) return;
+    new_shift = current_shift - 1;
+  } else {
     return;
   }
 
-  const auto new_shift = subtle::percpu::ToShiftType(per_cpu_shift);
-  const int64_t new_slabs_size =
-      subtle::percpu::GetSlabsAllocSize(new_shift, num_cpus);
-  // Account for impending allocation/reusing of new slab so that we can avoid
-  // going over memory limit.
-  forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
+  const auto shift_type = subtle::percpu::ToShiftType(new_shift);
+  const size_t slab_size = subtle::percpu::GetSlabsAllocSize(shift_type, 1);
 
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
-  ResizeSlabsInfo info;
-  const uint8_t resize_offset =
-      resize_slab_offset_.load(std::memory_order_relaxed);
-  int64_t reused_bytes;
-  {
-    // We can't allocate while holding the per-cpu spinlocks.
-    AllocationGuard enforce_no_alloc;
-
-    void* new_slabs;
-    std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
-        [&](size_t size, std::align_val_t align) {
-          return forwarder_.AllocReportedImpending(size, align);
-        },
-        new_shift, num_cpus,
-        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift), resize_offset);
-    info = freelist_.ResizeSlabs(
-        new_shift, new_slabs,
-        GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
-        [this](int cpu) { return HasPopulated(cpu); },
-        DrainHandler<CpuCache>{*this, nullptr});
+  const uint8_t shift_offset =
+      ShiftOffset(new_shift, shift_bounds_.initial_shift);
+  void* new_slab =
+      cpu_slabs_by_shift_[cpu][shift_offset].load(std::memory_order_relaxed);
+  if (new_slab == nullptr) {
+    new_slab = forwarder_.Alloc(slab_size, subtle::percpu::kPhysicalPageAlign);
+    if (new_slab == nullptr) return;
+    ANNOTATE_MEMORY_IS_INITIALIZED(new_slab, slab_size);
+    cpu_slabs_by_shift_[cpu][shift_offset].store(new_slab,
+                                                 std::memory_order_relaxed);
+  } else {
+    ErrnoRestorer errno_restorer;
+    madvise(new_slab, slab_size, MADV_HUGEPAGE);
   }
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
 
-  MadviseAwaySlabs(info.old_slabs, info.old_slabs_size);
-  const int64_t old_slabs_size = info.old_slabs_size;
-  forwarder_.ArenaUpdateAllocatedAndNonresident(-old_slabs_size,
-                                                old_slabs_size - reused_bytes);
+  void* old_slab = nullptr;
+  size_t old_slab_size = 0;
+  {
+    AllocationGuard enforce_no_alloc;
+    resize_[cpu].lock.lock();
+
+    old_slab = cpu_slab_base_[cpu].load(std::memory_order_relaxed);
+    if (old_slab != nullptr) {
+      old_slab_size = subtle::percpu::GetSlabsAllocSize(
+          subtle::percpu::ToShiftType(current_shift), 1);
+    }
+
+    freelist_.RebindCpuSlab(
+        [&](size_t size, std::align_val_t align) {
+          return forwarder_.Alloc(size, align);
+        },
+        cpu, new_slab, shift_type,
+        GetShiftMaxCapacity{max_capacity_, new_shift, shift_bounds_},
+        DrainHandler<CpuCache>{*this, nullptr});
+
+    cpu_shift_[cpu].store(new_shift, std::memory_order_relaxed);
+    cpu_slab_base_[cpu].store(new_slab, std::memory_order_release);
+
+    resize_[cpu].lock.unlock();
+  }
+
+  if (old_slab != nullptr) {
+    MadviseAwaySlabs(old_slab, old_slab_size);
+  }
 }
 
 template <class Forwarder>
@@ -2726,11 +2861,14 @@ inline void CpuCache<Forwarder>::Print(Printer& out) const {
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);
     uint64_t unallocated = Unallocated(cpu);
+    uint8_t shift = freelist_.GetCpuShift(cpu);
+    size_t slab_size = subtle::percpu::GetSlabsAllocSize(
+        subtle::percpu::ToShiftType(shift), 1);
     out.printf(
         "cpu %3d: %12u"
         " bytes (%7.1f MiB) with"
-        "%12u bytes unallocated %s%s\n",
-        cpu, rbytes, rbytes / MiB, unallocated,
+        "%12u bytes unallocated, slab size %10zu bytes %s%s\n",
+        cpu, rbytes, rbytes / MiB, unallocated, slab_size,
         allowed_cpus.IsSet(cpu) ? " active" : "",
         populated ? " populated" : "");
   }
