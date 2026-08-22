@@ -1761,3 +1761,8 @@ cc_library(
     deprecation = "Span lifetime tracking experiment has been removed.",
     visibility = ["//visibility:public"],
 )
+
+package_group(
+    name = "friends",
+    packages = [],
+)
