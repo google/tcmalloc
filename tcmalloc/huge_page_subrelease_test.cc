@@ -238,7 +238,14 @@ TEST_F(StatsTrackerTest, ComputeRecentDemand) {
   GenerateDemandPoint(Length(10), Length(7));
   Length short_long_peak_pages5 =
       tracker_.GetRecentDemand(absl::ZeroDuration(), absl::Minutes(51));
-  EXPECT_EQ(short_long_peak_pages5, Length(10));
+  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
+    // When the experiment is on, we use the peak within the long_interval to
+    // cap the demand. The peak in 51 min is 150 and the calculated demand is
+    // 100.
+    EXPECT_EQ(short_long_peak_pages5, Length(100));
+  } else {
+    EXPECT_EQ(short_long_peak_pages5, Length(10));
+  }
 }
 
 TEST_F(StatsTrackerTest, ComputeRecentDemandAndCappedToPeak) {

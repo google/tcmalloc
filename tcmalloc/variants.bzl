@@ -289,6 +289,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"},
     },
+    {
+        "name": "tcmalloc_demand_cycle_120s",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_DEMAND_CYCLE_120S"},
+    },
 ]
 
 def create_tcmalloc_library(
