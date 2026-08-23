@@ -181,6 +181,10 @@ static void Crash(const char* filename, int line, const char* msg,
 #endif  // __APPLE__
   }
 
+#ifdef __x86_64__
+  asm volatile("nop");
+#endif
+
   abort();
 }
 
