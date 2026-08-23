@@ -1757,9 +1757,3 @@ cc_library(
     ],
     deps = ["@com_google_absl//absl/base:core_headers"],
 )
-
-cc_library(
-    name = "want_disable_span_lifetime_tracking",
-    deprecation = "Span lifetime tracking experiment has been removed.",
-    visibility = ["//visibility:public"],
-)
