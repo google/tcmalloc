@@ -14,6 +14,7 @@
 
 #include <pthread.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <algorithm>
@@ -35,6 +36,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/testing/rseq_util.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -61,10 +63,10 @@ TEST_F(GetStatsTest, Pbtxt) {
   std::optional<size_t> fragmentation = MallocExtension::GetNumericProperty(
       "tcmalloc.sampled_internal_fragmentation");
   if (tcmalloc_internal::kSanitizerPresent) {
-    EXPECT_THAT(fragmentation, testing::Eq(std::nullopt));
+    EXPECT_THAT(fragmentation, ::testing::Eq(std::nullopt));
     return;
   }
-  ASSERT_THAT(fragmentation, testing::Ne(std::nullopt));
+  ASSERT_THAT(fragmentation, ::testing::Ne(std::nullopt));
   EXPECT_GT(*fragmentation, 0);
 
   // Expect `buf` to be in pbtxt format.

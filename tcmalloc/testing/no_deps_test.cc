@@ -34,6 +34,7 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/rseq_util.h"
 
 const size_t kMem = 10 << 20;
 const size_t kMin = 8;

@@ -91,7 +91,6 @@ tcmalloc_cc_binary_variants(
     "absl::synchronization"
     "absl::time"
     "benchmark::benchmark"
-    "tcmalloc::internal_declarations"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
     "tcmalloc_testing_benchmark_main"
@@ -124,6 +123,8 @@ tcmalloc_cc_test(
     "GTest::gmock"
     "absl::base"
     "absl::bits"
+    "absl::check"
+    "absl::log"
     "fuzztest::fuzztest"
     "fuzztest::init_fuzztest"
     "tcmalloc::common_8k_pages"
@@ -195,7 +196,6 @@ tcmalloc_cc_test(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
-    "absl::optional"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc_deprecated_perthread"
 )
@@ -253,6 +253,22 @@ tcmalloc_cc_library(
     "GTest::gtest"
     "GTest::gmock"
     "absl::synchronization"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_rseq_util
+  ALIAS
+    tcmalloc::testing_rseq_util
+  HDRS
+    "rseq_util.h"
+  SRCS
+    "rseq_util.cc"
+  DEPS
+    "@com_google_googletest//:gtest_for_library"
+    "tcmalloc::internal_environment"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test(
@@ -349,6 +365,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_rseq_util"
 )
 
 tcmalloc_cc_test_variants(
@@ -409,6 +426,7 @@ tcmalloc_cc_test_variants(
     "absl::str_format"
     "absl::string_view"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_rseq_util"
 )
 
 tcmalloc_cc_test_variants(
@@ -421,6 +439,7 @@ tcmalloc_cc_test_variants(
     "absl::str_format"
     "absl::string_view"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_rseq_util"
 )
 
 tcmalloc_cc_test_variants(
@@ -461,6 +480,7 @@ tcmalloc_cc_test_variants(
     "benchmark::benchmark"
     "tcmalloc::internal_config"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test_variants(
@@ -577,6 +597,7 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_rseq_util"
     "tcmalloc::testing_testutil"
 )
 
@@ -588,7 +609,6 @@ tcmalloc_cc_test_variants(
   DEPS
     "GTest::gtest"
     "GTest::gmock"
-    "absl::optional"
     "absl::random_random"
     "benchmark::benchmark"
     "tcmalloc::internal_config"
@@ -614,7 +634,6 @@ tcmalloc_cc_binary(
   SRCS
     "hello_main.cc"
   DEPS
-    "absl::optional"
     "absl::str_format"
     "absl::strings"
     "tcmalloc::malloc_extension"
@@ -725,6 +744,7 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_percpu"
     "tcmalloc::internal_sysinfo"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_rseq_util"
     "tcmalloc::testing_test_allocator_harness"
     "tcmalloc::testing_thread_manager"
 )
@@ -735,9 +755,9 @@ tcmalloc_cc_test_variants(
   SRCS
     "profile_test.cc"
   DEPS
-    "GTest::gmock"
-    "GTest::gmock_main"
     "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
     "absl::btree"
     "absl::core_headers"
     "absl::flat_hash_map"
@@ -748,13 +768,10 @@ tcmalloc_cc_test_variants(
     "absl::time"
     "benchmark::benchmark"
     "protobuf::libprotobuf"
-    "tcmalloc::internal_declarations"
     "tcmalloc::internal_linked_list"
-    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::internal_profile_cc_proto"
     "tcmalloc::malloc_extension"
     "tcmalloc::profile_marshaler"
-    "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
 )
 

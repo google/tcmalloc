@@ -632,6 +632,7 @@ tcmalloc_cc_library(
     "size_class_info.h"
   DEPS
     "absl::span"
+    "tcmalloc::internal_bytes"
     "tcmalloc::internal_config"
 )
 
@@ -718,6 +719,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_percpu"
     "tcmalloc::internal_sysinfo"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_rseq_util"
     "tcmalloc::want_numa_aware"
 )
 
@@ -916,6 +918,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::internal_util"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_rseq_util"
     "tcmalloc::testing_testutil"
 )
 
@@ -997,6 +1000,7 @@ tcmalloc_cc_test(
   DEPS
     "GTest::gtest"
     "GTest::gmock"
+    "absl::string_view"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::internal_profile_builder"
@@ -1329,6 +1333,7 @@ tcmalloc_cc_test(
   DEPS
     "GTest::gtest"
     "GTest::gmock"
+    "absl::string_view"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::internal_cpu_utils"

@@ -283,7 +283,6 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_legacy_locking,tcmalloc::common_legacy_locking>
   )
   set_tests_properties(${TCMALLOC_NAME}_legacy_locking PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
-
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_eager_backing
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}

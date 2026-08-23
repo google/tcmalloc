@@ -297,6 +297,22 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "rseq_util",
+    testonly = 1,
+    srcs = ["rseq_util.cc"],
+    hdrs = ["rseq_util.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
+    deps = [
+        ":testutil",
+        "//tcmalloc/internal:environment",
+        "//tcmalloc/internal:percpu",
+        "@com_google_googletest//:gtest_for_library",
+    ],
+    alwayslink = 1,
+)
+
 cc_test(
     name = "outofmemory_test",
     srcs = ["outofmemory_test.cc"],
@@ -403,6 +419,7 @@ cc_test(
         "notsan",
     ],
     deps = [
+        ":rseq_util",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:sysinfo",
@@ -462,6 +479,7 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     deps = [
+        ":rseq_util",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
@@ -475,6 +493,7 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     deps = [
+        ":rseq_util",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
@@ -642,6 +661,7 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     deps = [
+        ":rseq_util",
         ":testutil",
         "//tcmalloc:experiment",
         "//tcmalloc:malloc_extension",
@@ -806,6 +826,7 @@ create_tcmalloc_testsuite(
         "notsan",
     ],
     deps = [
+        ":rseq_util",
         ":test_allocator_harness",
         ":thread_manager",
         "//tcmalloc:malloc_extension",

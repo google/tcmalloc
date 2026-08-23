@@ -310,6 +310,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::experiment"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_atomic_stats_counter"
+    "tcmalloc::internal_bytes"
     "tcmalloc::internal_cache_topology"
     "tcmalloc::internal_central_freelist_hooks"
     "tcmalloc::internal_page_allocator_hooks"
@@ -849,13 +850,10 @@ tcmalloc_cc_library(
     "absl::flat_hash_map"
     "absl::hash"
     "absl::malloc_internal"
-    "absl::strings"
     "absl::time"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
-    "tcmalloc::internal_memory_tag"
-    "tcmalloc::internal_system_allocator"
 )
 
 tcmalloc_cc_test(
@@ -906,6 +904,9 @@ tcmalloc_cc_test(
     tcmalloc_huge_page_filler_fuzz
   SRCS
     "huge_page_filler_fuzz.cc"
+    "testdata/huge_page_filler_fuzz/clusterfuzz_testcase_minimized_huge_page_filler_fuzz_5161409228701696_test.inc"
+    "testdata/huge_page_filler_fuzz/clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6053674183688192_test.inc"
+    "testdata/huge_page_filler_fuzz/clusterfuzz_testcase_minimized_huge_page_filler_fuzz_6622985612820480.inc"
   DEPS
     "GTest::gtest"
     "GTest::gmock"
@@ -913,6 +914,7 @@ tcmalloc_cc_test(
     "absl::flat_hash_map"
     "absl::flat_hash_set"
     "absl::status"
+    "absl::str_format"
     "absl::string_view"
     "absl::time"
     "fuzztest::fuzztest"
@@ -1042,6 +1044,7 @@ tcmalloc_cc_binary(
   SRCS
     "transfer_cache_benchmark.cc"
   DEPS
+    "absl::optional"
     "absl::random_distributions"
     "absl::random_random"
     "benchmark::benchmark"
@@ -1300,6 +1303,7 @@ tcmalloc_cc_test(
   DEPS
     "GTest::gtest"
     "GTest::gmock"
+    "absl::string_view"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::malloc_extension"
@@ -1516,6 +1520,7 @@ tcmalloc_cc_library(
   HDRS
     "new_extension.h"
   DEPS
+    "absl::core_headers"
     "tcmalloc::malloc_extension"
 )
 
@@ -1592,6 +1597,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::mock_central_freelist"
     "tcmalloc::mock_transfer_cache"
+    "tcmalloc::testing_rseq_util"
     "tcmalloc::testing_testutil"
     "tcmalloc::testing_thread_manager"
 )
@@ -1615,6 +1621,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc_deprecated_perthread"
+    "tcmalloc::testing_rseq_util"
 )
 
 tcmalloc_cc_test(
@@ -1806,6 +1813,19 @@ tcmalloc_cc_library(
     "alloc_at_least.h"
   SRCS
     "alloc_at_least.cc"
+  DEPS
+    "absl::core_headers"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_want_disable_span_lifetime_tracking
+  ALIAS
+    tcmalloc::want_disable_span_lifetime_tracking
+  SRCS
+    "want_disable_span_lifetime_tracking.cc"
+  COPTS
+    "-g0"
   DEPS
     "absl::core_headers"
 )
