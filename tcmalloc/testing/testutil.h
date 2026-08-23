@@ -32,6 +32,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -214,6 +215,22 @@ class ScopedAlwaysSample {
  private:
   ScopedGuardedSamplingInterval guarded_sampling_interval_;
   ScopedProfileSamplingInterval profile_sampling_interval_;
+};
+
+class ScopedMadviseSampledAllocations {
+ public:
+  explicit ScopedMadviseSampledAllocations(
+      tcmalloc_internal::MadviseSampledAllocations new_madvise)
+      : old_madvise_(TCMalloc_Internal_GetMadviseSampledAllocations()) {
+    TCMalloc_Internal_SetMadviseSampledAllocations(new_madvise);
+  }
+
+  ~ScopedMadviseSampledAllocations() {
+    TCMalloc_Internal_SetMadviseSampledAllocations(old_madvise_);
+  }
+
+ private:
+  tcmalloc_internal::MadviseSampledAllocations old_madvise_;
 };
 
 inline void UnregisterRseq() {

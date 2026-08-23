@@ -42,6 +42,7 @@
 namespace tcmalloc {
 namespace {
 
+using tcmalloc_internal::MadviseSampledAllocations;
 using tcmalloc_internal::Parameters;
 using ::testing::AnyOf;
 using ::testing::ContainsRegex;
@@ -188,6 +189,7 @@ TEST_F(GetStatsTest, Parameters) {
   const absl::Duration old_skip_subrelease_long =
       Parameters::filler_skip_subrelease_long_interval();
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
+  ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
 
   auto using_hpaa = [](absl::string_view sv) {
     return absl::StrContains(sv, "HugePageAwareAllocator");
@@ -260,11 +262,15 @@ TEST_F(GetStatsTest, Parameters) {
       EXPECT_THAT(buf,
                   HasSubstr(R"(PARAMETER madvise_cold_regions_nohugepage 0)"));
     }
+    EXPECT_THAT(
+        buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 0)"));
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(using_hpaa_subrelease: false)"));
     }
 
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: -1)"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_madvise_sampled_allocations: false)"));
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
@@ -309,6 +315,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_skip_subrelease_long_interval(
       absl::Milliseconds(180375));
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
+  Parameters::set_madvise_sampled_allocations(
+      MadviseSampledAllocations::kEnabled);
 
   buf = MallocExtension::GetStats();
   pbtxt = GetStatsInPbTxt();
@@ -337,6 +345,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(
             R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3m0.375s)"));
+    EXPECT_THAT(
+        buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 1)"));
 
     if (using_hpaa(buf)) {
       EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
@@ -358,6 +368,8 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(
             R"(tcmalloc_skip_subrelease_long_interval_ns: 180375000000)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_madvise_sampled_allocations: true)"));
   }
 
   Parameters::set_hpaa_subrelease(old_hpaa_subrelease);

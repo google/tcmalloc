@@ -231,6 +231,9 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_cold_pages_(false);
+ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
+    Parameters::madvise_sampled_allocations_(
+        MadviseSampledAllocations::kDisabled);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
     16 << 20);
 ABSL_CONST_INIT
@@ -368,6 +371,7 @@ static bool want_disable_dynamic_slabs() {
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
+using tcmalloc::tcmalloc_internal::MadviseSampledAllocations;
 using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
 
@@ -661,6 +665,15 @@ void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
       v ? tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled
         : tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kDisabled,
       std::memory_order_relaxed);
+}
+
+MadviseSampledAllocations TCMalloc_Internal_GetMadviseSampledAllocations() {
+  return Parameters::madvise_sampled_allocations();
+}
+
+void TCMalloc_Internal_SetMadviseSampledAllocations(
+    MadviseSampledAllocations v) {
+  Parameters::madvise_sampled_allocations_.store(v, std::memory_order_relaxed);
 }
 
 int64_t TCMalloc_Internal_GetEventTraceMemoryLimit() {

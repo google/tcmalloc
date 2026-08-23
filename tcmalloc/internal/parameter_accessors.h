@@ -35,6 +35,8 @@ struct TracerSizeClassInfo {
   size_t num_objects_to_move;
 };
 
+enum class MadviseSampledAllocations : bool { kDisabled, kEnabled };
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
@@ -92,6 +94,11 @@ TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(absl::Duration v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     bool v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK
+    tcmalloc::tcmalloc_internal::MadviseSampledAllocations
+    TCMalloc_Internal_GetMadviseSampledAllocations();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseSampledAllocations(
+    tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
 ABSL_ATTRIBUTE_WEAK int64_t TCMalloc_Internal_GetEventTraceMemoryLimit();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
 ABSL_ATTRIBUTE_WEAK uint8_t TCMalloc_Internal_GetMinHotAccessHint();
