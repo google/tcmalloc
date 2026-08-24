@@ -211,6 +211,24 @@ ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
 
 /* start of atomic restartable sequences */
 
+/*
+ * ABI note:
+ *
+ * Since rseq can restart your code at any instruction before commit,
+ * and we do not make an effort to restore anything on abort (we just restart),
+ * you cannot modify input parameter registers (in this case: %rdi, %rsi, %rdx).
+ * We do not save callee-preserved registers (%rbx, %rsp, %rbp, %r12-%r15),
+ * so they are also off-limits. The only registers you are allowed to write to
+ * are the unused parameter registers (%rcx, %r8, %r9), the caller-preserved
+ * scratch registers (%r10, %r11, all %xmm) and the return register (%rax).
+ *
+ * You are also responsible for following the normal rseq convention, i.e.,
+ * the only instruction that can write to memory in a way that matters
+ * is the last one. (So we can write to the unused areas of the freelist,
+ * but moving the indexes so that the elements become visible must wait
+ * until the end.)
+ */
+
 /* size_t TcmallocSlab_Internal_PushBatch(
  *     size_t size_class (%rdi),
  *     void** batch (%rsi),
@@ -270,6 +288,8 @@ TcmallocSlab_Internal_PushBatch:
   CFI(.cfi_endproc)
 ENCODE_SIZE(TcmallocSlab_Internal_PushBatch)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
+
+/* See TcmallocSlab_Internal_PushBatch for ABI note. */
 
 /* size_t TcmallocSlab_Internal_PopBatch(
  *     size_t size_class (%rdi),
