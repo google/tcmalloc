@@ -179,7 +179,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   // Disable GWP-ASan, since it allocates different sizes than normal samples.
   MallocExtension::SetGuardedSamplingInterval(-1);
 
-  constexpr size_t kSamplingRate = 512 * 1024;
+  constexpr size_t kSamplingRate = 64 * 1024;
   // Increase sampling rate to decrease flakiness.
   ScopedProfileSamplingInterval ps(kSamplingRate);
 
