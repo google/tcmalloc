@@ -27,6 +27,7 @@ enum class Experiment : int {
   TCMALLOC_PER_CPU_CACHE_SIZE_1MB,  // TODO: b/514747820 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_REUSE_SIZE_CLASSES_ABLATION,  // TODO: b/524296402 - Complete experiment.
+  TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK,  // TODO: b/540945006 - Complete experiment.
   TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS,  // TODO: b/527907199 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
   TEST_ONLY_TCMALLOC_HEAP_PARTITIONING,  // TODO: b/446814339 - Complete experiment.
@@ -56,6 +57,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_PER_CPU_CACHE_SIZE_1MB, "TCMALLOC_PER_CPU_CACHE_SIZE_1MB"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_REUSE_SIZE_CLASSES_ABLATION, "TCMALLOC_REUSE_SIZE_CLASSES_ABLATION"},
+    {Experiment::TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK, "TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.5},
     {Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS, "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
     {Experiment::TEST_ONLY_TCMALLOC_HEAP_PARTITIONING, "TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"},

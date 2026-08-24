@@ -231,13 +231,24 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_cold_pages_(false);
-ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
-    Parameters::madvise_sampled_allocations_(
-        MadviseSampledAllocations::kDisabled);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
     16 << 20);
 ABSL_CONST_INIT
 std::atomic<bool> Parameters::release_drained_slab_metadata_(false);
+
+static std::atomic<MadviseSampledAllocations>&
+madvise_sampled_allocations_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<MadviseSampledAllocations> v{
+      MadviseSampledAllocations::kEnabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK)) {
+      v.store(MadviseSampledAllocations::kDisabled, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
 
 static std::atomic<MadviseRegionsNoHugepage>&
 madvise_cold_regions_nohugepage_enabled() {
@@ -333,6 +344,10 @@ bool Parameters::huge_region_adaptive_release() {
 MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
   return madvise_cold_regions_nohugepage_enabled().load(
       std::memory_order_relaxed);
+}
+
+MadviseSampledAllocations Parameters::madvise_sampled_allocations() {
+  return madvise_sampled_allocations_enabled().load(std::memory_order_relaxed);
 }
 
 HeapPartitioningMode Parameters::heap_partitioning_mode() {
@@ -673,7 +688,8 @@ MadviseSampledAllocations TCMalloc_Internal_GetMadviseSampledAllocations() {
 
 void TCMalloc_Internal_SetMadviseSampledAllocations(
     MadviseSampledAllocations v) {
-  Parameters::madvise_sampled_allocations_.store(v, std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::madvise_sampled_allocations_enabled().store(
+      v, std::memory_order_relaxed);
 }
 
 int64_t TCMalloc_Internal_GetEventTraceMemoryLimit() {

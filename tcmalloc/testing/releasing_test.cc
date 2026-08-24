@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace {
 
@@ -54,6 +55,9 @@ int64_t UnmappedBytes() {
 }  // namespace
 
 int main() {
+  // Avoid perturbing RSS as a result of sampling.
+  tcmalloc::ScopedNeverSample never;
+
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   if (ret != 0) {
     const bool kSoftFail = true;

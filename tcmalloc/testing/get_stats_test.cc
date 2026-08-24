@@ -150,6 +150,13 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("madvise_cold_regions_nohugepage: false"));
   }
 
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK)) {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_madvise_sampled_allocations: false"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_madvise_sampled_allocations: true"));
+  }
+
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
   if (MallocExtension::PerCpuCachesActive()) {
     EXPECT_THAT(buf, ContainsRegex("cpu_caches_touched: [0-9]+"));
