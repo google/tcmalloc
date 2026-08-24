@@ -632,8 +632,9 @@ void Release::Perform(State& state) const {
 }
 
 void AdvanceClock::Perform(State& state) const {
-  fake_clock += absl::ToInt64Nanoseconds(
+  const int64_t clamped_amount = absl::ToInt64Nanoseconds(
       std::clamp(amount, -absl::Hours(1), absl::Hours(1)));
+  fake_clock = std::max<int64_t>(0, fake_clock + clamped_amount);
 }
 
 void ToggleUnback::Perform(State& state) const {
@@ -1352,6 +1353,55 @@ TEST(HugePageFillerTest, Regression_b525818096) {
           TreatTrackers{.enable_collapse = true,
                         .enable_unfiltered_collapse = false},
       },
+      SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, b547364068) {
+  FuzzFiller(
+      {GatherStats{},
+       UpdateBitmaps{.hugepage_backed_set = true,
+                     .hugepage_backed_val = false,
+                     .unbacked_bitmap_val = 50451,
+                     .swapped_bitmap_val = 1,
+                     .stale_bitmap_val = 65535},
+       ReentrantSubprogram{.subprogram = {}},
+       ReentrantSubprogram{.subprogram = {}},
+       ReentrantSubprogram{
+           .subprogram = {ReentrantSubprogram{.subprogram = {}}}},
+       MemoryLimitHitRelease{.desired = 57103},
+       ModelTail{.length = 13924},
+       UpdateBitmaps{.hugepage_backed_set = false,
+                     .hugepage_backed_val = true,
+                     .unbacked_bitmap_val = 0,
+                     .swapped_bitmap_val = 32767,
+                     .stale_bitmap_val = 40262},
+       ReentrantSubprogram{.subprogram = {}},
+       ReentrantSubprogram{.subprogram = {AdvanceClock{
+                               .amount = absl::Nanoseconds(1649401658367)}}},
+       TreatTrackers{.enable_collapse = true,
+                     .enable_unfiltered_collapse = true,
+                     .enable_release_stale_pages = false},
+       MemoryLimitHitRelease{.desired = 39243},
+       ReentrantSubprogram{.subprogram = {}},
+       AdvanceClock{.amount = absl::Nanoseconds(-7661516523829048993)},
+       SetCollapseLatency{.latency = absl::Nanoseconds(1)},
+       GatherStats{},
+       Allocate{
+           .length = 65535, .num_objects = 2147483647, .density_dense = false},
+       AdvanceClock{.amount = absl::Nanoseconds(1)},
+       ReentrantSubprogram{.subprogram = {}},
+       SetCollapseLatency{.latency = absl::ZeroDuration()},
+       ReentrantSubprogram{.subprogram = {}},
+       MemoryLimitHitRelease{.desired = 65535},
+       GatherStatsPbtxt{},
+       Allocate{.length = 35885, .num_objects = 0, .density_dense = true},
+       Deallocate{.tracker_index = 3704872317, .alloc_index = 0},
+       GatherStatsPbtxt{},
+       UpdateBitmaps{.hugepage_backed_set = false,
+                     .hugepage_backed_val = false,
+                     .unbacked_bitmap_val = 512,
+                     .swapped_bitmap_val = 1,
+                     .stale_bitmap_val = 0}},
       SubreleaseUnbackedMode::kDisabled);
 }
 
