@@ -171,6 +171,13 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: false"));
 
+  if (IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION)) {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_cfl_subbucket_prioritization: true"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_cfl_subbucket_prioritization: false"));
+  }
+
   sized_delete(alloc, kSize);
 }
 
@@ -304,6 +311,17 @@ TEST_F(GetStatsTest, Parameters) {
     } else {
       EXPECT_THAT(buf,
                   HasSubstr(R"(PARAMETER tcmalloc_release_stale_pages 0)"));
+    }
+
+    if (IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION)) {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_cfl_subbucket_prioritization 1)"));
+    } else {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_cfl_subbucket_prioritization 0)"));
     }
 
     EXPECT_THAT(

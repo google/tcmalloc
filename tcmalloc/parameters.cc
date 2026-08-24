@@ -351,6 +351,22 @@ HeapPartitioningMode Parameters::heap_partitioning_mode() {
   return heap_partitioning_mode_ptr().load(std::memory_order_relaxed);
 }
 
+central_freelist_internal::CflSubbucketPrioritization
+Parameters::cfl_subbucket_prioritization() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<
+      central_freelist_internal::CflSubbucketPrioritization>
+      v{central_freelist_internal::CflSubbucketPrioritization::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(
+        central_freelist_internal::CflSubbucketPrioritization{
+            IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION)},
+        std::memory_order_relaxed);
+  });
+  return v.load(std::memory_order_relaxed);
+}
+
 ReleaseStalePages Parameters::release_stale_pages() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<ReleaseStalePages> v{
