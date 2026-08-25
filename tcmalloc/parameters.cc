@@ -167,13 +167,10 @@ SubreleaseUnbackedMode Parameters::subrelease_unbacked_hugepages() {
 }
 
 std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
-  ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<MallocExtension::BytesPerSecond> v{
       MallocExtension::BytesPerSecond{
           0
       }};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-  });
   return v;
 }
 
