@@ -800,7 +800,7 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
   cache_size_ = csize - result;
 
   while (result < N) {
-    if (freelist_ == kListEnd) {
+    if (ABSL_PREDICT_FALSE(freelist_ == kListEnd)) {
       break;
     }
 

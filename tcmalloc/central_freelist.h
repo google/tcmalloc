@@ -498,7 +498,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   if (kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
     nonempty_.Add(span, cur_index);
     span->set_nonempty_index(cur_index);
-  } else if (cur_index != prev_index) {
+  } else if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     nonempty_.Remove(span, prev_index);
     nonempty_.Add(span, cur_index);
@@ -596,7 +596,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // (to reduce critical section size and cache misses).
   forwarder_.MapObjectsToSpans(batch, spans, size_class_);
 
-  if (objects_per_span_ == 1) {
+  if (ABSL_PREDICT_FALSE(objects_per_span_ == 1)) {
     // If there is only 1 object per span, skip CentralFreeList entirely.
     DeallocateSpans({spans, batch.size()});
     return;
@@ -751,14 +751,15 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         RecordSpanUtil(prev_bitwidth, /*increase=*/false);
         RecordSpanUtil(cur_bitwidth, /*increase=*/true);
       }
-      if (span->FreelistEmpty(object_size, objects_per_span)) {
+      if (ABSL_PREDICT_FALSE(
+              span->FreelistEmpty(object_size, objects_per_span))) {
         nonempty_.Remove(span, prev_index);
       } else {
         // If span allocation changes so that it must be moved to a different
         // nonempty_ list, we remove it from the previous list and add it to the
         // desired list indexed by cur_index.
         const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
-        if (cur_index != prev_index) {
+        if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
           nonempty_.Remove(span, prev_index);
           nonempty_.Add(span, cur_index);
