@@ -46,8 +46,14 @@
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/sysinfo.h"
 
-#if __clang_major__ >= 11
-#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT 1
+#if defined(__GNUC__) && __GNUC__ >= 14 && !defined(__clang__) && \
+    defined(__x86_64__)
+// Work around https://gcc.gnu.org/bugzilla/show_bug.cgi?id=125526
+// by force-loading the address of the thread-local rseq_cs_addr into
+// a register instead of giving it as a "m" constraint.
+//
+// TODO: Remove this when GCC releases a fixed version.
+#define TCMALLOC_INTERNAL_PERCPU_USE_TLS_WORKAROUND 1
 #endif
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -461,6 +467,19 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
 #if defined(__x86_64__)
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_X86_64_NONE"
 #define TCMALLOC_RSEQ_JUMP "jmp"
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_TLS_WORKAROUND
+#if !defined(__PIC__) && !defined(__PIE__)
+#define TCMALLOC_RSEQ_SET_CS(name) \
+  "movq $__rseq_cs_" #name "_%=, (%[rseq_cs_addr_addr])\n"
+#else
+#define TCMALLOC_RSEQ_SET_CS(name)    \
+  "mov __rseq_cs_" #name              \
+  "_%=@GOTPCREL(%%rip), %[scratch]\n" \
+  "movq %[scratch], (%[rseq_cs_addr_addr])\n"
+#endif
+#define TCMALLOC_RSEQ_CS_INPUT [rseq_cs_addr_addr] "r"(&__rseq_abi.rseq_cs)
+#else
 #if !defined(__PIC__) && !defined(__PIE__)
 #define TCMALLOC_RSEQ_SET_CS(name) \
   "movq $__rseq_cs_" #name "_%=, %[rseq_cs_addr]\n"
@@ -469,6 +488,8 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
   "mov __rseq_cs_" #name              \
   "_%=@GOTPCREL(%%rip), %[scratch]\n" \
   "movq %[scratch], %[rseq_cs_addr]\n"
+#endif
+#define TCMALLOC_RSEQ_CS_INPUT [rseq_cs_addr] "m"(__rseq_abi.rseq_cs)
 #endif
 
 #elif defined(__aarch64__)
@@ -576,7 +597,7 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
       [sampler_slabs_offset] "n"(TCMALLOC_SAMPLER_SLABS_OFFSET)
 #else
 #define TCMALLOC_RSEQ_INPUTS                                                 \
-  [rseq_cs_addr] "m"(__rseq_abi.rseq_cs),                                    \
+  TCMALLOC_RSEQ_CS_INPUT,                                                    \
       [rseq_slabs_addr] "m"(*reinterpret_cast<volatile char*>(               \
           reinterpret_cast<uintptr_t>(&__rseq_abi) +                         \
           TCMALLOC_RSEQ_SLABS_OFFSET)),                                      \
@@ -655,55 +676,30 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemory(uintptr_t ptr) {
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
   uintptr_t scratch, current;
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
-#else
-  bool overflow;
-  asm volatile(
-#endif
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
       // scratch = tcmalloc_slabs;
       "movq %[rseq_slabs_addr], %[scratch]\n"
       // if (scratch & TCMALLOC_CACHED_SLABS_MASK>) goto overflow_label;
       // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
       "btrq $%c[cached_slabs_bit], %[scratch]\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "jnc %l[overflow_label]\n"
-#else
-      "jae 5f\n"  // ae==c
-#endif
       // current = slabs->current;
       "movzwq (%[scratch], %[size_class], 4), %[current]\n"
       // if (ABSL_PREDICT_FALSE(current >= slabs->end)) { goto overflow_label; }
       "cmp 2(%[scratch], %[size_class], 4), %w[current]\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "jae %l[overflow_label]\n"
-#else
-      "jae 5f\n"
-  // Important! code below this must not affect any flags (i.e.: ccae)
-  // If so, the above code needs to explicitly set a ccae return value.
-#endif
       "mov %[item], (%[scratch], %[current], 8)\n"
       "lea 1(%[current]), %[current]\n"
       "mov %w[current], (%[scratch], %[size_class], 4)\n"
       // Commit
       "5:\n"
       :
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-      [overflow] "=@ccae"(overflow),
-#endif
       [scratch] "=&r"(scratch), [current] "=&r"(current)
       : TCMALLOC_RSEQ_INPUTS, [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
-#endif
   );
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-  if (ABSL_PREDICT_FALSE(overflow)) {
-    goto overflow_label;
-  }
-#endif
   // Current now points to the slot we are going to push to next.
   PrefetchSlabMemory(scratch + current * sizeof(void*));
   return true;
@@ -716,24 +712,14 @@ overflow_label:
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
   uintptr_t region_start, scratch, scratch_ptr, end;
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
-#else
-  bool overflow;
-  asm volatile(
-#endif
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
       // region_start = tcmalloc_slabs;
       "ldr %[region_start], [%[sampler_addr], #%c[sampler_slabs_offset]]\n"
   // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
   // region_start is unmasked on aarch64, since Top Byte Ignore is enabled in
   // user space by default
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbz %[region_start], #%c[cached_slabs_bit], %l[overflow_label]\n"
-#else
-      "subs %[region_start], %[region_start], %[cached_slabs_mask]\n"
-      "b.ls 5f\n"
-#endif
       // scratch = slab_headers[size_class]->current (current index)
       "add %[scratch_ptr], %[region_start], %[size_class], LSL #2\n"
       "ldrh %w[scratch], [%[scratch_ptr]]\n"
@@ -741,13 +727,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       "ldrh %w[end], [%[scratch_ptr], #2]\n"
       // if (ABSL_PREDICT_FALSE(end <= scratch)) { goto overflow_label; }
       "cmp %[end], %[scratch]\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "b.ls %l[overflow_label]\n"
-#else
-      "b.ls 5f\n"
-  // Important! code below this must not affect any flags (i.e.: ccls)
-  // If so, the above code needs to explicitly set a ccls return value.
-#endif
       "str %[item], [%[region_start], %[scratch], LSL #3]\n"
       "add %w[scratch], %w[scratch], #1\n"
       "strh %w[scratch], [%[scratch_ptr]]\n"
@@ -755,27 +735,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       "5:\n"
       : [scratch_ptr] "=&r"(scratch_ptr), [scratch] "=&r"(scratch),
         [end] "=&r"(end),
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-        [overflow] "=@ccls"(overflow),
-#endif
         [region_start] "=&r"(region_start)
       : TCMALLOC_RSEQ_INPUTS,
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-        [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
-#endif
         [size_class] "r"(size_class), [item] "r"(item)
       : TCMALLOC_RSEQ_CLOBBER, "memory"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         ,
         "cc"
       : overflow_label
-#endif
   );
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-  if (ABSL_PREDICT_FALSE(overflow)) {
-    goto overflow_label;
-  }
-#endif
 
   PrefetchSlabMemory(reinterpret_cast<uintptr_t>(region_start) +
                      scratch * sizeof(void*));
@@ -833,63 +800,32 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   void* result;
   uintptr_t scratch, current;
 
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
-#else
-  bool underflow;
-  asm(
-#endif
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
       // scratch = tcmalloc_slabs;
       "movq %[rseq_slabs_addr], %[scratch]\n"
       // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
       // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
       "btrq $%c[cached_slabs_bit], %[scratch]\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "jnc %l[underflow_path]\n"
-#else
-      "cmc\n"
-      "jc 5f\n"
-#endif
       // current = scratch->header[size_class].current;
       "movzwq (%[scratch], %[size_class], 4), %[current]\n"
       "movq -8(%[scratch], %[current], 8), %[result]\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "testb $%c[begin_mark_mask], %b[result]\n"
       "jnz %l[underflow_path]\n"
-#else
-      "btq $%c[begin_mark_bit], %[result]\n"
-      "jc 5f\n"
-  // Important! code below this must not affect any flags (i.e.: ccc)
-  // If so, the above code needs to explicitly set a ccc return value.
-#endif
       "movq -16(%[scratch], %[current], 8), %[next]\n"
       "lea -1(%[current]), %[current]\n"
       "movw %w[current], (%[scratch], %[size_class], 4)\n"
       // Commit
       "5:\n"
       : [result] "=&r"(result),
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-        [underflow] "=@ccc"(underflow),
-#endif
         [scratch] "=&r"(scratch), [current] "=&r"(current), [next] "=&r"(next)
       : TCMALLOC_RSEQ_INPUTS,
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         [begin_mark_mask] "n"(kBeginMark),
-#else
-        [begin_mark_bit] "n"(absl::countr_zero(kBeginMark)),
-#endif
         [size_class] "r"(size_class)
       : "cc", "memory"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : underflow_path
-#endif
   );
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-  if (ABSL_PREDICT_FALSE(underflow)) {
-    goto underflow_path;
-  }
-#endif
   TC_ASSERT(next);
   TC_ASSERT(result);
   TSANAcquire(result);
@@ -914,13 +850,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   void* prefetch;
   uintptr_t scratch;
   uintptr_t previous;
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
-#else
-  uintptr_t scratch2;
-  bool underflow;
-  asm(
-#endif
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
       // region_start = tcmalloc_slabs;
 
@@ -928,12 +858,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
   // region_start is unmasked on aarch64, since Top Byte Ignore is enabled in
   // user space by default
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
-#else
-      "tst %[region_start], %[cached_slabs_mask]\n"
-      "b.eq 5f\n"
-#endif
       // scratch = slab_headers[size_class]->current (current index)
       "ldrh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
       // previous = scratch - 1
@@ -942,48 +867,24 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
       // Note we are using a pre-indexed ldp. After this instruction, scratch
       // points to the next location in slab memory, which we will prefetch.
       "ldp %[prefetch], %[result], [%[scratch], #-16]!\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbnz %[result], #%c[begin_mark_bit], %l[underflow_path]\n"
-#else
-      // Temporary use %[scratch2] to store %[result] with inverted mark bit.
-      "eor %[scratch2], %[result], #%c[begin_mark_mask]\n"
-      "tst %[scratch2], #%c[begin_mark_mask]\n"
-      "b.eq 5f\n"
-  // Important! code below this must not affect any flags (i.e.: cceq)
-  // If so, the above code needs to explicitly set a cceq return value.
-#endif
       "strh %w[previous], [%[region_start], %[size_class_lsl2]]\n"
       // Commit
       "5:\n"
       :
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-      [underflow] "=@cceq"(underflow),
-#endif
       [result] "=&r"(result), [prefetch] "=&r"(prefetch),
       // Temps
       [region_start] "=&r"(region_start), [previous] "=&r"(previous),
       [scratch] "=&r"(scratch)
       // Real inputs
       : TCMALLOC_RSEQ_INPUTS,
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         [begin_mark_bit] "n"(absl::countr_zero(kBeginMark)),
-#else
-        [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
-        [begin_mark_mask] "n"(kBeginMark), [scratch2] "=&r"(scratch2),
-#endif
         [size_class_lsl2] "r"(size_class << 2)
       : TCMALLOC_RSEQ_CLOBBER, "memory"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         ,
         "cc"
       : underflow_path
-#endif
   );
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-  if (ABSL_PREDICT_FALSE(underflow)) {
-    goto underflow_path;
-  }
-#endif
   TSANAcquire(result);
   PrefetchSlabMemory(scratch);
   PrefetchNextObject(prefetch);
