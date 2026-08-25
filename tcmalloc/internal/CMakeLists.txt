@@ -61,6 +61,17 @@ tcmalloc_cc_library(
     "tcmalloc::malloc_hook"
 )
 
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_internal_scoped_allow_allocation
+  ALIAS
+    tcmalloc::internal_scoped_allow_allocation
+  HDRS
+    "scoped_allow_allocation.h"
+  DEPS
+    "tcmalloc::internal_allocation_guard"
+)
+
 tcmalloc_cc_test(
   NAME
     tcmalloc_internal_allocation_guard_test
@@ -138,13 +149,43 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_page_allocation_status
+  ALIAS
+    tcmalloc::internal_page_allocation_status
+  HDRS
+    "page_allocation_status.h"
+  SRCS
+    "page_allocation_status.cc"
+  DEPS
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::internal_range_tracker"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_clock
   ALIAS
     tcmalloc::internal_clock
   HDRS
     "clock.h"
   DEPS
+    "absl::base"
+    "absl::time"
     "tcmalloc::internal_config"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_clock_test
+  SRCS
+    "clock_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::time"
+    "tcmalloc::internal_clock"
+    "tcmalloc::tcmalloc"
 )
 
 tcmalloc_cc_library(
@@ -434,7 +475,6 @@ tcmalloc_cc_library(
     "absl::strings"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
-    "tcmalloc::internal_page_size"
     "tcmalloc::internal_util"
 )
 
@@ -447,7 +487,11 @@ tcmalloc_cc_test(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
+    "absl::function_ref"
+    "absl::string_view"
+    "absl::strings"
     "tcmalloc::internal_memory_stats"
+    "tcmalloc::internal_page_size"
     "tcmalloc::tcmalloc"
 )
 
@@ -515,8 +559,10 @@ tcmalloc_cc_library(
     "absl::status"
     "absl::strings"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_is_aligned_to"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_page_size"
+    "tcmalloc::internal_range_tracker"
     "tcmalloc::internal_util"
 )
 
@@ -541,6 +587,7 @@ tcmalloc_cc_test(
     "benchmark::benchmark"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_pageflags"
+    "tcmalloc::internal_range_tracker"
     "tcmalloc::internal_strerror"
     "tcmalloc::internal_util"
     "tcmalloc::tcmalloc"
@@ -595,6 +642,7 @@ tcmalloc_cc_test(
     "GTest::gmock_main"
     "GTest::gmock"
     "benchmark::benchmark"
+    "tcmalloc::internal_is_aligned_to"
     "tcmalloc::internal_mincore"
     "tcmalloc::internal_page_size"
     "tcmalloc::tcmalloc"
@@ -616,6 +664,7 @@ tcmalloc_cc_test(
     "benchmark::benchmark"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_is_aligned_to"
     "tcmalloc::internal_page_size"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::internal_residency"
@@ -880,6 +929,7 @@ tcmalloc_cc_library(
     "absl::dynamic_annotations"
     "absl::function_ref"
     "tcmalloc::internal_delay_injection"
+    "tcmalloc::internal_is_aligned_to"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_mincore"
     "tcmalloc::internal_optimization"
@@ -919,6 +969,30 @@ tcmalloc_cc_test(
     "tcmalloc::internal_util"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_rseq_util"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_percpu_tcmalloc_fuzz
+  SRCS
+    "percpu_tcmalloc_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::check"
+    "absl::flat_hash_set"
+    "absl::function_ref"
+    "absl::str_format"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::internal_affinity"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::internal_percpu_tcmalloc"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
 )
 
@@ -967,6 +1041,66 @@ target_include_directories(tcmalloc_internal_profile_cc_proto PUBLIC ${CMAKE_BIN
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_compressibility
+  ALIAS
+    tcmalloc::internal_compressibility
+  HDRS
+    "compressibility.h"
+  SRCS
+    "compressibility.cc"
+  DEPS
+    "absl::fixed_array"
+    "absl::flat_hash_map"
+    "absl::flat_hash_set"
+    "absl::inlined_vector"
+    "absl::span"
+    "absl::status"
+    "absl::status_macros"
+    "absl::statusor"
+    "absl::strings"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_residency"
+    "tcmalloc::internal_util"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_compressibility_test
+  SRCS
+    "compressibility_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::span"
+    "absl::status_matchers"
+    "absl::strings"
+    "tcmalloc::internal_compressibility"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_range_tracker"
+    "tcmalloc::internal_residency"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_compressibility_fuzz
+  SRCS
+    "compressibility_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::span"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::internal_compressibility"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_residency"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_profile_builder
   ALIAS
     tcmalloc::internal_profile_builder
@@ -985,6 +1119,7 @@ tcmalloc_cc_library(
     "absl::statusor"
     "absl::strings"
     "absl::time"
+    "tcmalloc::internal_compressibility"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_pageflags"
     "tcmalloc::internal_profile_cc_proto"
@@ -1020,6 +1155,7 @@ tcmalloc_cc_test(
     "absl::check"
     "absl::flat_hash_map"
     "absl::flat_hash_set"
+    "absl::status"
     "absl::statusor"
     "absl::strings"
     "absl::time"
@@ -1107,6 +1243,21 @@ tcmalloc_cc_test(
     "GTest::gmock"
     "absl::fixed_array"
     "absl::random_random"
+    "tcmalloc::internal_range_tracker"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_range_tracker_fuzz_test
+  SRCS
+    "range_tracker_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::span"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::tcmalloc"
 )
@@ -1233,6 +1384,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_config"
     "tcmalloc::internal_environment"
     "tcmalloc::internal_exponential_biased"
+    "tcmalloc::internal_is_aligned_to"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"
     "tcmalloc::internal_numa"
@@ -1258,8 +1410,10 @@ tcmalloc_cc_test(
     "benchmark::benchmark"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_exponential_biased"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_numa"
+    "tcmalloc::internal_page_size"
     "tcmalloc::internal_proc_maps"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
@@ -1280,8 +1434,10 @@ tcmalloc_cc_test(
     "absl::string_view"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_exponential_biased"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_numa"
+    "tcmalloc::internal_page_size"
     "tcmalloc::internal_proc_maps"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
@@ -1334,6 +1490,7 @@ tcmalloc_cc_test(
     "GTest::gtest"
     "GTest::gmock"
     "absl::string_view"
+    "absl::strings"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::internal_cpu_utils"
@@ -1410,6 +1567,8 @@ tcmalloc_cc_library(
   SRCS
     "util.cc"
   DEPS
+    "absl::span"
+    "absl::strings"
     "absl::time"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
@@ -1439,6 +1598,7 @@ tcmalloc_cc_test(
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::internal_memory_stats"
+    "tcmalloc::internal_page_size"
     "tcmalloc::tcmalloc"
 )
 
@@ -1454,5 +1614,18 @@ tcmalloc_cc_library(
   DEPS
     "absl::base"
     "absl::core_headers"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_internal_is_aligned_to
+  ALIAS
+    tcmalloc::internal_is_aligned_to
+  HDRS
+    "is_aligned_to.h"
+  DEPS
+    "absl::bits"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
 )
 
