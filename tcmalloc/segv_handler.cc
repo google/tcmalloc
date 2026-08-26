@@ -14,6 +14,7 @@
 
 #include "tcmalloc/segv_handler.h"
 
+#include <sys/ucontext.h>
 #include <unistd.h>
 
 #include <csignal>
