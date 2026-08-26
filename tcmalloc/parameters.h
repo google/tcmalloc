@@ -224,6 +224,8 @@ class Parameters {
   }
 
   static HeapPartitioningMode heap_partitioning_mode();
+  static central_freelist_internal::CflSubbucketPrioritization
+  cfl_subbucket_prioritization();
 
   // TODO: b/527473378 - Remove this function once the experiment is cleaned up.
   static ReleaseStalePages release_stale_pages();

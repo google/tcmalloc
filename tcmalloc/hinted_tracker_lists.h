@@ -76,10 +76,14 @@ class HintedTrackerLists {
   // Adds pointer <pt> to the nonempty_[i] list.
   // REQUIRES: i < N && pt != nullptr.
   void Add(TrackerType* absl_nonnull pt TCMALLOC_CAPTURED_BY_THIS,
-           const size_t i) {
+           const size_t i, bool prepend = true) {
     TC_ASSERT_LT(i, N);
     TC_ASSERT_NE(pt, nullptr);
-    lists_[i].prepend(pt);
+    if (prepend) {
+      lists_[i].prepend(pt);
+    } else {
+      lists_[i].append(pt);
+    }
     ++size_;
     nonempty_.SetBit(i);
   }
@@ -99,7 +103,7 @@ class HintedTrackerLists {
   // Moves pointer <pt> from list `from` to list `to`.
   // REQUIRES: from < N && to < N && pt != nullptr
   void Move(TrackerType* absl_nonnull pt TCMALLOC_CAPTURED_BY_THIS,
-            const size_t from, const size_t to) {
+            const size_t from, const size_t to, bool prepend = true) {
     TC_ASSERT_LT(from, N);
     TC_ASSERT_LT(to, N);
     // This check is not strictly required, but we should avoid the linked list
@@ -111,7 +115,11 @@ class HintedTrackerLists {
       TC_ASSERT(nonempty_.GetBit(from));
       nonempty_.ClearBit(from);
     }
-    lists_[to].prepend(pt);
+    if (prepend) {
+      lists_[to].prepend(pt);
+    } else {
+      lists_[to].append(pt);
+    }
     nonempty_.SetBit(to);
   }
 

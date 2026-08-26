@@ -135,6 +135,11 @@ static constexpr size_t kFewObjectsAllocMaxLimit = 16;
 static constexpr size_t kSpansUsedStatBuckets =
     absl::bit_width(kMaxObjectsToMove);
 
+enum class CflSubbucketPrioritization : bool {
+  kDisabled = false,
+  kEnabled = true
+};
+
 template <size_t MaxSize, typename RunLength>
 inline int RecordSameSpanRuns(absl::Span<Span* const> batch,
                               absl::Span<RunLength> run_lengths) {
@@ -176,13 +181,16 @@ class CentralFreeList {
 #endif
         pages_per_span_(0),
         nonempty_(),
-        use_all_buckets_for_few_object_spans_(false) {
+        use_all_buckets_for_few_object_spans_(false),
+        cfl_subbucket_prioritization_(CflSubbucketPrioritization::kDisabled) {
   }
 
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;
 
-  void Init(size_t size_class) ABSL_LOCKS_EXCLUDED(lock_);
+  void Init(size_t size_class,
+            CflSubbucketPrioritization cfl_subbucket_prioritization)
+      ABSL_LOCKS_EXCLUDED(lock_);
 
   // These methods all do internal locking.
 
@@ -413,12 +421,15 @@ class CentralFreeList {
 
   bool use_all_buckets_for_few_object_spans_;
 
+  CflSubbucketPrioritization cfl_subbucket_prioritization_;
+
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
 
 // Like a constructor and hence we disable thread safety analysis.
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::Init(size_t size_class)
+inline void CentralFreeList<Forwarder>::Init(
+    size_t size_class, CflSubbucketPrioritization cfl_subbucket_prioritization)
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = size_class;
   object_size_ = forwarder_.class_to_size(size_class);
@@ -446,6 +457,7 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
 
   TC_ASSERT_LE(absl::bit_width(objects_per_span_), kSpanUtilBucketCapacity);
   num_to_move_ = forwarder_.num_objects_to_move(size_class);
+  cfl_subbucket_prioritization_ = cfl_subbucket_prioritization;
 }
 
 template <class Forwarder>
@@ -495,10 +507,24 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // we remove it from the previous list and add it to the desired list indexed
   // by cur_index.
   const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
-  if (kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
-    nonempty_.Add(span, cur_index);
+
+  if (cfl_subbucket_prioritization_ == CflSubbucketPrioritization::kEnabled) {
+    const uint8_t relative_index = cur_index % kNumLists;
+    const uint8_t mid = kNumLists / 2;
+    const bool use_prepend = relative_index <= mid;
+
+    if (kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
+      nonempty_.Add(span, cur_index, use_prepend);
+    } else {
+      nonempty_.Remove(span, prev_index);
+      nonempty_.Add(span, cur_index, use_prepend);
+    }
     span->set_nonempty_index(cur_index);
-  } else if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+  } else {
+    if (kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
+      nonempty_.Add(span, cur_index);
+      span->set_nonempty_index(cur_index);
+    } else if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     nonempty_.Remove(span, prev_index);
     nonempty_.Add(span, cur_index);
@@ -506,6 +532,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     nonempty_.Move(span, prev_index, cur_index);
 #endif
     span->set_nonempty_index(cur_index);
+    }
   }
   return nullptr;
 }
