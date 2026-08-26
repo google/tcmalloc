@@ -111,10 +111,10 @@ TEST_F(GetStatsTest, Pbtxt) {
 #else
   EXPECT_THAT(
       buf,
-      HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 60000000000"));
+      HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 10000000000"));
   EXPECT_THAT(
       buf,
-      HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
+      HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 120000000000"));
 #endif
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));

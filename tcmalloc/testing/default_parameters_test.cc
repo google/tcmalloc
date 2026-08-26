@@ -36,7 +36,7 @@ constexpr absl::Duration kDefaultSkipSubreleaseShortInterval =
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
     absl::ZeroDuration()
 #else
-    absl::Seconds(60)
+    absl::Seconds(10)
 #endif
     ;
 constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
@@ -46,7 +46,7 @@ constexpr absl::Duration kDefaultSkipSubreleaseLongInterval =
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
     absl::ZeroDuration()
 #else
-    absl::Seconds(300)
+    absl::Seconds(120)
 #endif
     ;
 

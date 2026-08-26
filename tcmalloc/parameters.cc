@@ -109,7 +109,7 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   interval = absl::ZeroDuration();
 #else
-  interval = absl::Seconds(60);
+  interval = absl::Seconds(10);
 #endif
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
@@ -127,7 +127,7 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   interval = absl::ZeroDuration();
 #else
-  interval = absl::Seconds(300);
+  interval = absl::Seconds(120);
 #endif
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
