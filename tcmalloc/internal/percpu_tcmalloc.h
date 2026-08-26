@@ -690,16 +690,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       "cmp 2(%[scratch], %[size_class], 4), %w[current]\n"
       "jae %l[overflow_label]\n"
       "mov %[item], (%[scratch], %[current], 8)\n"
-      "lea 1(%[current]), %[current]\n"
+      "inc %[current]\n"
       "mov %w[current], (%[scratch], %[size_class], 4)\n"
       // Commit
       "5:\n"
-      :
-      [scratch] "=&r"(scratch), [current] "=&r"(current)
+      : [scratch] "=&r"(scratch), [current] "=&r"(current)
       : TCMALLOC_RSEQ_INPUTS, [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory"
-      : overflow_label
-  );
+      : overflow_label);
   // Current now points to the slot we are going to push to next.
   PrefetchSlabMemory(scratch + current * sizeof(void*));
   return true;
@@ -800,32 +798,29 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   void* result;
   uintptr_t scratch, current;
 
-  asm goto(
-      TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
-      // scratch = tcmalloc_slabs;
-      "movq %[rseq_slabs_addr], %[scratch]\n"
-      // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-      // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
-      "btrq $%c[cached_slabs_bit], %[scratch]\n"
-      "jnc %l[underflow_path]\n"
-      // current = scratch->header[size_class].current;
-      "movzwq (%[scratch], %[size_class], 4), %[current]\n"
-      "movq -8(%[scratch], %[current], 8), %[result]\n"
-      "testb $%c[begin_mark_mask], %b[result]\n"
-      "jnz %l[underflow_path]\n"
-      "movq -16(%[scratch], %[current], 8), %[next]\n"
-      "lea -1(%[current]), %[current]\n"
-      "movw %w[current], (%[scratch], %[size_class], 4)\n"
-      // Commit
-      "5:\n"
-      : [result] "=&r"(result),
-        [scratch] "=&r"(scratch), [current] "=&r"(current), [next] "=&r"(next)
-      : TCMALLOC_RSEQ_INPUTS,
-        [begin_mark_mask] "n"(kBeginMark),
-        [size_class] "r"(size_class)
-      : "cc", "memory"
-      : underflow_path
-  );
+  asm goto(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
+           // scratch = tcmalloc_slabs;
+           "movq %[rseq_slabs_addr], %[scratch]\n"
+           // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
+           // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
+           "btrq $%c[cached_slabs_bit], %[scratch]\n"
+           "jnc %l[underflow_path]\n"
+           // current = scratch->header[size_class].current;
+           "movzwq (%[scratch], %[size_class], 4), %[current]\n"
+           "movq -8(%[scratch], %[current], 8), %[result]\n"
+           "testb $%c[begin_mark_mask], %b[result]\n"
+           "jnz %l[underflow_path]\n"
+           "movq -16(%[scratch], %[current], 8), %[next]\n"
+           "dec %[current]\n"
+           "movw %w[current], (%[scratch], %[size_class], 4)\n"
+           // Commit
+           "5:\n"
+           : [result] "=&r"(result), [scratch] "=&r"(scratch),
+             [current] "=&r"(current), [next] "=&r"(next)
+           : TCMALLOC_RSEQ_INPUTS, [begin_mark_mask] "n"(kBeginMark),
+             [size_class] "r"(size_class)
+           : "cc", "memory"
+           : underflow_path);
   TC_ASSERT(next);
   TC_ASSERT(result);
   TSANAcquire(result);
