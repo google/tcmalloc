@@ -109,7 +109,11 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   interval = absl::ZeroDuration();
 #else
-  interval = absl::Seconds(10);
+  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
+    interval = absl::Seconds(60);
+  } else {
+    interval = absl::Seconds(10);
+  }
 #endif
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
@@ -127,7 +131,11 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   interval = absl::ZeroDuration();
 #else
-  interval = absl::Seconds(120);
+  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
+    interval = absl::Seconds(300);
+  } else {
+    interval = absl::Seconds(120);
+  }
 #endif
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
@@ -167,10 +175,13 @@ SubreleaseUnbackedMode Parameters::subrelease_unbacked_hugepages() {
 }
 
 std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
+  ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<MallocExtension::BytesPerSecond> v{
       MallocExtension::BytesPerSecond{
           0
       }};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+  });
   return v;
 }
 
