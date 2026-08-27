@@ -1158,6 +1158,33 @@ TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
+TEST_P(HugePageAwareAllocatorTest, ReassembleCoalescedDonation) {
+  const Length kOneAndHalfHugePages = kPagesPerHugePage + kPagesPerHugePage / 2;
+  const Length kTwoHugePages = 2 * kPagesPerHugePage;
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  auto GetStats = [&]() {
+    PageHeapSpinLockHolder l;
+    return allocator_->stats();
+  };
+
+  Span* span1 = New(kOneAndHalfHugePages, kSpanInfo);
+  ASSERT_NE(span1, nullptr);
+  EXPECT_EQ(GetStats().system_bytes, 2 * kHugePageSize);
+
+  Delete(span1, kSpanInfo.objects_per_span);
+
+  // Allocate 2 full huge pages. Because the 1-hugepage run and 0.5-hugepage
+  // donated run coalesced back into a contiguous 2-hugepage range in HugeCache,
+  // this allocation should be satisfied from HugeCache without expanding
+  // system_bytes.
+  Span* span2 = New(kTwoHugePages, kSpanInfo);
+  ASSERT_NE(span2, nullptr);
+  EXPECT_EQ(GetStats().system_bytes, 2 * kHugePageSize);
+
+  Delete(span2, kSpanInfo.objects_per_span);
+}
+
 TEST_P(HugePageAwareAllocatorTest, PageMapInterference) {
   // This test manipulates the test HugePageAwareAllocator while making
   // allocations/deallocations that interact with the real PageAllocator. The

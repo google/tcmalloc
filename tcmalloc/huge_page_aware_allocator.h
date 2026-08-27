@@ -923,46 +923,41 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
   if (slack == Length(0)) {
     TC_ASSERT_EQ(GetTracker(last), nullptr);
   } else {
+    // Pretend the range was shorter.  We will handle it with the filler.
+    --hl;
     pt = GetTracker(last);
     if (ABSL_PREDICT_FALSE(pt == nullptr)) {
       forwarder_.ReportDoubleFree(p.start_addr());
     }
     TC_ASSERT(pt->was_donated());
+  }
+
+  // Release the non-slack portion of the allocation to the HugeCache.  We do
+  // this before returning to the filler because filler_.Put() may release
+  // pageheap_lock and we want a consistent view of our statistics.
+  TC_ASSERT_GT(hl, NHugePages(0));
+  cache_.Release({hp, hl});
+
+  if (slack > Length(0)) {
     // We put the slack into the filler (see AllocEnormous.)
     // Handle this page separately as a virtual allocation
     // onto the last hugepage.
     PageId virt = last.first_page();
     Length virt_len = kPagesPerHugePage - slack;
-    // We may have used the slack, which would prevent us from returning
-    // the entire range now.  If filler returned a Tracker, we are fully empty.
+    // We may have used the slack, which would prevent us from returning the
+    // entire range now.  If filler returned a Tracker, we are fully empty.
     if (filler_.Put(pt, Range(virt, virt_len), span_alloc_info) == nullptr) {
-      // Last page isn't empty -- pretend the range was shorter.
-      --hl;
-
       // Note that we abandoned virt_len pages with pt.  These can be reused for
       // other allocations, but this can contribute to excessive slack in the
       // filler.
       abandoned_pages_ += pt->abandoned_count();
       pt->set_abandoned(true);
     } else {
-      // Last page was empty - but if we sub-released it, we still
-      // have to split it off and release it independently.)
-      //
       // We were able to reclaim the donated slack.
       TC_ASSERT(!pt->abandoned());
-      if (pt->released()) {
-        --hl;
-        ReleaseHugepage(pt);
-      } else {
-        // Get rid of the tracker *object*, but not the *hugepage* (which is
-        // still part of our range.)
-        --donated_huge_pages_;
-        SetTracker(pt->location(), nullptr);
-        tracker_allocator_.Delete(pt);
-      }
+      ReleaseHugepage(pt);
     }
   }
-  cache_.Release({hp, hl});
 }
 
 template <class Forwarder>
