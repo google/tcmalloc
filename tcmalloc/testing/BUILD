@@ -747,6 +747,7 @@ cc_test(
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_numa_aware",
         "//tcmalloc/internal:affinity",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:numa",
         "//tcmalloc/internal:page_size",

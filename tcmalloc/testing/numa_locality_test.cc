@@ -35,6 +35,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/page_size.h"
@@ -166,6 +167,11 @@ FakeNumaAwareRegionFactory* GetFakeNumaAwareRegionFactory() {
 // Test that allocations are performed using memory within the appropriate NUMA
 // partition.
 TEST(NumaLocalityTest, AllocationsAreLocal) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizers intercept allocations and do not preserve "
+                    "NUMA locality";
+  }
+
   if (!tc_globals.numa_topology().numa_aware()) {
     GTEST_SKIP() << "NUMA awareness is disabled";
   }
