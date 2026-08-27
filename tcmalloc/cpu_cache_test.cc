@@ -138,7 +138,7 @@ class TestStaticForwarder {
   TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
     numa_topology_.Init();
 
-    absl::base_internal::SpinLockHolder l(&vma_name_mu_);
+    absl::base_internal::SpinLockHolder l(vma_name_mu_);
     vma_name_calls_.reserve(10);
   }
 
