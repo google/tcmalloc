@@ -44,6 +44,7 @@ tcmalloc_cc_library(
     "absl::time"
     "benchmark::benchmark"
     "tcmalloc::internal_logging"
+    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::internal_percpu"
     "tcmalloc::malloc_extension"
 )
@@ -620,6 +621,7 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_stats"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test_variants(
@@ -774,6 +776,7 @@ tcmalloc_cc_test_variants(
     "benchmark::benchmark"
     "protobuf::libprotobuf"
     "tcmalloc::internal_linked_list"
+    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::internal_profile_cc_proto"
     "tcmalloc::malloc_extension"
     "tcmalloc::profile_marshaler"
@@ -943,12 +946,16 @@ tcmalloc_cc_test_variants(
     "absl::time"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_page_size"
     "tcmalloc::internal_profile_builder"
     "tcmalloc::internal_profile_cc_proto"
+    "tcmalloc::internal_residency"
     "tcmalloc::internal_sampled_allocation"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
     "tcmalloc::testing_test_allocator_harness"
+    "tcmalloc::testing_testutil"
     "tcmalloc::testing_thread_manager"
 )
 

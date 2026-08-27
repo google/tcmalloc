@@ -885,6 +885,8 @@ tcmalloc_cc_library(
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_system_allocator"
 )
 
 tcmalloc_cc_test(
@@ -1963,19 +1965,6 @@ tcmalloc_cc_library(
     "alloc_at_least.h"
   SRCS
     "alloc_at_least.cc"
-  DEPS
-    "absl::core_headers"
-)
-
-tcmalloc_cc_library(
-  NAME
-    tcmalloc_want_disable_span_lifetime_tracking
-  ALIAS
-    tcmalloc::want_disable_span_lifetime_tracking
-  SRCS
-    "want_disable_span_lifetime_tracking.cc"
-  COPTS
-    "-g0"
   DEPS
     "absl::core_headers"
 )

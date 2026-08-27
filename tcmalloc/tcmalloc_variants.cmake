@@ -315,6 +315,14 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_madv_nohugepage_regions PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_madv_sampled_holdback
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+  )
+  set_tests_properties(${TCMALLOC_NAME}_tcmalloc_madv_sampled_holdback PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
 endfunction()
 
 function(tcmalloc_cc_binary_variants)
