@@ -135,30 +135,6 @@ static constexpr size_t kFewObjectsAllocMaxLimit = 16;
 static constexpr size_t kSpansUsedStatBuckets =
     absl::bit_width(kMaxObjectsToMove);
 
-template <size_t MaxSize, typename RunLength>
-inline int RecordSameSpanRuns(absl::Span<Span* const> batch,
-                              absl::Span<RunLength> run_lengths) {
-  static_assert(MaxSize <= std::numeric_limits<RunLength>::max());
-  TC_ASSERT(!batch.empty());
-  TC_ASSERT_LE(batch.size(), MaxSize);
-  TC_ASSERT_LE(batch.size(), run_lengths.size());
-
-  int matches = 0;
-  int run_start = 0;
-  const Span* last = batch[0];
-  for (int i = 1; i < batch.size(); ++i) {
-    const Span* next = batch[i];
-    if (last == next) {
-      matches++;
-    } else {
-      run_lengths[run_start] = i - run_start;
-      run_start = i;
-      last = next;
-    }
-  }
-  run_lengths[run_start] = batch.size() - run_start;
-  return matches;
-}
 
 // Data kept per size-class in central cache.
 template <typename ForwarderT>
@@ -602,21 +578,6 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     return;
   }
 
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  using RunLength = uint8_t;
-  RunLength run_lengths[kMaxObjectsToMove];
-  static_assert(kMaxObjectsToMove <= std::numeric_limits<RunLength>::max());
-
-  // Record how many objects fell on the same span.
-  //
-  // We only look for consecutive runs of the same span to avoid the cost of
-  // sorting, solely for telemetry purposes.
-  const int same_span =
-      central_freelist_internal::RecordSameSpanRuns<kMaxObjectsToMove>(
-          absl::MakeConstSpan(spans, batch.size()),
-          absl::MakeSpan(run_lengths, batch.size()));
-#endif
-
   // Use local copy of variables to ensure that they are not reloaded.
   const size_t object_size = object_size_;
   const uint32_t size_reciprocal = size_reciprocal_;
@@ -632,6 +593,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       idx[i] = spans[i]->PtrToIdx(batch[i], object_size);
     }
   }
+  int runs = 0;
 #endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   // Safe to store free spans into freed up space in span array.
@@ -642,17 +604,18 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // and collect spans that become completely free.
   {
     CentralFreeListLockHolder h(lock_);
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    num_same_spans_[same_span].LossyAdd(1);
-#endif
     for (int i = 0; i < batch.size();) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const absl::Span<void*> b{&batch[i], 1};
       const size_t step = 1;
 #else
-      const size_t step = run_lengths[i];
-      ASSUME(step > 0);
+      int j = i + 1;
+      while (j < batch.size() && spans[j] == spans[i]) {
+        ++j;
+      }
+      const size_t step = j - i;
       const absl::Span<Span::ObjIdx> b{&idx[i], step};
+      ++runs;
 #endif
 
       Span* span = ReleaseToSpans(b, spans[i], object_size, size_reciprocal,
@@ -663,6 +626,11 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       }
       i += step;
     }
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    const int same_span = batch.size() - runs;
+    num_same_spans_[same_span].LossyAdd(1);
+#endif
 
     RecordMultiSpansDeallocated(free_count);
     UpdateObjectCounts(batch.size());

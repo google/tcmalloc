@@ -373,58 +373,21 @@ TEST_P(StaticForwarderTest, Fuzz) {
             bytes_allocated / 2);
 }
 
-TEST(CentralFreeListHelperTest, RecordSameSpanRuns) {
-  Span s1, s2, s3;
-
-  struct TestCase {
-    std::string name;
-    std::vector<Span*> batch;
-    int expected_matches;
-    std::vector<uint8_t> expected_run_lengths;
-  };
-
-  std::vector<TestCase> test_cases = {
-      {
-          .name = "SingleElement",
-          .batch = {&s1},
-          .expected_matches = 0,
-          .expected_run_lengths = {1},
-      },
-      {
-          .name = "AllSame",
-          .batch = {&s1, &s1, &s1},
-          .expected_matches = 2,
-          .expected_run_lengths = {3, 0, 0},
-      },
-      {
-          .name = "AllDifferent",
-          .batch = {&s1, &s2, &s3},
-          .expected_matches = 0,
-          .expected_run_lengths = {1, 1, 1},
-      },
-      {
-          .name = "MixedRuns",
-          .batch = {&s1, &s1, &s2, &s1, &s1, &s1},
-          .expected_matches = 3,
-          .expected_run_lengths = {2, 0, 1, 3, 0, 0},
-      },
-  };
-
-  for (const auto& tc : test_cases) {
-    SCOPED_TRACE(tc.name);
-    std::vector<uint8_t> run_lengths(tc.batch.size(), 0);
-    int matches = RecordSameSpanRuns<kMaxObjectsToMove>(
-        absl::MakeConstSpan(tc.batch), absl::MakeSpan(run_lengths));
-    EXPECT_EQ(matches, tc.expected_matches);
-    EXPECT_THAT(run_lengths,
-                testing::ElementsAreArray(tc.expected_run_lengths));
-  }
-}
 
 class CentralFreeListTestPeer {
  public:
   template <typename Forwarder>
   using CFL = CentralFreeList<Forwarder>;
+
+  template <typename Forwarder>
+  static size_t num_same_spans(const CentralFreeList<Forwarder>& cfl,
+                               size_t index) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    return cfl.num_same_spans_[index].value();
+#else
+    return 0;
+#endif
+  }
 
   static void VerifyLegacyLayout() {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -530,6 +493,37 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
   for (int i = 1; i <= absl::bit_width(e.objects_per_span()); ++i) {
     EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
+}
+
+TEST_P(CentralFreeListTest, SameSpanTracking) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(GetParam().size, GetParam().bytes, GetParam().num_to_move);
+  if (e.objects_per_span() <= 1) {
+    GTEST_SKIP() << "Single-object spans skip CentralFreeList InsertRange";
+  }
+
+  EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
+
+  absl::FixedArray<void*> batch(e.batch_size());
+  int allocated = e.central_freelist().RemoveRange(
+      absl::MakeSpan(&batch[0], e.batch_size()));
+  ASSERT_GT(allocated, 0);
+
+  EXPECT_CALL(e.forwarder(), MapObjectsToSpans).Times(1);
+  EXPECT_CALL(e.forwarder(), DeallocateSpans).Times(testing::AtLeast(0));
+
+  e.central_freelist().InsertRange(absl::MakeSpan(&batch[0], allocated));
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const int expected_same_span = allocated - 1;
+  EXPECT_GE(central_freelist_internal::CentralFreeListTestPeer::num_same_spans(
+                e.central_freelist(), expected_same_span),
+            1);
+#endif
 }
 
 TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
