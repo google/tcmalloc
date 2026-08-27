@@ -54,8 +54,8 @@ void FuzzSizeMap(const std::vector<FuzzSizeClassInfo>& fuzz_info) {
   int last_size_class = -1;
   for (size_t size = 0; size <= kMaxSize; size++) {
     const int size_class = m.SizeClass(CppPolicy(), size);
-    EXPECT_GT(size_class, 0) << size;
-    EXPECT_LT(size_class, kNumClasses) << size;
+    ASSERT_GT(size_class, 0) << size;
+    ASSERT_LT(size_class, kNumClasses) << size;
 
     const size_t s = m.class_to_size(size_class);
     EXPECT_LE(size, s);
