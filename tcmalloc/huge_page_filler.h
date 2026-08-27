@@ -1041,10 +1041,9 @@ class HugePageFiller {
   // not reported to ReleasePages calls?
   Length unmapping_unaccounted_;
 
-  // Functionality related to time series tracking, using 3600 slots to record
-  // at least 60-mins demand history (maximumly using 1 slot every second).
+  // Functionality related to time series tracking.
   void UpdateFillerStatsTracker();
-  using StatsTrackerType = SubreleaseStatsTracker<3600>;
+  using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
 
   // Lifetime tracking for completely-freed hugepages
@@ -1083,8 +1082,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
     MemoryTagFunction& set_anon_vma_name,
     SubreleaseUnbackedMode subrelease_unbacked_mode)
     : size_(NHugePages(0)),
-      fillerstats_tracker_(clock, absl::Minutes(60), absl::Minutes(5),
-                           absl::Minutes(10)),
+      fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
       tag_(tag),
       unback_(unback),
