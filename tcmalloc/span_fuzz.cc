@@ -63,6 +63,8 @@ struct State {
   std::vector<void*> live_ptrs;
   std::vector<void*> batch;
   std::mt19937 rng;
+  bool donated = false;
+  uint8_t nonempty_index = 0;
 
   State(size_t object_size, Length pages, size_t num_to_move)
       : object_size(object_size),
@@ -188,7 +190,41 @@ struct DeallocIndex {
   }
 };
 
-using Instruction = std::variant<Alloc, Shuffle, Dealloc, DeallocIndex>;
+struct SetBitpackedAttributes {
+  uint8_t nonempty_index;
+  bool donated;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetBitpackedAttributes& s) {
+    absl::Format(&sink,
+                 "SetBitpackedAttributes{.nonempty_index=%v, .donated=%v}",
+                 s.nonempty_index, s.donated);
+  }
+
+  void Perform(State& state) const {
+    EXPECT_EQ(state.nonempty_index, state.span->nonempty_index());
+    state.nonempty_index = nonempty_index % (1 << Span::kNonemptyIndexBits);
+    state.span->set_nonempty_index(state.nonempty_index);
+    EXPECT_EQ(state.span->nonempty_index(), state.nonempty_index);
+
+    EXPECT_EQ(state.donated, state.span->donated());
+    state.donated = donated;
+    state.span->set_donated(donated);
+    EXPECT_EQ(state.span->donated(), donated);
+  }
+};
+
+struct Prefetch {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Prefetch& p) {
+    absl::Format(&sink, "Prefetch{}");
+  }
+
+  void Perform(State& state) const { state.span->Prefetch(); }
+};
+
+using Instruction = std::variant<Alloc, Shuffle, Dealloc, DeallocIndex,
+                                 SetBitpackedAttributes, Prefetch>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {
