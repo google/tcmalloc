@@ -25,6 +25,12 @@
 #include <thread>
 #include <vector>
 
+#ifdef __x86_64__
+#include <immintrin.h>
+#elif defined(__aarch64__)
+#include <arm_acle.h>
+#endif
+
 #include "absl/base/attributes.h"
 #include "absl/log/check.h"
 #include "absl/random/random.h"
@@ -80,6 +86,33 @@ static void BM_new_sized_delete(benchmark::State& state) {
   }
 }
 BENCHMARK(BM_new_sized_delete)->Range(1, 1 << 20);
+
+#if defined(__x86_64__) || defined(__aarch64__)
+// Make each call independent from each other (by an explicit fence), so that
+// the CPU cannot extract ILP from running multiple allocations in parallel,
+// and we measure latency instead of throughput.
+static void BM_new_sized_delete_fence(benchmark::State& state) {
+  const int arg = state.range(0);
+
+  CHECK_EQ(tcmalloc_internal::new_hooks_.size(), 0);
+  CHECK_EQ(tcmalloc_internal::delete_hooks_.size(), 0);
+  for (auto s : state) {
+#if defined(__x86_64__)
+    // LFENCE is blessed after-the-fact to be a full speculation fence.
+    // https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/speculative-execution-side-channel-mitigations.html
+    // “The LFENCE instruction and the serializing instructions all ensure that
+    // no later instruction will execute, even speculatively, until all prior
+    // instructions have completed locally”
+    _mm_lfence();
+#else
+    __builtin_arm_isb(0xf);
+#endif
+    void* ptr = ::operator new(arg);
+    ::operator delete(ptr, arg);
+  }
+}
+BENCHMARK(BM_new_sized_delete_fence)->Range(1, 1 << 20);
+#endif
 
 static void BM_new_sized_delete_cold(benchmark::State& state) {
   const int arg = state.range(0);
