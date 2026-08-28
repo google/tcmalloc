@@ -136,7 +136,7 @@ size_t Static::metadata_bytes() {
       sizeof(pageheap_lock) + sizeof(arena_) + sizeof(sizemap_) +
       sizeof(sharded_transfer_cache_) + sizeof(transfer_cache_) +
       sizeof(cpu_cache_) + sizeof(sampledallocation_allocator_) +
-      sizeof(span_allocator_) + +sizeof(threadcache_allocator_) +
+      sizeof(span_allocator_) + sizeof(threadcache_allocator_) +
       sizeof(sampled_allocation_recorder_) + sizeof(linked_sample_allocator_) +
       sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
