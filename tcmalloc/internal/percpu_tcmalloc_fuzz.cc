@@ -389,7 +389,7 @@ struct ShrinkOtherCache {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const ShrinkOtherCache& s) {
     absl::Format(&sink,
-                 "ShrinkOtherCache{.size_class=%v, .cpu_index=%v, .len=%v}",
+                 "ShrinkOtherCache{.cpu_index=%v, .size_class=%v, .len=%v}",
                  s.cpu_index, s.size_class, s.len);
   }
 
@@ -709,6 +709,13 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
        UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
        UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
        StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}});
+}
+
+TEST(PercpuTcmallocTest, ShrinkOtherCacheStringify) {
+  EXPECT_EQ(
+      absl::StrFormat(
+          "%v", ShrinkOtherCache{.cpu_index = 1, .size_class = 2, .len = 3}),
+      "ShrinkOtherCache{.cpu_index=1, .size_class=2, .len=3}");
 }
 
 FUZZ_TEST(PercpuTcmallocTest, FuzzPercpuTcmalloc)
