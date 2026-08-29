@@ -27,6 +27,9 @@
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
@@ -128,6 +131,17 @@ struct Toggle {
   void Perform(State& state) const;
 };
 
+struct SetUnbackSuccess {
+  bool success;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetUnbackSuccess& s) {
+    absl::Format(&sink, "SetUnbackSuccess{.success=%v}", s.success);
+  }
+
+  void Perform(State& state) const;
+};
+
 struct Reentrant;
 
 struct GatherStatsPbtxt {
@@ -148,8 +162,9 @@ struct PrintStats {
   void Perform(State& state) const;
 };
 
-using Instruction = std::variant<Allocate, Deallocate, Release, Stats, Toggle,
-                                 Reentrant, GatherStatsPbtxt, PrintStats>;
+using Instruction =
+    std::variant<Allocate, Deallocate, Release, Stats, Toggle, SetUnbackSuccess,
+                 Reentrant, GatherStatsPbtxt, PrintStats>;
 
 struct Reentrant {
   std::vector<Instruction> subprogram;
@@ -214,22 +229,30 @@ struct State {
       region.Put(alloc, false);
     }
     allocs.clear();
+    EXPECT_EQ(region.used_pages(), Length(0));
     CheckInvariants();
   }
 
   void Execute(absl::Span<const Instruction> instructions) {
     for (const auto& inst : instructions) {
       std::visit([&](const auto& arg) { arg.Perform(*this); }, inst);
+      CheckInvariants();
     }
   }
 
   void CheckInvariants() {
-    TC_CHECK_EQ(region.used_pages(), Length(0));
     SmallSpanStats small;
     LargeSpanStats large;
     region.AddSpanStats(&small, &large);
-    TC_CHECK_LE(region.free_backed(), region.backed());
-    TC_CHECK_LE(region.backed(), region.size());
+    ASSERT_LE(region.free_backed(), region.backed());
+    ASSERT_LE(region.backed(), region.size());
+    BackingStats stats = region.stats();
+    EXPECT_EQ(stats.system_bytes, HugeRegion::size().in_bytes());
+    EXPECT_EQ(stats.free_bytes, region.free_pages().in_bytes());
+    EXPECT_EQ(stats.unmapped_bytes, region.unmapped_pages().in_bytes());
+    EXPECT_EQ(
+        region.used_pages() + region.free_pages() + region.unmapped_pages(),
+        HugeRegion::size().in_pages());
   }
 };
 
@@ -240,6 +263,8 @@ void Allocate::Perform(State& state) const {
   if (!state.region.MaybeGet(n, &p, &from_released)) {
     return;
   }
+  EXPECT_TRUE(state.region.contains(p));
+  EXPECT_TRUE(state.region.contains(p + n - Length(1)));
   state.allocs.emplace_back(p, n);
   if (!from_released) {
     return;
@@ -276,6 +301,7 @@ void Release::Perform(State& state) const {
     TC_CHECK_EQ(actual, NHugePages(0));
     return;
   }
+
   if (max_expected > NHugePages(0) && len > Length(0)) {
     TC_CHECK_GT(actual, NHugePages(0));
   }
@@ -283,14 +309,38 @@ void Release::Perform(State& state) const {
 }
 
 void Stats::Perform(State& state) const {
-  state.region.stats();
   SmallSpanStats small;
   LargeSpanStats large;
   state.region.AddSpanStats(&small, &large);
+
+  Length small_normal_pages;
+  Length small_returned_pages;
+  for (size_t i = 0; i < kMaxPages.raw_num(); ++i) {
+    small_normal_pages += Length(i * small.normal_length[i]);
+    small_returned_pages += Length(i * small.returned_length[i]);
+  }
+
+  EXPECT_EQ(small_normal_pages + large.normal_pages, state.region.free_pages());
+  EXPECT_EQ(small_returned_pages + large.returned_pages,
+            state.region.unmapped_pages());
+
+  BackingStats stats = state.region.stats();
+  EXPECT_EQ(stats.system_bytes, HugeRegion::size().in_bytes());
+  EXPECT_EQ(stats.free_bytes, state.region.free_pages().in_bytes());
+  EXPECT_EQ(stats.unmapped_bytes, state.region.unmapped_pages().in_bytes());
+  EXPECT_EQ(state.region.used_pages() + state.region.free_pages() +
+                state.region.unmapped_pages(),
+            HugeRegion::size().in_pages());
+  EXPECT_LE(state.region.free_backed(), state.region.backed());
+  EXPECT_LE(state.region.backed(), state.region.size());
 }
 
 void Toggle::Perform(State& state) const {
   state.unback.unback_success_ = !state.unback.unback_success_;
+}
+
+void SetUnbackSuccess::Perform(State& state) const {
+  state.unback.unback_success_ = success;
 }
 
 void Reentrant::Perform(State& state) const {
@@ -309,6 +359,7 @@ void GatherStatsPbtxt::Perform(State& state) const {
 void PrintStats::Perform(State& state) const {
   Printer p(&state.output[0], state.output.size());
   state.region.Print(p);
+  ASSERT_LE(p.SpaceRequired(), state.output.size());
 }
 
 void FuzzRegion(const std::vector<Instruction>& instructions,
@@ -331,6 +382,9 @@ auto GetFlatInstructionDomain() {
                     fuzztest::Arbitrary<Stats>()),
       fuzztest::Map([](Toggle t) -> Instruction { return Instruction{t}; },
                     fuzztest::Arbitrary<Toggle>()),
+      fuzztest::Map(
+          [](SetUnbackSuccess s) -> Instruction { return Instruction{s}; },
+          fuzztest::Arbitrary<SetUnbackSuccess>()),
       fuzztest::Map(
           [](GatherStatsPbtxt g) -> Instruction { return Instruction{g}; },
           fuzztest::Arbitrary<GatherStatsPbtxt>()),
