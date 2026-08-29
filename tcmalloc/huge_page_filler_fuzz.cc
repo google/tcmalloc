@@ -298,6 +298,40 @@ struct UpdateBitmaps {
   }
 };
 
+struct SetResidencyBitmaps {
+  uint16_t unbacked_offset;
+  uint16_t unbacked_length;
+  uint16_t swapped_offset;
+  uint16_t swapped_length;
+  uint16_t stale_offset;
+  uint16_t stale_length;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetResidencyBitmaps& b) {
+    absl::Format(&sink,
+                 "SetResidencyBitmaps{.unbacked_offset=%d, "
+                 ".unbacked_length=%d, .swapped_offset=%d, "
+                 ".swapped_length=%d, .stale_offset=%d, "
+                 ".stale_length=%d}",
+                 b.unbacked_offset, b.unbacked_length, b.swapped_offset,
+                 b.swapped_length, b.stale_offset, b.stale_length);
+  }
+};
+
+struct SetHugepageBacked {
+  bool set;
+  bool val;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetHugepageBacked& h) {
+    absl::Format(&sink, "SetHugepageBacked{.set=%v, .val=%v}", h.set, h.val);
+  }
+};
+
 struct ToggleCollapseSuccess {
   void Perform(State& state) const;
 
@@ -337,8 +371,9 @@ using Instruction =
     std::variant<Allocate, Deallocate, Release, AdvanceClock, ToggleUnback,
                  GatherStats, ModelTail, MemoryLimitHitRelease,
                  GatherStatsPbtxt, GatherSpanStats, TreatTrackers,
-                 UpdateBitmaps, ToggleCollapseSuccess, SetErrorNumber,
-                 SetCollapseLatency, ReentrantSubprogram>;
+                 UpdateBitmaps, SetResidencyBitmaps, SetHugepageBacked,
+                 ToggleCollapseSuccess, SetErrorNumber, SetCollapseLatency,
+                 ReentrantSubprogram>;
 
 struct ReentrantSubprogram {
   std::vector<Instruction> subprogram;
@@ -462,7 +497,7 @@ MemoryModifyStatus MockUnback::operator()(Range r) {
     release_callback_();
   }
   if (!state_.unback_success) {
-    return {.success = false, .error_number = 0};
+    return {.success = false, .error_number = state_.error_number};
   }
 
   PageId end = r.p + r.n;
@@ -775,6 +810,52 @@ void UpdateBitmaps::Perform(State& state) const {
   state.stale_bitmap = GetBitmap(stale_bitmap_val);
 }
 
+void SetResidencyBitmaps::Perform(State& state) const {
+  if (state.is_hugepage_backed.value_or(false)) {
+    state.unbacked_bitmap.Clear();
+    state.swapped_bitmap.Clear();
+    state.stale_bitmap.Clear();
+    return;
+  }
+  state.unbacked_bitmap.Clear();
+  state.swapped_bitmap.Clear();
+  state.stale_bitmap.Clear();
+
+  const size_t u_off = unbacked_offset % kMaxResidencyBits;
+  const size_t u_len = std::min<size_t>(
+      unbacked_length % (kMaxResidencyBits + 1), kMaxResidencyBits - u_off);
+  if (u_len > 0) {
+    state.unbacked_bitmap.SetRange(u_off, u_len);
+  }
+
+  const size_t sw_off = swapped_offset % kMaxResidencyBits;
+  const size_t sw_len = std::min<size_t>(
+      swapped_length % (kMaxResidencyBits + 1), kMaxResidencyBits - sw_off);
+  if (sw_len > 0) {
+    state.swapped_bitmap.SetRange(sw_off, sw_len);
+  }
+
+  const size_t st_off = stale_offset % kMaxResidencyBits;
+  const size_t st_len = std::min<size_t>(stale_length % (kMaxResidencyBits + 1),
+                                         kMaxResidencyBits - st_off);
+  if (st_len > 0) {
+    state.stale_bitmap.SetRange(st_off, st_len);
+  }
+}
+
+void SetHugepageBacked::Perform(State& state) const {
+  if (set) {
+    state.is_hugepage_backed = val;
+  } else {
+    state.is_hugepage_backed = std::nullopt;
+  }
+  if (state.is_hugepage_backed.value_or(false)) {
+    state.unbacked_bitmap.Clear();
+    state.swapped_bitmap.Clear();
+    state.stale_bitmap.Clear();
+  }
+}
+
 void ToggleCollapseSuccess::Perform(State& state) const {
   state.collapse_success = !state.collapse_success;
 }
@@ -858,6 +939,10 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
                     fuzztest::Arbitrary<TreatTrackers>()),
       fuzztest::Map([](UpdateBitmaps u) { return Instruction{u}; },
                     fuzztest::Arbitrary<UpdateBitmaps>()),
+      fuzztest::Map([](SetResidencyBitmaps b) { return Instruction{b}; },
+                    fuzztest::Arbitrary<SetResidencyBitmaps>()),
+      fuzztest::Map([](SetHugepageBacked h) { return Instruction{h}; },
+                    fuzztest::Arbitrary<SetHugepageBacked>()),
       fuzztest::Map([](ToggleCollapseSuccess t) { return Instruction{t}; },
                     fuzztest::Arbitrary<ToggleCollapseSuccess>()),
       fuzztest::Map([](SetErrorNumber s) { return Instruction{s}; },
@@ -1316,6 +1401,24 @@ TEST(HugePageFillerTest, InstructionStringify) {
     EXPECT_EQ(s, "ToggleCollapseSuccess{}");
   }
   {
+    Instruction inst = SetResidencyBitmaps{.unbacked_offset = 1,
+                                           .unbacked_length = 2,
+                                           .swapped_offset = 3,
+                                           .swapped_length = 4,
+                                           .stale_offset = 5,
+                                           .stale_length = 6};
+    std::string s = absl::StrFormat("%v", inst);
+    EXPECT_EQ(s,
+              "SetResidencyBitmaps{.unbacked_offset=1, .unbacked_length=2, "
+              ".swapped_offset=3, .swapped_length=4, .stale_offset=5, "
+              ".stale_length=6}");
+  }
+  {
+    Instruction inst = SetHugepageBacked{.set = true, .val = false};
+    std::string s = absl::StrFormat("%v", inst);
+    EXPECT_EQ(s, "SetHugepageBacked{.set=true, .val=false}");
+  }
+  {
     Instruction inst = SetErrorNumber{.error_type = 1};
     std::string s = absl::StrFormat("%v", inst);
     EXPECT_EQ(s, "SetErrorNumber{.error_type=1}");
@@ -1403,6 +1506,103 @@ TEST(HugePageFillerTest, b547364068) {
                      .swapped_bitmap_val = 1,
                      .stale_bitmap_val = 0}},
       SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, HitLimitAndSkipSubrelease) {
+  FuzzFiller(
+      {
+          Allocate{.length = 5, .num_objects = 1, .density_dense = false},
+          Allocate{.length = 10, .num_objects = 1, .density_dense = false},
+          AdvanceClock{.amount = absl::Seconds(10)},
+          Release{.hit_limit = false,
+                  .use_peak_interval = true,
+                  .peak_interval = absl::Seconds(5),
+                  .desired_pages = 2,
+                  .release_partial_allocs = true},
+          Release{.hit_limit = true,
+                  .use_peak_interval = false,
+                  .short_interval = absl::Seconds(2),
+                  .long_interval = absl::Seconds(4),
+                  .desired_pages = 100,
+                  .release_partial_allocs = false},
+          MemoryLimitHitRelease{.desired = 50},
+          GatherStats{},
+      },
+      SubreleaseUnbackedMode::kEnabled);
+}
+
+TEST(HugePageFillerTest, UnbackFailureRecovery) {
+  FuzzFiller(
+      {
+          Allocate{.length = 10, .num_objects = 1, .density_dense = false},
+          ToggleUnback{},
+          SetErrorNumber{.error_type = 0},
+          Release{.hit_limit = true,
+                  .use_peak_interval = false,
+                  .desired_pages = 100,
+                  .release_partial_allocs = false},
+          SetErrorNumber{.error_type = 1},
+          MemoryLimitHitRelease{.desired = 50},
+          ToggleUnback{},
+          Release{.hit_limit = true,
+                  .use_peak_interval = false,
+                  .desired_pages = 100,
+                  .release_partial_allocs = false},
+          GatherStats{},
+      },
+      SubreleaseUnbackedMode::kEnabled);
+}
+
+TEST(HugePageFillerTest, CollapseFailureAndErrors) {
+  FuzzFiller(
+      {
+          Allocate{.length = 1, .num_objects = 1, .density_dense = true},
+          Allocate{.length = 1, .num_objects = 1, .density_dense = true},
+          ToggleCollapseSuccess{},
+          SetErrorNumber{.error_type = 0},
+          SetCollapseLatency{.latency = absl::Milliseconds(10)},
+          SetHugepageBacked{.set = true, .val = false},
+          SetResidencyBitmaps{.unbacked_offset = 0,
+                              .unbacked_length = 10,
+                              .swapped_offset = 10,
+                              .swapped_length = 5,
+                              .stale_offset = 20,
+                              .stale_length = 5},
+          TreatTrackers{.enable_collapse = true,
+                        .enable_unfiltered_collapse = true,
+                        .enable_release_stale_pages = true},
+          SetErrorNumber{.error_type = 2},
+          TreatTrackers{.enable_collapse = true,
+                        .enable_unfiltered_collapse = false,
+                        .enable_release_stale_pages = false},
+          ToggleCollapseSuccess{},
+          TreatTrackers{.enable_collapse = true,
+                        .enable_unfiltered_collapse = true,
+                        .enable_release_stale_pages = true},
+          GatherStats{},
+      },
+      SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, ResidencyBitmapVariations) {
+  FuzzFiller(
+      {
+          Allocate{.length = 5, .num_objects = 1, .density_dense = false},
+          SetHugepageBacked{.set = false, .val = false},
+          SetResidencyBitmaps{.unbacked_offset = 0,
+                              .unbacked_length = 64,
+                              .swapped_offset = 64,
+                              .swapped_length = 64,
+                              .stale_offset = 128,
+                              .stale_length = 64},
+          TreatTrackers{.enable_collapse = true,
+                        .enable_unfiltered_collapse = true,
+                        .enable_release_stale_pages = true},
+          SetHugepageBacked{.set = true, .val = true},
+          GatherStats{},
+          GatherStatsPbtxt{},
+      },
+      SubreleaseUnbackedMode::kEnabled);
 }
 
 }  // namespace
