@@ -512,17 +512,24 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
     tc_globals.guardedpage_allocator().Reset();
     EXPECT_DEATH(
         {
-          ScopedAlwaysSample always_sample;
-          for (size_t i = 0; i < 10000; ++i) {
-            char* volatile old_ptr = static_cast<char*>(malloc(size));
-            if (tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
-              void* volatile new_ptr = realloc(old_ptr, size - 1);
-              old_ptr[0] = 'A';
-              free(new_ptr);
-            } else {
+          char* old_ptr = nullptr;
+          void* new_ptr = nullptr;
+          {
+            ScopedAlwaysSample always_sample;
+            for (size_t i = 0; i < 10000; ++i) {
+              old_ptr = static_cast<char*>(malloc(size));
+              benchmark::DoNotOptimize(old_ptr);
+              if (tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
+                new_ptr = realloc(old_ptr, size - 1);
+                benchmark::DoNotOptimize(new_ptr);
+                break;
+              }
               free(old_ptr);
             }
           }
+          benchmark::DoNotOptimize(old_ptr);
+          reinterpret_cast<volatile char*>(old_ptr)[0] = 'A';
+          free(new_ptr);
         },
         "has detected a memory error");
   }
