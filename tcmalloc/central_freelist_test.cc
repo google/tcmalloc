@@ -383,7 +383,7 @@ class CentralFreeListTestPeer {
   static size_t num_same_spans(const CentralFreeList<Forwarder>& cfl,
                                size_t index) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    return cfl.num_same_spans_[index].value();
+    return cfl.num_same_spans_[absl::bit_width(index)].value();
 #else
     return 0;
 #endif
@@ -1114,9 +1114,10 @@ TEST_P(CentralFreeListTest, SameSpans) {
   {
     std::string expected_stats = absl::StrFormat(
         "class %3d [ %8zu bytes ] :", e.kSizeClass, GetParam().size);
-    for (int i = 0; i < num_to_move; ++i) {
-      const bool first_batch =
-          e.objects_per_span() > 1 && i == got - pseudo_spans.size();
+    for (int i = 0; i < CentralFreeList::kSameSpanBucketCapacity; ++i) {
+      const bool first_batch = e.objects_per_span() > 1 &&
+                               i == absl::bit_width(static_cast<unsigned int>(
+                                        got - pseudo_spans.size()));
       const int count = first_batch ? 1 : 0;
       absl::StrAppendFormat(&expected_stats, " %6d", count);
     }
@@ -1128,11 +1129,16 @@ TEST_P(CentralFreeListTest, SameSpans) {
     EXPECT_EQ(buffer, expected_stats) << got;
   }
   {
-    std::string expected_pbtxt =
-        e.objects_per_span() > 1
-            ? absl::StrFormat(" same_span_stats { lower_bound: %d value: 1}",
-                              got - pseudo_spans.size())
-            : "";
+    std::string expected_pbtxt = "";
+    if (e.objects_per_span() > 1) {
+      int same_span_val = got - pseudo_spans.size();
+      int bucket = absl::bit_width(static_cast<unsigned int>(same_span_val));
+      int lower_bound = bucket == 0 ? 0 : (1 << (bucket - 1));
+      int upper_bound = bucket == 0 ? 0 : ((1 << bucket) - 1);
+      expected_pbtxt = absl::StrFormat(
+          " same_span_stats { lower_bound: %d upper_bound: %d value: 1}",
+          lower_bound, upper_bound);
+    }
 
     std::string buffer_pbtxt =
         PrintToString(1024 * 1024, [&](PbtxtRegion& region) {

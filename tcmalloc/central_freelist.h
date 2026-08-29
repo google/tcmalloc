@@ -142,6 +142,9 @@ class CentralFreeList {
  public:
   using Forwarder = ForwarderT;
 
+  static constexpr size_t kSameSpanBucketCapacity =
+      absl::bit_width(kMaxObjectsToMove);
+
   constexpr CentralFreeList()
       : lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
         size_class_(0),
@@ -344,9 +347,12 @@ class CentralFreeList {
   // Records histogram of how many consecutive objects fell on the same span for
   // batches.
   //
-  // Note:  This goes to kMaxObjectsToMove and not kMaxObjectsToMove+1, since we
-  // ignore the very first object.
-  StatsCounter num_same_spans_[kMaxObjectsToMove];
+  // Index in this array corresponds to absl::bit_width(same_span), yielding
+  // 8 buckets total because same_span has range [0, 127] (assuming
+  // kMaxObjectsToMove is 128).
+  //
+  // TODO(b/527641380): Delete this after wrapping up optimizations.
+  StatsCounter num_same_spans_[kSameSpanBucketCapacity];
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   // Num free objects in cache entry
@@ -629,7 +635,9 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     const int same_span = batch.size() - runs;
-    num_same_spans_[same_span].LossyAdd(1);
+    TC_ASSERT_GE(same_span, 0);
+    num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
+        .LossyAdd(1);
 #endif
 
     RecordMultiSpansDeallocated(free_count);
@@ -836,8 +844,7 @@ template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSameSpanStats(Printer& out) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   out.printf("class %3d [ %8zu bytes ] :", size_class_, object_size_);
-  // num_same_spans_ is exclusive with num_to_move_, not inclusive.
-  for (int i = 0; i < num_to_move_; ++i) {
+  for (int i = 0; i < kSameSpanBucketCapacity; ++i) {
     out.printf(" %6zu", num_same_spans_[i].value());
   }
   out.printf("\n");
@@ -848,14 +855,16 @@ template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSameSpanStatsInPbtxt(
     PbtxtRegion& region) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  // num_same_spans_ is exclusive with num_to_move_, not inclusive.
-  for (int i = 0; i < num_to_move_; ++i) {
+  for (int i = 0; i < kSameSpanBucketCapacity; ++i) {
     auto value = num_same_spans_[i].value();
     if (value == 0) {
       continue;
     }
     PbtxtRegion histogram = region.CreateSubRegion("same_span_stats");
-    histogram.PrintI64("lower_bound", i);
+    int lower_bound = i == 0 ? 0 : (1 << (i - 1));
+    int upper_bound = i == 0 ? 0 : ((1 << i) - 1);
+    histogram.PrintI64("lower_bound", lower_bound);
+    histogram.PrintI64("upper_bound", upper_bound);
     histogram.PrintI64("value", value);
   }
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
