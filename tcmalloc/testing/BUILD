@@ -839,6 +839,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:sysinfo",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest",
     ],
