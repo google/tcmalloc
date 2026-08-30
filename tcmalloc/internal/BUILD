@@ -1147,6 +1147,7 @@ cc_test(
         ":profile_builder",
         ":residency",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_map",
