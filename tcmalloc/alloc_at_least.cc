@@ -30,7 +30,18 @@ extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t alloc_at_least(size_t min_size)
 extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t aligned_alloc_at_least(
     size_t alignment, size_t min_size) ALLOC_AT_LEAST_NOEXCEPT {
   alloc_result_t result;
+#if !defined(_ISOC11_SOURCE)
+  void* ptr = nullptr;
+  if (posix_memalign(&ptr, alignment, min_size) == 0) {
+    result.ptr = ptr;
+    result.size = min_size;
+  } else {
+    result.ptr = nullptr;
+    result.size = 0;
+  }
+#else
   result.ptr = std::aligned_alloc(alignment, min_size);
   result.size = result.ptr != nullptr ? min_size : 0;
+#endif
   return result;
 }
