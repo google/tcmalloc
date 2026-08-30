@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_PAGE_ALLOCATION_STATUS_H_
-#define TCMALLOC_PAGE_ALLOCATION_STATUS_H_
+#ifndef TCMALLOC_INTERNAL_PAGE_ALLOCATION_STATUS_H_
+#define TCMALLOC_INTERNAL_PAGE_ALLOCATION_STATUS_H_
 
 #include <optional>
 
@@ -36,4 +36,4 @@ struct PageAllocationStatus {
 
 }  // namespace tcmalloc::tcmalloc_internal
 
-#endif  // TCMALLOC_PAGE_ALLOCATION_STATUS_H_
+#endif  // TCMALLOC_INTERNAL_PAGE_ALLOCATION_STATUS_H_
