@@ -31,7 +31,11 @@ TEST(SizeClassesTest, SmallClasses) {
   if (__STDCPP_DEFAULT_NEW_ALIGNMENT__ > 8)
     GTEST_SKIP() << "Unexpected default new alignment.";
 
-  const size_t kExpectedClasses[] = {0, 8, 16, 24, 32, 40, 48, 56, 64};
+  // want_legacy_size_classes is now a no-op, so we should get the normal
+  // size classes.
+  //
+  // TODO(b/242710633): remove the now-dead code after soaking.
+  const size_t kExpectedClasses[] = {0, 8, 16, 24, 32, 48, 64, 80, 96};
 
   absl::Span<const size_t> classes = absl::MakeSpan(kExpectedClasses);
 
