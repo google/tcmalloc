@@ -191,14 +191,10 @@ bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 // Return true if all size classes meet the requirements for alignment
 // ordering and min and max values.
 bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
-  if (size_classes.empty()) {
+  int num_classes = size_classes.size();
+  if (num_classes <= 1 || num_classes > kNumBaseClasses) {
     return false;
   }
-  int num_classes = size_classes.size();
-  if (kHasExpandedClasses && num_classes > kNumBaseClasses) {
-    num_classes = kNumBaseClasses;
-  }
-
   if (size_classes[0].size != 0 || size_classes[0].bytes != Bytes(0) ||
       size_classes[0].num_to_move != 0) {
     return false;
