@@ -123,7 +123,7 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
   // Add stats from per-thread heaps
   r.thread_bytes = 0;
 
-  r.span_stats = tc_globals.span_allocator().stats();
+  r.span_stats = {};
   r.stack_stats = tc_globals.sampledallocation_allocator().stats();
   r.linked_sample_stats = tc_globals.linked_sample_allocator().stats();
   r.tc_stats = ThreadCache::GetStats(&r.thread_bytes, class_count);
@@ -392,7 +392,7 @@ void DumpStats(Printer& out, int level) {
       virtual_memory_used, virtual_memory_used / MiB,
       uint64_t(stats.span_stats.in_use),
       uint64_t(stats.span_stats.total),
-      (stats.span_stats.total * sizeof(Span)) / MiB,
+      uint64_t(0),
       uint64_t(stats.tc_stats.in_use),
       uint64_t(stats.tc_stats.total),
       (stats.tc_stats.total * sizeof(ThreadCache)) / MiB,
@@ -520,15 +520,6 @@ void DumpStats(Printer& out, int level) {
     out.printf("------------------------------------------------\n");
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       tc_globals.central_freelist(size_class).PrintSpanUtilStats(out);
-    }
-
-    out.printf("\n");
-    out.printf("------------------------------------------------\n");
-    out.printf("Central cache freelist: Span lifetime histogram\n");
-    out.printf("Non-cumulative number of spans lifetime a < N\n");
-    out.printf("------------------------------------------------\n");
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      tc_globals.central_freelist(size_class).PrintSpanLifetimeStats(out);
     }
 
     out.printf("\n");
@@ -847,8 +838,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                      span_stats[size_class].num_spans_returned);
       entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
       tc_globals.central_freelist(size_class).PrintSpanUtilStatsInPbtxt(entry);
-      tc_globals.central_freelist(size_class)
-          .PrintSpanLifetimeStatsInPbtxt(entry);
+
       tc_globals.central_freelist(size_class).PrintNumSpansUsedInPbtxt(entry);
 
       tc_globals.central_freelist(size_class).PrintSameSpanStatsInPbtxt(entry);

@@ -49,7 +49,6 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/peak_heap_tracker.h"
 #include "tcmalloc/sizemap.h"
-#include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/transfer_cache.h"
@@ -62,7 +61,8 @@ class ThreadCache;
 
 using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
     SampledAllocation,
-    MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>>;
+    MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>,
+    SampleRecorderArrayAlloc>;
 
 class Static;
 extern Static tc_globals;
@@ -139,10 +139,6 @@ class Static final {
     return sampledallocation_allocator_;
   }
 
-  MetadataObjectAllocator<Span, ArenaAlloc::kSpan>& span_allocator() {
-    return span_allocator_;
-  }
-
   MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
   threadcache_allocator() {
     return threadcache_allocator_;
@@ -206,8 +202,6 @@ class Static final {
 
   static SizeClassConfiguration size_class_configuration();
 
-  static const Span& invalid_span() { return kInvalidSpan; }
-
  private:
 #if defined(__clang__)
   __attribute__((preserve_most))
@@ -236,7 +230,6 @@ class Static final {
   GuardedPageAllocator guardedpage_allocator_;
   MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
       sampledallocation_allocator_;
-  MetadataObjectAllocator<Span, ArenaAlloc::kSpan> span_allocator_;
   MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
       threadcache_allocator_;
   MetadataObjectAllocator<StackTraceTable::LinkedSample,
@@ -253,7 +246,6 @@ class Static final {
   SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
                   kNormalPartitions>
       system_allocator_;
-  static ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro) const Span kInvalidSpan;
   SampledAllocationRecorder sampled_allocation_recorder_;
 };
 

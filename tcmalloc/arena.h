@@ -35,7 +35,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 enum class ArenaAlloc : uint8_t {
-  kSpan,
   kSampledAllocation,
   kThreadCache,
   kStackTraceTable,
@@ -48,6 +47,8 @@ enum class ArenaAlloc : uint8_t {
   kTransferCache,
   kCpuCache,
   kTest,
+  kSampleRecorderArray,
+  kCentralFreeListArray,
   kNumTypes,
 };
 
@@ -61,8 +62,6 @@ struct ArenaAllocInfo {
 
 constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
   switch (type) {
-    case ArenaAlloc::kSpan:
-      return {"Span", "span"};
     case ArenaAlloc::kSampledAllocation:
       return {"SampledAllocation", "sampled_allocation"};
     case ArenaAlloc::kThreadCache:
@@ -87,6 +86,10 @@ constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
       return {"CpuCache", "cpu_cache"};
     case ArenaAlloc::kTest:
       return {"Test", "test"};
+    case ArenaAlloc::kSampleRecorderArray:
+      return {"SampleRecorderArray", "sample_recorder_array"};
+    case ArenaAlloc::kCentralFreeListArray:
+      return {"CentralFreeListArray", "central_free_list_array"};
     case ArenaAlloc::kNumTypes:
       break;
   }
@@ -103,6 +106,10 @@ constexpr bool CheckArenaAllocInfo() {
   return true;
 }
 static_assert(CheckArenaAllocInfo());
+
+struct SampleRecorderArrayAlloc {
+  void* operator()(size_t bytes, std::align_val_t alignment);
+};
 
 struct ArenaStats {
   // The number of bytes allocated and in-use by calls to Alloc().

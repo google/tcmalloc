@@ -21,31 +21,85 @@
 #include <stdint.h>
 #include <string.h>
 
-#include <atomic>
 #include <cassert>
 #include <cstddef>
 
-#include "absl/base/attributes.h"
-#include "absl/base/casts.h"
-#include "absl/base/macros.h"
-#include "absl/base/nullability.h"
-#include "absl/base/optimization.h"
-#include "absl/base/thread_annotations.h"
-#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
-#include "tcmalloc/internal/prefetch.h"
-#include "tcmalloc/internal/range_tracker.h"
-#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/sizemap.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// Metadata for a span, stored inline in the pagemap.
+union SpanMeta {
+  // Covers up to 512M pages, or 4TB with 8K pages.
+  static constexpr size_t kNumPagesBits = 29;
+  static constexpr size_t kMaxNumPages = 1ul << kNumPagesBits;
+
+  // Covers up to 2M spans in CFL nonempty list.
+  static constexpr size_t kFullHeapIndexBits = 21;
+#ifdef NDEBUG
+  static constexpr size_t kHeapIndexBits = kFullHeapIndexBits;
+#else
+  // For testing of heap index overflows.
+  static constexpr size_t kHeapIndexBits = 5;
+#endif
+
+  static_assert(sizeof(CompactSizeClass) == 1);
+
+  // Small object span metadata.
+  struct {
+    uint32_t size_class : 8;
+    // Truncated index in CFL's nonempty_ array (if is_in_cfl == 1).
+    // Otherwise, it's page offset from the start of the span.
+    // Truncating the index is OK since we have a way to find the non-truncated
+    // index in the very unlikely case the index was truncated.
+    // In debug mode we use very few bits for the index, to test overflows.
+    uint32_t heap_index_or_page_offset : kHeapIndexBits;
+#ifndef NDEBUG
+    uint32_t unused : kFullHeapIndexBits - kHeapIndexBits;
+#endif
+    uint32_t is_in_cfl : 1;   // span is in CFL nonempty list
+    uint32_t is_donated : 1;  // donated from page heap
+    uint32_t is_small : 1;    // = 1 for small objects
+  };
+  // Large object span metadata.
+  struct {
+    // If is_sampled == 0, number of pages in the span. If the span is larger
+    // than kMaxNumPages, this field is 0 and the size is stored in the huge
+    // page metadata.
+    // If is_sampled == 1, the sampled allocation index.
+    uint32_t num_pages_or_sampled_index : kNumPagesBits;
+    uint32_t is_sampled : 1;   // sampled object
+    uint32_t is_donated1 : 1;  // donated from page heap
+    uint32_t is_small1 : 1;    // = 0 for large objects
+  };
+
+  static constexpr SpanMeta Freed() {
+    SpanMeta m{};
+    m.is_donated1 = 1;
+    return m;
+  }
+
+  constexpr bool IsValid() const {
+    return is_small || num_pages_or_sampled_index > 0 || is_sampled;
+  }
+
+  constexpr bool IsFreed() const {
+    return !is_small1 && num_pages_or_sampled_index == 0 && !is_sampled &&
+           is_donated1;
+  }
+
+  PageId SmallSpanStart(PageId p) const {
+    TC_ASSERT(is_small);
+    return p - Length(is_in_cfl ? 0 : heap_index_or_page_offset);
+  }
+};
+
+static_assert(sizeof(SpanMeta) == 4);
 
 // Denominator for bitmap scaling factor. The idea is that instead of dividing
 // by N we multiply by M = kBitmapScalingDenominator / N and round the resulting
@@ -65,848 +119,16 @@ struct SpanAllocInfo {
   AccessDensityPrediction density;
 };
 
-// Information kept for a span (a contiguous run of pages).
-//
-// Spans can be in different states. The current state determines set of methods
-// that can be called on the span (and the active member in the union below).
-// States are:
-//  - SMALL_OBJECT: the span holds multiple small objects.
-//    The span is owned by CentralFreeList and is generally on
-//    CentralFreeList::nonempty_ list (unless has no free objects).
-//  - LARGE_OBJECT: the span holds a single large object.
-//    The span can be considered to be owner by user until the object is freed.
-//  - SAMPLED: the span holds a single sampled object.
-//    The span can be considered to be owner by user until the object is freed.
-//    sampled_ == 1.
-class Span;
-typedef TList<Span> SpanList;
-
-class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
- public:
-  constexpr Span()
-      : embed_count_(0),
-        freelist_(0),
-        allocated_{std::numeric_limits<uint16_t>::max()},
-        cache_size_(0),
-        nonempty_index_(0),
-        first_page_(0),
-        is_large_span_(0),
-        sampled_(0),
-        large_or_sampled_state_{0, nullptr} {}
-
-  explicit Span(Range r)
-      : embed_count_(0),
-        freelist_(0),
-        allocated_{0},
-        cache_size_(0),
-        nonempty_index_(0),
-        first_page_(r.p.index()),
-        is_large_span_(0),
-        sampled_(0),
-        large_or_sampled_state_{0, nullptr} {
-    TC_ASSERT_GT(r.p, PageId{0});
-    TC_CHECK_LT(r.p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
-    set_num_pages(r.n);
-  }
-
-  Span(const Span&) = delete;
-  Span& operator=(const Span&) = delete;
-
-  // Allocator/deallocator for spans. Note that these functions are defined
-  // in static_vars.h, which is weird: see there for why.
-  [[nodiscard]] static Span* absl_nonnull New(Range r)
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ABSL_LOCKS_EXCLUDED(pageheap_lock)
-#endif
-          ;
-  static void Delete(Span* absl_nonnull span);
-
-  // ---------------------------------------------------------------------------
-  // Support for sampled allocations.
-  // There is one-to-one correspondence between a sampled allocation and a span.
-  // ---------------------------------------------------------------------------
-
-  // Mark this span in the "SAMPLED" state. It will store the corresponding
-  // sampled allocation and update some global counters on the total size of
-  // sampled allocations.
-  void Sample(SampledAllocation* absl_nonnull sampled_allocation);
-
-  // Unmark this span from its "SAMPLED" state. It will return the sampled
-  // allocation previously passed to Span::Sample() or nullptr if this is a
-  // non-sampling span. It will also update the global counters on the total
-  // size of sampled allocations.
-  [[nodiscard]] SampledAllocation* absl_nullable Unsample();
-
-  // Returns the sampled allocation of the span.
-  // pageheap_lock is not required, but caller either needs to hold the lock or
-  // ensure by some other means that the sampling state can't be changed
-  // concurrently.
-  // REQUIRES: this is a SAMPLED span.
-  [[nodiscard]] const SampledAllocation& sampled_allocation() const;
-
-  // Is it a sampling span?
-  // For debug checks. pageheap_lock is not required, but caller needs to ensure
-  // that sampling state can't be changed concurrently.
-  [[nodiscard]] bool sampled() const;
-
-  [[nodiscard]] bool donated() const { return is_donated_; }
-  void set_donated(bool value) { is_donated_ = value; }
-
-  // ---------------------------------------------------------------------------
-  // Span memory range.
-  // ---------------------------------------------------------------------------
-
-  // Returns first page of the span.
-  [[nodiscard]] PageId first_page() const;
-
-  // Returns the last page in the span.
-  [[nodiscard]] PageId last_page() const;
-
-  // Sets span first page.
-  void set_first_page(PageId p);
-
-  // Returns start address of the span.
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL void* start_address() const;
-
-  // Returns number of pages in the span.
-  [[nodiscard]] Length num_pages() const;
-
-  // Sets number of pages in the span.
-  void set_num_pages(Length len);
-
-  // Total memory bytes in the span.
-  [[nodiscard]] size_t bytes_in_span() const;
-
-  // Returns number of objects allocated in the span.
-  [[nodiscard]] uint16_t Allocated() const {
-    return allocated_.load(std::memory_order_relaxed);
-  }
-
-  // Returns index of the non-empty list to which this span belongs to.
-  [[nodiscard]] uint8_t nonempty_index() const { return nonempty_index_; }
-  // Records an index of the non-empty list associated with this span.
-  void set_nonempty_index(uint8_t index) {
-    nonempty_index_ = index;
-    TC_ASSERT_EQ(nonempty_index_, index);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Freelist management.
-  // Used for spans in CentralFreelist to manage free objects.
-  // These methods REQUIRE a SMALL_OBJECT span.
-  // ---------------------------------------------------------------------------
-
-  // Indicate whether the Span is empty. Size is used to determine whether
-  // the span is using a compressed linked list of objects, or a bitmap
-  // to hold available objects.
-  [[nodiscard]] bool FreelistEmpty(size_t size,
-                                   uint32_t objects_per_span) const;
-
-  // Pushes ptr onto freelist unless the freelist becomes full, in which case
-  // just return false.
-  //
-  // If the freelist becomes full, we do not push the object onto the freelist.
-  template <typename T>
-  [[nodiscard]] bool FreelistPushBatch(absl::Span<T> batch, size_t size,
-                                       uint32_t reciprocal) __restrict__;
-
-  // Pops up to N objects from the freelist and returns them in the batch array.
-  // Returns number of objects actually popped.
-  [[nodiscard]] size_t FreelistPopBatch(absl::Span<void* absl_nonnull> batch,
-                                        size_t size) __restrict__;
-
-  // Initializes freelist to contain all objects in the span.
-  //  - size: the size of each object in the span.
-  //  - count: the total number of objects in the span.
-  //  - alloc_time: timestamp for tracking the span's allocation time.
-  // Populates up to batch.size() objects in the batch array.
-  // Returns the number of objects actually placed in batch.
-  [[nodiscard]] int BuildFreelist(size_t size, size_t count,
-                                  absl::Span<void*> batch,
-                                  uint64_t alloc_time) __restrict__;
-
-  // Prefetch cacheline containing most important span information.
-  void Prefetch();
-
-  // IsValidSizeClass verifies size class parameters from the Span perspective.
-  [[nodiscard]] static bool IsValidSizeClass(size_t size, Length pages);
-
-  // For bitmap'd spans conversion from an offset to an index is performed
-  // by multiplying by the scaled reciprocal of the object size.
-  [[nodiscard]] static uint32_t CalcReciprocal(size_t size);
-
-  // When central freelist tracks a span, that span is assured to consist of <
-  // kLargeSpanLength number of pages. This allows us to record number of pages
-  // in that span in fewer (i.e. kMaxNumPageBits) bits.
-  static constexpr size_t kMaxNumPageBits = 6;
-  static constexpr Length kLargeSpanLength = Length((1 << kMaxNumPageBits) - 1);
-  static_assert(kMaxSize <= kLargeSpanLength.in_bytes());
-
-  [[nodiscard]] uint64_t AllocTime() const;
-
-  // Returns true if Span will use bitmap for objects of size <size>.
-  [[nodiscard]] static bool UseBitmapForSize(size_t size);
-
-  typedef uint16_t ObjIdx;
-  // Convert object pointer <-> freelist index.
-  [[nodiscard]] ObjIdx PtrToIdx(void* ptr, size_t size) const;
-  [[nodiscard]] ObjIdx* IdxToPtr(ObjIdx idx, size_t size,
-                                 uintptr_t start) const;
-
-  // Convert object pointer <-> freelist index for bitmap managed objects.
-  [[nodiscard]] ObjIdx BitmapPtrToIdx(void* ptr, size_t size,
-                                      uint32_t reciprocal) const;
-  [[nodiscard]] void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  [[nodiscard]] void* BitmapIdxToPtr(ObjIdx idx, size_t size,
-                                     uintptr_t start) const;
-#endif
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  static constexpr size_t kNonemptyIndexBits = 5;
-#else
-  static constexpr size_t kNonemptyIndexBits = 8;
-#endif
-
- private:
-  // Returns if the span is large (i.e. consists of > kLargeSpanLength number of
-  // pages) or is sampled.
-  [[nodiscard]] bool is_large_or_sampled() const {
-    return is_large_span_ || sampled_;
-  }
-
-  // See the comment on freelist organization in cc file.
-  static constexpr ObjIdx kListEnd = -1;
-
-  // Actual number of objects that we may cache. This is lower than the total
-  // cache array size. Some cache entries are reserved or are used for other
-  // purposes.
-  //
-  // TODO(b/527641380): With the enlarged bitmap, microbenchmarks on a single,
-  // cache-resident span regress.  Investigate this.  We use a larger cache
-  // anyways because the multi-span benchmarks that put more pressure on the
-  // memory subsystem improve anyways.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  static constexpr size_t kCacheSize = 8;
-#else
-  static constexpr size_t kCacheSize = 12;
-#endif
-  static constexpr size_t kMaxCacheBits = 4;
-  static_assert(kCacheSize <= (1 << kMaxCacheBits) - 1);
-
-  static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  static constexpr size_t kReservedBits = 25;
-#endif
-  // For available objects stored as a compressed linked list, the index of the
-  // first object in recorded in freelist_.
-  //
-  // TODO(b/527641380): Move these into list_.
-  struct {
-    uint16_t embed_count_;
-    uint16_t freelist_;
-  };
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  std::atomic<uint16_t>
-#else
-  struct {
-    uint16_t value;
-
-    uint16_t load(std::memory_order) const { return value; }
-
-    void store(uint16_t v, std::memory_order) { value = v; }
-  }
-#endif
-      allocated_;  // Number of non-free objects
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  uint8_t cache_size_ : kMaxCacheBits;
-  uint8_t nonempty_index_ : kNonemptyIndexBits;  // The nonempty_ list index for
-                                                 // this span.
-  // Has this span allocation resulted in a donation to the filler in the page
-  // heap? This is used by page heap to compute abandoned pages.
-  uint8_t is_donated_ : 1 = 0;
-#else
-  uint8_t cache_size_;
-  uint8_t nonempty_index_;  // The nonempty_ list index for this span.
-#endif
-
-  // The number of bits of the cache space that may be used for bitmap.
-  static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kCacheSize;
-
-  uint64_t first_page_ : kMaxPageIdBits;  // Starting page number.
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  uint32_t reserved_ : kReservedBits = 0;
-#endif
-  // Determines if the span consists of > kLargeSpanLength number of pages.
-  uint8_t is_large_span_ : 1;
-  uint8_t sampled_ : 1;  // Sampled object?
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  // Has this span allocation resulted in a donation to the filler in the page
-  // heap? This is used by page heap to compute abandoned pages.
-  uint8_t is_donated_ : 1 = 0;
-#endif
-
-  struct LargeOrSampledState {
-    uint64_t num_pages;
-    // Used only for sampled spans (SAMPLED state).
-    SampledAllocation* sampled_allocation;
-  };
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  static constexpr size_t kAllocTimeShift = 0;
-#else
-  static constexpr size_t kAllocTimeShift = kMaxNumPageBits;
-  static constexpr size_t kAllocTimeBits = 64 - kAllocTimeShift;
-#endif
-
-  // When a span consists of < kLargeSpanLength number of pages, we can record
-  // the number of pages in kMaxNumPageBits number of bits. Additionally, it's
-  // likely (although not assured) that the central freelist is tracking that
-  // span. So, we additionally need to record cache or bitmap for that span.
-  //
-  // This field is not used when we are in the LargeOrSampledState.
-  uint64_t small_num_pages_ : kMaxNumPageBits = 0;
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  uint64_t alloc_time_ : kAllocTimeBits = 0;
-#endif
-
-  struct ListSpanState {
-    // Used only for spans in CentralFreeList (SMALL_OBJECT state).
-    // Embed cache of free objects.
-    ObjIdx cache[Span::kCacheSize];
-  };
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  uint64_t alloc_time_ = 0;
-#endif
-
-  union {
-    // When a span consists of greater than kLargeSpanLength number of pages,
-    // it's the page heap that is allocating an object > kMaxSize. In such a
-    // scenario, use larger number of bits to record the number of pages in that
-    // span. Additionally, as central freelist is not tracking that span, we do
-    // not need to record the state such as bitmap or cache bits. We also do
-    // not need to record that state when the span is sampled.
-    LargeOrSampledState large_or_sampled_state_;
-
-    ListSpanState list_;
-
-    // Used for spans with in CentralFreeList with fewer than 192 objects.  Each
-    // bit is set to one when the object is available, and zero when the object
-    // is used.
-    Bitmap<kBitmapSize> bitmap_;
-  };
-
-  // There is nothing inherently fixed about this size, but it is a useful
-  // indicator that we are using the space and not unintentionally regressing
-  // it.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  static_assert(sizeof(list_) == 16);
-#else
-  static_assert(sizeof(list_) == 24);
-#endif
-  static_assert(sizeof(bitmap_) == sizeof(list_),
-                "Bitmap and List representations should be equivalent to "
-                "maximize byte efficiency");
-  static_assert(sizeof(large_or_sampled_state_) <= sizeof(list_));
-
-  // Helper function for converting a pointer to an index.
-  [[nodiscard]] static ObjIdx OffsetToIdx(uintptr_t offset,
-                                          uint32_t reciprocal);
-
-  [[nodiscard]] size_t ListPopBatch(void** __restrict batch, size_t N,
-                                    size_t size) __restrict__;
-
-  [[nodiscard]] bool ListPushBatch(absl::Span<void*> batch,
-                                   size_t size) __restrict__;
-  [[nodiscard]] bool ListPushBatch(absl::Span<ObjIdx> batch,
-                                   size_t size) __restrict__;
-
-  // For spans containing 64 or fewer objects, indicate that the object at the
-  // index has been returned. Always returns true.
-  [[nodiscard]] bool BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                                     uint32_t reciprocal) __restrict__;
-  [[nodiscard]] bool BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
-                                     uint32_t reciprocal) __restrict__;
-
-  // A bitmap is used to indicate object availability for spans containing
-  // 64 or fewer objects.
-  void BuildBitmap(size_t size, size_t count) __restrict__;
-
-  // For spans with kBitmapSize or fewer objects populate batch with up to N
-  // objects.  Returns number of objects actually popped.
-  [[nodiscard]] size_t BitmapPopBatch(absl::Span<void*> batch,
-                                      size_t size) __restrict__;
-
-  [[noreturn]] void ReportDoubleFree(const void* ptr);
-
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL SampledAllocation*
-  UnsampleSlow();
-
-  // Friend class to enable more indepth testing of bitmap code.
-  friend class SpanTestPeer;
-};
-
-inline uint64_t Span::AllocTime() const {
-  if (is_large_or_sampled()) return 0;
-  return alloc_time_ << kAllocTimeShift;
+[[nodiscard]] inline uint32_t CalcReciprocal(size_t size) {
+  TC_ASSERT_GT(size, 0);
+  return kBitmapScalingDenominator / size;
 }
 
-inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
-                                    uintptr_t start) const {
-  TC_ASSERT_EQ(small_num_pages_, 1u);
-  TC_ASSERT_EQ(start, first_page().start_uintptr());
-  TC_ASSERT_NE(idx, kListEnd);
-  uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
-  ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
-  TC_ASSERT_EQ(PtrToIdx(ptr, size), idx);
-  return ptr;
-}
-
-inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
-  // Object index is an offset from span start divided by kAlignment.
-  uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
-  // Classes that use freelist must also use 1 page per span,
-  // so don't load first_page_ (may be on a different cache line).
-  TC_ASSERT_EQ(small_num_pages_, 1u);
-  TC_ASSERT_EQ(PageIdContaining(ptr), first_page());
-  uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
-  ObjIdx idx = static_cast<ObjIdx>(off);
-  TC_ASSERT_NE(idx, kListEnd);
-  TC_ASSERT_EQ(idx, off);
-  TC_ASSERT_EQ(p, first_page().start_uintptr() +
-                      (static_cast<uintptr_t>(idx) << kAlignmentShift));
-  return idx;
-}
-
-template <typename T>
-inline bool Span::FreelistPushBatch(absl::Span<T> batch, size_t size,
-                                    uint32_t reciprocal) __restrict__ {
-  TC_ASSERT(!is_large_or_sampled());
-  const auto allocated = allocated_.load(std::memory_order_relaxed);
-  TC_ASSERT_GE(allocated, batch.size());
-  if (ABSL_PREDICT_FALSE(allocated == batch.size())) {
-    return false;
-  }
-  allocated_.store(allocated - batch.size(), std::memory_order_relaxed);
-  // Bitmaps are used to record object availability when there are no more than
-  // kBitmapSize objects in a span.
-  if (ABSL_PREDICT_TRUE(UseBitmapForSize(size))) {
-    return BitmapPushBatch(batch, size, reciprocal);
-  }
-  return ListPushBatch(batch, size);
-}
-
-inline bool Span::ListPushBatch(absl::Span<void*> batch,
-                                size_t size) __restrict__ {
-  if (cache_size_ < kCacheSize) {
-    auto cache_writes = std::min(kCacheSize - cache_size_, batch.size());
-    for (int i = 0; i < cache_writes; ++i) {
-      // Have empty space in the cache, push there.
-      const ObjIdx idx = PtrToIdx(batch[i], size);
-      list_.cache[cache_size_ + i] = idx;
-    }
-    cache_size_ += cache_writes;
-    batch.remove_prefix(cache_writes);
-  }
-
-  if (batch.empty()) {
-    return true;
-  }
-
-  // Avoid loading first_page_, since we can infer it from the pointer.  It is
-  // uniform across all objects in batch.
-  const uintptr_t start =
-      reinterpret_cast<uintptr_t>(batch[0]) & ~(kPageSize - 1);
-#ifndef NDEBUG
-  for (int i = 1; i < batch.size(); ++i) {
-    TC_ASSERT_EQ(start,
-                 reinterpret_cast<uintptr_t>(batch[i]) & ~(kPageSize - 1));
-  }
-#endif
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  for (void* ptr : batch) {
-    const ObjIdx idx = PtrToIdx(ptr, size);
-
-    if (ABSL_PREDICT_TRUE(freelist_ != kListEnd) &&
-        // -1 because the first slot is used by freelist link.
-        ABSL_PREDICT_TRUE(embed_count_ != size / sizeof(ObjIdx) - 1)) {
-      // Push onto the first object on freelist.
-      ObjIdx* __restrict host = IdxToPtr(freelist_, size, start);
-      embed_count_++;
-      host[embed_count_] = idx;
-    } else {
-      // Push onto freelist.
-      *reinterpret_cast<ObjIdx*>(ptr) = freelist_;
-      freelist_ = idx;
-      embed_count_ = 0;
-    }
-  }
-#else
-  ObjIdx freelist = freelist_;
-  uint16_t embed_count = embed_count_;
-
-  ObjIdx* __restrict host;
-  if (ABSL_PREDICT_TRUE(freelist != kListEnd)) {
-    host = IdxToPtr(freelist, size, start);
-  } else {
-    void* ptr = batch[0];
-    batch.remove_prefix(1);
-
-    host = reinterpret_cast<ObjIdx*>(ptr);
-    *host = kListEnd;
-    freelist = PtrToIdx(ptr, size);
-    embed_count = 0;
-  }
-
-  TC_ASSERT_NE(freelist, kListEnd);
-
-  // -1 because the first slot is used by freelist link.
-  const size_t limit = size / sizeof(ObjIdx) - 1;
-
-  for (void* ptr : batch) {
-    const ObjIdx idx = PtrToIdx(ptr, size);
-
-    if (ABSL_PREDICT_TRUE(embed_count != limit)) {
-      // Push onto the first object on freelist.
-      embed_count++;
-      host[embed_count] = idx;
-    } else {
-      // Push onto freelist.
-      ObjIdx* __restrict new_host = reinterpret_cast<ObjIdx*>(ptr);
-      *new_host = freelist;
-      freelist = idx;
-      embed_count = 0;
-      host = new_host;
-    }
-  }
-  freelist_ = freelist;
-  embed_count_ = embed_count;
-#endif
-  return true;
-}
-
-inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
-                                size_t size) __restrict__ {
-  if (cache_size_ < kCacheSize) {
-    auto cache_writes = std::min(kCacheSize - cache_size_, batch.size());
-    for (int i = 0; i < cache_writes; ++i) {
-      // Have empty space in the cache, push there.
-      const ObjIdx idx = batch[i];
-      list_.cache[cache_size_ + i] = idx;
-    }
-    cache_size_ += cache_writes;
-    batch.remove_prefix(cache_writes);
-  }
-
-  if (batch.empty()) {
-    return true;
-  }
-
-  const uintptr_t start = absl::bit_cast<uintptr_t>(start_address());
-
-  ObjIdx freelist = freelist_;
-  uint16_t embed_count = embed_count_;
-
-  ObjIdx* __restrict host;
-  if (ABSL_PREDICT_TRUE(freelist != kListEnd)) {
-    host = IdxToPtr(freelist, size, start);
-  } else {
-    ObjIdx idx = batch[0];
-    batch.remove_prefix(1);
-
-    host = IdxToPtr(idx, size, start);
-    *host = kListEnd;
-    freelist = idx;
-    embed_count = 0;
-  }
-
-  TC_ASSERT_NE(freelist, kListEnd);
-
-  // -1 because the first slot is used by freelist link.
-  const size_t limit = size / sizeof(ObjIdx) - 1;
-
-  for (const ObjIdx idx : batch) {
-    if (ABSL_PREDICT_TRUE(embed_count != limit)) {
-      // Push onto the first object on freelist.
-      embed_count++;
-      host[embed_count] = idx;
-    } else {
-      // Push onto freelist.
-      ObjIdx* __restrict new_host = IdxToPtr(idx, size, start);
-      *new_host = freelist;
-      freelist = idx;
-      embed_count = 0;
-      host = new_host;
-    }
-  }
-  freelist_ = freelist;
-  embed_count_ = embed_count;
-  return true;
-}
-
-inline Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
-  // Add kBitmapScalingDenominator / 2 to round to nearest integer.
-  return static_cast<ObjIdx>(
+[[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline uint32_t OffsetToIdx(
+    uintptr_t offset, uint32_t reciprocal) {
+  return static_cast<uint32_t>(
       (offset * reciprocal + kBitmapScalingDenominator / 2) /
       kBitmapScalingDenominator);
-}
-
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size,
-                                  uintptr_t start) const {
-  TC_ASSERT_EQ(start, first_page().start_uintptr());
-  uintptr_t off = start + idx * size;
-  return reinterpret_cast<void*>(off);
-}
-
-inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
-  return BitmapIdxToPtr(idx, size, first_page().start_uintptr());
-}
-#endif
-
-inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
-                                         uint32_t reciprocal) const {
-  uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
-  uintptr_t off = static_cast<uint32_t>(p - first_page().start_uintptr());
-  ObjIdx idx = OffsetToIdx(off, reciprocal);
-  TC_ASSERT_EQ(BitmapIdxToPtr(idx, size), ptr);
-  return idx;
-}
-
-inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                                  uint32_t reciprocal) __restrict__ {
-  size_t before = bitmap_.CountBits();
-  for (void* ptr : batch) {
-    ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
-    // Set the bit indicating where the object was returned.
-    bool prior = bitmap_.SetBit(idx);
-    // Check that the object is not already returned.
-    (void)prior;
-#if !defined(NDEBUG)
-    if (ABSL_PREDICT_FALSE(prior)) {
-      ReportDoubleFree(ptr);
-    }
-#endif
-  }
-  TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
-  return true;
-}
-
-inline bool Span::BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
-                                  uint32_t reciprocal) __restrict__ {
-  size_t before = bitmap_.CountBits();
-  for (const ObjIdx idx : batch) {
-    // Check that the object is not already returned.
-    TC_ASSERT_EQ(bitmap_.GetBit(idx), 0);
-    // Set the bit indicating where the object was returned.
-    bitmap_.SetBit(idx);
-  }
-  TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
-  return true;
-}
-
-inline const SampledAllocation& Span::sampled_allocation() const {
-  TC_ASSERT(sampled_);
-  TC_ASSERT(is_large_or_sampled());
-  return *large_or_sampled_state_.sampled_allocation;
-}
-
-inline bool Span::sampled() const { return sampled_; }
-
-inline PageId Span::first_page() const { return PageId(first_page_); }
-
-inline PageId Span::last_page() const {
-  if (is_large_or_sampled()) {
-    return first_page() + Length(large_or_sampled_state_.num_pages) - Length(1);
-  }
-  return first_page() + Length(small_num_pages_) - Length(1);
-}
-
-inline void Span::set_first_page(PageId p) {
-  TC_ASSERT_GT(p, PageId{0});
-  TC_CHECK_LT(p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
-  first_page_ = p.index();
-  TC_ASSERT_EQ(first_page_, p.index());
-}
-
-inline void* Span::start_address() const {
-  TC_ASSERT_GT(first_page(), PageId{0});
-  return first_page().start_addr();
-}
-
-inline Length Span::num_pages() const {
-  if (is_large_or_sampled()) {
-    return Length(large_or_sampled_state_.num_pages);
-  }
-  return Length(small_num_pages_);
-}
-
-inline void Span::set_num_pages(Length len) {
-  if (ABSL_PREDICT_FALSE(len > kLargeSpanLength || sampled())) {
-    large_or_sampled_state_.num_pages = len.raw_num();
-    is_large_span_ = len > kLargeSpanLength;
-    return;
-  }
-  TC_ASSERT_LT(len.raw_num(), 1u << kMaxNumPageBits);
-  small_num_pages_ = len.raw_num();
-  is_large_span_ = 0;
-}
-
-inline size_t Span::bytes_in_span() const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-  if (is_large_or_sampled()) {
-    return Length(large_or_sampled_state_.num_pages).in_bytes();
-  }
-  return Length(small_num_pages_).in_bytes();
-}
-
-inline bool Span::FreelistEmpty(size_t size, uint32_t objects_per_span) const {
-  TC_ASSERT(!is_large_or_sampled());
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  (void)size;
-  return allocated_.load(std::memory_order_relaxed) == objects_per_span;
-#else
-  (void)objects_per_span;
-  if (UseBitmapForSize(size)) {
-    return bitmap_.IsZero();
-  } else {
-    return cache_size_ == 0 && freelist_ == kListEnd;
-  }
-#endif
-}
-
-inline void Span::Prefetch() {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  PrefetchT0(this);
-#else
-  PrefetchW(this);
-#endif
-}
-
-inline bool Span::IsValidSizeClass(size_t size, Length pages) {
-  if (pages > kLargeSpanLength) return false;
-  if (Span::UseBitmapForSize(size)) {
-    size_t objects = pages.in_bytes() / size;
-    return objects <= kBitmapSize;
-  } else {
-    return pages == Length(1);
-  }
-}
-
-inline bool Span::UseBitmapForSize(size_t size) {
-  // Can fit kBitmapSize objects into a bitmap, so determine what the minimum
-  // object size needs to be in order for that to work. This makes the
-  // assumption that we don't increase the number of pages at a point where the
-  // object count ends up exceeding kBitmapSize.
-  static constexpr size_t kBitmapMinObjectSize = kPageSize / kBitmapSize;
-  return size >= kBitmapMinObjectSize;
-}
-
-inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
-                                   size_t size) __restrict__ {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  size_t before = bitmap_.CountBits();
-  size_t count = 0;
-  // Want to fill the batch either with batch.size() objects, or the number of
-  // objects remaining in the span.
-  while (!bitmap_.IsZero() && count < batch.size()) {
-    size_t offset = bitmap_.FindSet(0);
-    TC_ASSERT_LT(offset, bitmap_.size());
-    batch[count] = BitmapIdxToPtr(offset, size);
-    bitmap_.ClearLowestBit();
-    count++;
-  }
-
-  TC_ASSERT_EQ(bitmap_.CountBits() + count, before);
-  allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
-                   std::memory_order_relaxed);
-  return count;
-#else
-  void** ptrs = batch.data();
-  const uintptr_t span_start = first_page().start_uintptr();
-  size_t popped = bitmap_.PopBatch(
-      [&](size_t offset) {
-        *ptrs++ = BitmapIdxToPtr(static_cast<ObjIdx>(offset), size, span_start);
-      },
-      batch.size());
-  allocated_.store(allocated_.load(std::memory_order_relaxed) + popped,
-                   std::memory_order_relaxed);
-  return popped;
-#endif
-}
-
-inline size_t Span::FreelistPopBatch(const absl::Span<void*> batch,
-                                     size_t size) __restrict__ {
-  TC_ASSERT(!is_large_or_sampled());
-  // Handle spans with bitmap.size() or fewer objects using a bitmap. We expect
-  // spans to frequently hold smaller objects.
-  if (ABSL_PREDICT_TRUE(UseBitmapForSize(size))) {
-    return BitmapPopBatch(batch, size);
-  }
-  return ListPopBatch(batch.data(), batch.size(), size);
-}
-
-inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
-                                 size_t size) __restrict__ {
-  size_t result = 0;
-
-  // Pop from cache.
-  auto csize = cache_size_;
-  ASSUME(csize <= kCacheSize);
-  auto cache_reads = csize < N ? csize : N;
-  const uintptr_t span_start = first_page().start_uintptr();
-  for (; result < cache_reads; result++) {
-    batch[result] = IdxToPtr(list_.cache[csize - result - 1], size, span_start);
-  }
-
-  // Store this->cache_size_ one time.
-  cache_size_ = csize - result;
-
-  while (result < N) {
-    if (ABSL_PREDICT_FALSE(freelist_ == kListEnd)) {
-      break;
-    }
-
-    ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
-    uint16_t embed_count = embed_count_;
-
-    size_t iter = embed_count;
-    if (result + embed_count > N) {
-      iter = N - result;
-    }
-    for (size_t i = 0; i < iter; i++) {
-      // Pop from the first object on freelist.
-      batch[result + i] = IdxToPtr(host[embed_count - i], size, span_start);
-    }
-    embed_count -= iter;
-    result += iter;
-
-    if (result == N) {
-      embed_count_ = embed_count;
-      break;
-    }
-
-    // The first object on the freelist is empty, pop it.
-    TC_ASSERT_EQ(embed_count, 0);
-
-    batch[result] = host;
-    result++;
-
-    freelist_ = host[0];
-    embed_count_ = size / sizeof(ObjIdx) - 1;
-  }
-  allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
-                   std::memory_order_relaxed);
-  return result;
-}
-
-inline SampledAllocation* absl_nullable Span::Unsample() {
-  if (!sampled_) {
-    return nullptr;
-  }
-  return UnsampleSlow();
 }
 
 }  // namespace tcmalloc_internal

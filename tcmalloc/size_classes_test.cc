@@ -31,24 +31,6 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-// Moved out of anonymous namespace so that it can be found by friend class in
-// span.h. This allows tests to access span internals so that we can
-// validate that scaling by a reciprocal correctly converts a pointer into
-// an offset within a span.
-class SpanTestPeer {
- public:
-  static bool UseBitmapForSize(size_t size) {
-    return Span::UseBitmapForSize(size);
-  }
-  static uint32_t CalcReciprocal(size_t size) {
-    return Span::CalcReciprocal(size);
-  }
-  static Span::ObjIdx TestOffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
-    return Span::OffsetToIdx(offset, reciprocal);
-  }
-};
-
 namespace {
 
 size_t Alignment(size_t size) {
@@ -92,17 +74,6 @@ TEST_F(RunTimeSizeClassesTest, SpanPages) {
   }
 }
 
-TEST_F(RunTimeSizeClassesTest, ValidatePagesAndBitmapCapacity) {
-  for (int c = 1; c < kNumClasses; ++c) {
-    const size_t max_size_in_class = m_.class_to_size(c);
-    if (max_size_in_class == 0) {
-      continue;
-    }
-    EXPECT_TRUE(
-        Span::IsValidSizeClass(max_size_in_class, m_.class_to_pages(c)));
-  }
-}
-
 TEST_F(RunTimeSizeClassesTest, ValidateCorrectScalingByReciprocal) {
   // Validate that multiplying by the reciprocal works for all size classes.
   // When converting an offset within a span into an index we avoid a
@@ -111,18 +82,17 @@ TEST_F(RunTimeSizeClassesTest, ValidateCorrectScalingByReciprocal) {
   // sizes.
   for (int c = 1; c < kNumClasses; ++c) {
     const size_t max_size_in_class = m_.class_to_size(c);
-    // Only test for sizes where object availability is recorded in a bitmap.
-    if (!SpanTestPeer::UseBitmapForSize(max_size_in_class)) {
+    if (max_size_in_class == 0) {
       continue;
     }
-    size_t reciprocal = SpanTestPeer::CalcReciprocal(max_size_in_class);
+    uint32_t reciprocal = CalcReciprocal(max_size_in_class);
     const size_t objects_per_span =
         m_.class_to_pages(c).in_bytes() / m_.class_to_size(c);
     for (int index = 0; index < objects_per_span; index++) {
       // Calculate the address of the object.
       uintptr_t address = index * max_size_in_class;
       // Calculate the index into the page using the reciprocal method.
-      int idx = SpanTestPeer::TestOffsetToIdx(address, reciprocal);
+      uint32_t idx = OffsetToIdx(address, reciprocal);
       // Check that the starting address back is correct.
       ASSERT_EQ(address, idx * max_size_in_class);
     }

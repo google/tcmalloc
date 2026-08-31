@@ -185,7 +185,8 @@ TEST_F(GetStatsTest, ArenaTypeStats) {
   const std::string text = MallocExtension::GetStats();
   EXPECT_THAT(text, HasSubstr("MALLOC:   Arena per-type allocations:"));
   EXPECT_THAT(text,
-              ContainsRegex(R"(MALLOC:     Span:\s+[0-9]+\.[0-9]{3} MiB)"));
+              ContainsRegex(
+                  R"(MALLOC:     SampledAllocation:\s+[0-9]+\.[0-9]{3} MiB)"));
   EXPECT_THAT(text,
               ContainsRegex(R"(MALLOC:     PageMap:\s+[0-9]+\.[0-9]{3} MiB)"));
   EXPECT_THAT(text, Not(HasSubstr("Test:")));

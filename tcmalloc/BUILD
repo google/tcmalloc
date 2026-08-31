@@ -229,7 +229,6 @@ create_tcmalloc_libraries(
         "segv_handler.h",
         "size_classes.cc",
         "sizemap.cc",
-        "span.cc",
         "span.h",
         "span_stats.h",
         "stack_trace_table.cc",
@@ -310,6 +309,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:explicitly_constructed",
         "//tcmalloc/internal:exponential_biased",
         "//tcmalloc/internal:gwp_asan_state",
+        "//tcmalloc/internal:heap",
         "//tcmalloc/internal:hook_list",
         "//tcmalloc/internal:is_aligned_to",
         "//tcmalloc/internal:linked_list",
@@ -338,6 +338,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/internal:system_allocator",
         "//tcmalloc/internal:timeseries_tracker",
+        "//tcmalloc/internal:two_level_array",
         "//tcmalloc/internal:util",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
@@ -554,33 +555,6 @@ cc_library(
     deps = tcmalloc_deps + [
         ":alloc_at_least",
         ":common_numa_aware",
-        ":malloc_hook",
-        "//tcmalloc/internal:allocation_guard",
-        "//tcmalloc/internal:is_aligned_to",
-        "//tcmalloc/internal:overflow",
-        "//tcmalloc/internal:page_size",
-        "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:span",
-    ],
-    alwayslink = 1,
-)
-
-cc_library(
-    name = "tcmalloc_legacy_locking",
-    srcs = [
-        "libc_override.h",
-        "tcmalloc.cc",
-        "tcmalloc.h",
-    ],
-    copts = [
-        "-DTCMALLOC_INTERNAL_8K_PAGES",
-        "-DTCMALLOC_INTERNAL_LEGACY_LOCKING",
-    ] + TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
-    visibility = [":tcmalloc_tests"],
-    deps = tcmalloc_deps + [
-        ":alloc_at_least",
-        ":common_legacy_locking",
         ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:is_aligned_to",
@@ -845,23 +819,6 @@ cc_test(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:span",
-        "@com_google_fuzztest//fuzztest",
-        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
-        "@com_google_googletest//:gtest",
-    ],
-)
-
-cc_test(
-    name = "span_fuzz",
-    srcs = ["span_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
-    deps = [
-        ":common_8k_pages",
-        "//tcmalloc/internal:config",
-        "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:sampled_allocation",
-        "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
@@ -1251,6 +1208,8 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:memory_tag",
+        "//tcmalloc/internal:sampled_allocation",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],
@@ -1396,22 +1355,6 @@ create_tcmalloc_testsuite(
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
-    ],
-)
-
-create_tcmalloc_benchmark(
-    name = "span_benchmark",
-    srcs = ["span_benchmark.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = ":tcmalloc",
-    deps = [
-        ":common_8k_pages",
-        "//tcmalloc/internal:allocation_guard",
-        "//tcmalloc/internal:config",
-        "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/random",
-        "@com_google_absl//absl/types:span",
     ],
 )
 

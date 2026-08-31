@@ -76,10 +76,8 @@ class BenchmarkStaticForwarder
 
   ~BenchmarkStaticForwarder() {
     absl::MutexLock l(mu_);
-    for (Span* span : allocated_spans_) {
-      void* mem = span->start_address();
+    for (void* mem : allocated_spans_) {
       ::operator delete(mem, std::align_val_t(page_size_));
-      delete span;
     }
   }
 
@@ -89,23 +87,24 @@ class BenchmarkStaticForwarder
     return num_objects_to_move_;
   }
 
-  void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
-                         int expected_size_class) {
+  void MapObjectsToMeta(absl::Span<void*> batch,
+                        std::atomic<SpanMeta>** metas) {
     for (size_t i = 0; i < batch.size(); ++i) {
-      Span* span = pagemap_->GetDescriptor(PageIdContaining(batch[i]));
-      span->Prefetch();
-      spans[i] = span;
+      metas[i] = pagemap_->GetSpanMeta(PageIdContaining(batch[i]));
     }
   }
 
-  [[nodiscard]] Span* AllocateSpan(int size_class, size_t objects_per_span,
+  std::atomic<SpanMeta>* GetSpanMeta(PageId p) {
+    return pagemap_->GetSpanMeta(p);
+  }
+
+  [[nodiscard]] void* AllocateSpan(int size_class, size_t objects_per_span,
                                    Length pages_per_span) {
     absl::MutexLock l(mu_);
     if (!free_spans_.empty()) {
-      Span* span = free_spans_.back();
+      void* span = free_spans_.back();
       free_spans_.pop_back();
-      new (span) Span(Range(span->first_page(), pages_per_span));
-      RegisterSpanLocked(span);
+      RegisterSpanLocked(span, size_class);
       return span;
     }
 
@@ -122,33 +121,31 @@ class BenchmarkStaticForwarder
       return nullptr;
     }
 
-    Span* span = new Span(Range(page, pages_per_span));
-    allocated_spans_.push_back(span);
-    RegisterSpanLocked(span);
-    return span;
+    allocated_spans_.push_back(mem);
+    RegisterSpanLocked(mem, size_class);
+    return mem;
   }
 
-  void DeallocateSpans(size_t objects_per_span, absl::Span<Span*> free_spans) {
+  void DeallocateSpans(size_t objects_per_span, Length pages_per_span,
+                       absl::Span<void*> free_spans,
+                       absl::Span<std::atomic<SpanMeta>*> pmetas) {
     absl::MutexLock l(mu_);
-    for (Span* span : free_spans) {
+    for (void* span : free_spans) {
       UnregisterSpanLocked(span);
       free_spans_.push_back(span);
     }
   }
 
  private:
-  void RegisterSpanLocked(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-    PageId page = span->first_page();
-    for (PageId p = page; p <= span->last_page(); ++p) {
-      pagemap_->Set(p, span);
-    }
+  void RegisterSpanLocked(void* span, int size_class)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+    PageId page = PageIdContaining(span);
+    pagemap_->RegisterSmallSpan(page, pages_per_span_, size_class, false);
   }
 
-  void UnregisterSpanLocked(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-    PageId page = span->first_page();
-    for (PageId p = page; p <= span->last_page(); ++p) {
-      pagemap_->Set(p, nullptr);
-    }
+  void UnregisterSpanLocked(void* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+    PageId page = PageIdContaining(span);
+    pagemap_->UnregisterSmallSpan(page, pages_per_span_);
   }
 
   size_t class_size_;
@@ -159,8 +156,8 @@ class BenchmarkStaticForwarder
   std::unique_ptr<BenchmarkPageMap> pagemap_;
 
   absl::Mutex mu_;
-  std::vector<Span*> free_spans_ ABSL_GUARDED_BY(mu_);
-  std::vector<Span*> allocated_spans_ ABSL_GUARDED_BY(mu_);
+  std::vector<void*> free_spans_ ABSL_GUARDED_BY(mu_);
+  std::vector<void*> allocated_spans_ ABSL_GUARDED_BY(mu_);
 };
 
 using CentralFreeList =
@@ -521,12 +518,18 @@ ActiveObjectPool SetupFreelistOccupancy(BenchmarkEnv& env,
     allocated += got;
   }
 
-  std::vector<Span*> spans(temp_buffer.size());
-  env.forwarder().MapObjectsToSpans(absl::MakeSpan(temp_buffer), spans.data(),
-                                    size_class);
+  std::vector<void*> spans(temp_buffer.size());
+  for (size_t i = 0; i < temp_buffer.size(); ++i) {
+    const PageId p = PageIdContaining(temp_buffer[i]);
+    spans[i] = env.forwarder()
+                   .GetSpanMeta(p)
+                   ->load(std::memory_order_relaxed)
+                   .SmallSpanStart(p)
+                   .start_addr();
+  }
 
   std::vector<std::vector<void*>> span_objects;
-  absl::flat_hash_map<Span*, int> span_to_idx;
+  absl::flat_hash_map<void*, int> span_to_idx;
   for (int i = 0; i < temp_buffer_size; ++i) {
     auto [it, inserted] = span_to_idx.try_emplace(
         spans[i], static_cast<int>(span_objects.size()));
