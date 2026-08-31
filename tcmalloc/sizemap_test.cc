@@ -91,6 +91,14 @@ const SizeClasses* const kAllSizeClassesConfigs[] = {
     &kExperimentalPow2SizeClasses,
 };
 
+TEST(SizeMapTest, NumBaseClasses) {
+  size_t max_classes = 0;
+  for (const SizeClasses* sc : kAllSizeClassesConfigs) {
+    max_classes = std::max(max_classes, sc->classes.size());
+  }
+  EXPECT_EQ(max_classes, kNumBaseClasses);
+}
+
 TEST(ColdSizeClassTest, ColdSizeClasses) {
   if (kPageShift <= 12) {
     GTEST_SKIP() << "cold size classes are not activated on the small page";
