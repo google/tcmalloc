@@ -828,7 +828,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
   constexpr int kCpuId = 0;
   constexpr int kCpuId1 = 1;
 
-  for (auto large_class : {static_cast<size_t>(2), kExpandedClassesStart + 1}) {
+  for (auto large_class : {static_cast<size_t>(2), kColdClassesStart + 1}) {
     const int kLargeClass = large_class;
     constexpr int kGrowthFactor = 5;
     const int base_max_capacity =

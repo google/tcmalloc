@@ -235,7 +235,7 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
   static constexpr size_t kNumToMove1 = 32;
   static constexpr size_t kNumToMove2 = 2;
   static constexpr size_t kNumToMove3 = 2;
-  static constexpr size_t kColdSizeClass = kExpandedClassesStart + 1;
+  static constexpr size_t kColdSizeClass = kColdClassesStart + 1;
 
   ThreeSizeClassManager() {
     for (int i = 0; i < 3; ++i) {

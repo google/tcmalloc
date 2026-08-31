@@ -947,7 +947,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     return 0;
   }
 
-  if (!IsExpandedSizeClass(size_class) &&
+  if (!IsColdSizeClass(size_class) &&
       (size_class % kNumBaseClasses) <= kNumSmall) {
     // Small object sizes are very heavily used and need very deep caches for
     // good performance (well over 90% of malloc calls are for size_class
@@ -970,14 +970,14 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     if (absl::c_binary_search(cold, size_class)) {
       return kLargeInterestingObjectDepth;
-    } else if (!IsExpandedSizeClass(size_class)) {
+    } else if (!IsColdSizeClass(size_class)) {
       return kLargeUninterestingObjectDepth;
     } else {
       return 0;
     }
   }
 
-  if (IsExpandedSizeClass(size_class)) {
+  if (IsColdSizeClass(size_class)) {
     return 0;
   }
 
@@ -1080,8 +1080,8 @@ inline void CpuCache<Forwarder>::Activate() {
     max_capacity_[size_class].store(capacity, std::memory_order_relaxed);
   }
 
-  // Deal with expanded size classes.
-  for (int size_class = kExpandedClassesStart; size_class < kNumClasses;
+  // Deal with cold size classes.
+  for (int size_class = kColdClassesStart; size_class < kNumClasses;
        ++size_class) {
     const size_t capacity = MaxCapacity(size_class);
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW

@@ -128,7 +128,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     state.per_size_class_counts()[size_class].Add(allocation_estimate);
 
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
-    stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
+    stack_trace.cold_allocated = IsColdSizeClass(size_class);
 
     Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
     std::align_val_t sample_alignment = policy.align();

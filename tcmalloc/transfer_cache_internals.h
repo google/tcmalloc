@@ -501,8 +501,8 @@ void TryResizingCaches(Manager& manager) {
   for (int i = 0; i < num_partitions; ++i) {
     ResizeCaches(manager, i * Manager::kNumBaseClasses);
   }
-  if (Manager::kHasExpandedClasses) {
-    ResizeCaches(manager, Manager::kExpandedClassesStart);
+  if (Manager::kHasColdClasses) {
+    ResizeCaches(manager, Manager::kColdClassesStart);
   }
 }
 

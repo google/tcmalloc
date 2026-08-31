@@ -48,7 +48,7 @@ namespace tcmalloc_internal {
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
-  .has_expanded_classes = true,
+  .has_cold_classes = true,
   .span_size = 64,
   .sampling_interval = 2097152,
   .large_size = 1024,
@@ -111,7 +111,7 @@ static constexpr SizeClassInfo List[] = {
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
-  .has_expanded_classes = true,
+  .has_cold_classes = true,
   .span_size = 64,
   .sampling_interval = 2097152,
   .large_size = 1024,
@@ -172,7 +172,7 @@ static constexpr SizeClassInfo List[] = {
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
-  .has_expanded_classes = true,
+  .has_cold_classes = true,
   .span_size = 64,
   .sampling_interval = 2097152,
   .large_size = 1024,
@@ -236,7 +236,7 @@ static constexpr SizeClassInfo List[] = {
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
-  .has_expanded_classes = false,
+  .has_cold_classes = false,
   .span_size = 64,
   .sampling_interval = 2097152,
   .large_size = 1024,
@@ -279,7 +279,7 @@ static constexpr SizeClassInfo List[] = {
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
-  .has_expanded_classes = true,
+  .has_cold_classes = true,
   .span_size = 64,
   .sampling_interval = 2097152,
   .large_size = 1024,
@@ -341,7 +341,7 @@ static constexpr SizeClassInfo List[] = {
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
-  .has_expanded_classes = true,
+  .has_cold_classes = true,
   .span_size = 64,
   .sampling_interval = 2097152,
   .large_size = 1024,
@@ -402,7 +402,7 @@ static constexpr SizeClassInfo List[] = {
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
-  .has_expanded_classes = true,
+  .has_cold_classes = true,
   .span_size = 64,
   .sampling_interval = 2097152,
   .large_size = 1024,
@@ -466,7 +466,7 @@ static constexpr SizeClassInfo List[] = {
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
-  .has_expanded_classes = false,
+  .has_cold_classes = false,
   .span_size = 64,
   .sampling_interval = 2097152,
   .large_size = 1024,

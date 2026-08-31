@@ -609,7 +609,7 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
 
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
     void* ptr, std::optional<size_t> size, size_t size_class) {
-  if (!IsExpandedSizeClass(size_class)) {
+  if (!IsColdSizeClass(size_class)) {
     TC_ASSERT(IsNormalMemory(ptr), "ptr=%p", ptr);
   } else {
     TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold, "ptr=%p", ptr);
@@ -969,7 +969,7 @@ inline
   // C/[0|1] ───────────────────────────────> kCold
 
   // 'policy.is_cold()' means the ptr has kCold tag. To make the delete
-  // operation correctly maps to the expanded size class, partition 0 needs
+  // operation correctly maps to the cold size class, partition 0 needs
   // to be used. If partition 1 used, it will be wrongly mapped to NormalP1
   // classes (see above diagrams). Additional note: partition number specified
   // at allocation time is not recorded in the tag for cold objects and

@@ -147,7 +147,7 @@ TEST_F(RunTimeSizeClassesTest, Distinguishable) {
   // granularity for larger sizes, so our chosen size classes cannot be any
   // finer (otherwise they would map to the same entry in the lookup table).
   //
-  // We don't check expanded size classes which are intentionally duplicated.
+  // We don't check cold size classes which are intentionally duplicated.
   const size_t num_partitions = tc_globals.active_partitions();
   for (int partition = 0; partition < num_partitions; partition++) {
     for (int c = (partition * kNumBaseClasses) + 1;
@@ -275,12 +275,11 @@ TEST_F(RunTimeSizeClassesTest, MaxSize) {
   EXPECT_TRUE(found) << "Could not find " << kMaxSize;
 }
 
-TEST_F(RunTimeSizeClassesTest, ExpandedSizeClasses) {
-  // Verify that none of the default size classes are considered expanded size
+TEST_F(RunTimeSizeClassesTest, ColdSizeClasses) {
+  // Verify that none of the default size classes are considered cold size
   // classes.
   for (int i = 0; i < kNumClasses; i++) {
-    EXPECT_EQ(i < (kNumBaseClasses * kNormalPartitions),
-              !IsExpandedSizeClass(i))
+    EXPECT_EQ(i < (kNumBaseClasses * kNormalPartitions), !IsColdSizeClass(i))
         << i;
   }
 }
