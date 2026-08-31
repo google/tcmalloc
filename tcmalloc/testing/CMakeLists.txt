@@ -678,6 +678,7 @@ tcmalloc_cc_test(
     "absl::strings"
     "tcmalloc::common_numa_aware"
     "tcmalloc::internal_affinity"
+    "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_numa"
     "tcmalloc::internal_page_size"
