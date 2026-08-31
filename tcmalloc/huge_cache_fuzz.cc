@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -51,8 +52,15 @@ double FakeClockFreq() { return absl::ToDoubleNanoseconds(absl::Seconds(1)); }
 class MockUnback final : public MemoryModifyFunction {
  public:
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+    if (!unback_success_) {
+      has_failed_ = true;
+      return {.success = false, .error_number = ENOMEM};
+    }
     return {.success = true, .error_number = 0};
   }
+
+  bool unback_success_ = true;
+  mutable bool has_failed_ = false;
 };
 
 struct State {
@@ -79,22 +87,26 @@ struct State {
   }
 
   ~State() {
+    unback.unback_success_ = true;
     // Release all outstanding ranges so memory is reclaimed cleanly.
     for (HugeRange r : live_ranges) {
       cache.Release(r);
     }
     live_ranges.clear();
     outstanding_usage = NHugePages(0);
-    CheckInvariants();
 
     cache.ReleaseCachedPages(cache.size());
+    CheckInvariants();
     TC_CHECK_EQ(cache.size(), NHugePages(0));
     TC_CHECK_EQ(cache.usage(), NHugePages(0));
     TC_CHECK_EQ(alloc.size(), alloc.system());
   }
 
   void CheckInvariants() const {
-    TC_CHECK_LE(cache.size(), cache.limit());
+    if (cache.size() <= cache.limit()) {
+      unback.has_failed_ = false;
+    }
+    TC_CHECK(cache.size() <= cache.limit() || unback.has_failed_);
     TC_CHECK_GE(cache.limit(), NHugePages(10));
     TC_CHECK_EQ(cache.usage(), outstanding_usage);
     BackingStats stats = cache.stats();
@@ -226,9 +238,20 @@ struct PrintStats {
   }
 };
 
+struct SetUnbackSuccess {
+  bool success;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetUnbackSuccess& s) {
+    absl::Format(&sink, "SetUnbackSuccess{.success=%v}", s.success);
+  }
+
+  void Perform(State& state) const { state.unback.unback_success_ = success; }
+};
+
 using Instruction =
     std::variant<Get, Release, ReleaseUnbacked, ReleaseCachedPages,
-                 AdvanceClock, AddSpanStats, PrintStats>;
+                 AdvanceClock, AddSpanStats, PrintStats, SetUnbackSuccess>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {
@@ -276,7 +299,10 @@ fuzztest::Domain<Instruction> GetInstructionDomain() {
           [](AddSpanStats a) -> Instruction { return Instruction{a}; },
           fuzztest::Arbitrary<AddSpanStats>()),
       fuzztest::Map([](PrintStats p) -> Instruction { return Instruction{p}; },
-                    fuzztest::Arbitrary<PrintStats>()));
+                    fuzztest::Arbitrary<PrintStats>()),
+      fuzztest::Map(
+          [](SetUnbackSuccess s) -> Instruction { return Instruction{s}; },
+          fuzztest::Arbitrary<SetUnbackSuccess>()));
 }
 
 FUZZ_TEST(HugeCacheTest, FuzzHugeCache)
@@ -295,6 +321,18 @@ TEST(HugeCacheTest, Regression) {
           ReleaseUnbacked{.index = 0},
       },
       absl::Seconds(1));
+}
+
+TEST(HugeCacheTest, FailingUnbackRegression) {
+  FuzzHugeCache(
+      {
+          SetUnbackSuccess{.success = false},
+          Get{.count = 18446744073709551615ULL},
+          PrintStats{},
+          Release{.index = 18446744073709551615ULL},
+          Release{.index = 0},
+      },
+      absl::Seconds(37) + absl::Nanoseconds(822000000));
 }
 
 }  // namespace
