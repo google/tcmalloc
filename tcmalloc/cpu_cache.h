@@ -1471,7 +1471,10 @@ inline void CpuCache<Forwarder>::TryDrainingCaches()
     freelist_.ReleaseSlabMetadataForDrainedCpus(
         [this](int cpu) { return HasPopulated(cpu); },
         [this](int cpu) {
-          TC_CHECK_EQ(
+          // Grow occurs outside of resize_[cpu].lock and may drain capacity
+          // with subtract_at_least, so available <= capacity is not strictly
+          // an equality.
+          TC_CHECK_LE(
               resize_[cpu].available, resize_[cpu].capacity,
               "CPU %u was not actually drained, or available is out of sync",
               cpu);
