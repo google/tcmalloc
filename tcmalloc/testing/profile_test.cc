@@ -538,8 +538,10 @@ TEST(ProfileTest, EventTraceTruncation) {
 
   // Set a small memory limit to force truncation.
   // Note: A single matched allocation produces 2 records (alloc + dealloc),
-  // each ~600B, requiring at least ~1.3kB to *admit* the first pair.
-  constexpr int64_t kEventTraceMemoryLimit = 2048;
+  // each ~600B. A limit of 8192 allows initial allocations (including any
+  // background activity) to be recorded while ensuring late allocations are
+  // truncated by filler allocations.
+  constexpr int64_t kEventTraceMemoryLimit = 8192;
   constexpr size_t kApproximateDeallocationSampleRecordSize = 600;
   constexpr int kExpectedSampleCount =
       kEventTraceMemoryLimit / kApproximateDeallocationSampleRecordSize;
@@ -554,12 +556,12 @@ TEST(ProfileTest, EventTraceTruncation) {
   const absl::Time test_start = absl::Now();
   auto token = MallocExtension::StartEventTracing();
 
-  // Sleep slightly to guarantee a non-zero, measurable duration.
-  absl::SleepFor(absl::Milliseconds(20));
-
   // Early allocations (should be captured in the trace).
   void* early_ptr = ::operator new(kEarlySize);
   ::operator delete(early_ptr);
+
+  // Sleep slightly to guarantee a non-zero, measurable duration.
+  absl::SleepFor(absl::Milliseconds(20));
 
   // Trigger enough allocations to exceed the memory limit.
   constexpr int kNumFillerAllocs = 50;
@@ -608,7 +610,6 @@ TEST(ProfileTest, EventTraceTruncation) {
     }
   }
   EXPECT_TRUE(requested_size_id.has_value());
-
   int sample_count = 0;
   bool contains_early = false;
   bool contains_late = false;
