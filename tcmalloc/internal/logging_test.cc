@@ -50,13 +50,13 @@ TEST(InternalLogging, MessageFormatting) {
   TC_LOG("Hello int=%d str=%s", 42, "bar");
   EXPECT_THAT(*log_buffer,
               testing::MatchesRegex(
-                  "[0-9]+ .*tcmalloc/internal/logging_test\\.cc:[0-9]+\\] "
+                  "[0-9]+ .*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] "
                   "Hello int=42 str=bar\\n"));
 
   TC_LOG("Long string: %s", long_string.c_str());
   EXPECT_THAT(*log_buffer,
               testing::MatchesRegex(
-                  "[0-9]+ .*tcmalloc/internal/logging_test\\.cc:[0-9]+\\] "
+                  "[0-9]+ .*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] "
                   "Long string: the quick brown fox jumped over the lazy "
                   "dogthe quick brown fox jumped over the lazy dog.*"));
 

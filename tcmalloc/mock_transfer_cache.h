@@ -418,18 +418,17 @@ class FakeShardedTransferCacheEnvironment {
   explicit FakeShardedTransferCacheEnvironment(int num_shards,
                                                bool use_generic_cache)
       : sharded_manager_(&owner_, &cpu_layout_) {
-    owner_.SetGenericCache(use_generic_cache);
-    owner_.SetCacheForLargeClassesOnly(!use_generic_cache);
+    if (use_generic_cache) {
+      owner_.SetGenericCache(true);
+    } else {
+      owner_.SetCacheForLargeClassesOnly(true);
+    }
 
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
   }
 
-  ~FakeShardedTransferCacheEnvironment() {
-    Drain();
-    owner_.SetGenericCache(false);
-    owner_.SetCacheForLargeClassesOnly(false);
-  }
+  ~FakeShardedTransferCacheEnvironment() { Drain(); }
 
   void Remove(int cpu, int n) {
     cpu_layout_.SetCurrentCpu(cpu);

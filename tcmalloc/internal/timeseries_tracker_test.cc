@@ -345,6 +345,17 @@ TEST_F(TimeSeriesTrackerTest, ClockRegression) {
   EXPECT_THAT(recent_record.data.values_, ElementsAre(4));
 }
 
+TEST_F(TimeSeriesTrackerTest, NegativeClockDoesNotWrap) {
+  Advance(absl::Seconds(2));
+  tracker_.Report(1);
+
+  // Regressing the clock to a negative value should not wrap into a huge epoch.
+  Advance(-absl::Seconds(5));
+  EXPECT_FALSE(tracker_.Report(2));
+  tracker_.UpdateTimeBase();
+  EXPECT_EQ(tracker_.GetMostRecentRecord().epoch_taken, 1);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
