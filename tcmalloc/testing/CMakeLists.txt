@@ -270,7 +270,8 @@ tcmalloc_cc_library(
   SRCS
     "rseq_util.cc"
   DEPS
-    "@com_google_googletest//:gtest_for_library"
+    "GTest::gtest"
+    "GTest::gmock"
     "tcmalloc::internal_environment"
     "tcmalloc::internal_percpu"
     "tcmalloc::testing_testutil"
