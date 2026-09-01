@@ -887,7 +887,8 @@ class HugePageFiller {
 
   // Utility function to handle a non-hugepage backed `page_tracker` and
   // mark its unmapped pages appropriately.
-  Length HandleUnbackedHugePage(PageTracker* page_tracker, PageBitmap unbacked)
+  Length HandleUnbackedHugePage(PageTracker* page_tracker,
+                                const PageBitmap& unbacked)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  private:
@@ -1935,7 +1936,7 @@ inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
 
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::HandleUnbackedHugePage(
-    PageTracker* tracker, PageBitmap unbacked) {
+    PageTracker* tracker, const PageBitmap& unbacked) {
   RemoveFromFillerList(tracker);
   Length unmapped_length = tracker->MarkSubreleased(unbacked);
   subrelease_stats_.total_pages_subreleased += unmapped_length;
