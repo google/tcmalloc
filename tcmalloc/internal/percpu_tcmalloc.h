@@ -890,32 +890,33 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
       // in user space by default
       "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
       // scratch = slab_headers[size_class] (current index, remaining capacity)
-      "ldr %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "ldr %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
       // current = scratch.current
       "and %w[current], %w[scratch], #0xffff\n"
       // scratch.remaining_capacity++;
       // scratch.current--;
       "add %w[scratch], %w[scratch], %w[kAdjustment]\n"
       "add %[current], %[region_start], %[current], LSL #3\n"
-      // Note we are using a pre-indexed ldp. After this instruction, current
-      // points to the next location in slab memory, which we will prefetch.
-      "ldp %[prefetch], %[result], [%[current], #-16]!\n"
+      "ldp %[prefetch], %[result], [%[current], #-16]\n"
       "tbnz %[result], #%c[begin_mark_bit], %l[underflow_path]\n"
-      "str %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "str %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
       // Commit
       "5:\n"
       : [result] "=&r"(result), [prefetch] "=&r"(prefetch),
+        [current] "=&r"(current),
         // Temps
-        [region_start] "=&r"(region_start), [current] "=&r"(current),
-        [scratch] "=&r"(scratch)
+        [region_start] "=&r"(region_start), [scratch] "=&r"(scratch)
       // Real inputs
       : TCMALLOC_RSEQ_INPUTS,
         [begin_mark_bit] "n"(absl::countr_zero(kBeginMark)),
-        [size_class_lsl2] "r"(size_class << 2), [kAdjustment] "r"(0xffff)
+        [size_class] "r"(size_class), [kAdjustment] "r"(0xffff)
       : TCMALLOC_RSEQ_CLOBBER, "memory", "cc"
       : underflow_path);
   TSANAcquire(result);
-  PrefetchSlabMemory(current);
+
+  // The next pop will be from current-2, but because we prefetch the previous
+  // element we've already just read that, so prefetch current-3.
+  PrefetchSlabMemory(current - 3 * sizeof(void*));
   PrefetchNextObject(prefetch);
   return AssumeNotNull(result);
 underflow_path:
