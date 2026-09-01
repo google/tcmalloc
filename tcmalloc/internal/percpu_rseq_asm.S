@@ -36,11 +36,13 @@
 .type tcmalloc_cached_vcpu, @object
 .type tcmalloc_slabs, @object
 .type __rseq_abi, @object
+.type tcmalloc_rseq_layout, @object
 .section .tdata, "awT", @progbits
 .globl tcmalloc_sampler
 .globl tcmalloc_cached_vcpu
 .globl tcmalloc_slabs
 .globl __rseq_abi
+.globl tcmalloc_rseq_layout
 .p2align 6
 .zero 64 + 32 - TCMALLOC_SAMPLER_SIZE - 8
 tcmalloc_sampler:
@@ -49,6 +51,7 @@ tcmalloc_cached_vcpu:
 .long 0xffffffff  // cpu_id (kCpuIdUninitialized)
 tcmalloc_slabs:
 .long 0
+tcmalloc_rseq_layout:
 __rseq_abi:
 .long 0           // cpu_id_start
 .long 0xffffffff  // cpu_id (kCpuIdUninitialized)

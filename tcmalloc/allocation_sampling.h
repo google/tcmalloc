@@ -50,11 +50,9 @@ std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state);
 // avoid relying on the percpu code.
 extern "C" ABSL_CONST_INIT thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
-
-#endif
-
 ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
+#endif
 
 inline Sampler& GetThreadSampler() {
   static_assert(sizeof(Sampler) == TCMALLOC_SAMPLER_SIZE,
