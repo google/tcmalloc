@@ -122,8 +122,7 @@ struct MallocOomPolicy {
 // CppOomPolicy: terminates the program
 struct CppOomPolicy {
   template <typename Policy, typename Pointer = typename Policy::pointer_type>
-  static ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NORETURN Pointer
-  handle_oom(size_t size) {
+  [[noreturn]] static ABSL_ATTRIBUTE_NOINLINE Pointer handle_oom(size_t size) {
     CrashWithOOM(size);
   }
 };
