@@ -133,8 +133,10 @@ namespace {
 
 enum class DynamicSlab { kGrow, kShrink, kNoop };
 
-class TestStaticForwarder {
+class TestStaticForwarder : private Parameters {
  public:
+  using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
+  using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
   TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
     numa_topology_.Init();
 

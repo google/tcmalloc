@@ -40,6 +40,7 @@
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -47,16 +48,18 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
-class FakeStaticForwarder {
+class FakeStaticForwarder : private Parameters {
  public:
   // Runtime parameters.  This can change between calls.
-  absl::Duration filler_skip_subrelease_short_interval() {
+  absl::Duration filler_skip_subrelease_short_interval() const {
     return short_interval_;
   }
-  absl::Duration filler_skip_subrelease_long_interval() {
+  absl::Duration filler_skip_subrelease_long_interval() const {
     return long_interval_;
   }
-  bool release_partial_alloc_pages() { return release_partial_alloc_pages_; }
+  bool release_partial_alloc_pages() const {
+    return release_partial_alloc_pages_;
+  }
   bool hpaa_subrelease() const { return hpaa_subrelease_; }
   SubreleaseUnbackedMode subrelease_unbacked_hugepages() const {
     return subrelease_unbacked_hugepages_;
@@ -116,6 +119,9 @@ class FakeStaticForwarder {
   void set_enable_unfiltered_collapse(bool value) {
     enable_unfiltered_collapse_ = value ? EnableUnfilteredCollapse::kEnabled
                                         : EnableUnfilteredCollapse::kDisabled;
+  }
+  void set_enable_unfiltered_collapse(EnableUnfilteredCollapse value) {
+    enable_unfiltered_collapse_ = value;
   }
 
   // Arena state.
@@ -226,26 +232,29 @@ class FakeStaticForwarder {
     });
     return a;
   }
-  absl::Duration short_interval_ = absl::Seconds(60);
-  absl::Duration long_interval_ = absl::Seconds(300);
-  bool release_partial_alloc_pages_ = false;
-  bool hpaa_subrelease_ = true;
+  absl::Duration short_interval_ =
+      Parameters::filler_skip_subrelease_short_interval();
+  absl::Duration long_interval_ =
+      Parameters::filler_skip_subrelease_long_interval();
+  bool release_partial_alloc_pages_ = Parameters::release_partial_alloc_pages();
+  bool hpaa_subrelease_ = Parameters::hpaa_subrelease();
   SubreleaseUnbackedMode subrelease_unbacked_hugepages_ =
-      SubreleaseUnbackedMode::kEnabled;
+      Parameters::subrelease_unbacked_hugepages();
   bool release_succeeds_ = true;
   bool collapse_succeeds_ = true;
   int error_number_ = 0;
-  bool huge_region_adaptive_release_ = false;
-  bool release_max_cold_pages_ = false;
+  bool huge_region_adaptive_release_ =
+      Parameters::huge_region_adaptive_release();
+  bool release_max_cold_pages_ = Parameters::release_max_cold_pages();
 
-  bool back_allocations_ = false;
-  int32_t back_size_threshold_bytes_ = kPageSize;
+  bool back_allocations_ = Parameters::back_small_allocations();
+  int32_t back_size_threshold_bytes_ = Parameters::back_size_threshold_bytes();
   EnableUnfilteredCollapse enable_unfiltered_collapse_ =
-      EnableUnfilteredCollapse::kDisabled;
+      Parameters::enable_unfiltered_collapse();
   Arena arena_;
-  ReleaseStalePages release_stale_pages_ = ReleaseStalePages::kDisabled;
+  ReleaseStalePages release_stale_pages_ = Parameters::release_stale_pages();
   MadviseRegionsNoHugepage madvise_cold_regions_nohugepage_ =
-      MadviseRegionsNoHugepage::kDisabled;
+      Parameters::madvise_cold_regions_nohugepage();
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;
 

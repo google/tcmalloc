@@ -96,8 +96,13 @@ constexpr inline uint8_t kTotalPossibleSlabs =
 // This is a class, rather than namespaced globals, so that it can be mocked for
 // testing.
 template <typename State>
-class StaticForwarder {
+class StaticForwarder : private Parameters {
  public:
+  using Parameters::per_cpu_caches_dynamic_slab_enabled;
+  using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
+  using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
+  using Parameters::release_drained_slab_metadata;
+
   constexpr explicit StaticForwarder(State& state) : state_(state) {}
 
   [[nodiscard]] void* absl_nonnull Alloc(size_t size,
@@ -146,21 +151,6 @@ class StaticForwarder {
     state_.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
 
-  static bool per_cpu_caches_dynamic_slab_enabled() {
-    return Parameters::per_cpu_caches_dynamic_slab_enabled();
-  }
-
-  static double per_cpu_caches_dynamic_slab_grow_threshold() {
-    return Parameters::per_cpu_caches_dynamic_slab_grow_threshold();
-  }
-
-  static double per_cpu_caches_dynamic_slab_shrink_threshold() {
-    return Parameters::per_cpu_caches_dynamic_slab_shrink_threshold();
-  }
-
-  static bool release_drained_slab_metadata() {
-    return Parameters::release_drained_slab_metadata();
-  }
 
   bool reuse_size_classes() const {
     return state_.size_class_configuration() ==
