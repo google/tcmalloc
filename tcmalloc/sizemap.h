@@ -139,19 +139,6 @@ class SizeMap {
       return true;
     } else if (s <= kMaxSize) {
       idx = ((s + 127 + 120 * 128) >> 7);
-
-      // TODO(b/64294063): Add a dummy statement to keep the tail of the fast
-      // and the slow paths from being deduplicated, turning the shifts into
-      // a variable-width shift (shr reg, cl on x86); these are especially
-      // bad on Skylake, where they require three µops that often run in
-      // three successive cycles. (If we are compiling with BMI2,
-      // the compiler will use the much cheaper SHRX instruction, and
-      // the problem is more modest.)
-      //
-      // See SLOW_PATH_BARRIER() in tcmalloc.cc for more information
-      // about this technique.
-      asm volatile("");
-
       return true;
     }
     return false;
