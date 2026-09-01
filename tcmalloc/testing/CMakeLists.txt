@@ -154,6 +154,7 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
+    "tcmalloc::internal_page_allocator_hooks"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
     "tcmalloc::testing_malloc_hook_recorder"

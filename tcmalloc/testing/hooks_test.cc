@@ -21,6 +21,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <new>
 #include <optional>
 #include <string>
@@ -33,6 +35,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_allocator_hooks.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/malloc_hook_invoke.h"
@@ -43,6 +46,8 @@ namespace tcmalloc {
 namespace {
 
 using tcmalloc_internal::kSanitizerPresent;
+using tcmalloc_internal::page_allocator_delete_hooks;
+using tcmalloc_internal::page_allocator_new_hooks;
 using tcmalloc_testing::MallocHookRecorder;
 using testing::Contains;
 using testing::ElementsAre;
@@ -596,6 +601,38 @@ TEST(TCMallocTest, MarkThreadBusy) {
   ASSERT_TRUE(MallocHook::RemoveNewHook(new_hook));
   ASSERT_TRUE(MallocHook::RemoveDeleteHook(delete_hook));
   log_hooks = false;
+}
+
+TEST(HooksTest, AllocationInHookFails) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizers intercept malloc/new";
+  }
+
+  const auto new_hook = [](size_t, size_t, size_t, size_t, uint8_t,
+                           tcmalloc_internal::MemoryTag) {
+    ::operator delete(::operator new(1));
+  };
+  EXPECT_DEBUG_DEATH(
+      {
+        EXPECT_TRUE(page_allocator_new_hooks.Add(new_hook));
+        void* ptr = ::operator new(1024 * 1024 * 16);
+        ::operator delete(ptr);
+        EXPECT_TRUE(page_allocator_new_hooks.Remove(new_hook));
+      },
+      "");
+
+  const auto delete_hook = [](size_t, size_t, size_t, uint8_t,
+                              tcmalloc_internal::MemoryTag) {
+    ::operator delete(::operator new(1));
+  };
+  EXPECT_DEBUG_DEATH(
+      {
+        void* ptr = ::operator new(1024 * 1024 * 16);
+        EXPECT_TRUE(page_allocator_delete_hooks.Add(delete_hook));
+        ::operator delete(ptr);
+        EXPECT_TRUE(page_allocator_delete_hooks.Remove(delete_hook));
+      },
+      "");
 }
 
 }  // namespace
