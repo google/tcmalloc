@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_DEALLOCATION_PROFILER_H_
 #define TCMALLOC_DEALLOCATION_PROFILER_H_
 
+#include <atomic>
 #include <memory>
 
 #include "absl/base/internal/spinlock.h"
@@ -41,7 +42,7 @@ class DeallocationProfilerList {
   void Remove(DeallocationProfiler* absl_nonnull profiler);
 
  private:
-  DeallocationProfiler* absl_nullable first_ = nullptr;
+  std::atomic<DeallocationProfiler*> first_{nullptr};
   absl::base_internal::SpinLock profilers_lock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
 };
