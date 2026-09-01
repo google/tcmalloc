@@ -44,8 +44,6 @@ using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
 PageAllocator::PageAllocator() {
   has_cold_impl_ = ColdFeatureActive();
-  sampled_partition_active_ =
-      Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
   size_t part = 0;
 
   normal_impl_[0] = new (&choices_[part++].hpaa)
@@ -56,22 +54,8 @@ PageAllocator::PageAllocator() {
             HugePageAwareAllocator(
                 HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
-  sampled_impl_[0] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-      HugePageAwareAllocatorOptions{MemoryTag::kSampled});
-  if (sampled_partition_active_) {
-    // this is not the case for NUMA partitions, hence, we can't use the
-    // active_partitions() check.
-    sampled_impl_[1] =
-        new (tc_globals.arena().Alloc(sizeof(HugePageAwareAllocator)))
-            HugePageAwareAllocator(
-                HugePageAwareAllocatorOptions{MemoryTag::kSampledP1});
-  }
-  if (has_cold_impl_) {
-    cold_impl_ = new (&choices_[part++].hpaa)
-        HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kCold});
-  } else {
-    cold_impl_ = normal_impl_[0];
-  }
+  cold_impl_ = new (&choices_[part++].hpaa)
+      HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kCold});
   alg_ = HPAA;
   TC_CHECK_LE(part, std::size(choices_));
 }
@@ -189,16 +173,6 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
     }
     for (int partition = 0; partition < active_partitions(); partition++) {
       ret += static_cast<HugePageAwareAllocator*>(normal_impl_[partition])
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
-                                                         release_reason);
-      if (ret >= pages) {
-        return true;
-      }
-    }
-    for (int partition = 0;
-         partition < (sampled_partition_active_ ? kSecurityPartitions : 1);
-         partition++) {
-      ret += static_cast<HugePageAwareAllocator*>(sampled_impl_[partition])
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
                                                          release_reason);
       if (ret >= pages) {

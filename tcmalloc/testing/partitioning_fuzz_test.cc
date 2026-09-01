@@ -447,6 +447,7 @@ void RandomizedAllocateAndDeallocateFuzzTest(
   std::vector<AllocationRecord> live_allocs;
   live_allocs.reserve(actions.size());
   tcmalloc::ScopedGuardedSamplingInterval no_guarded_sampling(-1);
+  tcmalloc::ScopedNeverSample never_sample;
 
   for (const auto& action : actions) {
     if (std::holds_alternative<AllocationOp>(action)) {

@@ -634,7 +634,7 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
-  if (policy.is_cold() &&
+  if (ColdFeatureActive() && policy.is_cold() &&
       (Parameters::heap_partitioning_mode() != HeapPartitioningMode::kFull ||
        policy.security_partition() == 0)) {
     tag = MemoryTag::kCold;
@@ -849,10 +849,11 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
   auto tag = GetMemoryTag(ptr);
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
   TC_ASSERT((uptr & (kBadAlignmentMask | kBadDeallocationHighMask)) != 0 ||
-            (tag != MemoryTag::kNormal && tag != MemoryTag::kNormalP1 &&
-             tag != MemoryTag::kCold));
+            (tag != MemoryTag::kNormal && tag != MemoryTag::kNormalP1));
 
-  if (ABSL_PREDICT_TRUE(IsSampledMemory(ptr))) {
+  if (ABSL_PREDICT_TRUE(IsSampledMemory(ptr) ||
+                        tc_globals.pagemap().sizeclass(PageIdContaining(ptr)) ==
+                            0)) {
     // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
@@ -911,7 +912,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
     }
-    bool is_cold = ((uptr & kTagOrBadDeallocationMask) == kColdMask);
+    bool is_cold = ((uptr & kTagOrBadDeallocationMask) == kColdMask) &&
+                   (tc_globals.pagemap().sizeclass(PageIdContaining(ptr)) != 0);
     if (ABSL_PREDICT_FALSE(!is_cold)) {
       // Outline cold path to avoid putting cold size lookup on the fast path.
       SLOW_PATH_BARRIER();
@@ -1039,7 +1041,9 @@ bool CorrectSize(const void* ptr, const size_t provided_size, Policy policy) {
 
   // Recompute the provided size and how it maps onto a size class.
   const hot_cold_t access_hint =
-      ABSL_PREDICT_FALSE(GetMemoryTag(ptr) == MemoryTag::kCold)
+      ABSL_PREDICT_FALSE(
+          (GetMemoryTag(ptr) == MemoryTag::kCold || policy.is_cold()) &&
+          policy.allocation_type() == AllocationType::New)
           ? hot_cold_t{0}
           : hot_cold_t{255};
   auto [is_small, provided_size_class] = tc_globals.sizemap().GetSizeClass(
