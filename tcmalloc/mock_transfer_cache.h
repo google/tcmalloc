@@ -271,10 +271,6 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
     }
   }
 
-  absl::Span<const size_t> cold_size_classes() const {
-    return {cold_size_classes_, 1};
-  }
-
   void InsertRange(int size_class, absl::Span<void*> batch) {
     TC_ASSERT(caches_.contains(size_class));
     caches_[size_class]->InsertRange(size_class, batch);
@@ -292,7 +288,6 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
   }
 
   absl::flat_hash_map<size_t, std::unique_ptr<TransferCache>> caches_;
-  size_t cold_size_classes_[1] = {kColdSizeClass};
 };
 
 class FakeCpuLayout {

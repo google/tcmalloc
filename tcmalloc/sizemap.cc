@@ -260,10 +260,11 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
               &class_array_[kClassArraySize * i]);
   }
 
-  bool heap_partitioning_active = tc_globals.multiple_non_numa_partitions();
+  const bool heap_partitioning_active =
+      tc_globals.multiple_non_numa_partitions();
+  const bool heap_partitioning_full =
+      Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
   if (kSecurityPartitions > 1 && heap_partitioning_active) {
-    bool heap_partitioning_full =
-        Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
     next_size = 0;
     for (int c = kNumBaseClasses + 1; c < kColdClassesStart; ++c) {
       const int max_size_in_class = class_to_size_[c];
@@ -287,9 +288,6 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   }
 
   if (ColdFeatureActive()) {
-    memset(cold_sizes_, 0, sizeof(cold_sizes_));
-    cold_sizes_count_ = 0;
-
     next_size = 0;
     for (int c = kColdClassesStart + 1; c < kNumClasses; c++) {
       size_t max_size_in_class = class_to_size_[c];
@@ -297,9 +295,6 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
         next_size = max_size_in_class + static_cast<size_t>(kAlignment);
         continue;
       }
-
-      cold_sizes_[cold_sizes_count_] = c;
-      ++cold_sizes_count_;
 
       for (int s = next_size; s <= max_size_in_class;
            s += static_cast<size_t>(kAlignment)) {
@@ -311,17 +306,16 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
       }
     }
     if (kSecurityPartitions > 1) {
-      if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
+      if (heap_partitioning_full) {
         // Point all lookups in Cold New's P1 register to Hot New's P1.
-        std::copy(
-            &class_array_[kClassArraySize], &class_array_[kClassArraySize * 2],
-            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)]);
+        std::copy(&class_array_[kClassArraySize],
+                  &class_array_[kClassArraySize * 2],
+                  &class_array_[kClassArraySize * (kColdRegisterStride + 1)]);
       } else {
         // Point all lookups in Cold New's P1 register to Cold New's P0.
-        std::copy(
-            &class_array_[kClassArraySize * (2 * kSecurityPartitions)],
-            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)],
-            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)]);
+        std::copy(&class_array_[kClassArraySize * kColdRegisterStride],
+                  &class_array_[kClassArraySize * (kColdRegisterStride + 1)],
+                  &class_array_[kClassArraySize * (kColdRegisterStride + 1)]);
       }
     }
   }

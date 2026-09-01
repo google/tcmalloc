@@ -176,9 +176,6 @@ class SizeMap {
   // Check that the size classes meet all requirements.
   static bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
 
-  size_t cold_sizes_[kNumBaseClasses] = {0};
-  size_t cold_sizes_count_ = 0;
-
  public:
   // Returns size classes to use in the current process.
   static const SizeClasses& CurrentClasses();
@@ -343,11 +340,6 @@ class SizeMap {
       size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return num_objects_to_move_[size_class];
-  }
-
-  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::Span<const size_t> ColdSizeClasses()
-      const {
-    return {cold_sizes_, cold_sizes_count_};
   }
 
   [[nodiscard]] static bool IsValidSizeClass(size_t size, Length num_pages,

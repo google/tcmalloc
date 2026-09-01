@@ -276,14 +276,6 @@ class TestStaticForwarder : private Parameters {
     }
   }
 
-  absl::Span<const size_t> cold_size_classes() const {
-    if (size_map_.has_value()) {
-      return size_map_->ColdSizeClasses();
-    } else {
-      return transfer_cache_.cold_size_classes();
-    }
-  }
-
   size_t num_objects_to_move(int size_class) const {
     if (size_map_.has_value()) {
       return size_map_->num_objects_to_move(size_class);

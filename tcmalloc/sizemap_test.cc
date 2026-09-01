@@ -105,10 +105,8 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
   for (const SizeClasses* sc : kAllSizeClassesConfigs) {
     const auto& classes = sc->classes;
     std::vector<size_t> allowed_alloc_size;
-    std::vector<size_t> expected_cold_size_classes;
     for (int i = 1; i < classes.size(); ++i) {
       allowed_alloc_size.push_back(classes[i].size);
-      expected_cold_size_classes.push_back(i + kColdClassesStart);
     }
 
     SizeMap size_map;
@@ -116,8 +114,6 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
     for (const size_t request_size : allowed_alloc_size) {
       VerifyColdSizeClassRelations(size_map, request_size);
     }
-    EXPECT_THAT(size_map.ColdSizeClasses(),
-                ElementsAreArray(expected_cold_size_classes));
   }
 }
 
@@ -201,10 +197,8 @@ TEST(SizeMapTest, PointerPartitionNoCold) {
   for (const SizeClasses* sc : kAllSizeClassesConfigs) {
     const auto& classes = sc->classes;
     std::vector<size_t> allowed_alloc_size;
-    std::vector<size_t> expected_cold_size_classes;
     for (int i = 1; i < classes.size(); ++i) {
       allowed_alloc_size.push_back(classes[i].size);
-      expected_cold_size_classes.push_back(i + kColdClassesStart);
     }
 
     SizeMap size_map;
@@ -231,8 +225,6 @@ TEST(SizeMapTest, PointerPartitionNoCold) {
                 request_size));
       }
     }
-    EXPECT_THAT(size_map.ColdSizeClasses(),
-                ElementsAreArray(expected_cold_size_classes));
   }
 }
 

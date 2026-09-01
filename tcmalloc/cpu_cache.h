@@ -161,10 +161,6 @@ class StaticForwarder : private Parameters {
     return state_.sizemap().class_to_size(size_class);
   }
 
-  absl::Span<const size_t> cold_size_classes() const {
-    return state_.sizemap().ColdSizeClasses();
-  }
-
   size_t num_objects_to_move(int size_class) const {
     return state_.sizemap().num_objects_to_move(size_class);
   }
@@ -935,6 +931,10 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     return 0;
   }
 
+  if (IsColdSizeClass(size_class) && !ColdFeatureActive()) {
+    return 0;
+  }
+
   if (!IsColdSizeClass(size_class) &&
       (size_class % kNumBaseClasses) <= kNumSmall) {
     // Small object sizes are very heavily used and need very deep caches for
@@ -943,33 +943,21 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     return kSmallObjectDepth;
   }
 
-  if (ColdFeatureActive()) {
-    // We reduce the number of cached objects for some sizes to fit into the
-    // slab.
-    //
-    // We use fewer number of size classes when using reuse size classes. So,
-    // we may use larger capacity for some sizes.
-    const uint16_t kLargeUninterestingObjectDepth =
-        forwarder_.reuse_size_classes() ? 246 * kWiderSlabMultiplier
-                                        : 123 * kWiderSlabMultiplier;
-    const uint16_t kLargeInterestingObjectDepth =
-        forwarder_.reuse_size_classes() ? 52 * kWiderSlabMultiplier
+  if (!ColdFeatureActive()) {
+    return kLargeObjectDepth;
+  }
+
+  // We reduce the number of cached objects for some sizes to fit into the slab.
+  //
+  // We use fewer number of size classes when using reuse size classes. So,
+  // we may use larger capacity for some sizes.
+  const uint16_t kLargeHotObjectDepth = forwarder_.reuse_size_classes()
+                                            ? 246 * kWiderSlabMultiplier
+                                            : 123 * kWiderSlabMultiplier;
+  const uint16_t kColdObjectDepth = forwarder_.reuse_size_classes()
+                                        ? 52 * kWiderSlabMultiplier
                                         : 36 * kWiderSlabMultiplier;
-    absl::Span<const size_t> cold = forwarder_.cold_size_classes();
-    if (absl::c_binary_search(cold, size_class)) {
-      return kLargeInterestingObjectDepth;
-    } else if (!IsColdSizeClass(size_class)) {
-      return kLargeUninterestingObjectDepth;
-    } else {
-      return 0;
-    }
-  }
-
-  if (IsColdSizeClass(size_class)) {
-    return 0;
-  }
-
-  return kLargeObjectDepth;
+  return IsColdSizeClass(size_class) ? kColdObjectDepth : kLargeHotObjectDepth;
 }
 
 // Returns estimated bytes required and the bytes available.
