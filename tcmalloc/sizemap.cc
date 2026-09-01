@@ -290,15 +290,8 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     memset(cold_sizes_, 0, sizeof(cold_sizes_));
     cold_sizes_count_ = 0;
 
-    // Point all lookups in the first or second upper register of class_array_
-    // (allocations seeking cold memory, with hints for partition 0, i.e.,
-    // pointerless allocations) to the lower size classes.  This gives us an
-    // easy fallback for sizes that are too small for moving to cold memory (due
-    // to intrusive span metadata).
-    std::copy(&class_array_[0], &class_array_[kClassArraySize],
-              &class_array_[kClassArraySize * kColdRegisterStride]);
-
-    for (int c = kColdClassesStart; c < kNumClasses; c++) {
+    next_size = 0;
+    for (int c = kColdClassesStart + 1; c < kNumClasses; c++) {
       size_t max_size_in_class = class_to_size_[c];
       if (max_size_in_class == 0) {
         next_size = max_size_in_class + static_cast<size_t>(kAlignment);

@@ -1317,13 +1317,12 @@ TYPED_TEST(HotColdTest, HotColdNew) {
     void* ptr;
     size_t size;
   };
-  constexpr size_t kSmall = 2 << 10;
   constexpr size_t kLarge = 1 << 20;
 
   std::vector<SizedPtr> ptrs;
   ptrs.reserve(1000);
   for (int i = 0; i < 1000; i++) {
-    size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    size_t size = absl::LogUniform<size_t>(rng, 0, kLarge);
     uint8_t label = absl::Uniform<uint8_t>(rng, 0, 127);
     label |= uint8_t{128};
 
@@ -1353,7 +1352,7 @@ TYPED_TEST(HotColdTest, HotColdNew) {
   // Allocate some cold objects
   ptrs.clear();
   for (int i = 0; i < 1000; i++) {
-    size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    size_t size = absl::LogUniform<size_t>(rng, 0, kLarge);
     uint8_t label = absl::Uniform<uint8_t>(rng, 0, 127);
     label &= ~uint8_t{128};
 
@@ -1395,7 +1394,6 @@ TYPED_TEST(HotColdTest, NothrowHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
   absl::BitGen rng;
@@ -1409,7 +1407,7 @@ TYPED_TEST(HotColdTest, NothrowHotColdNew) {
   std::vector<SizedPtr> ptrs;
   ptrs.reserve(1000);
   for (int i = 0; i < 1000; i++) {
-    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const size_t size = absl::LogUniform<size_t>(rng, 0, kLarge);
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
     void* ptr = ::operator new(sizeof(TypeParam) * 0 + size, std::nothrow,
@@ -1442,7 +1440,6 @@ TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
   absl::BitGen rng;
@@ -1457,7 +1454,7 @@ TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
   std::vector<SizedPtr> ptrs;
   ptrs.reserve(1000);
   for (int i = 0; i < 1000; i++) {
-    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const size_t size = absl::LogUniform<size_t>(rng, 0, kLarge);
     const std::align_val_t alignment =
         static_cast<std::align_val_t>(1 << absl::Uniform(rng, 0, 6));
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
@@ -1493,7 +1490,6 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
   absl::BitGen rng;
@@ -1507,7 +1503,7 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
   std::vector<SizedPtr> ptrs;
   ptrs.reserve(1000);
   for (int i = 0; i < 1000; i++) {
-    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const size_t size = absl::LogUniform<size_t>(rng, 0, kLarge);
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
     void* ptr = ::operator new[](sizeof(TypeParam) * 0 + size, std::nothrow,
@@ -1540,7 +1536,6 @@ TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
   absl::BitGen rng;
@@ -1555,7 +1550,7 @@ TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
   std::vector<SizedPtr> ptrs;
   ptrs.reserve(1000);
   for (int i = 0; i < 1000; i++) {
-    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const size_t size = absl::LogUniform<size_t>(rng, 0, kLarge);
     const std::align_val_t alignment =
         static_cast<std::align_val_t>(1 << absl::Uniform(rng, 0, 6));
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
@@ -1591,7 +1586,6 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
   absl::BitGen rng;
@@ -1606,7 +1600,7 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
   std::vector<SizedPtr> ptrs;
   ptrs.reserve(1000);
   for (int i = 0; i < 1000; i++) {
-    const size_t requested = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const size_t requested = absl::LogUniform<size_t>(rng, 0, kLarge);
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
     auto [ptr, actual] = __size_returning_new_hot_cold(
@@ -1624,7 +1618,10 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
     std::optional<size_t> allocated_size =
         MallocExtension::GetAllocatedSize(ptr);
     ASSERT_THAT(allocated_size, testing::Ne(std::nullopt));
-    EXPECT_EQ(actual, *allocated_size);
+    // Sanitizers mis-handle 0-sized allocations.
+    if (!kSanitizerPresent || actual != 0) {
+      EXPECT_EQ(actual, *allocated_size);
+    }
 
     ptrs.emplace_back(SizedPtr{ptr, requested, actual});
   }
@@ -1657,7 +1654,6 @@ TYPED_TEST(HotColdTest, HotColdNewMinHotFlag) {
       static_cast<tcmalloc::hot_cold_t>(10);
   Parameters::set_min_hot_access_hint(kNonDefaultMinHotAccessHint);
 
-  constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
   absl::BitGen rng;
@@ -1671,7 +1667,7 @@ TYPED_TEST(HotColdTest, HotColdNewMinHotFlag) {
   std::vector<SizedPtr> ptrs;
   ptrs.reserve(1000);
   for (int i = 0; i < 1000; i++) {
-    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const size_t size = absl::LogUniform<size_t>(rng, 0, kLarge);
     const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
 
     void* ptr = ::operator new(sizeof(TypeParam) * 0 + size,
