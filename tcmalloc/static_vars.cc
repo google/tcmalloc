@@ -171,15 +171,10 @@ SizeClassConfiguration Static::size_class_configuration() {
   const char* e_reuse = thread_safe_getenv("TCMALLOC_REUSE_SIZE_CLASSES");
   const char* e_legacy = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
 
-  if (IsExperimentActive(Experiment::TCMALLOC_REUSE_SIZE_CLASSES_ABLATION)) {
-    return SizeClassConfiguration::kReuse;
-  }
 
   if (e_reuse != nullptr) {
     if (!strcmp(e_reuse, "reuserelaxedbelow64")) {
       return SizeClassConfiguration::kReuseRelaxedBelow64;
-    } else if (!strcmp(e_reuse, "reuse")) {
-      return SizeClassConfiguration::kReuse;
     } else if (!strcmp(e_reuse, "0")) {
       // "0" is a valid value that falls back to the default.
     } else {

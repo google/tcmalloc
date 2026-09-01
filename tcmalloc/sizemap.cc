@@ -46,9 +46,6 @@ const SizeClasses& SizeMap::CurrentClasses() {
     case SizeClassConfiguration::kPow2Only:
       return kExperimentalPow2SizeClasses;
     case SizeClassConfiguration::kReuseRelaxedBelow64:
-      return kReuseRelaxedBelow64SizeClasses;
-    case SizeClassConfiguration::kReuse:
-      // TODO(b/512895228): remove this opt out once we are done experimenting.
       return kSizeClasses;
     case SizeClassConfiguration::kLegacy:
       // TODO(b/242710633): remove this opt out.

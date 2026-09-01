@@ -86,7 +86,6 @@ TEST(ColdSizeClassTest, ColdFeatureActivation) {
 const SizeClasses* const kAllSizeClassesConfigs[] = {
     &kSizeClasses,
     &kLegacySizeClasses,
-    &kReuseRelaxedBelow64SizeClasses,
     &kExperimentalPow2SizeClasses,
 };
 
@@ -266,10 +265,10 @@ TEST(SizeMapTest, HeapPartitioningSizeZero) {
 }
 
 TEST(SizeMapTest, SpecificClassRanges) {
-  // Verify kReuseRelaxedBelow64SizeClasses (with 24/48)
+  // Verify kSizeClasses (with 24/48)
   {
     SizeMap size_map;
-    ASSERT_TRUE(size_map.Init(kReuseRelaxedBelow64SizeClasses.classes));
+    ASSERT_TRUE(size_map.Init(kSizeClasses.classes));
     EXPECT_THAT(size_map.class_to_size_range(1), Pair(1, 8));
     EXPECT_THAT(size_map.class_to_size_range(2), Pair(9, 16));
 #if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
@@ -284,15 +283,6 @@ TEST(SizeMapTest, SpecificClassRanges) {
 #endif
   }
 
-  // Verify kSizeClasses (default, power of two below 64)
-  {
-    SizeMap size_map;
-    ASSERT_TRUE(size_map.Init(kSizeClasses.classes));
-    EXPECT_THAT(size_map.class_to_size_range(1), Pair(1, 8));
-    EXPECT_THAT(size_map.class_to_size_range(2), Pair(9, 16));
-    EXPECT_THAT(size_map.class_to_size_range(3), Pair(17, 32));
-    EXPECT_THAT(size_map.class_to_size_range(4), Pair(33, 64));
-  }
 }
 
 }  // namespace tcmalloc::tcmalloc_internal

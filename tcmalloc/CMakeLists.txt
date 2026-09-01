@@ -278,7 +278,6 @@ tcmalloc_cc_library_variants(
     "pagemap.h"
     "parameters.cc"
     "peak_heap_tracker.cc"
-    "reuse_relaxed_below_64_size_classes.cc"
     "sampler.cc"
     "sampler.h"
     "segv_handler.cc"
