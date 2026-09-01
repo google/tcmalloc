@@ -176,7 +176,9 @@ class BenchmarkEnv {
                size_t num_objects_to_move) {
     cache_.forwarder().Init(class_size, span_bytes, num_objects_to_move,
                             kPageSize);
-    cache_.Init(kSizeClass);
+    cache_.Init(
+        kSizeClass,
+        central_freelist_internal::CflSubbucketPrioritization::kDisabled);
   }
 
   CentralFreeList& central_freelist() { return cache_; }

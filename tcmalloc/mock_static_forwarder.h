@@ -29,6 +29,7 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
@@ -239,11 +240,13 @@ class FakeCentralFreeListEnvironment {
 
   explicit FakeCentralFreeListEnvironment(
       size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
+      central_freelist_internal::CflSubbucketPrioritization
+          cfl_subbucket_prioritization,
       size_t page_size = kPageSize,
       double clock_frequency = absl::ToDoubleNanoseconds(absl::Seconds(2))) {
     forwarder().Init(class_size, span_bytes, num_objects_to_move, page_size,
                      clock_frequency);
-    cache_.Init(kSizeClass);
+    cache_.Init(kSizeClass, cfl_subbucket_prioritization);
   }
 
   ~FakeCentralFreeListEnvironment() { EXPECT_EQ(cache_.length(), 0); }

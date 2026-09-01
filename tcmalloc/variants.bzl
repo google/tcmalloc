@@ -279,6 +279,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK"},
     },
+    {
+        "name": "tcmalloc_cfl_subbucket_prioritization",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION"},
+    },
 ]
 
 def create_tcmalloc_library(
