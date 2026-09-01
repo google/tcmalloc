@@ -162,18 +162,9 @@ size_t Static::pagemap_residence() {
   return total;
 }
 
-int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
-
 SizeClassConfiguration Static::size_class_configuration() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     return SizeClassConfiguration::kPow2Only;
-  }
-
-  // TODO(b/242710633): remove this opt out.
-  if (default_want_legacy_size_classes != nullptr &&
-      default_want_legacy_size_classes() > 0 &&
-      (kPageSize == 8192 || kPageSize == 32768)) {
-    return SizeClassConfiguration::kLegacy;
   }
 
   // TODO(b/512895228): remove this opt out once we are done experimenting.
@@ -219,9 +210,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     }
     (void)subtle::percpu::IsFast();
     PerCpuState::state().Init();
-    if (IsExperimentActive(Experiment::TCMALLOC_PER_CPU_CACHE_SIZE_1MB)) {
-      cpu_cache_.SetCacheLimit(/*v=*/1024 * 1024);
-    }
     numa_topology_.Init();
     CacheTopology::Instance().Init();
 

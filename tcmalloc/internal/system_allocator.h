@@ -861,12 +861,15 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   };
 
   for (int i = 0; i < 10 && !reserved_for_app(addr); ++i) {
-    rnd_ = ExponentialBiased::NextRandom(rnd_);
-    addr = rnd_ & kHiAppMask & ~(alignment - 1) & ~kTagMask;
-    addr |= static_cast<uintptr_t>(tag) << kTagShift;
+    do {
+      rnd_ = ExponentialBiased::NextRandom(rnd_);
+      addr = rnd_ & kHiAppMask & ~(alignment - 1) & ~kTagMask;
+      addr |= static_cast<uintptr_t>(tag) << kTagShift;
+    } while (addr == 0);
   }
 #endif
 
+  TC_ASSERT_NE(addr, 0);
   TC_ASSERT_EQ(GetMemoryTag(reinterpret_cast<const void*>(addr)), tag);
   return addr;
 }

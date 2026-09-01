@@ -121,7 +121,7 @@ static_assert(sizeof(void*) == 8);
 #if TCMALLOC_PAGE_SHIFT == 12
 inline constexpr size_t kPageShift = 12;
 inline constexpr size_t kNumBaseClasses = 46;
-inline constexpr bool kHasExpandedClasses = false;
+inline constexpr bool kHasColdClasses = false;
 inline constexpr size_t kMaxSize = 8 << 10;
 inline constexpr size_t kMinThreadCacheSize = 4 * 1024;
 inline constexpr size_t kMaxThreadCacheSize = 64 * 1024;
@@ -131,7 +131,7 @@ inline constexpr size_t kStealAmount = kMinThreadCacheSize;
 #elif TCMALLOC_PAGE_SHIFT == 15
 inline constexpr size_t kPageShift = 15;
 inline constexpr size_t kNumBaseClasses = 78;
-inline constexpr bool kHasExpandedClasses = true;
+inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
@@ -142,7 +142,7 @@ inline constexpr size_t kStealAmount = 1 << 16;
 #elif TCMALLOC_PAGE_SHIFT == 18
 inline constexpr size_t kPageShift = 18;
 inline constexpr size_t kNumBaseClasses = 89;
-inline constexpr bool kHasExpandedClasses = true;
+inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
@@ -153,7 +153,7 @@ inline constexpr size_t kStealAmount = 1 << 16;
 #elif TCMALLOC_PAGE_SHIFT == 13
 inline constexpr size_t kPageShift = 13;
 inline constexpr size_t kNumBaseClasses = 86;
-inline constexpr bool kHasExpandedClasses = true;
+inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
@@ -181,12 +181,11 @@ inline constexpr size_t kNormalPartitions =
 static_assert(kNormalPartitions <= 2,
               "Error: There can be at most 2 normal partitions.");
 
-// We have copies of kNumBaseClasses size classes for each NUMA node, followed
-// by any expanded classes.
-inline constexpr size_t kExpandedClassesStart =
-    kNumBaseClasses * kNormalPartitions;
+// We have copies of kNumBaseClasses size classes for each NUMA node or
+// security partition, followed by any cold classes.
+inline constexpr size_t kColdClassesStart = kNumBaseClasses * kNormalPartitions;
 inline constexpr size_t kNumClasses =
-    kExpandedClassesStart + (kHasExpandedClasses ? kNumBaseClasses : 0);
+    kColdClassesStart + (kHasColdClasses ? kNumBaseClasses : 0);
 
 // Size classes are often stored as uint32_t values, but there are some
 // situations where we need to store a size class with as compact a
@@ -226,10 +225,10 @@ inline constexpr int kMaxOverages = 3;
 // scavenging code will shrink it down when its contents are not in use.
 inline constexpr size_t kMaxDynamicFreeListLength = 8192;
 
-constexpr bool ColdFeatureActive() { return kHasExpandedClasses; }
+constexpr bool ColdFeatureActive() { return kHasColdClasses; }
 
-constexpr bool IsExpandedSizeClass(unsigned size_class) {
-  return kHasExpandedClasses && (size_class >= kExpandedClassesStart);
+constexpr bool IsColdSizeClass(unsigned size_class) {
+  return kHasColdClasses && (size_class >= kColdClassesStart);
 }
 
 #if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)

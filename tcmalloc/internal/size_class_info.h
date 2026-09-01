@@ -47,7 +47,7 @@ struct SizeClassInfo {
 };
 
 struct SizeClassAssumptions {
-  bool has_expanded_classes;    // kHasExpandedClasses
+  bool has_cold_classes;        // kHasColdClasses
   size_t span_size;             // sizeof(Span)
   size_t sampling_interval;     // kDefaultProfileSamplingInterval
   size_t large_size;            // SizeMap::kLargeSize

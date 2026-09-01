@@ -25,7 +25,6 @@ enum class Experiment : int {
   // go/keep-sorted start
   TCMALLOC_DEMAND_CYCLE_120S,  // TODO: b/540987155 - Complete experiment.
   TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE,  // TODO: b/535197873 - Complete experiment.
-  TCMALLOC_PER_CPU_CACHE_SIZE_1MB,  // TODO: b/514747820 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_REUSE_SIZE_CLASSES_ABLATION,  // TODO: b/524296402 - Complete experiment.
   TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK,  // TODO: b/540945006 - Complete experiment.
@@ -56,7 +55,6 @@ inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::TCMALLOC_DEMAND_CYCLE_120S, "TCMALLOC_DEMAND_CYCLE_120S"},
     {Experiment::TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE, "TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE"},
-    {Experiment::TCMALLOC_PER_CPU_CACHE_SIZE_1MB, "TCMALLOC_PER_CPU_CACHE_SIZE_1MB"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_REUSE_SIZE_CLASSES_ABLATION, "TCMALLOC_REUSE_SIZE_CLASSES_ABLATION"},
     {Experiment::TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK, "TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.5},

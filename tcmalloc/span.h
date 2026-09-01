@@ -114,7 +114,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   // Allocator/deallocator for spans. Note that these functions are defined
   // in static_vars.h, which is weird: see there for why.
-  static Span* absl_nonnull New(Range r)
+  [[nodiscard]] static Span* absl_nonnull New(Range r)
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       ABSL_LOCKS_EXCLUDED(pageheap_lock)
 #endif
@@ -142,14 +142,14 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // ensure by some other means that the sampling state can't be changed
   // concurrently.
   // REQUIRES: this is a SAMPLED span.
-  const SampledAllocation& sampled_allocation() const;
+  [[nodiscard]] const SampledAllocation& sampled_allocation() const;
 
   // Is it a sampling span?
   // For debug checks. pageheap_lock is not required, but caller needs to ensure
   // that sampling state can't be changed concurrently.
-  bool sampled() const;
+  [[nodiscard]] bool sampled() const;
 
-  bool donated() const { return is_donated_; }
+  [[nodiscard]] bool donated() const { return is_donated_; }
   void set_donated(bool value) { is_donated_ = value; }
 
   // ---------------------------------------------------------------------------
@@ -157,33 +157,33 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // ---------------------------------------------------------------------------
 
   // Returns first page of the span.
-  PageId first_page() const;
+  [[nodiscard]] PageId first_page() const;
 
   // Returns the last page in the span.
-  PageId last_page() const;
+  [[nodiscard]] PageId last_page() const;
 
   // Sets span first page.
   void set_first_page(PageId p);
 
   // Returns start address of the span.
-  ABSL_ATTRIBUTE_RETURNS_NONNULL void* start_address() const;
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL void* start_address() const;
 
   // Returns number of pages in the span.
-  Length num_pages() const;
+  [[nodiscard]] Length num_pages() const;
 
   // Sets number of pages in the span.
   void set_num_pages(Length len);
 
   // Total memory bytes in the span.
-  size_t bytes_in_span() const;
+  [[nodiscard]] size_t bytes_in_span() const;
 
   // Returns number of objects allocated in the span.
-  uint16_t Allocated() const {
+  [[nodiscard]] uint16_t Allocated() const {
     return allocated_.load(std::memory_order_relaxed);
   }
 
   // Returns index of the non-empty list to which this span belongs to.
-  uint8_t nonempty_index() const { return nonempty_index_; }
+  [[nodiscard]] uint8_t nonempty_index() const { return nonempty_index_; }
   // Records an index of the non-empty list associated with this span.
   void set_nonempty_index(uint8_t index) {
     nonempty_index_ = index;
@@ -226,11 +226,11 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   void Prefetch();
 
   // IsValidSizeClass verifies size class parameters from the Span perspective.
-  static bool IsValidSizeClass(size_t size, Length pages);
+  [[nodiscard]] static bool IsValidSizeClass(size_t size, Length pages);
 
   // For bitmap'd spans conversion from an offset to an index is performed
   // by multiplying by the scaled reciprocal of the object size.
-  static uint32_t CalcReciprocal(size_t size);
+  [[nodiscard]] static uint32_t CalcReciprocal(size_t size);
 
   // When central freelist tracks a span, that span is assured to consist of <
   // kLargeSpanLength number of pages. This allows us to record number of pages
@@ -239,19 +239,21 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static constexpr Length kLargeSpanLength = Length((1 << kMaxNumPageBits) - 1);
   static_assert(kMaxSize <= kLargeSpanLength.in_bytes());
 
-  uint64_t AllocTime() const;
+  [[nodiscard]] uint64_t AllocTime() const;
 
   // Returns true if Span will use bitmap for objects of size <size>.
-  static bool UseBitmapForSize(size_t size);
+  [[nodiscard]] static bool UseBitmapForSize(size_t size);
 
   typedef uint16_t ObjIdx;
   // Convert object pointer <-> freelist index.
-  ObjIdx PtrToIdx(void* ptr, size_t size) const;
-  ObjIdx* IdxToPtr(ObjIdx idx, size_t size, uintptr_t start) const;
+  [[nodiscard]] ObjIdx PtrToIdx(void* ptr, size_t size) const;
+  [[nodiscard]] ObjIdx* IdxToPtr(ObjIdx idx, size_t size,
+                                 uintptr_t start) const;
 
   // Convert object pointer <-> freelist index for bitmap managed objects.
-  ObjIdx BitmapPtrToIdx(void* ptr, size_t size, uint32_t reciprocal) const;
-  void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
+  [[nodiscard]] ObjIdx BitmapPtrToIdx(void* ptr, size_t size,
+                                      uint32_t reciprocal) const;
+  [[nodiscard]] void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   static constexpr size_t kNonemptyIndexBits = 5;
@@ -262,7 +264,9 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
  private:
   // Returns if the span is large (i.e. consists of > kLargeSpanLength number of
   // pages) or is sampled.
-  bool is_large_or_sampled() const { return is_large_span_ || sampled_; }
+  [[nodiscard]] bool is_large_or_sampled() const {
+    return is_large_span_ || sampled_;
+  }
 
   // See the comment on freelist organization in cc file.
   static constexpr ObjIdx kListEnd = -1;
@@ -401,20 +405,23 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static_assert(sizeof(large_or_sampled_state_) <= sizeof(list_));
 
   // Helper function for converting a pointer to an index.
-  static ObjIdx OffsetToIdx(uintptr_t offset, uint32_t reciprocal);
+  [[nodiscard]] static ObjIdx OffsetToIdx(uintptr_t offset,
+                                          uint32_t reciprocal);
 
-  size_t ListPopBatch(void** __restrict batch, size_t N,
-                      size_t size) __restrict__;
+  [[nodiscard]] size_t ListPopBatch(void** __restrict batch, size_t N,
+                                    size_t size) __restrict__;
 
-  bool ListPushBatch(absl::Span<void*> batch, size_t size) __restrict__;
-  bool ListPushBatch(absl::Span<ObjIdx> batch, size_t size) __restrict__;
+  [[nodiscard]] bool ListPushBatch(absl::Span<void*> batch,
+                                   size_t size) __restrict__;
+  [[nodiscard]] bool ListPushBatch(absl::Span<ObjIdx> batch,
+                                   size_t size) __restrict__;
 
   // For spans containing 64 or fewer objects, indicate that the object at the
   // index has been returned. Always returns true.
-  bool BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                       uint32_t reciprocal) __restrict__;
-  bool BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
-                       uint32_t reciprocal) __restrict__;
+  [[nodiscard]] bool BitmapPushBatch(absl::Span<void*> batch, size_t size,
+                                     uint32_t reciprocal) __restrict__;
+  [[nodiscard]] bool BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
+                                     uint32_t reciprocal) __restrict__;
 
   // A bitmap is used to indicate object availability for spans containing
   // 64 or fewer objects.
@@ -422,11 +429,13 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   // For spans with kBitmapSize or fewer objects populate batch with up to N
   // objects.  Returns number of objects actually popped.
-  size_t BitmapPopBatch(absl::Span<void*> batch, size_t size) __restrict__;
+  [[nodiscard]] size_t BitmapPopBatch(absl::Span<void*> batch,
+                                      size_t size) __restrict__;
 
   [[noreturn]] void ReportDoubleFree(const void* ptr);
 
-  ABSL_ATTRIBUTE_RETURNS_NONNULL SampledAllocation* UnsampleSlow();
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL SampledAllocation*
+  UnsampleSlow();
 
   // Friend class to enable more indepth testing of bitmap code.
   friend class SpanTestPeer;

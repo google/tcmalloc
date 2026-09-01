@@ -89,7 +89,7 @@ class SizeMap {
   typedef unsigned char BatchSize;
 
   // If TCMalloc is compiled without NUMA support, and with cold allocations
-  // (expanded classes), then the class_array_ will consist of 6 regions:
+  // (cold classes), then the class_array_ will consist of 6 regions:
   //
   //   [0, kClassArraySize)                   : Hot New P0
   //   [kClassArraySize, 2*kClassArraySize)   : Hot New P1
@@ -102,16 +102,16 @@ class SizeMap {
   //   partition 1 will contain the same information as for partition 0.
   // * If the heap partitioning feature is active in kFull mode:
   //   Cold & partition 1 will be the same as hot & partition 1. Namely, it
-  //   will point to the [kNumBaseClasses, kExpandedClassesStart) size classes.
+  //   will point to the [kNumBaseClasses, kColdClassesStart) size classes.
   // * If the heap partitioning feature is active in kLight mode: Malloc P0 is
   //   exclusive to P0; Hot New P0 maps to Hot New P1; Cold P1 maps to Cold P0.
   //
   // If NUMA support is compiled in, the partition 1 regions won't exist.
-  // Similarly, for cold memory, if expanded classes are not compiled in.
+  // Similarly, for cold memory, if cold classes are not compiled in.
   static constexpr size_t kHotRegisters = 2 * kSecurityPartitions;
   static constexpr size_t kColdRegisterStride = kHotRegisters;
   static constexpr size_t kColdRegisters =
-      (kHasExpandedClasses ? 1 : 0) * kSecurityPartitions;
+      (kHasColdClasses ? 1 : 0) * kSecurityPartitions;
   static constexpr size_t kClassArraySizePartitions =
       kClassArraySize * (kHotRegisters + kColdRegisters);
 
@@ -225,7 +225,7 @@ class SizeMap {
     // Note, if security heap partitioning is enabled, only data (partition 0)
     // is added to the cold heap. See the comment for kClassArraySizePartitions
     // for more details.
-    if (kHasExpandedClasses && policy.is_cold()) {
+    if (kHasColdClasses && policy.is_cold()) {
       TC_ASSERT(policy.allocation_type() == AllocationType::New);
       TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegisterStride) *
                              kClassArraySize,

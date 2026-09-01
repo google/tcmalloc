@@ -235,7 +235,7 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
   static constexpr size_t kNumToMove1 = 32;
   static constexpr size_t kNumToMove2 = 2;
   static constexpr size_t kNumToMove3 = 2;
-  static constexpr size_t kColdSizeClass = kExpandedClassesStart + 1;
+  static constexpr size_t kColdSizeClass = kColdClassesStart + 1;
 
   ThreeSizeClassManager() {
     for (int i = 0; i < 3; ++i) {
@@ -418,17 +418,18 @@ class FakeShardedTransferCacheEnvironment {
   explicit FakeShardedTransferCacheEnvironment(int num_shards,
                                                bool use_generic_cache)
       : sharded_manager_(&owner_, &cpu_layout_) {
-    if (use_generic_cache) {
-      owner_.SetGenericCache(true);
-    } else {
-      owner_.SetCacheForLargeClassesOnly(true);
-    }
+    owner_.SetGenericCache(use_generic_cache);
+    owner_.SetCacheForLargeClassesOnly(!use_generic_cache);
 
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
   }
 
-  ~FakeShardedTransferCacheEnvironment() { Drain(); }
+  ~FakeShardedTransferCacheEnvironment() {
+    Drain();
+    owner_.SetGenericCache(false);
+    owner_.SetCacheForLargeClassesOnly(false);
+  }
 
   void Remove(int cpu, int n) {
     cpu_layout_.SetCurrentCpu(cpu);

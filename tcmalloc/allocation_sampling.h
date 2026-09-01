@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_ALLOCATION_SAMPLING_H_
 #define TCMALLOC_ALLOCATION_SAMPLING_H_
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -127,7 +128,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     state.per_size_class_counts()[size_class].Add(allocation_estimate);
 
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
-    stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
+    stack_trace.cold_allocated = IsColdSizeClass(size_class);
 
     Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
     std::align_val_t sample_alignment = policy.align();
@@ -182,15 +183,18 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
       case MemoryTag::kSampled:
       case MemoryTag::kSampledP1:
       case MemoryTag::kCold: {
-        // TODO(b/540945006): Reconsider whether to skip the first page.
         const uintptr_t hardware_page_size = GetPageSize();
-        uintptr_t start = reinterpret_cast<uintptr_t>(span->start_address());
-        uintptr_t length = span->bytes_in_span();
-        if (length <= hardware_page_size) {
+        const size_t allocated_size_rounded =
+            (stack_trace.allocated_size + hardware_page_size - 1) &
+            ~(hardware_page_size - 1);
+        const size_t limit =
+            std::min<size_t>(span->bytes_in_span(), allocated_size_rounded);
+        if (limit <= hardware_page_size) {
           break;
         }
-        start += hardware_page_size;
-        length -= hardware_page_size;
+        uintptr_t start = reinterpret_cast<uintptr_t>(span->start_address()) +
+                          hardware_page_size;
+        uintptr_t length = limit - hardware_page_size;
 
         (void)state.system_allocator().Release(reinterpret_cast<void*>(start),
                                                length);

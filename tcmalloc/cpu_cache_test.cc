@@ -828,7 +828,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
   constexpr int kCpuId = 0;
   constexpr int kCpuId1 = 1;
 
-  for (auto large_class : {static_cast<size_t>(2), kExpandedClassesStart + 1}) {
+  for (auto large_class : {static_cast<size_t>(2), kColdClassesStart + 1}) {
     const int kLargeClass = large_class;
     constexpr int kGrowthFactor = 5;
     const int base_max_capacity =
@@ -1745,8 +1745,8 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
     const size_t slabs_size =
         subtle::percpu::GetSlabsAllocSize(shift, num_cpus);
     if (slabs_size < 3 * kHugePageSize) {
-      TC_LOG("Not enough CPUs to run test; skipping.");
-      return;
+      cache.Deactivate();
+      GTEST_SKIP() << "Not enough CPUs to run test";
     }
 
     for (int cpu = 0; cpu < num_cpus; ++cpu) {
@@ -1789,8 +1789,8 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
     // would actually get unpopulated if untouched.
     int arbitrary_cpu = (num_cpus / 2) & ~1;  // Must already be touched.
     if (arbitrary_cpu == 0 || arbitrary_cpu + 1 >= num_cpus) {
-      TC_LOG("Not enough CPUs to run test; skipping.");
-      return;
+      cache.Deactivate();
+      GTEST_SKIP() << "Not enough CPUs to run test";
     }
     HotCacheOperations(cache, arbitrary_cpu, /*drain=*/false);
     cache.TryDrainingCaches();
@@ -1820,6 +1820,79 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
 
     cache.Deactivate();
   }
+}
+
+TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateConcurrent) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  const std::vector<int> allowed = AllowedCpus();
+  if (allowed.empty()) {
+    GTEST_SKIP() << "No allowed CPUs";
+  }
+
+  constexpr size_t kSizeClass = 1;
+  const int num_cpus = NumCPUs();
+
+  CpuCache cache;
+  cache.forwarder().release_drained_slab_metadata_ = true;
+  cache.Activate();
+
+  const size_t cpus_per_hugepage =
+      kHugePageSize >> CpuCachePeer::GetSlabShift(cache);
+  if (num_cpus < 3 * cpus_per_hugepage) {
+    cache.Deactivate();
+    GTEST_SKIP() << "Not enough CPUs to run test";
+  }
+
+  const int cpu1 = allowed[0];
+  // Prefer a real CPU on a different hugepage if allowed; otherwise fake one.
+  std::optional<int> cpu2;
+  for (int cpu : allowed) {
+    if (cpu / cpus_per_hugepage != cpu1 / cpus_per_hugepage) {
+      cpu2 = cpu;
+      break;
+    }
+  }
+  const int fake_cpu = (cpu1 / cpus_per_hugepage == 0) ? cpus_per_hugepage : 0;
+
+  std::atomic<bool> stop(false);
+
+  // One drains itself to trigger Grow.
+  std::thread thread1([&cache, cpu1, &stop]() {
+    ScopedAffinityMask mask(cpu1);
+    const int my_cpu = subtle::percpu::TcmallocTest::VirtualCpuSynchronize();
+    while (!stop.load(std::memory_order_relaxed)) {
+      cache.Drain(my_cpu);
+      void* ptr = cache.Allocate(kSizeClass);
+      cache.Deallocate(ptr, kSizeClass);
+    }
+  });
+
+  // The other tries draining all caches.
+  std::thread thread2([&cache, cpu2, fake_cpu, &stop]() {
+    std::optional<ScopedAffinityMask> mask;
+    std::optional<ScopedFakeCpuId> fake_mask;
+    if (cpu2.has_value()) {
+      mask.emplace(*cpu2);
+    } else {
+      fake_mask.emplace(fake_cpu);
+    }
+    while (!stop.load(std::memory_order_relaxed)) {
+      void* ptr = cache.Allocate(kSizeClass);
+      cache.Deallocate(ptr, kSizeClass);
+      cache.TryDrainingCaches();
+      cache.TryDrainingCaches();
+    }
+  });
+
+  absl::SleepFor(absl::Milliseconds(100));
+  stop.store(true, std::memory_order_relaxed);
+  thread1.join();
+  thread2.join();
+
+  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SizeClassCapacityTest) {

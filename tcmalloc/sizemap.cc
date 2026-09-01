@@ -60,9 +60,9 @@ const SizeClasses& SizeMap::CurrentClasses() {
 bool SizeMap::CheckAssumptions() {
   bool failed = false;
   auto a = CurrentClasses().assumptions;
-  if (a.has_expanded_classes != kHasExpandedClasses) {
-    fprintf(stderr, "kHasExpandedClasses: assumed %d, actual %d\n",
-            a.has_expanded_classes, kHasExpandedClasses);
+  if (a.has_cold_classes != kHasColdClasses) {
+    fprintf(stderr, "kHasColdClasses: assumed %d, actual %d\n",
+            a.has_cold_classes, kHasColdClasses);
     failed |= true;
   }
 #ifdef NDEBUG
@@ -191,14 +191,10 @@ bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 // Return true if all size classes meet the requirements for alignment
 // ordering and min and max values.
 bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
-  if (size_classes.empty()) {
+  int num_classes = size_classes.size();
+  if (num_classes <= 1 || num_classes > kNumBaseClasses) {
     return false;
   }
-  int num_classes = size_classes.size();
-  if (kHasExpandedClasses && num_classes > kNumBaseClasses) {
-    num_classes = kNumBaseClasses;
-  }
-
   if (size_classes[0].size != 0 || size_classes[0].bytes != Bytes(0) ||
       size_classes[0].num_to_move != 0) {
     return false;
@@ -272,7 +268,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     bool heap_partitioning_full =
         Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
     next_size = 0;
-    for (int c = kNumBaseClasses + 1; c < kExpandedClassesStart; ++c) {
+    for (int c = kNumBaseClasses + 1; c < kColdClassesStart; ++c) {
       const int max_size_in_class = class_to_size_[c];
 
       for (int s = next_size; s <= max_size_in_class;
@@ -305,7 +301,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     std::copy(&class_array_[0], &class_array_[kClassArraySize],
               &class_array_[kClassArraySize * kColdRegisterStride]);
 
-    for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
+    for (int c = kColdClassesStart; c < kNumClasses; c++) {
       size_t max_size_in_class = class_to_size_[c];
       if (max_size_in_class == 0) {
         next_size = max_size_in_class + static_cast<size_t>(kAlignment);
