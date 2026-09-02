@@ -238,89 +238,52 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     return false;
   }
 
-  int next_size = 0;
-  for (int c = 1; c < kNumClasses; c++) {
-    const int max_size_in_class = class_to_size_[c];
-
-    for (int s = next_size; s <= max_size_in_class;
-         s += static_cast<size_t>(kAlignment)) {
+  // Fill in the canonical class array in region 0.
+  for (int c = 1, s = 0; c < kNumClasses && s <= kMaxSize; c++) {
+    for (; s <= class_to_size_[c]; s += static_cast<size_t>(kAlignment)) {
       class_array_[ClassIndex(s)] = c;
     }
-    next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-    if (next_size > kMaxSize) {
-      break;
-    }
   }
 
-  // Point all lookups in hot registers (Malloc P0, New P1, Malloc P1)
-  // directly to New's P0. We only overwrite the lookups if heap
+  // Point all lookups in hot regions (Malloc R0, New R1, Malloc R1)
+  // directly to New R0. We only overwrite the lookups if heap
   // partitioning is active with the dedicated size classes.
-  for (size_t i = 1; i < kHotRegisters; ++i) {
-    std::copy(&class_array_[0], &class_array_[kClassArraySize],
-              &class_array_[kClassArraySize * i]);
+  for (size_t i = 1; i < kHotRegions; ++i) {
+    SetClassArrayRegion(i, 0);
   }
 
-  const bool heap_partitioning_active =
-      tc_globals.multiple_non_numa_partitions();
   const bool heap_partitioning_full =
       Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
-  if (kSecurityPartitions > 1 && heap_partitioning_active) {
-    next_size = 0;
-    for (int c = kNumBaseClasses + 1; c < kColdClassesStart; ++c) {
-      const int max_size_in_class = class_to_size_[c];
-
-      for (int s = next_size; s <= max_size_in_class;
-           s += static_cast<size_t>(kAlignment)) {
-        // Route Hot Malloc P1 to security partition P1.
-        class_array_[ClassIndex(s) +
-                     kClassArraySize * (kSecurityPartitions + 1)] = c;
-        // Route Hot New P1 to security partition P1.
-        class_array_[ClassIndex(s) + kClassArraySize] = c;
-        if (heap_partitioning_full) continue;
-        // In kLight mode, route Hot New P0 to P1.
-        class_array_[ClassIndex(s)] = c;
-      }
-      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-      if (next_size > kMaxSize) {
-        break;
-      }
+  if (ColdFeatureActive()) {
+    SetClassArrayRegion(kColdRegionsStart, +kColdClassesStart);
+    if (kSecurityPartitions > 1) {
+      // Point all lookups in Cold New R1 to either Hot New R1 or Cold New R0.
+      SetClassArrayRegion(kColdRegionsStart + 1, heap_partitioning_full
+                                                     ? +kNumBaseClasses
+                                                     : +kColdClassesStart);
     }
   }
 
-  if (ColdFeatureActive()) {
-    next_size = 0;
-    for (int c = kColdClassesStart + 1; c < kNumClasses; c++) {
-      size_t max_size_in_class = class_to_size_[c];
-      if (max_size_in_class == 0) {
-        next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-        continue;
-      }
-
-      for (int s = next_size; s <= max_size_in_class;
-           s += static_cast<size_t>(kAlignment)) {
-        class_array_[ClassIndex(s) + kClassArraySize * kColdRegisterStride] = c;
-      }
-      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-      if (next_size > kMaxSize) {
-        break;
-      }
-    }
-    if (kSecurityPartitions > 1) {
-      if (heap_partitioning_full) {
-        // Point all lookups in Cold New's P1 register to Hot New's P1.
-        std::copy(&class_array_[kClassArraySize],
-                  &class_array_[kClassArraySize * 2],
-                  &class_array_[kClassArraySize * (kColdRegisterStride + 1)]);
-      } else {
-        // Point all lookups in Cold New's P1 register to Cold New's P0.
-        std::copy(&class_array_[kClassArraySize * kColdRegisterStride],
-                  &class_array_[kClassArraySize * (kColdRegisterStride + 1)],
-                  &class_array_[kClassArraySize * (kColdRegisterStride + 1)]);
-      }
+  if (kSecurityPartitions > 1 && tc_globals.multiple_non_numa_partitions()) {
+    // Route Hot Malloc R1 to security partition P1.
+    SetClassArrayRegion(kSecurityPartitions + 1, +kNumBaseClasses);
+    // Route Hot New R1 to security partition P1.
+    SetClassArrayRegion(1, +kNumBaseClasses);
+    if (!heap_partitioning_full) {
+      // In kLight mode, route Hot New R0 to P1.
+      SetClassArrayRegion(0, +kNumBaseClasses);
     }
   }
 
   return true;
+}
+
+void SizeMap::SetClassArrayRegion(size_t region, CompactSizeClass adjust) {
+  // Ensure R0 is the canonical non-adjusted array.
+  TC_CHECK_EQ(class_array_[0], 1);
+  for (size_t i = 0; i < kClassArraySize; ++i) {
+    class_array_[region * kClassArraySize + i] = class_array_[i] + adjust;
+  }
 }
 
 }  // namespace tcmalloc_internal

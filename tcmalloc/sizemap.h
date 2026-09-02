@@ -89,29 +89,31 @@ class SizeMap {
   // If TCMalloc is compiled without NUMA support, and with cold allocations
   // (cold classes), then the class_array_ will consist of 6 regions:
   //
-  //   [0, kClassArraySize)                   : Hot New P0
-  //   [kClassArraySize, 2*kClassArraySize)   : Hot New P1
-  //   [2*kClassArraySize, 3*kClassArraySize) : Hot Malloc P0
-  //   [3*kClassArraySize, 4*kClassArraySize) : Hot Malloc P1
-  //   [4*kClassArraySize, 5*kClassArraySize) : Cold New P0
-  //   [5*kClassArraySize, 6*kClassArraySize) : Cold New P1
+  //   [0, kClassArraySize)                   : Hot New R0
+  //   [kClassArraySize, 2*kClassArraySize)   : Hot New R1
+  //   [2*kClassArraySize, 3*kClassArraySize) : Hot Malloc R0
+  //   [3*kClassArraySize, 4*kClassArraySize) : Hot Malloc R1
+  //   [4*kClassArraySize, 5*kClassArraySize) : Cold New R0
+  //   [5*kClassArraySize, 6*kClassArraySize) : Cold New R1
   //
   // * If the heap partitioning feature is not active, then the lookups for
-  //   partition 1 will contain the same information as for partition 0.
+  //   region 1 will contain the same information as for region 0,
+  //   and both Hot New and Hot Malloc point to P0.
   // * If the heap partitioning feature is active in kFull mode:
-  //   Cold & partition 1 will be the same as hot & partition 1. Namely, it
-  //   will point to the [kNumBaseClasses, kColdClassesStart) size classes.
-  // * If the heap partitioning feature is active in kLight mode: Malloc P0 is
-  //   exclusive to P0; Hot New P0 maps to Hot New P1; Cold P1 maps to Cold P0.
+  //   Cold R1 will be the same as Hot R1. Namely, it will point to the
+  //   [kNumBaseClasses, kColdClassesStart) size classes.
+  // * If the heap partitioning feature is active in kLight mode: Hot Malloc R0
+  //   exclusively points to P0; Hot New R0 and Hot New R1 point to P1;
+  //   Cold New R0 and Cold New R1 point to Cold P0.
   //
-  // If NUMA support is compiled in, the partition 1 regions won't exist.
+  // If NUMA support is compiled in, the R1 regions won't exist.
   // Similarly, for cold memory, if cold classes are not compiled in.
-  static constexpr size_t kHotRegisters = 2 * kSecurityPartitions;
-  static constexpr size_t kColdRegisterStride = kHotRegisters;
-  static constexpr size_t kColdRegisters =
+  static constexpr size_t kHotRegions = 2 * kSecurityPartitions;
+  static constexpr size_t kColdRegionsStart = kHotRegions;
+  static constexpr size_t kColdRegions =
       (kHasColdClasses ? 1 : 0) * kSecurityPartitions;
-  static constexpr size_t kClassArraySizePartitions =
-      kClassArraySize * (kHotRegisters + kColdRegisters);
+  static constexpr size_t kTotalClassArraySize =
+      kClassArraySize * (kHotRegions + kColdRegions);
 
   // class_array_ is accessed on every malloc, so is very hot.  We make it the
   // first member so that it inherits the overall alignment of a SizeMap
@@ -119,8 +121,8 @@ class SizeMap {
   // aligned, this member is also aligned to the width of a cache line.
   //
   // For the mapping with the cold and/or security partitions, see the comment
-  // for kClassArraySizePartitions.
-  CompactSizeClass class_array_[kClassArraySizePartitions] = {0};
+  // for kTotalClassArraySize.
+  CompactSizeClass class_array_[kTotalClassArraySize] = {0};
 
   // Number of objects to move between a per-thread list and a central
   // list in one shot.  We want this to be not too small so we can
@@ -162,6 +164,10 @@ class SizeMap {
     TC_CHECK(ClassIndexMaybe(s, ret));
     return ret;
   }
+
+  // Set the specified class_array_ region from region 0 adjusting all
+  // values by `adjust`.
+  void SetClassArrayRegion(size_t region, CompactSizeClass adjust);
 
   // Mapping from size class to number of pages to allocate at a time
   unsigned char class_to_pages_[kNumClasses] = {0};
@@ -230,24 +236,24 @@ class SizeMap {
       return {false};
     }
     size_t size_class;
-    // Note, if security heap partitioning is enabled, only data (partition 0)
-    // is added to the cold heap. See the comment for kClassArraySizePartitions
+    // Note, if security heap partitioning is enabled, only data (region 0)
+    // is added to the cold heap. See the comment for kTotalClassArraySize
     // for more details.
     if (kHasColdClasses && policy.is_cold()) {
       TC_ASSERT(policy.allocation_type() == AllocationType::New);
-      TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegisterStride) *
+      TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegionsStart) *
                              kClassArraySize,
-                   kClassArraySizePartitions);
-      size_class = class_array_[idx + (policy.security_partition() +
-                                       kColdRegisterStride) *
-                                          kClassArraySize];
+                   kTotalClassArraySize);
+      size_class =
+          class_array_[idx + (policy.security_partition() + kColdRegionsStart) *
+                                 kClassArraySize];
     } else {
       constexpr size_t kTypeOffset =
           policy.allocation_type() != AllocationType::New ? kSecurityPartitions
                                                           : 0;
       TC_ASSERT_LT(
           idx + (policy.security_partition() + kTypeOffset) * kClassArraySize,
-          kClassArraySizePartitions);
+          kTotalClassArraySize);
       size_class =
           class_array_[idx + (policy.security_partition() + kTypeOffset) *
                                  kClassArraySize] +
