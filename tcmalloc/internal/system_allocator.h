@@ -292,7 +292,7 @@ void CheckAddressBits(uintptr_t ptr) {
 
 // Specialize for the bit width of a pointer to avoid undefined shift.
 template <>
-ABSL_ATTRIBUTE_UNUSED inline void CheckAddressBits<8 * sizeof(void*)>(
+[[maybe_unused]] inline void CheckAddressBits<8 * sizeof(void*)>(
     uintptr_t ptr) {}
 
 static_assert(kAddressBits <= 8 * sizeof(void*),

@@ -26,7 +26,6 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/attributes.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
@@ -158,7 +157,7 @@ TEST(Check, OK) {
   TC_ASSERT_LE(-1, 1);
   TC_ASSERT_LE(2, 2);
 
-  ABSL_ATTRIBUTE_UNUSED int unused[] = {
+  int unused [[maybe_unused]][] = {
       (TC_CHECK(true), 1),
       (TC_CHECK_EQ(1, 1), 2),
       (TC_ASSERT(true), 3),
