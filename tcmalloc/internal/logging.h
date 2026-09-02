@@ -101,12 +101,12 @@ struct StackTrace {
                                        __LINE__, ##__VA_ARGS__)
 
 void RecordCrash(absl::string_view detector, absl::string_view error);
-ABSL_ATTRIBUTE_NORETURN void CrashWithOOM(size_t alloc_size);
-ABSL_ATTRIBUTE_NORETURN void CheckFailed(const char* file, int line,
-                                         const char* msg, int msglen);
+[[noreturn]] void CrashWithOOM(size_t alloc_size);
+[[noreturn]] void CheckFailed(const char* file, int line, const char* msg,
+                              int msglen);
 
 template <typename... Args>
-ABSL_ATTRIBUTE_NORETURN ABSL_ATTRIBUTE_NOINLINE void CheckFailed(
+[[noreturn]] ABSL_ATTRIBUTE_NOINLINE void CheckFailed(
     const char* func, const char* file, int line,
     const absl::FormatSpec<int, const char*, int, const char*, Args...>& format,
     const Args&... args) {
