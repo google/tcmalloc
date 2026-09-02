@@ -66,7 +66,7 @@ ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
 
 ssize_t Sampler::PickNextSamplingPoint() {
   sample_interval_ = GetSampleInterval();
-  if (sample_interval_ <= 0) {
+  if (ABSL_PREDICT_FALSE(sample_interval_ <= 0)) {
     // In this case, we don't want to sample ever, and the larger a
     // value we put here, the longer until we hit the slow path
     // again. However, we have to support the flag changing at

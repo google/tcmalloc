@@ -1155,7 +1155,7 @@ void* CpuCache<Forwarder>::AllocateSlow(size_t size_class) {
 
 template <class Forwarder>
 void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
-  if (BypassCpuCache(size_class)) {
+  if (ABSL_PREDICT_FALSE(BypassCpuCache(size_class))) {
     return forwarder_.sharded_transfer_cache().Pop(size_class);
   }
   auto [cpu, cached] = CacheCpuSlab();
@@ -1171,7 +1171,8 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
 #endif
       return ptr;
     }
-    if (void* ret = AllocateFast(size_class)) {
+    if (void* ret = AllocateFast(size_class);
+        ABSL_PREDICT_FALSE(ret != nullptr)) {
       return ret;
     }
   }
@@ -1257,7 +1258,7 @@ inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
   // Also always add 1 to the result to account for the additional object
   // we need to return to the caller on refill, or return on overflow.
   size_t target = std::min((capacity + 1) / 2 + 1, max);
-  if (capacity == 1 && successive < 3) {
+  if (ABSL_PREDICT_FALSE(capacity == 1 && successive < 3)) {
     // If the capacity is 1, it's generally impossible to avoid bad behavior.
     // Consider refills (but the same stands for overflows): if we fetch an
     // additional object and put it into the cache, and the caller is doing
@@ -1387,7 +1388,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
     resize_[cpu].per_class[size_class].RecordMiss(
         PerClassMissType::kCapacityTotal);
   }
-  if (acquired_bytes == 0) {
+  if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
     return;
   }
   size_t actual_increase = acquired_bytes / size;
@@ -2096,7 +2097,7 @@ void CpuCache<Forwarder>::DeallocateSlow(void* ptr, size_t size_class) {
 
 template <class Forwarder>
 void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
-  if (BypassCpuCache(size_class)) {
+  if (ABSL_PREDICT_FALSE(BypassCpuCache(size_class))) {
     return forwarder_.sharded_transfer_cache().Push(size_class, ptr);
   }
   auto [cpu, cached] = CacheCpuSlab();
@@ -2105,7 +2106,7 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
       // The cpu is stopped.
       return ReleaseToBackingCache(size_class, {&ptr, 1});
     }
-    if (DeallocateFast(ptr, size_class)) {
+    if (ABSL_PREDICT_FALSE(DeallocateFast(ptr, size_class))) {
       return;
     }
   }

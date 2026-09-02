@@ -137,7 +137,7 @@ class SizeMap {
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
       idx = (s + 7) >> 3;
       return true;
-    } else if (s <= kMaxSize) {
+    } else if (ABSL_PREDICT_TRUE(s <= kMaxSize)) {
       idx = ((s + 127 + 120 * 128) >> 7);
 
       // TODO(b/64294063): Add a dummy statement to keep the tail of the fast

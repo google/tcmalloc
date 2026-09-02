@@ -554,7 +554,7 @@ inline size_t GetLargeSize(const void* ptr, const Span& span) {
 }
 
 inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
-  if (ptr == nullptr) return SizeAndSampled{0, false};
+  if (ABSL_PREDICT_FALSE(ptr == nullptr)) return SizeAndSampled{0, false};
   const PageId p = PageIdContainingTagged(ptr);
   const auto [span, size_class] =
       tc_globals.pagemap().GetDescriptorAndSizeClass(p);
@@ -1203,7 +1203,7 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
   if (ABSL_PREDICT_FALSE(weight != 0)) {
     ptr = SampleSmallAllocation(tc_globals, policy, size, weight, size_class);
   } else {
-    if (UsePerCpuCache(tc_globals)) {
+    if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
       ptr.p = tc_globals.cpu_cache().AllocateSlow(size_class);
     } else {
       ptr.p = ThreadCache::GetCache()->Allocate(size_class);
@@ -1635,14 +1635,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
     void* ptr, size_t size) noexcept {
-  if (ptr == nullptr) {
+  if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
     return fast_alloc(size, MallocPolicy());
   }
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
   if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
     ReportCorruptedFree(tc_globals, ptr);
   }
-  if (size == 0) {
+  if (ABSL_PREDICT_FALSE(size == 0)) {
     do_free(ptr, MallocPolicy());
     return nullptr;
   }
@@ -1655,10 +1655,10 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
   if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {
     return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
   }
-  if (ptr == nullptr) {
+  if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
     return fast_alloc(size, MallocPolicy());
   }
-  if (size == 0) {
+  if (ABSL_PREDICT_FALSE(size == 0)) {
     do_free(ptr, MallocPolicy());
     return nullptr;
   }
