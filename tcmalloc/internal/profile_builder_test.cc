@@ -60,7 +60,9 @@ namespace tcmalloc_internal {
 namespace {
 
 using ::testing::AnyOf;
+using ::testing::Contains;
 using ::testing::Each;
+using ::testing::ElementsAre;
 using ::testing::IsSupersetOf;
 using ::testing::Key;
 using ::testing::Not;
@@ -251,7 +253,7 @@ TEST(ProfileBuilderTest, StringTable) {
 
 // A helper type alias for a list of samples and their labels.
 using SampleLabels = std::vector<
-    std::vector<std::pair<std::string, std::variant<int, std::string>>>>;
+    std::vector<std::pair<std::string, std::variant<int64_t, std::string>>>>;
 
 void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
                                  SampleLabels& extracted) {
@@ -321,8 +323,7 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
         labels.emplace_back(converted.string_table(l.key()),
                             converted.string_table(l.str()));
       } else {
-        labels.emplace_back(converted.string_table(l.key()),
-                            static_cast<int>(l.num()));
+        labels.emplace_back(converted.string_table(l.key()), l.num());
       }
     }
   }
@@ -1168,8 +1169,7 @@ TEST(ProfileBuilderTest, EventTraceProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("alloc_handle", 0xbeef),
               Pair("allocation_time",
-                   static_cast<int>(
-                       absl::ToUnixNanos(start_time + absl::Milliseconds(10)))),
+                   absl::ToUnixNanos(start_time + absl::Milliseconds(10))),
               Pair("requested_size", 2)),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
@@ -1183,8 +1183,7 @@ TEST(ProfileBuilderTest, EventTraceProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("alloc_handle", 0xbeef),
               Pair("deallocation_time",
-                   static_cast<int>(absl::ToUnixNanos(
-                       start_time + absl::Milliseconds(20))))),
+                   absl::ToUnixNanos(start_time + absl::Milliseconds(20)))),
           // Check the contents of the right-censored sample.
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
@@ -1198,8 +1197,7 @@ TEST(ProfileBuilderTest, EventTraceProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("alloc_handle", 0xcafe),
               Pair("allocation_time",
-                   static_cast<int>(
-                       absl::ToUnixNanos(start_time + absl::Milliseconds(15)))),
+                   absl::ToUnixNanos(start_time + absl::Milliseconds(15))),
               Pair("requested_size", 2)),
           // Check the contents of the left-censored sample.
           UnorderedElementsAre(
@@ -1214,8 +1212,7 @@ TEST(ProfileBuilderTest, EventTraceProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("alloc_handle", 0xdead),
               Pair("deallocation_time",
-                   static_cast<int>(absl::ToUnixNanos(
-                       start_time + absl::Milliseconds(25)))))));
+                   absl::ToUnixNanos(start_time + absl::Milliseconds(25))))));
 
   // Checks for common fields.
   EXPECT_TRUE(RE2::FullMatch("TCMallocInternalNew",

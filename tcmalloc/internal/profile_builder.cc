@@ -731,7 +731,7 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
     };
 
     auto add_optional_int_label = [&](int key, int unit,
-                                      std::optional<int> opt_value) {
+                                      std::optional<int64_t> opt_value) {
       if (opt_value.has_value()) {
         add_label(key, unit, static_cast<size_t>(opt_value.value()));
       }
