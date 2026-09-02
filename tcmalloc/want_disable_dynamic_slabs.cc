@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/base/attributes.h"
-
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
 // This - if linked into a binary - allows dynamic slabs to be disabled.
-ABSL_ATTRIBUTE_UNUSED int default_want_disable_dynamic_slabs() { return 1; }
+[[maybe_unused]] int default_want_disable_dynamic_slabs() { return 1; }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

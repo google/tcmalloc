@@ -50,7 +50,7 @@ const char kDisableExperiments[] = "BORG_DISABLE_EXPERIMENTS";
 constexpr absl::string_view kEnableAll = "enable-all-known-experiments";
 constexpr absl::string_view kDisableAll = "all";
 
-bool IsCompilerExperiment(Experiment exp ABSL_ATTRIBUTE_UNUSED) {
+bool IsCompilerExperiment(Experiment exp [[maybe_unused]]) {
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT
   return exp == Experiment::NPX_COMPILER_EXPERIMENT;
 #else

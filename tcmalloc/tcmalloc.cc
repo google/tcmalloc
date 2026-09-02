@@ -194,7 +194,7 @@ namespace tcmalloc_internal {
 // [buffer, buffer+result] will contain NUL-terminated output string.
 //
 // REQUIRES: buffer_length > 0.
-extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
+extern "C" [[maybe_unused]] int MallocExtension_Internal_GetStatsInPbtxt(
     char* buffer, int buffer_length) {
   TC_ASSERT_GT(buffer_length, 0);
   Printer printer(buffer, buffer_length);
@@ -1887,7 +1887,7 @@ extern "C" struct mallinfo2 TCMallocInternalMallInfo2(void) noexcept {
 }
 #endif
 
-extern "C" int TCMallocInternalMallocInfo(int opts ABSL_ATTRIBUTE_UNUSED,
+extern "C" int TCMallocInternalMallocInfo(int opts [[maybe_unused]],
                                           FILE* fp) noexcept {
   fputs("<malloc></malloc>\n", fp);
   return 0;

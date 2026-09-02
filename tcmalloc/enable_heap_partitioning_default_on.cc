@@ -12,7 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/base/attributes.h"
-
-extern "C" ABSL_ATTRIBUTE_UNUSED void
-tcmalloc_flag_enable_heap_partitioning_default_on() {};
+extern "C" [[maybe_unused]] void
+tcmalloc_flag_enable_heap_partitioning_default_on() {}

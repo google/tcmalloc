@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -21,7 +20,7 @@ namespace tcmalloc_internal {
 
 // This -if linked into a binary - overrides page_allocator.cc and forces HPAA
 // subrelease off.
-ABSL_ATTRIBUTE_UNUSED int default_subrelease() { return -1; }
+[[maybe_unused]] int default_subrelease() { return -1; }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
