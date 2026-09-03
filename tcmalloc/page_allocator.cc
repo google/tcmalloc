@@ -76,10 +76,46 @@ PageAllocator::PageAllocator() {
   TC_CHECK_LE(part, std::size(choices_));
 }
 
-void PageAllocator::ShrinkToUsageLimit(Length n) {
+void PageAllocator::ShrinkToUsageLimit(Length n, bool may_have_grown) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const bool check_stats = true;
+#else
+#ifndef NDEBUG
+  const bool check_stats = true;
+#else
+  const bool check_stats = may_have_grown;
+#endif  // NDEBUG
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+
+  if (!check_stats) {
+    return;
+  }
+
   BackingStats s = stats();
   const size_t backed =
       s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+
+#ifndef NDEBUG
+  // Allocations from Arena (e.g. Tracker objects, Spans, pagemap nodes) can
+  // allocate system memory independently or during page allocation, causing
+  // tc_globals.metadata_bytes() to increase even when the page heap itself
+  // did not grow. We therefore track s.system_bytes - s.unmapped_bytes rather
+  // than backed.
+  //
+  // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
+  // present a consistent view of memory usage.
+  const size_t pageheap_backed = s.system_bytes - s.unmapped_bytes;
+  if (!may_have_grown && last_pageheap_system_bytes_minus_unmapped_ > 0) {
+    TC_ASSERT_LE(pageheap_backed, last_pageheap_system_bytes_minus_unmapped_);
+  }
+  last_pageheap_system_bytes_minus_unmapped_ = pageheap_backed;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  if (!may_have_grown) {
+    return;
+  }
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+#endif  // NDEBUG
+
   // New high water marks should be rare.
   if (ABSL_PREDICT_FALSE(backed > peak_backed_bytes_)) {
     peak_backed_bytes_ = backed;

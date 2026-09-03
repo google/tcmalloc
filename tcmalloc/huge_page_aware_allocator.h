@@ -82,7 +82,7 @@ class StaticForwarder : private Parameters {
   // Check page heap memory limit.  `n` indicates the size of the allocation
   // currently being made, which will not be included in the sampled memory heap
   // for realized fragmentation estimation.
-  static void ShrinkToUsageLimit(Length n)
+  static void ShrinkToUsageLimit(Length n, bool may_have_grown)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // PageMap state.
@@ -461,7 +461,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  FinalizeType Finalize(Range r);
+  FinalizeType Finalize(Range r, bool may_have_grown);
 
   Span* Spanify(FinalizeType f);
   Range Unspanify(FinalizeType f);
@@ -541,17 +541,17 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
   // pages. Otherwise, we're nearly guaranteed to release r (if n
   // isn't very large), and the next allocation will just repeat this
   // process.
-  forwarder_.ShrinkToUsageLimit(n);
+  forwarder_.ShrinkToUsageLimit(n, *from_released);
   return AllocAndContribute(r.start(), n, span_alloc_info, /*donated=*/false);
 }
 
 template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
-HugePageAwareAllocator<Forwarder>::Finalize(Range r)
+HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   TC_ASSERT_NE(r.p, PageId{0});
   info_.RecordAlloc(r);
-  forwarder_.ShrinkToUsageLimit(r.n);
+  forwarder_.ShrinkToUsageLimit(r.n, may_have_grown);
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // TODO(b/175334169): Lift Span creation out of LockAndAlloc.
   Span* ret = forwarder_.NewSpan(r);
@@ -573,14 +573,14 @@ HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
   auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
   *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-    return Finalize(Range(page, n));
+    return Finalize(Range(page, n), *from_released);
   }
 
   page = RefillFiller(n, span_alloc_info, from_released);
   if (ABSL_PREDICT_FALSE(page == PageId{0})) {
     return {};
   }
-  return Finalize(Range(page, n));
+  return Finalize(Range(page, n), *from_released);
 }
 
 template <class Forwarder>
@@ -600,14 +600,14 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
     auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
     *from_released = released;
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-      return Finalize(Range(page, n));
+      return Finalize(Range(page, n), *from_released);
     }
   }
 
   // If we're using regions in this binary (see below comment), is
   // there currently available space there?
   if (regions_.MaybeGet(n, &page, from_released)) {
-    return Finalize(Range(page, n));
+    return Finalize(Range(page, n), *from_released);
   }
 
   // We have two choices here: allocate a new region or go to
@@ -646,7 +646,7 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
   }
 
   TC_CHECK(regions_.MaybeGet(n, &page, from_released));
-  return Finalize(Range(page, n));
+  return Finalize(Range(page, n), /*may_have_grown=*/true);
 }
 
 template <class Forwarder>
@@ -677,7 +677,7 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   HugePage last = first + r.len() - NHugePages(1);
   if (slack == Length(0)) {
     SetTracker(last, nullptr);
-    return Finalize(Range(r.start().first_page(), total));
+    return Finalize(Range(r.start().first_page(), total), *from_released);
   }
 
   ++donated_huge_pages_;
@@ -685,7 +685,7 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   Length here = kPagesPerHugePage - slack;
   TC_ASSERT_GT(here, Length(0));
   AllocAndContribute(last, here, span_alloc_info, /*donated=*/true);
-  auto span = Finalize(Range(r.start().first_page(), n));
+  auto span = Finalize(Range(r.start().first_page(), n), *from_released);
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   span->set_donated(/*value=*/true);
   return span;
