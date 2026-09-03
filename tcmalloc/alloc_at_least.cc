@@ -30,7 +30,7 @@ extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t alloc_at_least(size_t min_size)
 extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t aligned_alloc_at_least(
     size_t alignment, size_t min_size) ALLOC_AT_LEAST_NOEXCEPT {
   alloc_result_t result;
-#if !defined(_ISOC11_SOURCE)
+#if defined(_LIBCPP_HAS_C11_ALIGNED_ALLOC) && !_LIBCPP_HAS_C11_ALIGNED_ALLOC
   void* ptr = nullptr;
   if (alignment < sizeof(void*)) {
     alignment = sizeof(void*);

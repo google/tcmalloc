@@ -1759,3 +1759,13 @@ cc_library(
     ],
     deps = ["@com_google_absl//absl/base:core_headers"],
 )
+
+cc_test(
+    name = "alloc_at_least_test",
+    srcs = ["alloc_at_least_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    deps = [
+        ":alloc_at_least",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
