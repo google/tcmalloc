@@ -24,6 +24,7 @@
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "absl/types/span.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 
@@ -51,10 +52,13 @@ constexpr size_t kNumExperiments =
 //
 // buffer must be sized for kMaxExperimentID entries.
 //
-// This is exposed for testing purposes only.
+// This is exposed for testing purposes only.  `configs` defaults to the
+// production experiment table; tests may inject a custom table to exercise
+// interactions between configuration fields.
 void SelectExperiments(bool* absl_nonnull buffer, absl::string_view test_target,
                        absl::string_view active, absl::string_view disabled,
-                       bool unset, absl::string_view hostname);
+                       bool unset, absl::string_view hostname,
+                       absl::Span<const ExperimentConfig> configs);
 
 absl::string_view LookupHostname();
 

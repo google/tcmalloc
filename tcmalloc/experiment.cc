@@ -34,6 +34,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/types/span.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
@@ -84,7 +85,7 @@ const bool* GetSelectedExperiments() {
         active_experiments ? active_experiments : "",
         disabled_experiments ? disabled_experiments : "",
         active_experiments == nullptr && disabled_experiments == nullptr,
-        hostname);
+        hostname, experiments);
   });
   return by_id;
 }
@@ -143,14 +144,15 @@ bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
 
 void SelectExperiments(bool* buffer, absl::string_view test_target,
                        absl::string_view active, absl::string_view disabled,
-                       bool unset, absl::string_view hostname) {
+                       bool unset, absl::string_view hostname,
+                       absl::Span<const ExperimentConfig> configs) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {
     std::fill(buffer, buffer + kNumExperiments, true);
   }
 
-  for (const auto& config : experiments) {
+  for (const auto& config : configs) {
     if (config.rollout_upper_bound > 0) {
       if (IsExperimentRolloutEnabled(config, hostname)) {
         buffer[static_cast<int>(config.id)] = true;
@@ -180,7 +182,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
 #endif
 
   if (disabled == kDisableAll) {
-    for (auto config : experiments) {
+    for (auto config : configs) {
       // Exclude compile-time experiments
       if (!IsCompilerExperiment(config.id)) {
         buffer[static_cast<int>(config.id)] = false;
@@ -218,7 +220,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
     if ((target_hash % kVanillaOneOf) != 0) {
       int num_enabled_experiments = 0;
       Experiment experiment_id = Experiment::kMaxExperimentID;
-      for (auto config : experiments) {
+      for (auto config : configs) {
         if (IsCompilerExperiment(config.id) || config.brittle) {
           continue;
         }
@@ -244,7 +246,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
   }
 
   // Ensure unsafe experiments are disabled.
-  for (const auto& config : experiments) {
+  for (const auto& config : configs) {
     if (config.force_disable) {
       buffer[static_cast<int>(config.id)] = false;
     }
