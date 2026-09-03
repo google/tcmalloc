@@ -130,8 +130,8 @@ void StaticForwarder::SetHugepage(HugePage p, void* pt) {
   tc_globals.pagemap().SetHugepage(p.first_page(), pt);
 }
 
-void StaticForwarder::ShrinkToUsageLimit(Length n) {
-  tc_globals.page_allocator().ShrinkToUsageLimit(n);
+void StaticForwarder::ShrinkToUsageLimit(Length n, bool may_have_grown) {
+  tc_globals.page_allocator().ShrinkToUsageLimit(n, may_have_grown);
 }
 
 Span* StaticForwarder::NewSpan(Range r) {

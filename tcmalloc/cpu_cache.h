@@ -146,7 +146,8 @@ class StaticForwarder : private Parameters {
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     if (allocated > 0) {
-      state_.page_allocator().ShrinkToUsageLimit(Length(allocated));
+      state_.page_allocator().ShrinkToUsageLimit(
+          Length(allocated), /*may_have_grown=*/allocated > nonresident);
     }
     state_.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
