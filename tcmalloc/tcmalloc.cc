@@ -221,9 +221,10 @@ extern "C" [[maybe_unused]] int MallocExtension_Internal_GetStatsInPbtxt(
 static void PrintStats(int level) {
   const int kBufferSize = 64 << 10;
   char* buffer = new char[kBufferSize];
+  buffer[kBufferSize - 1] = '\0';
   Printer printer(buffer, kBufferSize);
   DumpStats(printer, level);
-  (void)write(STDERR_FILENO, buffer, strlen(buffer));
+  (void)write(STDERR_FILENO, buffer, printer.bytes_written());
   delete[] buffer;
 }
 
