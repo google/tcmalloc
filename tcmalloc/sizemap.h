@@ -80,7 +80,7 @@ class SizeMap {
   //   1025       (1025 + 127 + (120<<7)) / 128   129
   //   ...
   //   32768      (32768 + 127 + (120<<7)) / 128  376
-  static constexpr int kSmallSizeAlignment = 8;
+  static constexpr int kSmallSizeAlignment = 1;
   static constexpr size_t kClassArraySize =
       kLargeSize / kSmallSizeAlignment +
       (kMaxSize - kLargeSize) / kLargeSizeAlignment + 1;
@@ -136,10 +136,13 @@ class SizeMap {
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
   // parameter idx and returning true. Otherwise return false.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
-                                                                  size_t& idx) {
+  template <typename Policy>
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool ClassIndexMaybe(Policy policy, size_t s,
+                                                    size_t& idx,
+                                                    size_t& size_class) const {
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
       idx = (s + kSmallSizeAlignment - 1) / kSmallSizeAlignment;
+      size_class = SizeClassForIndex(policy, idx);
       return true;
     } else if (ABSL_PREDICT_TRUE(s <= kMaxSize)) {
       idx = ((s + kLargeSizeAlignment - 1 +
@@ -147,7 +150,7 @@ class SizeMap {
                kLargeSize / kLargeSizeAlignment) *
                   kLargeSizeAlignment) /
              kLargeSizeAlignment);
-
+      size_class = SizeClassForIndex(policy, idx);
       // TODO(b/64294063): Add a dummy statement to keep the tail of the fast
       // and the slow paths from being deduplicated, turning the shifts into
       // a variable-width shift (shr reg, cl on x86); these are especially
@@ -158,17 +161,45 @@ class SizeMap {
       //
       // See SLOW_PATH_BARRIER() in tcmalloc.cc for more information
       // about this technique.
-      asm volatile("");
+      asm("");
 
       return true;
     }
     return false;
   }
 
-  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(size_t s) {
-    size_t ret;
-    TC_CHECK(ClassIndexMaybe(s, ret));
+  template <typename Policy>
+  ABSL_ATTRIBUTE_ALWAYS_INLINE size_t ClassIndex(Policy policy,
+                                                 size_t s) const {
+    size_t ret, size_class;
+    TC_CHECK(ClassIndexMaybe(policy, s, ret, size_class));
     return ret;
+  }
+
+  template <typename Policy>
+  ABSL_ATTRIBUTE_ALWAYS_INLINE size_t SizeClassForIndex(Policy policy,
+                                                        size_t idx) const {
+    // Note, if security heap partitioning is enabled, only data (region 0)
+    // is added to the cold heap. See the comment for kTotalClassArraySize
+    // for more details.
+    if (kHasColdClasses && policy.is_cold()) {
+      TC_ASSERT(policy.allocation_type() == AllocationType::New);
+      TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegionsStart) *
+                             kClassArraySize,
+                   kTotalClassArraySize);
+      return class_array_[idx +
+                          (policy.security_partition() + kColdRegionsStart) *
+                              kClassArraySize];
+    }
+    constexpr size_t kTypeOffset =
+        policy.allocation_type() != AllocationType::New ? kSecurityPartitions
+                                                        : 0;
+    TC_ASSERT_LT(
+        idx + (policy.security_partition() + kTypeOffset) * kClassArraySize,
+        kTotalClassArraySize);
+    return class_array_[idx + (policy.security_partition() + kTypeOffset) *
+                                  kClassArraySize] +
+           policy.scaled_numa_partition();
   }
 
   // Set the specified class_array_ region from region 0 adjusting all
@@ -237,33 +268,9 @@ class SizeMap {
       return {false};
     }
 
-    size_t idx;
-    if (ABSL_PREDICT_FALSE(!ClassIndexMaybe(size, idx))) {
+    size_t idx, size_class;
+    if (ABSL_PREDICT_FALSE(!ClassIndexMaybe(policy, size, idx, size_class))) {
       return {false};
-    }
-    size_t size_class;
-    // Note, if security heap partitioning is enabled, only data (region 0)
-    // is added to the cold heap. See the comment for kTotalClassArraySize
-    // for more details.
-    if (kHasColdClasses && policy.is_cold()) {
-      TC_ASSERT(policy.allocation_type() == AllocationType::New);
-      TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegionsStart) *
-                             kClassArraySize,
-                   kTotalClassArraySize);
-      size_class =
-          class_array_[idx + (policy.security_partition() + kColdRegionsStart) *
-                                 kClassArraySize];
-    } else {
-      constexpr size_t kTypeOffset =
-          policy.allocation_type() != AllocationType::New ? kSecurityPartitions
-                                                          : 0;
-      TC_ASSERT_LT(
-          idx + (policy.security_partition() + kTypeOffset) * kClassArraySize,
-          kTotalClassArraySize);
-      size_class =
-          class_array_[idx + (policy.security_partition() + kTypeOffset) *
-                                 kClassArraySize] +
-          policy.scaled_numa_partition();
     }
 
     // Don't search for suitably aligned class for operator new
