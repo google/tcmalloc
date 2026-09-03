@@ -80,8 +80,10 @@ class SizeMap {
   //   1025       (1025 + 127 + (120<<7)) / 128   129
   //   ...
   //   32768      (32768 + 127 + (120<<7)) / 128  376
+  static constexpr int kSmallSizeAlignment = 8;
   static constexpr size_t kClassArraySize =
-      ((kMaxSize + 127 + (120 << 7)) >> 7) + 1;
+      kLargeSize / kSmallSizeAlignment +
+      (kMaxSize - kLargeSize) / kLargeSizeAlignment + 1;
 
   // Batch size is the number of objects to move at once.
   typedef unsigned char BatchSize;
@@ -137,10 +139,14 @@ class SizeMap {
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
                                                                   size_t& idx) {
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
-      idx = (s + 7) >> 3;
+      idx = (s + kSmallSizeAlignment - 1) / kSmallSizeAlignment;
       return true;
     } else if (ABSL_PREDICT_TRUE(s <= kMaxSize)) {
-      idx = ((s + 127 + 120 * 128) >> 7);
+      idx = ((s + kLargeSizeAlignment - 1 +
+              (kLargeSize / kSmallSizeAlignment -
+               kLargeSize / kLargeSizeAlignment) *
+                  kLargeSizeAlignment) /
+             kLargeSizeAlignment);
 
       // TODO(b/64294063): Add a dummy statement to keep the tail of the fast
       // and the slow paths from being deduplicated, turning the shifts into

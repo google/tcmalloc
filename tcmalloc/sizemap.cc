@@ -231,8 +231,10 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
   TC_CHECK_EQ(ClassIndex(0), 0);
-  TC_CHECK_LT(ClassIndex(kMaxSize), sizeof(class_array_));
-  static_assert(kAlignment <= std::align_val_t{16}, "kAlignment is too large");
+  TC_CHECK_EQ(ClassIndex(kMaxSize), kClassArraySize - 1);
+  TC_CHECK_EQ(ClassIndex(kLargeSize) + 1, ClassIndex(kLargeSize + 1));
+  static_assert(kSmallSizeAlignment <= static_cast<size_t>(kAlignment));
+  static_assert(static_cast<size_t>(kAlignment) <= 16);
 
   if (!SetSizeClasses(size_classes)) {
     return false;
@@ -240,7 +242,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
 
   // Fill in the canonical class array in region 0.
   for (int c = 1, s = 0; c < kNumClasses && s <= kMaxSize; c++) {
-    for (; s <= class_to_size_[c]; s += static_cast<size_t>(kAlignment)) {
+    for (; s <= class_to_size_[c]; s += kSmallSizeAlignment) {
       class_array_[ClassIndex(s)] = c;
     }
   }
