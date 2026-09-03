@@ -55,6 +55,7 @@
 #include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
