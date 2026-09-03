@@ -236,7 +236,9 @@ inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCurrentPartition()
     const {
   if constexpr (NumPartitions == 1) return 0;
   const int cpu = subtle::percpu::GetRealCpuUnsafe();
-  return gated_cpu_to_scaled_partition_[cpu + kNumaCpuFudge] / ScaleBy;
+  size_t idx = static_cast<size_t>(cpu + kNumaCpuFudge);
+  if (ABSL_PREDICT_FALSE(idx >= kCpuMapSize)) return 0;
+  return gated_cpu_to_scaled_partition_[idx] / ScaleBy;
 }
 
 template <size_t NumPartitions, size_t ScaleBy>
@@ -244,7 +246,9 @@ inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCurrentScaledPartition()
     const {
   if constexpr (NumPartitions == 1) return 0;
   const int cpu = subtle::percpu::GetRealCpuUnsafe();
-  return gated_cpu_to_scaled_partition_[cpu + kNumaCpuFudge];
+  size_t idx = static_cast<size_t>(cpu + kNumaCpuFudge);
+  if (ABSL_PREDICT_FALSE(idx >= kCpuMapSize)) return 0;
+  return gated_cpu_to_scaled_partition_[idx];
 }
 
 template <size_t NumPartitions, size_t ScaleBy>
@@ -256,7 +260,9 @@ inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCpuPartition(
 template <size_t NumPartitions, size_t ScaleBy>
 inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCpuScaledPartition(
     const int cpu) const {
-  return cpu_to_scaled_partition_[cpu + kNumaCpuFudge];
+  size_t idx = static_cast<size_t>(cpu + kNumaCpuFudge);
+  if (ABSL_PREDICT_FALSE(idx >= kCpuMapSize)) return 0;
+  return cpu_to_scaled_partition_[idx];
 }
 
 template <size_t NumPartitions, size_t ScaleBy>
