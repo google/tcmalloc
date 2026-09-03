@@ -156,9 +156,14 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
     data.count += entry.count;
     data.sum += entry.sum;
     std::optional<Residency::Info> residency_info;
+    // When the caller did not use a size-returning allocation, only
+    // requested_size bytes are meaningful.  Use the same size for both
+    // residency and compressibility so that EstimateCompressedSize does not
+    // extrapolate to a total_backed derived from the larger allocated_size.
+    const size_t size = entry.requested_size_returning ? entry.allocated_size
+                                                       : entry.requested_size;
     if (residency) {
-      residency_info =
-          residency->Get(entry.span_start_address, entry.allocated_size);
+      residency_info = residency->Get(entry.span_start_address, size);
       // As long as `residency_info` provides data in some samples, the merged
       // data will have their sums.
       // NOTE: The data here is comparable to `tcmalloc::Profile::Sample::sum`,
@@ -203,8 +208,6 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
 
     if (exporting_compressibility && residency_info.has_value() &&
         entry.span_start_address != nullptr && entry.requested_size > 0) {
-      size_t size = entry.requested_size_returning ? entry.allocated_size
-                                                   : entry.requested_size;
       absl::Span<const char> sample_mem(
           reinterpret_cast<const char*>(entry.span_start_address), size);
       absl::StatusOr<CompressionAnalyzer::Results> res =
