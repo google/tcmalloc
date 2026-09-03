@@ -1226,11 +1226,13 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
 
   released += cache_.ReleaseCachedPages(HLFromPages(n)).in_pages();
 
-  // We try to release as many free hugepages from HugeRegion as possible.
-  Length from_huge_region = n > released ? n - released : Length(0);
-  released += regions_.ReleasePages(from_huge_region,
-                                    forwarder_.huge_region_adaptive_release(),
-                                    /*hit_limit=*/true);
+  // Release up to the remaining deficit from HugeRegion.
+  if (n > released) {
+    Length from_huge_region = n - released;
+    released += regions_.ReleasePages(from_huge_region,
+                                      forwarder_.huge_region_adaptive_release(),
+                                      /*hit_limit=*/true);
+  }
 
   if (released >= n) {
     info_.RecordRelease(n, released, reason);
