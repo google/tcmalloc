@@ -34,6 +34,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/types/span.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
@@ -58,8 +59,9 @@ bool IsCompilerExperiment(Experiment exp [[maybe_unused]]) {
 #endif
 }
 
-bool LookupExperimentID(absl::string_view label, Experiment* exp) {
-  for (auto config : experiments) {
+bool LookupExperimentID(absl::string_view label, Experiment* exp,
+                        absl::Span<const ExperimentConfig> experiments_data) {
+  for (const auto& config : experiments_data) {
     if (config.name == label) {
       *exp = config.id;
       return true;
@@ -143,14 +145,15 @@ bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
 
 void SelectExperiments(bool* buffer, absl::string_view test_target,
                        absl::string_view active, absl::string_view disabled,
-                       bool unset, absl::string_view hostname) {
+                       bool unset, absl::string_view hostname,
+                       absl::Span<const ExperimentConfig> experiments_data) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {
     std::fill(buffer, buffer + kNumExperiments, true);
   }
 
-  for (const auto& config : experiments) {
+  for (const auto& config : experiments_data) {
     if (config.rollout_upper_bound > 0) {
       if (IsExperimentRolloutEnabled(config, hostname)) {
         buffer[static_cast<int>(config.id)] = true;
@@ -158,9 +161,9 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
     }
   }
 
-  ParseExperiments(active, [buffer](absl::string_view token) {
+  ParseExperiments(active, [buffer, experiments_data](absl::string_view token) {
     Experiment id;
-    if (LookupExperimentID(token, &id)) {
+    if (LookupExperimentID(token, &id, experiments_data)) {
       buffer[static_cast<int>(id)] = true;
     }
   });
@@ -171,7 +174,8 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
 #define STR(x) #x
   if (!absl::StrContains(active, Q(NPX_COMPILER_ENABLED_EXPERIMENT))) {
     Experiment id;
-    if (LookupExperimentID(Q(NPX_COMPILER_ENABLED_EXPERIMENT), &id)) {
+    if (LookupExperimentID(Q(NPX_COMPILER_ENABLED_EXPERIMENT), &id,
+                           experiments_data)) {
       buffer[static_cast<int>(id)] = true;
     }
   }
@@ -180,7 +184,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
 #endif
 
   if (disabled == kDisableAll) {
-    for (auto config : experiments) {
+    for (const auto& config : experiments_data) {
       // Exclude compile-time experiments
       if (!IsCompilerExperiment(config.id)) {
         buffer[static_cast<int>(config.id)] = false;
@@ -189,12 +193,14 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
   }
 
   // disable non-compiler experiments
-  ParseExperiments(disabled, [buffer](absl::string_view token) {
-    Experiment id;
-    if (LookupExperimentID(token, &id) && !IsCompilerExperiment(id)) {
-      buffer[static_cast<int>(id)] = false;
-    }
-  });
+  ParseExperiments(disabled,
+                   [buffer, experiments_data](absl::string_view token) {
+                     Experiment id;
+                     if (LookupExperimentID(token, &id, experiments_data) &&
+                         !IsCompilerExperiment(id)) {
+                       buffer[static_cast<int>(id)] = false;
+                     }
+                   });
 
   // Enable some random combination of experiments for tests that don't
   // explicitly set any of the experiment env vars. This allows to get better
@@ -218,7 +224,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
     if ((target_hash % kVanillaOneOf) != 0) {
       int num_enabled_experiments = 0;
       Experiment experiment_id = Experiment::kMaxExperimentID;
-      for (auto config : experiments) {
+      for (const auto& config : experiments_data) {
         if (IsCompilerExperiment(config.id) || config.brittle) {
           continue;
         }
@@ -232,19 +238,17 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
         num_enabled_experiments += enabled;
       }
       // In case the hash-based selection above did not work out, select the
-      // last experiment.
+      // last experiment. Note that this experiment may already be active from
+      // hostname rollout, so we set it directly without asserting.
       if (num_enabled_experiments == 0 &&
           experiment_id != Experiment::kMaxExperimentID) {
-        // TODO: b/454666418 - Replace with TC_CHECK when the synchronization
-        // experimentation is finished.
-        assert(!buffer[static_cast<int>(experiment_id)]);
         buffer[static_cast<int>(experiment_id)] = true;
       }
     }
   }
 
   // Ensure unsafe experiments are disabled.
-  for (const auto& config : experiments) {
+  for (const auto& config : experiments_data) {
     if (config.force_disable) {
       buffer[static_cast<int>(config.id)] = false;
     }
