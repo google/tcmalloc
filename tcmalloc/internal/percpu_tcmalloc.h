@@ -162,8 +162,12 @@ class TcmallocSlab {
   // Update maximum capacities allocated to each size class.
   // Build and initialize <new_slabs> so as to use new maximum capacities
   // provided by <capacity> callback for the <size_class>.
+  // <capacity> should return the new maximum capacity for the given size
+  // class, regardless of whether <update_capacity> has been called or not.
   // <update_capacity> updates capacities for the <size_class> with the new
   // <cap> once the slabs are initialized.
+  // <populated> returns whether the given cpu's slab is populated. The
+  // return value should remain constant for the duration of the call.
   // <new_max_capacity> provides an array of new maximum capacities to be
   // updated for size classes.
   // <classes_to_resize> provides the number of size classes for which the
@@ -1083,7 +1087,8 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpuImpl(
     void* slabs, Shift shift, int cpu,
     absl::FunctionRef<size_t(size_t)> capacity) {
-  TC_CHECK(state_[cpu].stopped.load(std::memory_order_relaxed));
+  TC_CHECK(slabs != GetSlabsAndShift(std::memory_order_relaxed).first ||
+           state_[cpu].stopped.load(std::memory_order_relaxed));
   TC_CHECK_LE((1 << ToUint8(shift)), (1 << 16) * sizeof(void*));
 
   // Initialize prefetch target and compute the offsets for the
@@ -1251,16 +1256,26 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
     absl::FunctionRef<void(int, uint16_t)> update_capacity,
     absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
     PerSizeClassMaxCapacity* new_max_capacity, int classes_to_resize) {
+  const int n_cpus = num_cpus();
+  const auto [old_slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+
+  // Phase 0: Initialize slabs for populated CPUs BEFORE stopping CPUs.
+  // This prefaults pages while all CPUs continue running undisturbed.
+  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
+    // populated should not change while this function runs because the caller
+    // should be holding all the CPU resize locks.
+    if (!populated(cpu)) continue;
+    InitCpuImpl(new_slabs, shift, cpu, capacity);
+  }
+
   // Phase 1: Stop all CPUs and initialize any CPUs in the new slab that have
   // already been populated in the old slab.
-  const auto [old_slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   std::array<uint16_t, NumClasses> old_begins;
   for (int size_class = 1; size_class < NumClasses; ++size_class) {
     old_begins[size_class] =
         begins_[size_class].load(std::memory_order_relaxed);
   }
 
-  const int n_cpus = num_cpus();
   for (auto& state : state_) {
     TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
     state.stopped.store(true, std::memory_order_relaxed);
@@ -1280,10 +1295,6 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   }
 
   // Phase 3: Initialize slabs.
-  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
-    if (!populated(cpu)) continue;
-    InitCpuImpl(new_slabs, shift, cpu, capacity);
-  }
   InitSlabs(new_slabs, shift, capacity);
 
   // Phase 4: Re-start all CPUs.
@@ -1305,8 +1316,9 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
     absl::FunctionRef<size_t(size_t)> capacity,
     absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler)
     -> ResizeSlabsInfo {
-  // Phase 1: Collect begins, stop all CPUs and initialize any CPUs in the new
-  // slab that have already been populated in the old slab.
+  // Phase 1: Collect begins, initialize any CPUs in the new
+  // slab that have already been populated in the old slab,
+  // then stop all CPUs.
   const auto [old_slabs, old_shift] =
       GetSlabsAndShift(std::memory_order_relaxed);
   std::array<uint16_t, NumClasses> old_begins;
@@ -1318,11 +1330,14 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   TC_ASSERT_NE(new_shift, old_shift);
   const int n_cpus = num_cpus();
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
-    TC_CHECK(!state_[cpu].stopped.load(std::memory_order_relaxed));
-    state_[cpu].stopped.store(true, std::memory_order_relaxed);
     if (populated(cpu)) {
       InitCpuImpl(new_slabs, new_shift, cpu, capacity);
     }
+  }
+
+  for (auto& state : state_) {
+    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
+    state.stopped.store(true, std::memory_order_relaxed);
   }
   FenceAllCpus();
 

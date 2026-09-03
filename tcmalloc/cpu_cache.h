@@ -1674,13 +1674,30 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
         new_resize_slab_offset);
 
+    std::atomic<uint16_t> updated_max_capacities[kNumClasses];
+    for (size_t i = 0; i < kNumClasses; ++i) {
+      updated_max_capacities[i].store(
+          max_capacity_[i].load(std::memory_order_relaxed),
+          std::memory_order_relaxed);
+    }
+
+    for (int i = 0; i < to_update; ++i) {
+      updated_max_capacities[new_max_capacities[i].size_class].store(
+          new_max_capacities[i].max_capacity, std::memory_order_relaxed);
+    }
+
     info = freelist_.UpdateMaxCapacities(
         new_slabs,
-        GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
+        GetShiftMaxCapacity{updated_max_capacities, per_cpu_shift,
+                            shift_bounds_},
         [this](int size_class, uint16_t cap) {
           UpdateMaxCapacity(size_class, cap);
         },
-        [this](int cpu) { return HasPopulated(cpu); },
+        [this](int cpu) {
+          // Since this is called while holding all resize_ locks,
+          // HasPopulated should not change.
+          return HasPopulated(cpu);
+        },
         DrainHandler<CpuCache>{*this, nullptr}, new_max_capacities, to_update);
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();

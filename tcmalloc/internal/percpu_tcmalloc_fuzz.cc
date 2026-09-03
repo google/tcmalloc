@@ -565,7 +565,13 @@ struct UpdateMaxCapacities {
     void* new_slabs = Malloc(slabs_size, SlabAlignment(shift));
     const auto [old_slabs, old_slabs_size] = state.slab.UpdateMaxCapacities(
         new_slabs,
-        [&state](size_t size_class) { return state.MaxCapacity(size_class); },
+        [&state, sc, target_cap](size_t size_class) {
+          // Return the new max capacity for the size class we want to grow.
+          if (size_class == sc) return target_cap;
+          // Since other size classes' max capacities are not changed, we can
+          // just return their current max capacities.
+          return state.MaxCapacity(size_class);
+        },
         [&state](int size_class, uint16_t cap) {
           state.max_capacity[size_class] = cap;
         },

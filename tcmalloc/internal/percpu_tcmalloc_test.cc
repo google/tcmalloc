@@ -480,9 +480,16 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
     new_max_capacity[1] = PerSizeClassMaxCapacity{
         .size_class = kSizeClassToShrink,
         .max_capacity = max_capacity[kSizeClassToShrink] - 1};
+    std::array<size_t, kStressSlabs> updated_max_capacity;
+    for (int sc = 0; sc < kStressSlabs; ++sc) {
+      updated_max_capacity[sc] = max_capacity[sc];
+    }
+    updated_max_capacity[kSizeClassToGrow] += 1;
+    updated_max_capacity[kSizeClassToShrink] -= 1;
     void* slabs = AllocSlabs(allocator, kShift);
     const auto [old_slabs, old_slabs_size] = slab_.UpdateMaxCapacities(
-        slabs, [&](size_t size_class) { return max_capacity[size_class]; },
+        slabs,
+        [&](size_t size_class) { return updated_max_capacity[size_class]; },
         [&](int size, uint16_t cap) { max_capacity[size] = cap; },
         [](int cpu) { return cpu == kCpu; },
         [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
@@ -889,10 +896,21 @@ void ResizeMaxCapacitiesThread(
     int to_resize = GetResizedMaxCapacities(ctx, new_max_capacity);
     size_t old_slabs_idx = 0;
 
+    std::atomic<size_t> updated_max_capacity[kStressSlabs];
+    for (size_t sc = 0; sc < kStressSlabs; ++sc) {
+      updated_max_capacity[sc].store(
+          ctx.max_capacity[sc].load(std::memory_order_relaxed),
+          std::memory_order_relaxed);
+    }
+    for (int i = 0; i < to_resize; ++i) {
+      updated_max_capacity[new_max_capacity[i].size_class].store(
+          new_max_capacity[i].max_capacity, std::memory_order_relaxed);
+    }
+
     uint8_t shift = ctx.slab->GetShift();
     void* slabs = AllocSlabs(allocator, shift);
     const auto [old_slabs, old_slabs_size] = ctx.slab->UpdateMaxCapacities(
-        slabs, ctx.GetMaxCapacityFunctor(),
+        slabs, GetMaxCapacity{updated_max_capacity},
         [&](int size, uint16_t cap) {
           ctx.max_capacity[size].store(cap, std::memory_order_relaxed);
         },
