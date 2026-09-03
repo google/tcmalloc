@@ -144,6 +144,10 @@ class CentralFreeList {
 
   static constexpr size_t kSameSpanBucketCapacity =
       absl::bit_width(kMaxObjectsToMove);
+  // num_same_spans_ is indexed by absl::bit_width(same_span) for same_span in
+  // [0, kMaxObjectsToMove - 1], which fits only when kMaxObjectsToMove is a
+  // power of two.
+  static_assert(absl::has_single_bit(kMaxObjectsToMove));
 
   constexpr CentralFreeList()
       : lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
