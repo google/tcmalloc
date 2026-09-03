@@ -1884,5 +1884,38 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
+TEST(TCMalloc, MemalignInvalidAlignment) {
+  // Hide invalid alignment from -Wnon-power-of-two-alignment.
+  volatile size_t alignment = 0;
+  errno = 0;
+  EXPECT_EQ(memalign(alignment, 1024), nullptr);
+  EXPECT_EQ(errno, EINVAL);
+
+  alignment = 3;
+  errno = 0;
+  EXPECT_EQ(memalign(alignment, 1024), nullptr);
+  EXPECT_EQ(errno, EINVAL);
+
+  alignment = 5;
+  errno = 0;
+  EXPECT_EQ(memalign(alignment, 1024), nullptr);
+  EXPECT_EQ(errno, EINVAL);
+
+  alignment = 7;
+  errno = 0;
+  EXPECT_EQ(memalign(alignment, 1024), nullptr);
+  EXPECT_EQ(errno, EINVAL);
+
+  alignment = 9;
+  errno = 0;
+  EXPECT_EQ(memalign(alignment, 1024), nullptr);
+  EXPECT_EQ(errno, EINVAL);
+
+  alignment = 1000;
+  errno = 0;
+  EXPECT_EQ(memalign(alignment, 1024), nullptr);
+  EXPECT_EQ(errno, EINVAL);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

@@ -1517,6 +1517,10 @@ __sized_ptr_t __size_returning_new_aligned_hot_cold(size_t size,
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalMemalign(
     size_t align, size_t size) noexcept {
+  if (ABSL_PREDICT_FALSE(!absl::has_single_bit(align))) {
+    errno = EINVAL;
+    return nullptr;
+  }
   return fast_alloc(size, MallocPolicy().AlignAs(align));
 }
 
@@ -2153,6 +2157,10 @@ ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, std::align_val_t align,
     return result;                                                             \
   }                                                                            \
   void* __alloc_token_##id##_memalign(size_t align, size_t size) noexcept {    \
+    if (ABSL_PREDICT_FALSE(!absl::has_single_bit(align))) {                    \
+      errno = EINVAL;                                                          \
+      return nullptr;                                                          \
+    }                                                                          \
     return fast_alloc(                                                         \
         size, MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align)); \
   }                                                                            \
