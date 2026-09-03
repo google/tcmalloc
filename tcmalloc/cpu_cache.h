@@ -1342,9 +1342,11 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
 template <class Forwarder>
 std::pair<int, bool> CpuCache<Forwarder>::CacheCpuSlab() {
   auto [cpu, cached] = freelist_.CacheCpuSlab();
-  if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0)) {
+  if (ABSL_PREDICT_TRUE(cpu >= 0)) {
     auto& state = resize_[cpu];
-    state.touched.store(true, std::memory_order_relaxed);
+    if (ABSL_PREDICT_FALSE(cached)) {
+      state.touched.store(true, std::memory_order_relaxed);
+    }
 
     if (ABSL_PREDICT_FALSE(!state.populated.load(std::memory_order_acquire))) {
       Populate(cpu);
