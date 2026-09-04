@@ -695,6 +695,12 @@ void DumpStats(Printer& out, int level) {
 
     out.printf("PARAMETER tcmalloc_release_drained_slab_metadata %d\n",
                Parameters::release_drained_slab_metadata());
+    out.printf(
+        "PARAMETER tcmalloc_cfl_subbucket_prioritization %d\n",
+        Parameters::cfl_subbucket_prioritization() ==
+                central_freelist_internal::CflSubbucketPrioritization::kEnabled
+            ? 1
+            : 0);
   }
 }
 
@@ -958,6 +964,11 @@ void DumpStatsInPbtxt(Printer& out, int level) {
 
   region.PrintBool("tcmalloc_release_drained_slab_metadata",
                    Parameters::release_drained_slab_metadata());
+
+  region.PrintBool(
+      "tcmalloc_cfl_subbucket_prioritization",
+      Parameters::cfl_subbucket_prioritization() ==
+          central_freelist_internal::CflSubbucketPrioritization::kEnabled);
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
