@@ -151,8 +151,13 @@ size_t Static::metadata_bytes() {
 
   const size_t internal_dependencies_size = sizeof(PerCpuState::state());
 
-  const size_t allocated = arena().stats().bytes_allocated +
-                           AddressRegionFactory::InternalBytesAllocated();
+  const size_t allocated =
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      arena().stats().bytes_allocated
+#else
+      arena().allocated()
+#endif
+      + AddressRegionFactory::InternalBytesAllocated();
   return allocated + static_var_size + internal_dependencies_size;
 }
 
