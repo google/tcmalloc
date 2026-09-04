@@ -56,6 +56,7 @@ class TimeSeriesTracker {
     // See comment in GetCurrentEpoch().
     auto d = static_cast<uint64_t>(absl::ToDoubleSeconds(epoch_length_) *
                                    clock.freq());
+    TC_ASSERT_GT(d, 0);
     div_precision_ = 63 + absl::bit_width(d);
     epoch_ticks_m_ =
         static_cast<uint64_t>(
@@ -95,7 +96,11 @@ class TimeSeriesTracker {
   bool UpdateClock();
 
   // Returns the current epoch number based on the clock.
-  int64_t GetCurrentEpoch() {
+  size_t GetCurrentEpoch() {
+    const int64_t now = clock_.now();
+    if (ABSL_PREDICT_FALSE(now <= 0)) {
+      return 0;
+    }
     // This is equivalent to
     // `clock_.now() / (absl::ToDoubleSeconds(epoch_length_) * clock_.freq())`.
     // We basically follow the technique from
@@ -106,9 +111,9 @@ class TimeSeriesTracker {
     // is <2^63), it shouldn't cause a problem. This way, we don't need to
     // handle overflow so it's simpler. See also:
     // https://lemire.me/blog/2019/02/20/more-fun-with-fast-remainders-when-the-divisor-is-a-constant/.
-    return static_cast<int64_t>(static_cast<absl::uint128>(epoch_ticks_m_) *
-                                    clock_.now() >>
-                                div_precision_);
+    return static_cast<size_t>(static_cast<absl::uint128>(epoch_ticks_m_) *
+                                   static_cast<uint64_t>(now) >>
+                               div_precision_);
   }
   void InitTracker() {
     // Inits the tracker by "create" an record for "now" on slot 0. The record
@@ -188,12 +193,12 @@ void TimeSeriesTracker<T, S, kSlots>::Iter(
     absl::FunctionRef<void(size_t, size_t, const T&)> f) const {
   size_t j = current_slot_ + 1;
   if (j == kSlots) j = 0;
-  for (int sequenc_num = 0; sequenc_num < kSlots; sequenc_num++) {
+  for (size_t sequence_num = 0; sequence_num < kSlots; ++sequence_num) {
     // We would have no empty entries between valid data points hence there is
     // no reason to perform action on them. We think the slot would be all
     // filled shortly after the job started.
     if (ABSL_PREDICT_TRUE(!entries_[j].payload.empty())) {
-      f(sequenc_num, entries_[j].epoch_delta, entries_[j].payload);
+      f(sequence_num, entries_[j].epoch_delta, entries_[j].payload);
     }
     j++;
     if (j == kSlots) j = 0;
@@ -204,7 +209,7 @@ template <class T, class S, size_t kSlots>
 void TimeSeriesTracker<T, S, kSlots>::IterBackwards(
     absl::FunctionRef<void(size_t, size_t, const T&)> f,
     absl::Duration interval) const {
-  if (interval == absl::ZeroDuration()) return;
+  if (interval <= absl::ZeroDuration()) return;
   size_t epochs_to_traverse;
   if (interval == absl::InfiniteDuration()) {
     // InfiniteDuration() means that we are outputting all records.
