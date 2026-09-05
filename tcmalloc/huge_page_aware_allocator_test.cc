@@ -69,6 +69,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -1444,7 +1445,9 @@ class StatTest : public testing::Test {
  protected:
   StatTest() = default;
 
-  class Forwarder : public huge_page_allocator_internal::StaticForwarder {
+  using Base = Forwarder;
+
+  class Forwarder : public Base {
    public:
     MemoryBytes Memory() {
       MemoryBytes b = {0, 0};
@@ -1460,7 +1463,7 @@ class StatTest : public testing::Test {
 
     // Provide hooked versions of AllocatePages
     AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
-      auto& underlying = *static_cast<StaticForwarder*>(this);
+      auto& underlying = *static_cast<Base*>(this);
       auto range = underlying.AllocatePages(bytes, align, tag);
 
       // we only support so many allocations here for simplicity

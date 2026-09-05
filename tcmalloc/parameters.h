@@ -22,7 +22,6 @@
 
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
-#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/internal/config.h"
@@ -33,6 +32,10 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+namespace central_freelist_internal {
+enum class CflSubbucketPrioritization : bool;
+}  // namespace central_freelist_internal
 
 // The configured heap partitioning mode.
 enum class HeapPartitioningMode {

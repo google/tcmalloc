@@ -49,6 +49,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_forwarder.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -61,73 +62,6 @@ bool decide_subrelease();
 HugeRegionUsageOption huge_region_option();
 bool use_huge_region_more_often();
 
-class StaticForwarder : private Parameters {
- public:
-  using Parameters::enable_unfiltered_collapse;
-  using Parameters::filler_skip_subrelease_long_interval;
-  using Parameters::filler_skip_subrelease_short_interval;
-  using Parameters::hpaa_subrelease;
-  using Parameters::huge_region_adaptive_release;
-  using Parameters::madvise_cold_regions_nohugepage;
-  using Parameters::release_max_cold_pages;
-  using Parameters::release_partial_alloc_pages;
-  using Parameters::release_stale_pages;
-  using Parameters::subrelease_unbacked_hugepages;
-
-  // Arena state.
-  static Arena& arena();
-
-  // PageAllocator state.
-
-  // Check page heap memory limit.  `n` indicates the size of the allocation
-  // currently being made, which will not be included in the sampled memory heap
-  // for realized fragmentation estimation.
-  //
-  // `may_have_grown` provides a hint to elide statistics checks when the heap
-  // did not grow above previously accounted for memory usage (for example,
-  // reusing part of an already mapped hugepage, etc.).  This argument is always
-  // checked in debug builds, and incorrect values in optimized builds may break
-  // limit enforcement.
-  static void ShrinkToUsageLimit(Length n, bool may_have_grown)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
-  // PageMap state.
-  static void* GetHugepage(HugePage p);
-  [[nodiscard]] static bool Ensure(Range r)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  static void ClearSpan(PageId page);
-  static void SetSpan(PageId page, Span* absl_nonnull span);
-  static void SetHugepage(HugePage p, void* pt);
-
-  // SpanAllocator state.
-  static Span* NewSpan(Range r)
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-#else
-      ABSL_LOCKS_EXCLUDED(pageheap_lock)
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-          ABSL_ATTRIBUTE_RETURNS_NONNULL;
-  static void DeleteSpan(Span* span)
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-          ABSL_ATTRIBUTE_NONNULL();
-
-  // Error reporting
-  [[noreturn]] static void ReportDoubleFree(void* ptr);
-
-  // SystemAlloc state.
-  [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
-                                                  MemoryTag tag);
-  static bool BackAllocations() { return back_small_allocations(); }
-  static int32_t BackSizeThresholdBytes() {
-    return back_size_threshold_bytes();
-  }
-  static void Back(Range r);
-  [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r);
-  [[nodiscard]] static MemoryModifyStatus CollapsePages(Range r);
-  static void SetAnonVmaName(Range r, std::optional<absl::string_view> name);
-};
 
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
@@ -1308,8 +1242,7 @@ inline bool HugePageAwareAllocator<Forwarder>::GetPageAllocationStatus(
 }  // namespace huge_page_allocator_internal
 
 using HugePageAwareAllocator =
-    huge_page_allocator_internal::HugePageAwareAllocator<
-        huge_page_allocator_internal::StaticForwarder>;
+    huge_page_allocator_internal::HugePageAwareAllocator<Forwarder>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

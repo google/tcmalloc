@@ -18,6 +18,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

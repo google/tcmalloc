@@ -39,6 +39,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/static_forwarder.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
@@ -50,51 +51,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-
-class StaticForwarder {
- public:
-  static constexpr size_t kNumBaseClasses =
-      tcmalloc::tcmalloc_internal::kNumBaseClasses;
-  static constexpr size_t kNumClasses =
-      tcmalloc::tcmalloc_internal::kNumClasses;
-  static constexpr size_t kNormalPartitions =
-      tcmalloc::tcmalloc_internal::kNormalPartitions;
-  static constexpr size_t kSecurityPartitions =
-      tcmalloc::tcmalloc_internal::kSecurityPartitions;
-  static constexpr size_t kHasColdClasses =
-      tcmalloc::tcmalloc_internal::kHasColdClasses;
-  static constexpr size_t kColdClassesStart =
-      tcmalloc::tcmalloc_internal::kColdClassesStart;
-
-  static size_t class_to_size(int size_class);
-  static size_t num_objects_to_move(int size_class);
-  static void* absl_nonnull Alloc(size_t size,
-                                  std::align_val_t alignment = kAlignment);
-};
-
-class ShardedStaticForwarder : public StaticForwarder {
- public:
-  static void Init() {
-    use_generic_cache_ =
-        IsExperimentActive(Experiment::TCMALLOC_SHARDED_TC_ABLATION) &&
-        !IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
-    // Traditionally, we enable sharded transfer cache for large size
-    // classes alone.
-    enable_cache_for_large_classes_only_ = IsExperimentActive(
-        Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
-  }
-
-  static bool UseGenericCache() { return use_generic_cache_; }
-
-  static bool EnableCacheForLargeClassesOnly() {
-    return enable_cache_for_large_classes_only_;
-  }
-
- private:
-  static bool use_generic_cache_;
-  static bool enable_cache_for_large_classes_only_;
-};
 
 class ProdCpuLayout {
  public:
@@ -417,10 +373,10 @@ class ShardedTransferCacheManagerBase {
 };
 
 using ShardedTransferCacheManager =
-    ShardedTransferCacheManagerBase<ShardedStaticForwarder, ProdCpuLayout,
+    ShardedTransferCacheManagerBase<ShardedForwarder, ProdCpuLayout,
                                     BackingTransferCache>;
 
-class TransferCacheManager : public StaticForwarder {
+class TransferCacheManager : public Forwarder {
   template <typename CentralFreeList, typename Manager>
   friend class internal_transfer_cache::TransferCache;
   using TransferCache =

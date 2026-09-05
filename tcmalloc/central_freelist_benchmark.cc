@@ -56,8 +56,7 @@ using BenchmarkPageMap =
 // BenchmarkStaticForwarder provides a wrapper around ordinary TCMalloc and a
 // PageMap to allow us to carve up memory we obtained into our own objects.
 // This lets us elide the full page heap for benchmarking purposes.
-class BenchmarkStaticForwarder
-    : public central_freelist_internal::StaticForwarder {
+class BenchmarkStaticForwarder : public Forwarder {
  public:
   BenchmarkStaticForwarder()
       : class_size_(0),

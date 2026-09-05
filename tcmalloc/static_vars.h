@@ -32,25 +32,30 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/deallocation_profiler.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
+#include "tcmalloc/internal/central_freelist_hooks.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/gwp_asan_state.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sampled_allocation_recorder.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/peak_heap_tracker.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
+#include "tcmalloc/static_forwarder.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/transfer_cache.h"
 
@@ -58,7 +63,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-class PageMap;
 class ThreadCache;
 
 using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<

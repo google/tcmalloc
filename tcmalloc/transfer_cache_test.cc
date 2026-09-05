@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 #include "tcmalloc/transfer_cache_internals.h"

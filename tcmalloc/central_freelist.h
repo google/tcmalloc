@@ -47,6 +47,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
+#include "tcmalloc/static_forwarder.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -73,55 +74,6 @@ class ABSL_SCOPED_LOCKABLE CentralFreeListLockHolder {
 
 namespace central_freelist_internal {
 
-// StaticForwarder provides access to the PageMap and page heap.
-//
-// This is a class, rather than namespaced globals, so that it can be mocked for
-// testing.
-using InsertRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
-using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
-
-class StaticForwarder {
- public:
-  static void InvokeInsertRangeHook(size_t size_class,
-                                    absl::Span<void*> batch) {
-    if (ABSL_PREDICT_TRUE(central_freelist_insert_range_hooks.empty())) {
-      return;
-    }
-    InvokeInsertRangeHookSlow(size_class, batch);
-  }
-
-  static void InvokeRemoveRangeHook(size_t size_class,
-                                    absl::Span<void*> batch) {
-    if (ABSL_PREDICT_TRUE(central_freelist_remove_range_hooks.empty())) {
-      return;
-    }
-    InvokeRemoveRangeHookSlow(size_class, batch);
-  }
-
-  static uint64_t clock_now() { return absl::base_internal::CycleClock::Now(); }
-  static double clock_frequency() {
-    return absl::base_internal::CycleClock::Frequency();
-  }
-
-  static size_t class_to_size(int size_class);
-  static Length class_to_pages(int size_class);
-  static void MapObjectsToSpans(absl::Span<void*> batch,
-                                Span** absl_nonnull spans,
-                                int expected_size_class);
-  [[nodiscard]] static Span* absl_nullable AllocateSpan(int size_class,
-                                                        size_t objects_per_span,
-                                                        Length pages_per_span)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  static void DeallocateSpans(size_t objects_per_span,
-                              absl::Span<Span*> free_spans)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
-
- private:
-  static void InvokeInsertRangeHookSlow(size_t size_class,
-                                        absl::Span<void*> batch);
-  static void InvokeRemoveRangeHookSlow(size_t size_class,
-                                        absl::Span<void*> batch);
-};
 
 // Specifies number of nonempty_ lists that keep track of non-empty spans.
 static constexpr size_t kNumLists = 8;
@@ -1036,8 +988,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
 
 }  // namespace central_freelist_internal
 
-using CentralFreeList = central_freelist_internal::CentralFreeList<
-    central_freelist_internal::StaticForwarder>;
+using CentralFreeList = central_freelist_internal::CentralFreeList<Forwarder>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
