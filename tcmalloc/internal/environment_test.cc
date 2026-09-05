@@ -40,6 +40,55 @@ TEST(EnvironmentTest, thread_safe_getenv) {
   EXPECT_EQ(strcmp(result, getenv(undefined_env_var)), 0);
 }
 
+TEST(EnvironmentTest, TrimWhitespace) {
+  EXPECT_EQ(TrimWhitespace(""), "");
+  EXPECT_EQ(TrimWhitespace("   "), "");
+  EXPECT_EQ(TrimWhitespace("\t\r\n\v\f"), "");
+  EXPECT_EQ(TrimWhitespace("hello"), "hello");
+  EXPECT_EQ(TrimWhitespace("  hello"), "hello");
+  EXPECT_EQ(TrimWhitespace("hello  "), "hello");
+  EXPECT_EQ(TrimWhitespace(" \t\r\n hello world \v\f "), "hello world");
+}
+
+TEST(EnvironmentTest, ParseBool) {
+  // True tokens
+  EXPECT_EQ(ParseBool("1"), true);
+  EXPECT_EQ(ParseBool("true"), true);
+  EXPECT_EQ(ParseBool("True"), true);
+  EXPECT_EQ(ParseBool("TRUE"), true);
+  EXPECT_EQ(ParseBool("yes"), true);
+  EXPECT_EQ(ParseBool("Yes"), true);
+  EXPECT_EQ(ParseBool("YES"), true);
+  EXPECT_EQ(ParseBool("on"), true);
+  EXPECT_EQ(ParseBool("On"), true);
+  EXPECT_EQ(ParseBool("ON"), true);
+  EXPECT_EQ(ParseBool("  true  "), true);
+  EXPECT_EQ(ParseBool("\t1\n"), true);
+
+  // False tokens
+  EXPECT_EQ(ParseBool("0"), false);
+  EXPECT_EQ(ParseBool("false"), false);
+  EXPECT_EQ(ParseBool("False"), false);
+  EXPECT_EQ(ParseBool("FALSE"), false);
+  EXPECT_EQ(ParseBool("no"), false);
+  EXPECT_EQ(ParseBool("No"), false);
+  EXPECT_EQ(ParseBool("NO"), false);
+  EXPECT_EQ(ParseBool("off"), false);
+  EXPECT_EQ(ParseBool("Off"), false);
+  EXPECT_EQ(ParseBool("OFF"), false);
+  EXPECT_EQ(ParseBool("  false  "), false);
+  EXPECT_EQ(ParseBool("\t0\n"), false);
+
+  // Invalid tokens
+  EXPECT_EQ(ParseBool(""), std::nullopt);
+  EXPECT_EQ(ParseBool("   "), std::nullopt);
+  EXPECT_EQ(ParseBool("2"), std::nullopt);
+  EXPECT_EQ(ParseBool("-1"), std::nullopt);
+  EXPECT_EQ(ParseBool("random"), std::nullopt);
+  EXPECT_EQ(ParseBool("tru"), std::nullopt);
+  EXPECT_EQ(ParseBool("truee"), std::nullopt);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

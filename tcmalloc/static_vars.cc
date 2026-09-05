@@ -18,11 +18,13 @@
 
 #include <atomic>
 #include <cstring>
+#include <optional>
 
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "tcmalloc/allocation_sample.h"
 #include "tcmalloc/arena.h"
@@ -178,21 +180,30 @@ SizeClassConfiguration Static::size_class_configuration() {
 
 
   if (e_reuse != nullptr) {
-    if (!strcmp(e_reuse, "reuserelaxedbelow64")) {
+    absl::string_view sv = TrimWhitespace(e_reuse);
+    if (sv.empty()) {
+      // Empty string falls back to default.
+    } else if (sv == "reuserelaxedbelow64") {
       return SizeClassConfiguration::kReuseRelaxedBelow64;
-    } else if (!strcmp(e_reuse, "0")) {
-      // "0" is a valid value that falls back to the default.
+    } else if (std::optional<bool> b = ParseBool(sv); b.has_value()) {
+      if (*b) {
+        return SizeClassConfiguration::kReuseRelaxedBelow64;
+      }
+      // false falls back to default.
     } else {
       TC_BUG("bad TCMALLOC_REUSE_SIZE_CLASSES env var '%s'", e_reuse);
     }
   }
 
-  if (e_legacy == nullptr) {
-    return SizeClassConfiguration::kReuseRelaxedBelow64;
-  } else if (!strcmp(e_legacy, "0")) {
-    return SizeClassConfiguration::kReuseRelaxedBelow64;
-  } else {
-    TC_BUG("bad TCMALLOC_LEGACY_SIZE_CLASSES env var '%s'", e_legacy);
+  if (e_legacy != nullptr) {
+    absl::string_view sv = TrimWhitespace(e_legacy);
+    if (sv.empty()) {
+      // Empty string falls back to default.
+    } else if (std::optional<bool> b = ParseBool(sv); b.has_value() && !*b) {
+      // TCMALLOC_LEGACY_SIZE_CLASSES was removed, so this is an opt-out.
+    } else {
+      TC_BUG("bad TCMALLOC_LEGACY_SIZE_CLASSES env var '%s'", e_legacy);
+    }
   }
   return SizeClassConfiguration::kReuseRelaxedBelow64;
 }

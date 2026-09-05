@@ -14,6 +14,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
@@ -385,6 +386,64 @@ TEST(SizeMapTest, Preinit) {
 TEST(SizeMapTest, CheckAssumptions) {
   EXPECT_TRUE(SizeMap::CheckAssumptions());
 }
+
+TEST(SizeClassConfigurationTest, EnvVars) {
+  unsetenv("TCMALLOC_REUSE_SIZE_CLASSES");
+  unsetenv("TCMALLOC_LEGACY_SIZE_CLASSES");
+  if (Static::size_class_configuration() == SizeClassConfiguration::kPow2Only) {
+    GTEST_SKIP() << "kPow2Only overrides environment variables";
+  }
+
+  // TCMALLOC_REUSE_SIZE_CLASSES
+  setenv("TCMALLOC_REUSE_SIZE_CLASSES", "", 1);
+  EXPECT_EQ(Static::size_class_configuration(),
+            SizeClassConfiguration::kReuseRelaxedBelow64);
+  setenv("TCMALLOC_REUSE_SIZE_CLASSES", "   ", 1);
+  EXPECT_EQ(Static::size_class_configuration(),
+            SizeClassConfiguration::kReuseRelaxedBelow64);
+  setenv("TCMALLOC_REUSE_SIZE_CLASSES", "true", 1);
+  EXPECT_EQ(Static::size_class_configuration(),
+            SizeClassConfiguration::kReuseRelaxedBelow64);
+  setenv("TCMALLOC_REUSE_SIZE_CLASSES", "false", 1);
+  EXPECT_EQ(Static::size_class_configuration(),
+            SizeClassConfiguration::kReuseRelaxedBelow64);
+  unsetenv("TCMALLOC_REUSE_SIZE_CLASSES");
+
+  // TCMALLOC_LEGACY_SIZE_CLASSES
+  setenv("TCMALLOC_LEGACY_SIZE_CLASSES", "", 1);
+  EXPECT_EQ(Static::size_class_configuration(),
+            SizeClassConfiguration::kReuseRelaxedBelow64);
+  setenv("TCMALLOC_LEGACY_SIZE_CLASSES", "0", 1);
+  EXPECT_EQ(Static::size_class_configuration(),
+            SizeClassConfiguration::kReuseRelaxedBelow64);
+  setenv("TCMALLOC_LEGACY_SIZE_CLASSES", "false", 1);
+  EXPECT_EQ(Static::size_class_configuration(),
+            SizeClassConfiguration::kReuseRelaxedBelow64);
+  unsetenv("TCMALLOC_LEGACY_SIZE_CLASSES");
+}
+
+#ifdef GTEST_HAS_DEATH_TEST
+TEST(SizeClassConfigurationDeathTest, InvalidEnvVars) {
+  unsetenv("TCMALLOC_REUSE_SIZE_CLASSES");
+  unsetenv("TCMALLOC_LEGACY_SIZE_CLASSES");
+  if (Static::size_class_configuration() == SizeClassConfiguration::kPow2Only) {
+    GTEST_SKIP() << "kPow2Only overrides environment variables";
+  }
+
+  EXPECT_DEATH(
+      {
+        setenv("TCMALLOC_LEGACY_SIZE_CLASSES", "1", 1);
+        Static::size_class_configuration();
+      },
+      "bad TCMALLOC_LEGACY_SIZE_CLASSES env var");
+  EXPECT_DEATH(
+      {
+        setenv("TCMALLOC_REUSE_SIZE_CLASSES", "invalid", 1);
+        Static::size_class_configuration();
+      },
+      "bad TCMALLOC_REUSE_SIZE_CLASSES env var");
+}
+#endif
 
 }  // namespace
 }  // namespace tcmalloc_internal

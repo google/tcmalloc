@@ -69,6 +69,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -2261,6 +2262,40 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
     EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp1, pages));
     EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
   }
+}
+
+TEST(HugePageAwareAllocatorEnvTest, EnvVarHandling) {
+  // TCMALLOC_HPAA_CONTROL
+  setenv("TCMALLOC_HPAA_CONTROL", "", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::decide_subrelease());
+  setenv("TCMALLOC_HPAA_CONTROL", "   ", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::decide_subrelease());
+  setenv("TCMALLOC_HPAA_CONTROL", "0", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::decide_subrelease());
+  setenv("TCMALLOC_HPAA_CONTROL", "1", 1);
+  EXPECT_FALSE(huge_page_allocator_internal::decide_subrelease());
+  setenv("TCMALLOC_HPAA_CONTROL", "2", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::decide_subrelease());
+  setenv("TCMALLOC_HPAA_CONTROL", "true", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::decide_subrelease());
+  setenv("TCMALLOC_HPAA_CONTROL", "false", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::decide_subrelease());
+  unsetenv("TCMALLOC_HPAA_CONTROL");
+
+  // TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE
+  setenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE", "", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::use_huge_region_more_often());
+  setenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE", "   ", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::use_huge_region_more_often());
+  setenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE", "0", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::use_huge_region_more_often());
+  setenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE", "1", 1);
+  EXPECT_FALSE(huge_page_allocator_internal::use_huge_region_more_often());
+  setenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE", "true", 1);
+  EXPECT_FALSE(huge_page_allocator_internal::use_huge_region_more_often());
+  setenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE", "false", 1);
+  EXPECT_TRUE(huge_page_allocator_internal::use_huge_region_more_often());
+  unsetenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE");
 }
 
 }  // namespace

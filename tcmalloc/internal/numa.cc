@@ -77,23 +77,33 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
   // override that either way by setting TCMALLOC_NUMA_AWARE in the
   // environment.
   bool enabled = true;
-  if (e == nullptr) {
+  absl::string_view sv;
+  if (e != nullptr) {
+    sv = TrimWhitespace(e);
+  }
+  if (e == nullptr || sv.empty()) {
     // Enable NUMA awareness iff default_want_numa_aware().
     if (!default_want_numa_aware()) {
       enabled = false;
+    } else {
+      *bind_mode = NumaBindMode::kAdvisory;
     }
-  } else if (!strcmp(e, "no-binding")) {
+  } else if (std::optional<bool> b = ParseBool(sv); b.has_value()) {
+    if (*b) {
+      *bind_mode = NumaBindMode::kAdvisory;
+      enabled = true;
+    } else {
+      enabled = false;
+    }
+  } else if (sv == "no-binding") {
     // Enable NUMA awareness with no memory binding behavior.
     *bind_mode = NumaBindMode::kNone;
-  } else if (!strcmp(e, "advisory-binding") || !strcmp(e, "1")) {
+  } else if (sv == "advisory-binding") {
     // Enable NUMA awareness with advisory memory binding behavior.
     *bind_mode = NumaBindMode::kAdvisory;
-  } else if (!strcmp(e, "strict-binding")) {
+  } else if (sv == "strict-binding") {
     // Enable NUMA awareness with strict memory binding behavior.
     *bind_mode = NumaBindMode::kStrict;
-  } else if (!strcmp(e, "0")) {
-    // Disable NUMA awareness.
-    enabled = false;
   } else {
     TC_BUG("bad TCMALLOC_NUMA_AWARE env var '%s'", e);
   }

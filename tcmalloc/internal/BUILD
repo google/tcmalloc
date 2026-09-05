@@ -263,6 +263,7 @@ cc_library(
     deps = [
         ":config",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 
