@@ -127,6 +127,19 @@ class CpuCachePeer {
                                size_t slab_size) {
     cpu_cache.MadviseAwaySlabs(slab_addr, slab_size);
   }
+
+  template <typename CpuCache>
+  static std::pair<int, bool> CacheCpuSlab(CpuCache& cpu_cache) {
+    return cpu_cache.CacheCpuSlab();
+  }
+
+  template <typename CpuCache>
+  static void Unpopulate(CpuCache& cpu_cache, int cpu) {
+    AllocationGuardSpinLockHolder h(cpu_cache.resize_[cpu].lock);
+    cpu_cache.resize_[cpu].populated.store(false, std::memory_order_release);
+    cpu_cache.resize_[cpu].num_unpopulates.fetch_add(1,
+                                                     std::memory_order_relaxed);
+  }
 };
 
 namespace {
@@ -2430,6 +2443,50 @@ TEST(CpuCacheTest, NamedVma) {
   }
   EXPECT_TRUE(found_active);
   cache.Deactivate();
+}
+
+TEST(CpuCacheTest, CacheCpuSlabRepopulatesWhenCached) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  subtle::percpu::tcmalloc_slabs = 0;
+#endif
+
+  CpuCache cache;
+  cache.Activate();
+
+  const int cpu = 0;
+  ScopedFakeCpuId fake_cpu_id(cpu);
+
+  // Initial call populates the slab for cpu and caches tcmalloc_slabs in TLS.
+  auto [first_cpu, first_cached] = CpuCachePeer::CacheCpuSlab(cache);
+  EXPECT_EQ(first_cpu, cpu);
+  EXPECT_TRUE(first_cached);
+  EXPECT_TRUE(cache.HasPopulated(cpu));
+
+  // Simulate unpopulation of the slab metadata on this CPU.
+  CpuCachePeer::Unpopulate(cache, cpu);
+  EXPECT_FALSE(cache.HasPopulated(cpu));
+
+  // With tcmalloc_slabs already cached in TLS, freelist_.CacheCpuSlab() returns
+  // cached=false. CacheCpuSlab must check !populated and repopulate the CPU.
+  auto [second_cpu, second_cached] = CpuCachePeer::CacheCpuSlab(cache);
+  EXPECT_EQ(second_cpu, cpu);
+  EXPECT_FALSE(second_cached);
+  EXPECT_TRUE(cache.HasPopulated(cpu));
+
+  // Verify that allocating from the repopulated cache succeeds cleanly.
+  void* ptr = cache.Allocate(1);
+  EXPECT_NE(ptr, nullptr);
+  cache.Deallocate(ptr, 1);
+
+  cache.Deactivate();
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  subtle::percpu::tcmalloc_slabs = 0;
+#endif
 }
 
 }  // namespace
