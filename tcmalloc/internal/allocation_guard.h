@@ -62,6 +62,22 @@ class AllocationGuard {
 #endif
 };
 
+// Temporarily allows allocations while an AllocationGuard is in scope (for
+// example, when pageheap_lock is temporarily released).
+class ScopedAllocationAllow {
+ public:
+  ScopedAllocationAllow() {
+#ifndef NDEBUG
+    --AllocationGuard::disallowed_;
+#endif
+  }
+  ~ScopedAllocationAllow() {
+#ifndef NDEBUG
+    ++AllocationGuard::disallowed_;
+#endif
+  }
+};
+
 // A SpinLockHolder that also enforces no allocations while the lock is held in
 // debug mode.
 class ABSL_SCOPED_LOCKABLE AllocationGuardSpinLockHolder {

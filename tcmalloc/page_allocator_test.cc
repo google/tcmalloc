@@ -366,6 +366,137 @@ TEST_F(PageAllocatorTest, Hooks) {
   EXPECT_TRUE(page_allocator_release_hooks.Remove(&TestReleaseHook));
 }
 
+static bool reentrant_new_hook_ran = false;
+static bool reentrant_delete_hook_ran = false;
+static bool reentrant_release_hook_ran = false;
+static PageAllocator* global_test_allocator = nullptr;
+
+static void CheckReentrantOperations() {
+  // 1. Verify pageheap_lock is not held.
+  const bool lock_available = pageheap_lock.TryLock();
+  EXPECT_TRUE(lock_available);
+  if (lock_available) {
+    // Perform an operation requiring pageheap_lock.
+    auto stats = tc_globals.page_allocator().stats();
+    (void)stats;
+    pageheap_lock.Unlock();
+
+    // 2. Perform actual dynamic heap allocation to verify ScopedAllocationAllow
+    // permits user-level allocations without AllocationGuard assertions in
+    // debug builds.
+    void* heap_ptr = ::operator new(64);
+    ::operator delete(heap_ptr);
+
+    // 3. Verify reentrant PageAllocator operations requiring pageheap_lock
+    // succeed.
+    if (global_test_allocator != nullptr) {
+      constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                           AccessDensityPrediction::kSparse};
+      Span* s =
+          global_test_allocator->New(Length(1), kSpanInfo, MemoryTag::kNormal);
+      EXPECT_NE(s, nullptr);
+      {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+        PageHeapSpinLockHolder l;
+        global_test_allocator->Delete(s, MemoryTag::kNormal, kSpanInfo);
+#else
+        PageAllocatorInterface::AllocationState a{
+            Range(s->first_page(), s->num_pages()),
+            s->donated(),
+        };
+        Span::Delete(s);
+        PageHeapSpinLockHolder l;
+        global_test_allocator->Delete(a, MemoryTag::kNormal, kSpanInfo);
+#endif
+      }
+      {
+        PageHeapSpinLockHolder l;
+        global_test_allocator->ReleaseAtLeastNPages(
+            Length(1), PageReleaseReason::kProcessBackgroundActions);
+      }
+    }
+  }
+}
+
+static void ReentrantNewHook(size_t start_page_index, size_t n, size_t align,
+                             size_t objects_per_span, uint8_t density,
+                             MemoryTag tag) {
+  static bool in_hook = false;
+  if (in_hook) {
+    return;
+  }
+  in_hook = true;
+  reentrant_new_hook_ran = true;
+  CheckReentrantOperations();
+  in_hook = false;
+}
+
+static void ReentrantDeleteHook(size_t start_page_index, size_t n,
+                                size_t objects_per_span, uint8_t density,
+                                MemoryTag tag) {
+  static bool in_hook = false;
+  if (in_hook) {
+    return;
+  }
+  in_hook = true;
+  reentrant_delete_hook_ran = true;
+  CheckReentrantOperations();
+  in_hook = false;
+}
+
+static void ReentrantReleaseHook(size_t num_pages, size_t released,
+                                 PageReleaseReason reason) {
+  static bool in_hook = false;
+  if (in_hook) {
+    return;
+  }
+  in_hook = true;
+  reentrant_release_hook_ran = true;
+  CheckReentrantOperations();
+  in_hook = false;
+}
+
+TEST_F(PageAllocatorTest, ReentrantHooks) {
+  global_test_allocator = &allocator_;
+  reentrant_new_hook_ran = false;
+  reentrant_delete_hook_ran = false;
+  reentrant_release_hook_ran = false;
+
+  EXPECT_TRUE(page_allocator_new_hooks.Add(&ReentrantNewHook));
+  EXPECT_TRUE(page_allocator_delete_hooks.Add(&ReentrantDeleteHook));
+  EXPECT_TRUE(page_allocator_release_hooks.Add(&ReentrantReleaseHook));
+
+  struct HookCleanup {
+    ~HookCleanup() {
+      EXPECT_TRUE(page_allocator_new_hooks.Remove(&ReentrantNewHook));
+      EXPECT_TRUE(page_allocator_delete_hooks.Remove(&ReentrantDeleteHook));
+      EXPECT_TRUE(page_allocator_release_hooks.Remove(&ReentrantReleaseHook));
+      global_test_allocator = nullptr;
+    }
+  } cleanup;
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  Span* s = New(Length(1), kSpanInfo, MemoryTag::kNormal);
+  ASSERT_NE(s, nullptr);
+  EXPECT_TRUE(reentrant_new_hook_ran);
+
+  Delete(s, kSpanInfo, MemoryTag::kNormal);
+  EXPECT_TRUE(reentrant_delete_hook_ran);
+
+  constexpr PageReleaseReason kReasons[] = {
+      PageReleaseReason::kReleaseMemoryToSystem,
+      PageReleaseReason::kProcessBackgroundActions,
+      PageReleaseReason::kSoftLimitExceeded,
+      PageReleaseReason::kHardLimitExceeded,
+  };
+  for (PageReleaseReason reason : kReasons) {
+    reentrant_release_hook_ran = false;
+    Release(Length(1), reason);
+    EXPECT_TRUE(reentrant_release_hook_ran);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

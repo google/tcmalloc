@@ -68,6 +68,8 @@ class PageAllocator {
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() with the same value of
   //           "tag" and has not yet been deleted.
+  // Note: If delete hooks are registered, pageheap_lock is temporarily
+  // released during hook invocation and re-acquired before returning.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   void Delete(Span* absl_nonnull span, MemoryTag tag,
               SpanAllocInfo span_alloc_info)
@@ -92,6 +94,8 @@ class PageAllocator {
   // may also be larger than num_pages since page_heap might decide to
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
+  // Note: If release hooks are registered, pageheap_lock is temporarily
+  // released during hook invocation and re-acquired before returning.
   Length ReleaseAtLeastNPages(Length num_pages, PageReleaseReason reason)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -150,15 +154,18 @@ class PageAllocator {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   static void InvokeNewHook(Span* span, Length n, Length align,
-                            SpanAllocInfo span_alloc_info, MemoryTag tag) {
+                            SpanAllocInfo span_alloc_info, MemoryTag tag)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     if (ABSL_PREDICT_TRUE(page_allocator_new_hooks.empty())) {
       return;
     }
+    ScopedAllocationAllow allow;
     InvokeNewHookSlow(span, n, align, span_alloc_info, tag);
   }
 
   static void InvokeDeleteHook(PageId start_page, Length n,
-                               SpanAllocInfo span_alloc_info, MemoryTag tag) {
+                               SpanAllocInfo span_alloc_info, MemoryTag tag)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     if (ABSL_PREDICT_TRUE(page_allocator_delete_hooks.empty())) {
       return;
     }
@@ -166,7 +173,8 @@ class PageAllocator {
   }
 
   static void InvokeReleaseHook(Length num_pages, Length released,
-                                PageReleaseReason reason) {
+                                PageReleaseReason reason)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     if (ABSL_PREDICT_TRUE(page_allocator_release_hooks.empty())) {
       return;
     }
@@ -189,12 +197,14 @@ class PageAllocator {
 
  private:
   static void InvokeNewHookSlow(Span* span, Length n, Length align,
-                                SpanAllocInfo span_alloc_info, MemoryTag tag);
+                                SpanAllocInfo span_alloc_info, MemoryTag tag)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
   static void InvokeDeleteHookSlow(PageId start_page, Length n,
-                                   SpanAllocInfo span_alloc_info,
-                                   MemoryTag tag);
+                                   SpanAllocInfo span_alloc_info, MemoryTag tag)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
   static void InvokeReleaseHookSlow(Length num_pages, Length released,
-                                    PageReleaseReason reason);
+                                    PageReleaseReason reason)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
   bool ShrinkHardBy(Length page, LimitKind limit_kind)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -281,8 +291,16 @@ inline Span* PageAllocator::NewAligned(Length n, Length align,
 inline void PageAllocator::Delete(Span* span, MemoryTag tag,
                                   SpanAllocInfo span_alloc_info) {
   if (span) {
-    InvokeDeleteHook(span->first_page(), span->num_pages(), span_alloc_info,
-                     tag);
+    if (ABSL_PREDICT_FALSE(!page_allocator_delete_hooks.empty())) {
+      const PageId p = span->first_page();
+      const Length n = span->num_pages();
+      pageheap_lock.Unlock();
+      {
+        ScopedAllocationAllow allow;
+        InvokeDeleteHook(p, n, span_alloc_info, tag);
+      }
+      pageheap_lock.Lock();
+    }
   }
   impl(tag)->Delete(span, span_alloc_info);
 }
@@ -292,7 +310,16 @@ inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
                                   MemoryTag tag,
                                   SpanAllocInfo span_alloc_info) {
   if (s) {
-    InvokeDeleteHook(s.r.p, s.r.n, span_alloc_info, tag);
+    if (ABSL_PREDICT_FALSE(!page_allocator_delete_hooks.empty())) {
+      const PageId p = s.r.p;
+      const Length n = s.r.n;
+      pageheap_lock.Unlock();
+      {
+        ScopedAllocationAllow allow;
+        InvokeDeleteHook(p, n, span_alloc_info, tag);
+      }
+      pageheap_lock.Lock();
+    }
   }
   impl(tag)->Delete(s, span_alloc_info);
 }
@@ -384,7 +411,14 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
         num_pages > released ? num_pages - released : Length(0), reason);
   }
 
-  InvokeReleaseHook(num_pages, released, reason);
+  if (ABSL_PREDICT_FALSE(!page_allocator_release_hooks.empty())) {
+    pageheap_lock.Unlock();
+    {
+      ScopedAllocationAllow allow;
+      InvokeReleaseHook(num_pages, released, reason);
+    }
+    pageheap_lock.Lock();
+  }
   return released;
 }
 

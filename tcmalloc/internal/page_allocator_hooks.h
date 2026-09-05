@@ -28,6 +28,12 @@ namespace tcmalloc_internal {
 
 enum class PageReleaseReason : uint8_t;
 
+// Synchronization contract:
+// All PageAllocator hooks are guaranteed to be invoked without pageheap_lock
+// held (ABSL_LOCKS_EXCLUDED(pageheap_lock)). Hook implementations are free to
+// perform memory allocations, deallocations, or query allocator statistics, but
+// must manage their own reentrancy safety if doing so.
+//
 // Hook invoked after Span allocation attempts in PageAllocator::New and
 // PageAllocator::NewAligned.
 // - start_page_index is 0 if allocation returned nullptr.
