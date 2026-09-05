@@ -184,7 +184,7 @@ TEST(CompressibilityTest, ZeroTailWithResidency) {
       analyzer.Analyze(absl::MakeConstSpan(buffer.ptr, buffer.size),
                        MakeResidencyInfo(buffer.ptr, buffer.size, "RUU"));
   ABSL_ASSERT_OK(res);
-  EXPECT_EQ(res->zero_bytes, 2 * page_size);
+  EXPECT_EQ(res->zero_bytes, 0);
 }
 
 TEST(CompressibilityTest, SwappedPagesSkipped) {
@@ -233,11 +233,11 @@ TEST(CompressibilityTest, ResidencyGap) {
       analyzer.Analyze(absl::MakeConstSpan(buffer.ptr, buffer.size),
                        MakeResidencyInfo(buffer.ptr, buffer.size, "RUR"));
   ABSL_ASSERT_OK(res);
-  // Page 1 is unbacked (1 page of zeroes).
+  // Page 1 is unbacked.
   // Pages 0 & 2 are resident (page 0 has 0 zeroes, page 2 has 1 page of zeroes
-  // -> 50% ratio). Total zeroes: 1 unbacked page + 50% of 2 backed pages = 2
-  // pages of zeroes.
-  EXPECT_EQ(res->zero_bytes, 2 * page_size);
+  // -> 50% ratio). Total backed is 2 pages. Backed zeroes = 50% of 2 pages = 1
+  // page of zeroes.
+  EXPECT_EQ(res->zero_bytes, page_size);
 }
 
 TEST(CompressibilityTest, MisalignedAllocationWithResidencyGap) {
@@ -265,12 +265,42 @@ TEST(CompressibilityTest, MisalignedAllocationWithResidencyGap) {
                               MakeResidencyInfo(start_ptr, alloc_size, "RUR"));
   ABSL_ASSERT_OK(res);
 
-  // Unbacked bytes: Page 1 (page_size).
   // Backed bytes: Page 0 partial (page_size - 500) + Page 2 partial (1300).
   // Resident sample: Page 0 has 0 zeroes, Page 2 has 1300 zeroes.
-  const size_t unbacked_bytes = page_size;
-  const size_t expected_zeroes = unbacked_bytes + 1300;
-  EXPECT_EQ(res->zero_bytes, expected_zeroes);
+  // Total backed zeroes = 1300.
+  EXPECT_EQ(res->zero_bytes, 1300);
+}
+
+TEST(CompressibilityTest, BackedZeroBytesDoesNotExceedTotalBacked) {
+  const size_t page_size = GetPageSize();
+  PageAlignedBuffer buffer(/*num_pages=*/4);
+  // Page 0: resident with non-zero data.
+  // Pages 1, 2, 3: unbacked.
+  std::memset(buffer.ptr, 0x42, page_size);
+  std::memset(buffer.ptr + page_size, 0, 3 * page_size);
+
+  CompressionAnalyzer analyzer;
+  Residency::Info residency_info =
+      MakeResidencyInfo(buffer.ptr, buffer.size, "RUUU");
+  auto res = analyzer.Analyze(absl::MakeConstSpan(buffer.ptr, buffer.size),
+                              residency_info);
+  ABSL_ASSERT_OK(res);
+  const size_t total_backed =
+      residency_info.bytes_resident + residency_info.bytes_swapped;
+  EXPECT_LE(res->zero_bytes, total_backed);
+  EXPECT_EQ(res->zero_bytes, 0);
+}
+
+TEST(CompressibilityTest, CompletelyUnbackedAllocation) {
+  PageAlignedBuffer buffer(/*num_pages=*/3);
+  std::memset(buffer.ptr, 0, buffer.size);
+
+  CompressionAnalyzer analyzer;
+  auto res =
+      analyzer.Analyze(absl::MakeConstSpan(buffer.ptr, buffer.size),
+                       MakeResidencyInfo(buffer.ptr, buffer.size, "UUU"));
+  ABSL_ASSERT_OK(res);
+  EXPECT_EQ(res->zero_bytes, 0);
 }
 
 }  // namespace

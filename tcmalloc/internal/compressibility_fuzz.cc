@@ -65,7 +65,8 @@ void FuzzAnalyze(std::string data, size_t max_local_copy_size,
 
   auto res = analyzer.Analyze(absl::MakeConstSpan(data), info);
   if (res.ok()) {
-    EXPECT_LE(res->zero_bytes, data.size());
+    const size_t total_backed = info.bytes_resident + info.bytes_swapped;
+    EXPECT_LE(res->zero_bytes, total_backed);
   }
 }
 

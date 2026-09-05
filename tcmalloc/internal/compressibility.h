@@ -34,6 +34,7 @@ class CompressionAnalyzer {
       size_t max_local_copy_size = kDefaultMaxLocalCopySize);
 
   struct Results {
+    // Estimated zero bytes within backed memory.
     size_t zero_bytes = 0;
   };
 

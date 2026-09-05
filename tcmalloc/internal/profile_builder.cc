@@ -158,8 +158,9 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
     std::optional<Residency::Info> residency_info;
     // When the caller did not use a size-returning allocation, only
     // requested_size bytes are meaningful.  Use the same size for both
-    // residency and compressibility so that EstimateCompressedSize does not
-    // extrapolate to a total_backed derived from the larger allocated_size.
+    // residency and compressibility so that EstimateCompressedSize and
+    // EstimateZeroBytes do not extrapolate to a total_backed derived from the
+    // larger allocated_size.
     const size_t size = entry.requested_size_returning ? entry.allocated_size
                                                        : entry.requested_size;
     if (residency) {
