@@ -96,13 +96,8 @@ constexpr inline uint8_t kTotalPossibleSlabs =
 // This is a class, rather than namespaced globals, so that it can be mocked for
 // testing.
 template <typename State>
-class StaticForwarder : private Parameters {
+class StaticForwarder {
  public:
-  using Parameters::per_cpu_caches_dynamic_slab_enabled;
-  using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
-  using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
-  using Parameters::release_drained_slab_metadata;
-
   constexpr explicit StaticForwarder(State& state) : state_(state) {}
 
   [[nodiscard]] void* absl_nonnull Alloc(size_t size,
@@ -151,14 +146,35 @@ class StaticForwarder : private Parameters {
     state_.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
 
+  static bool per_cpu_caches_dynamic_slab_enabled() {
+    return Parameters::per_cpu_caches_dynamic_slab_enabled();
+  }
+
+  static double per_cpu_caches_dynamic_slab_grow_threshold() {
+    return Parameters::per_cpu_caches_dynamic_slab_grow_threshold();
+  }
+
+  static double per_cpu_caches_dynamic_slab_shrink_threshold() {
+    return Parameters::per_cpu_caches_dynamic_slab_shrink_threshold();
+  }
+
+  static bool release_drained_slab_metadata() {
+    return Parameters::release_drained_slab_metadata();
+  }
 
   bool reuse_size_classes() const {
     return state_.size_class_configuration() ==
-           SizeClassConfiguration::kReuseRelaxedBelow64;
+               SizeClassConfiguration::kReuse ||
+           state_.size_class_configuration() ==
+               SizeClassConfiguration::kReuseRelaxedBelow64;
   }
 
   size_t class_to_size(int size_class) const {
     return state_.sizemap().class_to_size(size_class);
+  }
+
+  absl::Span<const size_t> cold_size_classes() const {
+    return state_.sizemap().ColdSizeClasses();
   }
 
   size_t num_objects_to_move(int size_class) const {
@@ -931,11 +947,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     return 0;
   }
 
-  if (IsColdSizeClass(size_class) && !ColdFeatureActive()) {
-    return 0;
-  }
-
-  if (!IsColdSizeClass(size_class) &&
+  if (!IsExpandedSizeClass(size_class) &&
       (size_class % kNumBaseClasses) <= kNumSmall) {
     // Small object sizes are very heavily used and need very deep caches for
     // good performance (well over 90% of malloc calls are for size_class
@@ -943,21 +955,33 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     return kSmallObjectDepth;
   }
 
-  if (!ColdFeatureActive()) {
-    return kLargeObjectDepth;
+  if (ColdFeatureActive()) {
+    // We reduce the number of cached objects for some sizes to fit into the
+    // slab.
+    //
+    // We use fewer number of size classes when using reuse size classes. So,
+    // we may use larger capacity for some sizes.
+    const uint16_t kLargeUninterestingObjectDepth =
+        forwarder_.reuse_size_classes() ? 246 * kWiderSlabMultiplier
+                                        : 123 * kWiderSlabMultiplier;
+    const uint16_t kLargeInterestingObjectDepth =
+        forwarder_.reuse_size_classes() ? 52 * kWiderSlabMultiplier
+                                        : 36 * kWiderSlabMultiplier;
+    absl::Span<const size_t> cold = forwarder_.cold_size_classes();
+    if (absl::c_binary_search(cold, size_class)) {
+      return kLargeInterestingObjectDepth;
+    } else if (!IsExpandedSizeClass(size_class)) {
+      return kLargeUninterestingObjectDepth;
+    } else {
+      return 0;
+    }
   }
 
-  // We reduce the number of cached objects for some sizes to fit into the slab.
-  //
-  // We use fewer number of size classes when using reuse size classes. So,
-  // we may use larger capacity for some sizes.
-  const uint16_t kLargeHotObjectDepth = forwarder_.reuse_size_classes()
-                                            ? 246 * kWiderSlabMultiplier
-                                            : 123 * kWiderSlabMultiplier;
-  const uint16_t kColdObjectDepth = forwarder_.reuse_size_classes()
-                                        ? 52 * kWiderSlabMultiplier
-                                        : 36 * kWiderSlabMultiplier;
-  return IsColdSizeClass(size_class) ? kColdObjectDepth : kLargeHotObjectDepth;
+  if (IsExpandedSizeClass(size_class)) {
+    return 0;
+  }
+
+  return kLargeObjectDepth;
 }
 
 // Returns estimated bytes required and the bytes available.
@@ -1056,8 +1080,8 @@ inline void CpuCache<Forwarder>::Activate() {
     max_capacity_[size_class].store(capacity, std::memory_order_relaxed);
   }
 
-  // Deal with cold size classes.
-  for (int size_class = kColdClassesStart; size_class < kNumClasses;
+  // Deal with expanded size classes.
+  for (int size_class = kExpandedClassesStart; size_class < kNumClasses;
        ++size_class) {
     const size_t capacity = MaxCapacity(size_class);
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
@@ -1155,7 +1179,7 @@ void* CpuCache<Forwarder>::AllocateSlow(size_t size_class) {
 
 template <class Forwarder>
 void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
-  if (ABSL_PREDICT_FALSE(BypassCpuCache(size_class))) {
+  if (BypassCpuCache(size_class)) {
     return forwarder_.sharded_transfer_cache().Pop(size_class);
   }
   auto [cpu, cached] = CacheCpuSlab();
@@ -1171,8 +1195,7 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
 #endif
       return ptr;
     }
-    if (void* ret = AllocateFast(size_class);
-        ABSL_PREDICT_FALSE(ret != nullptr)) {
+    if (void* ret = AllocateFast(size_class)) {
       return ret;
     }
   }
@@ -1258,7 +1281,7 @@ inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
   // Also always add 1 to the result to account for the additional object
   // we need to return to the caller on refill, or return on overflow.
   size_t target = std::min((capacity + 1) / 2 + 1, max);
-  if (ABSL_PREDICT_FALSE(capacity == 1 && successive < 3)) {
+  if (capacity == 1 && successive < 3) {
     // If the capacity is 1, it's generally impossible to avoid bad behavior.
     // Consider refills (but the same stands for overflows): if we fetch an
     // additional object and put it into the cache, and the caller is doing
@@ -1388,7 +1411,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
     resize_[cpu].per_class[size_class].RecordMiss(
         PerClassMissType::kCapacityTotal);
   }
-  if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
+  if (acquired_bytes == 0) {
     return;
   }
   size_t actual_increase = acquired_bytes / size;
@@ -1448,10 +1471,7 @@ inline void CpuCache<Forwarder>::TryDrainingCaches()
     freelist_.ReleaseSlabMetadataForDrainedCpus(
         [this](int cpu) { return HasPopulated(cpu); },
         [this](int cpu) {
-          // Grow occurs outside of resize_[cpu].lock and may drain capacity
-          // with subtract_at_least, so available <= capacity is not strictly
-          // an equality.
-          TC_CHECK_LE(
+          TC_CHECK_EQ(
               resize_[cpu].available, resize_[cpu].capacity,
               "CPU %u was not actually drained, or available is out of sync",
               cpu);
@@ -1674,30 +1694,13 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
         new_resize_slab_offset);
 
-    std::atomic<uint16_t> updated_max_capacities[kNumClasses];
-    for (size_t i = 0; i < kNumClasses; ++i) {
-      updated_max_capacities[i].store(
-          max_capacity_[i].load(std::memory_order_relaxed),
-          std::memory_order_relaxed);
-    }
-
-    for (int i = 0; i < to_update; ++i) {
-      updated_max_capacities[new_max_capacities[i].size_class].store(
-          new_max_capacities[i].max_capacity, std::memory_order_relaxed);
-    }
-
     info = freelist_.UpdateMaxCapacities(
         new_slabs,
-        GetShiftMaxCapacity{updated_max_capacities, per_cpu_shift,
-                            shift_bounds_},
+        GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
         [this](int size_class, uint16_t cap) {
           UpdateMaxCapacity(size_class, cap);
         },
-        [this](int cpu) {
-          // Since this is called while holding all resize_ locks,
-          // HasPopulated should not change.
-          return HasPopulated(cpu);
-        },
+        [this](int cpu) { return HasPopulated(cpu); },
         DrainHandler<CpuCache>{*this, nullptr}, new_max_capacities, to_update);
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
@@ -2114,7 +2117,7 @@ void CpuCache<Forwarder>::DeallocateSlow(void* ptr, size_t size_class) {
 
 template <class Forwarder>
 void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
-  if (ABSL_PREDICT_FALSE(BypassCpuCache(size_class))) {
+  if (BypassCpuCache(size_class)) {
     return forwarder_.sharded_transfer_cache().Push(size_class, ptr);
   }
   auto [cpu, cached] = CacheCpuSlab();
@@ -2123,7 +2126,7 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
       // The cpu is stopped.
       return ReleaseToBackingCache(size_class, {&ptr, 1});
     }
-    if (ABSL_PREDICT_FALSE(DeallocateFast(ptr, size_class))) {
+    if (DeallocateFast(ptr, size_class)) {
       return;
     }
   }

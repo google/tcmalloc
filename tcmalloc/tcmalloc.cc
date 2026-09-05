@@ -194,7 +194,7 @@ namespace tcmalloc_internal {
 // [buffer, buffer+result] will contain NUL-terminated output string.
 //
 // REQUIRES: buffer_length > 0.
-extern "C" [[maybe_unused]] int MallocExtension_Internal_GetStatsInPbtxt(
+extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
     char* buffer, int buffer_length) {
   TC_ASSERT_GT(buffer_length, 0);
   Printer printer(buffer, buffer_length);
@@ -554,7 +554,7 @@ inline size_t GetLargeSize(const void* ptr, const Span& span) {
 }
 
 inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
-  if (ABSL_PREDICT_FALSE(ptr == nullptr)) return SizeAndSampled{0, false};
+  if (ptr == nullptr) return SizeAndSampled{0, false};
   const PageId p = PageIdContainingTagged(ptr);
   const auto [span, size_class] =
       tc_globals.pagemap().GetDescriptorAndSizeClass(p);
@@ -609,7 +609,7 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
 
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
     void* ptr, std::optional<size_t> size, size_t size_class) {
-  if (!IsColdSizeClass(size_class)) {
+  if (!IsExpandedSizeClass(size_class)) {
     TC_ASSERT(IsNormalMemory(ptr), "ptr=%p", ptr);
   } else {
     TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold, "ptr=%p", ptr);
@@ -969,7 +969,7 @@ inline
   // C/[0|1] ───────────────────────────────> kCold
 
   // 'policy.is_cold()' means the ptr has kCold tag. To make the delete
-  // operation correctly maps to the cold size class, partition 0 needs
+  // operation correctly maps to the expanded size class, partition 0 needs
   // to be used. If partition 1 used, it will be wrongly mapped to NormalP1
   // classes (see above diagrams). Additional note: partition number specified
   // at allocation time is not recorded in the tag for cold objects and
@@ -1203,7 +1203,7 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
   if (ABSL_PREDICT_FALSE(weight != 0)) {
     ptr = SampleSmallAllocation(tc_globals, policy, size, weight, size_class);
   } else {
-    if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
+    if (UsePerCpuCache(tc_globals)) {
       ptr.p = tc_globals.cpu_cache().AllocateSlow(size_class);
     } else {
       ptr.p = ThreadCache::GetCache()->Allocate(size_class);
@@ -1635,14 +1635,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
     void* ptr, size_t size) noexcept {
-  if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
+  if (ptr == nullptr) {
     return fast_alloc(size, MallocPolicy());
   }
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
   if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
     ReportCorruptedFree(tc_globals, ptr);
   }
-  if (ABSL_PREDICT_FALSE(size == 0)) {
+  if (size == 0) {
     do_free(ptr, MallocPolicy());
     return nullptr;
   }
@@ -1655,10 +1655,10 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
   if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {
     return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
   }
-  if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
+  if (ptr == nullptr) {
     return fast_alloc(size, MallocPolicy());
   }
-  if (ABSL_PREDICT_FALSE(size == 0)) {
+  if (size == 0) {
     do_free(ptr, MallocPolicy());
     return nullptr;
   }
@@ -1887,7 +1887,7 @@ extern "C" struct mallinfo2 TCMallocInternalMallInfo2(void) noexcept {
 }
 #endif
 
-extern "C" int TCMallocInternalMallocInfo(int opts [[maybe_unused]],
+extern "C" int TCMallocInternalMallocInfo(int opts ABSL_ATTRIBUTE_UNUSED,
                                           FILE* fp) noexcept {
   fputs("<malloc></malloc>\n", fp);
   return 0;

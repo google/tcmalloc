@@ -14,8 +14,13 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/mman.h>
 
+#include <atomic>
+#include <cstring>
 #include <limits>
+#include <thread>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
@@ -29,6 +34,8 @@
 #include "tcmalloc/internal/page_allocator_hooks.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
+#include "tcmalloc/page_allocator.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -265,6 +272,137 @@ TEST(PageAllocatorTracingTest, PageAllocatorReleaseHook) {
   }
   EXPECT_TRUE(found_release_to_system)
       << "Expected to observe PageReleaseReason::kReleaseMemoryToSystem";
+}
+
+using ::tcmalloc::tcmalloc_internal::PageAllocator;
+using ::tcmalloc::tcmalloc_internal::pageheap_lock;
+using ::tcmalloc::tcmalloc_internal::tc_globals;
+
+TEST(PageAllocatorTracingTest, BufferAllocatedOutsideLock) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  auto& allocator = tc_globals.page_allocator();
+  allocator.DisableTracing();
+
+  static std::atomic<bool> lock_held{false};
+  static std::atomic<size_t> alloc_count{0};
+  static std::atomic<size_t> dealloc_count{0};
+
+  allocator.SetTracingBufferHooksForTesting(
+      [](size_t size) -> void* {
+        if (pageheap_lock.IsHeld()) {
+          lock_held.store(true, std::memory_order_relaxed);
+        }
+        alloc_count.fetch_add(1, std::memory_order_relaxed);
+        return mmap(nullptr, size, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      },
+      [](void* ptr, size_t size) {
+        dealloc_count.fetch_add(1, std::memory_order_relaxed);
+        munmap(ptr, size);
+      });
+
+  EXPECT_TRUE(allocator.EnableTracing(1024 * 1024));
+  EXPECT_TRUE(allocator.tracing_enabled());
+  EXPECT_NE(allocator.tracing_buffer(), nullptr);
+  EXPECT_EQ(allocator.tracing_buffer_size(), 1024 * 1024);
+  EXPECT_FALSE(lock_held.load(std::memory_order_relaxed))
+      << "Tracing buffer was allocated while holding pageheap_lock!";
+
+  allocator.DisableTracing();
+  EXPECT_FALSE(allocator.tracing_enabled());
+  EXPECT_EQ(allocator.tracing_buffer(), nullptr);
+  EXPECT_EQ(allocator.tracing_buffer_size(), 0);
+  EXPECT_EQ(alloc_count.load(), 1);
+  EXPECT_EQ(dealloc_count.load(), 1);
+
+  allocator.SetTracingBufferHooksForTesting(nullptr, nullptr);
+}
+
+TEST(PageAllocatorTracingTest, ConcurrentEnableTracing) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  auto& allocator = tc_globals.page_allocator();
+  allocator.DisableTracing();
+
+  static std::atomic<bool> lock_held{false};
+  static std::atomic<size_t> alloc_count{0};
+  static std::atomic<size_t> dealloc_count{0};
+
+  allocator.SetTracingBufferHooksForTesting(
+      [](size_t size) -> void* {
+        if (pageheap_lock.IsHeld()) {
+          lock_held.store(true, std::memory_order_relaxed);
+        }
+        alloc_count.fetch_add(1, std::memory_order_relaxed);
+        return mmap(nullptr, size, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      },
+      [](void* ptr, size_t size) {
+        dealloc_count.fetch_add(1, std::memory_order_relaxed);
+        munmap(ptr, size);
+      });
+
+  constexpr int kNumThreads = 16;
+  std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
+  std::atomic<int> success_count{0};
+  std::atomic<bool> start_signal{false};
+
+  for (int i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&]() {
+      while (!start_signal.load(std::memory_order_acquire)) {
+      }
+      if (allocator.EnableTracing(1024 * 1024)) {
+        success_count.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+  }
+
+  start_signal.store(true, std::memory_order_release);
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  EXPECT_EQ(success_count.load(), 1);
+  EXPECT_TRUE(allocator.tracing_enabled());
+  EXPECT_NE(allocator.tracing_buffer(), nullptr);
+  EXPECT_FALSE(lock_held.load(std::memory_order_relaxed))
+      << "Tracing buffer was allocated while holding pageheap_lock!";
+
+  allocator.DisableTracing();
+  EXPECT_FALSE(allocator.tracing_enabled());
+  EXPECT_EQ(allocator.tracing_buffer(), nullptr);
+  EXPECT_EQ(alloc_count.load(), dealloc_count.load())
+      << "Mismatch between allocated and deallocated buffers (leak detected)";
+
+  allocator.SetTracingBufferHooksForTesting(nullptr, nullptr);
+}
+
+TEST(PageAllocatorTracingTest, DefaultMmapAllocation) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  auto& allocator = tc_globals.page_allocator();
+  allocator.DisableTracing();
+  allocator.SetTracingBufferHooksForTesting(nullptr, nullptr);
+
+  EXPECT_TRUE(allocator.EnableTracing());
+  EXPECT_TRUE(allocator.tracing_enabled());
+  void* buf = allocator.tracing_buffer();
+  EXPECT_NE(buf, nullptr);
+  EXPECT_EQ(allocator.tracing_buffer_size(),
+            PageAllocator::kDefaultTracingBufferSize);
+
+  memset(buf, 0xAB, 4096);
+  EXPECT_EQ(*reinterpret_cast<uint8_t*>(buf), 0xAB);
+
+  allocator.DisableTracing();
+  EXPECT_FALSE(allocator.tracing_enabled());
+  EXPECT_EQ(allocator.tracing_buffer(), nullptr);
+  EXPECT_EQ(allocator.tracing_buffer_size(), 0);
 }
 
 }  // namespace

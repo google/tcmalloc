@@ -18,7 +18,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <atomic>
 #include <new>
 
 #include "absl/base/attributes.h"
@@ -78,18 +77,13 @@ class ABSL_CACHELINE_ALIGNED Arena {
     AllocationGuardSpinLockHolder l(arena_lock_);
 
     ArenaStats s;
-    s.bytes_allocated = bytes_allocated_.load(std::memory_order_relaxed);
+    s.bytes_allocated = bytes_allocated_;
     s.bytes_unallocated = free_avail_ + freelist_bytes_unallocated_;
     s.freelist_blocks = freelist_blocks_;
     s.bytes_unavailable = bytes_unavailable_;
     s.bytes_nonresident = bytes_nonresident_;
     s.blocks = blocks_;
     return s;
-  }
-
-  // Allocated bytes without taking any locks.
-  size_t allocated() const ABSL_LOCKS_EXCLUDED(arena_lock_) {
-    return bytes_allocated_.load(std::memory_order_relaxed);
   }
 
  private:
@@ -114,9 +108,8 @@ class ABSL_CACHELINE_ALIGNED Arena {
   size_t free_avail_ ABSL_GUARDED_BY(arena_lock_) = 0;
   Block* freelist_ ABSL_GUARDED_BY(arena_lock_) = nullptr;
 
-  // Total number of bytes allocated from this arena.  Read without locks,
-  // written under arena_lock_.
-  std::atomic<size_t> bytes_allocated_ = 0;
+  // Total number of bytes allocated from this arena
+  size_t bytes_allocated_ ABSL_GUARDED_BY(arena_lock_) = 0;
   // The number of bytes that are unused and unavailable for future allocations
   // because they are at the end of a discarded arena block.
   size_t bytes_unavailable_ ABSL_GUARDED_BY(arena_lock_) = 0;

@@ -91,8 +91,6 @@ TEST(Arena, Stats) {
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 0);
   EXPECT_EQ(stats_after_alloc2.blocks, 2);
   EXPECT_EQ(stats_after_alloc2.freelist_blocks, 1);
-
-  EXPECT_EQ(stats_after_alloc2.bytes_allocated, arena.allocated());
 }
 
 TEST(Arena, ReportUnmapped) {

@@ -79,7 +79,7 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
  private:
   void SetUp() override {
     size_class_ = GetParam();
-    if (IsColdSizeClass(size_class_)) {
+    if (IsExpandedSizeClass(size_class_)) {
 #if ABSL_HAVE_THREAD_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
       GTEST_SKIP() << "Skipping test under sanitizers that conflict with "
                       "address placement";
@@ -88,7 +88,8 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
       if (!ColdFeatureActive()) {
         // If !ColdFeatureActive(), we will use the normal page heap, which will
         // keep us from seeing memory get the expected tags.
-        GTEST_SKIP() << "Skipping cold size classes without cold experiment";
+        GTEST_SKIP()
+            << "Skipping expanded size classes without cold experiment";
       }
     }
     object_size_ = tc_globals.sizemap().class_to_size(size_class_);

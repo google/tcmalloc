@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -20,7 +21,7 @@ namespace tcmalloc_internal {
 
 // When linked into a binary this overrides the weak implementation in numa.cc
 // and causes TCMalloc to enable NUMA awareness by default.
-[[maybe_unused]] bool default_want_numa_aware() { return true; }
+ABSL_ATTRIBUTE_UNUSED bool default_want_numa_aware() { return true; }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -154,7 +154,6 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
-    "tcmalloc::internal_page_allocator_hooks"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
     "tcmalloc::testing_malloc_hook_recorder"
@@ -271,8 +270,7 @@ tcmalloc_cc_library(
   SRCS
     "rseq_util.cc"
   DEPS
-    "GTest::gtest"
-    "GTest::gmock"
+    "@com_google_googletest//:gtest_for_library"
     "tcmalloc::internal_environment"
     "tcmalloc::internal_percpu"
     "tcmalloc::testing_testutil"
@@ -680,7 +678,6 @@ tcmalloc_cc_test(
     "absl::strings"
     "tcmalloc::common_numa_aware"
     "tcmalloc::internal_affinity"
-    "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_numa"
     "tcmalloc::internal_page_size"

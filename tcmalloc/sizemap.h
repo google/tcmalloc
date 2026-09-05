@@ -44,10 +44,12 @@ extern const SizeClasses kSizeClasses;
 // Experimental size classes:
 extern const SizeClasses kExperimentalPow2SizeClasses;
 extern const SizeClasses kLegacySizeClasses;
+extern const SizeClasses kReuseRelaxedBelow64SizeClasses;
 
 enum class SizeClassConfiguration {
   kPow2Only = 2,
   kLegacy = 4,
+  kReuse = 6,
   kReuseRelaxedBelow64 = 8,
 };
 
@@ -80,42 +82,38 @@ class SizeMap {
   //   1025       (1025 + 127 + (120<<7)) / 128   129
   //   ...
   //   32768      (32768 + 127 + (120<<7)) / 128  376
-  static constexpr int kSmallSizeAlignment = 8;
   static constexpr size_t kClassArraySize =
-      kLargeSize / kSmallSizeAlignment +
-      (kMaxSize - kLargeSize) / kLargeSizeAlignment + 1;
+      ((kMaxSize + 127 + (120 << 7)) >> 7) + 1;
 
   // Batch size is the number of objects to move at once.
   typedef unsigned char BatchSize;
 
   // If TCMalloc is compiled without NUMA support, and with cold allocations
-  // (cold classes), then the class_array_ will consist of 6 regions:
+  // (expanded classes), then the class_array_ will consist of 6 regions:
   //
-  //   [0, kClassArraySize)                   : Hot New R0
-  //   [kClassArraySize, 2*kClassArraySize)   : Hot New R1
-  //   [2*kClassArraySize, 3*kClassArraySize) : Hot Malloc R0
-  //   [3*kClassArraySize, 4*kClassArraySize) : Hot Malloc R1
-  //   [4*kClassArraySize, 5*kClassArraySize) : Cold New R0
-  //   [5*kClassArraySize, 6*kClassArraySize) : Cold New R1
+  //   [0, kClassArraySize)                   : Hot New P0
+  //   [kClassArraySize, 2*kClassArraySize)   : Hot New P1
+  //   [2*kClassArraySize, 3*kClassArraySize) : Hot Malloc P0
+  //   [3*kClassArraySize, 4*kClassArraySize) : Hot Malloc P1
+  //   [4*kClassArraySize, 5*kClassArraySize) : Cold New P0
+  //   [5*kClassArraySize, 6*kClassArraySize) : Cold New P1
   //
   // * If the heap partitioning feature is not active, then the lookups for
-  //   region 1 will contain the same information as for region 0,
-  //   and both Hot New and Hot Malloc point to P0.
+  //   partition 1 will contain the same information as for partition 0.
   // * If the heap partitioning feature is active in kFull mode:
-  //   Cold R1 will be the same as Hot R1. Namely, it will point to the
-  //   [kNumBaseClasses, kColdClassesStart) size classes.
-  // * If the heap partitioning feature is active in kLight mode: Hot Malloc R0
-  //   exclusively points to P0; Hot New R0 and Hot New R1 point to P1;
-  //   Cold New R0 and Cold New R1 point to Cold P0.
+  //   Cold & partition 1 will be the same as hot & partition 1. Namely, it
+  //   will point to the [kNumBaseClasses, kExpandedClassesStart) size classes.
+  // * If the heap partitioning feature is active in kLight mode: Malloc P0 is
+  //   exclusive to P0; Hot New P0 maps to Hot New P1; Cold P1 maps to Cold P0.
   //
-  // If NUMA support is compiled in, the R1 regions won't exist.
-  // Similarly, for cold memory, if cold classes are not compiled in.
-  static constexpr size_t kHotRegions = 2 * kSecurityPartitions;
-  static constexpr size_t kColdRegionsStart = kHotRegions;
-  static constexpr size_t kColdRegions =
-      (kHasColdClasses ? 1 : 0) * kSecurityPartitions;
-  static constexpr size_t kTotalClassArraySize =
-      kClassArraySize * (kHotRegions + kColdRegions);
+  // If NUMA support is compiled in, the partition 1 regions won't exist.
+  // Similarly, for cold memory, if expanded classes are not compiled in.
+  static constexpr size_t kHotRegisters = 2 * kSecurityPartitions;
+  static constexpr size_t kColdRegisterStride = kHotRegisters;
+  static constexpr size_t kColdRegisters =
+      (kHasExpandedClasses ? 1 : 0) * kSecurityPartitions;
+  static constexpr size_t kClassArraySizePartitions =
+      kClassArraySize * (kHotRegisters + kColdRegisters);
 
   // class_array_ is accessed on every malloc, so is very hot.  We make it the
   // first member so that it inherits the overall alignment of a SizeMap
@@ -123,8 +121,8 @@ class SizeMap {
   // aligned, this member is also aligned to the width of a cache line.
   //
   // For the mapping with the cold and/or security partitions, see the comment
-  // for kTotalClassArraySize.
-  CompactSizeClass class_array_[kTotalClassArraySize] = {0};
+  // for kClassArraySizePartitions.
+  CompactSizeClass class_array_[kClassArraySizePartitions] = {0};
 
   // Number of objects to move between a per-thread list and a central
   // list in one shot.  We want this to be not too small so we can
@@ -139,27 +137,10 @@ class SizeMap {
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
                                                                   size_t& idx) {
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
-      idx = (s + kSmallSizeAlignment - 1) / kSmallSizeAlignment;
+      idx = (s + 7) >> 3;
       return true;
-    } else if (ABSL_PREDICT_TRUE(s <= kMaxSize)) {
-      idx = ((s + kLargeSizeAlignment - 1 +
-              (kLargeSize / kSmallSizeAlignment -
-               kLargeSize / kLargeSizeAlignment) *
-                  kLargeSizeAlignment) /
-             kLargeSizeAlignment);
-
-      // TODO(b/64294063): Add a dummy statement to keep the tail of the fast
-      // and the slow paths from being deduplicated, turning the shifts into
-      // a variable-width shift (shr reg, cl on x86); these are especially
-      // bad on Skylake, where they require three µops that often run in
-      // three successive cycles. (If we are compiling with BMI2,
-      // the compiler will use the much cheaper SHRX instruction, and
-      // the problem is more modest.)
-      //
-      // See SLOW_PATH_BARRIER() in tcmalloc.cc for more information
-      // about this technique.
-      asm volatile("");
-
+    } else if (s <= kMaxSize) {
+      idx = ((s + 127 + 120 * 128) >> 7);
       return true;
     }
     return false;
@@ -170,10 +151,6 @@ class SizeMap {
     TC_CHECK(ClassIndexMaybe(s, ret));
     return ret;
   }
-
-  // Set the specified class_array_ region from region 0 adjusting all
-  // values by `adjust`.
-  void SetClassArrayRegion(size_t region, CompactSizeClass adjust);
 
   // Mapping from size class to number of pages to allocate at a time
   unsigned char class_to_pages_[kNumClasses] = {0};
@@ -187,6 +164,9 @@ class SizeMap {
 
   // Check that the size classes meet all requirements.
   static bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
+
+  size_t cold_sizes_[kNumBaseClasses] = {0};
+  size_t cold_sizes_count_ = 0;
 
  public:
   // Returns size classes to use in the current process.
@@ -242,24 +222,24 @@ class SizeMap {
       return {false};
     }
     size_t size_class;
-    // Note, if security heap partitioning is enabled, only data (region 0)
-    // is added to the cold heap. See the comment for kTotalClassArraySize
+    // Note, if security heap partitioning is enabled, only data (partition 0)
+    // is added to the cold heap. See the comment for kClassArraySizePartitions
     // for more details.
-    if (kHasColdClasses && policy.is_cold()) {
+    if (kHasExpandedClasses && policy.is_cold()) {
       TC_ASSERT(policy.allocation_type() == AllocationType::New);
-      TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegionsStart) *
+      TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegisterStride) *
                              kClassArraySize,
-                   kTotalClassArraySize);
-      size_class =
-          class_array_[idx + (policy.security_partition() + kColdRegionsStart) *
-                                 kClassArraySize];
+                   kClassArraySizePartitions);
+      size_class = class_array_[idx + (policy.security_partition() +
+                                       kColdRegisterStride) *
+                                          kClassArraySize];
     } else {
       constexpr size_t kTypeOffset =
           policy.allocation_type() != AllocationType::New ? kSecurityPartitions
                                                           : 0;
       TC_ASSERT_LT(
           idx + (policy.security_partition() + kTypeOffset) * kClassArraySize,
-          kTotalClassArraySize);
+          kClassArraySizePartitions);
       size_class =
           class_array_[idx + (policy.security_partition() + kTypeOffset) *
                                  kClassArraySize] +
@@ -352,6 +332,11 @@ class SizeMap {
       size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return num_objects_to_move_[size_class];
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::Span<const size_t> ColdSizeClasses()
+      const {
+    return {cold_sizes_, cold_sizes_count_};
   }
 
   [[nodiscard]] static bool IsValidSizeClass(size_t size, Length num_pages,
