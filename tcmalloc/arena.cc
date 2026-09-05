@@ -139,16 +139,15 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
   TC_ASSERT_GE(free_avail_, alignment_bytes + bytes);
   free_area_ += alignment_bytes;
   free_avail_ -= alignment_bytes;
+  // TODO: b/201694482 - Consider whether to account for alignment bytes to
+  // bytes_allocated or bytes_unavailable.
+  bytes_allocated_ += alignment_bytes;
 
   TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(free_area_) % align, 0);
   char* result = free_area_;
   free_area_ += bytes;
   free_avail_ -= bytes;
-  // TODO: b/201694482 - Consider whether to account for alignment bytes to
-  // bytes_allocated or bytes_unavailable.
-  bytes_allocated_.store(bytes_allocated_.load(std::memory_order_relaxed) +
-                             alignment_bytes + bytes,
-                         std::memory_order_relaxed);
+  bytes_allocated_ += bytes;
   return reinterpret_cast<void*>(result);
 }
 

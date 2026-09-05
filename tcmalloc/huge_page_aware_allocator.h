@@ -61,18 +61,45 @@ bool decide_subrelease();
 HugeRegionUsageOption huge_region_option();
 bool use_huge_region_more_often();
 
-class StaticForwarder : private Parameters {
+class StaticForwarder {
  public:
-  using Parameters::enable_unfiltered_collapse;
-  using Parameters::filler_skip_subrelease_long_interval;
-  using Parameters::filler_skip_subrelease_short_interval;
-  using Parameters::hpaa_subrelease;
-  using Parameters::huge_region_adaptive_release;
-  using Parameters::madvise_cold_regions_nohugepage;
-  using Parameters::release_max_cold_pages;
-  using Parameters::release_partial_alloc_pages;
-  using Parameters::release_stale_pages;
-  using Parameters::subrelease_unbacked_hugepages;
+  // Runtime parameters.  This can change between calls.
+  static absl::Duration filler_skip_subrelease_short_interval() {
+    return Parameters::filler_skip_subrelease_short_interval();
+  }
+  static absl::Duration filler_skip_subrelease_long_interval() {
+    return Parameters::filler_skip_subrelease_long_interval();
+  }
+
+  static bool release_partial_alloc_pages() {
+    return Parameters::release_partial_alloc_pages();
+  }
+
+  static SubreleaseUnbackedMode subrelease_unbacked_hugepages() {
+    return Parameters::subrelease_unbacked_hugepages();
+  }
+
+  static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
+
+  static EnableUnfilteredCollapse enable_unfiltered_collapse() {
+    return Parameters::enable_unfiltered_collapse();
+  }
+
+  static bool huge_region_adaptive_release() {
+    return Parameters::huge_region_adaptive_release();
+  }
+
+  static bool release_max_cold_pages() {
+    return Parameters::release_max_cold_pages();
+  }
+
+  static ReleaseStalePages release_stale_pages() {
+    return Parameters::release_stale_pages();
+  }
+
+  static MadviseRegionsNoHugepage madvise_cold_regions_nohugepage() {
+    return Parameters::madvise_cold_regions_nohugepage();
+  }
 
   // Arena state.
   static Arena& arena();
@@ -113,10 +140,12 @@ class StaticForwarder : private Parameters {
   // SystemAlloc state.
   [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
                                                   MemoryTag tag);
-  static bool BackAllocations() { return back_small_allocations(); }
+  static bool BackAllocations() {
+    return Parameters::back_small_allocations();
+  };
   static int32_t BackSizeThresholdBytes() {
-    return back_size_threshold_bytes();
-  }
+    return Parameters::back_size_threshold_bytes();
+  };
   static void Back(Range r);
   [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r);
   [[nodiscard]] static MemoryModifyStatus CollapsePages(Range r);

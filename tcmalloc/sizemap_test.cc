@@ -44,10 +44,10 @@ static void VerifyColdSizeClassRelations(const SizeMap& size_map,
     size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
     if (mode == HeapPartitioningMode::kLight) {
       // In kLight mode, all C++ allocations are routed to Hot P1 or Cold P0.
-      EXPECT_EQ(cold, hot - kNumBaseClasses + kColdClassesStart)
+      EXPECT_EQ(cold, hot - kNumBaseClasses + kExpandedClassesStart)
           << request_size;
     } else {
-      EXPECT_EQ(cold, hot + kColdClassesStart) << request_size;
+      EXPECT_EQ(cold, hot + kExpandedClassesStart) << request_size;
     }
   }
 
@@ -57,13 +57,13 @@ static void VerifyColdSizeClassRelations(const SizeMap& size_map,
     size_t cold = size_map.SizeClass(policy.AccessAsCold(), request_size);
     size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
     if (mode == HeapPartitioningMode::kLight) {
-      EXPECT_EQ(cold, hot - kNumBaseClasses + kColdClassesStart)
+      EXPECT_EQ(cold, hot - kNumBaseClasses + kExpandedClassesStart)
           << request_size;
     } else if (mode == HeapPartitioningMode::kFull) {
       // In kFull mode, alloc-token 1 Cold allocations map to Hot P1.
       EXPECT_EQ(cold, hot) << request_size;
     } else {
-      EXPECT_EQ(cold, hot + kColdClassesStart) << request_size;
+      EXPECT_EQ(cold, hot + kExpandedClassesStart) << request_size;
     }
   }
 
@@ -71,7 +71,8 @@ static void VerifyColdSizeClassRelations(const SizeMap& size_map,
     auto policy = CppPolicy().InPartition(1).WithSecurityToken<TokenId{0}>();
     size_t cold = size_map.SizeClass(policy.AccessAsCold(), request_size);
     size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
-    EXPECT_EQ(cold, hot - kNumBaseClasses + kColdClassesStart) << request_size;
+    EXPECT_EQ(cold, hot - kNumBaseClasses + kExpandedClassesStart)
+        << request_size;
   }
 }
 
@@ -86,16 +87,9 @@ TEST(ColdSizeClassTest, ColdFeatureActivation) {
 const SizeClasses* const kAllSizeClassesConfigs[] = {
     &kSizeClasses,
     &kLegacySizeClasses,
+    &kReuseRelaxedBelow64SizeClasses,
     &kExperimentalPow2SizeClasses,
 };
-
-TEST(SizeMapTest, NumBaseClasses) {
-  size_t max_classes = 0;
-  for (const SizeClasses* sc : kAllSizeClassesConfigs) {
-    max_classes = std::max(max_classes, sc->classes.size());
-  }
-  EXPECT_EQ(max_classes, kNumBaseClasses);
-}
 
 TEST(ColdSizeClassTest, ColdSizeClasses) {
   if (kPageShift <= 12) {
@@ -105,8 +99,10 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
   for (const SizeClasses* sc : kAllSizeClassesConfigs) {
     const auto& classes = sc->classes;
     std::vector<size_t> allowed_alloc_size;
+    std::vector<size_t> expected_cold_size_classes;
     for (int i = 1; i < classes.size(); ++i) {
       allowed_alloc_size.push_back(classes[i].size);
+      expected_cold_size_classes.push_back(i + kExpandedClassesStart);
     }
 
     SizeMap size_map;
@@ -114,6 +110,8 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
     for (const size_t request_size : allowed_alloc_size) {
       VerifyColdSizeClassRelations(size_map, request_size);
     }
+    EXPECT_THAT(size_map.ColdSizeClasses(),
+                ElementsAreArray(expected_cold_size_classes));
   }
 }
 
@@ -148,10 +146,11 @@ TEST(SizeMapTest, ClassToSizeRange) {
     if (kPageShift > 12) {
       // Check that the size ranges of the cold classes mirror the
       // base classes.
-      EXPECT_THAT(size_map.class_to_size_range(kColdClassesStart), Pair(0, 0));
-      EXPECT_THAT(size_map.class_to_size_range(kColdClassesStart + 1),
+      EXPECT_THAT(size_map.class_to_size_range(kExpandedClassesStart),
+                  Pair(0, 0));
+      EXPECT_THAT(size_map.class_to_size_range(kExpandedClassesStart + 1),
                   Pair(1, 8));
-      EXPECT_THAT(size_map.class_to_size_range(kColdClassesStart + 2),
+      EXPECT_THAT(size_map.class_to_size_range(kExpandedClassesStart + 2),
                   Pair(9, 16));
     }
   }
@@ -197,8 +196,10 @@ TEST(SizeMapTest, PointerPartitionNoCold) {
   for (const SizeClasses* sc : kAllSizeClassesConfigs) {
     const auto& classes = sc->classes;
     std::vector<size_t> allowed_alloc_size;
+    std::vector<size_t> expected_cold_size_classes;
     for (int i = 1; i < classes.size(); ++i) {
       allowed_alloc_size.push_back(classes[i].size);
+      expected_cold_size_classes.push_back(i + kExpandedClassesStart);
     }
 
     SizeMap size_map;
@@ -225,6 +226,8 @@ TEST(SizeMapTest, PointerPartitionNoCold) {
                 request_size));
       }
     }
+    EXPECT_THAT(size_map.ColdSizeClasses(),
+                ElementsAreArray(expected_cold_size_classes));
   }
 }
 
@@ -257,10 +260,10 @@ TEST(SizeMapTest, HeapPartitioningSizeZero) {
 }
 
 TEST(SizeMapTest, SpecificClassRanges) {
-  // Verify kSizeClasses (with 24/48)
+  // Verify kReuseRelaxedBelow64SizeClasses (with 24/48)
   {
     SizeMap size_map;
-    ASSERT_TRUE(size_map.Init(kSizeClasses.classes));
+    ASSERT_TRUE(size_map.Init(kReuseRelaxedBelow64SizeClasses.classes));
     EXPECT_THAT(size_map.class_to_size_range(1), Pair(1, 8));
     EXPECT_THAT(size_map.class_to_size_range(2), Pair(9, 16));
 #if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
@@ -275,6 +278,15 @@ TEST(SizeMapTest, SpecificClassRanges) {
 #endif
   }
 
+  // Verify kSizeClasses (default, power of two below 64)
+  {
+    SizeMap size_map;
+    ASSERT_TRUE(size_map.Init(kSizeClasses.classes));
+    EXPECT_THAT(size_map.class_to_size_range(1), Pair(1, 8));
+    EXPECT_THAT(size_map.class_to_size_range(2), Pair(9, 16));
+    EXPECT_THAT(size_map.class_to_size_range(3), Pair(17, 32));
+    EXPECT_THAT(size_map.class_to_size_range(4), Pair(33, 64));
+  }
 }
 
 }  // namespace tcmalloc::tcmalloc_internal

@@ -189,15 +189,6 @@ ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
 };
 ABSL_CONST_INIT thread_local volatile int tcmalloc_cached_vcpu
     ABSL_ATTRIBUTE_WEAK = kCpuIdUninitialized;
-ABSL_CONST_INIT thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_WEAK = 0;
-
-// Because of the weak definitions we also add this non-weak symbol.
-// It's not used other than ensuring that our asm file with the real TLS layout
-// is actually linked. Without it linker manages to not link the asm file
-// in some configurations since all symbols it provides are already defined
-// (as weak), even though the asm file is in the same static library as other
-// linked in files.
-extern "C" ABSL_CONST_INIT thread_local char tcmalloc_rseq_layout;
 
 inline int GetRealCpuUnsafe() { return __rseq_abi.cpu_id; }
 #else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ

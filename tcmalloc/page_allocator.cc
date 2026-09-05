@@ -24,7 +24,6 @@
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
-#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
@@ -217,7 +216,6 @@ size_t PageAllocator::active_partitions() const {
 ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeNewHookSlow(
     Span* span, Length n, Length align, SpanAllocInfo span_alloc_info,
     MemoryTag tag) {
-  AllocationGuard g;
   size_t start_page_index = span ? span->first_page().index() : 0;
   page_allocator_new_hooks.Invoke(
       start_page_index, n.raw_num(), align.raw_num(),
@@ -227,7 +225,6 @@ ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeNewHookSlow(
 
 ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeDeleteHookSlow(
     PageId start_page, Length n, SpanAllocInfo span_alloc_info, MemoryTag tag) {
-  AllocationGuard g;
   page_allocator_delete_hooks.Invoke(
       start_page.index(), n.raw_num(), span_alloc_info.objects_per_span,
       static_cast<uint8_t>(span_alloc_info.density), tag);
@@ -235,7 +232,6 @@ ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeDeleteHookSlow(
 
 ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeReleaseHookSlow(
     Length num_pages, Length released, PageReleaseReason reason) {
-  AllocationGuard g;
   page_allocator_release_hooks.Invoke(num_pages.raw_num(), released.raw_num(),
                                       reason);
 }

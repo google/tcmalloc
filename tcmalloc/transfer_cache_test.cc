@@ -761,11 +761,11 @@ INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, FuzzTest, ::testing::Types<Env>);
 namespace resize_tests {
 struct MockTransferCacheManager {
   static constexpr size_t kNumBaseClasses = 3;
-  static constexpr bool kHasColdClasses = true;
+  static constexpr bool kHasExpandedClasses = true;
   static constexpr size_t kMaxSizeClassesToResize = 1;
   static constexpr size_t kNormalPartitions = 2;
   static constexpr size_t kSecurityPartitions = 1;
-  static constexpr size_t kColdClassesStart =
+  static constexpr size_t kExpandedClassesStart =
       kNormalPartitions * kNumBaseClasses;
   static constexpr size_t kNumClasses = 3 * kNumBaseClasses;
 

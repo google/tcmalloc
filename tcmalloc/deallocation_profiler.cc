@@ -86,9 +86,6 @@ class AllocAdaptor final {
 // Stores stack traces and metadata for any allocation or deallocation
 // encountered by the profiler.
 struct DeallocationSampleRecord {
-  // We define the dtor to ensure it is placed in the desired text section.
-  ~DeallocationSampleRecord() = default;
-
   tcmalloc_internal::StackTrace stack_trace;
   int cpu_id = -1;
   int vcpu_id = -1;
@@ -371,7 +368,6 @@ class DeallocationProfiler {
   DeallocationProfiler* next_;
   DeallocationProfilerList* list_ = nullptr;
   friend class DeallocationProfilerList;
-  Mode mode_;
 
   using AllocsTable = absl::flat_hash_map<
       tcmalloc_internal::AllocHandle, DeallocationSampleRecord,
@@ -491,7 +487,7 @@ class DeallocationProfiler {
 
  public:
   explicit DeallocationProfiler(DeallocationProfilerList* list, Mode mode)
-      : list_(list), mode_(mode) {
+      : list_(list) {
     reports_ = std::make_unique<DeallocationStackTraceTable>(mode);
     list_->Add(this);
   }
@@ -528,50 +524,41 @@ class DeallocationProfiler {
     allocation.thread_id = absl::base_internal::GetTID();
   }
 
-  void ReportFree(tcmalloc_internal::AllocHandle handle,
-                  const DeallocationSampleRecord& dealloc_record) {
+  void ReportFree(tcmalloc_internal::AllocHandle handle) {
     auto it = allocs_.find(handle);
-    // If we are doing a lifetime profile, we don't include left-censored
-    // samples (see `alloc_trace.stack_trace.depth == 0` guard in
-    // `DeallocationStackTraceTable::AddTrace`).  If we don't match here, we can
-    // return early rather than constructing two DeallocationSampleRecords.
-    if (mode_ == Mode::kLifetimes && it == allocs_.end()) {
-      return;
-    }
-
-    DeallocationSampleRecord allocation;
+    DeallocationSampleRecord sample;
 
     // Handle the (left-censored) case that we observed the deallocation but not
     // the allocation. Since we only get the handle here, left-censored
     // deallocations necessarily have depth = 0 and allocated_size = 0.
     if (it == allocs_.end()) {
-      allocation = {};
-      allocation.stack_trace.sampled_alloc_handle = handle;
-      allocation.stack_trace.depth = 0;
+      sample = {};
+      sample.stack_trace.sampled_alloc_handle = handle;
+      sample.stack_trace.depth = 0;
     } else {
-      allocation = it->second;
+      sample = it->second;
       allocs_.erase(it);
     }
 
-    // Copy, so we can update with information from sample.
-    DeallocationSampleRecord deallocation = dealloc_record;
-    deallocation.stack_trace = allocation.stack_trace;
-    // But restore details specific to the deallocation.
-    deallocation.stack_trace.depth = dealloc_record.stack_trace.depth;
-    std::copy_n(dealloc_record.stack_trace.stack,
-                dealloc_record.stack_trace.depth,
-                deallocation.stack_trace.stack);
-    deallocation.stack_trace.allocation_time =
-        dealloc_record.stack_trace.allocation_time;
+    DeallocationSampleRecord deallocation;
+    deallocation.stack_trace = sample.stack_trace;
+    deallocation.stack_trace.allocation_time = absl::Now();
+    deallocation.cpu_id = tcmalloc_internal::subtle::percpu::GetRealCpu();
+    deallocation.vcpu_id = tcmalloc_internal::subtle::percpu::VirtualCpu::get();
+    deallocation.l3_id = GetL3Id(deallocation.cpu_id);
+    deallocation.numa_id = GetNumaId(deallocation.cpu_id);
+    deallocation.thread_id = absl::base_internal::GetTID();
+    deallocation.stack_trace.depth = absl::GetStackTrace(
+        deallocation.stack_trace.stack, tcmalloc_internal::kMaxStackDepth, 1);
 
-    reports_->AddTrace(allocation, deallocation);
+    reports_->AddTrace(sample, deallocation);
   }
 };
 
 void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
   AllocationGuardSpinLockHolder h(profilers_lock_);
-  profiler->next_ = first_.load(std::memory_order_relaxed);
-  first_.store(profiler, std::memory_order_release);
+  profiler->next_ = first_;
+  first_ = profiler;
 
   // Whenever a new profiler is created, we seed it with live allocations.
   tcmalloc_internal::tc_globals.sampled_allocation_recorder().Iterate(
@@ -584,25 +571,20 @@ void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
 // This list is very short and we're nowhere near a hot path, just walk
 void DeallocationProfilerList::Remove(DeallocationProfiler* profiler) {
   AllocationGuardSpinLockHolder h(profilers_lock_);
-  DeallocationProfiler* cur = first_.load(std::memory_order_relaxed);
-  if (cur == profiler) {
-    first_.store(profiler->next_, std::memory_order_release);
-    return;
-  }
-  while (cur != nullptr && cur->next_ != profiler) {
+  DeallocationProfiler** link = &first_;
+  DeallocationProfiler* cur = first_;
+  while (cur != profiler) {
+    TC_CHECK_NE(cur, nullptr);
+    link = &cur->next_;
     cur = cur->next_;
   }
-  TC_CHECK_NE(cur, nullptr);
-  cur->next_ = profiler->next_;
+  *link = profiler->next_;
 }
 
 void DeallocationProfilerList::ReportMalloc(
     const tcmalloc_internal::StackTrace& stack_trace) {
-  if (ABSL_PREDICT_TRUE(first_.load(std::memory_order_acquire) == nullptr)) {
-    return;
-  }
   AllocationGuardSpinLockHolder h(profilers_lock_);
-  DeallocationProfiler* cur = first_.load(std::memory_order_relaxed);
+  DeallocationProfiler* cur = first_;
   while (cur != nullptr) {
     cur->ReportMalloc(stack_trace);
     cur = cur->next_;
@@ -611,27 +593,10 @@ void DeallocationProfilerList::ReportMalloc(
 
 void DeallocationProfilerList::ReportFree(
     tcmalloc_internal::AllocHandle handle) {
-  if (ABSL_PREDICT_TRUE(first_.load(std::memory_order_acquire) == nullptr)) {
-    return;
-  }
-
-  // Unwind the stack trace outside of the lock.  Stack unwinding is expensive,
-  // and while it is unlikely we will have multiple profilers in-flight at the
-  // same time, we can do it once.
-  DeallocationSampleRecord deallocation = {};
-  deallocation.stack_trace.depth = absl::GetStackTrace(
-      deallocation.stack_trace.stack, tcmalloc_internal::kMaxStackDepth, 0);
-  deallocation.stack_trace.allocation_time = absl::Now();
-  deallocation.cpu_id = tcmalloc_internal::subtle::percpu::GetRealCpu();
-  deallocation.vcpu_id = tcmalloc_internal::subtle::percpu::VirtualCpu::get();
-  deallocation.l3_id = GetL3Id(deallocation.cpu_id);
-  deallocation.numa_id = GetNumaId(deallocation.cpu_id);
-  deallocation.thread_id = absl::base_internal::GetTID();
-
   AllocationGuardSpinLockHolder h(profilers_lock_);
-  DeallocationProfiler* cur = first_.load(std::memory_order_relaxed);
+  DeallocationProfiler* cur = first_;
   while (cur != nullptr) {
-    cur->ReportFree(handle, deallocation);
+    cur->ReportFree(handle);
     cur = cur->next_;
   }
 }

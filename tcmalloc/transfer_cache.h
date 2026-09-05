@@ -61,10 +61,10 @@ class StaticForwarder {
       tcmalloc::tcmalloc_internal::kNormalPartitions;
   static constexpr size_t kSecurityPartitions =
       tcmalloc::tcmalloc_internal::kSecurityPartitions;
-  static constexpr size_t kHasColdClasses =
-      tcmalloc::tcmalloc_internal::kHasColdClasses;
-  static constexpr size_t kColdClassesStart =
-      tcmalloc::tcmalloc_internal::kColdClassesStart;
+  static constexpr size_t kHasExpandedClasses =
+      tcmalloc::tcmalloc_internal::kHasExpandedClasses;
+  static constexpr size_t kExpandedClassesStart =
+      tcmalloc::tcmalloc_internal::kExpandedClassesStart;
 
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);

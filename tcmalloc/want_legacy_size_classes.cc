@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/base/attributes.h"
+
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
 // This - if linked into a binary - overrides common.cc and forces old size
 // classes.
-[[maybe_unused]] int default_want_legacy_size_classes() { return 1; }
+ABSL_ATTRIBUTE_UNUSED int default_want_legacy_size_classes() { return 1; }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

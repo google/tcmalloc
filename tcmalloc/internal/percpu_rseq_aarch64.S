@@ -197,15 +197,6 @@ label##_trampoline:                                               \
 
 /* start of atomic restartable sequences */
 
-/*
- * ABI note:
- *
- * See the ABI note in percpu_rseq_x86_64.S. For A64, the parameter/result
- * registers are x0-x8 and usable scratch registers are x9-x15. So do not modify
- * x16 or above in these functions, and do not modify the used parameter registers
- * (in the case of PushBatch: x0-x2).
- */
-
 /* size_t TcmallocSlab_Internal_PushBatch(
  *     size_t size_class (x0),
  *     void** batch (x1),
@@ -214,21 +205,19 @@ label##_trampoline:                                               \
  *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
  *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = r8 + r0 * 8
- *   Header r3 = *hdr
- *   uint64_t r9 = r3.current  (zero-extend 16bit)
- *   uint64_t r10 = r3.remaining_capacity  (zero-extend 16bit)
- *   if (r10 == 0) return 0
- *   r11 = batch + len * 8
- *   r10 = r9 + min(len, r10)
+ *   uint64_t r9 = hdr->current (zero-extend 16bit)
+ *   uint64_t r10 = hdr->end    (zero-extend 16bit)
+ *   if (r9 >= r10) return 0
+ *   r11 = r2
+ *   r10 = r9 + min(len, r10 - r9)
+ *   r13 = r9 + r10
  *   r9 = r8 + r9 * 8
- *   r14 = r9 + r10 * 8
+ *   r14 = r8 + r13 * 8
  * loop:
  *   r12 = *(r11 -= 8) (pre-index) Pop from Batch
  *   *(r9 += 8) = r12 (post-index) Push to Slab
  *   if (r9 != r14) goto loop
- *   r3.current += r10
- *   r3.remaining_capacity -= r10
- *   *hdr = r3 (32-bit store)
+ *   hdr->current = r13 (16bit store)
  *   return r10
  * }
  */
@@ -242,17 +231,19 @@ TcmallocSlab_Internal_PushBatch:
   FETCH_SLABS(x8)
   tbz x8, #TCMALLOC_CACHED_SLABS_BIT, .LTcmallocSlab_Internal_PushBatch_no_capacity
   and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
-  add x15, x8, x0, LSL #2    /* r15 = &hdr */
-  ldr w3, [x15]              /* r3 = hdr */
-  and x9, x3, #0xffff        /* r9 = current */
-  lsr x10, x3, #16           /* r10 = free capacity */
-  cbz x10, .LTcmallocSlab_Internal_PushBatch_no_capacity
+  add x15, x8, x0, LSL #2    /* r15 = hdr */
+  ldrh w9, [x15]             /* r9 = current */
+  ldrh w10, [x15, #2]        /* r10 = end */
+  cmp w9, w10
+  bge .LTcmallocSlab_Internal_PushBatch_no_capacity
   add  x11, x1, x2, LSL #3  /* r11 = batch + len * 8 */
+  sub  w10, w10, w9         /* r10 = free capacity */
   cmp w2, w10
   csel w10, w2, w10, ls     /* r10 = min(len, free capacity), amount we are
                                pushing */
+  add x13, x9, x10          /* r13 = current + amount we are pushing. */
   add x9, x8, x9, LSL #3    /* r9 = current cpu slab stack */
-  add x14, x9, x10, LSL #3  /* r14 = new (end) current address */
+  add x14, x8, x13, LSL #3  /* r14 = new current address */
   tst w10, #1
   beq .LTcmallocSlab_Internal_PushBatch_loop
   ldr x12, [x11,  #-8]!     /* r12 = [--r11] */
@@ -266,9 +257,7 @@ TcmallocSlab_Internal_PushBatch:
                                address */
   bne .LTcmallocSlab_Internal_PushBatch_loop
 .LTcmallocSlab_Internal_PushBatch_store:
-  add x3, x3, x10           /* hdr.current += r10 */
-  sub x3, x3, x10, LSL #16  /* hdr.remaining_capacity -= r10 */
-  str w3, [x15]             /* store new hdr */
+  strh w13, [x15] /* store new current index */
 .LTcmallocSlab_Internal_PushBatch_commit:
   mov x0, x10
   ret
@@ -288,21 +277,19 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
  *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
  *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = GetHeader(r8, size_class)
- *   Header r4 = *hdr
- *   uint64_t r9 = r4.current
+ *   uint64_t r9 = hdr->current
  *   uint64_t r10 = *begin_ptr
  *   if (r9 <= r10) return 0
  *   r11 = min(len, r9 - r10)
  *   r13 = r8 + r9 * 8
+ *   r9 = r9 - r11
  *   r12 = r1
  *   r14 = r1 + r11 * 8
  * loop:
  *   r10 = *(r13 -= 8) (pre-index) Pop from slab
  *   *(r12 += 8) = r10  (post-index) Push to Batch
  *   if (r12 != r14) goto loop
- *   r4.current -= r11
- *   r4.remaining_capacity += r11
- *   *hdr = r4
+ *   hdr->current = r9
  *   return r11
  * }
  */
@@ -316,9 +303,8 @@ TcmallocSlab_Internal_PopBatch:
   FETCH_SLABS(x8)
   tbz x8, #TCMALLOC_CACHED_SLABS_BIT, .LTcmallocSlab_Internal_PopBatch_no_items
   and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
-  add x15, x8, x0, LSL #2    /* r15 = &hdr */
-  ldr w4, [x15]              /* r4 = hdr */
-  and x9, x4, #0xffff        /* r9 = current */
+  add x15, x8, x0, LSL #2
+  ldrh w9, [x15]             /* current */
   ldrh w10, [x3]             /* begin */
   cmp w10, w9
   bhs .LTcmallocSlab_Internal_PopBatch_no_items
@@ -327,6 +313,7 @@ TcmallocSlab_Internal_PopBatch:
   csel w11, w2, w11, ls     /* r11 = min(len, available items), amount we are
                                popping */
   add x13, x8, x9, LSL #3   /* r13 = current cpu slab stack  */
+  sub x9, x9, x11           /* update new current  */
   mov x12, x1               /* r12 = batch */
   add x14, x1, x11, LSL #3  /* r14 = batch + amount we are popping*8 */
   tst w11, #1
@@ -342,9 +329,7 @@ TcmallocSlab_Internal_PopBatch:
                                popping */
   bne .LTcmallocSlab_Internal_PopBatch_loop
 .LTcmallocSlab_Internal_PopBatch_store:
-  sub x4, x4, x11           /* hdr.current -= r11 */
-  add x4, x4, x11, LSL #16  /* hdr.remaining_capacity += r11 */
-  str w4, [x15]             /* store new hdr */
+  strh w9, [x15]             /* store new current */
 .LTcmallocSlab_Internal_PopBatch_commit:
   mov x0, x11
   ret

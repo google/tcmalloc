@@ -235,7 +235,7 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
   static constexpr size_t kNumToMove1 = 32;
   static constexpr size_t kNumToMove2 = 2;
   static constexpr size_t kNumToMove3 = 2;
-  static constexpr size_t kColdSizeClass = kColdClassesStart + 1;
+  static constexpr size_t kColdSizeClass = kExpandedClassesStart + 1;
 
   ThreeSizeClassManager() {
     for (int i = 0; i < 3; ++i) {
@@ -271,6 +271,10 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
     }
   }
 
+  absl::Span<const size_t> cold_size_classes() const {
+    return {cold_size_classes_, 1};
+  }
+
   void InsertRange(int size_class, absl::Span<void*> batch) {
     TC_ASSERT(caches_.contains(size_class));
     caches_[size_class]->InsertRange(size_class, batch);
@@ -288,6 +292,7 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
   }
 
   absl::flat_hash_map<size_t, std::unique_ptr<TransferCache>> caches_;
+  size_t cold_size_classes_[1] = {kColdSizeClass};
 };
 
 class FakeCpuLayout {
@@ -413,18 +418,17 @@ class FakeShardedTransferCacheEnvironment {
   explicit FakeShardedTransferCacheEnvironment(int num_shards,
                                                bool use_generic_cache)
       : sharded_manager_(&owner_, &cpu_layout_) {
-    owner_.SetGenericCache(use_generic_cache);
-    owner_.SetCacheForLargeClassesOnly(!use_generic_cache);
+    if (use_generic_cache) {
+      owner_.SetGenericCache(true);
+    } else {
+      owner_.SetCacheForLargeClassesOnly(true);
+    }
 
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
   }
 
-  ~FakeShardedTransferCacheEnvironment() {
-    Drain();
-    owner_.SetGenericCache(false);
-    owner_.SetCacheForLargeClassesOnly(false);
-  }
+  ~FakeShardedTransferCacheEnvironment() { Drain(); }
 
   void Remove(int cpu, int n) {
     cpu_layout_.SetCurrentCpu(cpu);

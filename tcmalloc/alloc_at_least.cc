@@ -32,9 +32,6 @@ extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t aligned_alloc_at_least(
   alloc_result_t result;
 #if !defined(_ISOC11_SOURCE)
   void* ptr = nullptr;
-  if (alignment < sizeof(void*)) {
-    alignment = sizeof(void*);
-  }
   if (posix_memalign(&ptr, alignment, min_size) == 0) {
     result.ptr = ptr;
     result.size = min_size;

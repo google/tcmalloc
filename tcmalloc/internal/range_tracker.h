@@ -169,7 +169,7 @@ class RangeTracker {
 
   void Clear();
 
-  const Bitmap<N>& bits() const;
+  Bitmap<N> bits() const;
 
  private:
   Bitmap<N> bits_;
@@ -319,7 +319,7 @@ inline void RangeTracker<N>::Unmark(size_t index, size_t n) {
 }
 
 template <size_t N>
-inline const Bitmap<N>& RangeTracker<N>::bits() const {
+inline Bitmap<N> RangeTracker<N>::bits() const {
   return bits_;
 }
 

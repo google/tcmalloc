@@ -36,63 +36,68 @@
 
 extern "C" {
 
-[[maybe_unused]] void* TCMallocInternalMalloc(size_t size) noexcept
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalMalloc(size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalFree(void* ptr) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalFree(void* ptr) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalFreeSized(void* ptr, size_t size) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalFreeSized(void* ptr,
+                                                     size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalFreeAlignedSized(void* ptr, size_t align,
-                                                       size_t size) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalFreeAlignedSized(
+    void* ptr, size_t align, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalSdallocx(void* ptr, size_t size,
-                                               int flags) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalSdallocx(void* ptr, size_t size,
+                                                    int flags) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalRealloc(void* ptr, size_t size) noexcept
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalReallocArray(void* ptr, size_t n,
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalRealloc(void* ptr,
                                                     size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalCalloc(size_t n, size_t size) noexcept
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalReallocArray(void* ptr, size_t n,
+                                                         size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalCfree(void* ptr) noexcept
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-
-[[maybe_unused]] void* TCMallocInternalAlignedAlloc(size_t align,
-                                                    size_t size) noexcept
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalMemalign(size_t align,
-                                                size_t size) noexcept
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] int TCMallocInternalPosixMemalign(void** ptr, size_t align,
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalCalloc(size_t n,
                                                    size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalValloc(size_t size) noexcept
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalPvalloc(size_t size) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalCfree(void* ptr) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-[[maybe_unused]] void TCMallocInternalMallocStats(void) noexcept
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalAlignedAlloc(size_t align,
+                                                         size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] int TCMallocInternalMallocTrim(size_t pad) noexcept
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalMemalign(size_t align,
+                                                     size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] int TCMallocInternalMallOpt(int cmd, int value) noexcept
+ABSL_ATTRIBUTE_UNUSED int TCMallocInternalPosixMemalign(void** ptr,
+                                                        size_t align,
+                                                        size_t size) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalValloc(size_t size) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalPvalloc(size_t size) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalMallocStats(void) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED int TCMallocInternalMallocTrim(size_t pad) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED int TCMallocInternalMallOpt(int cmd, int value) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)
-[[maybe_unused]] struct mallinfo TCMallocInternalMallInfo(void) noexcept
+ABSL_ATTRIBUTE_UNUSED struct mallinfo TCMallocInternalMallInfo(void) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
 #if defined(TCMALLOC_HAVE_STRUCT_MALLINFO2)
-[[maybe_unused]] struct mallinfo2 TCMallocInternalMallInfo2(void) noexcept
+ABSL_ATTRIBUTE_UNUSED struct mallinfo2 TCMallocInternalMallInfo2(void) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
-[[maybe_unused]] int TCMallocInternalMallocInfo(int opts, FILE* fp) noexcept
+ABSL_ATTRIBUTE_UNUSED int TCMallocInternalMallocInfo(int opts,
+                                                     FILE* fp) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-[[maybe_unused]] alloc_result_t TCMallocInternalAllocAtLeast(
+ABSL_ATTRIBUTE_UNUSED alloc_result_t TCMallocInternalAllocAtLeast(
     size_t min_size) noexcept ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] alloc_result_t TCMallocInternalAlignedAllocAtLeast(
-    size_t alignment, size_t min_size) noexcept
+ABSL_ATTRIBUTE_UNUSED alloc_result_t
+TCMallocInternalAlignedAllocAtLeast(size_t alignment, size_t min_size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
 // This is an alias for MallocExtension::GetAllocatedSize().
@@ -100,101 +105,101 @@ extern "C" {
 //    OS X: malloc_size()
 //    glibc: malloc_usable_size()
 //    Windows: _msize()
-[[maybe_unused]] size_t TCMallocInternalMallocSize(void* ptr) noexcept
+ABSL_ATTRIBUTE_UNUSED size_t TCMallocInternalMallocSize(void* ptr) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
 #ifdef __cplusplus
-[[maybe_unused]] void* TCMallocInternalNew(size_t size)
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNew(size_t size)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewAligned(size_t size,
-                                                  std::align_val_t alignment)
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewAligned(
+    size_t size, std::align_val_t alignment)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewNothrow(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewNothrow(
     size_t size, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewAlignedNothrow(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewAlignedNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewHotCold(size_t size,
-                                                  tcmalloc::hot_cold_t hot_cold)
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewHotCold(
+    size_t size, tcmalloc::hot_cold_t hot_cold)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewAlignedHotCold(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewAlignedHotCold(
     size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewHotColdNothrow(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewHotColdNothrow(
     size_t size, const std::nothrow_t&, tcmalloc::hot_cold_t hot_cold) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewAlignedHotColdNothrow(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewAlignedHotColdNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t&,
     tcmalloc::hot_cold_t hot_cold) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDelete(void* p) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDelete(void* p) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteAligned(
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteAligned(
     void* p, std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteSized(void* p, size_t size) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteSized(void* p,
+                                                       size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteSizedAligned(
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteSizedAligned(
     void* p, size_t t, std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteNothrow(
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteNothrow(
     void* p, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteAlignedNothrow(
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteAlignedNothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewArray(size_t size)
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArray(size_t size)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewArrayAligned(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayAligned(
     size_t size, std::align_val_t alignment)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewArrayNothrow(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayNothrow(
     size_t size, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void* TCMallocInternalNewArrayAlignedNothrow(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayAlignedNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-[[maybe_unused]] void* TCMallocInternalNewArrayHotCold(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayHotCold(
     size_t size, tcmalloc::hot_cold_t hot_cold)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-[[maybe_unused]] void* TCMallocInternalNewArrayAlignedHotCold(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayAlignedHotCold(
     size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-[[maybe_unused]] void* TCMallocInternalNewArrayHotColdNothrow(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayHotColdNothrow(
     size_t size, const std::nothrow_t& nt,
     tcmalloc::hot_cold_t hot_cold) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-[[maybe_unused]] void* TCMallocInternalNewArrayAlignedHotColdNothrow(
+ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalNewArrayAlignedHotColdNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t& nt,
     tcmalloc::hot_cold_t hot_cold) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-[[maybe_unused]] void TCMallocInternalDeleteArray(void* p) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArray(void* p) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteArrayAligned(
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArrayAligned(
     void* p, std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteArraySized(void* p,
-                                                       size_t size) noexcept
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteArraySizedAligned(
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArraySized(
+    void* p, size_t size) noexcept ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArraySizedAligned(
     void* p, size_t t, std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteArrayNothrow(
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArrayNothrow(
     void* p, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] void TCMallocInternalDeleteArrayAlignedNothrow(
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalDeleteArrayAlignedNothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] __sized_ptr_t TCMallocInternalSizeReturningNew(size_t size)
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-[[maybe_unused]] __sized_ptr_t TCMallocInternalSizeReturningNewAligned(
-    size_t size, std::align_val_t alignment)
+ABSL_ATTRIBUTE_UNUSED __sized_ptr_t TCMallocInternalSizeReturningNew(
+    size_t size) ABSL_ATTRIBUTE_SECTION(google_malloc);
+ABSL_ATTRIBUTE_UNUSED __sized_ptr_t
+TCMallocInternalSizeReturningNewAligned(size_t size, std::align_val_t alignment)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
 #endif
