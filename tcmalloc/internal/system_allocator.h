@@ -182,7 +182,11 @@ class SystemAllocator {
   // Reserves using mmap() a region of memory of the requested size and
   // alignment, with the bits specified by kTagMask set according to tag.
   //
-  // REQUIRES: pagesize <= alignment <= kTagMask
+  // Returns nullptr on allocation failure or if the requested size and
+  // alignment cannot be satisfied for the specified tag.
+  //
+  // REQUIRES: pagesize <= alignment
+  // REQUIRES: alignment is a power of two
   // REQUIRES: size <= kTagMask
   [[nodiscard]] void* MmapAligned(size_t size, size_t alignment, MemoryTag tag)
       ABSL_LOCKS_EXCLUDED(spinlock_);
@@ -267,6 +271,8 @@ class SystemAllocator {
   AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) const;
   void BindMemory(void* base, size_t size, size_t partition) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
+  // Returns an mmap hint address that satisfies the requested size, alignment,
+  // and tag, or 0 if no valid address can satisfy them.
   uintptr_t RandomMmapHint(size_t size, size_t alignment, MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
   [[nodiscard]] void* MmapAlignedLocked(size_t size, size_t alignment,
@@ -531,7 +537,10 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
   using system_allocator_internal::MapFixedNoReplaceFlagAvailable;
 
   TC_ASSERT_LE(size, kTagMask);
-  TC_ASSERT_LE(alignment, kTagMask);
+
+  if (((static_cast<uintptr_t>(tag) << kTagShift) & (alignment - 1)) != 0) {
+    return nullptr;
+  }
 
   std::optional<int> numa_partition;
   uintptr_t& next_addr =
@@ -562,6 +571,9 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
       GetMemoryTag(reinterpret_cast<void*>(next_addr)) != tag ||
       GetMemoryTag(reinterpret_cast<void*>(next_addr + size - 1)) != tag) {
     next_addr = RandomMmapHint(size, alignment, tag);
+    if (!next_addr) {
+      return nullptr;
+    }
   }
   const int map_fixed_noreplace_flag = MapFixedNoReplaceFlagAvailable();
   void* hint;
@@ -612,6 +624,9 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
       }
     }
     next_addr = RandomMmapHint(size, alignment, tag);
+    if (!next_addr) {
+      return nullptr;
+    }
   }
 
   TC_LOG(
@@ -819,9 +834,29 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   constexpr uintptr_t kAddrMask = (uintptr_t{0xF} << (kAddressBits - 5)) - 1;
 #endif
 
+  // Ensure alignment and size do not exceed the mask of usable address bits
+  // before calling bit_ceil to avoid undefined behavior.
+  if (alignment > (kAddrMask & ~kTagMask) || size > (kAddrMask & ~kTagMask)) {
+    return 0;
+  }
+
   // Ensure alignment >= size so we're guaranteed the full mapping has the same
   // tag.
   alignment = absl::bit_ceil(std::max(alignment, size));
+
+  // If alignment exceeds the mask of usable address bits (excluding tag bits),
+  // ~(alignment - 1) masks out all usable address bits. For tags with value 0
+  // (e.g., MemoryTag::kSampled), addr would remain 0 and cause the do-while
+  // loop to hang indefinitely.
+  if (alignment > (kAddrMask & ~kTagMask)) {
+    return 0;
+  }
+
+  // If the requested tag has non-zero bits that fall below alignment, no
+  // address can simultaneously have tag `tag` and be aligned to `alignment`.
+  if (((static_cast<uintptr_t>(tag) << kTagShift) & (alignment - 1)) != 0) {
+    return 0;
+  }
 
   uintptr_t addr;
   do {

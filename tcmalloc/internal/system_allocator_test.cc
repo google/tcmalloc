@@ -139,6 +139,46 @@ TEST(SystemAllocatorTest, ReleaseLockedMemory) {
   EXPECT_EQ(allocator.release_errors(), 0);
 }
 
+// Verifies that requesting alignments that exceed usable virtual address space
+// returns nullptr rather than hanging in RandomMmapHint for
+// MemoryTag::kSampled.
+TEST(SystemAllocatorTest, LargeAlignmentSampledDoesNotHang) {
+  NumaTopology<2> topology;
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+
+  void* valid_before =
+      allocator.MmapAligned(GetPageSize(), GetPageSize(), MemoryTag::kSampled);
+  EXPECT_NE(valid_before, nullptr);
+
+  constexpr size_t kLargeAlignment = uintptr_t{1} << (kAddressBits - 1);
+  void* ptr = allocator.MmapAligned(GetPageSize(), kLargeAlignment,
+                                    MemoryTag::kSampled);
+  EXPECT_EQ(ptr, nullptr);
+
+  void* valid_after =
+      allocator.MmapAligned(GetPageSize(), GetPageSize(), MemoryTag::kSampled);
+  EXPECT_NE(valid_after, nullptr);
+}
+
+// Verifies that requesting large or conflicting alignments with non-sampled
+// tags returns nullptr safely without asserting or crashing.
+TEST(SystemAllocatorTest, LargeAlignmentNonSampledReturnsNull) {
+  NumaTopology<2> topology;
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+
+  // Alignment that exceeds usable address space.
+  constexpr size_t kLargeAlignment = uintptr_t{1} << (kAddressBits - 1);
+  EXPECT_EQ(
+      allocator.MmapAligned(GetPageSize(), kLargeAlignment, MemoryTag::kNormal),
+      nullptr);
+
+  // Alignment where alignment - 1 overlaps with the tag bitmask.
+  constexpr size_t kConflictingAlignment = uintptr_t{1} << (kTagShift + 3);
+  EXPECT_EQ(allocator.MmapAligned(GetPageSize(), kConflictingAlignment,
+                                  MemoryTag::kNormal),
+            nullptr);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
