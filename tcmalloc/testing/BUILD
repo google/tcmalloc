@@ -184,7 +184,6 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:page_allocator_hooks",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/debugging:leak_check",

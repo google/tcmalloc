@@ -162,12 +162,8 @@ class TcmallocSlab {
   // Update maximum capacities allocated to each size class.
   // Build and initialize <new_slabs> so as to use new maximum capacities
   // provided by <capacity> callback for the <size_class>.
-  // <capacity> should return the new maximum capacity for the given size
-  // class, regardless of whether <update_capacity> has been called or not.
   // <update_capacity> updates capacities for the <size_class> with the new
   // <cap> once the slabs are initialized.
-  // <populated> returns whether the given cpu's slab is populated. The
-  // return value should remain constant for the duration of the call.
   // <new_max_capacity> provides an array of new maximum capacities to be
   // updated for size classes.
   // <classes_to_resize> provides the number of size classes for which the
@@ -365,35 +361,14 @@ class TcmallocSlab {
   };
 
   // Slab header (packed, atomically updated 32-bit).
-  // Current is a pointer offset from the per-CPU region start
-  // (in units of sizeof(void*)). The slot array is prefixed
-  // with an item that has low bit set and ends at
-  // (current+remaining_capacity), and the occupied slots are
-  // up to current.
-  //
-  // If you modify this definition, remember that it is also processed
-  // by hand-written assembly code that also needs updating (look for
-  // asm statements in this file, as well as in internal/percpu_rseq_*.S).
+  // Current and end are pointer offsets from per-CPU region start.
+  // The slot array is prefixed with an item that has low bit set and ends
+  // at end, and the occupied slots are up to current.
   struct Header {
     // The end offset of the currently occupied slots.
-    // 0xffff is an invalid value, because it would disturb our overflow logic.
     uint16_t current;
-    // The amount of elements left we can allocate before hitting our
-    // class capacity. May be changed by Grow() or Shrink(), up until
-    // storage limits in the slab.
-    uint16_t remaining_capacity;
-
-    void set_current(uint16_t val) {
-      TC_ASSERT_NE(val, 0xffff);
-      current = val;
-    }
-    uint16_t capacity(uint16_t begin) const {
-      if (current < begin) {
-        // Uninitialized; special case.
-        return 0;
-      }
-      return (current - begin) + remaining_capacity;
-    }
+    // The end offset of the slot array for this size class.
+    uint16_t end;
   };
 
   using AtomicHeader = std::atomic<int32_t>;
@@ -486,7 +461,7 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  return std::max<ssize_t>(0, hdr.capacity(begin));
+  return std::max<ssize_t>(0, hdr.end - begin);
 }
 
 #if defined(__x86_64__)
@@ -701,7 +676,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemory(uintptr_t ptr) {
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
   uintptr_t scratch, current;
-  uint32_t tmp;
   asm goto(
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
       // scratch = tcmalloc_slabs;
@@ -710,31 +684,22 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
       "btrq $%c[cached_slabs_bit], %[scratch]\n"
       "jnc %l[overflow_label]\n"
-      // tmp = [slabs->current, slabs->remaining_capacity];
-      "movl (%[scratch], %[size_class], 4), %[tmp]\n"
-      "movzwq %w[tmp], %[current]\n"
-      // tmp.remaining_capacity--;
-      // tmp.current++;
-      "addl $0xffff0001, %[tmp]\n"
-      // if (tmp.remaining_capacity < 0) { goto overflow_label; }
-      // (The only way we can _not_ get the carry flag set
-      // is if remaining_capacity was 0; every other value will
-      // wrap past 0 and become a decrease. This test will have
-      // a false negative if remaining_capacity == 0 and
-      // current == 0xffff, which is why we forbid that value
-      // for current.)
-      "jnc %l[overflow_label]\n"
-      "movq %[item], (%[scratch], %[current], 8)\n"
-      // [slabs->current, slabs->remaining_capacity] = tmp;
-      "movl %[tmp], (%[scratch], %[size_class], 4)\n"
+      // current = slabs->current;
+      "movzwq (%[scratch], %[size_class], 4), %[current]\n"
+      // if (ABSL_PREDICT_FALSE(current >= slabs->end)) { goto overflow_label; }
+      "cmp 2(%[scratch], %[size_class], 4), %w[current]\n"
+      "jae %l[overflow_label]\n"
+      "mov %[item], (%[scratch], %[current], 8)\n"
+      "inc %[current]\n"
+      "mov %w[current], (%[scratch], %[size_class], 4)\n"
       // Commit
       "5:\n"
-      : [scratch] "=&r"(scratch), [current] "=&r"(current), [tmp] "=&r"(tmp)
+      : [scratch] "=&r"(scratch), [current] "=&r"(current)
       : TCMALLOC_RSEQ_INPUTS, [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory"
       : overflow_label);
-  // Current now points to the slot we just pushed to.
-  PrefetchSlabMemory(scratch + (current + 1) * sizeof(void*));
+  // Current now points to the slot we are going to push to next.
+  PrefetchSlabMemory(scratch + current * sizeof(void*));
   return true;
 overflow_label:
   return false;
@@ -744,44 +709,41 @@ overflow_label:
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
-  uintptr_t region_start, scratch, current;
+  uintptr_t region_start, scratch, scratch_ptr, end;
   asm goto(
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
       // region_start = tcmalloc_slabs;
       "ldr %[region_start], [%[sampler_addr], #%c[sampler_slabs_offset]]\n"
-      // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-      // region_start is unmasked on aarch64, since Top Byte Ignore is enabled
-      // in user space by default
+  // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
+  // region_start is unmasked on aarch64, since Top Byte Ignore is enabled in
+  // user space by default
       "tbz %[region_start], #%c[cached_slabs_bit], %l[overflow_label]\n"
-      // scratch = slab_headers[size_class] (current index, remaining capacity)
-      "ldr %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
-      "and %w[current], %w[scratch], #0xffff\n"
-      // scratch.remaining_capacity--;
-      // scratch.current++;
-      "subs %w[scratch], %w[scratch], %w[kAdjustment]\n"
-      // if (scratch.remaining_capacity < 0)) { goto overflow_label; }
-      // (See x86-64 code for reasoning)
-      "b.cc %l[overflow_label]\n"
-      "str %[item], [%[region_start], %[current], LSL #3]\n"
-      "str %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
+      // scratch = slab_headers[size_class]->current (current index)
+      "add %[scratch_ptr], %[region_start], %[size_class], LSL #2\n"
+      "ldrh %w[scratch], [%[scratch_ptr]]\n"
+      // end = slab_headers[size_class]->end (end index)
+      "ldrh %w[end], [%[scratch_ptr], #2]\n"
+      // if (ABSL_PREDICT_FALSE(end <= scratch)) { goto overflow_label; }
+      "cmp %[end], %[scratch]\n"
+      "b.ls %l[overflow_label]\n"
+      "str %[item], [%[region_start], %[scratch], LSL #3]\n"
+      "add %w[scratch], %w[scratch], #1\n"
+      "strh %w[scratch], [%[scratch_ptr]]\n"
       // Commit
       "5:\n"
-      // If we do (current + 1) in the C++ code below, the compiler
-      // will start CSE-ing the tail of the this function with the slow path,
-      // it does not properly understand that the fast path should not
-      // have a branch (i.e., it picks the wrong one for fallthrough).
-      // So we simply do that one instruction in assembler.
-      "add %[current], %[current], #1\n"
-      : [scratch] "=&r"(scratch), [current] "=&r"(current),
+      : [scratch_ptr] "=&r"(scratch_ptr), [scratch] "=&r"(scratch),
+        [end] "=&r"(end),
         [region_start] "=&r"(region_start)
-      : TCMALLOC_RSEQ_INPUTS, [size_class] "r"(size_class), [item] "r"(item),
-        [kAdjustment] "r"(0xffff)
-      : TCMALLOC_RSEQ_CLOBBER, "memory", "cc"
-      : overflow_label);
+      : TCMALLOC_RSEQ_INPUTS,
+        [size_class] "r"(size_class), [item] "r"(item)
+      : TCMALLOC_RSEQ_CLOBBER, "memory"
+        ,
+        "cc"
+      : overflow_label
+  );
 
-  // Current now points to the slot we are going to push to next.
   PrefetchSlabMemory(reinterpret_cast<uintptr_t>(region_start) +
-                     current * sizeof(void*));
+                     scratch * sizeof(void*));
   return true;
 overflow_label:
   return false;
@@ -849,9 +811,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
            "testb $%c[begin_mark_mask], %b[result]\n"
            "jnz %l[underflow_path]\n"
            "movq -16(%[scratch], %[current], 8), %[next]\n"
-           // scratch->header[size_class].remaining_capacity++;
-           // scratch->header[size_class].current--;
-           "subl $0xffff0001, (%[scratch], %[size_class], 4)\n"
+           "dec %[current]\n"
+           "movw %w[current], (%[scratch], %[size_class], 4)\n"
            // Commit
            "5:\n"
            : [result] "=&r"(result), [scratch] "=&r"(scratch),
@@ -883,44 +844,44 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   void* region_start;
   void* prefetch;
   uintptr_t scratch;
-  uintptr_t current;
+  uintptr_t previous;
   asm goto(
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
       // region_start = tcmalloc_slabs;
 
       "ldr %[region_start], [%[sampler_addr], #%c[sampler_slabs_offset]]\n"
-      // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-      // region_start is unmasked on aarch64, since Top Byte Ignore is enabled
-      // in user space by default
+  // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
+  // region_start is unmasked on aarch64, since Top Byte Ignore is enabled in
+  // user space by default
       "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
-      // scratch = slab_headers[size_class] (current index, remaining capacity)
-      "ldr %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
-      // current = scratch.current
-      "and %w[current], %w[scratch], #0xffff\n"
-      // scratch.remaining_capacity++;
-      // scratch.current--;
-      "add %w[scratch], %w[scratch], %w[kAdjustment]\n"
-      "add %[current], %[region_start], %[current], LSL #3\n"
-      "ldp %[prefetch], %[result], [%[current], #-16]\n"
+      // scratch = slab_headers[size_class]->current (current index)
+      "ldrh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      // previous = scratch - 1
+      "sub %w[previous], %w[scratch], #1\n"
+      "add %[scratch],%[region_start], %[scratch], LSL #3\n"
+      // Note we are using a pre-indexed ldp. After this instruction, scratch
+      // points to the next location in slab memory, which we will prefetch.
+      "ldp %[prefetch], %[result], [%[scratch], #-16]!\n"
       "tbnz %[result], #%c[begin_mark_bit], %l[underflow_path]\n"
-      "str %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
+      "strh %w[previous], [%[region_start], %[size_class_lsl2]]\n"
       // Commit
       "5:\n"
-      : [result] "=&r"(result), [prefetch] "=&r"(prefetch),
-        [current] "=&r"(current),
-        // Temps
-        [region_start] "=&r"(region_start), [scratch] "=&r"(scratch)
+      :
+      [result] "=&r"(result), [prefetch] "=&r"(prefetch),
+      // Temps
+      [region_start] "=&r"(region_start), [previous] "=&r"(previous),
+      [scratch] "=&r"(scratch)
       // Real inputs
       : TCMALLOC_RSEQ_INPUTS,
         [begin_mark_bit] "n"(absl::countr_zero(kBeginMark)),
-        [size_class] "r"(size_class), [kAdjustment] "r"(0xffff)
-      : TCMALLOC_RSEQ_CLOBBER, "memory", "cc"
-      : underflow_path);
+        [size_class_lsl2] "r"(size_class << 2)
+      : TCMALLOC_RSEQ_CLOBBER, "memory"
+        ,
+        "cc"
+      : underflow_path
+  );
   TSANAcquire(result);
-
-  // The next pop will be from current-2, but because we prefetch the previous
-  // element we've already just read that, so prefetch current-3.
-  PrefetchSlabMemory(current - 3 * sizeof(void*));
+  PrefetchSlabMemory(scratch);
   PrefetchNextObject(prefetch);
   return AssumeNotNull(result);
 underflow_path:
@@ -945,12 +906,12 @@ inline size_t TcmallocSlab<NumClasses>::Grow(
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  ssize_t have = static_cast<ssize_t>(max_cap - hdr.capacity(begin));
+  ssize_t have = static_cast<ssize_t>(max_cap - (hdr.end - begin));
   if (have <= 0) {
     return 0;
   }
   uint16_t n = std::min<uint16_t>(len, have);
-  hdr.remaining_capacity += n;
+  hdr.end += n;
   return StoreCurrentCpu(hdrp, hdr) ? n : 0;
 }
 
@@ -1087,8 +1048,7 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpuImpl(
     void* slabs, Shift shift, int cpu,
     absl::FunctionRef<size_t(size_t)> capacity) {
-  TC_CHECK(slabs != GetSlabsAndShift(std::memory_order_relaxed).first ||
-           state_[cpu].stopped.load(std::memory_order_relaxed));
+  TC_CHECK(state_[cpu].stopped.load(std::memory_order_relaxed));
   TC_CHECK_LE((1 << ToUint8(shift)), (1 << 16) * sizeof(void*));
 
   // Initialize prefetch target and compute the offsets for the
@@ -1115,8 +1075,8 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
     prev_empty = cap == 0;
 
     Header hdr = {};
-    hdr.set_current(elems - reinterpret_cast<void**>(curr_slab));
-    hdr.remaining_capacity = 0;
+    hdr.current = elems - reinterpret_cast<void**>(curr_slab);
+    hdr.end = hdr.current;
     StoreHeader(GetHeader(slabs, shift, cpu, size_class), hdr);
 
     elems += cap;
@@ -1200,14 +1160,14 @@ void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
       continue;
     }
     const size_t size = hdr.current - begin;
-    const size_t cap = hdr.capacity(begin);
+    const size_t cap = hdr.end - begin;
 
     void** batch =
         reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) + begin;
     TSANAcquireBatch(batch, size);
     drain_handler(cpu, size_class, batch, size, cap);
-    hdr.set_current(begin);
-    hdr.remaining_capacity = 0;
+    hdr.current = begin;
+    hdr.end = begin;
     StoreHeader(hdrp, hdr);
   }
 }
@@ -1218,7 +1178,7 @@ bool TcmallocSlab<NumClasses>::CpuIsDrained(void* slabs, Shift shift, int cpu) {
     uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
-    if (hdr.capacity(begin) != 0) {
+    if (hdr.end != 0 && hdr.end != begin) {
       return false;
     }
   }
@@ -1238,14 +1198,14 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
       continue;
     }
     const size_t size = hdr.current - begin;
-    const size_t cap = hdr.capacity(begin);
+    const size_t cap = hdr.end - begin;
 
     void** batch =
         reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) + begin;
     TSANAcquireBatch(batch, size);
     drain_handler(cpu, size_class, batch, size, cap);
-    hdr.set_current(begin);
-    hdr.remaining_capacity = 0;
+    hdr.current = begin;
+    hdr.end = begin;
     StoreHeader(hdrp, hdr);
   }
 }
@@ -1256,26 +1216,16 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
     absl::FunctionRef<void(int, uint16_t)> update_capacity,
     absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
     PerSizeClassMaxCapacity* new_max_capacity, int classes_to_resize) {
-  const int n_cpus = num_cpus();
-  const auto [old_slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-
-  // Phase 0: Initialize slabs for populated CPUs BEFORE stopping CPUs.
-  // This prefaults pages while all CPUs continue running undisturbed.
-  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
-    // populated should not change while this function runs because the caller
-    // should be holding all the CPU resize locks.
-    if (!populated(cpu)) continue;
-    InitCpuImpl(new_slabs, shift, cpu, capacity);
-  }
-
   // Phase 1: Stop all CPUs and initialize any CPUs in the new slab that have
   // already been populated in the old slab.
+  const auto [old_slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   std::array<uint16_t, NumClasses> old_begins;
   for (int size_class = 1; size_class < NumClasses; ++size_class) {
     old_begins[size_class] =
         begins_[size_class].load(std::memory_order_relaxed);
   }
 
+  const int n_cpus = num_cpus();
   for (auto& state : state_) {
     TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
     state.stopped.store(true, std::memory_order_relaxed);
@@ -1295,6 +1245,10 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   }
 
   // Phase 3: Initialize slabs.
+  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
+    if (!populated(cpu)) continue;
+    InitCpuImpl(new_slabs, shift, cpu, capacity);
+  }
   InitSlabs(new_slabs, shift, capacity);
 
   // Phase 4: Re-start all CPUs.
@@ -1316,9 +1270,8 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
     absl::FunctionRef<size_t(size_t)> capacity,
     absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler)
     -> ResizeSlabsInfo {
-  // Phase 1: Collect begins, initialize any CPUs in the new
-  // slab that have already been populated in the old slab,
-  // then stop all CPUs.
+  // Phase 1: Collect begins, stop all CPUs and initialize any CPUs in the new
+  // slab that have already been populated in the old slab.
   const auto [old_slabs, old_shift] =
       GetSlabsAndShift(std::memory_order_relaxed);
   std::array<uint16_t, NumClasses> old_begins;
@@ -1330,14 +1283,11 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   TC_ASSERT_NE(new_shift, old_shift);
   const int n_cpus = num_cpus();
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
+    TC_CHECK(!state_[cpu].stopped.load(std::memory_order_relaxed));
+    state_[cpu].stopped.store(true, std::memory_order_relaxed);
     if (populated(cpu)) {
       InitCpuImpl(new_slabs, new_shift, cpu, capacity);
     }
-  }
-
-  for (auto& state : state_) {
-    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
-    state.stopped.store(true, std::memory_order_relaxed);
   }
   FenceAllCpus();
 
@@ -1393,8 +1343,8 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  uint16_t to_grow = std::min<uint16_t>(len, max_cap - hdr.capacity(begin));
-  hdr.remaining_capacity += to_grow;
+  uint16_t to_grow = std::min<uint16_t>(len, max_cap - (hdr.end - begin));
+  hdr.end += to_grow;
   StoreHeader(hdrp, hdr);
   return to_grow;
 }
@@ -1411,7 +1361,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
   // If we do not have len number of items to shrink, we try to pop items from
   // the list first to create enough capacity that can be shrunk.
   // If we pop items, we also execute callbacks.
-  const uint16_t unused = hdr.remaining_capacity;
+  const uint16_t unused = hdr.end - hdr.current;
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
   if (unused < len && hdr.current != begin) {
     uint16_t pop = std::min<uint16_t>(len - unused, hdr.current - begin);
@@ -1420,12 +1370,11 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     TSANAcquireBatch(batch, pop);
     shrink_handler(size_class, batch, pop);
     hdr.current -= pop;
-    hdr.remaining_capacity += pop;
   }
 
   // Shrink the capacity.
-  const uint16_t to_shrink = std::min<uint16_t>(len, hdr.remaining_capacity);
-  hdr.remaining_capacity -= to_shrink;
+  const uint16_t to_shrink = std::min<uint16_t>(len, hdr.end - hdr.current);
+  hdr.end -= to_shrink;
   StoreHeader(hdrp, hdr);
   return to_shrink;
 }

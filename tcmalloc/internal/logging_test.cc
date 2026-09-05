@@ -26,6 +26,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
@@ -49,13 +50,13 @@ TEST(InternalLogging, MessageFormatting) {
   TC_LOG("Hello int=%d str=%s", 42, "bar");
   EXPECT_THAT(*log_buffer,
               testing::MatchesRegex(
-                  "[0-9]+ .*tcmalloc/internal/logging_test\\.cc:[0-9]+\\] "
+                  "[0-9]+ .*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] "
                   "Hello int=42 str=bar\\n"));
 
   TC_LOG("Long string: %s", long_string.c_str());
   EXPECT_THAT(*log_buffer,
               testing::MatchesRegex(
-                  "[0-9]+ .*tcmalloc/internal/logging_test\\.cc:[0-9]+\\] "
+                  "[0-9]+ .*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] "
                   "Long string: the quick brown fox jumped over the lazy "
                   "dogthe quick brown fox jumped over the lazy dog.*"));
 
@@ -157,7 +158,7 @@ TEST(Check, OK) {
   TC_ASSERT_LE(-1, 1);
   TC_ASSERT_LE(2, 2);
 
-  int unused [[maybe_unused]][] = {
+  ABSL_ATTRIBUTE_UNUSED int unused[] = {
       (TC_CHECK(true), 1),
       (TC_CHECK_EQ(1, 1), 2),
       (TC_ASSERT(true), 3),

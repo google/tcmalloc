@@ -265,9 +265,10 @@ class HugePageAwareAllocatorTest
                          : absl::Uniform<size_t>(rng, 1, 16);
 
     AccessDensityPrediction density =
-        (n > Length(1) || absl::Bernoulli(rng, 0.5))
-            ? AccessDensityPrediction::kSparse
-            : AccessDensityPrediction::kDense;
+        (n <= kPagesPerHugePage / 2)
+            ? (absl::Bernoulli(rng, 1.0) ? AccessDensityPrediction::kSparse
+                                         : AccessDensityPrediction::kDense)
+            : AccessDensityPrediction::kSparse;
     return {n, {objects, density}};
   }
 

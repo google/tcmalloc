@@ -457,7 +457,7 @@ INSTANTIATE_TEST_SUITE_P(
                  !tc_globals.guardedpage_allocator().PointerIsMine(ptr);
         }));
 
-[[maybe_unused]] ABSL_CONST_INIT GuardedPageAllocator
+ABSL_CONST_INIT ABSL_ATTRIBUTE_UNUSED GuardedPageAllocator
     gpa_is_constant_initializable;
 
 }  // namespace

@@ -14,6 +14,8 @@
 
 #include "tcmalloc/page_allocator.h"
 
+#include <sys/mman.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -238,6 +240,103 @@ ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeReleaseHookSlow(
   AllocationGuard g;
   page_allocator_release_hooks.Invoke(num_pages.raw_num(), released.raw_num(),
                                       reason);
+}
+
+PageAllocator::~PageAllocator() { DisableTracing(); }
+
+bool PageAllocator::EnableTracing() {
+  return EnableTracing(kDefaultTracingBufferSize);
+}
+
+bool PageAllocator::EnableTracing(size_t buffer_size) {
+  if (tracing_enabled_.load(std::memory_order_acquire)) {
+    return false;
+  }
+  BufferAllocator alloc = buffer_allocator_.load(std::memory_order_relaxed);
+  BufferDeallocator dealloc =
+      buffer_deallocator_.load(std::memory_order_relaxed);
+  void* buf = nullptr;
+  if (alloc != nullptr) {
+    buf = alloc(buffer_size);
+  } else {
+    buf = mmap(nullptr, buffer_size, PROT_READ | PROT_WRITE,
+               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (buf == MAP_FAILED) {
+      buf = nullptr;
+    }
+  }
+  if (buf == nullptr) {
+    return false;
+  }
+
+  void* discarded_buf = nullptr;
+  {
+    PageHeapSpinLockHolder l;
+    if (tracing_enabled_.load(std::memory_order_relaxed)) {
+      discarded_buf = buf;
+    } else {
+      tracing_buffer_ = buf;
+      tracing_buffer_size_ = buffer_size;
+      tracing_enabled_.store(true, std::memory_order_release);
+    }
+  }
+
+  if (discarded_buf != nullptr) {
+    if (dealloc != nullptr) {
+      dealloc(discarded_buf, buffer_size);
+    } else {
+      munmap(discarded_buf, buffer_size);
+    }
+    return false;
+  }
+  return true;
+}
+
+void PageAllocator::DisableTracing() {
+  if (!tracing_enabled_.load(std::memory_order_acquire)) {
+    return;
+  }
+  void* buf = nullptr;
+  size_t size = 0;
+  {
+    PageHeapSpinLockHolder l;
+    if (tracing_enabled_.load(std::memory_order_relaxed)) {
+      buf = tracing_buffer_;
+      size = tracing_buffer_size_;
+      tracing_buffer_ = nullptr;
+      tracing_buffer_size_ = 0;
+      tracing_enabled_.store(false, std::memory_order_release);
+    }
+  }
+  if (buf != nullptr) {
+    BufferDeallocator dealloc =
+        buffer_deallocator_.load(std::memory_order_relaxed);
+    if (dealloc != nullptr) {
+      dealloc(buf, size);
+    } else {
+      munmap(buf, size);
+    }
+  }
+}
+
+bool PageAllocator::tracing_enabled() const {
+  return tracing_enabled_.load(std::memory_order_acquire);
+}
+
+void* PageAllocator::tracing_buffer() const {
+  PageHeapSpinLockHolder l;
+  return tracing_buffer_;
+}
+
+size_t PageAllocator::tracing_buffer_size() const {
+  PageHeapSpinLockHolder l;
+  return tracing_buffer_size_;
+}
+
+void PageAllocator::SetTracingBufferHooksForTesting(BufferAllocator alloc,
+                                                    BufferDeallocator dealloc) {
+  buffer_allocator_.store(alloc, std::memory_order_release);
+  buffer_deallocator_.store(dealloc, std::memory_order_release);
 }
 
 }  // namespace tcmalloc_internal

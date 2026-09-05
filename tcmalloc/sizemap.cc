@@ -46,6 +46,9 @@ const SizeClasses& SizeMap::CurrentClasses() {
     case SizeClassConfiguration::kPow2Only:
       return kExperimentalPow2SizeClasses;
     case SizeClassConfiguration::kReuseRelaxedBelow64:
+      return kReuseRelaxedBelow64SizeClasses;
+    case SizeClassConfiguration::kReuse:
+      // TODO(b/512895228): remove this opt out once we are done experimenting.
       return kSizeClasses;
     case SizeClassConfiguration::kLegacy:
       // TODO(b/242710633): remove this opt out.
@@ -57,9 +60,9 @@ const SizeClasses& SizeMap::CurrentClasses() {
 bool SizeMap::CheckAssumptions() {
   bool failed = false;
   auto a = CurrentClasses().assumptions;
-  if (a.has_cold_classes != kHasColdClasses) {
-    fprintf(stderr, "kHasColdClasses: assumed %d, actual %d\n",
-            a.has_cold_classes, kHasColdClasses);
+  if (a.has_expanded_classes != kHasExpandedClasses) {
+    fprintf(stderr, "kHasExpandedClasses: assumed %d, actual %d\n",
+            a.has_expanded_classes, kHasExpandedClasses);
     failed |= true;
   }
 #ifdef NDEBUG
@@ -188,10 +191,14 @@ bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 // Return true if all size classes meet the requirements for alignment
 // ordering and min and max values.
 bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
-  int num_classes = size_classes.size();
-  if (num_classes <= 1 || num_classes > kNumBaseClasses) {
+  if (size_classes.empty()) {
     return false;
   }
+  int num_classes = size_classes.size();
+  if (kHasExpandedClasses && num_classes > kNumBaseClasses) {
+    num_classes = kNumBaseClasses;
+  }
+
   if (size_classes[0].size != 0 || size_classes[0].bytes != Bytes(0) ||
       size_classes[0].num_to_move != 0) {
     return false;
@@ -231,61 +238,109 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
   TC_CHECK_EQ(ClassIndex(0), 0);
-  TC_CHECK_EQ(ClassIndex(kMaxSize), kClassArraySize - 1);
-  TC_CHECK_EQ(ClassIndex(kLargeSize) + 1, ClassIndex(kLargeSize + 1));
-  static_assert(kSmallSizeAlignment <= static_cast<size_t>(kAlignment));
-  static_assert(static_cast<size_t>(kAlignment) <= 16);
+  TC_CHECK_LT(ClassIndex(kMaxSize), sizeof(class_array_));
+  static_assert(kAlignment <= std::align_val_t{16}, "kAlignment is too large");
 
   if (!SetSizeClasses(size_classes)) {
     return false;
   }
 
-  // Fill in the canonical class array in region 0.
-  for (int c = 1, s = 0; c < kNumClasses && s <= kMaxSize; c++) {
-    for (; s <= class_to_size_[c]; s += kSmallSizeAlignment) {
+  int next_size = 0;
+  for (int c = 1; c < kNumClasses; c++) {
+    const int max_size_in_class = class_to_size_[c];
+
+    for (int s = next_size; s <= max_size_in_class;
+         s += static_cast<size_t>(kAlignment)) {
       class_array_[ClassIndex(s)] = c;
     }
-  }
-
-  // Point all lookups in hot regions (Malloc R0, New R1, Malloc R1)
-  // directly to New R0. We only overwrite the lookups if heap
-  // partitioning is active with the dedicated size classes.
-  for (size_t i = 1; i < kHotRegions; ++i) {
-    SetClassArrayRegion(i, 0);
-  }
-
-  const bool heap_partitioning_full =
-      Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
-  if (ColdFeatureActive()) {
-    SetClassArrayRegion(kColdRegionsStart, +kColdClassesStart);
-    if (kSecurityPartitions > 1) {
-      // Point all lookups in Cold New R1 to either Hot New R1 or Cold New R0.
-      SetClassArrayRegion(kColdRegionsStart + 1, heap_partitioning_full
-                                                     ? +kNumBaseClasses
-                                                     : +kColdClassesStart);
+    next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+    if (next_size > kMaxSize) {
+      break;
     }
   }
 
-  if (kSecurityPartitions > 1 && tc_globals.multiple_non_numa_partitions()) {
-    // Route Hot Malloc R1 to security partition P1.
-    SetClassArrayRegion(kSecurityPartitions + 1, +kNumBaseClasses);
-    // Route Hot New R1 to security partition P1.
-    SetClassArrayRegion(1, +kNumBaseClasses);
-    if (!heap_partitioning_full) {
-      // In kLight mode, route Hot New R0 to P1.
-      SetClassArrayRegion(0, +kNumBaseClasses);
+  // Point all lookups in hot registers (Malloc P0, New P1, Malloc P1)
+  // directly to New's P0. We only overwrite the lookups if heap
+  // partitioning is active with the dedicated size classes.
+  for (size_t i = 1; i < kHotRegisters; ++i) {
+    std::copy(&class_array_[0], &class_array_[kClassArraySize],
+              &class_array_[kClassArraySize * i]);
+  }
+
+  bool heap_partitioning_active = tc_globals.multiple_non_numa_partitions();
+  if (kSecurityPartitions > 1 && heap_partitioning_active) {
+    bool heap_partitioning_full =
+        Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
+    next_size = 0;
+    for (int c = kNumBaseClasses + 1; c < kExpandedClassesStart; ++c) {
+      const int max_size_in_class = class_to_size_[c];
+
+      for (int s = next_size; s <= max_size_in_class;
+           s += static_cast<size_t>(kAlignment)) {
+        // Route Hot Malloc P1 to security partition P1.
+        class_array_[ClassIndex(s) +
+                     kClassArraySize * (kSecurityPartitions + 1)] = c;
+        // Route Hot New P1 to security partition P1.
+        class_array_[ClassIndex(s) + kClassArraySize] = c;
+        if (heap_partitioning_full) continue;
+        // In kLight mode, route Hot New P0 to P1.
+        class_array_[ClassIndex(s)] = c;
+      }
+      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+      if (next_size > kMaxSize) {
+        break;
+      }
+    }
+  }
+
+  if (ColdFeatureActive()) {
+    memset(cold_sizes_, 0, sizeof(cold_sizes_));
+    cold_sizes_count_ = 0;
+
+    // Point all lookups in the first or second upper register of class_array_
+    // (allocations seeking cold memory, with hints for partition 0, i.e.,
+    // pointerless allocations) to the lower size classes.  This gives us an
+    // easy fallback for sizes that are too small for moving to cold memory (due
+    // to intrusive span metadata).
+    std::copy(&class_array_[0], &class_array_[kClassArraySize],
+              &class_array_[kClassArraySize * kColdRegisterStride]);
+
+    for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
+      size_t max_size_in_class = class_to_size_[c];
+      if (max_size_in_class == 0) {
+        next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+        continue;
+      }
+
+      cold_sizes_[cold_sizes_count_] = c;
+      ++cold_sizes_count_;
+
+      for (int s = next_size; s <= max_size_in_class;
+           s += static_cast<size_t>(kAlignment)) {
+        class_array_[ClassIndex(s) + kClassArraySize * kColdRegisterStride] = c;
+      }
+      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+      if (next_size > kMaxSize) {
+        break;
+      }
+    }
+    if (kSecurityPartitions > 1) {
+      if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
+        // Point all lookups in Cold New's P1 register to Hot New's P1.
+        std::copy(
+            &class_array_[kClassArraySize], &class_array_[kClassArraySize * 2],
+            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)]);
+      } else {
+        // Point all lookups in Cold New's P1 register to Cold New's P0.
+        std::copy(
+            &class_array_[kClassArraySize * (2 * kSecurityPartitions)],
+            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)],
+            &class_array_[kClassArraySize * (2 * kSecurityPartitions + 1)]);
+      }
     }
   }
 
   return true;
-}
-
-void SizeMap::SetClassArrayRegion(size_t region, CompactSizeClass adjust) {
-  // Ensure R0 is the canonical non-adjusted array.
-  TC_CHECK_EQ(class_array_[0], 1);
-  for (size_t i = 0; i < kClassArraySize; ++i) {
-    class_array_[region * kClassArraySize + i] = class_array_[i] + adjust;
-  }
 }
 
 }  // namespace tcmalloc_internal

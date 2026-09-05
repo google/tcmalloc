@@ -155,7 +155,7 @@ bool GetMemoryStats(MemoryStats& stats) {
   });
 }
 
-[[nodiscard]] std::optional<double> GetHugepageFragmentationRatio(size_t node) {
+std::optional<double> GetHugepageFragmentationRatio(size_t node) {
 #if !defined(__linux__)
   return std::nullopt;
 #endif
@@ -167,7 +167,7 @@ bool GetMemoryStats(MemoryStats& stats) {
 
   int fd = signal_safe_open(path, O_RDONLY | O_CLOEXEC);
   if (fd < 0) {
-    TC_ASSERT_EQ(errno, ENOENT);
+    TC_CHECK_EQ(errno, ENOENT);
     return std::nullopt;
   }
 

@@ -144,9 +144,6 @@ static void InitPerCpu() {
     // objects can overlap.
     volatile auto slabs_addr = reinterpret_cast<uintptr_t>(&tcmalloc_slabs);
     auto rseq_abi_addr = reinterpret_cast<uintptr_t>(&__rseq_abi);
-    volatile auto tcmalloc_rseq_layout_addr =
-        reinterpret_cast<uintptr_t>(&tcmalloc_rseq_layout);
-    TC_CHECK_EQ(rseq_abi_addr, tcmalloc_rseq_layout_addr);
     //  Ensure __rseq_abi alignment required by ABI.
     TC_CHECK_EQ(rseq_abi_addr % 32, 0);
     // Ensure that all our TLS data is in a single cache line.

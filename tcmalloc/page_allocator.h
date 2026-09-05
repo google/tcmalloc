@@ -18,6 +18,7 @@
 #include <stddef.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <utility>
@@ -49,7 +50,7 @@ namespace tcmalloc_internal {
 class PageAllocator {
  public:
   PageAllocator();
-  ~PageAllocator() = default;
+  ~PageAllocator();
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
@@ -173,6 +174,22 @@ class PageAllocator {
     InvokeReleaseHookSlow(num_pages, released, reason);
   }
 
+  static constexpr size_t kDefaultTracingBufferSize = 64 * 1024 * 1024;
+
+  using BufferAllocator = void* (*)(size_t size);
+  using BufferDeallocator = void (*)(void* ptr, size_t size);
+
+  bool EnableTracing() ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  bool EnableTracing(size_t buffer_size) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void DisableTracing() ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  [[nodiscard]] bool tracing_enabled() const;
+  [[nodiscard]] void* tracing_buffer() const ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  [[nodiscard]] size_t tracing_buffer_size() const
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void SetTracingBufferHooksForTesting(BufferAllocator alloc,
+                                       BufferDeallocator dealloc)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+
   enum Algorithm {
     PAGE_HEAP = 0,
     HPAA = 1,
@@ -241,6 +258,12 @@ class PageAllocator {
   // requires minimal work to compute.
   size_t peak_backed_bytes_{0};
   size_t peak_sampled_application_bytes_{0};
+
+  std::atomic<bool> tracing_enabled_{false};
+  void* tracing_buffer_ ABSL_GUARDED_BY(pageheap_lock){nullptr};
+  size_t tracing_buffer_size_ ABSL_GUARDED_BY(pageheap_lock){0};
+  std::atomic<BufferAllocator> buffer_allocator_{nullptr};
+  std::atomic<BufferDeallocator> buffer_deallocator_{nullptr};
 };
 
 inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {

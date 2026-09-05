@@ -184,6 +184,22 @@ test_variants = [
         "copts": [],
     },
     {
+        "name": "reuse_size_classes",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"TCMALLOC_REUSE_SIZE_CLASSES": "reuse"},
+    },
+    {
+        "name": "reuserelaxedbelow64_size_classes",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"TCMALLOC_REUSE_SIZE_CLASSES": "reuserelaxedbelow64"},
+    },
+    {
         "name": "hpaa",
         "malloc": "//tcmalloc",
         "deps": [
