@@ -1010,6 +1010,192 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithHitLimit) {
   EXPECT_EQ(r1->free_backed().in_bytes(), 0);
 }
 
+TEST_P(HugeRegionSetTest,
+       ReleaseAdaptiveZeroPageHitLimitDoesNotResetLowWaterMark) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  // Allocate all space.
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+
+  // Put all back.
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Low water mark is 0. An emergency release of 0 pages (hit_limit = true)
+  // must not reset lowater_free_backed_ to free_backed_count_.
+  Length released =
+      set_.ReleasePages(Length(0), /*use_adaptive=*/true, /*hit_limit=*/true);
+  EXPECT_EQ(released, Length(0));
+
+  // The subsequent regular adaptive release tick should release nothing,
+  // rather than purging 100% of free backed hugepages.
+  released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                               /*hit_limit=*/false);
+  EXPECT_EQ(released, Length(0));
+}
+
+TEST_P(HugeRegionSetTest, ReleaseAdaptiveHitLimitDecrementsLowWaterMark) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  // Allocate all space.
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+
+  // Put all back.
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Reset lowater_free_backed_ to free_backed_count_ with an adaptive tick.
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                                      /*hit_limit=*/false);
+  EXPECT_EQ(released, Length(0));
+
+  // Allocate half the pages.
+  size_t to_alloc = allocs.size() / 2;
+  ASSERT_GT(to_alloc, 2);
+  std::vector<Alloc> active_allocs;
+  for (size_t i = 0; i < to_alloc; ++i) {
+    ASSERT_TRUE(set_.MaybeGet(kSize, &p, &from_released));
+    active_allocs.push_back({p, kSize});
+  }
+
+  // Put them back.
+  for (auto a : active_allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Low water mark is now allocs.size() - to_alloc.
+  // An emergency release (hit_limit = true) of 1 hugepage should release 1
+  // hugepage and decrement the low water mark by 1.
+  released =
+      set_.ReleasePages(kSize, /*use_adaptive=*/true, /*hit_limit=*/true);
+  EXPECT_EQ(released, kSize);
+
+  // Subsequent adaptive release tick should release the remaining low water
+  // mark (allocs.size() - to_alloc - 1), NOT the entire free_backed_count_.
+  released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                               /*hit_limit=*/false);
+  Length expected_released =
+      NHugePages(allocs.size() - to_alloc - 1).in_pages();
+  EXPECT_EQ(released, expected_released);
+  EXPECT_LT(released, r1->size().in_pages());
+}
+
+TEST_P(HugeRegionSetTest, ReleaseAdaptiveHitLimitClampsLowWaterMarkToZero) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  // Allocate all space.
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+
+  // Put all back.
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Reset lowater_free_backed_ to free_backed_count_ with an adaptive tick.
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                                      /*hit_limit=*/false);
+  EXPECT_EQ(released, Length(0));
+
+  // Allocate 1 hugepage, setting low water mark to allocs.size() - 1.
+  ASSERT_TRUE(set_.MaybeGet(kSize, &p, &from_released));
+  ASSERT_TRUE(set_.MaybePut(Range(p, kSize)));
+
+  // An emergency release (hit_limit = true) releases all pages, which exceeds
+  // the low water mark.
+  Length to_release = NHugePages(allocs.size()).in_pages();
+  released =
+      set_.ReleasePages(to_release, /*use_adaptive=*/true, /*hit_limit=*/true);
+  EXPECT_EQ(released, r1->size().in_pages());
+
+  // Since released_hl exceeds the previous low water mark, the low water mark
+  // should clamp cleanly to 0 without underflow. Subsequent adaptive release
+  // should release 0 pages.
+  released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                               /*hit_limit=*/false);
+  EXPECT_EQ(released, Length(0));
+}
+
+TEST_P(HugeRegionSetTest, ReleaseNonAdaptivePreservesLowWaterMarkInvariant) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  // Allocate all space.
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+
+  // Put all back.
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Set lowater_free_backed_ to free_backed_count_ (full).
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                                      /*hit_limit=*/false);
+  EXPECT_EQ(released, Length(0));
+
+  // Perform a non-adaptive fractional release (!hit_limit && !use_adaptive).
+  // This reduces free_backed_count_.
+  Length non_adaptive_released =
+      set_.ReleasePages(Length(0), /*use_adaptive=*/false, /*hit_limit=*/false);
+  EXPECT_GT(non_adaptive_released, Length(0));
+
+  // Verify that lowater_free_backed_ was decremented/clamped and did not remain
+  // larger than the remaining free_backed_count_. If we now perform an
+  // adaptive release, it should NOT release more than the remaining free
+  // backed pages.
+  Length adaptive_released = set_.ReleasePages(
+      Length::max(), /*use_adaptive=*/true, /*hit_limit=*/false);
+  EXPECT_LE(adaptive_released + non_adaptive_released, r1->size().in_pages());
+}
+
 TEST_P(HugeRegionSetTest, ReleaseAdaptiveOrder) {
   if (!UseHugeRegionMoreOften()) {
     return;

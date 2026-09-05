@@ -192,7 +192,7 @@ class HugeRegionSet {
   // Releases unused but backed hugepages from the set.
   // - If hit_limit is true, we release up to desired pages.
   // - If hit_limit is false and use_adaptive is true, we release up to the
-  //   low water mark of free backed pages (capped by desired).
+  //   low water mark of free backed pages.
   // - If hit_limit is false and use_adaptive is false, we release a fraction
   //   of the free backed pages.
   Length ReleasePages(Length desired, bool use_adaptive, bool hit_limit);
@@ -659,7 +659,20 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
   HugeLength released_hl = HLFromPages(released);
   TC_ASSERT_LE(released_hl, free_backed_count_);
   free_backed_count_ -= released_hl;
-  lowater_free_backed_ = free_backed_count_;
+  if (!hit_limit && use_adaptive) {
+    // A regular adaptive release cycle completed; reset the low-water mark
+    // to the current free backed count to begin the next observation period.
+    lowater_free_backed_ = free_backed_count_;
+  } else {
+    // During emergency limit releases or non-adaptive fractional releases,
+    // memory was released out-of-band. Decrement the low-water mark by the
+    // amount released (avoiding unsigned underflow) and clamp to
+    // [0, free_backed_count_].
+    HugeLength reduced_lwm = lowater_free_backed_ > released_hl
+                                 ? lowater_free_backed_ - released_hl
+                                 : NHugePages(0);
+    lowater_free_backed_ = std::min(free_backed_count_, reduced_lwm);
+  }
 
   return released;
 }
