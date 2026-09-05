@@ -131,6 +131,124 @@ TEST(Printer, RequiredSpacePieces) {
   }
 }
 
+TEST(Printer, SaturatedAppendNullTermination) {
+  constexpr size_t kSize = 16;
+  char buf[kSize + 1];
+  memset(buf, 'x', sizeof(buf));
+  buf[kSize] = '\0';
+
+  Printer printer(buf, kSize);
+  EXPECT_EQ(printer.SpaceLeft(), kSize);
+  EXPECT_EQ(printer.bytes_written(), 0);
+
+  // 1. Initial write that fits
+  printer.Append("0123456789");  // 10 chars
+  EXPECT_EQ(buf[10], '\0');
+  EXPECT_EQ(strlen(buf), 10);
+  EXPECT_EQ(printer.bytes_written(), 10);
+  EXPECT_EQ(printer.SpaceLeft(), kSize - 10);
+
+  // 2. Append that exceeds capacity
+  printer.Append("abcdefghij");  // 10 chars, exceeds remaining capacity
+  EXPECT_LT(strlen(buf), kSize);
+  EXPECT_EQ(strlen(buf), 10);
+  EXPECT_EQ(buf[10], '\0');
+  EXPECT_EQ(printer.bytes_written(), 10);
+  EXPECT_EQ(printer.SpaceLeft(), kSize - 10);
+
+  // 3. Verify stream integrity: once saturated, subsequent smaller writes
+  // must NOT be written out-of-order into the remaining space.
+  printer.Append("z");
+  EXPECT_EQ(printer.bytes_written(), 10);
+  EXPECT_EQ(strlen(buf), 10);
+  EXPECT_EQ(buf[10], '\0');
+
+  printer.printf("z");
+  EXPECT_EQ(printer.bytes_written(), 10);
+  EXPECT_EQ(strlen(buf), 10);
+  EXPECT_EQ(buf[10], '\0');
+
+  // 4. Directly overflowing append into a fresh buffer
+  char buf2[kSize + 1];
+  memset(buf2, 'x', sizeof(buf2));
+  buf2[kSize] = '\0';
+
+  Printer printer2(buf2, kSize);
+  printer2.Append("0123456789abcdef");  // 16 chars into 16-byte buffer
+  EXPECT_LT(strlen(buf2), kSize);
+  EXPECT_EQ(buf2[strlen(buf2)], '\0');
+  EXPECT_EQ(printer2.bytes_written(), 0);
+  EXPECT_EQ(printer2.SpaceLeft(), kSize);
+
+  // 5. Exact capacity saturation: exactly kSize - 1 characters fit.
+  char buf3[kSize + 1];
+  memset(buf3, 'x', sizeof(buf3));
+  buf3[kSize] = '\0';
+
+  Printer printer3(buf3, kSize);
+  printer3.Append("0123456789abcde");  // 15 chars
+  EXPECT_EQ(printer3.bytes_written(), 15);
+  EXPECT_EQ(strlen(buf3), 15);
+  EXPECT_EQ(buf3[15], '\0');
+  EXPECT_EQ(printer3.SpaceLeft(), 1);
+
+  // Attempting to append 1 more char must be rejected, preserving '\0'.
+  printer3.Append("!");
+  EXPECT_EQ(printer3.bytes_written(), 15);
+  EXPECT_EQ(strlen(buf3), 15);
+  EXPECT_EQ(buf3[15], '\0');
+  EXPECT_EQ(printer3.SpaceLeft(), 1);
+}
+
+TEST(Printer, SpaceLeftAndBytesWritten) {
+  constexpr size_t kSize = 16;
+  char buf[kSize];
+  Printer printer(buf, kSize);
+  EXPECT_EQ(printer.SpaceLeft(), kSize);
+  EXPECT_EQ(printer.bytes_written(), 0);
+
+  printer.Append("01234");
+  EXPECT_EQ(printer.SpaceLeft(), kSize - 5);
+  EXPECT_EQ(printer.bytes_written(), 5);
+  EXPECT_EQ(strlen(buf), 5);
+
+  printer.printf("%s", "5678");
+  EXPECT_EQ(printer.SpaceLeft(), kSize - 9);
+  EXPECT_EQ(printer.bytes_written(), 9);
+  EXPECT_EQ(strlen(buf), 9);
+
+  // Append that would exceed remaining space: saturates and rejected.
+  printer.Append("0123456789");
+  EXPECT_EQ(printer.bytes_written(), 9);
+  EXPECT_EQ(strlen(buf), 9);
+  EXPECT_EQ(printer.SpaceRequired(), 9 + 10);
+
+  // Subsequent printf calls must not write, but SpaceRequired keeps
+  // accumulating.
+  printer.printf("%s", "more text");
+  EXPECT_EQ(printer.bytes_written(), 9);
+  EXPECT_EQ(strlen(buf), 9);
+  EXPECT_EQ(printer.SpaceRequired(), 9 + 10 + 9);
+}
+
+TEST(Printer, MinimumBufferSize) {
+  char buf[1] = {'x'};
+  Printer printer(buf, 1);
+  EXPECT_EQ(buf[0], '\0');
+  EXPECT_EQ(printer.bytes_written(), 0);
+  EXPECT_EQ(printer.SpaceLeft(), 1);
+
+  printer.Append("a");
+  EXPECT_EQ(buf[0], '\0');
+  EXPECT_EQ(printer.bytes_written(), 0);
+  EXPECT_EQ(printer.SpaceRequired(), 1);
+
+  printer.printf("%s", "hello");
+  EXPECT_EQ(buf[0], '\0');
+  EXPECT_EQ(printer.bytes_written(), 0);
+  EXPECT_EQ(printer.SpaceRequired(), 6);
+}
+
 TEST(Check, OK) {
   TC_CHECK(true);
   TC_CHECK_EQ(1, 1);

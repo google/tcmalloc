@@ -246,14 +246,21 @@ const T& FormatConvert(const T& v) {
 // Print into buffer
 class Printer {
  private:
-  char* buf_;        // Where should we write next
-  size_t left_;      // Space left in buffer (including space for \0)
+  char* const start_;  // Start of buffer
+  char* buf_;          // Where should we write next
+  size_t left_;        // Space left in buffer (including space for \0)
   size_t required_;  // Space we needed to complete all printf calls up to this
                      // point
+  bool overflowed_;  // Whether a write was truncated / overflowed
 
  public:
   // REQUIRES: "length > 0"
-  Printer(char* buf, size_t length) : buf_(buf), left_(length), required_(0) {
+  Printer(char* buf, size_t length)
+      : start_(buf),
+        buf_(buf),
+        left_(length),
+        required_(0),
+        overflowed_(false) {
     TC_ASSERT_GT(length, 0u);
     buf[0] = '\0';
   }
@@ -264,15 +271,25 @@ class Printer {
   template <typename... Args>
   void printf(const absl::FormatSpec<Args...>& format, const Args&... args) {
     AllocationGuard enforce_no_alloc;
+    if (overflowed_) {
+      const int r = absl::SNPrintF(buf_, 0, format, args...);
+      if (r > 0) {
+        required_ += r;
+      }
+      return;
+    }
     const int r = absl::SNPrintF(buf_, left_, format, args...);
     if (r < 0) {
-      left_ = 0;
+      *buf_ = '\0';
+      overflowed_ = true;
       return;
     }
     required_ += r;
 
-    if (static_cast<size_t>(r) > left_) {
-      left_ = 0;
+    if (static_cast<size_t>(r) >= left_) {
+      buf_ += left_ - 1;
+      left_ = 1;
+      overflowed_ = true;
     } else {
       left_ -= r;
       buf_ += r;
@@ -287,14 +304,21 @@ class Printer {
 
   size_t SpaceRequired() const { return required_; }
 
+  // Returns remaining buffer capacity including space reserved for '\0'.
+  // At most SpaceLeft() - 1 characters can be appended.
+  size_t SpaceLeft() const { return left_; }
+
+  // Returns the number of characters written to the buffer (excluding '\0').
+  size_t bytes_written() const { return buf_ - start_; }
+
  private:
   void AppendPieces(std::initializer_list<absl::string_view> pieces) {
     size_t total_size = 0;
     for (const absl::string_view piece : pieces) total_size += piece.size();
 
     required_ += total_size;
-    if (left_ < total_size) {
-      left_ = 0;
+    if (overflowed_ || total_size >= left_) {
+      overflowed_ = true;
       return;
     }
 
@@ -309,6 +333,7 @@ class Printer {
     }
 
     left_ -= total_size;
+    *buf_ = '\0';
   }
 };
 
