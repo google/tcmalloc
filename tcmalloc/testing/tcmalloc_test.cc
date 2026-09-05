@@ -1298,14 +1298,13 @@ static bool IsHot(uint8_t label,
   // allocations as hot to avoid mixing pointer-containing and pointerless
   // allocations in the same cold partition.
   return static_cast<tcmalloc::hot_cold_t>(label) >= threshold ||
-         (MallocExtension::GetNumericProperty(
-              "tcmalloc.security_partitioning_active")
-                  .value_or(0) == 1 &&
+         (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull &&
           std::is_same_v<T, char*>);
 }
 
 TYPED_TEST(HotColdTest, HotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  ScopedNeverSample never_sample;
 
   absl::flat_hash_set<uintptr_t> hot;
   absl::flat_hash_set<uintptr_t> cold;
@@ -1390,6 +1389,7 @@ hot_cold_t MinHotAccessHint() {
 }
 
 TYPED_TEST(HotColdTest, NothrowHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1436,6 +1436,7 @@ TYPED_TEST(HotColdTest, NothrowHotColdNew) {
 }
 
 TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1486,6 +1487,7 @@ TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
 }
 
 TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1532,6 +1534,7 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
 }
 
 TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1582,6 +1585,7 @@ TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
 }
 
 TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1645,6 +1649,7 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
 // Test that setting the min_hot_access_hint parameter has the expected effect
 // on treatment of the allocated data as cold.
 TYPED_TEST(HotColdTest, HotColdNewMinHotFlag) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
