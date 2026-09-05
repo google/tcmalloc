@@ -265,6 +265,7 @@ tcmalloc_cc_library(
     "environment.cc"
   DEPS
     "absl::core_headers"
+    "absl::string_view"
     "tcmalloc::internal_config"
 )
 

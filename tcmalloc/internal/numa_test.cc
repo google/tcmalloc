@@ -19,6 +19,7 @@
 #include <sched.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <syscall.h>
 #include <unistd.h>
@@ -247,6 +248,45 @@ TEST_F(NumaTopologyTest, Host) {
     size_t partition = nt.GetCpuPartition(cpu);
     EXPECT_LT(partition, active_partitions) << cpu;
   }
+}
+
+TEST_F(NumaTopologyTest, EnvVarHandling) {
+  auto make_nodes = []() {
+    std::vector<SyntheticCpuList> nodes;
+    nodes.emplace_back("0-5");
+    nodes.emplace_back("6-11");
+    return nodes;
+  };
+
+  // Empty string should fall back to default without crash.
+  setenv("TCMALLOC_NUMA_AWARE", "", 1);
+  auto nt = CreateNumaTopology<2>(make_nodes());
+  EXPECT_TRUE(nt.numa_aware());
+
+  // Whitespace-only string should fall back to default without crash.
+  setenv("TCMALLOC_NUMA_AWARE", "   ", 1);
+  nt = CreateNumaTopology<2>(make_nodes());
+  EXPECT_TRUE(nt.numa_aware());
+
+  // Standard boolean tokens should be supported case-insensitively with
+  // whitespace.
+  setenv("TCMALLOC_NUMA_AWARE", "  true  ", 1);
+  nt = CreateNumaTopology<2>(make_nodes());
+  EXPECT_TRUE(nt.numa_aware());
+
+  setenv("TCMALLOC_NUMA_AWARE", "1", 1);
+  nt = CreateNumaTopology<2>(make_nodes());
+  EXPECT_TRUE(nt.numa_aware());
+
+  setenv("TCMALLOC_NUMA_AWARE", "false", 1);
+  nt = CreateNumaTopology<2>(make_nodes());
+  EXPECT_FALSE(nt.numa_aware());
+
+  setenv("TCMALLOC_NUMA_AWARE", "0", 1);
+  nt = CreateNumaTopology<2>(make_nodes());
+  EXPECT_FALSE(nt.numa_aware());
+
+  unsetenv("TCMALLOC_NUMA_AWARE");
 }
 
 }  // namespace

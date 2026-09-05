@@ -15,12 +15,61 @@
 
 #include <string.h>
 
+#include <optional>
+
 #include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+namespace {
+
+constexpr bool IsAsciiWhitespace(char c) {
+  return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' ||
+         c == '\f';
+}
+
+constexpr char AsciiToLower(char c) {
+  if (c >= 'A' && c <= 'Z') {
+    return c + ('a' - 'A');
+  }
+  return c;
+}
+
+bool EqualsIgnoreCase(absl::string_view a, absl::string_view b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (AsciiToLower(a[i]) != AsciiToLower(b[i])) return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+absl::string_view TrimWhitespace(absl::string_view str) {
+  while (!str.empty() && IsAsciiWhitespace(str.front())) {
+    str.remove_prefix(1);
+  }
+  while (!str.empty() && IsAsciiWhitespace(str.back())) {
+    str.remove_suffix(1);
+  }
+  return str;
+}
+
+std::optional<bool> ParseBool(absl::string_view str) {
+  str = TrimWhitespace(str);
+  if (EqualsIgnoreCase(str, "1") || EqualsIgnoreCase(str, "true") ||
+      EqualsIgnoreCase(str, "yes") || EqualsIgnoreCase(str, "on")) {
+    return true;
+  }
+  if (EqualsIgnoreCase(str, "0") || EqualsIgnoreCase(str, "false") ||
+      EqualsIgnoreCase(str, "no") || EqualsIgnoreCase(str, "off")) {
+    return false;
+  }
+  return std::nullopt;
+}
 
 #ifdef __linux__
 // POSIX provides the **environ array which contains environment variables in a

@@ -44,18 +44,25 @@ namespace huge_page_allocator_internal {
 
 bool decide_subrelease() {
   const char* e = thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        // If we're forcing HPAA on, we want to converge towards our default
-        // of subrelease on, rather than off (where it is moot without HPAA).
-        break;
-      case '1':
-        return false;
-      case '2':
+  if (e != nullptr) {
+    absl::string_view sv = TrimWhitespace(e);
+    if (sv.empty() || sv == "0") {
+      // Empty string falls back to default.
+    } else if (sv == "1") {
+      // Legacy tri-state: "1" forces HPAA on with subrelease off.
+      return false;
+    } else if (sv == "2") {
+      // Legacy tri-state: "2" forces HPAA on with subrelease on.
+      return true;
+    } else if (std::optional<bool> b = ParseBool(sv); b.has_value()) {
+      // If we're forcing HPAA on via a boolean flag, we want to converge
+      // towards our default of subrelease on (true), rather than off.
+      if (*b) {
         return true;
-      default:
-        TC_BUG("bad env var '%s'", e);
+      }
+      // false falls back to default.
+    } else {
+      TC_BUG("bad env var '%s'", e);
     }
   }
 
@@ -81,15 +88,16 @@ bool use_huge_region_more_often() {
   // TODO(b/296281171): Remove this opt-out.
   const char* e =
       thread_safe_getenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE");
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        return true;
-      case '1':
-        return false;
-      default:
-        TC_BUG("bad env var '%s'", e);
+  if (e != nullptr) {
+    absl::string_view sv = TrimWhitespace(e);
+    if (sv.empty()) {
+      return true;
     }
+    if (std::optional<bool> b = ParseBool(sv); b.has_value()) {
+      // Negate because the env var is a disable/opt-out flag.
+      return !*b;
+    }
+    TC_BUG("bad env var '%s'", e);
   }
 
   return true;

@@ -15,11 +15,23 @@
 #ifndef TCMALLOC_INTERNAL_ENVIRONMENT_H_
 #define TCMALLOC_INTERNAL_ENVIRONMENT_H_
 
+#include <optional>
+
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// Trims leading and trailing ASCII whitespace.
+absl::string_view TrimWhitespace(absl::string_view str);
+
+// Parses a boolean value from the given string. Supports case-insensitive
+// "1", "true", "yes", "on" as true, and "0", "false", "no", "off" as false,
+// ignoring leading and trailing whitespace. Returns std::nullopt if the string
+// does not represent a valid boolean.
+std::optional<bool> ParseBool(absl::string_view str);
 
 // WARNING ********************************************************************
 // getenv(2) can only be safely used in the absence of calls which perturb the
