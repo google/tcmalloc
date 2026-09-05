@@ -14,7 +14,9 @@
 
 #include "tcmalloc/alloc_at_least.h"
 
+#include <cerrno>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 
 #include "absl/base/attributes.h"
@@ -30,21 +32,50 @@ extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t alloc_at_least(size_t min_size)
 extern "C" ABSL_ATTRIBUTE_WEAK alloc_result_t aligned_alloc_at_least(
     size_t alignment, size_t min_size) ALLOC_AT_LEAST_NOEXCEPT {
   alloc_result_t result;
-#if !defined(_ISOC11_SOURCE)
-  void* ptr = nullptr;
+  if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+    errno = EINVAL;
+    result.ptr = nullptr;
+    result.size = 0;
+    return result;
+  }
+  // libc++ defines _LIBCPP_HAS_C11_ALIGNED_ALLOC to 0 on platforms lacking
+  // std::aligned_alloc (e.g. Android API < 28 or macOS < 10.15).
+  // libstdc++ guards std::aligned_alloc with _GLIBCXX_HAVE_ALIGNED_ALLOC.
+#if (defined(_LIBCPP_HAS_C11_ALIGNED_ALLOC) && \
+     !_LIBCPP_HAS_C11_ALIGNED_ALLOC) ||        \
+    (defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC))
+  // POSIX mandates alignment must be a multiple of sizeof(void*). Fundamental
+  // alignments (1, 2, 4 on 64-bit) are powers of 2 and subsumed by
+  // sizeof(void*).
   if (alignment < sizeof(void*)) {
     alignment = sizeof(void*);
   }
-  if (posix_memalign(&ptr, alignment, min_size) == 0) {
+  void* ptr = nullptr;
+  int err = posix_memalign(&ptr, alignment, min_size);
+  if (err == 0) {
     result.ptr = ptr;
     result.size = min_size;
   } else {
+    errno = err;
     result.ptr = nullptr;
     result.size = 0;
   }
 #else
-  result.ptr = std::aligned_alloc(alignment, min_size);
-  result.size = result.ptr != nullptr ? min_size : 0;
+  // ISO C11 §7.22.3.1 requires size to be an integral multiple of alignment.
+  size_t size = min_size;
+  size_t remainder = min_size % alignment;
+  if (remainder != 0) {
+    size_t supplement = alignment - remainder;
+    if (SIZE_MAX - min_size < supplement) {
+      errno = ENOMEM;
+      result.ptr = nullptr;
+      result.size = 0;
+      return result;
+    }
+    size += supplement;
+  }
+  result.ptr = std::aligned_alloc(alignment, size);
+  result.size = result.ptr != nullptr ? size : 0;
 #endif
   return result;
 }

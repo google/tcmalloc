@@ -1222,11 +1222,31 @@ create_tcmalloc_testsuite(
 )
 
 cc_test(
-    name = "alloc_at_least_test",
+    name = "alloc_at_least_c_test",
     srcs = ["alloc_at_least_test.c"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc/internal:system_malloc",
     deps = [
         "//tcmalloc:alloc_at_least",
+    ],
+)
+
+cc_test(
+    name = "alloc_at_least_cc_test",
+    srcs = ["alloc_at_least_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    malloc = "//tcmalloc/internal:system_malloc",
+    deps = [
+        "//tcmalloc:alloc_at_least",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+test_suite(
+    name = "alloc_at_least_test",
+    tests = [
+        ":alloc_at_least_c_test",
+        ":alloc_at_least_cc_test",
     ],
 )
 
