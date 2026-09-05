@@ -221,7 +221,8 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
 }
 
 // To trigger SEGV handler.
-[[noreturn]] static ABSL_ATTRIBUTE_NOINLINE void ForceTouchPage(void* ptr) {
+static ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NORETURN void ForceTouchPage(
+    void* ptr) {
   // Spin, in case this thread is waiting for concurrent mprotect() to finish.
   for (;;) {
     *reinterpret_cast<volatile char*>(ptr) = 'X';

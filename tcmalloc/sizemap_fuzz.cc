@@ -74,7 +74,7 @@ void FuzzGetSizeClass(size_t size) {
     if (auto [is_small, size_class] = m.GetSizeClass(CppPolicy(), size);
         is_small) {
       EXPECT_EQ(size_class % kNumBaseClasses, 0) << size;
-      EXPECT_LT(size_class, kColdClassesStart) << size;
+      EXPECT_LT(size_class, kExpandedClassesStart) << size;
     } else {
       // We should only fail to lookup the size class when size is outside of
       // the size classes.
@@ -107,7 +107,7 @@ void FuzzGetSizeClassWithAlignment(size_t size, size_t alignment) {
             m.GetSizeClass(CppPolicy().AlignAs(alignment), size);
         is_small) {
       EXPECT_EQ(size_class % kNumBaseClasses, 0) << size << " " << alignment;
-      EXPECT_LT(size_class, kColdClassesStart) << size << " " << alignment;
+      EXPECT_LT(size_class, kExpandedClassesStart) << size << " " << alignment;
     } else if (alignment <= kPageSize) {
       // When alignment > kPageSize, we do not produce a size class.
       //
@@ -145,7 +145,7 @@ void FuzzSizeClass(size_t size) {
   {
     const uint32_t size_class = m.SizeClass(CppPolicy(), size);
     EXPECT_EQ(size_class % kNumBaseClasses, 0) << size;
-    EXPECT_LT(size_class, kColdClassesStart) << size;
+    EXPECT_LT(size_class, kExpandedClassesStart) << size;
   }
 
   // After m.Init(), SizeClass should return a size class.

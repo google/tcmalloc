@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/base/attributes.h"
+
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
 // This - if linked into a binary - allows huge-region-more-often feature to be
 // disabled.
-extern "C" [[maybe_unused]] bool default_want_disable_huge_region_more_often() {
+extern "C" ABSL_ATTRIBUTE_UNUSED bool
+default_want_disable_huge_region_more_often() {
   return true;
 }
 

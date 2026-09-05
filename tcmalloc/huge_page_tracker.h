@@ -209,16 +209,14 @@ class PageTracker : public TList<PageTracker>::Elem {
   Length ReleaseFree(MemoryModifyFunction& unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  Length MarkSubreleased(const PageBitmap& unbacked)
+  Length MarkSubreleased(PageBitmap unbacked)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  [[nodiscard]] const PageBitmap& released_by_page() const
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  [[nodiscard]] PageBitmap released_by_page() const {
     return released_by_page_;
   }
 
-  [[nodiscard]] const PageBitmap& allocated_pages_bitmap() const
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  [[nodiscard]] PageBitmap allocated_pages_bitmap() const {
     return free_.bits();
   }
 
@@ -328,9 +326,9 @@ class PageTracker : public TList<PageTracker>::Elem {
     size_t n_used_stale;
   };
 
-  HardwarePageResidencyInfo CountInfoInHugePage(const PageBitmap& unbacked,
-                                                const PageBitmap& swapped,
-                                                const PageBitmap& stale) const;
+  HardwarePageResidencyInfo CountInfoInHugePage(PageBitmap unbacked,
+                                                PageBitmap swapped,
+                                                PageBitmap stale) const;
 
  private:
   HugePage location_;
@@ -429,8 +427,7 @@ inline void PageTracker::SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
 }
 
 inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
-    const PageBitmap& unbacked, const PageBitmap& swapped,
-    const PageBitmap& stale) const {
+    PageBitmap unbacked, PageBitmap swapped, PageBitmap stale) const {
   // TODO(b/424551232): Add support for the scenario when native page size is
   // larger than TCMalloc page size.
   const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
@@ -439,7 +436,7 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   }
   TC_ASSERT_LE(kHardwarePagesInHugePage, kMaxResidencyBits);
 
-  const PageBitmap& free = free_.bits();
+  const PageBitmap free = free_.bits();
 
   TC_ASSERT_EQ(kHardwarePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
   const int shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
@@ -524,8 +521,8 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   return Length(count);
 }
 
-inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
-  const PageBitmap& free = free_.bits();
+inline Length PageTracker::MarkSubreleased(PageBitmap unbacked) {
+  PageBitmap free = free_.bits();
 
   // TODO(b/525422238): The residency bitmap was captured outside of the
   // lock. So, in a rare case, it's possible that the page was allocated,

@@ -50,7 +50,7 @@ namespace tcmalloc_internal {
 namespace central_freelist_internal {
 
 static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
-  if (IsColdSizeClass(size_class)) {
+  if (IsExpandedSizeClass(size_class)) {
     return MemoryTag::kCold;
   }
   if (tc_globals.active_partitions() == 1) {

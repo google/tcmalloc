@@ -27,7 +27,6 @@
 #include <memory>
 #include <new>
 #include <optional>
-#include <random>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -61,9 +60,7 @@ namespace tcmalloc_internal {
 namespace {
 
 using ::testing::AnyOf;
-using ::testing::Contains;
 using ::testing::Each;
-using ::testing::ElementsAre;
 using ::testing::IsSupersetOf;
 using ::testing::Key;
 using ::testing::Not;
@@ -113,39 +110,6 @@ class StubPageFlags final : public PageFlagsBase {
   absl::flat_hash_map<uintptr_t, int> stale_bytes_;
   absl::flat_hash_map<uintptr_t, int> locked_bytes_;
   uint64_t stale_scan_period_;
-};
-
-class StubResidency final : public Residency {
- public:
-  StubResidency() = default;
-  ~StubResidency() override = default;
-
-  std::optional<Info> Get(const void* addr, size_t size) override {
-    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
-    auto it = infos_.find(uaddr);
-    if (it != infos_.end()) {
-      Info result = it->second;
-      // Cap to queried range, matching real ResidencyPageMap behavior.
-      result.bytes_resident = std::min(result.bytes_resident, size);
-      result.bytes_swapped = std::min(result.bytes_swapped, size);
-      return result;
-    }
-    return std::nullopt;
-  }
-
-  size_t GetHardwarePagesInHugePage() const override { return 512; }
-
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
-    return {.status = absl::StatusCode::kUnimplemented};
-  }
-
-  void SetInfo(const void* addr, Info info) {
-    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
-    infos_[uaddr] = info;
-  }
-
- private:
-  absl::flat_hash_map<uintptr_t, Info> infos_;
 };
 
 // Returns the fully resolved path of this program.
@@ -287,7 +251,7 @@ TEST(ProfileBuilderTest, StringTable) {
 
 // A helper type alias for a list of samples and their labels.
 using SampleLabels = std::vector<
-    std::vector<std::pair<std::string, std::variant<int64_t, std::string>>>>;
+    std::vector<std::pair<std::string, std::variant<int, std::string>>>>;
 
 void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
                                  SampleLabels& extracted) {
@@ -357,7 +321,8 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
         labels.emplace_back(converted.string_table(l.key()),
                             converted.string_table(l.str()));
       } else {
-        labels.emplace_back(converted.string_table(l.key()), l.num());
+        labels.emplace_back(converted.string_table(l.key()),
+                            static_cast<int>(l.num()));
       }
     }
   }
@@ -716,7 +681,7 @@ TEST(ProfileConverterTest, HeapProfile) {
                                        Pair("objects", 6),
                                    }),
                                    IsSupersetOf({
-                                       Pair("resident_space", 20),
+                                       Pair("resident_space", 40),
                                        Pair("swapped_space", 0),
                                        Pair("space", 4690),
                                        Pair("objects", 10),
@@ -1203,7 +1168,8 @@ TEST(ProfileBuilderTest, EventTraceProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("alloc_handle", 0xbeef),
               Pair("allocation_time",
-                   absl::ToUnixNanos(start_time + absl::Milliseconds(10))),
+                   static_cast<int>(
+                       absl::ToUnixNanos(start_time + absl::Milliseconds(10)))),
               Pair("requested_size", 2)),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
@@ -1217,7 +1183,8 @@ TEST(ProfileBuilderTest, EventTraceProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("alloc_handle", 0xbeef),
               Pair("deallocation_time",
-                   absl::ToUnixNanos(start_time + absl::Milliseconds(20)))),
+                   static_cast<int>(absl::ToUnixNanos(
+                       start_time + absl::Milliseconds(20))))),
           // Check the contents of the right-censored sample.
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
@@ -1231,7 +1198,8 @@ TEST(ProfileBuilderTest, EventTraceProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("alloc_handle", 0xcafe),
               Pair("allocation_time",
-                   absl::ToUnixNanos(start_time + absl::Milliseconds(15))),
+                   static_cast<int>(
+                       absl::ToUnixNanos(start_time + absl::Milliseconds(15)))),
               Pair("requested_size", 2)),
           // Check the contents of the left-censored sample.
           UnorderedElementsAre(
@@ -1246,7 +1214,8 @@ TEST(ProfileBuilderTest, EventTraceProfile) {
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("alloc_handle", 0xdead),
               Pair("deallocation_time",
-                   absl::ToUnixNanos(start_time + absl::Milliseconds(25))))));
+                   static_cast<int>(absl::ToUnixNanos(
+                       start_time + absl::Milliseconds(25)))))));
 
   // Checks for common fields.
   EXPECT_TRUE(RE2::FullMatch("TCMallocInternalNew",
@@ -1395,108 +1364,6 @@ TEST(BuildId, GnuProperty) {
 
   EXPECT_EQ(GetBuildId(&info), "1f2a67344247b1cb91260e53c03817f9");
   munmap(p, 4096);
-}
-
-// Verify that when requested_size_returning is false, compressed_size does not
-// exceed requested_size.  The bug: residency was queried with allocated_size
-// but compressibility analyzed only requested_size bytes.
-// EstimateCompressedSize then extrapolated the compression ratio to
-// total_backed (from residency), which was computed for the larger
-// allocated_size.
-TEST(ProfileConverterTest, CompressedSizeDoesNotExceedAnalyzedSize) {
-  constexpr size_t kRequestedSize = 100;
-  constexpr size_t kAllocatedSize = 128;
-
-  // Incompressible data so compression ratio ≈ 1.0.
-  std::vector<char> buf(kAllocatedSize);
-  std::minstd_rand rng(42);
-  for (auto& b : buf) b = static_cast<char>(rng());
-
-  Profile::Sample sample = {};
-  sample.sum = kRequestedSize;
-  sample.count = 1;
-  sample.requested_size = kRequestedSize;
-  sample.requested_alignment = std::nullopt;
-  sample.requested_size_returning = false;
-  sample.allocated_size = kAllocatedSize;
-  sample.span_start_address = buf.data();
-  sample.depth = 1;
-  sample.stack[0] = reinterpret_cast<void*>(&RealPath);
-  sample.access_hint = hot_cold_t{0};
-  sample.access_allocated = Profile::Sample::Access::Hot;
-  sample.token_id = TokenId{0};
-  sample.guarded_status = Profile::Sample::GuardedStatus::NotAttempted;
-  sample.type = AllocationType::Malloc;
-
-  Profile::Sample returning = sample;
-  returning.requested_size_returning = true;
-
-  StubPageFlags pageflags;
-  pageflags.set_stale_scan_period(buf.data(), 60);
-
-  StubResidency residency;
-  // Residency reports all bytes as resident.
-  Residency::Info info;
-  info.bytes_resident = kAllocatedSize;
-  info.bytes_swapped = 0;
-  info.page_is_resident.SetBit(0);
-  residency.SetInfo(buf.data(), info);
-
-  auto fake_profile = std::make_unique<FakeProfile>();
-  fake_profile->SetType(ProfileType::kHeap);
-  fake_profile->SetDuration(absl::Milliseconds(100));
-  fake_profile->SetSamples({sample, returning});
-  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
-
-  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
-  ASSERT_TRUE(converted_or.ok());
-  const auto& converted = **converted_or;
-
-  // Find the space_compressed sample type index.
-  int compressed_idx = -1, size_returning_idx = -1;
-  for (int i = 0; i < converted.sample_type_size(); ++i) {
-    if (converted.string_table(converted.sample_type(i).type()) ==
-        "space_compressed") {
-      compressed_idx = i;
-      break;
-    }
-  }
-
-  for (int i = 0; i < converted.string_table_size(); ++i) {
-    if (converted.string_table(i) == "size_returning") {
-      size_returning_idx = i;
-    }
-  }
-  ASSERT_GE(size_returning_idx, 0) << "size_returning sample type not found";
-  return;
-  ASSERT_GE(compressed_idx, 0) << "space_compressed sample type not found";
-
-  ASSERT_EQ(converted.sample_size(), 2);
-  auto is_size_returning = [&](const perftools::profiles::Sample& s) -> int {
-    for (const auto& l : s.label()) {
-      if (l.key() == size_returning_idx) {
-        return l.num();
-      }
-    }
-    return 0;
-  };
-
-  std::array<int, 2> sizes = {-1, -1};
-  sizes[is_size_returning(converted.sample(0))] =
-      converted.sample(0).value(compressed_idx);
-  sizes[is_size_returning(converted.sample(1))] =
-      converted.sample(1).value(compressed_idx);
-
-  ASSERT_GE(sizes[0], 0);
-  // The compressed_size should (generally) not exceed the size actually
-  // analyzed, which for !requested_size_returning is requested_size.
-  EXPECT_LE(sizes[0], kRequestedSize);
-
-  ASSERT_GE(sizes[1], 0);
-  // Our random bytes are deterministic, so we can make assertions that may not
-  // work for all possible inputs.
-  EXPECT_GE(sizes[1], kRequestedSize);
-  EXPECT_LE(sizes[1], kAllocatedSize);
 }
 
 }  // namespace

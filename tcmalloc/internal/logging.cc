@@ -145,8 +145,10 @@ void RecordCrash(absl::string_view detector, absl::string_view error) {
   RecordTestFailure(detector, error);
 }
 
-[[noreturn]] ABSL_ATTRIBUTE_NOINLINE static void Crash(
-    const char* filename, int line, const char* msg, size_t msglen, bool oom) {
+ABSL_ATTRIBUTE_NOINLINE
+ABSL_ATTRIBUTE_NORETURN
+static void Crash(const char* filename, int line, const char* msg,
+                  size_t msglen, bool oom) {
   StackTrace trace;
   trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth, 1);
 
@@ -182,8 +184,8 @@ void RecordCrash(absl::string_view detector, absl::string_view error) {
   abort();
 }
 
-[[noreturn]] void CheckFailed(const char* file, int line, const char* msg,
-                              int msglen) {
+ABSL_ATTRIBUTE_NORETURN void CheckFailed(const char* file, int line,
+                                         const char* msg, int msglen) {
   Crash(file, line, msg, msglen, false);
 }
 

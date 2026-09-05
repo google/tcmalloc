@@ -746,7 +746,7 @@ void TreatTrackers::Perform(State& state) const {
   }
   for (PageTracker* pt : state.trackers) {
     HugePage hp = pt->location();
-    const PageBitmap& rel = pt->released_by_page();
+    PageBitmap rel = pt->released_by_page();
     for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
       PageId p = hp.first_page() + Length(i);
       if (rel.GetBit(i)) {

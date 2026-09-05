@@ -237,22 +237,19 @@ ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
  *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
  *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = r8 + rdi * 8;
- *   Header eax = *hdr;
- *   uint64_t r9 = eax.current;
- *   uint64_t rax = eax.remaining_capacity;
- *   if (rax == 0) return 0;
- *   uint64_t rcx = rax;
- *   rax = min(len, rax);
- *   r11 = len;
- *   Header rcx = {.current = r9 + rax, .remaining_capacity = rcx - rax};
+ *   uint64_t r9 = hdr->current;
+ *   uint64_t r10 = hdr->end;
+ *   if (r9 >= r10) return 0;
+ *   r11 = rdx;
+ *   r10 = r9 + min(rdx, r10 - r9);
  * loop:
  *   r11--;
- *   r10 = batch[r11];
- *   *(r8 + r9 * 8) = r10;
+ *   rax = batch[r11];
+ *   *(r8 + r9 * 8) = rax;
  *   r9++;
- *   if (r9 != rcx.current) goto loop;
- *   *hdr = rcx;
- *   return rax;
+ *   if (r9 != r10) goto loop;
+ *   hdr->current = r9;
+ *   return rdx - r11;
  * }
  */
   .p2align 6; /* aligns to 2^6 with NOP filling */
@@ -264,27 +261,26 @@ TcmallocSlab_Internal_PushBatch:
   FETCH_SLABS(%r8);
   btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
   jnc .LTcmallocSlab_Internal_PushBatch_full;
-  movl (%r8, %rdi, 4), %eax; /* [current, remaining_capacity] */
-  movzwq %ax, %r9; /* current */
-  shrq $16, %rax; /* remaining_capacity */
-  jz .LTcmallocSlab_Internal_PushBatch_full;
-  movq %rax, %rcx; /* rcx = copy of remaining_capacity */
-  cmpq %rdx, %rax;
-  cmovaq %rdx, %rax; /* num_to_push = min(len, remaining_capacity) */
+  movzwq (%r8, %rdi, 4), %r9; /* current */
+  movzwq 2(%r8, %rdi, 4), %r10; /* end */
+  cmpq %r10, %r9;
+  jae .LTcmallocSlab_Internal_PushBatch_full;
   movq %rdx, %r11; /* r11 = copy of len */
-  subq %rax, %rcx; /* rcx = new remaining_capacity */
-  shlq $16, %rcx;
-  addq %r9, %rcx;  /* rcx = [current, new_remaining_capacity] */
-  addq %rax, %rcx;  /* rcx = [new_current, new_remaining_capacity] */
+  subq %r9, %r10; /* r10 = free capacity */
+  cmpq %rdx, %r10;
+  cmovaq %rdx, %r10; /* r10 = min(len, free capacity) */
+  addq %r9, %r10;
 .LTcmallocSlab_Internal_PushBatch_loop:
   decq %r11;
-  movq (%rsi, %r11, 8), %r10;
-  movq %r10, (%r8, %r9, 8);
+  movq (%rsi, %r11, 8), %rax;
+  movq %rax, (%r8, %r9, 8);
   incq %r9;
-  cmpw %r9w, %cx;
+  cmpq %r9, %r10;
   jne .LTcmallocSlab_Internal_PushBatch_loop
-  movl %ecx, (%r8, %rdi, 4);
+  movw %r9w, (%r8, %rdi, 4);
 .LTcmallocSlab_Internal_PushBatch_commit:
+  movq %rdx, %rax;
+  subq %r11, %rax;
   ret;
 .LTcmallocSlab_Internal_PushBatch_full:
   xor %rax, %rax;
@@ -304,21 +300,18 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
  *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
  *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = GetHeader(rdi, rax, size_class);
- *   Header r9 = *hdr;
+ *   uint64_t r9 = hdr->current;
  *   uint64_t r10 = *begin_ptr;
- *   if (r9.current <= r10) return 0;
+ *   if (r9 <= r10) return 0;
  *   r11 = min(rdx, r9 - r10);
- *   Header r10 = r9;
- *   r10.current -= r11;
- *   r10.remaining_capacity += r11;
- *   r9 = r9.current;
+ *   rax = 0;
  * loop:
  *   r9--;
- *   r11 = *(r8 + r9 * 8);
- *   batch[rax] = r11;
+ *   r10 = *(r8 + r9 * 8);
+ *   batch[rax] = r10;
  *   rax++;
- *   if (r9 != r10.current) goto loop;
- *   *hdr = r10;
+ *   if (rax != r11) goto loop;
+ *   hdr->current = r9;
  *   return rax;
  * }
  */
@@ -332,27 +325,22 @@ TcmallocSlab_Internal_PopBatch:
   xorq %rax, %rax;
   btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
   jnc .LTcmallocSlab_Internal_PopBatch_commit;
-  movl (%r8, %rdi, 4), %r9d; /* [current, remaining_capacity] */
+  movzwq (%r8, %rdi, 4), %r9; /* current */
   movzwq (%rcx), %r10; /* begin */
-  cmpw %r10w, %r9w;
+  cmp %r10, %r9;
   jbe .LTcmallocSlab_Internal_PopBatch_commit;
-  movzwq %r9w, %r11;
+  movq %r9, %r11;
   subq %r10, %r11; /* r11 = available items */
   cmpq %rdx, %r11;
   cmovaq %rdx, %r11; /* r11 = min(len, available items) */
-  movq %r9, %r10; /* r10 = [current, remaining_capacity] */
-  subq %r11, %r10; /* r10 = [new_current, remaining_capacity] */
-  shlq $16, %r11;
-  addq %r11, %r10; /* r10 = [new_current, new_remaining_capacity] */ 
-  movzwq %r9w, %r9;
 .LTcmallocSlab_Internal_PopBatch_loop:
   decq %r9;
-  movq (%r8, %r9, 8), %r11;
-  movq %r11, (%rsi, %rax, 8);
+  movq (%r8, %r9, 8), %r10;
+  movq %r10, (%rsi, %rax, 8);
   incq %rax;
-  cmpw %r9w, %r10w;
+  cmpq %rax, %r11;
   jne .LTcmallocSlab_Internal_PopBatch_loop
-  movl %r10d, (%r8, %rdi, 4);
+  movw %r9w, (%r8, %rdi, 4);
 .LTcmallocSlab_Internal_PopBatch_commit:
   ret;
   CFI(.cfi_endproc)
