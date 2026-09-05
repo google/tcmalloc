@@ -38,6 +38,7 @@
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_allocator_test_util.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
@@ -364,6 +365,85 @@ TEST_F(PageAllocatorTest, Hooks) {
   EXPECT_TRUE(page_allocator_new_hooks.Remove(&TestNewHook));
   EXPECT_TRUE(page_allocator_delete_hooks.Remove(&TestDeleteHook));
   EXPECT_TRUE(page_allocator_release_hooks.Remove(&TestReleaseHook));
+}
+
+TEST_F(PageAllocatorTest, PageMap3UnallocatedHugePage) {
+  // Compute leaf length based on pagemap radix tree configuration.
+  constexpr size_t kLeafBits = (kAddressBits - kPageShift + 2) / 3;
+  constexpr size_t kLeafLength = size_t{1} << kLeafBits;
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  Span* s = New(Length(1), kSpanInfo, MemoryTag::kNormal);
+  ASSERT_NE(s, nullptr);
+  HugePage hp0 = HugePageContaining(s->first_page());
+  const size_t leaf_base_idx = s->first_page().index() & ~(kLeafLength - 1);
+  HugePage leaf_base = HugePageContaining(PageId{leaf_base_idx});
+  HugePage sibling_hp = (hp0 == leaf_base) ? (hp0 + NHugePages(1)) : leaf_base;
+
+  ASSERT_TRUE(tc_globals.pagemap().HasLeaf(sibling_hp.first_page()));
+
+  PageBitmap pages;
+  bool ok;
+  {
+    PageHeapSpinLockHolder l;
+    ok = allocator_.GetPageAllocationStatus(sibling_hp, pages,
+                                            MemoryTag::kNormal);
+  }
+  EXPECT_FALSE(ok);
+
+  Delete(s, kSpanInfo, MemoryTag::kNormal);
+}
+
+TEST_F(PageAllocatorTest, PageMap3UnallocatedHugePageRawHugePageSibling) {
+  constexpr size_t kLeafBits = (kAddressBits - kPageShift + 2) / 3;
+  constexpr size_t kLeafLength = size_t{1} << kLeafBits;
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  Span* s = New(kPagesPerHugePage, kSpanInfo, MemoryTag::kNormal);
+  ASSERT_NE(s, nullptr);
+  HugePage hp0 = HugePageContaining(s->first_page());
+  const size_t leaf_base_idx = s->first_page().index() & ~(kLeafLength - 1);
+  HugePage leaf_base = HugePageContaining(PageId{leaf_base_idx});
+  HugePage sibling_hp = (hp0 == leaf_base) ? (hp0 + NHugePages(1)) : leaf_base;
+
+  ASSERT_TRUE(tc_globals.pagemap().HasLeaf(sibling_hp.first_page()));
+
+  PageBitmap pages;
+  bool ok;
+  {
+    PageHeapSpinLockHolder l;
+    ok = allocator_.GetPageAllocationStatus(sibling_hp, pages,
+                                            MemoryTag::kNormal);
+  }
+  EXPECT_FALSE(ok);
+
+  Delete(s, kSpanInfo, MemoryTag::kNormal);
+}
+
+TEST_F(PageAllocatorTest, MultiHugePageWithRecycledTombstone) {
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  // Allocate 3 raw hugepages.
+  Span* s = New(kPagesPerHugePage * 3, kSpanInfo, MemoryTag::kNormal);
+  ASSERT_NE(s, nullptr);
+  HugePage hp0 = HugePageContaining(s->first_page());
+  HugePage hp1 = hp0 + NHugePages(1);
+  HugePage hp2 = hp0 + NHugePages(2);
+
+  // Simulate an intermediate hugepage having an invalid_span tombstone
+  // from a prior allocation/free cycle.
+  tc_globals.pagemap().Set(hp1.first_page(),
+                           const_cast<Span*>(&tc_globals.invalid_span()));
+
+  PageBitmap pages;
+  bool ok;
+  {
+    PageHeapSpinLockHolder l;
+    ok = allocator_.GetPageAllocationStatus(hp2, pages, MemoryTag::kNormal);
+  }
+  EXPECT_TRUE(ok);
+
+  Delete(s, kSpanInfo, MemoryTag::kNormal);
 }
 
 }  // namespace

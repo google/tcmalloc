@@ -24,6 +24,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/base/internal/low_level_alloc.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
@@ -150,8 +151,31 @@ class FakeStaticForwarder : private Parameters {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return true;
   }
-  void ClearSpan(PageId page) {}
-  void SetSpan(PageId page, Span* span) {}
+  void ClearSpan(PageId page) {
+    absl::base_internal::SpinLockHolder h(&spans_lock_);
+    spans_[page] = invalid_span();
+  }
+  void SetSpan(PageId page, Span* span) {
+    absl::base_internal::SpinLockHolder h(&spans_lock_);
+    spans_[page] = span;
+  }
+  [[nodiscard]] Span* absl_nullable GetDescriptor(PageId page) const {
+    absl::base_internal::SpinLockHolder h(&spans_lock_);
+    auto it = spans_.find(page);
+    if (it == spans_.end()) {
+      return nullptr;
+    }
+    return it->second;
+  }
+  [[nodiscard]] static Span* absl_nonnull invalid_span() {
+    return reinterpret_cast<Span*>(0x1);
+  }
+  [[nodiscard]] bool HasLeaf(PageId page) const {
+    const uintptr_t addr =
+        reinterpret_cast<uintptr_t>(page.start_addr()) & ~kTagMask;
+    return addr >= 0x1000 &&
+           addr < fake_allocation_.load(std::memory_order_relaxed);
+  }
   void SetHugepage(HugePage p, void* pt) { trackers_[p] = pt; }
 
   // SpanAllocator state.
@@ -283,6 +307,11 @@ class FakeStaticForwarder : private Parameters {
     }
   };
 
+  mutable absl::base_internal::SpinLock spans_lock_{
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
+  absl::flat_hash_map<PageId, Span*, absl::Hash<PageId>, std::equal_to<PageId>,
+                      AllocAdaptor<std::pair<PageId, Span*>>>
+      spans_ ABSL_GUARDED_BY(spans_lock_);
   absl::flat_hash_map<HugePage, void*, absl::Hash<HugePage>,
                       std::equal_to<HugePage>,
                       AllocAdaptor<std::pair<HugePage, void*>>>

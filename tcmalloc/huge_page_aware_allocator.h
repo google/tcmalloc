@@ -92,6 +92,9 @@ class StaticForwarder : private Parameters {
   static void ClearSpan(PageId page);
   static void SetSpan(PageId page, Span* absl_nonnull span);
   static void SetHugepage(HugePage p, void* pt);
+  [[nodiscard]] static bool HasLeaf(PageId page);
+  [[nodiscard]] static Span* absl_nullable GetDescriptor(PageId page);
+  [[nodiscard]] static Span* absl_nonnull invalid_span();
 
   // SpanAllocator state.
   static Span* NewSpan(Range r)
@@ -1293,10 +1296,47 @@ inline bool HugePageAwareAllocator<Forwarder>::GetPageAllocationStatus(
     return true;
   }
 
-  // 4. If the pagemap leaf exists, the hugepage was allocated to TCMalloc and
-  // is in active use (e.g. allocated via AllocRawHugepages).
-  pages.SetRange(0, kPagesPerHugePage.raw_num());
-  return true;
+  // 4. Check if the hugepage is part of an active raw hugepage allocation.
+  // In raw hugepage allocations (via AllocRawHugepages), the Span pointer is
+  // registered in the PageMap only at the first page of the range.
+  Span* s = forwarder_.GetDescriptor(hp.first_page());
+  if (s != nullptr && s != forwarder_.invalid_span()) {
+    pages.SetRange(0, kPagesPerHugePage.raw_num());
+    return true;
+  }
+
+  // If hp is an interior hugepage of a multi-hugepage raw span, its descriptor
+  // is stored at the first page of that span. Scan backwards across populated
+  // leaves until reaching an active span, an unpopulated leaf, or a boundary.
+  for (size_t i = hp.index(); i > 0; --i) {
+    const HugePage prev{i - 1};
+    if (!forwarder_.HasLeaf(prev.first_page())) {
+      // The PageMap leaf is not populated, so no active allocation can exist
+      // here or bridge across this address.
+      break;
+    }
+    Span* prev_span = forwarder_.GetDescriptor(prev.first_page());
+    if (prev_span != nullptr && prev_span != forwarder_.invalid_span()) {
+      if (HugePageContaining(prev_span->last_page()) >= hp) {
+        pages.SetRange(0, kPagesPerHugePage.raw_num());
+        return true;
+      }
+      // An active span exists but ends before hp. Because spans cannot overlap,
+      // no earlier span can bridge across this span to cover hp.
+      break;
+    }
+    // If prev_span is nullptr or invalid_span(), prev could either be an
+    // interior hugepage of a multi-hugepage raw span, or it could be tracked
+    // by another component (filler, cache, alloc, regions). If it is tracked
+    // elsewhere, it cannot be part of a raw span bridging across it.
+    PageBitmap temp;
+    if (GetTracker(prev) != nullptr || cache_.Contains(prev) ||
+        alloc_.Contains(prev) || regions_.GetPageAllocationStatus(prev, temp)) {
+      break;
+    }
+  }
+
+  return false;
 }
 
 }  // namespace huge_page_allocator_internal
