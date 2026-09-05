@@ -98,25 +98,24 @@ absl::StatusOr<size_t> CopyResidentPages(absl::Span<const char> data,
   return total_resident_bytes;
 }
 
-// Extrapolates total zero bytes in the allocation by combining zeroes measured
-// within the resident sample with known unbacked pages.
-size_t EstimateZeroBytes(size_t alloc_size,
-                         const Residency::Info& residency_info,
+// Extrapolates zero bytes in backed memory by scaling zeroes measured within
+// the resident sample to the allocation's total backed (resident + swapped)
+// size.
+size_t EstimateZeroBytes(const Residency::Info& residency_info,
                          absl::Span<const char> resident_sample) {
-  const size_t backed_bytes = std::min(
-      alloc_size, residency_info.bytes_resident + residency_info.bytes_swapped);
-  const size_t unbacked_bytes = alloc_size - backed_bytes;
+  const size_t total_backed =
+      residency_info.bytes_resident + residency_info.bytes_swapped;
   if (resident_sample.empty()) {
-    return unbacked_bytes;
+    return 0;
   }
 
   const size_t sample_zeroes = absl::c_count(resident_sample, '\0');
   const double zero_ratio =
       static_cast<double>(sample_zeroes) / resident_sample.size();
   const size_t estimated_backed_zeroes =
-      static_cast<size_t>(zero_ratio * backed_bytes);
+      static_cast<size_t>(zero_ratio * total_backed);
 
-  return unbacked_bytes + estimated_backed_zeroes;
+  return std::min(total_backed, estimated_backed_zeroes);
 }
 
 }  // namespace
@@ -136,8 +135,7 @@ absl::StatusOr<CompressionAnalyzer::Results> CompressionAnalyzer::Analyze(
       absl::MakeConstSpan(local_copy_).first(copied_bytes);
 
   Results results;
-  results.zero_bytes =
-      EstimateZeroBytes(data.size(), residency_info, resident_sample);
+  results.zero_bytes = EstimateZeroBytes(residency_info, resident_sample);
 
   return results;
 }
