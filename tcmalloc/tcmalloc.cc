@@ -743,6 +743,7 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
         Range(p, span->num_pages()),
         span->donated(),
     };
+    tc_globals.pagemap().Set(p, const_cast<Span*>(&tc_globals.invalid_span()));
     Span::Delete(span);
     PageHeapSpinLockHolder l;
     tc_globals.page_allocator().Delete(

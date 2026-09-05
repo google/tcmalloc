@@ -130,6 +130,18 @@ void StaticForwarder::SetHugepage(HugePage p, void* pt) {
   tc_globals.pagemap().SetHugepage(p.first_page(), pt);
 }
 
+bool StaticForwarder::HasLeaf(PageId page) {
+  return tc_globals.pagemap().HasLeaf(page);
+}
+
+Span* StaticForwarder::GetDescriptor(PageId page) {
+  return tc_globals.pagemap().GetDescriptor(page);
+}
+
+Span* StaticForwarder::invalid_span() {
+  return const_cast<Span*>(&tc_globals.invalid_span());
+}
+
 void StaticForwarder::ShrinkToUsageLimit(Length n) {
   tc_globals.page_allocator().ShrinkToUsageLimit(n);
 }
