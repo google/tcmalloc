@@ -22,7 +22,6 @@
 #include <unistd.h>
 
 #include <array>
-#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -167,7 +166,6 @@ bool GetMemoryStats(MemoryStats& stats) {
 
   int fd = signal_safe_open(path, O_RDONLY | O_CLOEXEC);
   if (fd < 0) {
-    TC_ASSERT_EQ(errno, ENOENT);
     return std::nullopt;
   }
 
