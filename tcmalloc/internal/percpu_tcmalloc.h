@@ -1495,8 +1495,10 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
   // end perfectly on a hugepage boundary. (At the very least,
   // we'd risk tearing a hugepage.)
   void* slabs_end = CpuMemoryStart(slabs, shift, n_cpus);
-  hugepage_status[address_to_hugepage_number(slabs_end) - base_hugepage_nr] =
-      kCannotFree;
+  if (!IsAlignedTo(slabs_end, kHugePageSize)) {
+    hugepage_status[address_to_hugepage_number(slabs_end) - base_hugepage_nr] =
+        kCannotFree;
+  }
 
   // Go through all the CPUs and figure out which hugepage its slab
   // lives in. (Because we've already tested that slabs are slab-aligned
