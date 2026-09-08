@@ -51,8 +51,11 @@ struct State {
   CentralFreelistEnv env;
   std::vector<void*> objects;
 
-  State(size_t object_size, Length num_pages, size_t num_objects_to_move)
-      : env(object_size, Bytes(num_pages.in_bytes()), num_objects_to_move) {}
+  State(size_t object_size, Length num_pages, size_t num_objects_to_move,
+        central_freelist_internal::CflSubbucketPrioritization
+            cfl_subbucket_prioritization)
+      : env(object_size, Bytes(num_pages.in_bytes()), num_objects_to_move,
+            cfl_subbucket_prioritization) {}
 
   ~State();
 
@@ -194,12 +197,15 @@ void AbslStringify(Sink& sink, const Instruction& i) {
 }
 
 void FuzzCFL(size_t object_size, Length num_pages, size_t num_objects_to_move,
-             const std::vector<Instruction>& instructions) {
+             const std::vector<Instruction>& instructions,
+             central_freelist_internal::CflSubbucketPrioritization
+                 cfl_subbucket_prioritization) {
   // TODO(271282540): Add support for multiple size classes for fuzzing.
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_objects_to_move)) {
     return;
   }
-  State state(object_size, num_pages, num_objects_to_move);
+  State state(object_size, num_pages, num_objects_to_move,
+              cfl_subbucket_prioritization);
 
   for (const auto& instruction : instructions) {
     std::visit([&](const auto& arg) { arg.Perform(state); }, instruction);
@@ -226,7 +232,9 @@ auto GetInstructionDomain() {
 FUZZ_TEST(CentralFreeListTest, FuzzCFL)
     .WithDomains(fuzztest::InRange<size_t>(0, kMaxSize), AnyLength(),
                  fuzztest::Arbitrary<size_t>(),
-                 fuzztest::VectorOf(GetInstructionDomain()));
+                 fuzztest::VectorOf(GetInstructionDomain()),
+                 fuzztest::Arbitrary<
+                     central_freelist_internal::CflSubbucketPrioritization>());
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

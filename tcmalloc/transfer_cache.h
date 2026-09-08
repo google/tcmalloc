@@ -105,7 +105,11 @@ class ProdCpuLayout {
 // Forwards calls to the unsharded TransferCache.
 class BackingTransferCache {
  public:
-  void Init(int size_class) { size_class_ = size_class; }
+  void Init(int size_class,
+            central_freelist_internal::CflSubbucketPrioritization
+                cfl_subbucket_prioritization) {
+    size_class_ = size_class;
+  }
   void InsertRange(absl::Span<void*> batch) const;
   [[nodiscard]] int RemoveRange(absl::Span<void*> batch) const;
   int size_class() const { return size_class_; }
@@ -381,7 +385,8 @@ class ShardedTransferCacheManagerBase {
       new (&new_caches[size_class])
           TransferCache(owner_, capacity.capacity > 0 ? size_class : 0,
                         {capacity.capacity, capacity.max_capacity});
-      new_caches[size_class].freelist().Init(size_class);
+      new_caches[size_class].freelist().Init(
+          size_class, Parameters::cfl_subbucket_prioritization());
     }
     shard.transfer_caches = new_caches;
     active_shards_.fetch_add(1, std::memory_order_relaxed);
@@ -479,6 +484,8 @@ class TransferCacheManager : public StaticForwarder {
   void InitCaches() {
     for (int i = 0; i < kNumClasses; ++i) {
       new (&cache_[i].tc) TransferCache(this, i);
+      cache_[i].tc.freelist().Init(i,
+                                   Parameters::cfl_subbucket_prioritization());
     }
   }
 
@@ -573,7 +580,7 @@ class TransferCacheManager {
 
   void Init() {
     for (int i = 0; i < kNumClasses; ++i) {
-      freelist_[i].Init(i);
+      freelist_[i].Init(i, Parameters::cfl_subbucket_prioritization());
     }
   }
 

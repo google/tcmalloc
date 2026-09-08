@@ -374,6 +374,22 @@ ReleaseStalePages Parameters::release_stale_pages() {
   return v.load(std::memory_order_relaxed);
 }
 
+central_freelist_internal::CflSubbucketPrioritization
+Parameters::cfl_subbucket_prioritization() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<
+      central_freelist_internal::CflSubbucketPrioritization>
+      v{central_freelist_internal::CflSubbucketPrioritization::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(
+        central_freelist_internal::CflSubbucketPrioritization{
+            IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION)},
+        std::memory_order_relaxed);
+  });
+  return v.load(std::memory_order_relaxed);
+}
+
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }

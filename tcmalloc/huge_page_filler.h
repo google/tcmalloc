@@ -931,9 +931,9 @@ class HugePageFiller {
     }
     void Add(TrackerType* pt, size_t listindex, AccessDensityPrediction type) {
       if (type == AccessDensityPrediction::kSparse) {
-        sparse.Add(pt, listindex);
+        sparse.Add(pt, listindex, /*prepend=*/true);
       } else {
-        dense.Add(pt, listindex);
+        dense.Add(pt, listindex, /*prepend=*/true);
       }
     }
     void Remove(TrackerType* pt, size_t listindex,
@@ -2539,7 +2539,7 @@ inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType* pt) {
 
   // Donated allocs always follow finer indexing based on the longest free
   // range.
-  donated_alloc_.Add(pt, longest.raw_num());
+  donated_alloc_.Add(pt, longest.raw_num(), /*prepend=*/true);
 }
 
 template <class TrackerType>
