@@ -398,6 +398,11 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
       static_cast<double>(weight) / (requested_size + 1);
   AllocHandle sampled_alloc_handle =
       sampled_allocation->sampled_stack.sampled_alloc_handle;
+  void* stack_copy[kMaxStackDepth];
+  const size_t depth = sampled_allocation->sampled_stack.depth;
+  TC_ASSERT_LE(depth, kMaxStackDepth);
+  memcpy(stack_copy, sampled_allocation->sampled_stack.stack,
+         depth * sizeof(void*));
   MallocHook::SampledAlloc sampled_alloc = {
       .handle = sampled_alloc_handle,
       .requested_size = requested_size,
@@ -405,8 +410,7 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
           sampled_allocation->sampled_stack.requested_alignment,
       .allocated_size = allocated_size,
       .weight = allocation_estimate,
-      .stack = absl::MakeSpan(sampled_allocation->sampled_stack.stack,
-                              sampled_allocation->sampled_stack.depth),
+      .stack = absl::MakeSpan(stack_copy, depth),
       .allocation_time = sampled_allocation->sampled_stack.allocation_time,
       .ptr = ptr,
       .access_hint = sampled_allocation->sampled_stack.access_hint,
@@ -414,7 +418,6 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
                               ? MallocHook::Access::Cold
                               : MallocHook::Access::Hot,
   };
-  state.sampled_allocation_recorder().Unregister(sampled_allocation);
 
   // Adjust our estimate of internal fragmentation.
   TC_ASSERT_LE(requested_size, allocated_size);
@@ -427,8 +430,9 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
                  sampled_fragmentation);
     state.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
   }
-  MallocHook::InvokeSampledDeleteHook(sampled_alloc);
 
+  state.sampled_allocation_recorder().Unregister(sampled_allocation);
+  MallocHook::InvokeSampledDeleteHook(sampled_alloc);
   state.deallocation_samples.ReportFree(sampled_alloc_handle);
 }
 
