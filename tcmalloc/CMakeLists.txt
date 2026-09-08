@@ -29,6 +29,7 @@ tcmalloc_cc_library(
     "absl::hash"
     "absl::nullability"
     "absl::optional"
+    "absl::span"
     "absl::strings"
     "tcmalloc::internal_config"
     "tcmalloc::internal_environment"

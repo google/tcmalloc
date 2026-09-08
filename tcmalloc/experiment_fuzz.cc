@@ -34,7 +34,8 @@ void FuzzSelectExperiments(absl::string_view test_target,
 
   bool buffer[tcmalloc::tcmalloc_internal::kNumExperiments];
 
-  SelectExperiments(buffer, test_target, active, disabled, unset, hostname);
+  SelectExperiments(buffer, test_target, active, disabled, unset, hostname,
+                    experiments);
 
   auto IsCompilerExperiment = [](Experiment exp) {
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT

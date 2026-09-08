@@ -58,7 +58,8 @@ bool IsCompilerExperiment(Experiment exp [[maybe_unused]]) {
 #endif
 }
 
-bool LookupExperimentID(absl::string_view label, Experiment* exp) {
+bool LookupExperimentID(absl::string_view label, Experiment* exp,
+                        absl::Span<const ExperimentConfig> experiments) {
   for (auto config : experiments) {
     if (config.name == label) {
       *exp = config.id;
@@ -84,7 +85,7 @@ const bool* GetSelectedExperiments() {
         active_experiments ? active_experiments : "",
         disabled_experiments ? disabled_experiments : "",
         active_experiments == nullptr && disabled_experiments == nullptr,
-        hostname);
+        hostname, experiments);
   });
   return by_id;
 }
@@ -143,7 +144,8 @@ bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
 
 void SelectExperiments(bool* buffer, absl::string_view test_target,
                        absl::string_view active, absl::string_view disabled,
-                       bool unset, absl::string_view hostname) {
+                       bool unset, absl::string_view hostname,
+                       absl::Span<const ExperimentConfig> experiments) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {
@@ -158,9 +160,9 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
     }
   }
 
-  ParseExperiments(active, [buffer](absl::string_view token) {
+  ParseExperiments(active, [buffer, experiments](absl::string_view token) {
     Experiment id;
-    if (LookupExperimentID(token, &id)) {
+    if (LookupExperimentID(token, &id, experiments)) {
       buffer[static_cast<int>(id)] = true;
     }
   });
@@ -171,7 +173,8 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
 #define STR(x) #x
   if (!absl::StrContains(active, Q(NPX_COMPILER_ENABLED_EXPERIMENT))) {
     Experiment id;
-    if (LookupExperimentID(Q(NPX_COMPILER_ENABLED_EXPERIMENT), &id)) {
+    if (LookupExperimentID(Q(NPX_COMPILER_ENABLED_EXPERIMENT), &id,
+                           experiments)) {
       buffer[static_cast<int>(id)] = true;
     }
   }
@@ -189,9 +192,10 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
   }
 
   // disable non-compiler experiments
-  ParseExperiments(disabled, [buffer](absl::string_view token) {
+  ParseExperiments(disabled, [buffer, experiments](absl::string_view token) {
     Experiment id;
-    if (LookupExperimentID(token, &id) && !IsCompilerExperiment(id)) {
+    if (LookupExperimentID(token, &id, experiments) &&
+        !IsCompilerExperiment(id)) {
       buffer[static_cast<int>(id)] = false;
     }
   });
@@ -235,9 +239,6 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
       // last experiment.
       if (num_enabled_experiments == 0 &&
           experiment_id != Experiment::kMaxExperimentID) {
-        // TODO: b/454666418 - Replace with TC_CHECK when the synchronization
-        // experimentation is finished.
-        assert(!buffer[static_cast<int>(experiment_id)]);
         buffer[static_cast<int>(experiment_id)] = true;
       }
     }
