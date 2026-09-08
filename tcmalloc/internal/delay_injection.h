@@ -20,9 +20,11 @@
 
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/optimization.h"
+#include "tcmalloc/internal/config.h"
 
 // TODO(b/29448043): Remove this latency injection functionality.
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -55,5 +57,6 @@ class ScopedDelay {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_INTERNAL_DELAY_INJECTION_H_

@@ -18,9 +18,11 @@
 #include <cstdint>
 
 #include "absl/base/attributes.h"
+#include "tcmalloc/internal/config.h"
 
 // TODO(b/29448043): Remove this latency injection functionality.
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -32,3 +34,4 @@ ABSL_CONST_INIT std::atomic<int64_t> ScopedDelay::resize_slabs_delay{0};
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
