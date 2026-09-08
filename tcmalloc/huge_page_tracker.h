@@ -439,7 +439,8 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   }
   TC_ASSERT_LE(kHardwarePagesInHugePage, kMaxResidencyBits);
 
-  const PageBitmap& free = free_.bits();
+  const PageBitmap& used = free_.bits();
+  const PageBitmap free = ~used;
 
   TC_ASSERT_EQ(kHardwarePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
   const int shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
@@ -447,23 +448,12 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   TC_ASSERT_LT((kHardwarePagesInHugePage - 1) >> shift_bits,
                kPagesPerHugePage.raw_num());
 
-  size_t n_unbacked[2] = {0, 0};
-  size_t n_swapped[2] = {0, 0};
-  size_t n_stale[2] = {0, 0};
-
-  n_unbacked[0] = (free & unbacked).CountBits() * shift;
-  n_unbacked[1] = (~free & unbacked).CountBits() * shift;
-  n_swapped[0] = (free & swapped).CountBits() * shift;
-  n_swapped[1] = (~free & swapped).CountBits() * shift;
-  n_stale[0] = (free & stale).CountBits() * shift;
-  n_stale[1] = (~free & stale).CountBits() * shift;
-
-  return {.n_free_swapped = n_swapped[1],
-          .n_used_swapped = n_swapped[0],
-          .n_free_unbacked = n_unbacked[1],
-          .n_used_unbacked = n_unbacked[0],
-          .n_free_stale = n_stale[1],
-          .n_used_stale = n_stale[0]};
+  return {.n_free_swapped = (free & swapped).CountBits() * shift,
+          .n_used_swapped = (used & swapped).CountBits() * shift,
+          .n_free_unbacked = (free & unbacked).CountBits() * shift,
+          .n_used_unbacked = (used & unbacked).CountBits() * shift,
+          .n_free_stale = (free & stale).CountBits() * shift,
+          .n_used_stale = (used & stale).CountBits() * shift};
 }
 
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
