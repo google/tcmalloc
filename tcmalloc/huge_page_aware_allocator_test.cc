@@ -1473,6 +1473,8 @@ class StatTest : public testing::Test {
       return range;
     }
 
+    void ShrinkToUsageLimit(Length n, bool may_have_grown) {}
+
    private:
     static constexpr size_t kNumAllocs = 1000;
     size_t n_ = 0;

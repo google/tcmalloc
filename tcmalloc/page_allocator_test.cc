@@ -197,7 +197,7 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
   allocator_.set_limit(kPagesPerHugePage.in_bytes(), PageAllocator::kSoft);
   {
     PageHeapSpinLockHolder l;
-    allocator_.ShrinkToUsageLimit(Length(0));
+    allocator_.ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
   }
   EXPECT_LE(1, allocator_.limit_hits(PageAllocator::kSoft));
   EXPECT_LE(
@@ -240,7 +240,7 @@ TEST_F(PageAllocatorTest, b270916852) {
       PageAllocator::kSoft);
   {
     PageHeapSpinLockHolder l;
-    allocator_.ShrinkToUsageLimit(Length(0));
+    allocator_.ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
   }
   EXPECT_LE(1, allocator_.limit_hits(PageAllocator::kSoft));
   EXPECT_LE(

@@ -567,12 +567,31 @@ void Alloc::Perform(State& state) const {
 
   SpanAllocInfo alloc_info = {.objects_per_span = num_obj, .density = density};
   TC_CHECK(density == AccessDensityPrediction::kSparse || len == Length(1));
+  BackingStats before_stats;
+  {
+    PageHeapSpinLockHolder l;
+    before_stats = state.allocator.stats();
+  }
+  const size_t before_backed =
+      before_stats.system_bytes - before_stats.unmapped_bytes;
+
   Span* s = use_aligned ? state.allocator.NewAligned(len, align, alloc_info)
                         : state.allocator.New(len, alloc_info);
   if (s == nullptr) {
     return;
   }
   TC_CHECK_GE(s->num_pages().raw_num(), len.raw_num());
+
+  if (!state.allocator.forwarder().last_may_have_grown()) {
+    BackingStats after_stats;
+    {
+      PageHeapSpinLockHolder l;
+      after_stats = state.allocator.stats();
+    }
+    const size_t after_backed =
+        after_stats.system_bytes - after_stats.unmapped_bytes;
+    TC_CHECK_LE(after_backed, before_backed);
+  }
 
   state.allocs.push_back(SpanInfo{s, num_obj});
   state.allocated += s->num_pages();

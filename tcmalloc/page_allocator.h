@@ -140,7 +140,7 @@ class PageAllocator {
 
   // If we have a usage limit set, ensure we're not violating it from our latest
   // allocation.
-  void ShrinkToUsageLimit(Length n)
+  void ShrinkToUsageLimit(Length n, bool may_have_grown)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void TreatHugepageTrackers(EnableCollapse enable_collapse)
@@ -441,7 +441,7 @@ inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {
     limits_[kSoft] = limits_[kHard];
   }
   // Attempt to shed memory to get below the new limit.
-  ShrinkToUsageLimit(Length(0));
+  ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
 }
 
 inline int64_t PageAllocator::limit_hits(LimitKind limit_kind) const {

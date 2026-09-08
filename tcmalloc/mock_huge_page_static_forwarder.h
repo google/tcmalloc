@@ -132,8 +132,11 @@ class FakeStaticForwarder : private Parameters {
   // Check page heap memory limit.  `n` indicates the size of the allocation
   // currently being made, which will not be included in the sampled memory heap
   // for realized fragmentation estimation.
-  void ShrinkToUsageLimit(Length n)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {}
+  void ShrinkToUsageLimit(Length n, bool may_have_grown)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    last_may_have_grown_ = may_have_grown;
+  }
+  bool last_may_have_grown() const { return last_may_have_grown_; }
 
   // PageMap state.
   // TODO(b/242550501): We should just swap out a PageMap instead of doing
@@ -287,6 +290,7 @@ class FakeStaticForwarder : private Parameters {
                       std::equal_to<HugePage>,
                       AllocAdaptor<std::pair<HugePage, void*>>>
       trackers_;
+  bool last_may_have_grown_{false};
 };
 
 }  // namespace huge_page_allocator_internal
