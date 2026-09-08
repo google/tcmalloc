@@ -241,6 +241,16 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   [[nodiscard]] uint64_t AllocTime() const;
 
+  static constexpr size_t kAllocTimeShift =
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      0;
+#else
+      kMaxNumPageBits;
+#endif
+  static constexpr uint64_t kAllocTimeMask =
+      (kAllocTimeShift == 0) ? ~uint64_t{0}
+                             : ~((uint64_t{1} << kAllocTimeShift) - 1);
+
   // Returns true if Span will use bitmap for objects of size <size>.
   [[nodiscard]] static bool UseBitmapForSize(size_t size);
 
@@ -346,10 +356,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     SampledAllocation* sampled_allocation;
   };
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  static constexpr size_t kAllocTimeShift = 0;
-#else
-  static constexpr size_t kAllocTimeShift = kMaxNumPageBits;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   static constexpr size_t kAllocTimeBits = 64 - kAllocTimeShift;
 #endif
 
