@@ -495,9 +495,9 @@ class UsageInfo {
   }
 
   int HardwarePageBucketNum(size_t page) {
-    auto it =
-        std::upper_bound(native_page_bucket_bounds_,
-                         native_page_bucket_bounds_ + buckets_size_, page);
+    auto it = std::upper_bound(
+        native_page_bucket_bounds_,
+        native_page_bucket_bounds_ + native_page_buckets_size_, page);
     TC_CHECK_NE(it, native_page_bucket_bounds_);
     return it - native_page_bucket_bounds_ - 1;
   }
@@ -516,15 +516,15 @@ class UsageInfo {
 
   void PrintHardwarePageHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
                               size_t offset) {
-    for (size_t i = 0; i < buckets_size_; ++i) {
+    for (size_t i = 0; i < native_page_buckets_size_; ++i) {
       if (h[i] == 0) continue;
       auto hist = hpaa.CreateSubRegion(key);
       hist.PrintI64("lower_bound", native_page_bucket_bounds_[i] + offset);
-      hist.PrintI64(
-          "upper_bound",
-          (i == buckets_size_ - 1 ? native_page_bucket_bounds_[i]
-                                  : native_page_bucket_bounds_[i + 1] - 1) +
-              offset);
+      hist.PrintI64("upper_bound",
+                    (i == native_page_buckets_size_ - 1
+                         ? native_page_bucket_bounds_[i]
+                         : native_page_bucket_bounds_[i + 1] - 1) +
+                        offset);
       hist.PrintI64("value", h[i]);
     }
   }
