@@ -735,7 +735,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       ASSUME(result < size);
 #endif
       int here = span->FreelistPopBatch(batch.subspan(result), object_size);
-      ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
+      TC_CHECK_GT(here, 0);
       // As the objects are being popped from the span, its utilization might
       // change. So, we remove the stale utilization from the histogram here and
       // add it again once we pop the objects.
