@@ -92,7 +92,7 @@ void StatsTrackerTest::GenerateInterestingPoints(Length num_pages,
       stats.num_pages = num_pages + Length((i == 0) ? 4 : 8 * j);
       stats.free_pages = num_free_pages + Length(10 * i + j);
       stats.unmapped_pages = Length(10);
-      tracker_.Report(stats);
+      tracker_.Report(stats, clock_);
     }
   }
 }
@@ -103,7 +103,7 @@ void StatsTrackerTest::GenerateDemandPoint(Length num_pages,
   stats.num_pages = num_pages;
   stats.free_pages = num_free_pages;
   stats.unmapped_pages = Length(0);
-  tracker_.Report(stats);
+  tracker_.Report(stats, clock_);
 }
 
 // Tests that the tracker aggregates all data correctly. The output is tested by

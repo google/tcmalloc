@@ -1000,7 +1000,7 @@ class HugePageFiller {
   static constexpr size_t kLifetimeBuckets =
       huge_page_filler_internal::UsageInfo::kLifetimeBuckets;
   using LifetimeHisto = huge_page_filler_internal::UsageInfo::LifetimeHisto;
-  void RecordLifetime(const TrackerType* pt);
+  void RecordLifetime(const TrackerType* pt, double now);
   void PrintLifetimeHisto(Printer& out, LifetimeHisto h,
                           AccessDensityPrediction type,
                           absl::string_view blurb) const;
@@ -1060,7 +1060,7 @@ class HugePageFiller {
   Length unmapping_unaccounted_;
 
   // Functionality related to time series tracking.
-  void UpdateFillerStatsTracker();
+  void UpdateFillerStatsTracker(int64_t now);
   using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
 
@@ -1254,13 +1254,16 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   // We're being used for an allocation, so we are no longer considered
   // donated by this point.
   TC_ASSERT(!pt->donated());
-  UpdateFillerStatsTracker();
+  UpdateFillerStatsTracker(now);
   return {pt, page_allocation.page, was_released};
 }
 
 template <class TrackerType>
-void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt) {
-  const double now = clock_.now();
+void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt,
+                                                 double now) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  now = clock_.now();
+#endif
   const double frequency = clock_.freq();
   const double elapsed = std::max<double>(now - pt->alloctime(), 0);
   const absl::Duration lifetime =
@@ -1313,6 +1316,11 @@ void HugePageFiller<TrackerType>::PrintLifetimeHistoInPbtxt(
 template <class TrackerType>
 inline TrackerType* HugePageFiller<TrackerType>::Put(
     TrackerType* pt, Range r, SpanAllocInfo span_alloc_info) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const int64_t now = clock_.now();
+#else
+  const int64_t now = 0;
+#endif
   RemoveFromFillerList(pt);
   pt->Put(r, span_alloc_info);
   if (pt->HasDenseSpans()) {
@@ -1359,8 +1367,8 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     }
 
     if (!pt->DontFreeTracker()) {
-      RecordLifetime(pt);
-      UpdateFillerStatsTracker();
+      RecordLifetime(pt, now);
+      UpdateFillerStatsTracker(now);
       if (pt->GetTagState().sampled_for_tagging) {
         // Set the default region name if the tracked was sampled.
         pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
@@ -1369,7 +1377,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     }
   }
   AddToFillerList(pt);
-  UpdateFillerStatsTracker();
+  UpdateFillerStatsTracker(now);
   return nullptr;
 }
 
@@ -1398,7 +1406,7 @@ inline void HugePageFiller<TrackerType>::Contribute(
   }
 
   ++size_;
-  UpdateFillerStatsTracker();
+  UpdateFillerStatsTracker(clock_.now());
 }
 
 template <class TrackerType>
@@ -1532,7 +1540,7 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
   if (!intervals.SkipSubreleaseEnabled()) {
     return desired;
   }
-  UpdateFillerStatsTracker();
+  UpdateFillerStatsTracker(clock_.now());
   Length required_pages;
   // As mentioned above, there are two ways to calculate the demand
   // requirement. We give priority to using the peak if peak_interval is set.
@@ -2392,13 +2400,18 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
+inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker(
+    [[maybe_unused]] int64_t now) {
   StatsTrackerType::SubreleaseStats stats;
   stats.num_pages = pages_allocated();
   stats.free_pages = free_pages();
   stats.unmapped_pages = unmapped_pages();
   stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
-  fillerstats_tracker_.Report(stats);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  fillerstats_tracker_.Report(stats, clock_.now());
+#else
+  fillerstats_tracker_.Report(stats, now);
+#endif
   subrelease_stats_.reset();
 }
 
