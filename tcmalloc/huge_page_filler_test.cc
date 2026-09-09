@@ -842,7 +842,7 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwappedRespectsClock) {
   TreatHugepageTrackers(EnableCollapse::kDisabled,
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(1));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 1);
   DeleteVector(p1);
 }
@@ -989,7 +989,7 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
   // We expect to release the two free pages, since the second native page is
   // swapped. We expect to log this correctly.
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(2));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 2);
   std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
@@ -1004,9 +1004,46 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   TreatHugepageTrackers(EnableCollapse::kDisabled,
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(0));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
 
+  DeleteVector(p1);
+}
+
+// Checks that pages released due to swapped page treatment are not double
+// counted in subrelease_stats.
+TEST_F(FillerTest, SubreleaseStatsNoDoubleCountSwapped) {
+  const Length kAlloc = kPagesPerHugePage;
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc - Length(2));
+  ASSERT_TRUE(!p1.empty());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    swapped.SetRange(/*index=*/1, /*n=*/1);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
+  }
+
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  EXPECT_EQ(ReleasePages(Length(0)), Length(2));
+  EXPECT_EQ(filler_.subrelease_stats().num_pages_subreleased, Length(2));
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
+
+  PAlloc extra = Allocate(Length(1));
+  EXPECT_EQ(filler_.subrelease_stats().num_pages_subreleased, Length(0));
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
+
+  Delete(extra);
   DeleteVector(p1);
 }
 
@@ -1089,7 +1126,7 @@ TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
 
   // There should be two pages released, from p1's hugepage.
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(2));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 2);
   // We make an allocation. We expect it to come from the same hugepage as
   // the elements of p3, since this hugepage has not been subreleased from,
@@ -1916,7 +1953,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPages) {
   TreatHugepageTrackers(EnableCollapse::kDisabled,
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(1));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased, 1);
   std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
     PageHeapSpinLockHolder l;
@@ -1925,6 +1962,42 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPages) {
   EXPECT_THAT(buffer, testing::HasSubstr(
                           "HugePageFiller: In the previous treatment "
                           "interval, marked 1 unbacked pages as subreleased."));
+  DeleteVector(p1);
+}
+
+// Checks that pages released due to unbacked page treatment are not double
+// counted in subrelease_stats.
+TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseStatsNoDoubleCountUnbacked) {
+  randomize_density_ = false;
+  const Length kAlloc = kPagesPerHugePage - Length(1);
+  std::vector<PAlloc> p1 = AllocateVector(kAlloc);
+  ASSERT_TRUE(!p1.empty());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const auto& pa : p1) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(0, kMaxResidencyBits);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
+  }
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  EXPECT_EQ(ReleasePages(Length(0)), Length(1));
+  EXPECT_EQ(filler_.subrelease_stats().num_pages_subreleased, Length(1));
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
+
+  PAlloc extra = Allocate(Length(1));
+  EXPECT_EQ(filler_.subrelease_stats().num_pages_subreleased, Length(0));
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
+
+  Delete(extra);
   DeleteVector(p1);
 }
 
@@ -2099,7 +2172,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedAndSwapped) {
   TreatHugepageTrackers(EnableCollapse::kDisabled,
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(2));
   DeleteVector(p1);
 }
 
@@ -2128,7 +2201,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedRecovery) {
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
 
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(10));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(10));
 
   std::vector<PAlloc> p2 = AllocateVector(Length(10));
   ASSERT_TRUE(!p2.empty());
@@ -2190,7 +2263,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedDonated) {
   TreatHugepageTrackers(EnableCollapse::kDisabled,
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(1));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased, 1);
   DeleteVector(p1);
 }
@@ -2751,7 +2824,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, GardenReleasedTrackers) {
   // well. We had 241 released pages. Now we should have 241 + 5 = 246 released
   // pages.
   EXPECT_EQ(pa.pt->released_pages(), N - Length(10));
-  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, N - Length(5));
+  EXPECT_EQ(ReleasePages(Length(0)), Length(5));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased, 5);
 
   // Clean up.
