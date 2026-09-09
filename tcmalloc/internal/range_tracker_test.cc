@@ -453,6 +453,23 @@ TEST(BitmapScaleTest, Scale) {
   }
 }
 
+TEST(BitmapScaleTest, ZeroLength) {
+  Bitmap<64> map1;
+  map1.SetBit(3);
+
+  auto map_all = Scale<64>(map1, 0, ReductionOp::kAll);
+  EXPECT_TRUE(map_all.IsZero());
+
+  auto map_any = Scale<64>(map1, 0, ReductionOp::kAny);
+  EXPECT_TRUE(map_any.IsZero());
+
+  auto map_expand = Scale<128>(map1, 0, ReductionOp::kAll);
+  EXPECT_TRUE(map_expand.IsZero());
+
+  auto map_contract = Scale<32>(map1, 0, ReductionOp::kAll);
+  EXPECT_TRUE(map_contract.IsZero());
+}
+
 TEST(BitmapCopyBitsTest, ZeroLength) {
   Bitmap<128> src;
   src.SetRange(0, 128);

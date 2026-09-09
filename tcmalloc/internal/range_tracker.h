@@ -645,6 +645,10 @@ enum class ReductionOp {
 // identity), `op` is a no-op.
 template <size_t M, size_t N>
 Bitmap<M> Scale(const Bitmap<N>& src, size_t src_len, ReductionOp op) {
+  if (src_len == 0) {
+    return Bitmap<M>();
+  }
+
   TC_ASSERT_LE(src_len, N);
   TC_ASSERT(src_len % M == 0 || M % src_len == 0);
 
