@@ -251,40 +251,45 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // directly to New R0. We only overwrite the lookups if heap
   // partitioning is active with the dedicated size classes.
   for (size_t i = 1; i < kHotRegions; ++i) {
-    SetClassArrayRegion(i, 0);
+    SetClassArrayRegion(i, 0, 0);
   }
 
   const bool heap_partitioning_full =
       Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
   if (ColdFeatureActive()) {
-    SetClassArrayRegion(kColdRegionsStart, +kColdClassesStart);
+    SetClassArrayRegion(kColdRegionsStart, 0, +kColdClassesStart);
     if (kSecurityPartitions > 1) {
       // Point all lookups in Cold New R1 to either Hot New R1 or Cold New R0.
-      SetClassArrayRegion(kColdRegionsStart + 1, heap_partitioning_full
-                                                     ? +kNumBaseClasses
-                                                     : +kColdClassesStart);
+      SetClassArrayRegion(
+          kColdRegionsStart + 1, 0,
+          heap_partitioning_full ? +kNumBaseClasses : +kColdClassesStart);
     }
   }
 
   if (kSecurityPartitions > 1 && tc_globals.multiple_non_numa_partitions()) {
     // Route Hot Malloc R1 to security partition P1.
-    SetClassArrayRegion(kSecurityPartitions + 1, +kNumBaseClasses);
+    SetClassArrayRegion(kSecurityPartitions + 1, 0, +kNumBaseClasses);
     // Route Hot New R1 to security partition P1.
-    SetClassArrayRegion(1, +kNumBaseClasses);
+    SetClassArrayRegion(1, 0, +kNumBaseClasses);
     if (!heap_partitioning_full) {
       // In kLight mode, route Hot New R0 to P1.
-      SetClassArrayRegion(0, +kNumBaseClasses);
+      SetClassArrayRegion(0, kSecurityPartitions, +kNumBaseClasses);
     }
   }
 
   return true;
 }
 
-void SizeMap::SetClassArrayRegion(size_t region, CompactSizeClass adjust) {
-  // Ensure R0 is the canonical non-adjusted array.
-  TC_CHECK_EQ(class_array_[0], 1);
+void SizeMap::SetClassArrayRegion(size_t dst_region, size_t src_region,
+                                  CompactSizeClass adjust) {
+  TC_ASSERT_NE(dst_region, src_region);
+  TC_ASSERT_LE((dst_region + 1) * kClassArraySize, kTotalClassArraySize);
+  TC_ASSERT_LE((src_region + 1) * kClassArraySize, kTotalClassArraySize);
+  // Ensure the source region contains canonical non-adjusted classes.
+  TC_CHECK_EQ(class_array_[src_region * kClassArraySize], 1);
   for (size_t i = 0; i < kClassArraySize; ++i) {
-    class_array_[region * kClassArraySize + i] = class_array_[i] + adjust;
+    class_array_[dst_region * kClassArraySize + i] =
+        class_array_[src_region * kClassArraySize + i] + adjust;
   }
 }
 

@@ -274,7 +274,64 @@ TEST(SizeMapTest, SpecificClassRanges) {
     EXPECT_THAT(size_map.class_to_size_range(5), Pair(49, 64));
 #endif
   }
+}
 
+class SizeMapTestPeer {
+ public:
+  static constexpr size_t kClassArraySize = SizeMap::kClassArraySize;
+
+  static void SetClassArrayRegion(SizeMap& size_map, size_t dst_region,
+                                  size_t src_region, CompactSizeClass adjust) {
+    size_map.SetClassArrayRegion(dst_region, src_region, adjust);
+  }
+
+  static CompactSizeClass class_array(const SizeMap& size_map, size_t index) {
+    return size_map.class_array_[index];
+  }
+};
+
+TEST(SizeMapTest, SetClassArrayRegion) {
+  if (kSecurityPartitions == 1) {
+    GTEST_SKIP() << "Heap partitioning is not compiled in.";
+  }
+
+  const bool is_light =
+      Parameters::heap_partitioning_mode() == HeapPartitioningMode::kLight;
+  const size_t canonical_region = is_light ? kSecurityPartitions : 0;
+
+  for (const SizeClasses* sc : kAllSizeClassesConfigs) {
+    const auto& classes = sc->classes;
+    SizeMap size_map;
+    ASSERT_TRUE(size_map.Init(classes));
+
+    if (is_light) {
+      for (size_t i = 0; i < SizeMapTestPeer::kClassArraySize; ++i) {
+        EXPECT_EQ(SizeMapTestPeer::class_array(size_map, i),
+                  SizeMapTestPeer::class_array(
+                      size_map,
+                      canonical_region * SizeMapTestPeer::kClassArraySize + i) +
+                      kNumBaseClasses);
+      }
+    }
+    EXPECT_EQ(
+        SizeMapTestPeer::class_array(
+            size_map, canonical_region * SizeMapTestPeer::kClassArraySize),
+        1);
+
+    constexpr size_t kTargetRegion = 1;
+    constexpr CompactSizeClass kAdjust = 5;
+    SizeMapTestPeer::SetClassArrayRegion(size_map, kTargetRegion,
+                                         canonical_region, kAdjust);
+    for (size_t i = 0; i < SizeMapTestPeer::kClassArraySize; ++i) {
+      EXPECT_EQ(
+          SizeMapTestPeer::class_array(
+              size_map, kTargetRegion * SizeMapTestPeer::kClassArraySize + i),
+          SizeMapTestPeer::class_array(
+              size_map,
+              canonical_region * SizeMapTestPeer::kClassArraySize + i) +
+              kAdjust);
+    }
+  }
 }
 
 }  // namespace tcmalloc::tcmalloc_internal

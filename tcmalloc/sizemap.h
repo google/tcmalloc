@@ -51,8 +51,12 @@ enum class SizeClassConfiguration {
   kReuseRelaxedBelow64 = 8,
 };
 
+class SizeMapTestPeer;
+
 // Size-class information + mapping
 class SizeMap {
+  friend class SizeMapTestPeer;
+
  public:
   static constexpr int kLargeSize = 1024;
   static constexpr int kLargeSizeAlignment = 128;
@@ -171,9 +175,10 @@ class SizeMap {
     return ret;
   }
 
-  // Set the specified class_array_ region from region 0 adjusting all
+  // Set `dst_region` in class_array_ from `src_region` adjusting all
   // values by `adjust`.
-  void SetClassArrayRegion(size_t region, CompactSizeClass adjust);
+  void SetClassArrayRegion(size_t dst_region, size_t src_region,
+                           CompactSizeClass adjust);
 
   // Mapping from size class to number of pages to allocate at a time
   unsigned char class_to_pages_[kNumClasses] = {0};
