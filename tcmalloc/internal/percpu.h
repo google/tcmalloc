@@ -32,6 +32,8 @@
 #define TCMALLOC_CACHED_SLABS_BIT 63
 #define TCMALLOC_CACHED_SLABS_MASK (1ul << TCMALLOC_CACHED_SLABS_BIT)
 
+#include "absl/base/config.h"
+
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
 // TODO(b/478927694): re-enable for HWASan
