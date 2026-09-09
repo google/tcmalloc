@@ -112,7 +112,6 @@ class StaticForwarder {
                                                         size_t objects_per_span,
                                                         Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  static size_t num_objects_to_move(int size_class);
   static void DeallocateSpans(size_t objects_per_span,
                               absl::Span<Span*> free_spans)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
@@ -352,8 +351,6 @@ class CentralFreeList {
   // so writes are performed using LossyAdd for speed, the lock still
   // guarantees accuracy.
 
-  uint32_t num_to_move_ = 0;
-
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Records histogram of how many consecutive objects fell on the same span for
   // batches.
@@ -440,7 +437,6 @@ inline void CentralFreeList<Forwarder>::Init(
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   TC_ASSERT_LE(absl::bit_width(objects_per_span_), kSpanUtilBucketCapacity);
-  num_to_move_ = forwarder_.num_objects_to_move(size_class);
   cfl_subbucket_prioritization_ = cfl_subbucket_prioritization;
 }
 

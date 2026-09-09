@@ -77,10 +77,6 @@ Length StaticForwarder::class_to_pages(int size_class) {
   return Length(tc_globals.sizemap().class_to_pages(size_class));
 }
 
-size_t StaticForwarder::num_objects_to_move(int size_class) {
-  return tc_globals.sizemap().num_objects_to_move(size_class);
-}
-
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE static void HandleDetectedUB(
     void* ptr, Span* span, int page_size_class, int expected_size_class) {
   if (span == nullptr) {

@@ -400,18 +400,17 @@ class CentralFreeListTestPeer {
     EXPECT_EQ(offsetof(CFLType, pages_per_span_), 48);
     EXPECT_EQ(offsetof(CFLType, completed_spans_), 56);
     EXPECT_EQ(offsetof(CFLType, span_allocations_tracker_), 120);
-    EXPECT_EQ(offsetof(CFLType, num_to_move_), 184);
-    EXPECT_EQ(offsetof(CFLType, counter_), 192);
-    EXPECT_EQ(offsetof(CFLType, num_spans_requested_), 200);
-    EXPECT_EQ(offsetof(CFLType, num_spans_returned_), 208);
-    EXPECT_EQ(offsetof(CFLType, objects_to_spans_), 216);
-    EXPECT_EQ(offsetof(CFLType, nonempty_), 344);
+    EXPECT_EQ(offsetof(CFLType, counter_), 184);
+    EXPECT_EQ(offsetof(CFLType, num_spans_requested_), 192);
+    EXPECT_EQ(offsetof(CFLType, num_spans_returned_), 200);
+    EXPECT_EQ(offsetof(CFLType, objects_to_spans_), 208);
+    EXPECT_EQ(offsetof(CFLType, nonempty_), 336);
 #ifdef NDEBUG
     EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 144);
-    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 488);
+    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 480);
 #else
     EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 208);
-    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 552);
+    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 544);
 #endif
 #endif
   }
