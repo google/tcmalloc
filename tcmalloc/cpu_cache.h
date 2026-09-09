@@ -147,7 +147,8 @@ class StaticForwarder : private Parameters {
     PageHeapSpinLockHolder l;
     if (allocated > 0) {
       state_.page_allocator().ShrinkToUsageLimit(
-          Length(allocated), /*may_have_grown=*/allocated > nonresident);
+          BytesToLengthCeil(allocated),
+          /*may_have_grown=*/allocated > nonresident);
     }
     state_.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
