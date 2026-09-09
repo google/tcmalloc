@@ -864,9 +864,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   TC_ASSERT(result);
   TSANAcquire(result);
 
-  // The next pop will be from current-1, but because we prefetch the previous
-  // element we've already just read that, so prefetch current-2.
-  PrefetchSlabMemory(scratch + (current - 2) * sizeof(void*));
+  // The next pop will be from current-2, but because we prefetch the previous
+  // element we've already just read that, so prefetch current-3.
+  PrefetchSlabMemory(scratch + (current - 3) * sizeof(void*));
   PrefetchNextObject(next);
   return AssumeNotNull(result);
 underflow_path:
