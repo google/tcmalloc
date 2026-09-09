@@ -655,6 +655,12 @@ class FillerTestWithSubreleaseUnbacked : public FillerTest {
       : FillerTest(SubreleaseUnbackedMode::kEnabled) {}
 };
 
+TEST_F(FillerTest, LifetimeBucketNumNegativeDuration) {
+  EXPECT_EQ(filler_.LifetimeBucketNum(absl::Milliseconds(-5)), 0);
+  EXPECT_EQ(filler_.LifetimeBucketNum(absl::ZeroDuration()), 0);
+  EXPECT_EQ(filler_.LifetimeBucketNum(absl::Milliseconds(5)), 1);
+}
+
 TEST_F(FillerTest, Density) {
   absl::BitGen rng;
   // Start with a really annoying setup: some hugepages half empty (randomly)

@@ -375,6 +375,12 @@ TEST_P(StaticForwarderTest, Fuzz) {
 
 class CentralFreeListTestPeer {
  public:
+  template <typename Forwarder = StaticForwarder>
+  static int LifetimeBucketNum(absl::Duration d) {
+    CentralFreeList<Forwarder> cfl;
+    return cfl.LifetimeBucketNum(d);
+  }
+
   template <typename Forwarder>
   using CFL = CentralFreeList<Forwarder>;
 
@@ -423,6 +429,15 @@ TEST(CentralFreeListLayoutTest, LegacyOffsets) {
 #else
   GTEST_SKIP() << "Test only applies under TCMALLOC_INTERNAL_LEGACY_LOCKING";
 #endif
+}
+
+TEST(CentralFreeListTest, LifetimeBucketNumNegativeDuration) {
+  EXPECT_EQ(CentralFreeListTestPeer::LifetimeBucketNum(absl::Milliseconds(-5)),
+            0);
+  EXPECT_EQ(CentralFreeListTestPeer::LifetimeBucketNum(absl::ZeroDuration()),
+            0);
+  EXPECT_EQ(CentralFreeListTestPeer::LifetimeBucketNum(absl::Milliseconds(5)),
+            1);
 }
 
 INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,

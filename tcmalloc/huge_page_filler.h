@@ -486,7 +486,8 @@ class UsageInfo {
   }
 
   int LifetimeBucketNum(absl::Duration duration) {
-    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+    int64_t duration_ms =
+        std::max<int64_t>(0, absl::ToInt64Milliseconds(duration));
     auto it = std::upper_bound(lifetime_bucket_bounds_,
                                lifetime_bucket_bounds_ + kLifetimeBuckets,
                                duration_ms);
@@ -1007,8 +1008,10 @@ class HugePageFiller {
   void PrintLifetimeHistoInPbtxt(PbtxtRegion& hpaa, LifetimeHisto h,
                                  absl::string_view key);
 
+ public:
   int LifetimeBucketNum(absl::Duration duration) {
-    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+    int64_t duration_ms =
+        std::max<int64_t>(0, absl::ToInt64Milliseconds(duration));
     auto it = std::upper_bound(lifetime_bucket_bounds_,
                                lifetime_bucket_bounds_ + kLifetimeBuckets,
                                duration_ms);
@@ -1016,6 +1019,7 @@ class HugePageFiller {
     return it - lifetime_bucket_bounds_ - 1;
   }
 
+ private:
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
   static bool CompareForSubrelease(const TrackerType* absl_nonnull a,

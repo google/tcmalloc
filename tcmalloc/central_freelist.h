@@ -341,7 +341,8 @@ class CentralFreeList {
   StatsCounters<kSpansUsedStatBuckets> span_allocations_tracker_;
 
   int LifetimeBucketNum(absl::Duration duration) {
-    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+    int64_t duration_ms =
+        std::max<int64_t>(0, absl::ToInt64Milliseconds(duration));
     auto it = absl::c_upper_bound(kLifetimeBucketBounds, duration_ms);
     TC_CHECK_NE(it, kLifetimeBucketBounds.begin());
     return it - kLifetimeBucketBounds.begin() - 1;
