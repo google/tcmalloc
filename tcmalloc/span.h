@@ -254,10 +254,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] ObjIdx BitmapPtrToIdx(void* ptr, size_t size,
                                       uint32_t reciprocal) const;
   [[nodiscard]] void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  [[nodiscard]] void* BitmapIdxToPtr(ObjIdx idx, size_t size,
-                                     uintptr_t start) const;
-#endif
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   static constexpr size_t kNonemptyIndexBits = 5;
@@ -610,15 +606,9 @@ inline Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
 }
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size,
-                                  uintptr_t start) const {
-  TC_ASSERT_EQ(start, first_page().start_uintptr());
-  uintptr_t off = start + idx * size;
-  return reinterpret_cast<void*>(off);
-}
-
 inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
-  return BitmapIdxToPtr(idx, size, first_page().start_uintptr());
+  uintptr_t off = first_page().start_uintptr() + idx * size;
+  return reinterpret_cast<void*>(off);
 }
 #endif
 
@@ -780,10 +770,9 @@ inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
   return count;
 #else
   void** ptrs = batch.data();
-  const uintptr_t span_start = first_page().start_uintptr();
   size_t popped = bitmap_.PopBatch(
       [&](size_t offset) {
-        *ptrs++ = BitmapIdxToPtr(static_cast<ObjIdx>(offset), size, span_start);
+        *ptrs++ = BitmapIdxToPtr(static_cast<ObjIdx>(offset), size);
       },
       batch.size());
   allocated_.store(allocated_.load(std::memory_order_relaxed) + popped,
