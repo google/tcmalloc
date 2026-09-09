@@ -1543,7 +1543,9 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
                         reinterpret_cast<uintptr_t>(slabs)) /
                        slab_size_bytes;
     for (unsigned i = 0; i < bytes_to_free / slab_size_bytes; ++i) {
-      unpopulate(first_cpu + i);
+      if (populated(first_cpu + i)) {
+        unpopulate(first_cpu + i);
+      }
     }
   }
 
