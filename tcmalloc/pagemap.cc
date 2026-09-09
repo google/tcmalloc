@@ -18,6 +18,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <vector>
 
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
@@ -48,6 +50,37 @@ void PageMap::UnregisterSizeClass(Span* span) {
   for (PageId p = first; p <= last; ++p) {
     map_.clear_sizeclass(p.index());
   }
+}
+
+int PageMap::GetAllocatedSpans(
+    std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
+                    SpanDetails>& allocated_spans) {
+  PageHeapSpinLockHolder l;
+  int allocated_span_count = 0;
+  for (std::optional<uintptr_t> i = 0; i.has_value();
+       i = map_.get_next_set_page(i.value())) {
+    PageId page_id = PageId{i.value()};
+    Span* s = GetDescriptor(page_id);
+    if (s == nullptr || s == &tc_globals.invalid_span()) {
+      continue;
+    }
+    // Free'd up Span that's not yet removed from PageMap.
+    if (page_id < s->first_page() || s->last_page() < page_id) continue;
+    CompactSizeClass size_class = sizeclass(page_id);
+    TC_ASSERT_EQ(s->first_page().index(), i);
+    // As documented, GetAllocatedSpans wants to avoid allocating more memory
+    // for the output vector while holding the pageheap_lock. So, we stop
+    // adding more entries after we reach its existing capacity. Note that the
+    // count returned will still be the total number of allocated Spans.
+    if (allocated_spans.capacity() > allocated_spans.size()) {
+      allocated_spans.push_back({s->first_page().start_uintptr(),
+                                 s->bytes_in_span(),
+                                 Static::sizemap().class_to_size(size_class)});
+    }
+    ++allocated_span_count;
+    i = s->last_page().index();
+  }
+  return allocated_span_count;
 }
 
 void* MetaDataAlloc(size_t bytes) { return tc_globals.arena().Alloc(bytes); }

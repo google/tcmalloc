@@ -15,13 +15,20 @@
 #ifndef TCMALLOC_ERROR_REPORTING_H_
 #define TCMALLOC_ERROR_REPORTING_H_
 
+#include <cstddef>
 #include <new>
+#include <optional>
 
+#include "absl/base/attributes.h"
+#include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/static_vars.h"
+#include "tcmalloc/internal/sampled_allocation.h"
+#include "tcmalloc/malloc_extension.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
+
+class Static;
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
     Static& state, const void* ptr, const SampledAllocation& alloc, size_t size,
