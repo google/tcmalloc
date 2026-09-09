@@ -604,6 +604,10 @@ TEST(TCMallocTest, MarkThreadBusy) {
 }
 
 TEST(HooksTest, AllocationInHookFails) {
+#ifdef NDEBUG
+  GTEST_SKIP() << "Skipping debug death test in opt build.";
+#endif
+
   if (kSanitizerPresent) {
     GTEST_SKIP() << "Sanitizers intercept malloc/new";
   }
