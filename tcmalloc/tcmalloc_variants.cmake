@@ -291,6 +291,14 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_release_stale_pages PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_free_stale
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+  )
+  set_tests_properties(${TCMALLOC_NAME}_tcmalloc_release_free_stale PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_RELEASE_FREE_STALE;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_madv_nohugepage_regions
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}

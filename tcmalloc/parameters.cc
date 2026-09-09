@@ -368,9 +368,12 @@ ReleaseStalePages Parameters::release_stale_pages() {
   ABSL_CONST_INIT static std::atomic<ReleaseStalePages> v{
       ReleaseStalePages::kDisabled};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(ReleaseStalePages{IsExperimentActive(
-                Experiment::TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES)},
-            std::memory_order_relaxed);
+    v.store(
+        ReleaseStalePages{
+            IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES) ||
+            IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)},
+        std::memory_order_relaxed);
   });
   return v.load(std::memory_order_relaxed);
 }
