@@ -232,6 +232,18 @@ class PageTracker : public TList<PageTracker>::Elem {
   void SetHasDenseSpans() { has_dense_spans_ = true; }
 
   struct HugePageResidencyState {
+    // Records whether the page is hugepage backed.
+    bool maybe_hugepage_backed = false;
+    // Records the time (in ticks) when the residency state was last updated.
+    // This is used to determine when the tracker may be revisited for
+    // collapse.
+    double record_time;
+    // Records whether metrics are valid. It is set the first time the
+    // residency state is queried.
+    bool entry_valid = false;
+    // This records the trackers that are currently being collapsed. This is
+    // used to avoid subreleasing the pages that are being collapsed.
+    bool being_collapsed = false;
     // Records the unbacked bitmap for this hugepage. In terms of TCMalloc
     // pages. scaled via `ReductionOp::kAll`.
     PageBitmap unbacked;
@@ -241,18 +253,6 @@ class PageTracker : public TList<PageTracker>::Elem {
     // Records the stale bitmap for this hugepage. In terms of TCMalloc
     // pages. scaled via `ReductionOp::kAny`.
     PageBitmap stale;
-    // Records the time (in ticks) when the residency state was last updated.
-    // This is used to determine when the tracker may be revisited for
-    // collapse.
-    double record_time;
-    // Records whether the page is hugepage backed.
-    bool maybe_hugepage_backed = false;
-    // Records whether metrics are valid. It is set the first time the
-    // residency state is queried.
-    bool entry_valid = false;
-    // This records the trackers that are currently being collapsed. This is
-    // used to avoid subreleasing the pages that are being collapsed.
-    bool being_collapsed = false;
     // Records whether collapse was skipped due to threshold constraints.
     bool collapse_skipped = false;
     // Records whether collapse was skipped due to backoff.
@@ -350,13 +350,6 @@ class PageTracker : public TList<PageTracker>::Elem {
   // reset it once we measure those pages in abandoned_count_.
   bool abandoned_;
   bool unbroken_;
-  bool has_dense_spans_ = false;
-  // This field is used to avoid freeing this tracker prematurely. When this
-  // is set, any maintenance operation (e.g. collapse) that drops
-  // pageheap_lock might manipulate the tracker state without holding the
-  // lock. When all the pages on the tracked hugepage are freed, this field
-  // is checked to ensure that the tracker is not freed right away.
-  uint8_t dont_free_tracker_mask_ = 0;
   double alloctime_;
   double last_page_allocation_time_ = 0;
 
@@ -385,7 +378,16 @@ class PageTracker : public TList<PageTracker>::Elem {
                     std::numeric_limits<uint16_t>::max(),
                 "nallocs must be able to support kPagesPerHugePage!");
 
+  bool has_dense_spans_ = false;
+
   HugePageResidencyState hugepage_residency_state_;
+
+  // This field is used to avoid freeing this tracker prematurely. When this
+  // is set, any maintenance operation (e.g. collapse) that drops
+  // pageheap_lock might manipulate the tracker state without holding the
+  // lock. When all the pages on the tracked hugepage are freed, this field
+  // is checked to ensure that the tracker is not freed right away.
+  uint8_t dont_free_tracker_mask_ = 0;
 
   [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
     bool success = unback(r).success;
@@ -437,8 +439,7 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   }
   TC_ASSERT_LE(kHardwarePagesInHugePage, kMaxResidencyBits);
 
-  const PageBitmap& used = free_.bits();
-  const PageBitmap free = ~used;
+  const PageBitmap& free = free_.bits();
 
   TC_ASSERT_EQ(kHardwarePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
   const int shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
@@ -446,12 +447,23 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   TC_ASSERT_LT((kHardwarePagesInHugePage - 1) >> shift_bits,
                kPagesPerHugePage.raw_num());
 
-  return {.n_free_swapped = (free & swapped).CountBits() * shift,
-          .n_used_swapped = (used & swapped).CountBits() * shift,
-          .n_free_unbacked = (free & unbacked).CountBits() * shift,
-          .n_used_unbacked = (used & unbacked).CountBits() * shift,
-          .n_free_stale = (free & stale).CountBits() * shift,
-          .n_used_stale = (used & stale).CountBits() * shift};
+  size_t n_unbacked[2] = {0, 0};
+  size_t n_swapped[2] = {0, 0};
+  size_t n_stale[2] = {0, 0};
+
+  n_unbacked[0] = (free & unbacked).CountBits() * shift;
+  n_unbacked[1] = (~free & unbacked).CountBits() * shift;
+  n_swapped[0] = (free & swapped).CountBits() * shift;
+  n_swapped[1] = (~free & swapped).CountBits() * shift;
+  n_stale[0] = (free & stale).CountBits() * shift;
+  n_stale[1] = (~free & stale).CountBits() * shift;
+
+  return {.n_free_swapped = n_swapped[1],
+          .n_used_swapped = n_swapped[0],
+          .n_free_unbacked = n_unbacked[1],
+          .n_used_unbacked = n_unbacked[0],
+          .n_free_stale = n_stale[1],
+          .n_used_stale = n_stale[0]};
 }
 
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
