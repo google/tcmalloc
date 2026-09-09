@@ -165,7 +165,8 @@ SubreleaseUnbackedMode Parameters::subrelease_unbacked_hugepages() {
   ABSL_CONST_INIT static absl::once_flag flag;
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     if (IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES)) {
+            Experiment::TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES) ||
+        IsExperimentActive(Experiment::TCMALLOC_PAGE_HEAP_GARDENING)) {
       subrelease_unbacked_hugepages_.store(true, std::memory_order_relaxed);
     }
   });
