@@ -252,7 +252,12 @@ inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
     case MemoryTag::kSampled:
       return sampled_impl_[0];
     case MemoryTag::kSampledP1:
-      return sampled_impl_[1];
+      if constexpr (kSecurityPartitions > 1) {
+        return sampled_impl_[1];
+      } else {
+        ASSUME(false);
+        __builtin_unreachable();
+      }
     case MemoryTag::kCold:
       return cold_impl_;
     default:
@@ -304,7 +309,9 @@ inline BackingStats PageAllocator::stats() const {
   }
   ret += sampled_impl_[0]->stats();
   if (sampled_partition_active_) {
-    ret += sampled_impl_[1]->stats();
+    if constexpr (kSecurityPartitions > 1) {
+      ret += sampled_impl_[1]->stats();
+    }
   }
   if (has_cold_impl_) {
     ret += cold_impl_->stats();
@@ -321,9 +328,11 @@ inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
   }
   sampled_impl_[0]->GetSmallSpanStats(&sampled);
   if (sampled_partition_active_) {
-    SmallSpanStats part_stats;
-    sampled_impl_[1]->GetSmallSpanStats(&part_stats);
-    sampled += part_stats;
+    if constexpr (kSecurityPartitions > 1) {
+      SmallSpanStats part_stats;
+      sampled_impl_[1]->GetSmallSpanStats(&part_stats);
+      sampled += part_stats;
+    }
   }
   *result = normal + sampled;
   if (has_cold_impl_) {
@@ -342,9 +351,11 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
   }
   sampled_impl_[0]->GetLargeSpanStats(&sampled);
   if (sampled_partition_active_) {
-    LargeSpanStats part_stats;
-    sampled_impl_[1]->GetLargeSpanStats(&part_stats);
-    sampled += part_stats;
+    if constexpr (kSecurityPartitions > 1) {
+      LargeSpanStats part_stats;
+      sampled_impl_[1]->GetLargeSpanStats(&part_stats);
+      sampled += part_stats;
+    }
   }
   *result = normal + sampled;
   if (has_cold_impl_) {
@@ -380,8 +391,10 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
   released += sampled_impl_[0]->ReleaseAtLeastNPages(
       num_pages > released ? num_pages - released : Length(0), reason);
   if (sampled_partition_active_) {
-    released += sampled_impl_[1]->ReleaseAtLeastNPages(
-        num_pages > released ? num_pages - released : Length(0), reason);
+    if constexpr (kSecurityPartitions > 1) {
+      released += sampled_impl_[1]->ReleaseAtLeastNPages(
+          num_pages > released ? num_pages - released : Length(0), reason);
+    }
   }
 
   InvokeReleaseHook(num_pages, released, reason);
@@ -400,7 +413,9 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
 
   stats += sampled_impl_[0]->GetReleaseStats();
   if (sampled_partition_active_) {
-    stats += sampled_impl_[1]->GetReleaseStats();
+    if constexpr (kSecurityPartitions > 1) {
+      stats += sampled_impl_[1]->GetReleaseStats();
+    }
   }
 
   return stats;

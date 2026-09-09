@@ -487,7 +487,12 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
           case MemoryTag::kSampled:
             return &sampled_region_[0];
           case MemoryTag::kSampledP1:
-            return &sampled_region_[1];
+            if constexpr (kSecurityPartitions > 1) {
+              return &sampled_region_[1];
+            } else {
+              ASSUME(false);
+              __builtin_unreachable();
+            }
           case MemoryTag::kCold:
             return &cold_region_;
           case MemoryTag::kMetadata:
@@ -540,7 +545,12 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
           case MemoryTag::kSampled:
             return &next_sampled_addr_[0];
           case MemoryTag::kSampledP1:
-            return &next_sampled_addr_[1];
+            if constexpr (kSecurityPartitions > 1) {
+              return &next_sampled_addr_[1];
+            } else {
+              ASSUME(false);
+              __builtin_unreachable();
+            }
           case MemoryTag::kNormalP0:
             numa_partition = 0;
             return &next_normal_addr_[0];
