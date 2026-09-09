@@ -2432,6 +2432,84 @@ TEST(CpuCacheTest, NamedVma) {
   cache.Deactivate();
 }
 
+TEST(CpuCacheTest, ArenaUpdateAllocatedAndNonresident) {
+  using cpu_cache_internal::StaticForwarder;
+
+  struct FakeState {
+    bool IsInited() const { return true; }
+
+    struct FakePageAllocator {
+      int shrink_calls{0};
+      Length last_n{0};
+      bool last_may_have_grown{false};
+
+      void ShrinkToUsageLimit(Length n, bool may_have_grown) {
+        ++shrink_calls;
+        last_n = n;
+        last_may_have_grown = may_have_grown;
+      }
+    };
+
+    struct FakeArena {
+      int update_calls{0};
+      int64_t last_allocated{0};
+      int64_t last_nonresident{0};
+
+      void UpdateAllocatedAndNonresident(int64_t allocated,
+                                         int64_t nonresident) {
+        ++update_calls;
+        last_allocated = allocated;
+        last_nonresident = nonresident;
+      }
+    };
+
+    FakePageAllocator& page_allocator() { return page_allocator_; }
+    FakeArena& arena() { return arena_; }
+
+    FakePageAllocator page_allocator_;
+    FakeArena arena_;
+  };
+
+  FakeState state;
+  StaticForwarder<FakeState> forwarder(state);
+
+  const int64_t allocated_bytes = 2 * kPageSize;
+  forwarder.ArenaUpdateAllocatedAndNonresident(allocated_bytes, 0);
+
+  EXPECT_EQ(state.page_allocator_.shrink_calls, 1);
+  EXPECT_EQ(state.page_allocator_.last_n, Length(2));
+  EXPECT_TRUE(state.page_allocator_.last_may_have_grown);
+  EXPECT_EQ(state.arena_.update_calls, 1);
+  EXPECT_EQ(state.arena_.last_allocated, allocated_bytes);
+  EXPECT_EQ(state.arena_.last_nonresident, 0);
+
+  // Test when allocated is not a multiple of kPageSize (rounds up).
+  forwarder.ArenaUpdateAllocatedAndNonresident(2 * kPageSize + 1, 0);
+  EXPECT_EQ(state.page_allocator_.shrink_calls, 2);
+  EXPECT_EQ(state.page_allocator_.last_n, Length(3));
+  EXPECT_TRUE(state.page_allocator_.last_may_have_grown);
+
+  // Test when allocated <= nonresident (may_have_grown is false).
+  forwarder.ArenaUpdateAllocatedAndNonresident(allocated_bytes,
+                                               allocated_bytes);
+  EXPECT_EQ(state.page_allocator_.shrink_calls, 3);
+  EXPECT_EQ(state.page_allocator_.last_n, Length(2));
+  EXPECT_FALSE(state.page_allocator_.last_may_have_grown);
+
+  // Test when allocated == 0. ShrinkToUsageLimit should not be called.
+  forwarder.ArenaUpdateAllocatedAndNonresident(0, 0);
+  EXPECT_EQ(state.page_allocator_.shrink_calls, 3);
+  EXPECT_EQ(state.arena_.update_calls, 4);
+
+  // Test when allocated < 0. ShrinkToUsageLimit should not be called.
+  forwarder.ArenaUpdateAllocatedAndNonresident(-allocated_bytes,
+                                               allocated_bytes);
+  EXPECT_EQ(state.page_allocator_.shrink_calls, 3);
+  EXPECT_EQ(state.arena_.update_calls, 5);
+  EXPECT_EQ(state.arena_.last_allocated, -allocated_bytes);
+  EXPECT_EQ(state.arena_.last_nonresident, allocated_bytes);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
