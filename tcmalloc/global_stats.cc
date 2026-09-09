@@ -182,8 +182,8 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
   if (report_residence) {
     auto resident_bytes = tc_globals.pagemap_residence();
     r.pagemap_root_bytes_res = resident_bytes;
-    TC_ASSERT_GE(r.metadata_bytes, r.pagemap_bytes);
-    r.metadata_bytes = r.metadata_bytes - r.pagemap_bytes + resident_bytes;
+    TC_ASSERT_GE(r.metadata_bytes, sizeof(PageMap));
+    r.metadata_bytes = r.metadata_bytes - sizeof(PageMap) + resident_bytes;
   } else {
     r.pagemap_root_bytes_res = 0;
   }
