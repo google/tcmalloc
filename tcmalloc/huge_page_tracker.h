@@ -232,6 +232,18 @@ class PageTracker : public TList<PageTracker>::Elem {
   void SetHasDenseSpans() { has_dense_spans_ = true; }
 
   struct HugePageResidencyState {
+    // Records whether the page is hugepage backed.
+    bool maybe_hugepage_backed = false;
+    // Records the time (in ticks) when the residency state was last updated.
+    // This is used to determine when the tracker may be revisited for
+    // collapse.
+    double record_time;
+    // Records whether metrics are valid. It is set the first time the
+    // residency state is queried.
+    bool entry_valid = false;
+    // This records the trackers that are currently being collapsed. This is
+    // used to avoid subreleasing the pages that are being collapsed.
+    bool being_collapsed = false;
     // Records the unbacked bitmap for this hugepage. In terms of TCMalloc
     // pages. scaled via `ReductionOp::kAll`.
     PageBitmap unbacked;
@@ -241,18 +253,6 @@ class PageTracker : public TList<PageTracker>::Elem {
     // Records the stale bitmap for this hugepage. In terms of TCMalloc
     // pages. scaled via `ReductionOp::kAny`.
     PageBitmap stale;
-    // Records the time (in ticks) when the residency state was last updated.
-    // This is used to determine when the tracker may be revisited for
-    // collapse.
-    double record_time;
-    // Records whether the page is hugepage backed.
-    bool maybe_hugepage_backed = false;
-    // Records whether metrics are valid. It is set the first time the
-    // residency state is queried.
-    bool entry_valid = false;
-    // This records the trackers that are currently being collapsed. This is
-    // used to avoid subreleasing the pages that are being collapsed.
-    bool being_collapsed = false;
     // Records whether collapse was skipped due to threshold constraints.
     bool collapse_skipped = false;
     // Records whether collapse was skipped due to backoff.
@@ -350,13 +350,6 @@ class PageTracker : public TList<PageTracker>::Elem {
   // reset it once we measure those pages in abandoned_count_.
   bool abandoned_;
   bool unbroken_;
-  bool has_dense_spans_ = false;
-  // This field is used to avoid freeing this tracker prematurely. When this
-  // is set, any maintenance operation (e.g. collapse) that drops
-  // pageheap_lock might manipulate the tracker state without holding the
-  // lock. When all the pages on the tracked hugepage are freed, this field
-  // is checked to ensure that the tracker is not freed right away.
-  uint8_t dont_free_tracker_mask_ = 0;
   double alloctime_;
   double last_page_allocation_time_ = 0;
 
@@ -385,7 +378,16 @@ class PageTracker : public TList<PageTracker>::Elem {
                     std::numeric_limits<uint16_t>::max(),
                 "nallocs must be able to support kPagesPerHugePage!");
 
+  bool has_dense_spans_ = false;
+
   HugePageResidencyState hugepage_residency_state_;
+
+  // This field is used to avoid freeing this tracker prematurely. When this
+  // is set, any maintenance operation (e.g. collapse) that drops
+  // pageheap_lock might manipulate the tracker state without holding the
+  // lock. When all the pages on the tracked hugepage are freed, this field
+  // is checked to ensure that the tracker is not freed right away.
+  uint8_t dont_free_tracker_mask_ = 0;
 
   [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
     bool success = unback(r).success;
