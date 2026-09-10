@@ -17,8 +17,8 @@ build --cxxopt='-std=c++17'
 test --test_output=errors
 
 # Disable noisy warnings from dependencies.
-build --per_file_copt=-external/.*@-w
-build --host_per_file_copt=-external/.*@-w
+build --per_file_copt=external/.*@-w
+build --host_per_file_copt=external/.*@-w
 
 # Disable noisy warnings in TCMalloc.
 build:clang --copt=-Wno-nullability-completeness

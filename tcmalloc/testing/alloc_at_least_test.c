@@ -23,6 +23,8 @@
 #include <stdlib.h>
 
 int main(int argc, char** argv) {
+  (void)argc;
+  (void)argv;
   int exit_code = EXIT_SUCCESS;
   alloc_result_t result = alloc_at_least(127);
   if (result.ptr == NULL || result.size < 127) {
