@@ -351,11 +351,8 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
       allocs[i] = allocate();
       switch (test_case.heap) {
         case AllocationHeap::kSampled:
-          EXPECT_TRUE(tcmalloc_internal::IsSampledMemory(allocs[i]));
-          break;
         case AllocationHeap::kCold:
-          EXPECT_EQ(tcmalloc_internal::GetMemoryTag(allocs[i]),
-                    tcmalloc_internal::MemoryTag::kCold);
+          EXPECT_TRUE(tcmalloc_internal::IsSampledOrColdMemory(allocs[i]));
           break;
         case AllocationHeap::kNormal:
           EXPECT_TRUE(tcmalloc_internal::IsNormalMemory(allocs[i]));
@@ -429,6 +426,47 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
     for (int i = 0; i < num_allocations; ++i) {
       sized_delete(allocs[i], alloc_size);
     }
+  }
+}
+
+// Sampled cold allocations are page aligned, so the sized-free fast path must
+// send them to the slow path to be unsampled rather than onto a cold freelist.
+TEST(HeapProfilingTest, SizedDeleteUnsamplesColdAllocations) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizers intercept allocations";
+  }
+  if (!tcmalloc_internal::ColdFeatureActive() ||
+      tcmalloc_internal::Parameters::heap_partitioning_mode() ==
+          tcmalloc_internal::HeapPartitioningMode::kFull) {
+    GTEST_SKIP() << "Requires the sampled/cold partition";
+  }
+  const ScopedProfileSamplingInterval sample_interval(1);
+  const ScopedGuardedSamplingInterval guarded_interval(-1);
+  // Distinctive requested sizes, small enough to use cold size classes.
+  for (size_t size : {size_t{61}, size_t{3001}}) {
+    SCOPED_TRACE(size);
+    constexpr int kNum = 50;
+    void* allocs[kNum];
+    for (int i = 0; i < kNum; ++i) {
+      allocs[i] = ::operator new(size, tcmalloc::hot_cold_t{0});
+      ASSERT_TRUE(tcmalloc_internal::IsSampledOrColdMemory(allocs[i]));
+      EXPECT_EQ(
+          reinterpret_cast<uintptr_t>(allocs[i]) % tcmalloc_internal::kPageSize,
+          0);
+    }
+    auto count = [&] {
+      int n = 0;
+      MallocExtension::SnapshotCurrent(ProfileType::kHeap)
+          .Iterate([&](const Profile::Sample& s) {
+            if (s.requested_size == size) ++n;
+          });
+      return n;
+    };
+    EXPECT_GT(count(), 0);
+    for (int i = 0; i < kNum; ++i) {
+      ::operator delete(allocs[i], size);
+    }
+    EXPECT_EQ(count(), 0);
   }
 }
 

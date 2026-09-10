@@ -41,6 +41,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
@@ -48,6 +49,8 @@
 
 namespace tcmalloc {
 
+using tcmalloc_internal::GuardedAllocationsErrorType;
+using tcmalloc_internal::GuardedAllocationsStackTrace;
 using tcmalloc_internal::kMaxSize;
 using tcmalloc_internal::kPageShift;
 using tcmalloc_internal::kPageSize;
@@ -116,6 +119,55 @@ TEST_F(GuardedAllocAlignmentTest, AlignedNew) {
     void* p = ::operator new(1, static_cast<std::align_val_t>(align));
     EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % align, 0);
     ::operator delete(p, static_cast<std::align_val_t>(align));
+  }
+}
+
+// The cold sized-free fast path relies on every guarded allocation, including
+// the right-aligned ones, living in the guarded sub-region.
+TEST_F(GuardedAllocAlignmentTest, GuardedAllocationsInGuardedSubRegion) {
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP() << "Test requires GWP-ASan";
+#endif
+  ScopedGuardedSamplingInterval gs(0);
+  const auto& gpa = tc_globals.guardedpage_allocator();
+  constexpr std::optional<hot_cold_t> kHotCold[] = {std::nullopt,
+                                                    hot_cold_t{0}};
+  int guarded = 0, unaligned = 0;
+  for (const auto hot_cold : kHotCold) {
+    for (size_t size : {size_t{8}, size_t{64}, size_t{100}, kPageSize / 2}) {
+      for (int i = 0; i < 100; ++i) {
+        void* p = hot_cold.has_value() ? ::operator new(size, *hot_cold)
+                                       : ::operator new(size);
+        if (gpa.PointerIsMine(p)) {
+          ++guarded;
+          unaligned += reinterpret_cast<uintptr_t>(p) % kPageSize != 0;
+          EXPECT_TRUE(tcmalloc_internal::IsSampledOrColdMemory(p));
+          EXPECT_TRUE(tcmalloc_internal::InGuardedSubRegion(p));
+        }
+        ::operator delete(p, size);
+      }
+    }
+  }
+  EXPECT_GT(guarded, 0);
+  EXPECT_GT(unaligned, 0);
+}
+
+// Everything the page heap hands out for the sampled/cold partition, sampled
+// or not, lives in the page heap sub-region.
+TEST(SubRegionTest, ColdAndSampledAllocationsInPageHeapSubRegion) {
+  if (!tcmalloc_internal::ColdFeatureActive() || kSanitizerPresent) {
+    GTEST_SKIP() << "Requires cold partition";
+  }
+  ScopedGuardedSamplingInterval gs(-1);
+  for (bool sample : {false, true}) {
+    ScopedProfileSamplingInterval s(sample ? 1 : 0);
+    for (size_t size : {size_t{8}, size_t{64}, kPageSize, kMaxSize + 1}) {
+      void* p = ::operator new(size, hot_cold_t{0});
+      if (tcmalloc_internal::IsSampledOrColdMemory(p)) {
+        EXPECT_TRUE(tcmalloc_internal::InPageHeapSubRegion(p));
+      }
+      ::operator delete(p, size);
+    }
   }
 }
 
@@ -286,6 +338,45 @@ TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
 }
 
 INSTANTIATE_TEST_SUITE_P(rwtmt, ReadWriteTcMallocTest, testing::Bool());
+
+// A right-aligned guarded pointer is not page aligned, so it looks like a cold
+// object to the sized-free fast path unless it is excluded by address.  If it
+// were misrouted to the cold freelist, GWP-ASan would never see the free, and
+// its slot would stay allocated and unprotected.
+TEST_F(TcMallocTest, SizedDeleteOfRightAlignedGuardedAllocation) {
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP() << "Test requires GWP-ASan";
+#endif
+  constexpr size_t kSize = 64;
+  constexpr std::optional<hot_cold_t> kHotCold[] = {std::nullopt,
+                                                    hot_cold_t{0}};
+  auto& gpa = tc_globals.guardedpage_allocator();
+  for (const auto hot_cold : kHotCold) {
+    SCOPED_TRACE(hot_cold.has_value() ? "cold" : "default");
+    ScopedProfileSamplingInterval sampling(1);
+    ScopedGuardedSamplingInterval gs(0);
+    int targets = 0, freed_by_gwp_asan = 0;
+    for (int i = 0; i < 1000000 && targets < 100; ++i) {
+      char* p = static_cast<char*>(hot_cold.has_value()
+                                       ? ::operator new(kSize, *hot_cold)
+                                       : ::operator new(kSize));
+      const bool target = gpa.PointerIsMine(p) &&
+                          reinterpret_cast<uintptr_t>(p) % kPageSize != 0;
+      ::operator delete(p, kSize);
+      if (!target) continue;
+      ++targets;
+      // Only reads slot metadata.  Another thread may reuse the slot in the
+      // meantime, so do not require this for every target.
+      GuardedAllocationsStackTrace *alloc_trace, *dealloc_trace;
+      if (gpa.GetStackTraces(p, &alloc_trace, &dealloc_trace) ==
+          GuardedAllocationsErrorType::kUseAfterFree) {
+        ++freed_by_gwp_asan;
+      }
+    }
+    ASSERT_GT(targets, 0);
+    EXPECT_GT(freed_by_gwp_asan, targets / 2);
+  }
+}
 
 // Double free triggers an ASSERT within TCMalloc in non-opt builds.  So only
 // run this test for opt builds.
@@ -897,7 +988,7 @@ TEST_F(TcMallocTest, CorruptedPointerEdgeCases) {
         ScopedProfileSamplingInterval sampling(0);
 
         for (size_t i = 0; i < 10000; ++i) {
-          char* ptr = static_cast<char*>(::operator new(8, hot_cold_t{0}));
+          char* ptr = static_cast<char*>(::operator new(8, hot_cold_t{255}));
           ::operator delete(ptr + 1);
         }
       },
