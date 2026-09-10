@@ -27,16 +27,14 @@ namespace tcmalloc::tcmalloc_internal {
 
 enum class MemoryTag : uint8_t {
   // Sampled, infrequently allocated
-  kSampled = 0x0,
-  kSampledP1 = kSanitizerAddressSpace ? 0xf8 : 0x1,
+  kSampledOrCold = 0x0,
+  kSampledOrColdP1 = kSanitizerAddressSpace ? 0xf8 : 0x1,
   // Normal memory, NUMA or security partition 0
   kNormalP0 = kSanitizerAddressSpace ? 0x1 : 0x4,
   // Normal memory, NUMA or security partition 1
   kNormalP1 = kSanitizerAddressSpace ? 0xff : 0x6,
   // Normal memory
   kNormal = kNormalP0,
-  // Cold
-  kCold = 0x2,
   // Metadata
   kMetadata = 0x3,
 };
@@ -51,11 +49,10 @@ inline MemoryTag GetMemoryTag(const void* ptr) {
 }
 
 inline bool IsNormalMemory(const void* ptr) {
-  // This is slightly faster than checking kNormalP0/P1 separetly.
+  // This is slightly faster than checking kNormalP0/P1 separately.
   static_assert((static_cast<uint8_t>(MemoryTag::kNormalP0) &
-                 (static_cast<uint8_t>(MemoryTag::kSampled) |
-                  static_cast<uint8_t>(MemoryTag::kSampledP1) |
-                  static_cast<uint8_t>(MemoryTag::kCold))) == 0);
+                 (static_cast<uint8_t>(MemoryTag::kSampledOrCold) |
+                  static_cast<uint8_t>(MemoryTag::kSampledOrColdP1))) == 0);
   bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
               static_cast<uintptr_t>(MemoryTag::kNormal)) != 0;
   TC_ASSERT(res == (GetMemoryTag(ptr) == MemoryTag::kNormalP0 ||
@@ -65,11 +62,14 @@ inline bool IsNormalMemory(const void* ptr) {
   return res;
 }
 
-inline bool IsSampledMemory(const void* ptr) {
+inline bool IsSampledOrColdMemory(MemoryTag tag) {
+  return tag == MemoryTag::kSampledOrCold || tag == MemoryTag::kSampledOrColdP1;
+}
+
+inline bool IsSampledOrColdMemory(const void* ptr) {
   bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
-              ~static_cast<uintptr_t>(MemoryTag::kSampledP1)) == 0;
-  TC_ASSERT(res == (GetMemoryTag(ptr) == MemoryTag::kSampled ||
-                    GetMemoryTag(ptr) == MemoryTag::kSampledP1),
+              ~static_cast<uintptr_t>(MemoryTag::kSampledOrColdP1)) == 0;
+  TC_ASSERT(res == IsSampledOrColdMemory(GetMemoryTag(ptr)),
             "ptr=%p res=%d tag=%d", ptr, res,
             static_cast<int>(GetMemoryTag(ptr)));
   return res;

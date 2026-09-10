@@ -27,12 +27,10 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
       return "NORMAL";
     case MemoryTag::kNormalP1:
       return "NORMAL_P1";
-    case MemoryTag::kSampled:
-      return "SAMPLED";
-    case MemoryTag::kSampledP1:
-      return "SAMPLED_P1";
-    case MemoryTag::kCold:
-      return "COLD";
+    case MemoryTag::kSampledOrCold:
+      return "SAMPLED_OR_COLD";
+    case MemoryTag::kSampledOrColdP1:
+      return "SAMPLED_OR_COLD_P1";
     case MemoryTag::kMetadata:
       return "METADATA";
   }
