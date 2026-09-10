@@ -141,7 +141,19 @@ class PageAllocator {
   // If we have a usage limit set, ensure we're not violating it from our latest
   // allocation.
   void ShrinkToUsageLimit(Length n, bool may_have_grown)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+#if defined(TCMALLOC_INTERNAL_LEGACY_LOCKING) || !defined(NDEBUG)
+    const bool check_stats = true;
+#else
+    const bool check_stats = may_have_grown;
+#endif
+
+    if (!check_stats) {
+      return;
+    }
+
+    ShrinkToUsageLimitSlow(n);
+  }
 
   void TreatHugepageTrackers(EnableCollapse enable_collapse)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
@@ -195,6 +207,8 @@ class PageAllocator {
                                    MemoryTag tag);
   static void InvokeReleaseHookSlow(Length num_pages, Length released,
                                     PageReleaseReason reason);
+  ABSL_ATTRIBUTE_NOINLINE void ShrinkToUsageLimitSlow(Length n)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   bool ShrinkHardBy(Length page, LimitKind limit_kind)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
