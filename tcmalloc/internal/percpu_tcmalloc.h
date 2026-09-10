@@ -54,8 +54,6 @@
 //
 // TODO: Remove this when GCC releases a fixed version.
 #define TCMALLOC_INTERNAL_PERCPU_USE_TLS_WORKAROUND 1
-#else
-#define TCMALLOC_INTERNAL_PERCPU_USE_TLS_WORKAROUND 0
 #endif
 
 GOOGLE_MALLOC_SECTION_BEGIN
