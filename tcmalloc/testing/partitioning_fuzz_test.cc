@@ -420,22 +420,21 @@ void PerformDeallocate(const AllocationRecord& record, bool is_sized) {
 }
 
 static inline bool IsColdOrSampled(tcmalloc::tcmalloc_internal::MemoryTag tag) {
-  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kCold ||
-         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampled ||
-         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledP1;
+  return tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledOrCold ||
+         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledOrColdP1;
 }
 
 static inline bool IsPartitionZero(tcmalloc::tcmalloc_internal::MemoryTag tag) {
   return tag == tcmalloc::tcmalloc_internal::MemoryTag::kNormalP0 ||
-         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampled;
+         tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledOrCold;
 }
 
 static inline bool IsPartitionOne(tcmalloc::tcmalloc_internal::MemoryTag tag) {
   if (tag == tcmalloc::tcmalloc_internal::MemoryTag::kNormalP1 ||
-      tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledP1) {
+      tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledOrColdP1) {
     return true;
   }
-  if (tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampled) {
+  if (tag == tcmalloc::tcmalloc_internal::MemoryTag::kSampledOrCold) {
     return tcmalloc::tcmalloc_internal::Parameters::heap_partitioning_mode() !=
            tcmalloc::tcmalloc_internal::HeapPartitioningMode::kFull;
   }

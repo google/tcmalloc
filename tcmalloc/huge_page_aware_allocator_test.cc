@@ -2148,32 +2148,33 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
   };
   constexpr Length kAllocPages = kPagesPerHugePage / 2;
 
-  for (bool release_max_cold_pages : {false, true}) {
-    FakeHugePageAwareAllocator cold_allocator({.tag = MemoryTag::kCold});
-    cold_allocator.forwarder().set_filler_skip_subrelease_short_interval(
-        absl::ZeroDuration());
-    cold_allocator.forwarder().set_filler_skip_subrelease_long_interval(
-        absl::ZeroDuration());
-    cold_allocator.forwarder().set_release_max_cold_pages(
-        release_max_cold_pages);
+  for (bool release_max_sampled_or_cold_pages : {false, true}) {
+    FakeHugePageAwareAllocator sampled_or_cold_allocator(
+        {.tag = MemoryTag::kSampledOrCold});
+    sampled_or_cold_allocator.forwarder()
+        .set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
+    sampled_or_cold_allocator.forwarder()
+        .set_filler_skip_subrelease_long_interval(absl::ZeroDuration());
+    sampled_or_cold_allocator.forwarder().set_release_max_sampled_or_cold_pages(
+        release_max_sampled_or_cold_pages);
 
-    Span* s1 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s2 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s3 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s4 = cold_allocator.New(kAllocPages, kAllocInfo);
+    Span* s1 = sampled_or_cold_allocator.New(kAllocPages, kAllocInfo);
+    Span* s2 = sampled_or_cold_allocator.New(kAllocPages, kAllocInfo);
+    Span* s3 = sampled_or_cold_allocator.New(kAllocPages, kAllocInfo);
+    Span* s4 = sampled_or_cold_allocator.New(kAllocPages, kAllocInfo);
 
-    SpanDeleter deleter(&cold_allocator);
+    SpanDeleter deleter(&sampled_or_cold_allocator);
     deleter(s1);
     deleter(s3);
 
     Length released;
     {
       PageHeapSpinLockHolder l;
-      released = cold_allocator.ReleaseAtLeastNPages(
+      released = sampled_or_cold_allocator.ReleaseAtLeastNPages(
           kAllocPages, PageReleaseReason::kReleaseMemoryToSystem);
     }
 
-    if (release_max_cold_pages) {
+    if (release_max_sampled_or_cold_pages) {
       EXPECT_EQ(released, 2 * kAllocPages);
     } else {
       EXPECT_EQ(released, kAllocPages);
@@ -2225,7 +2226,7 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
   };
 
   for (const auto& test_case : kTestCases) {
-    FakeHugePageAwareAllocator allocator({});
+    FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
     allocator.forwarder().set_filler_skip_subrelease_short_interval(
         test_case.enable_smoothing ? absl::Minutes(1) : absl::ZeroDuration());
     allocator.forwarder().set_filler_skip_subrelease_long_interval(

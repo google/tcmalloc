@@ -56,13 +56,13 @@ TEST(ProcMapsTest, InspectMappings) {
   }
 
   {
-    // Allocate something to ensure SAMPLED region.
+    // Allocate something to ensure sampled SAMPLED_OR_COLD region.
     ScopedAlwaysSample always_sample;
     ptrs.push_back(::operator new(10 << 10));
   }
 
   if (ColdFeatureActive()) {
-    // Allocate something to ensure COLD region.
+    // Allocate something to ensure cold SAMPLED_OR_COLD region.
     ScopedNeverSample never_sample;
     ptrs.push_back(::operator new(1 << 20, tcmalloc::hot_cold_t{0}));
   }
@@ -95,7 +95,7 @@ TEST(ProcMapsTest, InspectMappings) {
   absl::flat_hash_set<std::string> expected = {
       "[anon:absl]",
       "[anon:tcmalloc_region_METADATA]",
-      "[anon:tcmalloc_region_SAMPLED]",
+      "[anon:tcmalloc_region_SAMPLED_OR_COLD]",
   };
 
   const bool numa_or_partitioned =
@@ -108,7 +108,7 @@ TEST(ProcMapsTest, InspectMappings) {
   }
 
   if (ColdFeatureActive() && !heap_partitioning_active) {
-    expected.insert("[anon:tcmalloc_region_COLD]");
+    expected.insert("[anon:tcmalloc_region_SAMPLED_OR_COLD]");
   }
 
   if (kSanitizerPresent || !tcmalloc::NamedVMAsSupported()) {

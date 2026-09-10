@@ -76,8 +76,7 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
     topology_.Init();
     SCOPED_TRACE(absl::StrFormat("size = %u, alignment = %u", size, alignment));
 
-    for (MemoryTag tag :
-         {MemoryTag::kNormal, MemoryTag::kSampled, MemoryTag::kCold}) {
+    for (MemoryTag tag : {MemoryTag::kNormal, MemoryTag::kSampledOrCold}) {
       SCOPED_TRACE(static_cast<unsigned int>(tag));
 
       void* p = allocator_.MmapAligned(size, alignment, tag);
