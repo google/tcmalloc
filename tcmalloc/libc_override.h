@@ -39,11 +39,11 @@
 #define TCMALLOC_ALIAS(tc_fn) \
   __attribute__((alias(#tc_fn), visibility("default")))
 
+#define TCMALLOC_NOTHROW noexcept
+
 // NOLINTBEGIN(misc-definitions-in-headers)
 
 #if defined(__GLIBC__)
-
-#define TCMALLOC_NOTHROW noexcept
 
 extern "C" {
 
@@ -110,11 +110,6 @@ void* (*__MALLOC_HOOK_VOLATILE __memalign_hook)(size_t, size_t, const void*) =
     &glibc_override_memalign;
 
 }  // extern "C"
-
-#else
-
-#define TCMALLOC_NOTHROW
-
 #endif  // defined(__GLIBC__)
 
 void* operator new(size_t size) noexcept(false)
