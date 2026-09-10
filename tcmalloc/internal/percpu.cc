@@ -323,11 +323,16 @@ static void SlowFence(int target) {
   using tcmalloc::tcmalloc_internal::signal_safe_open;
   using tcmalloc::tcmalloc_internal::signal_safe_read;
   int fd = signal_safe_open("/proc/self/cpuset", O_RDONLY);
-  TC_CHECK_GE(fd, 0);
-
-  char c;
-  TC_CHECK_EQ(1, signal_safe_read(fd, &c, 1, nullptr));
-  TC_CHECK_EQ(0, signal_safe_close(fd));
+  if (fd >= 0) {
+    char c;
+    signal_safe_read(fd, &c, 1, nullptr);
+    TC_CHECK_EQ(0, signal_safe_close(fd));
+  } else {
+    // /proc/self/cpuset may not exist when running under customized kernels
+    // built with CONFIG_PROC_PID_CPUSET=n, in chroots, or in minimal containers
+    // where /proc is restricted or cpusets are disabled.
+    TC_CHECK(errno == ENOENT || errno == EACCES || errno == EPERM);
+  }
 
   // Try to go back to what we originally had before Fence.
   if (!old.SetAffinity(0)) {
