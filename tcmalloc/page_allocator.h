@@ -27,6 +27,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -106,9 +107,8 @@ class PageAllocator {
     switch (tag) {
       case MemoryTag::kNormal:
       case MemoryTag::kNormalP1:
-      case MemoryTag::kSampled:
-      case MemoryTag::kSampledP1:
-      case MemoryTag::kCold:
+      case MemoryTag::kSampledOrCold:
+      case MemoryTag::kSampledOrColdP1:
         return impl(tag)->GetPageAllocationStatus(hp, pages);
       case MemoryTag::kMetadata:
         return false;
@@ -218,7 +218,8 @@ class PageAllocator {
 
   size_t active_partitions() const;
 
-  static constexpr size_t kNumHeaps = 3;  // 3 heaps: normal, sampled, cold.
+  static constexpr size_t kNumHeaps =
+      2;  // 2 heaps: normal, cold (including sampled).
 
   union Choices {
     Choices() : dummy(0) {}
@@ -227,10 +228,13 @@ class PageAllocator {
     HugePageAwareAllocator hpaa;
   } choices_[kNumHeaps];
   std::array<Interface*, kNormalPartitions> normal_impl_;
-  std::array<Interface*, kSecurityPartitions> sampled_impl_;
-  Interface* cold_impl_;
+  // Combined sampled and cold heaps to save memory. This works because they're
+  // both largely marked MADV_NOHUGEPAGE. See b/529739215 for more information.
+  std::array<Interface*, kSecurityPartitions> sampled_or_cold_impl_;
+  // All heaps, sampled/cold then normal.
+  std::array<Interface*, kNormalPartitions + kSecurityPartitions> all_heaps_;
+  absl::Span<Interface* const> heaps_;
   Algorithm alg_;
-  bool has_cold_impl_;
   bool sampled_partition_active_;
   bool over_limit_ ABSL_GUARDED_BY(pageheap_lock) = false;
 
@@ -264,12 +268,10 @@ inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
       return normal_impl_[0];
     case MemoryTag::kNormalP1:
       return normal_impl_[1];
-    case MemoryTag::kSampled:
-      return sampled_impl_[0];
-    case MemoryTag::kSampledP1:
-      return sampled_impl_[1];
-    case MemoryTag::kCold:
-      return cold_impl_;
+    case MemoryTag::kSampledOrCold:
+      return sampled_or_cold_impl_[0];
+    case MemoryTag::kSampledOrColdP1:
+      return sampled_or_cold_impl_[1];
     default:
       ASSUME(false);
       __builtin_unreachable();
@@ -313,67 +315,39 @@ inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
 }
 
 inline BackingStats PageAllocator::stats() const {
-  BackingStats ret = normal_impl_[0]->stats();
-  for (int partition = 1; partition < active_partitions(); partition++) {
-    ret += normal_impl_[partition]->stats();
-  }
-  ret += sampled_impl_[0]->stats();
-  if (sampled_partition_active_) {
-    ret += sampled_impl_[1]->stats();
-  }
-  if (has_cold_impl_) {
-    ret += cold_impl_->stats();
+  BackingStats ret;
+  for (const auto* heap : heaps_) {
+    ret += heap->stats();
   }
   return ret;
 }
 
 inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
-  SmallSpanStats normal, sampled;
-  for (int partition = 0; partition < active_partitions(); partition++) {
+  SmallSpanStats stats;
+  for (auto* heap : heaps_) {
     SmallSpanStats part_stats;
-    normal_impl_[partition]->GetSmallSpanStats(&part_stats);
-    normal += part_stats;
+    heap->GetSmallSpanStats(&part_stats);
+    stats += part_stats;
   }
-  sampled_impl_[0]->GetSmallSpanStats(&sampled);
-  if (sampled_partition_active_) {
-    SmallSpanStats part_stats;
-    sampled_impl_[1]->GetSmallSpanStats(&part_stats);
-    sampled += part_stats;
-  }
-  *result = normal + sampled;
-  if (has_cold_impl_) {
-    SmallSpanStats cold;
-    cold_impl_->GetSmallSpanStats(&cold);
-    *result += cold;
-  }
+
+  *result = stats;
 }
 
 inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
-  LargeSpanStats normal, sampled;
-  for (int partition = 0; partition < active_partitions(); partition++) {
+  LargeSpanStats stats;
+
+  for (auto* heap : heaps_) {
     LargeSpanStats part_stats;
-    normal_impl_[partition]->GetLargeSpanStats(&part_stats);
-    normal += part_stats;
+    heap->GetLargeSpanStats(&part_stats);
+    stats += part_stats;
   }
-  sampled_impl_[0]->GetLargeSpanStats(&sampled);
-  if (sampled_partition_active_) {
-    LargeSpanStats part_stats;
-    sampled_impl_[1]->GetLargeSpanStats(&part_stats);
-    sampled += part_stats;
-  }
-  *result = normal + sampled;
-  if (has_cold_impl_) {
-    LargeSpanStats cold;
-    cold_impl_->GetLargeSpanStats(&cold);
-    *result = *result + cold;
-  }
+  *result = stats;
 }
 
 inline void PageAllocator::TreatHugepageTrackers(
     EnableCollapse enable_collapse) {
-  if (has_cold_impl_) {
-    cold_impl_->TreatHugepageTrackers(EnableCollapse::kDisabled);
-  }
+  sampled_or_cold_impl_[0]->TreatHugepageTrackers(EnableCollapse::kDisabled);
+
   for (int partition = 0; partition < active_partitions(); partition++) {
     normal_impl_[partition]->TreatHugepageTrackers(enable_collapse);
   }
@@ -381,21 +355,13 @@ inline void PageAllocator::TreatHugepageTrackers(
 
 inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
                                                   PageReleaseReason reason) {
-  Length released;
   // TODO(ckennelly): Refine this policy.  Cold data should be the most
   // resilient to not being on huge pages.
-  if (has_cold_impl_) {
-    released = cold_impl_->ReleaseAtLeastNPages(num_pages, reason);
-  }
-  for (int partition = 0; partition < active_partitions(); partition++) {
-    released += normal_impl_[partition]->ReleaseAtLeastNPages(
-        num_pages > released ? num_pages - released : Length(0), reason);
-  }
 
-  released += sampled_impl_[0]->ReleaseAtLeastNPages(
-      num_pages > released ? num_pages - released : Length(0), reason);
-  if (sampled_partition_active_) {
-    released += sampled_impl_[1]->ReleaseAtLeastNPages(
+  Length released = Length(0);
+
+  for (auto* heap : heaps_) {
+    released += heap->ReleaseAtLeastNPages(
         num_pages > released ? num_pages - released : Length(0), reason);
   }
 
@@ -406,16 +372,8 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
 inline PageReleaseStats PageAllocator::GetReleaseStats() const {
   PageReleaseStats stats;
 
-  if (has_cold_impl_) {
-    stats += cold_impl_->GetReleaseStats();
-  }
-  for (int partition = 0; partition < active_partitions(); partition++) {
-    stats += normal_impl_[partition]->GetReleaseStats();
-  }
-
-  stats += sampled_impl_[0]->GetReleaseStats();
-  if (sampled_partition_active_) {
-    stats += sampled_impl_[1]->GetReleaseStats();
+  for (const auto* heap : heaps_) {
+    stats += heap->GetReleaseStats();
   }
 
   return stats;
@@ -423,7 +381,7 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
 
 inline void PageAllocator::Print(Printer& out, MemoryTag tag,
                                  PageFlagsBase& pageflags) {
-  if (tag == MemoryTag::kCold && !has_cold_impl_) {
+  if (tag == MemoryTag::kSampledOrColdP1 && !sampled_partition_active_) {
     return;
   }
 
@@ -439,7 +397,7 @@ inline void PageAllocator::Print(Printer& out, MemoryTag tag,
 
 inline void PageAllocator::PrintInPbtxt(PbtxtRegion& region, MemoryTag tag,
                                         PageFlagsBase& pageflags) {
-  if (tag == MemoryTag::kCold && !has_cold_impl_) {
+  if (tag == MemoryTag::kSampledOrColdP1 && !sampled_partition_active_) {
     return;
   }
 

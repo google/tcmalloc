@@ -53,5 +53,25 @@ int main() {
   free(ptr_1);
   free(ptr_0_sz0);
   free(ptr_1_sz0);
+
+  // Test sampled allocations with heap partitioning
+  tcmalloc::MallocExtension::SetGuardedSamplingInterval(-1);
+  tcmalloc::MallocExtension::SetProfileSamplingInterval(1);
+  // Reset the per-thread sampler. Because sampling was initially disabled (-1),
+  // the thread's bytes_until_sample_ counter was initialized to a 128 MiB gap.
+  // Allocate a block larger than 128 MiB to force RecordAllocationSlow to run
+  // and pick up the new sampling interval for subsequent allocations.
+  void* dummy = ::operator new(256 * 1024 * 1024);
+  ::operator delete(dummy);
+  void* sampled_0 = __alloc_token_0_malloc(8);
+  void* sampled_1 = __alloc_token_1_malloc(8);
+  absl::string_view sampled_0_tag = MemoryTagToLabel(GetMemoryTag(sampled_0));
+  absl::string_view sampled_1_tag = MemoryTagToLabel(GetMemoryTag(sampled_1));
+
+  absl::PrintF("sampled_0_tag:%s\n", sampled_0_tag);
+  absl::PrintF("sampled_1_tag:%s\n", sampled_1_tag);
+
+  free(sampled_0);
+  free(sampled_1);
   return 0;
 }

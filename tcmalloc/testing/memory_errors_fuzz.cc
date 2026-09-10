@@ -159,7 +159,7 @@ void MismatchedSizedDelete(size_t allocated, size_t deallocated) {
   }
 
   // The pointer needs to be sampled or large for us to detect the error.
-  if (!IsSampledMemory(ptr) && deallocated <= kMaxSize) {
+  if (!IsSampledOrColdMemory(ptr) && deallocated <= kMaxSize) {
     TCMallocInternalDeleteSized(ptr, allocated);
     return;
   }
