@@ -30,7 +30,8 @@ int main(int argc, char** argv) {
   bool hpaa = false;
   int subrelease = -1;
   for (absl::string_view line : absl::StrSplit(input, '\n')) {
-    if (absl::StrContains(line, "Begin SAMPLED page allocator")) {
+    if (absl::StrContains(line, "Begin COLD page allocator") ||
+        absl::StrContains(line, "Begin SAMPLED page allocator")) {
       // Stop when we reach the end of the main page allocator. We don't
       // want to look at the sampled or cold allocator parameters for this
       // test.
