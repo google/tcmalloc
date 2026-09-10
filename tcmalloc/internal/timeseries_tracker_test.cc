@@ -345,6 +345,31 @@ TEST_F(TimeSeriesTrackerTest, ClockRegression) {
   EXPECT_THAT(recent_record.data.values_, ElementsAre(4));
 }
 
+TEST_F(TimeSeriesTrackerTest, ExplicitTimestamp) {
+  const int64_t t0 = 0;
+  tracker_.Report(1, t0);
+  const int64_t t1 = absl::ToDoubleNanoseconds(absl::Seconds(1));
+  tracker_.Report(2, t1);
+
+  std::vector<std::vector<int>> all_values;
+  tracker_.Iter([&](size_t offset, size_t epoch_delta, const TestEntry& e) {
+    all_values.push_back(e.values_);
+  });
+  EXPECT_THAT(all_values, ElementsAre(ElementsAre(1), ElementsAre(2)));
+}
+
+TEST_F(TimeSeriesTrackerTest, ClampedNegativeClock) {
+  tracker_.Report(1, -1000);
+  tracker_.Report(2, -1);
+  tracker_.Report(3, 0);
+
+  std::vector<std::vector<int>> all_values;
+  tracker_.Iter([&](size_t offset, size_t epoch_delta, const TestEntry& e) {
+    all_values.push_back(e.values_);
+  });
+  EXPECT_THAT(all_values, ElementsAre(ElementsAre(1, 2, 3)));
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
