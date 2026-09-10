@@ -139,6 +139,14 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_256k_pages_sharded_transfer_cache PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_sharded_tc_ablation
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+  )
+  set_tests_properties(${TCMALLOC_NAME}_sharded_tc_ablation PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_SHARDED_TC_ABLATION;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}

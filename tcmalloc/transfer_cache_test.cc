@@ -493,14 +493,17 @@ TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
   }
 }
 
-TEST(ShardedTransferCacheManagerTest, GenericCacheDisabled) {
+TEST(ShardedTransferCacheManagerTest, GenericCacheExperiment) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
 
   ShardedTransferCacheManager manager(nullptr, nullptr);
   manager.Init();
-  EXPECT_FALSE(manager.UseGenericCache());
+  EXPECT_EQ(manager.UseGenericCache(),
+            IsExperimentActive(Experiment::TCMALLOC_SHARDED_TC_ABLATION) &&
+                !IsExperimentActive(
+                    Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE));
 }
 
 TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
