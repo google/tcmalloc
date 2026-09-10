@@ -1320,14 +1320,13 @@ static bool IsHot(uint8_t label,
   // allocations as hot to avoid mixing pointer-containing and pointerless
   // allocations in the same cold partition.
   return static_cast<tcmalloc::hot_cold_t>(label) >= threshold ||
-         (MallocExtension::GetNumericProperty(
-              "tcmalloc.security_partitioning_active")
-                  .value_or(0) == 1 &&
+         (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull &&
           std::is_same_v<T, char*>);
 }
 
 TYPED_TEST(HotColdTest, HotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  ScopedNeverSample never_sample;
 
   absl::flat_hash_set<uintptr_t> hot;
   absl::flat_hash_set<uintptr_t> cold;
@@ -1354,7 +1353,7 @@ TYPED_TEST(HotColdTest, HotColdNew) {
     ptrs.emplace_back(SizedPtr{ptr, size});
 
     if (!kSanitizerPresent) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold) << ptr;
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold) << ptr;
     }
   }
 
@@ -1385,7 +1384,7 @@ TYPED_TEST(HotColdTest, HotColdNew) {
 
   for (SizedPtr s : ptrs) {
     if (!kSanitizerPresent && expectColdTags &&
-        GetMemoryTag(s.ptr) == MemoryTag::kCold) {
+        GetMemoryTag(s.ptr) == MemoryTag::kSampledOrCold) {
       EXPECT_TRUE(cold.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
     }
 
@@ -1412,6 +1411,7 @@ hot_cold_t MinHotAccessHint() {
 }
 
 TYPED_TEST(HotColdTest, NothrowHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1442,7 +1442,7 @@ TYPED_TEST(HotColdTest, NothrowHotColdNew) {
     }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
@@ -1458,6 +1458,7 @@ TYPED_TEST(HotColdTest, NothrowHotColdNew) {
 }
 
 TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1492,7 +1493,7 @@ TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
     }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else if (expectColdTags) {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
@@ -1508,6 +1509,7 @@ TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
 }
 
 TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1538,7 +1540,7 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
     }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
@@ -1554,6 +1556,7 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
 }
 
 TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1588,7 +1591,7 @@ TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
     }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
@@ -1604,6 +1607,7 @@ TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
 }
 
 TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1631,7 +1635,7 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
 
     if (!kSanitizerPresent) {
       if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-        EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+        EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
       } else {
         EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;
       }
@@ -1667,6 +1671,7 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
 // Test that setting the min_hot_access_hint parameter has the expected effect
 // on treatment of the allocated data as cold.
 TYPED_TEST(HotColdTest, HotColdNewMinHotFlag) {
+  ScopedNeverSample never_sample;
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
@@ -1704,7 +1709,7 @@ TYPED_TEST(HotColdTest, HotColdNewMinHotFlag) {
     // The hotness threshold should have been set to kNonDefaultMinHotAccessHint
     // above via SetFlag.
     if (IsHot<TypeParam>(label, /*threshold=*/kNonDefaultMinHotAccessHint)) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }

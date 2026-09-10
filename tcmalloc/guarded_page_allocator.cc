@@ -466,7 +466,7 @@ void GuardedPageAllocator::MapPages() {
     // inaccessible, so start from readable and writable memory and install
     // them over the whole pool below.
     const AddressRange range = tc_globals.system_allocator().Allocate(
-        len, page_size_, MemoryTag::kSampled);
+        len, page_size_, MemoryTag::kSampledOrCold);
     TC_ASSERT(!range.ptr || range.bytes >= len);
     base = range.ptr;
     // Allocate() may return more than requested (the default region factory
@@ -477,7 +477,7 @@ void GuardedPageAllocator::MapPages() {
     // Without guard regions the pool is reserved PROT_NONE and slots are made
     // accessible with mprotect().
     base = tc_globals.system_allocator().MmapAligned(len, page_size_,
-                                                     MemoryTag::kSampled);
+                                                     MemoryTag::kSampledOrCold);
   }
   TC_ASSERT(base);
   if (!base) return;

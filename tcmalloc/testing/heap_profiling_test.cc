@@ -351,11 +351,8 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
       allocs[i] = allocate();
       switch (test_case.heap) {
         case AllocationHeap::kSampled:
-          EXPECT_TRUE(tcmalloc_internal::IsSampledMemory(allocs[i]));
-          break;
         case AllocationHeap::kCold:
-          EXPECT_EQ(tcmalloc_internal::GetMemoryTag(allocs[i]),
-                    tcmalloc_internal::MemoryTag::kCold);
+          EXPECT_TRUE(tcmalloc_internal::IsSampledOrColdMemory(allocs[i]));
           break;
         case AllocationHeap::kNormal:
           EXPECT_TRUE(tcmalloc_internal::IsNormalMemory(allocs[i]));

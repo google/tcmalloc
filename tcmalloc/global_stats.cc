@@ -562,11 +562,12 @@ void DumpStats(Printer& out, int level) {
     if (tc_globals.active_partitions() > 1) {
       tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1, pageflags);
     }
-    tc_globals.page_allocator().Print(out, MemoryTag::kSampled, pageflags);
+    tc_globals.page_allocator().Print(out, MemoryTag::kSampledOrCold,
+                                      pageflags);
     if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
-      tc_globals.page_allocator().Print(out, MemoryTag::kSampledP1, pageflags);
+      tc_globals.page_allocator().Print(out, MemoryTag::kSampledOrColdP1,
+                                        pageflags);
     }
-    tc_globals.page_allocator().Print(out, MemoryTag::kCold, pageflags);
     tc_globals.guardedpage_allocator().Print(out);
 
     out.printf("------------------------------------------------\n");
@@ -649,7 +650,7 @@ void DumpStats(Printer& out, int level) {
                    ? 1
                    : 0);
     out.printf("PARAMETER tcmalloc_release_max_cold_pages %d\n",
-               Parameters::release_max_cold_pages() ? 1 : 0);
+               Parameters::release_max_sampled_or_cold_pages() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_release_max_filler_pages %d\n",
                Parameters::release_max_filler_pages() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_madvise_sampled_allocations %d\n",
@@ -870,13 +871,12 @@ void DumpStatsInPbtxt(Printer& out, int level) {
     tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormalP1,
                                              pageflags);
   }
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled,
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampledOrCold,
                                            pageflags);
   if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
-    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampledP1,
-                                             pageflags);
+    tc_globals.page_allocator().PrintInPbtxt(
+        region, MemoryTag::kSampledOrColdP1, pageflags);
   }
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold, pageflags);
   // We do not collect tracking information in pbtxt.
 
   size_t soft_limit_bytes =
@@ -943,7 +943,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                    Parameters::madvise_cold_regions_nohugepage() ==
                        MadviseRegionsNoHugepage::kEnabled);
   region.PrintBool("tcmalloc_release_max_cold_pages",
-                   Parameters::release_max_cold_pages());
+                   Parameters::release_max_sampled_or_cold_pages());
   region.PrintBool("tcmalloc_release_max_filler_pages",
                    Parameters::release_max_filler_pages());
   region.PrintI64("profile_sampling_interval",

@@ -18,7 +18,10 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/testutil.h"
 
+using ::tcmalloc::ScopedGuardedSamplingInterval;
+using ::tcmalloc::ScopedProfileSamplingInterval;
 using ::tcmalloc::tcmalloc_internal::GetMemoryTag;
 using ::tcmalloc::tcmalloc_internal::MemoryTagToLabel;
 
@@ -29,39 +32,59 @@ void* __alloc_token_0__Znwm(size_t);
 }
 
 int main() {
-  tcmalloc::MallocExtension::SetProfileSamplingInterval(-1);
-  void* ptr_0 = __alloc_token_0_malloc(8);
-  void* ptr_1 = __alloc_token_1_malloc(8);
-  void* ptr_0_sz0 = __alloc_token_0_malloc(0);
-  void* ptr_1_sz0 = __alloc_token_1_malloc(0);
-  void* new_0 = __alloc_token_0__Znwm(8);
-  void* new_0_large = __alloc_token_0__Znwm(512 << 10);
+  // Test unsampled allocations with heap partitioning
+  {
+    ScopedProfileSamplingInterval sample_profile(-1);
+    void* ptr_0 = __alloc_token_0_malloc(8);
+    void* ptr_1 = __alloc_token_1_malloc(8);
+    void* ptr_0_sz0 = __alloc_token_0_malloc(0);
+    void* ptr_1_sz0 = __alloc_token_1_malloc(0);
+    void* new_0 = __alloc_token_0__Znwm(8);
+    void* new_0_large = __alloc_token_0__Znwm(512 << 10);
 
-  int mode = tcmalloc::MallocExtension::GetNumericProperty(
-                 "tcmalloc.security_partitioning_active")
-                 .value_or(0);
-  bool security_partitioning = !!mode;
+    int mode = tcmalloc::MallocExtension::GetNumericProperty(
+                   "tcmalloc.security_partitioning_active")
+                   .value_or(0);
+    bool security_partitioning = !!mode;
 
-  absl::string_view tag_0 = MemoryTagToLabel(GetMemoryTag(ptr_0));
-  absl::string_view tag_1 = MemoryTagToLabel(GetMemoryTag(ptr_1));
-  absl::string_view tag_0_sz0 = MemoryTagToLabel(GetMemoryTag(ptr_0_sz0));
-  absl::string_view tag_1_sz0 = MemoryTagToLabel(GetMemoryTag(ptr_1_sz0));
+    absl::string_view tag_0 = MemoryTagToLabel(GetMemoryTag(ptr_0));
+    absl::string_view tag_1 = MemoryTagToLabel(GetMemoryTag(ptr_1));
+    absl::string_view tag_0_sz0 = MemoryTagToLabel(GetMemoryTag(ptr_0_sz0));
+    absl::string_view tag_1_sz0 = MemoryTagToLabel(GetMemoryTag(ptr_1_sz0));
 
-  absl::PrintF("security_partitioning:%d\n", security_partitioning);
-  absl::PrintF("security_partitioning_mode:%d\n", mode);
-  absl::PrintF("ptr_0_tag:%s\n", tag_0);
-  absl::PrintF("ptr_1_tag:%s\n", tag_1);
-  absl::PrintF("ptr_0_sz0_tag:%s\n", tag_0_sz0);
-  absl::PrintF("ptr_1_sz0_tag:%s\n", tag_1_sz0);
-  absl::PrintF("new_0_tag:%s\n", MemoryTagToLabel(GetMemoryTag(new_0)));
-  absl::PrintF("new_0_large_tag:%s\n",
-               MemoryTagToLabel(GetMemoryTag(new_0_large)));
+    absl::PrintF("security_partitioning:%d\n", security_partitioning);
+    absl::PrintF("security_partitioning_mode:%d\n", mode);
+    absl::PrintF("ptr_0_tag:%s\n", tag_0);
+    absl::PrintF("ptr_1_tag:%s\n", tag_1);
+    absl::PrintF("ptr_0_sz0_tag:%s\n", tag_0_sz0);
+    absl::PrintF("ptr_1_sz0_tag:%s\n", tag_1_sz0);
+    absl::PrintF("new_0_tag:%s\n", MemoryTagToLabel(GetMemoryTag(new_0)));
+    absl::PrintF("new_0_large_tag:%s\n",
+                 MemoryTagToLabel(GetMemoryTag(new_0_large)));
 
-  ::operator delete(new_0_large);
-  ::operator delete(new_0);
-  free(ptr_0);
-  free(ptr_1);
-  free(ptr_0_sz0);
-  free(ptr_1_sz0);
+    ::operator delete(new_0_large);
+    ::operator delete(new_0);
+    free(ptr_0);
+    free(ptr_1);
+    free(ptr_0_sz0);
+    free(ptr_1_sz0);
+  }
+
+  // Test sampled allocations with heap partitioning
+  {
+    ScopedGuardedSamplingInterval sample_guarded(-1);
+    ScopedProfileSamplingInterval sample_profile(1);
+    void* sampled_0 = __alloc_token_0_malloc(8);
+    void* sampled_1 = __alloc_token_1_malloc(8);
+    absl::string_view sampled_0_tag = MemoryTagToLabel(GetMemoryTag(sampled_0));
+    absl::string_view sampled_1_tag = MemoryTagToLabel(GetMemoryTag(sampled_1));
+
+    absl::PrintF("sampled_0_tag:%s\n", sampled_0_tag);
+    absl::PrintF("sampled_1_tag:%s\n", sampled_1_tag);
+
+    free(sampled_0);
+    free(sampled_1);
+  }
+
   return 0;
 }
