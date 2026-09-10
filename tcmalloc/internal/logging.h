@@ -91,9 +91,11 @@ struct StackTrace {
   // for residency analysis such as for peakheapz.
   void* span_start_address = nullptr;
 
-  uintptr_t depth;  // Number of PC values stored in array below
+  uintptr_t depth = 0;  // Number of PC values stored in array below
   // Place stack as last member because it might not all be accessed.
-  void* stack[kMaxStackDepth];
+  // Zero-initialized so uninitialized stack memory (which might contain
+  // cryptographic secrets) is not leaked into the heap and hence core dumps.
+  void* stack[kMaxStackDepth] = {};
 };
 
 #define TC_LOG(msg, ...)                                                \
