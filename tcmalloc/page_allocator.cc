@@ -99,6 +99,7 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
   // occur if we allocate space for many objects preemptively and only later
   // sample them (incrementing sampled_objects_size_).
 
+  over_limit_ = false;
   if (limits_[kSoft] == std::numeric_limits<size_t>::max()) {
     // Limits are not set.
     return;
@@ -146,6 +147,8 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
         ,
         hard_limit);
   }
+
+  over_limit_ = true;
 
   // Print logs once.
   static bool warned = false;

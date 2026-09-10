@@ -145,7 +145,7 @@ class PageAllocator {
 #if defined(TCMALLOC_INTERNAL_LEGACY_LOCKING) || !defined(NDEBUG)
     const bool check_stats = true;
 #else
-    const bool check_stats = may_have_grown;
+    const bool check_stats = may_have_grown || over_limit_;
 #endif
 
     if (!check_stats) {
@@ -232,6 +232,7 @@ class PageAllocator {
   Algorithm alg_;
   bool has_cold_impl_;
   bool sampled_partition_active_;
+  bool over_limit_ ABSL_GUARDED_BY(pageheap_lock) = false;
 
   // Max size of backed spans we will attempt to maintain.
   // Crash if we can't maintain below limits_[kHard], which is guaranteed to be
