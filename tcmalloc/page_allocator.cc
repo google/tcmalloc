@@ -76,7 +76,21 @@ PageAllocator::PageAllocator() {
   TC_CHECK_LE(part, std::size(choices_));
 }
 
-void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
+void PageAllocator::ShrinkToUsageLimit(Length n, bool may_have_grown) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const bool check_stats = true;
+#else
+#ifndef NDEBUG
+  const bool check_stats = true;
+#else
+  const bool check_stats = may_have_grown;
+#endif  // NDEBUG
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+
+  if (!check_stats) {
+    return;
+  }
+
   BackingStats s = stats();
   const size_t backed =
       s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
