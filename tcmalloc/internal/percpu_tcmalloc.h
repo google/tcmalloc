@@ -835,7 +835,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   TC_ASSERT_NE(size_class, 0);
   void* next;
   void* result;
-  uintptr_t scratch, current;
+  uintptr_t tcmalloc_slabs_addr, current;
 
   asm goto(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
            // scratch = tcmalloc_slabs;
@@ -855,7 +855,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
            "subl $0xffff0001, (%[scratch], %[size_class], 4)\n"
            // Commit
            "5:\n"
-           : [result] "=&r"(result), [scratch] "=&r"(scratch),
+           : [result] "=&r"(result), [scratch] "=&r"(tcmalloc_slabs_addr),
              [current] "=&r"(current), [next] "=&r"(next)
            : TCMALLOC_RSEQ_INPUTS, [begin_mark_mask] "n"(kBeginMark),
              [size_class] "r"(size_class)
@@ -865,9 +865,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   TC_ASSERT(result);
   TSANAcquire(result);
 
-  // The next pop will be from current-1, but because we prefetch the previous
-  // element we've already just read that, so prefetch current-2.
-  PrefetchSlabMemory(scratch + (current - 2) * sizeof(void*));
+  // The next pop will be from current-2, but because we prefetch the previous
+  // element we've already just read that, so prefetch current-3.
+  PrefetchSlabMemory(tcmalloc_slabs_addr + (current - 3) * sizeof(void*));
   PrefetchNextObject(next);
   return AssumeNotNull(result);
 underflow_path:
@@ -884,7 +884,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   void* region_start;
   void* prefetch;
   uintptr_t scratch;
-  uintptr_t current;
+  uintptr_t current_plus_slabs_addr;
   asm goto(
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
       // region_start = tcmalloc_slabs;
@@ -908,7 +908,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
       // Commit
       "5:\n"
       : [result] "=&r"(result), [prefetch] "=&r"(prefetch),
-        [current] "=&r"(current),
+        [current] "=&r"(current_plus_slabs_addr),
         // Temps
         [region_start] "=&r"(region_start), [scratch] "=&r"(scratch)
       // Real inputs
@@ -921,7 +921,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 
   // The next pop will be from current-2, but because we prefetch the previous
   // element we've already just read that, so prefetch current-3.
-  PrefetchSlabMemory(current - 3 * sizeof(void*));
+  PrefetchSlabMemory(current_plus_slabs_addr - 3 * sizeof(void*));
   PrefetchNextObject(prefetch);
   return AssumeNotNull(result);
 underflow_path:
