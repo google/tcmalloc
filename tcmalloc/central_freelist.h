@@ -648,16 +648,27 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       i += step;
     }
 
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    const int same_span = batch.size() - runs;
-    TC_ASSERT_GE(same_span, 0);
-    num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
-        .LossyAdd(1);
-#endif
-
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     RecordMultiSpansDeallocated(free_count);
     UpdateObjectCounts(batch.size());
   }
+#else
+  }
+  // num_same_spans_, counter_, and num_spans_returned_ are lock-free
+  // StatsCounters updated via LossyAdd.  Move them out of the critical section
+  // to shorten lock hold time; RecordMultiSpansDeallocated and
+  // UpdateObjectCounts are inlined here because their declarations require
+  // lock_.  Under concurrency these counters become best-effort (the lock
+  // previously serialized the LossyAdds); single-threaded accuracy is
+  // unchanged.
+  const int same_span = batch.size() - runs;
+  TC_ASSERT_GE(same_span, 0);
+  num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
+      .LossyAdd(1);
+  counter_.LossyAdd(-static_cast<size_t>(free_count) * objects_per_span);
+  num_spans_returned_.LossyAdd(free_count);
+  counter_.LossyAdd(batch.size());
+#endif
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
