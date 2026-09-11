@@ -467,7 +467,12 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
 
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const uint8_t prev_bitwidth =
+      absl::bit_width(static_cast<unsigned>(prev_allocated));
+#else
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
+#endif
   if (ABSL_PREDICT_FALSE(
           !span->FreelistPushBatch(batch, object_size, size_reciprocal))) {
     // Update the histogram as the span is full and will be removed from the
@@ -483,7 +488,12 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // utilization to the histogram after we release objects to the span.
   uint16_t cur_allocated = prev_allocated - batch.size();
   TC_ASSERT_EQ(cur_allocated, span->Allocated());
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const uint8_t cur_bitwidth =
+      absl::bit_width(static_cast<unsigned>(cur_allocated));
+#else
   const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
+#endif
   if (cur_bitwidth != prev_bitwidth) {
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
     RecordSpanUtil(cur_bitwidth, /*increase=*/true);
@@ -714,8 +724,11 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       const uint16_t prev_allocated = span->Allocated();
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       ASSUME(prev_allocated > 0);
-#endif
+      const uint8_t prev_bitwidth =
+          absl::bit_width(static_cast<unsigned>(prev_allocated));
+#else
       const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
+#endif
       TC_ASSERT_EQ(prev_index, span->nonempty_index());
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       // Clobber prev_index to trigger reload, restoring previous behavior.
@@ -737,7 +750,12 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       // add it again once we pop the objects.
       const uint16_t cur_allocated = prev_allocated + here;
       TC_ASSERT_EQ(cur_allocated, span->Allocated());
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const uint8_t cur_bitwidth =
+          absl::bit_width(static_cast<unsigned>(cur_allocated));
+#else
       const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
+#endif
       if (cur_bitwidth != prev_bitwidth) {
         RecordSpanUtil(prev_bitwidth, /*increase=*/false);
         RecordSpanUtil(cur_bitwidth, /*increase=*/true);
