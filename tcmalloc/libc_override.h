@@ -39,31 +39,29 @@
 #define TCMALLOC_ALIAS(tc_fn) \
   __attribute__((alias(#tc_fn), visibility("default")))
 
-#define TCMALLOC_NOTHROW noexcept
-
 // NOLINTBEGIN(misc-definitions-in-headers)
 
 #if defined(__GLIBC__)
 
 extern "C" {
 
-void* __libc_malloc(size_t size) TCMALLOC_NOTHROW
+void* __libc_malloc(size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMalloc);
-void __libc_free(void* ptr) TCMALLOC_NOTHROW
+void __libc_free(void* ptr) noexcept
     TCMALLOC_ALIAS(TCMallocInternalFree);
-void* __libc_realloc(void* ptr, size_t size) TCMALLOC_NOTHROW
+void* __libc_realloc(void* ptr, size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalRealloc);
-void* __libc_calloc(size_t n, size_t size) TCMALLOC_NOTHROW
+void* __libc_calloc(size_t n, size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalCalloc);
-void __libc_cfree(void* ptr) TCMALLOC_NOTHROW
+void __libc_cfree(void* ptr) noexcept
     TCMALLOC_ALIAS(TCMallocInternalCfree);
-void* __libc_memalign(size_t align, size_t s) TCMALLOC_NOTHROW
+void* __libc_memalign(size_t align, size_t s) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMemalign);
-void* __libc_valloc(size_t size) TCMALLOC_NOTHROW
+void* __libc_valloc(size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalValloc);
-void* __libc_pvalloc(size_t size) TCMALLOC_NOTHROW
+void* __libc_pvalloc(size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalPvalloc);
-int __posix_memalign(void** r, size_t a, size_t s) TCMALLOC_NOTHROW
+int __posix_memalign(void** r, size_t a, size_t s) noexcept
     TCMALLOC_ALIAS(TCMallocInternalPosixMemalign);
 
 // We also have to hook libc malloc.  While our work with weak symbols
@@ -160,57 +158,57 @@ void operator delete[](void* p, size_t size,
 
 extern "C" {
 
-void* malloc(size_t size) TCMALLOC_NOTHROW
+void* malloc(size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMalloc);
-void free(void* ptr) TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalFree);
-void free_sized(void* ptr, size_t size) TCMALLOC_NOTHROW
+void free(void* ptr) noexcept TCMALLOC_ALIAS(TCMallocInternalFree);
+void free_sized(void* ptr, size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalFreeSized);
-void free_aligned_sized(void* ptr, size_t align, size_t size) TCMALLOC_NOTHROW
+void free_aligned_sized(void* ptr, size_t align, size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalFreeAlignedSized);
 void sdallocx(void* ptr, size_t size, int flags) noexcept
     TCMALLOC_ALIAS(TCMallocInternalSdallocx);
-void* realloc(void* ptr, size_t size) TCMALLOC_NOTHROW
+void* realloc(void* ptr, size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalRealloc);
-void* reallocarray(void* ptr, size_t n, size_t size) TCMALLOC_NOTHROW
+void* reallocarray(void* ptr, size_t n, size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalReallocArray);
-void* calloc(size_t n, size_t size) TCMALLOC_NOTHROW
+void* calloc(size_t n, size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalCalloc);
-void cfree(void* ptr) TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalCfree);
-void* memalign(size_t align, size_t s) TCMALLOC_NOTHROW
+void cfree(void* ptr) noexcept TCMALLOC_ALIAS(TCMallocInternalCfree);
+void* memalign(size_t align, size_t s) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMemalign);
-void* aligned_alloc(size_t align, size_t s) TCMALLOC_NOTHROW
+void* aligned_alloc(size_t align, size_t s) noexcept
     TCMALLOC_ALIAS(TCMallocInternalAlignedAlloc);
-void* valloc(size_t size) TCMALLOC_NOTHROW
+void* valloc(size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalValloc);
-void* pvalloc(size_t size) TCMALLOC_NOTHROW
+void* pvalloc(size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalPvalloc);
-int posix_memalign(void** r, size_t a, size_t s) TCMALLOC_NOTHROW
+int posix_memalign(void** r, size_t a, size_t s) noexcept
     TCMALLOC_ALIAS(TCMallocInternalPosixMemalign);
-void malloc_stats(void) TCMALLOC_NOTHROW
+void malloc_stats(void) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocStats);
-int malloc_trim(size_t pad) TCMALLOC_NOTHROW
+int malloc_trim(size_t pad) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocTrim);
-int mallopt(int cmd, int value) TCMALLOC_NOTHROW
+int mallopt(int cmd, int value) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallOpt);
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
-struct mallinfo mallinfo(void) TCMALLOC_NOTHROW
+struct mallinfo mallinfo(void) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallInfo);
 #endif
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO2
-struct mallinfo2 mallinfo2(void) TCMALLOC_NOTHROW
+struct mallinfo2 mallinfo2(void) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallInfo2);
 #endif
-int malloc_info(int opts, FILE* fp) TCMALLOC_NOTHROW
+int malloc_info(int opts, FILE* fp) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocInfo);
-size_t malloc_size(void* p) TCMALLOC_NOTHROW
+size_t malloc_size(void* p) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocSize);
-size_t malloc_usable_size(void* p) TCMALLOC_NOTHROW
+size_t malloc_usable_size(void* p) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocSize);
 
-alloc_result_t alloc_at_least(size_t min_size) TCMALLOC_NOTHROW
+alloc_result_t alloc_at_least(size_t min_size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalAllocAtLeast);
 alloc_result_t aligned_alloc_at_least(size_t alignment,
-                                      size_t min_size) TCMALLOC_NOTHROW
+                                      size_t min_size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalAlignedAllocAtLeast);
 }  // extern "C"
 
