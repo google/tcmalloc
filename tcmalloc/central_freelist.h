@@ -722,15 +722,15 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       prev_index = span->nonempty_index();
 #endif
 
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      // Use ASSUME to elide the bounds check in subspan, per
-      // b/538576012#comment3.
-      //
-      // TODO(b/538576012): Use a recommended API for this.
-      size_t size = batch.size();
-      ASSUME(result < size);
-#endif
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       int here = span->FreelistPopBatch(batch.subspan(result), object_size);
+#else
+      // Pass pointer + count directly to avoid absl::Span::subspan's defensive
+      // length clamping (std::min) on this hot drain path.  See b/538576012.
+      const size_t size = batch.size();
+      int here = span->FreelistPopBatch(
+          absl::MakeSpan(batch.data() + result, size - result), object_size);
+#endif
       ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
       // As the objects are being popped from the span, its utilization might
       // change. So, we remove the stale utilization from the histogram here and
