@@ -64,6 +64,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
         "//tcmalloc:__subpackages__",
+        "//visibility:public",
     ],
     deps = [
         ":config",
@@ -71,6 +72,7 @@ cc_library(
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
     ],
+    alwayslink = True,
 )
 
 cc_library(
