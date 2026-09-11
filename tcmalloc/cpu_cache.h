@@ -1599,9 +1599,14 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 template <class Forwarder>
 void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
   SetSlabAnonVmaName(slab_addr, slab_size, /*is_drained=*/true);
-  // It is important that we do not MADV_REMOVE the memory, since file-backed
-  // pages may SIGSEGV/SIGBUS if another thread sees the previous slab after
-  // this point and reads it.
+  // Threads validate a cached slabs address against the marker in the region
+  // it points at, so a thread may read from a retired slab buffer at any point
+  // in the future.  Retired buffers must therefore stay mapped and readable
+  // for the lifetime of the process: MADV_DONTNEED is fine (it resets the
+  // markers to unpopulated), but the memory must never be unmapped, and in
+  // particular we must not MADV_REMOVE it, since file-backed pages may
+  // SIGSEGV/SIGBUS if another thread sees the previous slab after this point
+  // and reads it.
   //
   // TODO(b/214241843): we should be able to remove MADV_NOHUGEPAGE once the
   // kernel enables huge zero pages.

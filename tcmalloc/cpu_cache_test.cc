@@ -118,8 +118,8 @@ class CpuCachePeer {
   }
 
   template <typename CpuCache>
-  static size_t CpuStateSize(const CpuCache& cpu_cache) {
-    return cpu_cache.freelist_.GetCpuStateSize();
+  static void UncacheCpuSlab(CpuCache& cpu_cache) {
+    cpu_cache.freelist_.UncacheCpuSlab();
   }
 
   template <typename CpuCache>
@@ -494,9 +494,8 @@ TEST(CpuCacheTest, Metadata) {
     PerCPUMetadataState r = cache.MetadataMemoryUsage();
     size_t slabs_size = subtle::percpu::GetSlabsAllocSize(
         subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus);
-    size_t resize_size = num_cpus * CpuCachePeer::CpuStateSize(cache);
     size_t begins_size = kNumClasses * sizeof(std::atomic<uint16_t>);
-    EXPECT_EQ(r.virtual_size, slabs_size + resize_size + begins_size);
+    EXPECT_EQ(r.virtual_size, slabs_size + begins_size);
     EXPECT_EQ(r.resident_size, 0);
 
     auto count_cores = [&]() {
@@ -557,16 +556,6 @@ TEST(CpuCacheTest, Metadata) {
       // The operation didn't occur as expected, likely because we were
       // preempted but returned to the same core (otherwise Tampered would have
       // fired).
-      //
-      // The MSB of tcmalloc_slabs should be cleared to indicate we were
-      // preempted.  As of December 2024, Refill and its callees do not invoke
-      // CacheCpuSlab.  This check can spuriously pass if we're preempted
-      // between the end of Allocate and now, rather than within Allocate, but
-      // it ensures we do not silently break.
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-      EXPECT_EQ(subtle::percpu::tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK, 0);
-#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-
       cache.Deallocate(ptr, kSizeClass);
       cache.Deactivate();
 
@@ -582,7 +571,7 @@ TEST(CpuCacheTest, Metadata) {
     r = cache.MetadataMemoryUsage();
     EXPECT_EQ(
         r.virtual_size,
-        resize_size + begins_size +
+        begins_size +
             subtle::percpu::GetSlabsAllocSize(
                 subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus));
 
@@ -2269,9 +2258,7 @@ TEST(TouchedCpus, SingleThreaded) {
     EXPECT_EQ(cache.CountTouchedCpus(), 0);
 
     // Allocating should touch the cpu.
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    subtle::percpu::tcmalloc_slabs = 0;
-#endif
+    CpuCachePeer::UncacheCpuSlab(cache);
     void* ptr = cache.Allocate(1);
     const int after_allocate_vcpu = subtle::percpu::VirtualCpu::get();
     const int after_allocate = cache.CountTouchedCpus();
@@ -2285,16 +2272,12 @@ TEST(TouchedCpus, SingleThreaded) {
     const int after_clear1 = cache.CountTouchedCpus();
 
     // Deallocating should touch the cpu.
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    subtle::percpu::tcmalloc_slabs = 0;
-#endif
+    CpuCachePeer::UncacheCpuSlab(cache);
     ptr = cache.Allocate(1);
     cache.ClearTouchedCpus();
     const int after_clear2 = cache.CountTouchedCpus();
 
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    subtle::percpu::tcmalloc_slabs = 0;
-#endif
+    CpuCachePeer::UncacheCpuSlab(cache);
     cache.Deallocate(ptr, 1);
     const int after_deallocate = cache.CountTouchedCpus();
     cache.ClearTouchedCpus();

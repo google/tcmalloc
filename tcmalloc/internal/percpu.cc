@@ -26,7 +26,6 @@
 #include <atomic>
 #include <cerrno>
 #include <cstddef>
-#include <limits>
 #include <optional>
 
 #include "absl/base/attributes.h"
@@ -65,8 +64,31 @@ ABSL_CONST_INIT static absl::once_flag init_per_cpu_once;
 ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
-
 ABSL_CONST_INIT RseqVcpuMode vcpu_mode = RseqVcpuMode::kNone;
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+
+// A namespace scope const object has internal linkage in C++, and enclosing it
+// in an extern "C" { } block does not change that: the block sets language
+// linkage, not the linkage of the names in it.  The unbraced form below carries
+// an implicit extern storage class specifier, which does.
+extern "C" constexpr uint32_t tcmalloc_dummy_slab[16] = {};
+
+// Until rseq registration settles the mode, the kernel reports the CPU id in
+// kernel_rseq::cpu_id.  The visibility attribute repeats the one on the
+// declaration: a definition that does not carry it is a mismatch that some
+// compilers only diagnose, and the fast paths depend on it.
+extern "C" ABSL_CONST_INIT uint32_t tcmalloc_vcpu_id_offset
+    __attribute__((visibility("hidden"))) = offsetof(kernel_rseq, cpu_id);
+
+extern "C" {
+
+ABSL_CONST_INIT size_t __rseq_virtual_flat_cpu_id_offset =
+    offsetof(kernel_rseq, cpu_id);
+
+}  // extern "C"
+
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
 static bool InitThreadPerCpu() {
   // If we're already registered, there's nothing further for us to do.
@@ -124,13 +146,77 @@ int VirtualCpu::Synchronize() {
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 }
 
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+// Records where the kernel reports the CPU id for the fast paths.
+// REQUIRES: rseq registration has completed; that is what settles the location.
+static void RecordCpuIdOffset() {
+  TC_CHECK_LE(__rseq_virtual_flat_cpu_id_offset + sizeof(uint16_t),
+              sizeof(__rseq_abi));
+  // The fast paths read this without synchronization, so do not write what is
+  // already there: after the first thread through here the value is final.
+  if (tcmalloc_vcpu_id_offset != __rseq_virtual_flat_cpu_id_offset) {
+    tcmalloc_vcpu_id_offset = __rseq_virtual_flat_cpu_id_offset;
+  }
+}
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+
+void SyncCpuIdOffset() {
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  // IsFast() registers rseq if nothing has registered this thread yet, which is
+  // what settles where the kernel reports the CPU id.  InitFastPerCpu() cannot
+  // be relied on to record it: a thread whose rseq registration happened
+  // elsewhere returns from IsFast() without ever reaching it, and that can be
+  // every thread in the process.
+  if (!IsFast()) return;
+  RecordCpuIdOffset();
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+}
+
 static void InitPerCpu() {
   const auto maybe_numcpus = NumCPUsMaybe();
   if (!maybe_numcpus.has_value()) {
     init_status = kSlowMode;
     return;
   }
-  TC_CHECK(*maybe_numcpus <= std::numeric_limits<uint16_t>::max());
+  // Every CPU needs a running slab marker of its own that no unsynchronized
+  // thread can compute.  See kMaxSlabCpus in percpu.h.
+  TC_CHECK_LE(*maybe_numcpus, kMaxSlabCpus);
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  // See the comment about data layout in percpu.h for details.
+  auto sampler_addr = reinterpret_cast<uintptr_t>(&tcmalloc_sampler);
+  // Have to use volatile because C++ compiler rejects to believe that
+  // objects can overlap.
+  volatile auto slabs_addr = reinterpret_cast<uintptr_t>(&tcmalloc_slabs);
+  auto rseq_abi_addr = reinterpret_cast<uintptr_t>(&__rseq_abi);
+  volatile auto tcmalloc_rseq_layout_addr =
+      reinterpret_cast<uintptr_t>(&tcmalloc_rseq_layout);
+  TC_CHECK_EQ(rseq_abi_addr, tcmalloc_rseq_layout_addr);
+  //  Ensure __rseq_abi alignment required by ABI.
+  TC_CHECK_EQ(rseq_abi_addr % 32, 0);
+  // Ensure that all our TLS data is in a single cache line.
+  TC_CHECK_EQ(rseq_abi_addr / 64, slabs_addr / 64);
+  TC_CHECK_EQ(rseq_abi_addr / 64,
+              (sampler_addr + TCMALLOC_SAMPLER_HOT_OFFSET) / 64);
+  // Ensure that tcmalloc_slabs precedes __rseq_abi as we expect. Fast paths
+  // address it relative to __rseq_abi with a fixed offset in assembly.
+  TC_CHECK_EQ(slabs_addr, rseq_abi_addr + TCMALLOC_RSEQ_SLABS_OFFSET);
+  // Ensure Sampler is properly aligned.
+  TC_CHECK_EQ(sampler_addr % TCMALLOC_SAMPLER_ALIGN, 0);
+  // Ensure that tcmalloc_sampler and the tcmalloc_slabs are the expected
+  // distance apart. This is needed because we reference the slabs address
+  // relative to the sampler address with a fixed offset in inline assembly.
+  TC_CHECK_EQ(sampler_addr + TCMALLOC_SAMPLER_SLABS_OFFSET, slabs_addr);
+  // Ensure that __rseq_abi is where the fast paths expect it: they reach the
+  // CPU id relative to the sampler address, which they already have
+  // materialized.
+  TC_CHECK_EQ(sampler_addr + TCMALLOC_SAMPLER_RSEQ_OFFSET, rseq_abi_addr);
+  // No thread has cached a region yet, so this one still names the dummy
+  // region.  The fast paths depend on an uncached thread naming something
+  // readable whose marker is 0, rather than nothing at all.
+  TC_CHECK_EQ(tcmalloc_slabs,
+              reinterpret_cast<uintptr_t>(&tcmalloc_dummy_slab));
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
   // Based on the results of successfully initializing the first thread, mark
   // init_status to initialize all subsequent threads.
@@ -138,31 +224,6 @@ static void InitPerCpu() {
     init_status = kFastMode;
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    // See the comment about data layout in percpu.h for details.
-    auto sampler_addr = reinterpret_cast<uintptr_t>(&tcmalloc_sampler);
-    // Have to use volatile because C++ compiler rejects to believe that
-    // objects can overlap.
-    volatile auto slabs_addr = reinterpret_cast<uintptr_t>(&tcmalloc_slabs);
-    auto rseq_abi_addr = reinterpret_cast<uintptr_t>(&__rseq_abi);
-    volatile auto tcmalloc_rseq_layout_addr =
-        reinterpret_cast<uintptr_t>(&tcmalloc_rseq_layout);
-    TC_CHECK_EQ(rseq_abi_addr, tcmalloc_rseq_layout_addr);
-    //  Ensure __rseq_abi alignment required by ABI.
-    TC_CHECK_EQ(rseq_abi_addr % 32, 0);
-    // Ensure that all our TLS data is in a single cache line.
-    TC_CHECK_EQ(rseq_abi_addr / 64, slabs_addr / 64);
-    TC_CHECK_EQ(rseq_abi_addr / 64,
-                (sampler_addr + TCMALLOC_SAMPLER_HOT_OFFSET) / 64);
-    // Ensure that tcmalloc_slabs partially overlap with
-    // __rseq_abi.cpu_id_start as we expect.
-    TC_CHECK_EQ(slabs_addr, rseq_abi_addr + TCMALLOC_RSEQ_SLABS_OFFSET);
-    // Ensure Sampler is properly aligned.
-    TC_CHECK_EQ(sampler_addr % TCMALLOC_SAMPLER_ALIGN, 0);
-    // Ensure that tcmalloc_sampler and the tcmalloc_slabs are the expected
-    // distance apart. This is needed because we reference the slabs address
-    // relative to the sampler address with a fixed offset in inline assembly.
-    TC_CHECK_EQ(sampler_addr + TCMALLOC_SAMPLER_SLABS_OFFSET, slabs_addr);
-
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.
     using_upstream_fence.store(
@@ -179,6 +240,7 @@ static void InitPerCpu() {
       // in the same series.
       if (auxv >= offsetof(kernel_rseq, mm_cid) + sizeof(__rseq_abi.mm_cid)) {
         vcpu_mode = RseqVcpuMode::kMM;
+        __rseq_virtual_flat_cpu_id_offset = offsetof(kernel_rseq, mm_cid);
       }
     }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
@@ -222,6 +284,10 @@ bool InitFastPerCpu() {
   }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  // Registration has settled on where the kernel reports the CPU id, so record
+  // it for the fast paths.
+  RecordCpuIdOffset();
+
   // If we've decided to use slow mode, set the thread-local CPU ID to
   // __rseq_abi.cpu_id so that IsFast doesn't call this function again for
   // this thread.
@@ -386,7 +452,9 @@ void FenceCpu(int vcpu) {
 
   if (UsingRseqVirtualCpus()) {
     // With virtual CPUs, we cannot identify the true physical core we need to
-    // interrupt.
+    // interrupt.  This test must precede every path below: they all name a
+    // physical core, and fencing one while holding a virtual CPU ID would fence
+    // an unrelated core.
     FenceAllCpus();
     return;
   }
@@ -405,17 +473,11 @@ void FenceCpu(int vcpu) {
 
 void FenceAllCpus() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  // An effect of fencing all CPUs is that the cached slabs pointer is reset
-  // because our rseq machinery resets it on every thread schedule. This is
-  // desirable if e.g. because we don't want to hit the fast path the next time
-  // the CPU allocates (i.e., we changed something under the thread).
-  // This also happens to our own thread due to the syscall (depending a bit
-  // on the kernel version). However, when fake CPUs are enabled in tests,
-  // we've unsubscribed from rseq and thus the syscall doesn't reset the
-  // slabs pointer, so uncache it explicitly here so that all CPUs are
-  // handled equal in this respect.
-  tcmalloc_slabs = 0;
-
+  // Note that this does not invalidate cached slabs pointers, neither ours nor
+  // other threads'. It does not have to: a cached pointer is only usable while
+  // the region it points to is marked as running for the current CPU, and the
+  // fence orders the caller's marker updates against every critical section
+  // that starts afterwards.
   if (using_upstream_fence.load(std::memory_order_relaxed)) {
     UpstreamRseqFenceCpu(-1);
     return;

@@ -1519,6 +1519,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     # Some experiments change expected size class capacities.
     env = {"BORG_EXPERIMENTS": ""},
+    linkstatic = 1,
     # There can be only one CpuCache due to slab offset caching in rseq.
     malloc = "//tcmalloc/internal:system_malloc",
     shard_count = 3,

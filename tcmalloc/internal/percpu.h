@@ -23,14 +23,30 @@
 #define TCMALLOC_SAMPLER_HOT_OFFSET 24
 
 // Offset from __rseq_abi to the cached slabs address.
-#define TCMALLOC_RSEQ_SLABS_OFFSET -4
+#define TCMALLOC_RSEQ_SLABS_OFFSET -8
 
 // Offset from the cached slabs address to the sampler.
-#define TCMALLOC_SAMPLER_SLABS_OFFSET 36
+#define TCMALLOC_SAMPLER_SLABS_OFFSET 40
 
-// The bit denotes that tcmalloc_rseq.slabs contains valid slabs offset.
-#define TCMALLOC_CACHED_SLABS_BIT 63
-#define TCMALLOC_CACHED_SLABS_MASK (1ul << TCMALLOC_CACHED_SLABS_BIT)
+// Offset from the sampler to __rseq_abi.
+#define TCMALLOC_SAMPLER_RSEQ_OFFSET \
+  (TCMALLOC_SAMPLER_SLABS_OFFSET - TCMALLOC_RSEQ_SLABS_OFFSET)
+
+// The first 4 bytes of a per-CPU slab region hold a marker that says whether
+// the region may be used by the allocation fast paths:
+//
+//   0                      the region is unpopulated.  This is the value left
+//                          behind by mmap() and MADV_DONTNEED.
+//   TCMALLOC_SLAB_STOPPED  the region is populated, but a remote operation
+//                          (resize/drain/grow/shrink) owns it right now.
+//   cpu + 1                the region is the current, running region for cpu.
+//
+// The bias avoids conflating a zeroed region with CPU 0's region.  The marker
+// occupies the whole (otherwise unused) size class 0 header, so that
+// TCMALLOC_SLAB_STOPPED cannot collide with a CPU id: the fast paths load the
+// CPU id as a 16 bit value, so cpu + TCMALLOC_SLAB_CPU_BIAS fits in 17 bits.
+#define TCMALLOC_SLAB_CPU_BIAS 1
+#define TCMALLOC_SLAB_STOPPED 0xffffffff
 
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
@@ -95,6 +111,32 @@ inline constexpr int kCpuIdUnsupported = -2;
 inline constexpr int kCpuIdUninitialized = -1;
 inline constexpr int kCpuIdInitialized = 0;
 
+// The fast paths read the CPU id as a 16 bit value and add
+// TCMALLOC_SLAB_CPU_BIAS to it before comparing the result against a region's
+// marker.  A thread that has not synchronized yet reads kCpuIdUninitialized or
+// kCpuIdUnsupported from that field, which truncate to 0xffff and 0xfffe and
+// so produce these two values.  Neither may name a running region.
+inline constexpr uint32_t kUninitializedMarker =
+    uint32_t{static_cast<uint16_t>(kCpuIdUninitialized)} +
+    TCMALLOC_SLAB_CPU_BIAS;
+inline constexpr uint32_t kUnsupportedMarker =
+    uint32_t{static_cast<uint16_t>(kCpuIdUnsupported)} + TCMALLOC_SLAB_CPU_BIAS;
+
+// A 16 bit CPU id biases to at most 0xffff, which puts kUninitializedMarker
+// (0x10000) and TCMALLOC_SLAB_STOPPED out of reach on its own.
+// kUnsupportedMarker (0xffff) is not, so it is the binding constraint: CPU ids
+// stop one short of the one that would produce it.
+inline constexpr uint32_t kMaxRunningMarker = kUnsupportedMarker - 1;
+static_assert(kMaxRunningMarker < kUnsupportedMarker);
+static_assert(kMaxRunningMarker < kUninitializedMarker);
+static_assert(kMaxRunningMarker < TCMALLOC_SLAB_STOPPED);
+
+// The most CPUs the marker protocol can tell apart.  CPU <c> runs with marker
+// <c> + TCMALLOC_SLAB_CPU_BIAS, so the largest usable id is
+// kMaxRunningMarker - TCMALLOC_SLAB_CPU_BIAS and there are kMaxRunningMarker
+// of them.
+inline constexpr size_t kMaxSlabCpus = kMaxRunningMarker;
+
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 // We provide a per-thread value (defined in percpu_rseq_asm.S) which both
 // tracks thread-local initialization state and (with RSEQ) provides an atomic
@@ -113,45 +155,54 @@ inline constexpr int kCpuIdInitialized = 0;
 // several additional loads and dependent calculations. Pseudo-code for the
 // address calculation is as follows:
 //
-//   cpu_offset = TcmallocSlab.virtual_cpu_id_offset_;
-//   cpu = *(&__rseq_abi + virtual_cpu_id_offset_);
+//   cpu_offset = __rseq_virtual_flat_cpu_id_offset;
+//   cpu = *(&__rseq_abi + cpu_offset);
 //   slabs_and_shift = TcmallocSlab.slabs_and_shift_;
 //   shift = slabs_and_shift & kShiftMask;
 //   shifted_cpu = cpu << shift;
 //   slabs = slabs_and_shift & kSlabsMask;
 //   slabs += shifted_cpu;
 //
-// To remove this calculation from fast paths, we cache the slabs address
-// for the current CPU in thread local storage. However, when a thread is
-// rescheduled to another CPU, we somehow need to understand that the cached
-// address is not valid anymore. To achieve this, we overlap the top 4 bytes
-// of the cached address with __rseq_abi.cpu_id_start. When a thread is
-// rescheduled the kernel overwrites cpu_id_start with the current CPU number,
-// which gives us the signal that the cached address is not valid anymore.
-// To distinguish the high part of the cached address from the CPU number,
-// we set the top bit in the cached address, real CPU numbers (<2^31) do not
-// have this bit set.
+// To remove this calculation from fast paths, we cache the slabs address for
+// the current CPU in thread local storage (tcmalloc_slabs). A cached address
+// goes stale when the thread migrates to another CPU, when a remote operation
+// claims the region, and when the slabs are resized. Rather than invalidating
+// the cached address, we validate it against the region it points to: the
+// first 4 bytes of a per-CPU region hold TCMALLOC_SLAB_CPU_BIAS + cpu while
+// (and only while) the region is the current, running region of cpu.
 //
-// With these arrangements, slabs address calculation on allocation/deallocation
-// fast paths reduces to load and check of the cached address:
+// The fast path is thus a load and a compare:
 //
-//   slabs = __rseq_abi[-4];
-//   if ((slabs & (1 << 63)) == 0) goto slowpath;
-//   slabs &= ~(1 << 63);
+//   slabs = tcmalloc_slabs;
+//   if (*(uint32_t*)slabs != *(uint16_t*)(&__rseq_abi + cpu_offset) + 1)
+//     goto slowpath;
 //
-// Note: here we assume little-endian byte order (which is the case for our
-// supported architectures). On a little-endian arch, reading 8 bytes starting
-// at __rseq_abi-4 gives __rseq_abi[-4...3]. So the tag bit (1<<63) is
-// therefore from __rseq_abi[3]. That's also the most significant byte of
-// __rseq_abi.cpu_id_start, hence real CPU numbers can't have this bit set
-// (assuming <2^31 CPUs).
+// which is executed within an rseq critical section -- that is what makes the
+// comparison atomic with respect to migration and to remote operations. The
+// marker shares a cache line with the size class headers that the fast path
+// is about to touch anyway.
 //
-// The slow path does full slabs address calculation and caches it.
+// The validation is off the critical path. Its loads -- tcmalloc_vcpu_id_offset
+// and then the CPU id out of __rseq_abi -- form a dependency chain that is
+// disjoint from the one that produces the object (tcmalloc_slabs, then the size
+// class header, then the object pointer). The two chains meet only at a
+// perfectly predicted branch, so out-of-order execution resolves the validation
+// alongside the allocation rather than ahead of it.
 //
-// Note: this makes __rseq_abi.cpu_id_start unusable for its original purpose.
+// Before the first successful CacheCpuSlab(), and after UncacheCpuSlab(),
+// tcmalloc_slabs names tcmalloc_dummy_slab rather than nothing at all.  Its
+// marker is 0, which is never a running marker, so the fast paths reach the
+// slow path through the comparison they already make instead of through an
+// additional test for a null address.
+//
+// Note: we read the CPU id as a 16 bit value, which assumes little-endian
+// byte order (the case for our supported architectures) and NumCPUs() at most
+// kMaxSlabCpus (checked in InitPerCpu() and TcmallocSlab::Init()).
+//
+// The slow path does the full slabs address calculation and caches it.
 //
 // Since we need to export the __rseq_abi variable (as part of rseq ABI),
-// we arrange overlapping of __rseq_abi and the preceding cached slabs
+// we arrange the placement of __rseq_abi and the preceding cached slabs
 // address in percpu_rseq_asm.S (C++ is not capable of expressing that).
 // __rseq_abi must be aligned to 32 bytes as per ABI. We want the cached slabs
 // address to be contained within a single cache line (64 bytes), rather than
@@ -161,13 +212,37 @@ inline constexpr int kCpuIdInitialized = 0;
 // in the same cache line.
 // InitPerCpu contains checks that the resulting data layout is as expected.
 
-// Top 4 bytes of this variable overlap with __rseq_abi.cpu_id_start.
+// A stand-in for a per-CPU slab region, used while a thread has no region of
+// its own cached.  Only the marker (the first 4 bytes) is ever read from it,
+// and it is 0, so every fast path comparison against it fails.  It lives in
+// read-only memory, both because nothing may write to it and so that it is not
+// mistaken for a real region.
+extern "C" const uint32_t tcmalloc_dummy_slab[16];
+
+// Address of the current CPU's slab region, or of tcmalloc_dummy_slab if none
+// is cached.  percpu_rseq_asm.S supplies the initial value.
 extern "C" ABSL_CONST_INIT thread_local volatile uintptr_t tcmalloc_slabs
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 extern "C" ABSL_CONST_INIT thread_local volatile int tcmalloc_cached_vcpu
     ABSL_ATTRIBUTE_INITIAL_EXEC;
+// The offset within __rseq_abi of the CPU id the fast paths compare against
+// slab markers: kernel_rseq::cpu_id, kernel_rseq::vcpu_id or
+// kernel_rseq::mm_cid, depending on the mode rseq was registered with.
+//
+// This duplicates __rseq_virtual_flat_cpu_id_offset, which the fast paths
+// cannot read directly: it is defined in another module, so the compiler must
+// reach it through the GOT.  Hidden visibility lets the fast paths address this
+// copy relative to the program counter instead, which is also cheaper than a
+// thread local would be -- a thread local's offset does not fit an addressing
+// mode's immediate, so it costs an extra instruction to materialize.
+//
+// The value describes the process rather than the thread: rseq registration
+// settles it before any allocation can complete, and it does not change
+// afterwards.  SyncCpuIdOffset() records it.
+extern "C" ABSL_CONST_INIT uint32_t tcmalloc_vcpu_id_offset
+    __attribute__((visibility("hidden")));
 // Note that for builds with RSEQ enabled, we declare the sampler here so that
 // we can reference its address in percpu_tcmalloc.h without creating a
 // circular dependency with the Sampler definition.
@@ -180,6 +255,12 @@ extern "C" ABSL_CONST_INIT thread_local char tcmalloc_sampler
 // that the definition may come from a dynamic library and has to use
 // GOT access. When compiler sees even a weak definition, it knows the
 // declaration will be in the current module and can generate direct accesses.
+// The initializer below is not the one the program runs with: the strong
+// definition in percpu_rseq_asm.S names tcmalloc_dummy_slab, and it is the one
+// that ends up in the .tdata image.  It cannot be spelled here because casting
+// an address to uintptr_t is not a constant expression.  TcmallocSlab.
+// InitialSlabsAreTheDummyRegion checks that the value threads actually start
+// with is the intended one.
 ABSL_CONST_INIT thread_local volatile uintptr_t tcmalloc_slabs
     ABSL_ATTRIBUTE_WEAK = {};
 ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
@@ -198,6 +279,23 @@ ABSL_CONST_INIT thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_WEAK = 0;
 // (as weak), even though the asm file is in the same static library as other
 // linked in files.
 extern "C" ABSL_CONST_INIT thread_local char tcmalloc_rseq_layout;
+
+// The offset, from &__rseq_abi, of the 16 bit CPU id that the fast paths
+// compare against the slab marker. This is the low half of kernel_rseq::cpu_id
+// when running on real CPUs, and kernel_rseq::vcpu_id or kernel_rseq::mm_cid
+// when virtual CPUs are in use.
+extern "C" ABSL_CONST_INIT size_t __rseq_virtual_flat_cpu_id_offset;
+
+// Address of the 16 bit CPU id that the fast paths compare against slab
+// markers: kernel_rseq::cpu_id on real CPUs, kernel_rseq::vcpu_id or
+// kernel_rseq::mm_cid when virtual CPUs are in use.
+//
+// This reads tcmalloc_vcpu_id_offset, so that it agrees with the assembly fast
+// paths and costs no indirection through the GOT.
+inline volatile uint16_t* VirtualCpuIdAddress() {
+  return reinterpret_cast<volatile uint16_t*>(
+      reinterpret_cast<uintptr_t>(&__rseq_abi) + tcmalloc_vcpu_id_offset);
+}
 
 inline int GetRealCpuUnsafe() { return __rseq_abi.cpu_id; }
 #else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
@@ -309,6 +407,11 @@ class VirtualCpu {
 };
 
 bool InitFastPerCpu();
+
+// Records where the kernel reports the CPU id, which the fast paths compare
+// against slab markers, in tcmalloc_vcpu_id_offset.  Registering rseq settles
+// the location; this must be called before the first fast path runs.
+void SyncCpuIdOffset();
 
 inline bool IsFast() {
   if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {

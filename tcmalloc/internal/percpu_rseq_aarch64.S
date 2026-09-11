@@ -143,6 +143,18 @@ label##_trampoline:                                               \
 #define FETCH_CPU(dest, offset) ldrh dest, [x5, offset]
 #define FETCH_SLABS(dest) ldr dest, [x5, TCMALLOC_RSEQ_SLABS_OFFSET]
 
+/*
+ * Loads the offset of the current cpu id within __rseq_abi (cpu_id, vcpu_id or
+ * mm_cid, depending on the mode we registered with) into <dest>, a 32 bit
+ * register, clobbering its 64 bit counterpart <dest64> to form the address.
+ * FETCH_CPU takes <dest64>, as the 32 bit load zeroes the upper half.
+ * tcmalloc_vcpu_id_offset is hidden, so it is addressable relative to the
+ * program counter.
+ */
+#define FETCH_CPU_OFFSET(dest, dest64)  \
+  adrp dest64, tcmalloc_vcpu_id_offset; \
+  ldr dest, [dest64, :lo12:tcmalloc_vcpu_id_offset]
+
 /* With PIE  have initial-exec TLS, even in the presence of position
    independent code. */
 #if !defined(__PIC__) || defined(__PIE__)
@@ -211,8 +223,7 @@ label##_trampoline:                                               \
  *     void** batch (x1),
  *     size_t len (x2)) {
  *   uint64_t* r8 = tcmalloc_rseq.slabs;
- *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
- *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
+ *   if (*(uint32_t*)r8 != cpu + TCMALLOC_SLAB_CPU_BIAS) return 0;
  *   Header* hdr = r8 + r0 * 8
  *   Header r3 = *hdr
  *   uint64_t r9 = r3.current  (zero-extend 16bit)
@@ -240,8 +251,12 @@ TcmallocSlab_Internal_PushBatch:
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PushBatch)
   FETCH_SLABS(x8)
-  tbz x8, #TCMALLOC_CACHED_SLABS_BIT, .LTcmallocSlab_Internal_PushBatch_no_capacity
-  and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
+  FETCH_CPU_OFFSET(w9, x9)
+  FETCH_CPU(w10, x9)
+  ldr w9, [x8]               /* r9 = slab marker */
+  sub w9, w9, #TCMALLOC_SLAB_CPU_BIAS
+  cmp w9, w10
+  bne .LTcmallocSlab_Internal_PushBatch_no_capacity
   add x15, x8, x0, LSL #2    /* r15 = &hdr */
   ldr w3, [x15]              /* r3 = hdr */
   and x9, x3, #0xffff        /* r9 = current */
@@ -285,8 +300,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
  *     size_t len (x2),
  *     std::atomic<uint16_t>* begin_ptr (x3)) {
  *   uint64_t* r8 = tcmalloc_rseq.slabs;
- *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
- *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
+ *   if (*(uint32_t*)r8 != cpu + TCMALLOC_SLAB_CPU_BIAS) return 0;
  *   Header* hdr = GetHeader(r8, size_class)
  *   Header r4 = *hdr
  *   uint64_t r9 = r4.current
@@ -314,8 +328,12 @@ TcmallocSlab_Internal_PopBatch:
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PopBatch)
   FETCH_SLABS(x8)
-  tbz x8, #TCMALLOC_CACHED_SLABS_BIT, .LTcmallocSlab_Internal_PopBatch_no_items
-  and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
+  FETCH_CPU_OFFSET(w9, x9)
+  FETCH_CPU(w10, x9)
+  ldr w9, [x8]               /* r9 = slab marker */
+  sub w9, w9, #TCMALLOC_SLAB_CPU_BIAS
+  cmp w9, w10
+  bne .LTcmallocSlab_Internal_PopBatch_no_items
   add x15, x8, x0, LSL #2    /* r15 = &hdr */
   ldr w4, [x15]              /* r4 = hdr */
   and x9, x4, #0xffff        /* r9 = current */

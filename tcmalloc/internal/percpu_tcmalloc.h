@@ -37,6 +37,7 @@
 #include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
 #include "absl/numeric/bits.h"
+#include "tcmalloc/internal/atomic_danger.h"
 #include "tcmalloc/internal/delay_injection.h"
 #include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/logging.h"
@@ -140,7 +141,12 @@ class TcmallocSlab {
   constexpr TcmallocSlab() = default;
 
   // Init must be called before any other methods.
-  // <slabs> is memory for the slabs with size corresponding to <shift>.
+  // <slabs> is memory for the slabs with size corresponding to <shift>.  It
+  //     must be zero-filled: offset 0 of every region holds that region's
+  //     marker, and 0 is what marks a region as unpopulated.  The same holds
+  //     for the buffers handed to ResizeSlabs() and UpdateMaxCapacities().
+  //     Memory freshly obtained from the kernel already satisfies this; a
+  //     test allocator built on operator new must zero it explicitly.
   // <capacity> callback returns max capacity for size class <size_class>.
   // <shift> indicates the number of bits to shift the CPU ID in order to
   //     obtain the location of the per-CPU slab.
@@ -240,47 +246,47 @@ class TcmallocSlab {
   // REQUIRES: len > 0.
   size_t PopBatch(size_t size_class, void** batch, size_t len);
 
-  // Caches the current cpu slab offset in tcmalloc_slabs if it wasn't
-  // cached and the cpu is not stopped. Returns the current cpu and the flag
-  // if the offset was previously uncached and is now cached. If the cpu
-  // is stopped, returns {-1, true}.
+  // Caches the address of the current cpu's slab region in tcmalloc_slabs if
+  // the region is not stopped. Returns the current cpu and whether the address
+  // was previously uncached and is now cached. If the cpu is stopped, returns
+  // {-1, true}.
   std::pair<int, bool> CacheCpuSlab();
 
-  // Uncaches the slab offset for the current thread, so that the next Push/Pop
-  // operation will return false.
+  // Uncaches the slab address for the current thread, so that the next
+  // Push/Pop operation will return false.
   void UncacheCpuSlab();
 
   // Synchronization protocol between local and remote operations.
   // This class supports a set of cpu local operations (Push/Pop/
   // PushBatch/PopBatch/Grow), and a set of remote operations that
   // operate on non-current cpu's slab (GrowOtherCache/ShrinkOtherCache/
-  // Drain/Resize). Local operations always use a restartable sequence
-  // that aborts if the slab pointer (tcamlloc_slab) is uncached.
+  // Drain/Resize). Local operations always use a restartable sequence that
+  // aborts unless the cached slab region (tcmalloc_slabs) is marked as running
+  // for the cpu the thread is executing on.
   //
-  // Caching of the slab pointer after rescheduling checks if
-  // state_[cpu].stopped is unset. Remote operations set state_[cpu].stopped
-  // and then execute Fence, this ensures that any local operation
-  // on the cpu will abort without changing any state and that the
-  // slab pointer won't be cached on the cpu.
+  // Remote operations mark the region as stopped and then execute a Fence.
+  // This ensures that any local operation on the cpu will abort without
+  // changing any state, and that any local operation that starts afterwards
+  // observes the stopped marker. Threads may keep an address of a stopped (or
+  // even of a swapped out) region cached in tcmalloc_slabs indefinitely, which
+  // is why old slabs must not be unmapped.
   //
-  // This part uses relaxed atomic operations on state_[cpu].stopped because the
-  // Fence provides all necessary synchronization between remote and local
-  // threads.  When a remote operation finishes, it unsets state_[cpu].stopped
-  // using release memory ordering.  This ensures that any new local operation
-  // on the cpu that observes unset state_[cpu].stopped with acquire memory
-  // ordering, will also see all side-effects of the remote operation, and won't
-  // interfere with it.  StopCpu/StartCpu implement the corresponding parts of
-  // the remote synchronization protocol.
+  // This part uses relaxed atomic operations on the marker because the Fence
+  // provides all necessary synchronization between remote and local threads.
+  // When a remote operation finishes, it marks the region as running using
+  // release memory ordering.
+  //
+  //  * On x86, loads are implicitly acquire, so a local operation that observes
+  //    the running marker also observes all side-effects of the remote
+  //    operation.
+  //  * On aarch64, the fast paths load the marker with a relaxed ldr, so
+  //    StartCpu/StartAllCpus issue a Fence before publishing the running marker
+  //    instead.
+  //
+  // StopCpu/StartCpu implement the corresponding parts of the remote
+  // synchronization protocol.
   void StopCpu(int cpu);
   void StartCpu(int cpu);
-
-  // Stop/start all cpus at once. StopAllCpus also executes the Fence for all
-  // cpus, so that no local operation is in flight when it returns.
-  void StopAllCpus();
-  void StartAllCpus();
-
-  // Asserts that <cpu> is currently stopped, as required by remote operations.
-  void AssertCpuStopped(int cpu) const;
 
   // Grows the cpu/size_class slab's capacity to no greater than
   // min(capacity+len, max_capacity(<shift>)) and returns the increment
@@ -332,8 +338,6 @@ class TcmallocSlab {
   uint8_t GetShift() const {
     return ToUint8(GetSlabsAndShift(std::memory_order_relaxed).second);
   }
-
-  constexpr static size_t GetCpuStateSize() { return sizeof(CpuState); }
 
  private:
   // In order to support dynamic slab metadata sizes, we need to be able to
@@ -418,6 +422,16 @@ class TcmallocSlab {
   // when popping.
   static constexpr uintptr_t kBeginMark = 1;
 
+  // Size class 0 is unused, so its header holds the state of the whole per-CPU
+  // region instead. See the TCMALLOC_SLAB_STOPPED comment in percpu.h.
+  //
+  // TODO(b/550113085): consider moving the marker to include header[1] and
+  // shifting the real size class headers by one, so that offset 0 of a region
+  // can never be read as (part of) an object pointer by Pop's begin marker
+  // check.
+  using AtomicMarker = std::atomic<uint32_t>;
+  static_assert(sizeof(AtomicMarker) <= sizeof(Header));
+
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
   [[nodiscard]] std::pair<void*, Shift> GetSlabsAndShift(
@@ -426,8 +440,25 @@ class TcmallocSlab {
   }
 
   static void* CpuMemoryStart(void* slabs, Shift shift, int cpu);
+  static const void* CpuMemoryStart(const void* slabs, Shift shift, int cpu);
   static AtomicHeader* GetHeader(void* slabs, Shift shift, int cpu,
                                  size_t size_class);
+  static AtomicMarker& GetCpuMarker(void* cpu_slab);
+  static const AtomicMarker& GetCpuMarker(const void* cpu_slab);
+  static AtomicMarker& GetCpuMarker(void* slabs, Shift shift, int cpu);
+  static const AtomicMarker& GetCpuMarker(const void* slabs, Shift shift,
+                                          int cpu);
+  // The marker value that cpu's region holds while it is the current, running
+  // region of cpu.
+  static uint32_t RunningMarker(int cpu);
+  static void AssertCpuStopped(const void* slabs, Shift shift, int cpu);
+  static void SetCpuStopped(void* slabs, Shift shift, int cpu);
+  static void SetCpuRunning(void* slabs, Shift shift, int cpu);
+  // <populated> returns whether the given cpu's region is populated. Stopping
+  // and starting must skip unpopulated regions: even reading one makes mincore
+  // report the page as mapped and breaks resident memory accounting.
+  void StopAllCpus(absl::FunctionRef<bool(size_t)> populated);
+  void StartAllCpus(absl::FunctionRef<bool(size_t)> populated);
   static Header LoadHeader(AtomicHeader* hdrp);
   static void StoreHeader(AtomicHeader* hdrp, Header hdr);
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
@@ -446,14 +477,21 @@ class TcmallocSlab {
   // so that we can atomically update both with a single store.
   std::atomic<SlabsAndShift> slabs_and_shift_{};
 
-  size_t num_cpus() const { return state_.size(); }
+  // Incremented every time slabs_and_shift_ is published (see InitSlabs()).
+  //
+  // Grow() reads the slabs, the shift and a size class header outside of a
+  // restartable sequence and commits inside one.  The marker it compares there
+  // says that the region is the running region of this cpu, but not that it is
+  // the same generation of it: cpu_cache.h keeps one slabs buffer per shift and
+  // recycles it, so a buffer can be retired and later become current again.
+  // The header it read could compare equal by coincidence while begins_ and the
+  // maximum capacities it was computed against have since changed.  Comparing
+  // the generation inside the critical section rules that out.
+  std::atomic<uint32_t> slabs_generation_{0};
 
-  struct CpuState {
-    // Remote Cpu operation (Resize/Drain/Grow/Shrink) is running so any local
-    // operations (Push/Pop) should fail.
-    std::atomic<bool> stopped{false};
-  };
-  absl::Span<CpuState> state_ = {};
+  size_t num_cpus() const { return num_cpus_; }
+
+  size_t num_cpus_ = 0;
 
   // begins_[size_class] is offset of the size_class region in the slabs area.
   std::atomic<uint16_t>* begins_ = nullptr;
@@ -627,7 +665,8 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
           TCMALLOC_PERCPU_RSEQ_SIGNATURE), /* Also pass common consts, there \
                                               is no cost to passing unused   \
                                               consts. */                     \
-      [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),                     \
+      [cpu_addr] "r"(subtle::percpu::VirtualCpuIdAddress()),                 \
+      [slab_cpu_bias] "n"(TCMALLOC_SLAB_CPU_BIAS),                           \
       [sampler_slabs_offset] "n"(TCMALLOC_SAMPLER_SLABS_OFFSET)
 #else
 #define TCMALLOC_RSEQ_INPUTS                                                 \
@@ -635,64 +674,87 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
       [rseq_slabs_addr] "m"(*reinterpret_cast<volatile char*>(               \
           reinterpret_cast<uintptr_t>(&__rseq_abi) +                         \
           TCMALLOC_RSEQ_SLABS_OFFSET)),                                      \
+      [rseq_cpu_addr] "m"(*subtle::percpu::VirtualCpuIdAddress()),           \
       [rseq_sig] "n"(                                                        \
           TCMALLOC_PERCPU_RSEQ_SIGNATURE), /* Also pass common consts, there \
                                               is no cost to passing unused   \
                                               consts. */                     \
-      [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT)
+      [slab_cpu_bias] "n"(TCMALLOC_SLAB_CPU_BIAS)
 #endif
-// Store v to p (*p = v) if the current thread wasn't rescheduled
-// (still has the slab pointer cached). Otherwise returns false.
-template <typename T>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
-                                                         T v) {
+// Store v to p (*p = v) if *marker names the cpu the calling thread is
+// executing on, *generation still holds <old_generation> and *p still holds
+// <old>. Otherwise returns false.
+//
+// All three comparisons are needed:
+//
+//  * *marker establishes that we are running on the cpu that owns the region
+//    and that no remote operation owns it.
+//  * The marker does not change when the thread is merely preempted and
+//    rescheduled onto the same cpu, so a thread that ran in between could have
+//    updated *p through a fast path. <old> detects that and makes the update
+//    atomic with respect to Push/Pop.
+//  * A retired slabs buffer can become current again -- cpu_cache.h keeps one
+//    buffer per shift and recycles it -- so *marker and *p can both match
+//    across a resize that changed begins_ and the maximum capacities.
+//    <old_generation> rules that out.
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(
+    std::atomic<uint32_t>* marker, std::atomic<uint32_t>* generation,
+    uint32_t old_generation, std::atomic<int32_t>* p, int32_t old, int32_t v) {
+  // The asm reads and writes all three locations with plain 32 bit accesses,
+  // which is what a relaxed load or store of a lock-free 32 bit atomic compiles
+  // to. They stay std::atomic<> right up to the operand lists below, which are
+  // the only place the compiler has to be told about the memory the asm
+  // touches.
   uintptr_t scratch = 0;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
+  uint32_t tmp;
   asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
           R"(
       xorq %[scratch], %[scratch]
-      btq $%c[cached_slabs_bit], %[rseq_slabs_addr]
-      jnc 5f
+      movzwl %[rseq_cpu_addr], %[tmp]
+      addl $%c[slab_cpu_bias], %[tmp]
+      cmpl %[tmp], (%[marker])
+      jne 5f
+      cmpl %[old_generation], %[generation]
+      jne 5f
+      cmpl %[old], %[p]
+      jne 5f
       movl $1, %k[scratch]
-      mov %[v], %[p]
+      movl %[v], %[p]
       5 :)"
-      : [scratch] "=&r"(scratch)
-      : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<void* volatile*>(p)),
-        [v] "r"(v)
+      : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp),
+        [p] "+m"(*atomic_danger::CastToIntegral(p))
+      : TCMALLOC_RSEQ_INPUTS,
+        [marker] "r"(atomic_danger::CastToIntegral(marker)),
+        [generation] "m"(*atomic_danger::CastToIntegral(generation)),
+        [old_generation] "r"(old_generation), [old] "r"(old), [v] "r"(v)
       : "cc", "memory");
 #elif TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
-  uintptr_t tmp;
-  // Aarch64 requires different argument references for different sizes
-  // for the STR instruction (%[v] vs %w[v]), so we have to duplicate
-  // the asm block.
-  if constexpr (sizeof(T) == sizeof(uint64_t)) {
-    asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
-            R"(
-        mov %[scratch], #0
-        ldr %[tmp], [%[sampler_addr], #%c[sampler_slabs_offset]]
-        tbz %[tmp], #%c[cached_slabs_bit], 5f
-        mov %[scratch], #1
-        str %[v], %[p]
-        5 :)"
-        : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp)
-        : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint64_t* volatile*>(p)),
-          [v] "r"(v)
-        : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
-  } else {
-    static_assert(sizeof(T) == sizeof(uint32_t));
-    asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
-            R"(
-        mov %[scratch], #0
-        ldr %[tmp], [%[sampler_addr], #%c[sampler_slabs_offset]]
-        tbz %[tmp], #%c[cached_slabs_bit], 5f
-        mov %[scratch], #1
-        str %w[v], %[p]
-        5 :)"
-        : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp)
-        : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint32_t* volatile*>(p)),
-          [v] "r"(v)
-        : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
-  }
+  uintptr_t tmp, scratch2;
+  asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
+          R"(
+      mov %[scratch], #0
+      ldrh %w[tmp], [%[cpu_addr]]
+      ldr %w[scratch2], [%[marker]]
+      sub %w[scratch2], %w[scratch2], #%c[slab_cpu_bias]
+      cmp %w[scratch2], %w[tmp]
+      b.ne 5f
+      ldr %w[scratch2], %[generation]
+      cmp %w[scratch2], %w[old_generation]
+      b.ne 5f
+      ldr %w[scratch2], %[p]
+      cmp %w[scratch2], %w[old]
+      b.ne 5f
+      mov %[scratch], #1
+      str %w[v], %[p]
+      5 :)"
+      : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp), [scratch2] "=&r"(scratch2),
+        [p] "+m"(*atomic_danger::CastToIntegral(p))
+      : TCMALLOC_RSEQ_INPUTS,
+        [marker] "r"(atomic_danger::CastToIntegral(marker)),
+        [generation] "m"(*atomic_danger::CastToIntegral(generation)),
+        [old_generation] "r"(old_generation), [old] "r"(old), [v] "r"(v)
+      : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
 #endif
   return scratch;
 }
@@ -715,10 +777,12 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
       // scratch = tcmalloc_slabs;
       "movq %[rseq_slabs_addr], %[scratch]\n"
-      // if (scratch & TCMALLOC_CACHED_SLABS_MASK>) goto overflow_label;
-      // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
-      "btrq $%c[cached_slabs_bit], %[scratch]\n"
-      "jnc %l[overflow_label]\n"
+      // tmp = cpu + TCMALLOC_SLAB_CPU_BIAS;
+      "movzwl %[rseq_cpu_addr], %[tmp]\n"
+      "addl $%c[slab_cpu_bias], %[tmp]\n"
+      // if (scratch->marker != tmp) goto overflow_label;
+      "cmpl %[tmp], (%[scratch])\n"
+      "jne %l[overflow_label]\n"
       // tmp = [slabs->current, slabs->remaining_capacity];
       "movl (%[scratch], %[size_class], 4), %[tmp]\n"
       "movzwq %w[tmp], %[current]\n"
@@ -758,10 +822,13 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
       // region_start = tcmalloc_slabs;
       "ldr %[region_start], [%[sampler_addr], #%c[sampler_slabs_offset]]\n"
-      // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-      // region_start is unmasked on aarch64, since Top Byte Ignore is enabled
-      // in user space by default
-      "tbz %[region_start], #%c[cached_slabs_bit], %l[overflow_label]\n"
+      // if (region_start->marker - TCMALLOC_SLAB_CPU_BIAS != cpu)
+      //   goto overflow_label;
+      "ldrh %w[scratch], [%[cpu_addr]]\n"
+      "ldr %w[current], [%[region_start]]\n"
+      "sub %w[current], %w[current], #%c[slab_cpu_bias]\n"
+      "cmp %w[current], %w[scratch]\n"
+      "b.ne %l[overflow_label]\n"
       // scratch = slab_headers[size_class] (current index, remaining capacity)
       "ldr %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
       "and %w[current], %w[scratch], #0xffff\n"
@@ -848,10 +915,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   asm goto(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
            // scratch = tcmalloc_slabs;
            "movq %[rseq_slabs_addr], %[scratch]\n"
-           // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-           // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
-           "btrq $%c[cached_slabs_bit], %[scratch]\n"
-           "jnc %l[underflow_path]\n"
+           // current = cpu + TCMALLOC_SLAB_CPU_BIAS;
+           "movzwl %[rseq_cpu_addr], %k[current]\n"
+           "addl $%c[slab_cpu_bias], %k[current]\n"
+           // if (scratch->marker != current) goto underflow_path;
+           "cmpl %k[current], (%[scratch])\n"
+           "jne %l[underflow_path]\n"
            // current = scratch->header[size_class].current;
            "movzwq (%[scratch], %[size_class], 4), %[current]\n"
            "movq -8(%[scratch], %[current], 8), %[result]\n"
@@ -898,10 +967,13 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
       // region_start = tcmalloc_slabs;
 
       "ldr %[region_start], [%[sampler_addr], #%c[sampler_slabs_offset]]\n"
-      // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-      // region_start is unmasked on aarch64, since Top Byte Ignore is enabled
-      // in user space by default
-      "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
+      // if (region_start->marker - TCMALLOC_SLAB_CPU_BIAS != cpu)
+      //   goto underflow_path;
+      "ldrh %w[scratch], [%[cpu_addr]]\n"
+      "ldr %w[current], [%[region_start]]\n"
+      "sub %w[current], %w[current], #%c[slab_cpu_bias]\n"
+      "cmp %w[current], %w[scratch]\n"
+      "b.ne %l[underflow_path]\n"
       // scratch = slab_headers[size_class] (current index, remaining capacity)
       "ldr %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
       // current = scratch.current
@@ -949,35 +1021,57 @@ template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::Grow(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
+  TC_ASSERT_NE(size_class, 0);
+  // Acquire, and ordered before the load of slabs_and_shift_: everything read
+  // below belongs to this generation or to a later one, never to an earlier
+  // one.
+  const uint32_t generation = slabs_generation_.load(std::memory_order_acquire);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t max_cap = max_capacity(ToUint8(shift));
+  void* cpu_slab = CpuMemoryStart(slabs, shift, cpu);
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
-  Header hdr = LoadHeader(hdrp);
+  const Header old_hdr = LoadHeader(hdrp);
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  ssize_t have = static_cast<ssize_t>(max_cap - hdr.capacity(begin));
+  ssize_t have = static_cast<ssize_t>(max_cap - old_hdr.capacity(begin));
   if (have <= 0) {
     return 0;
   }
   uint16_t n = std::min<uint16_t>(len, have);
+  Header hdr = old_hdr;
   hdr.remaining_capacity += n;
-  return StoreCurrentCpu(hdrp, hdr) ? n : 0;
+  return StoreCurrentCpu(&GetCpuMarker(cpu_slab), &slabs_generation_,
+                         generation, hdrp, absl::bit_cast<int32_t>(old_hdr),
+                         absl::bit_cast<int32_t>(hdr))
+             ? n
+             : 0;
 }
 
 template <size_t NumClasses>
 inline std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlab() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  if (ABSL_PREDICT_FALSE((tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) == 0)) {
+  const uintptr_t slabs = tcmalloc_slabs;
+  const int vcpu = *VirtualCpuIdAddress();
+  // slabs may name tcmalloc_dummy_slab, whose marker is 0 and therefore never
+  // matches; no separate test for an uncached region is needed.
+  if (ABSL_PREDICT_FALSE(GetCpuMarker(reinterpret_cast<void*>(slabs))
+                             .load(std::memory_order_relaxed) !=
+                         vcpu + TCMALLOC_SLAB_CPU_BIAS)) {
     return CacheCpuSlabSlow();
   }
-  // We already have slab offset cached, so the slab is indeed full/empty.
-#endif
+  // The current cpu's region is cached and running, so the slab is indeed
+  // full/empty.  Report the id we just validated against: tcmalloc_cached_vcpu
+  // is only refreshed by Synchronize(), which this path deliberately skips, so
+  // it may name a cpu we were on when we cached the region.
+  return {vcpu, false};
+#else
   return {VirtualCpu::GetAfterSynchronize(), false};
+#endif
 }
 
 template <size_t NumClasses>
 inline void TcmallocSlab<NumClasses>::UncacheCpuSlab() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  tcmalloc_slabs = 0;
+  tcmalloc_slabs = reinterpret_cast<uintptr_t>(tcmalloc_dummy_slab);
 #endif
 }
 
@@ -1019,12 +1113,77 @@ inline void* TcmallocSlab<NumClasses>::CpuMemoryStart(void* slabs, Shift shift,
 }
 
 template <size_t NumClasses>
+inline const void* TcmallocSlab<NumClasses>::CpuMemoryStart(const void* slabs,
+                                                            Shift shift,
+                                                            int cpu) {
+  return &static_cast<const char*>(slabs)[cpu << ToUint8(shift)];
+}
+
+template <size_t NumClasses>
 inline auto TcmallocSlab<NumClasses>::GetHeader(void* slabs, Shift shift,
                                                 int cpu, size_t size_class)
     -> AtomicHeader* {
   TC_ASSERT_NE(size_class, 0);
   return &static_cast<AtomicHeader*>(
       CpuMemoryStart(slabs, shift, cpu))[size_class];
+}
+
+template <size_t NumClasses>
+inline auto TcmallocSlab<NumClasses>::GetCpuMarker(void* cpu_slab)
+    -> AtomicMarker& {
+  return *static_cast<AtomicMarker*>(cpu_slab);
+}
+
+template <size_t NumClasses>
+inline auto TcmallocSlab<NumClasses>::GetCpuMarker(const void* cpu_slab)
+    -> const AtomicMarker& {
+  return *static_cast<const AtomicMarker*>(cpu_slab);
+}
+
+template <size_t NumClasses>
+inline auto TcmallocSlab<NumClasses>::GetCpuMarker(void* slabs, Shift shift,
+                                                   int cpu) -> AtomicMarker& {
+  return GetCpuMarker(CpuMemoryStart(slabs, shift, cpu));
+}
+
+template <size_t NumClasses>
+inline auto TcmallocSlab<NumClasses>::GetCpuMarker(const void* slabs,
+                                                   Shift shift, int cpu)
+    -> const AtomicMarker& {
+  return GetCpuMarker(CpuMemoryStart(slabs, shift, cpu));
+}
+
+template <size_t NumClasses>
+inline uint32_t TcmallocSlab<NumClasses>::RunningMarker(int cpu) {
+  TC_ASSERT_GE(cpu, 0);
+  TC_ASSERT_LE(static_cast<uint32_t>(cpu) + TCMALLOC_SLAB_CPU_BIAS,
+               kMaxRunningMarker);
+  return cpu + TCMALLOC_SLAB_CPU_BIAS;
+}
+
+template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::AssertCpuStopped(const void* slabs, Shift shift,
+                                                int cpu) {
+  TC_ASSERT_EQ(GetCpuMarker(slabs, shift, cpu).load(std::memory_order_relaxed),
+               TCMALLOC_SLAB_STOPPED);
+}
+
+template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::SetCpuStopped(void* slabs, Shift shift,
+                                             int cpu) {
+  auto& marker = GetCpuMarker(slabs, shift, cpu);
+  TC_CHECK_EQ(marker.load(std::memory_order_relaxed), RunningMarker(cpu));
+  marker.store(TCMALLOC_SLAB_STOPPED, std::memory_order_relaxed);
+}
+
+template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::SetCpuRunning(void* slabs, Shift shift,
+                                             int cpu) {
+  // A region only ever starts from stopped: InitCpuImpl() leaves it that way
+  // and StopCpu()/StopAllCpus() put it back.
+  AssertCpuStopped(slabs, shift, cpu);
+  GetCpuMarker(slabs, shift, cpu)
+      .store(RunningMarker(cpu), std::memory_order_release);
 }
 
 template <size_t NumClasses>
@@ -1042,19 +1201,21 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Init(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, void* slabs,
     absl::FunctionRef<size_t(size_t)> capacity, Shift shift) {
-  const size_t num_cpus = NumCPUs();
-  state_ = absl::MakeSpan(new (alloc(sizeof(state_[0]) * num_cpus,
-                                     std::align_val_t{ABSL_CACHELINE_SIZE}))
-                              CpuState[num_cpus](),
-                          num_cpus);
+  num_cpus_ = NumCPUs();
+  // Every CPU needs a running marker of its own that no unsynchronized thread
+  // can compute; see kMaxSlabCpus.
+  TC_CHECK_LE(num_cpus_, kMaxSlabCpus);
   begins_ = static_cast<std::atomic<uint16_t>*>(alloc(
       sizeof(begins_[0]) * NumClasses, std::align_val_t{ABSL_CACHELINE_SIZE}));
   InitSlabs(slabs, shift, capacity);
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  // This is needed only for tests that create/destroy slabs,
-  // w/o this cpu_id_start may contain wrong offset for a new slab.
-  __rseq_abi.cpu_id_start = 0;
+  // The fast paths compare the kernel's CPU id against region markers, so they
+  // need to know where the kernel reports it before the first one runs.
+  subtle::percpu::SyncCpuIdOffset();
+  // This is needed only for tests that create/destroy slabs: this thread may
+  // still have an address in the destroyed slabs cached.
+  UncacheCpuSlab();
   FenceAllCpus();
 #endif
 }
@@ -1063,6 +1224,10 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitSlabs(
     void* slabs, Shift shift, absl::FunctionRef<size_t(size_t)> capacity) {
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
+  // Release, and ordered after the store above: Grow() reads the generation
+  // first, so bumping it before publishing the slabs would let Grow() pair the
+  // new generation with the slabs that are about to be retired.
+  slabs_generation_.fetch_add(1, std::memory_order_release);
   size_t consumed_bytes =
       (NumClasses * sizeof(Header) + sizeof(void*) - 1) & ~(sizeof(void*) - 1);
   bool prev_empty = false;
@@ -1087,17 +1252,25 @@ void TcmallocSlab<NumClasses>::InitSlabs(
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpu(
     int cpu, absl::FunctionRef<size_t(size_t)> capacity) {
-  ScopedSlabCpuStop<NumClasses> cpu_stop(*this, cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  // The region is not running (it is either unpopulated or stopped), so no
+  // local operation can observe it while we initialize it. Callers serialize
+  // with remote operations themselves.
   InitCpuImpl(slabs, shift, cpu, capacity);
+  StartCpu(cpu);
 }
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpuImpl(
     void* slabs, Shift shift, int cpu,
     absl::FunctionRef<size_t(size_t)> capacity) {
-  TC_CHECK(slabs != GetSlabsAndShift(std::memory_order_relaxed).first ||
-           state_[cpu].stopped.load(std::memory_order_relaxed));
+  // The region we are about to overwrite must not be usable by <cpu>: it is
+  // either unpopulated (0) or owned by a remote operation (STOPPED).  A
+  // running marker would mean that the local fast paths are free to run in it.
+  const uint32_t entry_marker =
+      GetCpuMarker(slabs, shift, cpu).load(std::memory_order_relaxed);
+  TC_CHECK(entry_marker == 0 || entry_marker == TCMALLOC_SLAB_STOPPED,
+           "entry_marker=%v cpu=%v", entry_marker, cpu);
   TC_CHECK_LE((1 << ToUint8(shift)), (1 << 16) * sizeof(void*));
 
   // Initialize prefetch target and compute the offsets for the
@@ -1136,71 +1309,58 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
              bytes_used_on_curr_slab);
     }
   }
+
+  // The region is now initialized but not yet usable: the caller starts it
+  // when it publishes the slabs.  Leaving the marker at 0 would advertise it
+  // as unpopulated, and ResizeSlabs()/UpdateMaxCapacities() publish the new
+  // slabs before they start the cpus, so CacheCpuSlabSlow() would tell a
+  // caller to populate a cpu that is already populated and mid-resize.
+  GetCpuMarker(slabs, shift, cpu)
+      .store(TCMALLOC_SLAB_STOPPED, std::memory_order_relaxed);
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
 std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
-  TC_ASSERT(!(tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK));
-  int vcpu = -1;
-  for (;;) {
-    tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
-    CompilerBarrier();
-    vcpu = VirtualCpu::Synchronize();
-    TC_ASSERT_GE(vcpu, 0);
-    TC_ASSERT_LT(vcpu, num_cpus());
-    auto slabs_and_shift = slabs_and_shift_.load(std::memory_order_relaxed);
-    const auto [slabs, shift] = slabs_and_shift.Get();
-    void* start = CpuMemoryStart(slabs, shift, vcpu);
-    uintptr_t new_val =
-        reinterpret_cast<uintptr_t>(start) | TCMALLOC_CACHED_SLABS_MASK;
-    if (!StoreCurrentCpu(&tcmalloc_slabs, new_val)) {
-      continue;
-    }
-    // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may
-    // cache the offset with the shift that won't match slabs pointer used
-    // by Push/Pop operations later. To avoid this, we check
-    // state_[vcpu].stopped after the calculation. Coupled with setting of
-    // stopped_ and a Fence in ResizeSlabs, this prevents possibility of
-    // mismatching shift/slabs.
-    CompilerBarrier();
-    if (state_[vcpu].stopped.load(std::memory_order_acquire)) {
-      tcmalloc_slabs = 0;
-      return {-1, true};
-    }
-    // Ensure that we've cached the current slabs pointer.
-    // Without this check the following bad interleaving is possible.
-    //
-    // Thread 1: Executes ResizeSlabs, stops all CPUs and executes Fence.
-    //
-    // Thread 2: Executes CacheCpuSlabSlow, reads old slabs and caches
-    //           the pointer.
-    //
-    // Thread 1: Stores the new slabs pointer and resets state_[cpu].stopped.
-    //
-    // Thread 2: Resumes, checks that state_[cpu].stopped is not set and
-    //           proceeds with using the old slabs pointer. Since we use
-    //           acquire/release on state_[cpu].stopped, if this thread observes
-    //           reset state_[cpu].stopped, it's also guaranteed to observe the
-    //           new value of slabs and retry.
-    //
-    // In the very unlikely case that slabs are resized twice in between (to new
-    // slabs and then back to old slabs), the check below will not lead to a
-    // retry, but changing slabs back also implies another Fence, so this thread
-    // won't have old slabs cached already (Fence invalidates the cached
-    // pointer).
-    if (slabs_and_shift != slabs_and_shift_.load(std::memory_order_relaxed)) {
-      continue;
-    }
-    return {vcpu, true};
+  const int vcpu = VirtualCpu::Synchronize();
+  TC_ASSERT_GE(vcpu, 0);
+  TC_ASSERT_LT(vcpu, num_cpus());
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  void* start = CpuMemoryStart(slabs, shift, vcpu);
+
+  // From September 2023 (cl/564370519) to September 2026, the cached slab
+  // address overlapped __rseq_abi's cpu_id_start field, so the kernel clobbered
+  // it on every migration and this function had to publish it from inside a
+  // critical section and re-read slabs_and_shift_ afterwards. Validating
+  // against the region's marker needs neither. Every use of the cached
+  // address re-validates it against the region's marker, so caching an address
+  // that goes stale -- because we were migrated between Synchronize() and the
+  // store, or because the slabs are being resized right now -- costs at most
+  // one more trip through this function.
+  const uint32_t marker = GetCpuMarker(start).load(std::memory_order_relaxed);
+  // A region for <vcpu> only ever holds one of these three values, and the
+  // cached-slab fast path already rejected the running one.
+  TC_CHECK(marker == 0 || marker == TCMALLOC_SLAB_STOPPED ||
+               marker == RunningMarker(vcpu),
+           "marker=%v vcpu=%v", marker, vcpu);
+  if (marker == TCMALLOC_SLAB_STOPPED) {
+    // A remote operation owns this cpu's region. Report that so that the
+    // caller falls back to the backing cache instead of spinning on a region
+    // it cannot use.
+    UncacheCpuSlab();
+    return {-1, true};
   }
+  // An unpopulated region is cached as is: the caller populates it, which
+  // marks it as running.
+  tcmalloc_slabs = reinterpret_cast<uintptr_t>(start);
+  return {vcpu, true};
 }
 #endif
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
                                         DrainHandler drain_handler) {
-  AssertCpuStopped(cpu);
+  AssertCpuStopped(slabs, shift, cpu);
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
     uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1257,6 +1417,14 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
     hdr.remaining_capacity = 0;
     StoreHeader(hdrp, hdr);
   }
+
+  // These slabs are retired, but the caller may hand the buffer back to us
+  // later (cpu_cache.h keeps one buffer per shift and reuses it after an
+  // MADV_DONTNEED).  Mark the region unpopulated rather than leaving the
+  // stopped marker that StopAllCpus wrote: MADV_DONTNEED would do the same,
+  // but it is allowed to fail, and a region that came back marked as stopped
+  // could never be populated again.
+  GetCpuMarker(slabs, shift, cpu).store(0, std::memory_order_relaxed);
 }
 
 template <size_t NumClasses>
@@ -1285,7 +1453,7 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
         begins_[size_class].load(std::memory_order_relaxed);
   }
 
-  StopAllCpus();
+  StopAllCpus(populated);
 
 #ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
   // TODO(b/29448043): Remove latency injection.
@@ -1296,6 +1464,10 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   for (int i = 0; i < classes_to_resize; ++i) {
     size_t size_class = new_max_capacity[i].size_class;
     size_t cap = new_max_capacity[i].max_capacity;
+    // Size class 0's header is the region's marker, so it has no capacity to
+    // update.  This is a cold path, so check rather than assert.
+    TC_CHECK_NE(size_class, 0);
+    TC_CHECK_LT(size_class, NumClasses);
     update_capacity(size_class, cap);
   }
 
@@ -1303,7 +1475,7 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   InitSlabs(new_slabs, shift, capacity);
 
   // Phase 4: Re-start all CPUs.
-  StartAllCpus();
+  StartAllCpus(populated);
 
   // Phase 5: Return pointers from the old slab to the TransferCache.
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
@@ -1338,7 +1510,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
     }
   }
 
-  StopAllCpus();
+  StopAllCpus(populated);
 
 #ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
   // TODO(b/29448043): Remove latency injection.
@@ -1349,7 +1521,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   InitSlabs(new_slabs, new_shift, capacity);
 
   // Phase 3: Re-start all CPUs.
-  StartAllCpus();
+  StartAllCpus(populated);
 
   // Phase 4: Return pointers from the old slab to the TransferCache.
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
@@ -1363,11 +1535,11 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
 template <size_t NumClasses>
 void* TcmallocSlab<NumClasses>::Destroy(
     absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
+  // REQUIRES: no thread reaches a fast path on this slab again.  Threads name
+  // their region through a cached address that nothing republishes, so freeing
+  // the slabs does not stop them from reading it, and no fence can make them
+  // let go of it.
   const size_t n_cpus = num_cpus();
-
-  free(state_.data(), sizeof(state_[0]) * n_cpus,
-       std::align_val_t{ABSL_CACHELINE_SIZE});
-  state_ = {};
 
   free(begins_, sizeof(begins_[0]) * NumClasses,
        std::align_val_t{ABSL_CACHELINE_SIZE});
@@ -1376,7 +1548,6 @@ void* TcmallocSlab<NumClasses>::Destroy(
   size_t slabs_size = GetSlabsAllocSize(shift, n_cpus);
   free(slabs, slabs_size, SlabAlignment(shift));
   slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
-  FenceAllCpus();
   return slabs;
 }
 
@@ -1384,8 +1555,8 @@ template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::GrowOtherCache(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
-  AssertCpuStopped(cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  AssertCpuStopped(slabs, shift, cpu);
   const size_t max_cap = max_capacity(ToUint8(shift));
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
@@ -1399,8 +1570,8 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
 template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     int cpu, size_t size_class, size_t len, ShrinkHandler shrink_handler) {
-  AssertCpuStopped(cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  AssertCpuStopped(slabs, shift, cpu);
 
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
@@ -1458,7 +1629,7 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
 
   // Stop all CPUs. They must also be locked, since we are touching the
   // populated bit later.
-  StopAllCpus();
+  StopAllCpus(populated);
 
   // See which ones are actually drained, and which hugepages we can free.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -1531,53 +1702,87 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
       ++hugepage_idx;
     }
 
+    const size_t first_cpu = (reinterpret_cast<uintptr_t>(hugepage_start) -
+                              reinterpret_cast<uintptr_t>(slabs)) /
+                             slab_size_bytes;
+    const size_t cpus_to_free = bytes_to_free / slab_size_bytes;
+
+    // Mark the regions unpopulated before releasing them.  MADV_DONTNEED does
+    // the same by zeroing them, but it is allowed to fail, and a region left
+    // marked as stopped could never be populated again.  These regions are
+    // resident (we stopped them above), so this adds no residency.
+    for (size_t i = 0; i < cpus_to_free; ++i) {
+      if (!populated(first_cpu + i)) continue;
+      GetCpuMarker(slabs, shift, first_cpu + i)
+          .store(0, std::memory_order_relaxed);
+    }
+
     madvise_away_slabs(hugepage_start, bytes_to_free);
-    size_t first_cpu = (reinterpret_cast<uintptr_t>(hugepage_start) -
-                        reinterpret_cast<uintptr_t>(slabs)) /
-                       slab_size_bytes;
-    for (unsigned i = 0; i < bytes_to_free / slab_size_bytes; ++i) {
+    for (size_t i = 0; i < cpus_to_free; ++i) {
+      // Only the populated cpus in this range are being unpopulated.  Calling
+      // unpopulate() for the others would count an unpopulation that never
+      // happened.
+      if (!populated(first_cpu + i)) continue;
       unpopulate(first_cpu + i);
     }
   }
 
-  // Restart the CPUs again.
-  StartAllCpus();
+  // Restart the CPUs again. The ones we just released the metadata of are no
+  // longer populated, and madvising their metadata away has reset their
+  // markers, so they are skipped.
+  StartAllCpus(populated);
 }
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::StopCpu(int cpu) {
   TC_ASSERT(cpu >= 0 && cpu < num_cpus(), "cpu=%d", cpu);
-  TC_CHECK(!state_[cpu].stopped.load(std::memory_order_relaxed));
-  state_[cpu].stopped.store(true, std::memory_order_relaxed);
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  SetCpuStopped(slabs, shift, cpu);
   FenceCpu(cpu);
 }
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::StartCpu(int cpu) {
   TC_ASSERT(cpu >= 0 && cpu < num_cpus(), "cpu=%d", cpu);
-  AssertCpuStopped(cpu);
-  state_[cpu].stopped.store(false, std::memory_order_release);
+  // TODO(b/543348098): Leverage vCPU-centric fence.
+#if defined(__aarch64__)
+  // The fast paths load the marker with a relaxed load, so a release store of
+  // the running marker is not enough to order our writes to the region against
+  // them. Fence instead: fencing runs a context synchronizing event on every
+  // thread that is executing, discarding anything it had speculated, and a
+  // thread that is not executing has nothing in flight and reaches userspace
+  // through one. Neither can then have read the region ahead of the marker.
+  FenceCpu(cpu);
+#endif
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  SetCpuRunning(slabs, shift, cpu);
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::StopAllCpus() {
-  for (auto& state : state_) {
-    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
-    state.stopped.store(true, std::memory_order_relaxed);
+void TcmallocSlab<NumClasses>::StopAllCpus(
+    absl::FunctionRef<bool(size_t)> populated) {
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  for (size_t cpu = 0; cpu < num_cpus(); ++cpu) {
+    if (populated(cpu)) {
+      SetCpuStopped(slabs, shift, cpu);
+    }
   }
   FenceAllCpus();
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::StartAllCpus() {
-  for (auto& state : state_) {
-    state.stopped.store(false, std::memory_order_release);
+void TcmallocSlab<NumClasses>::StartAllCpus(
+    absl::FunctionRef<bool(size_t)> populated) {
+#if defined(__aarch64__)
+  // See the comment in StartCpu.
+  FenceAllCpus();
+#endif
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  for (size_t cpu = 0; cpu < num_cpus(); ++cpu) {
+    if (populated(cpu)) {
+      SetCpuRunning(slabs, shift, cpu);
+    }
   }
-}
-
-template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::AssertCpuStopped(int cpu) const {
-  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
 }
 
 template <size_t NumClasses>
@@ -1586,9 +1791,8 @@ PerCPUMetadataState TcmallocSlab<NumClasses>::MetadataMemoryUsage() const {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t n_cpus = num_cpus();
   size_t slabs_size = GetSlabsAllocSize(shift, n_cpus);
-  size_t state_size = n_cpus * sizeof(state_[0]);
   size_t begins_size = NumClasses * sizeof(begins_[0]);
-  result.virtual_size = state_size + slabs_size + begins_size;
+  result.virtual_size = slabs_size + begins_size;
   result.resident_size = MInCore::residence(slabs, slabs_size);
   return result;
 }
