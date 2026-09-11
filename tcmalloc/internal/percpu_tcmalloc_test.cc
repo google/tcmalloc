@@ -27,6 +27,7 @@
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/proc_maps.h"
 
 #if defined(__linux__)
 #include <linux/param.h>
@@ -56,6 +57,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/random/random.h"
 #include "absl/random/seed_sequences.h"
+#include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -74,6 +76,60 @@ namespace tcmalloc_internal {
 namespace subtle {
 namespace percpu {
 namespace {
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+// Snapshot of `tcmalloc_slabs` for the initial thread, taken from
+// .preinit_array.  glibc runs .preinit_array after it has relocated the
+// executable and set up static TLS, but before .init_array, so this observes
+// the value the loader installed from the .tdata image ahead of every C++
+// dynamic initializer in the process -- including TcmallocSlab::Init.
+ABSL_CONST_INIT uintptr_t initial_slabs = 0;
+
+void RecordInitialSlabs(int argc, char** argv, char** envp) {
+  initial_slabs = tcmalloc_slabs;
+}
+
+__attribute__((section(".preinit_array"),
+               used)) void (*const kRecordInitialSlabs)(int, char**, char**) =
+    RecordInitialSlabs;
+
+// A thread with no region cached must start out naming tcmalloc_dummy_slab.
+// The fast paths dereference tcmalloc_slabs without testing it first, and the
+// initial thread reaches them (via free()) before main() runs, so the value
+// installed from the .tdata image has to be usable as it stands.
+TEST(TcmallocSlab, InitialSlabsAreTheDummyRegion) {
+  EXPECT_EQ(initial_slabs, reinterpret_cast<uintptr_t>(tcmalloc_dummy_slab));
+}
+
+// The marker the fast paths compare against.  0 is the unpopulated marker, so
+// no CPU ever matches it.
+TEST(TcmallocSlab, DummyRegionMarkerIsUnpopulated) {
+  EXPECT_EQ(tcmalloc_dummy_slab[0], 0);
+}
+
+// Nothing may write to the dummy region, so it must not be mapped writable.
+TEST(TcmallocSlab, DummyRegionIsReadOnly) {
+  const uintptr_t addr = reinterpret_cast<uintptr_t>(tcmalloc_dummy_slab);
+
+  ProcMapsIterator::Buffer buffer;
+  ProcMapsIterator it(&buffer);
+  ASSERT_TRUE(it.Valid());
+
+  uint64_t start, end, offset;
+  int64_t inode;
+  char* flags;
+  char* filename;
+  dev_t dev;
+  while (it.NextExt(&start, &end, &flags, &offset, &inode, &filename, &dev)) {
+    if (addr < start || addr >= end) continue;
+    SCOPED_TRACE(absl::StrCat(filename, " ", flags));
+    EXPECT_EQ(flags[0], 'r');
+    EXPECT_EQ(flags[1], '-');
+    return;
+  }
+  FAIL() << "no mapping contains tcmalloc_dummy_slab";
+}
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
 using testing::Each;
 using testing::UnorderedElementsAreArray;
@@ -149,6 +205,34 @@ class TcmallocSlabTest : public testing::Test {
   static constexpr size_t kCapacity = 10;
   size_t metadata_bytes_ = 0;
 };
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+// The fast paths read the CPU id from whichever field of __rseq_abi the
+// registered vCPU mode selects.  Naming a different field lets a region's
+// marker keep matching a CPU that no longer owns it, which is what stops
+// remote operations from being observed.  Nothing forces a thread through
+// InitFastPerCpu() -- in google3 //base:percpu registers rseq before any
+// tcmalloc code runs on a thread -- so the slab records the location itself.
+TEST_F(TcmallocSlabTest, TheCpuIdOffsetNamesTheRegisteredField) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+  }
+
+  EXPECT_EQ(tcmalloc_vcpu_id_offset, __rseq_virtual_flat_cpu_id_offset);
+
+  // A thread that did not run InitFastPerCpu() reads the same field.  Take the
+  // path a first allocation on a new thread takes: UsePerCpuCache() gates every
+  // allocation on IsFastNoInit(), falling back to IsFast() to register a thread
+  // that nothing else has, and only then reaches CacheCpuSlab().
+  std::thread t([&]() {
+    ASSERT_TRUE(IsFast());
+    const auto [cpu, cached] = slab_.CacheCpuSlab();
+    ASSERT_GE(cpu, 0);
+    EXPECT_EQ(tcmalloc_vcpu_id_offset, __rseq_virtual_flat_cpu_id_offset);
+  });
+  t.join();
+}
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
 TEST_F(TcmallocSlabTest, Metadata) {
   if (!IsFast()) {
@@ -239,7 +323,11 @@ TEST_F(TcmallocSlabTest, Unit) {
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       const auto max_capacity = [](uint8_t shift) { return kCapacity; };
-      ASSERT_EQ(slab_.Grow(cpu, size_class, 1, max_capacity), 0);
+      // Grow() does not consult this thread's cached slabs pointer.  It
+      // validates the region's marker inside the restartable sequence, so it
+      // succeeds even though the Push()/Pop() fast paths above did not.
+      ASSERT_EQ(slab_.Grow(cpu, size_class, 1, max_capacity), 1);
+      ASSERT_EQ(slab_.Capacity(cpu, size_class), 1);
       {
         auto [got_cpu, cached] = slab_.CacheCpuSlab();
         ASSERT_TRUE(cached);
@@ -252,8 +340,8 @@ TEST_F(TcmallocSlabTest, Unit) {
       }
 
       // Grow capacity to kCapacity / 2.
-      ASSERT_EQ(slab_.Grow(cpu, size_class, kCapacity / 2, max_capacity),
-                kCapacity / 2);
+      ASSERT_EQ(slab_.Grow(cpu, size_class, kCapacity / 2 - 1, max_capacity),
+                kCapacity / 2 - 1);
       ASSERT_EQ(slab_.Length(cpu, size_class), 0);
       ASSERT_EQ(slab_.Capacity(cpu, size_class), kCapacity / 2);
       ASSERT_EQ(slab_.Pop(size_class), nullptr);
@@ -498,10 +586,10 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
         new_max_capacity,
         /*classes_to_resize=*/2);
 
-    // UpdateMaxCapacities() zeroes out our thread's slabs pointer,
-    // which Grow() expects to be there. Normally, any other caller
-    // of Grow() would be from deallocation, which updates the slab
-    // pointer before doing anything, so explicitly put it back here.
+    // UpdateMaxCapacities() installed a new slabs buffer, so our thread's
+    // cached pointer now names a retired region. Re-cache it before freeing
+    // that region below; this is what any subsequent allocation or
+    // deallocation would do anyway.
     auto [cpu, cached] = slab_.CacheCpuSlab();
     EXPECT_TRUE(cached);
 
@@ -627,8 +715,9 @@ int GetResizedMaxCapacities(Context& ctx,
                             PerSizeClassMaxCapacity* new_max_capacity) {
   std::atomic<size_t>* max_capacity = ctx.max_capacity;
   absl::BitGen rnd;
-  size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
-  size_t to_grow = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
+  // Size class 0's header is the region's marker, so it is never resized.
+  size_t to_shrink = absl::Uniform<int32_t>(rnd, 1, kStressSlabs);
+  size_t to_grow = absl::Uniform<int32_t>(rnd, 1, kStressSlabs);
   if (to_shrink == to_grow || max_capacity[to_shrink] == 0 ||
       max_capacity[to_grow].load(std::memory_order_relaxed) ==
           kMaxStressCapacity - 1)
@@ -858,8 +947,14 @@ void StressThread(size_t thread_id,
             return ctx.has_init[cpu].load(std::memory_order_relaxed);
           },
           [&ctx](int cpu) {
+            const bool was_populated =
+                ctx.has_init[cpu].load(std::memory_order_relaxed);
             ctx.init[cpu] = false;
             ctx.has_init[cpu].store(false, std::memory_order_release);
+            // Slabs buffers are recycled, so an unpopulated cpu's headers may
+            // still hold values from the buffer's previous life. Nothing reads
+            // them until the cpu is populated again, which reinitializes them.
+            if (!was_populated) return;
             for (size_t size_class = 1; size_class < kStressSlabs;
                  ++size_class) {
               EXPECT_EQ(ctx.slab->Length(cpu, size_class), 0);
@@ -894,7 +989,6 @@ void ResizeMaxCapacitiesThread(
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].lock();
     PerSizeClassMaxCapacity new_max_capacity[2];
     int to_resize = GetResizedMaxCapacities(ctx, new_max_capacity);
-    size_t old_slabs_idx = 0;
 
     std::atomic<size_t> updated_max_capacity[kStressSlabs];
     for (size_t sc = 0; sc < kStressSlabs; ++sc) {
@@ -907,8 +1001,21 @@ void ResizeMaxCapacitiesThread(
           new_max_capacity[i].max_capacity, std::memory_order_relaxed);
     }
 
-    uint8_t shift = ctx.slab->GetShift();
-    void* slabs = AllocSlabs(allocator, shift);
+    // We must not free old slabs: a thread may keep an address inside them
+    // cached in tcmalloc_slabs for an arbitrary amount of time and will read
+    // the region marker from it. Recycle the buffer we retired the last time
+    // we ran at this shift instead, which is also what production does:
+    // cpu_cache.h keeps one slabs buffer per shift and never frees it.
+    // ResizeSlabsThread changes the shift underneath us, so buffers retired at
+    // a different shift have the wrong size and must not be reused.
+    const uint8_t shift = ctx.slab->GetShift();
+    TC_CHECK_LT(shift, old_slabs_span.size());
+    void* slabs = old_slabs_span[shift].first;
+    if (slabs == nullptr) {
+      slabs = AllocSlabs(allocator, shift);
+    } else {
+      mprotect(slabs, old_slabs_span[shift].second, PROT_READ | PROT_WRITE);
+    }
     const auto [old_slabs, old_slabs_size] = ctx.slab->UpdateMaxCapacities(
         slabs, GetMaxCapacity{updated_max_capacity},
         [&](int size, uint16_t cap) {
@@ -920,12 +1027,18 @@ void ResizeMaxCapacitiesThread(
         drain_handler, new_max_capacity, to_resize);
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].unlock();
     ASSERT_NE(old_slabs, nullptr);
+    // Retire the old slabs before anything below can return early. We must not
+    // free them here: a thread may keep an address inside them cached in
+    // tcmalloc_slabs for an arbitrary amount of time and will read the region
+    // marker from it. They are freed once all threads have joined.
+    old_slabs_span[shift] = {old_slabs, old_slabs_size};
+    // Verify that we do not write to an old slab, as this may indicate a bug.
+    // This holds whether or not we madvise it away below.
+    mprotect(old_slabs, old_slabs_size, PROT_READ);
     // We sometimes don't madvise away the old slabs in order to simulate
     // madvise failing.
     const bool simulate_madvise_failure = absl::Bernoulli(rnd, 0.1);
     if (!simulate_madvise_failure) {
-      // Verify that we do not write to an old slab, as this may indicate a bug.
-      mprotect(old_slabs, old_slabs_size, PROT_READ);
       // It's important that we do this here in order to uncover any potential
       // correctness issues due to madvising away the old slabs.
       // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once
@@ -966,16 +1079,6 @@ void ResizeMaxCapacitiesThread(
       signal_safe_close(fd);
     }
 
-    // Delete the old slab from 100 iterations ago.
-    if (old_slabs_span[old_slabs_idx].first != nullptr) {
-      auto [old_slabs, old_slabs_size] = old_slabs_span[old_slabs_idx];
-
-      mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
-      sized_aligned_delete(old_slabs, old_slabs_size,
-                           std::align_val_t{EXEC_PAGESIZE});
-    }
-    old_slabs_span[old_slabs_idx] = {old_slabs, old_slabs_size};
-    if (++old_slabs_idx == old_slabs_span.size()) old_slabs_idx = 0;
   }
 }
 
@@ -1012,12 +1115,19 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
         drain_handler);
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].unlock();
     ASSERT_NE(old_slabs, nullptr);
+    // Retire the old slabs before anything below can return early. We must not
+    // free them here: a thread may keep an address inside them cached in
+    // tcmalloc_slabs for an arbitrary amount of time and will read the region
+    // marker from it. They are freed once all threads have joined.
+    old_slabs_span[old_slabs_idx] = {old_slabs, old_slabs_size};
+    if (++old_slabs_idx == old_slabs_span.size()) old_slabs_idx = 0;
+    // Verify that we do not write to an old slab, as this may indicate a bug.
+    // This holds whether or not we madvise it away below.
+    mprotect(old_slabs, old_slabs_size, PROT_READ);
     // We sometimes don't madvise away the old slabs in order to simulate
     // madvise failing.
     const bool simulate_madvise_failure = absl::Bernoulli(rnd, 0.1);
     if (!simulate_madvise_failure) {
-      // Verify that we do not write to an old slab, as this may indicate a bug.
-      mprotect(old_slabs, old_slabs_size, PROT_READ);
       // It's important that we do this here in order to uncover any potential
       // correctness issues due to madvising away the old slabs.
       // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once
@@ -1058,16 +1168,6 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
       signal_safe_close(fd);
     }
 
-    // Delete the old slab from 100 iterations ago.
-    if (old_slabs_span[old_slabs_idx].first != nullptr) {
-      auto [old_slabs, old_slabs_size] = old_slabs_span[old_slabs_idx];
-
-      mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
-      sized_aligned_delete(old_slabs, old_slabs_size,
-                           std::align_val_t{EXEC_PAGESIZE});
-    }
-    old_slabs_span[old_slabs_idx] = {old_slabs, old_slabs_size};
-    if (++old_slabs_idx == old_slabs_span.size()) old_slabs_idx = 0;
   }
 }
 
@@ -1182,6 +1282,13 @@ TEST_P(StressThreadTest, Stress) {
     t.join();
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    // Draining an unpopulated cpu would fault in (and mark as running) its
+    // region, so mirror what CpuCache::Drain does and skip those.  We cannot
+    // check the headers of an unpopulated cpu either: the slabs buffer may
+    // have been recycled from an earlier resize, and InitCpuImpl only
+    // reinitializes the regions of populated cpus, so the headers of an
+    // unpopulated cpu can hold values left over from the buffer's prior life.
+    if (!has_init[cpu].load(std::memory_order_relaxed)) continue;
     slab.Drain(cpu, drain_handler);
     for (size_t size_class = 1; size_class < kStressSlabs; ++size_class) {
       EXPECT_EQ(slab.Length(cpu, size_class), 0);
@@ -1316,7 +1423,9 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
 void BM_PushPop(benchmark::State& state) {
   TC_CHECK(IsFast());
   constexpr int kCpu = 0;
-  constexpr size_t kSizeClass = 0;
+  // Size class 0's header is the region's marker; it is never a real size
+  // class.
+  constexpr size_t kSizeClass = 1;
   // Fake being on the given CPU. This allows Grow to succeed for
   // kCpu/kSizeClass, and then we Push/Pop repeatedly on kCpu/kSizeClass.
   // Note that no other thread has access to `slab` so we don't need to worry
@@ -1357,7 +1466,9 @@ BENCHMARK(BM_PushPop);
 void BM_PushPopBatch(benchmark::State& state) {
   TC_CHECK(IsFast());
   constexpr int kCpu = 0;
-  constexpr size_t kSizeClass = 0;
+  // Size class 0's header is the region's marker; it is never a real size
+  // class.
+  constexpr size_t kSizeClass = 1;
   // Fake being on the given CPU. This allows Grow to succeed for
   // kCpu/kSizeClass, and then we Push/PopBatch repeatedly on kCpu/kSizeClass.
   // Note that no other thread has access to `slab` so we don't need to worry
