@@ -12,16 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <algorithm>
-#include <type_traits>
-#include <utility>
 #include <variant>
 #include <vector>
 
 #include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
 #include "absl/strings/str_format.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
