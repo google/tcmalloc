@@ -42,6 +42,8 @@ class ScopedDelay {
       __asm__ __volatile__("yield\n");
 #endif
     }
+#else
+    (void)delay_cycles;
 #endif
   }
   ~ScopedDelay() = default;

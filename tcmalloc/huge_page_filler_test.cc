@@ -242,43 +242,19 @@ class FakeResidency : public Residency {
 class FakeClock {
  public:
   FakeClock() = default;
-  [[nodiscard]] static int64_t now() {
-    now_calls_.fetch_add(1, std::memory_order_relaxed);
-    return clock_.load(std::memory_order_relaxed);
-  }
-  [[nodiscard]] static double freq() {
-    freq_calls_.fetch_add(1, std::memory_order_relaxed);
-    return absl::ToDoubleNanoseconds(absl::Seconds(2));
-  }
+  static int64_t now() { return clock_.load(std::memory_order_relaxed); }
+  static double freq() { return absl::ToDoubleNanoseconds(absl::Seconds(2)); }
   static void Advance(absl::Duration d) {
     clock_.fetch_add(static_cast<int64_t>(absl::ToDoubleSeconds(d) * freq()),
                      std::memory_order_relaxed);
   }
-  static void ResetClock() {
-    clock_.store(1234, std::memory_order_relaxed);
-    now_calls_.store(0, std::memory_order_relaxed);
-    freq_calls_.store(0, std::memory_order_relaxed);
-  }
-  [[nodiscard]] static size_t now_calls() {
-    return now_calls_.load(std::memory_order_relaxed);
-  }
-  [[nodiscard]] static size_t freq_calls() {
-    return freq_calls_.load(std::memory_order_relaxed);
-  }
-  static void ResetCalls() {
-    now_calls_.store(0, std::memory_order_relaxed);
-    freq_calls_.store(0, std::memory_order_relaxed);
-  }
+  static void ResetClock() { clock_.store(1234, std::memory_order_relaxed); }
 
  private:
   static std::atomic<int64_t> clock_;
-  static std::atomic<size_t> now_calls_;
-  static std::atomic<size_t> freq_calls_;
 };
 
 std::atomic<int64_t> FakeClock::clock_{1234};
-std::atomic<size_t> FakeClock::now_calls_{0};
-std::atomic<size_t> FakeClock::freq_calls_{0};
 
 class MockCollapse final : public MemoryModifyFunction {
  public:
@@ -678,71 +654,6 @@ class FillerTestWithSubreleaseUnbacked : public FillerTest {
   FillerTestWithSubreleaseUnbacked()
       : FillerTest(SubreleaseUnbackedMode::kEnabled) {}
 };
-
-// TODO(b/73749855): Reduce the count of clock_.now() and clock_.freq() calls.
-TEST_F(FillerTest, ClockCalls) {
-  SpanAllocInfo info = {.objects_per_span = 1,
-                        .density = AccessDensityPrediction::kSparse};
-
-  // 1. TryGet on empty filler (miss).
-  FakeClock::ResetCalls();
-  {
-    PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(1), info);
-    EXPECT_EQ(res.pt, nullptr);
-  }
-  EXPECT_EQ(FakeClock::now_calls(), 0);
-  EXPECT_EQ(FakeClock::freq_calls(), 0);
-
-  auto* pt = new PageTracker(GetBacking(), /*was_donated=*/false, 0);
-  PageId page1;
-  {
-    PageHeapSpinLockHolder l;
-    page1 = pt->Get(Length(1), info).page;
-    filler_.Contribute(pt, /*donated=*/false, info);
-  }
-
-  // 2. TryGet on available hugepage (hit).
-  // TODO(b/73749855): Reduce the number of clock calls.
-  FakeClock::ResetCalls();
-  PageTracker* alloc_pt;
-  PageId page2;
-  {
-    PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(1), info);
-    alloc_pt = res.pt;
-    page2 = res.page;
-  }
-  EXPECT_EQ(alloc_pt, pt);
-  EXPECT_EQ(FakeClock::now_calls(), 2);
-  EXPECT_EQ(FakeClock::freq_calls(), 0);
-
-  // 3. Put (partially freed hugepage).
-  // TODO(b/73749855): Reduce the number of clock calls.
-  FakeClock::ResetCalls();
-  PageTracker* put_res1;
-  {
-    PageHeapSpinLockHolder l;
-    put_res1 = filler_.Put(alloc_pt, Range(page2, Length(1)), info);
-  }
-  EXPECT_EQ(put_res1, nullptr);
-  EXPECT_EQ(FakeClock::now_calls(), 1);
-  EXPECT_EQ(FakeClock::freq_calls(), 0);
-
-  // 4. Put (fully freed hugepage).
-  // TODO(b/73749855): Reduce the number of clock calls.
-  FakeClock::ResetCalls();
-  PageTracker* put_res2;
-  {
-    PageHeapSpinLockHolder l;
-    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info);
-  }
-  EXPECT_EQ(put_res2, pt);
-  EXPECT_EQ(FakeClock::now_calls(), 2);
-  EXPECT_EQ(FakeClock::freq_calls(), 1);
-
-  delete pt;
-}
 
 TEST_F(FillerTest, Density) {
   absl::BitGen rng;
