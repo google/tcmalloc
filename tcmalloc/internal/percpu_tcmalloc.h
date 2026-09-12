@@ -274,6 +274,14 @@ class TcmallocSlab {
   void StopCpu(int cpu);
   void StartCpu(int cpu);
 
+  // Stop/start all cpus at once. StopAllCpus also executes the Fence for all
+  // cpus, so that no local operation is in flight when it returns.
+  void StopAllCpus();
+  void StartAllCpus();
+
+  // Asserts that <cpu> is currently stopped, as required by remote operations.
+  void AssertCpuStopped(int cpu) const;
+
   // Grows the cpu/size_class slab's capacity to no greater than
   // min(capacity+len, max_capacity(<shift>)) and returns the increment
   // applied.
@@ -1192,7 +1200,7 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
                                         DrainHandler drain_handler) {
-  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
+  AssertCpuStopped(cpu);
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
     uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1277,11 +1285,7 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
         begins_[size_class].load(std::memory_order_relaxed);
   }
 
-  for (auto& state : state_) {
-    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
-    state.stopped.store(true, std::memory_order_relaxed);
-  }
-  FenceAllCpus();
+  StopAllCpus();
 
 #ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
   // TODO(b/29448043): Remove latency injection.
@@ -1299,9 +1303,7 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   InitSlabs(new_slabs, shift, capacity);
 
   // Phase 4: Re-start all CPUs.
-  for (auto& state : state_) {
-    state.stopped.store(false, std::memory_order_release);
-  }
+  StartAllCpus();
 
   // Phase 5: Return pointers from the old slab to the TransferCache.
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
@@ -1336,11 +1338,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
     }
   }
 
-  for (auto& state : state_) {
-    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
-    state.stopped.store(true, std::memory_order_relaxed);
-  }
-  FenceAllCpus();
+  StopAllCpus();
 
 #ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
   // TODO(b/29448043): Remove latency injection.
@@ -1351,9 +1349,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   InitSlabs(new_slabs, new_shift, capacity);
 
   // Phase 3: Re-start all CPUs.
-  for (auto& state : state_) {
-    state.stopped.store(false, std::memory_order_release);
-  }
+  StartAllCpus();
 
   // Phase 4: Return pointers from the old slab to the TransferCache.
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
@@ -1388,7 +1384,7 @@ template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::GrowOtherCache(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
-  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
+  AssertCpuStopped(cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t max_cap = max_capacity(ToUint8(shift));
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1403,7 +1399,7 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
 template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     int cpu, size_t size_class, size_t len, ShrinkHandler shrink_handler) {
-  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
+  AssertCpuStopped(cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1462,11 +1458,7 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
 
   // Stop all CPUs. They must also be locked, since we are touching the
   // populated bit later.
-  for (auto& state : state_) {
-    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
-    state.stopped.store(true, std::memory_order_relaxed);
-  }
-  FenceAllCpus();
+  StopAllCpus();
 
   // See which ones are actually drained, and which hugepages we can free.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -1549,9 +1541,7 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
   }
 
   // Restart the CPUs again.
-  for (auto& state : state_) {
-    state.stopped.store(false, std::memory_order_release);
-  }
+  StartAllCpus();
 }
 
 template <size_t NumClasses>
@@ -1565,8 +1555,29 @@ void TcmallocSlab<NumClasses>::StopCpu(int cpu) {
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::StartCpu(int cpu) {
   TC_ASSERT(cpu >= 0 && cpu < num_cpus(), "cpu=%d", cpu);
-  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
+  AssertCpuStopped(cpu);
   state_[cpu].stopped.store(false, std::memory_order_release);
+}
+
+template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::StopAllCpus() {
+  for (auto& state : state_) {
+    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
+    state.stopped.store(true, std::memory_order_relaxed);
+  }
+  FenceAllCpus();
+}
+
+template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::StartAllCpus() {
+  for (auto& state : state_) {
+    state.stopped.store(false, std::memory_order_release);
+  }
+}
+
+template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::AssertCpuStopped(int cpu) const {
+  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
 }
 
 template <size_t NumClasses>
