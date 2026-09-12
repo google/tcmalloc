@@ -671,11 +671,21 @@ void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
   if (objects_per_span_ > 1) {
     const double now = forwarder_.clock_now();
     const double frequency = forwarder_.clock_frequency();
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    // Precompute the cycles->milliseconds factor once so the per-span
+    // conversion is a multiply instead of a floating-point division.
+    const double ms_per_cycle = 1000.0 / frequency;
+#endif
     for (Span* span : spans) {
       const double elapsed =
           std::max<double>(now - static_cast<double>(span->AllocTime()), 0.0);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const absl::Duration lifetime =
           absl::Milliseconds(elapsed * 1000 / frequency);
+#else
+      const absl::Duration lifetime =
+          absl::Milliseconds(elapsed * ms_per_cycle);
+#endif
       completed_spans_[LifetimeBucketNum(lifetime)].LossyAdd(1);
     }
   }
