@@ -81,6 +81,12 @@ class Bitmap {
   // If there is at least one free range at or after <start>,
   // put it in *index, *length and return true; else return false.
   bool NextFreeRange(size_t start, size_t* index, size_t* length) const;
+  // If there is at least one free range before <end>,
+  // put it in *index, *length and return true; else return false.
+  // To iterate backwards through all free ranges:
+  //   size_t index = bitmap.size(), n;
+  //   while (bitmap.PrevFreeRange(index, &index, &n)) { ... }
+  bool PrevFreeRange(size_t end, size_t* index, size_t* length) const;
 
   // Returns index of the first {true, false} bit >= index, or N if none.
   size_t FindSet(size_t index) const;
@@ -166,6 +172,12 @@ class RangeTracker {
   // If there is at least one free range at or after <start>,
   // put it in *index, *length and return true; else return false.
   bool NextFreeRange(size_t start, size_t* index, size_t* length) const;
+  // If there is at least one free range before <end>,
+  // put it in *index, *length and return true; else return false.
+  // To iterate backwards through all free ranges:
+  //   size_t index = tracker.size(), n;
+  //   while (tracker.PrevFreeRange(index, &index, &n)) { ... }
+  bool PrevFreeRange(size_t end, size_t* index, size_t* length) const;
 
   void Clear();
 
@@ -331,6 +343,14 @@ inline bool RangeTracker<N>::NextFreeRange(size_t start, size_t* index,
   return bits_.NextFreeRange(start, index, length);
 }
 
+// If there is at least one free range before <end>,
+// put it in *index, *length and return true; else return false.
+template <size_t N>
+inline bool RangeTracker<N>::PrevFreeRange(size_t end, size_t* index,
+                                           size_t* length) const {
+  return bits_.PrevFreeRange(end, index, length);
+}
+
 template <size_t N>
 inline void RangeTracker<N>::Clear() {
   bits_.Clear();
@@ -492,6 +512,20 @@ inline bool Bitmap<N>::NextFreeRange(size_t start, size_t* index,
   size_t j = FindSet(i);
   *index = i;
   *length = j - i;
+  return true;
+}
+
+template <size_t N>
+inline bool Bitmap<N>::PrevFreeRange(size_t end, size_t* index,
+                                     size_t* length) const {
+  if (end == 0) return false;
+  if (end > N) end = N;
+  ssize_t j = FindClearBackwards(end - 1);
+  if (j < 0) return false;
+  ssize_t i = FindSetBackwards(j);
+  size_t range_start = (i < 0) ? 0 : static_cast<size_t>(i + 1);
+  *index = range_start;
+  *length = static_cast<size_t>(j + 1) - range_start;
   return true;
 }
 

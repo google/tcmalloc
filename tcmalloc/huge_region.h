@@ -331,18 +331,17 @@ inline void HugeRegion::Put(Range r, bool release) {
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
 inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
-  if (desired == Length(0)) return NHugePages(0);
-
   const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
+  if (to_release == Length(0)) return NHugePages(0);
 
-  HugeLength release_target = NHugePages(0);
   bool should_unback[kNumHugePages] = {};
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  HugeLength release_target = NHugePages(0);
   const int start = adaptive_release ? kNumHugePages - 1 : 0;
   const int end = adaptive_release ? -1 : kNumHugePages;
   const int step = adaptive_release ? -1 : 1;
 
-  // TODO(b/73749855): Consider optimizing this search by consulting tracker_.
   for (int i = start; i != end; i += step) {
     if (backed_[i] && pages_used_[i] == Length(0)) {
       should_unback[i] = true;
@@ -351,6 +350,47 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
 
     if (release_target.in_pages() >= to_release) break;
   }
+#else
+  const size_t needed = HLFromPages(to_release).raw_num();
+  size_t released = 0;
+
+  if (adaptive_release) {
+    size_t index = tracker_.size(), n;
+    while (tracker_.PrevFreeRange(index, &index, &n)) {
+      if (n < kPagesPerHugePage.raw_num()) continue;
+      const size_t first_hp = (index + kPagesPerHugePage.raw_num() - 1) /
+                              kPagesPerHugePage.raw_num();
+      const size_t last_hp = (index + n) / kPagesPerHugePage.raw_num();
+      for (size_t i = last_hp; i > first_hp; --i) {
+        const size_t hp = i - 1;
+        if (!backed_[hp]) continue;
+        TC_ASSERT_EQ(pages_used_[hp], Length(0));
+        should_unback[hp] = true;
+        if (++released == needed) break;
+      }
+      if (released == needed) break;
+    }
+  } else {
+    size_t index = 0, n;
+    while (tracker_.NextFreeRange(index, &index, &n)) {
+      if (n < kPagesPerHugePage.raw_num()) {
+        index += n;
+        continue;
+      }
+      const size_t first_hp = (index + kPagesPerHugePage.raw_num() - 1) /
+                              kPagesPerHugePage.raw_num();
+      const size_t last_hp = (index + n) / kPagesPerHugePage.raw_num();
+      for (size_t hp = first_hp; hp < last_hp; ++hp) {
+        if (!backed_[hp]) continue;
+        TC_ASSERT_EQ(pages_used_[hp], Length(0));
+        should_unback[hp] = true;
+        if (++released == needed) break;
+      }
+      if (released == needed) break;
+      index += n;
+    }
+  }
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   return UnbackHugepages(should_unback);
 }
 
