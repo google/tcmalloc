@@ -261,7 +261,7 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
 
   const ScopedProfileSamplingInterval sample_interval(1);
 
-  const size_t kHardwarePageSize = tcmalloc_internal::GetPageSize();
+  const size_t kPageSize = tcmalloc_internal::GetPageSize();
   constexpr int kNumAllocations = 50;
 
   enum class AllocationHeap {
@@ -277,38 +277,24 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
     AllocationHeap heap;
     bool expect_madvised;
     bool guarded;
-    size_t alloc_size;
   };
 
   const TestCase kTestCases[] = {
-      {"disabled_sampled_large", MadviseSampledAllocations::kDisabled,
+      {"disabled_sampled", MadviseSampledAllocations::kDisabled,
        AllocationHeap::kSampled,
-       /*expect_madvised=*/false, /*guarded=*/false,
-       /*alloc_size=*/2 * kHardwarePageSize},
-      {"enabled_sampled_large", MadviseSampledAllocations::kEnabled,
+       /*expect_madvised=*/false, /*guarded=*/false},
+      {"enabled_sampled", MadviseSampledAllocations::kEnabled,
        AllocationHeap::kSampled,
-       /*expect_madvised=*/true, /*guarded=*/false,
-       /*alloc_size=*/2 * kHardwarePageSize},
-      {"disabled_sampled_small", MadviseSampledAllocations::kDisabled,
-       AllocationHeap::kSampled,
-       /*expect_madvised=*/false, /*guarded=*/false,
-       /*alloc_size=*/1024},
-      {"enabled_sampled_small", MadviseSampledAllocations::kEnabled,
-       AllocationHeap::kSampled,
-       /*expect_madvised=*/false, /*guarded=*/false,
-       /*alloc_size=*/1024},
+       /*expect_madvised=*/true, /*guarded=*/false},
       {"enabled_guarded", MadviseSampledAllocations::kEnabled,
        AllocationHeap::kSampled,
-       /*expect_madvised=*/true, /*guarded=*/true,
-       /*alloc_size=*/32},
+       /*expect_madvised=*/true, /*guarded=*/true},
       {"enabled_cold", MadviseSampledAllocations::kEnabled,
        AllocationHeap::kCold,
-       /*expect_madvised=*/true, /*guarded=*/false,
-       /*alloc_size=*/tcmalloc_internal::kMaxSize + 2 * kHardwarePageSize},
+       /*expect_madvised=*/true, /*guarded=*/false},
       {"enabled_normal", MadviseSampledAllocations::kEnabled,
        AllocationHeap::kNormal,
-       /*expect_madvised=*/false, /*guarded=*/false,
-       /*alloc_size=*/tcmalloc_internal::kMaxSize + 2 * kHardwarePageSize},
+       /*expect_madvised=*/false, /*guarded=*/false},
   };
 
   tcmalloc_internal::ResidencyPageMap residency;
@@ -321,10 +307,6 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
              tcmalloc_internal::HeapPartitioningMode::kFull)) {
       continue;
     }
-    if (test_case.alloc_size <= kHardwarePageSize &&
-        tcmalloc_internal::kPageSize <= kHardwarePageSize) {
-      continue;
-    }
 
     ScopedMadviseSampledAllocations s(test_case.madvise_sampled);
 
@@ -332,7 +314,10 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
     const ScopedGuardedSamplingInterval guarded_interval(
         test_case.guarded ? 1 : -1);
 
-    const size_t alloc_size = test_case.alloc_size;
+    const size_t alloc_size = (test_case.heap == AllocationHeap::kNormal ||
+                               test_case.heap == AllocationHeap::kCold)
+                                  ? tcmalloc_internal::kMaxSize + 2 * kPageSize
+                                  : (test_case.guarded ? 32 : 2 * kPageSize);
 
     auto allocate = [&]() -> void* {
       if (test_case.heap == AllocationHeap::kCold) {
@@ -340,11 +325,6 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
       }
       return ::operator new(alloc_size);
     };
-
-    const size_t touch_all_size =
-        (test_case.heap == AllocationHeap::kSampled && !test_case.guarded)
-            ? std::max(alloc_size, tcmalloc_internal::kPageSize)
-            : alloc_size;
 
     void* allocs[kNumAllocations];
     for (int i = 0; i < num_allocations; ++i) {
@@ -361,40 +341,31 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
           EXPECT_TRUE(tcmalloc_internal::IsNormalMemory(allocs[i]));
           break;
       }
-      memset(allocs[i], 0xAB, touch_all_size);
+      memset(allocs[i], 0xAB, alloc_size);
     }
     for (int i = 0; i < num_allocations; ++i) {
       sized_delete(allocs[i], alloc_size);
     }
 
     // Reallocate and touch only the first page.
-    const size_t touch_size = std::min(alloc_size, kHardwarePageSize);
+    const size_t touch_size = std::min(alloc_size, kPageSize);
     for (int i = 0; i < num_allocations; ++i) {
       allocs[i] = allocate();
       memset(allocs[i], 0xCD, touch_size);
     }
 
-    if (test_case.alloc_size > kHardwarePageSize) {
-      size_t total_resident = 0;
-      for (int i = 0; i < num_allocations; ++i) {
-        auto info = residency.Get(allocs[i], alloc_size);
-        ASSERT_TRUE(info.has_value());
-        total_resident += info->bytes_resident;
-      }
-
-      if (test_case.expect_madvised) {
-        EXPECT_LE(total_resident, num_allocations * touch_size);
-        EXPECT_GE(total_resident, (num_allocations - 1) * touch_size);
-      } else {
-        EXPECT_GT(total_resident, num_allocations * touch_size);
-      }
-    }
-
-    size_t total_allocated_resident = 0;
+    size_t total_resident = 0;
     for (int i = 0; i < num_allocations; ++i) {
       auto info = residency.Get(allocs[i], alloc_size);
       ASSERT_TRUE(info.has_value());
-      total_allocated_resident += info->bytes_resident;
+      total_resident += info->bytes_resident;
+    }
+
+    if (test_case.expect_madvised) {
+      EXPECT_LE(total_resident, num_allocations * touch_size);
+      EXPECT_GE(total_resident, (num_allocations - 1) * touch_size);
+    } else {
+      EXPECT_GT(total_resident, num_allocations * touch_size);
     }
 
     auto converted_or = tcmalloc_internal::MakeProfileProto(
@@ -424,7 +395,7 @@ TEST(HeapProfilingTest, MadviseSampledAllocations) {
     for (const auto& sample : converted.sample()) {
       profile_resident += sample.value(*resident_value_index);
     }
-    EXPECT_GE(profile_resident, total_allocated_resident * 9 / 10);
+    EXPECT_GE(profile_resident, total_resident * 9 / 10);
 
     for (int i = 0; i < num_allocations; ++i) {
       sized_delete(allocs[i], alloc_size);
