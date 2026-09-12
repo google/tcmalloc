@@ -974,6 +974,38 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
+    tcmalloc_internal_percpu_tcmalloc_no_glibc_rseq_test
+  SRCS
+    "percpu_tcmalloc_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::base"
+    "absl::core_headers"
+    "absl::fixed_array"
+    "absl::flat_hash_set"
+    "absl::function_ref"
+    "absl::random_random"
+    "absl::random_seed_sequences"
+    "absl::span"
+    "absl::synchronization"
+    "absl::time"
+    "tcmalloc::internal_affinity"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_cpu_utils"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::internal_percpu_tcmalloc"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::internal_util"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test(
+  NAME
     tcmalloc_internal_percpu_tcmalloc_fuzz
   SRCS
     "percpu_tcmalloc_fuzz.cc"

@@ -973,6 +973,45 @@ cc_test(
 )
 
 cc_test(
+    name = "percpu_tcmalloc_no_glibc_rseq_test",
+    timeout = "long",
+    srcs = ["percpu_tcmalloc_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    # Exercise tcmalloc's own rseq registration rather than glibc's.
+    env = {"GLIBC_TUNABLES": "glibc.pthread.rseq=0"},
+    linkstatic = 1,
+    malloc = ":system_malloc",
+    tags = [
+        "nohwasan",
+        "noubsan",
+    ],
+    deps = [
+        ":affinity",
+        ":config",
+        ":cpu_utils",
+        ":logging",
+        ":page_size",
+        ":percpu",
+        ":percpu_tcmalloc",
+        ":sysinfo",
+        ":util",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/testing:testutil",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:seed_sequences",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "percpu_tcmalloc_fuzz",
     srcs = ["percpu_tcmalloc_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
