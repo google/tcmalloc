@@ -1442,6 +1442,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
+  ENV
+    "LC_ALL=en_US.UTF-8"
 )
 
 tcmalloc_cc_test(

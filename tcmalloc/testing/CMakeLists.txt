@@ -326,6 +326,8 @@ tcmalloc_cc_test(
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
+  ENV
+    "BORG_EXPERIMENTS="
 )
 
 tcmalloc_cc_test_variants(
@@ -635,6 +637,8 @@ tcmalloc_cc_test_variants(
     "absl::str_format"
     "absl::time"
     "tcmalloc::malloc_extension"
+  ENV
+    "BORG_EXPERIMENTS="
 )
 
 tcmalloc_cc_binary(
@@ -1117,6 +1121,8 @@ tcmalloc_cc_test_variants(
     "GTest::gmock_main"
     "GTest::gmock"
     "tcmalloc::internal_numa"
+  ENV
+    "TCMALLOC_NUMA_AWARE=0"
 )
 
 tcmalloc_cc_test(
