@@ -334,9 +334,8 @@ void ThreadCache::BecomeIdle() {
   if (heap->in_setspecific_) return;  // Do not disturb the active caller
 
   heap->in_setspecific_ = true;
-  PerCpuState::state().RegisterThreadCache(nullptr);
-  // Also update the copy in __thread
   thread_local_data_ = nullptr;
+  PerCpuState::state().RegisterThreadCache(nullptr);
   heap->in_setspecific_ = false;
   if (GetCacheIfPresent() == heap) {
     // Somehow heap got reinstated by a recursive call to malloc
