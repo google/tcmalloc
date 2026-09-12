@@ -90,7 +90,7 @@ function(tcmalloc_cc_library_variants)
 endfunction()
 
 function(tcmalloc_cc_test_variants)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV" ${ARGN})
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_8k_pages
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -99,6 +99,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_8k_pages PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_8k_pages APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_32k_pages
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -107,6 +110,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_large_pages,tcmalloc::common_large_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_32k_pages PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_32k_pages APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -115,6 +121,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_256k_pages PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_256k_pages APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_small_but_slow
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -123,6 +132,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_small_but_slow,tcmalloc::common_small_but_slow>
   )
   set_tests_properties(${TCMALLOC_NAME}_small_but_slow PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_small_but_slow APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_pow2
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -131,6 +143,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_256k_pages_pow2 PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_POW2_SIZECLASS;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_256k_pages_pow2 APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_sharded_transfer_cache
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -139,6 +154,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_256k_pages_sharded_transfer_cache PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_256k_pages_sharded_transfer_cache APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_sharded_tc_ablation
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -147,6 +165,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_sharded_tc_ablation PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_SHARDED_TC_ABLATION;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_sharded_tc_ablation APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -155,6 +176,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_numa_aware,tcmalloc::common_numa_aware,tcmalloc::want_numa_aware>
   )
   set_tests_properties(${TCMALLOC_NAME}_numa_aware PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_numa_aware APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware_enabled_runtime
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -163,6 +187,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_numa_aware,tcmalloc::common_numa_aware>
   )
   set_tests_properties(${TCMALLOC_NAME}_numa_aware_enabled_runtime PROPERTIES ENVIRONMENT "TCMALLOC_NUMA_AWARE=1;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_numa_aware_enabled_runtime APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_partitioned_enabled_runtime
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -171,6 +198,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_partitioned_enabled_runtime PROPERTIES ENVIRONMENT "TCMALLOC_HEAP_PARTITIONING=true;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_partitioned_enabled_runtime APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_partitioned_light_runtime
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -179,6 +209,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_partitioned_light_runtime PROPERTIES ENVIRONMENT "TCMALLOC_HEAP_PARTITIONING=light;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_partitioned_light_runtime APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware_disabled
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -187,6 +220,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_numa_aware,tcmalloc::common_numa_aware,tcmalloc::want_numa_aware>
   )
   set_tests_properties(${TCMALLOC_NAME}_numa_aware_disabled PROPERTIES ENVIRONMENT "TCMALLOC_NUMA_AWARE=0;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_numa_aware_disabled APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_numa_aware
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -195,6 +231,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages_numa_aware,tcmalloc::common_256k_pages_numa_aware,tcmalloc::want_numa_aware>
   )
   set_tests_properties(${TCMALLOC_NAME}_256k_pages_numa_aware PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_256k_pages_numa_aware APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_pow2_sharded_transfer_cache
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -203,6 +242,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_256k_pages_pow2_sharded_transfer_cache PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_POW2_SIZECLASS,TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_256k_pages_pow2_sharded_transfer_cache APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_legacy_size_classes
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -211,6 +253,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages,tcmalloc::want_legacy_size_classes>
   )
   set_tests_properties(${TCMALLOC_NAME}_legacy_size_classes PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_legacy_size_classes APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_hpaa
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -219,6 +264,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages,tcmalloc::want_hpaa>
   )
   set_tests_properties(${TCMALLOC_NAME}_hpaa PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_hpaa APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_deprecated_perthread
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -227,6 +275,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_deprecated_perthread,tcmalloc::common_deprecated_perthread>
   )
   set_tests_properties(${TCMALLOC_NAME}_deprecated_perthread PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_deprecated_perthread APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_pgho_experiment
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -235,6 +286,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_pgho_experiment PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_PGHO_EXPERIMENT;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_pgho_experiment APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_flat_cpu_caches
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -243,6 +297,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_flat_cpu_caches PROPERTIES ENVIRONMENT "PERCPU_VCPU_MODE=flat;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_flat_cpu_caches APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_real_cpu_caches
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -251,6 +308,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_real_cpu_caches PROPERTIES ENVIRONMENT "PERCPU_VCPU_MODE=none;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_real_cpu_caches APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_no_glibc_rseq
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -259,6 +319,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_no_glibc_rseq PROPERTIES ENVIRONMENT "GLIBC_TUNABLES=glibc.pthread.rseq=0;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_no_glibc_rseq APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_mm_vcpu_cpu_caches
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -267,6 +330,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_mm_vcpu_cpu_caches PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TEST_ONLY_MM_VCPU;GLIBC_TUNABLES=glibc.pthread.rseq=0;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_mm_vcpu_cpu_caches APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_legacy_locking
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -275,6 +341,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_legacy_locking,tcmalloc::common_legacy_locking>
   )
   set_tests_properties(${TCMALLOC_NAME}_legacy_locking PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_legacy_locking APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_latency_injection
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -283,6 +352,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_latency_injection,tcmalloc::common_latency_injection>
   )
   set_tests_properties(${TCMALLOC_NAME}_latency_injection PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_latency_injection APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_huge_region_adaptive_release
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -291,6 +363,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_huge_region_adaptive_release PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_tcmalloc_huge_region_adaptive_release APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_stale_pages
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -299,6 +374,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_release_stale_pages PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_tcmalloc_release_stale_pages APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_free_stale
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -307,6 +385,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_release_free_stale PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_RELEASE_FREE_STALE;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_tcmalloc_release_free_stale APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_madv_nohugepage_regions
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -315,6 +396,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_madv_nohugepage_regions PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_tcmalloc_madv_nohugepage_regions APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_madv_sampled_holdback
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -323,6 +407,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_madv_sampled_holdback PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_tcmalloc_madv_sampled_holdback APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_subbucket_prioritization
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -331,6 +418,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_cfl_subbucket_prioritization PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_tcmalloc_cfl_subbucket_prioritization APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_page_heap_gardening
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
@@ -339,6 +429,9 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
   )
   set_tests_properties(${TCMALLOC_NAME}_tcmalloc_page_heap_gardening PROPERTIES ENVIRONMENT "BORG_EXPERIMENTS=TCMALLOC_PAGE_HEAP_GARDENING;TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  if(TCMALLOC_ENV)
+    set_property(TEST ${TCMALLOC_NAME}_tcmalloc_page_heap_gardening APPEND PROPERTY ENVIRONMENT "${TCMALLOC_ENV}")
+  endif()
 endfunction()
 
 function(tcmalloc_cc_binary_variants)
