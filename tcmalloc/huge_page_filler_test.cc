@@ -714,7 +714,7 @@ TEST_F(FillerTest, ClockCalls) {
     page2 = res.page;
   }
   EXPECT_EQ(alloc_pt, pt);
-  EXPECT_EQ(FakeClock::now_calls(), 2);
+  EXPECT_EQ(FakeClock::now_calls(), 1);
   EXPECT_EQ(FakeClock::freq_calls(), 0);
 
   // 3. Put (partially freed hugepage).
@@ -739,6 +739,43 @@ TEST_F(FillerTest, ClockCalls) {
   }
   EXPECT_EQ(put_res2, pt);
   EXPECT_EQ(FakeClock::now_calls(), 2);
+  EXPECT_EQ(FakeClock::freq_calls(), 1);
+
+  // 5. Contribute and wait for pt to be sampled.
+  while (true) {
+    PageHeapSpinLockHolder l;
+    page1 = pt->Get(Length(1), info).page;
+    filler_.Contribute(pt, /*donated=*/false, info);
+    if (pt->GetTagState().sampled_for_tagging) {
+      break;
+    }
+    filler_.Put(pt, Range(page1, Length(1)), info);
+  }
+
+  FakeClock::ResetCalls();
+
+  {
+    PageHeapSpinLockHolder l;
+    auto res = filler_.TryGet(Length(1), info);
+    alloc_pt = res.pt;
+    page2 = res.page;
+  }
+
+  EXPECT_EQ(alloc_pt, pt);
+  EXPECT_EQ(FakeClock::now_calls(), 2);
+  EXPECT_EQ(FakeClock::freq_calls(), 0);
+
+  FakeClock::ResetCalls();
+
+  {
+    PageHeapSpinLockHolder l;
+    put_res1 = filler_.Put(alloc_pt, Range(page2, Length(1)), info);
+    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info);
+  }
+
+  EXPECT_EQ(put_res1, nullptr);
+  EXPECT_EQ(put_res2, pt);
+  EXPECT_EQ(FakeClock::now_calls(), 3);
   EXPECT_EQ(FakeClock::freq_calls(), 1);
 
   delete pt;

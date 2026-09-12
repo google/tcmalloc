@@ -1233,11 +1233,21 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   TC_ASSERT(type == AccessDensityPrediction::kSparse || pt->HasDenseSpans());
 
   // Log previous features before modifying the page tracker.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const auto now = clock_.now();
+#endif
   if (pt->GetTagState().sampled_for_tagging) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    const auto now = clock_.now();
+#endif
     pt->RecordFeatures();
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    pt->SetLastAllocationTime(now);
+#endif
   }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   pt->SetLastAllocationTime(now);
+#endif
   const auto page_allocation = pt->Get(n, span_alloc_info);
   AddToFillerList(pt);
   pages_allocated_[type] += n;
