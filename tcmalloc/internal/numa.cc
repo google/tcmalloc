@@ -126,7 +126,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
 
     // Record this node in partition_to_nodes.
     const size_t partition = NodeToPartition(node, num_partitions);
-    partition_to_nodes[partition] |= 1 << node;
+    partition_to_nodes[partition] |= uint64_t{1} << node;
 
     // cpu_to_scaled_partition_ entries are default initialized to zero, so
     // skip redundantly parsing CPU lists for nodes that map to partition 0.
