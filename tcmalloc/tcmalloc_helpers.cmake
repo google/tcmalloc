@@ -57,7 +57,7 @@ function(tcmalloc_cc_library)
 endfunction()
 
 function(tcmalloc_cc_test)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV" ${ARGN})
   add_executable(${TCMALLOC_NAME} "")
   if(TCMALLOC_SRCS)
     target_sources(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_SRCS})
@@ -76,7 +76,14 @@ function(tcmalloc_cc_test)
   endif()
   target_include_directories(${TCMALLOC_NAME} PUBLIC ${CMAKE_SOURCE_DIR})
   add_test(NAME ${TCMALLOC_NAME} COMMAND ${TCMALLOC_NAME})
-  set_tests_properties(${TCMALLOC_NAME} PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR};TEST_SRCDIR=${CMAKE_SOURCE_DIR}")
+  # Entries later in the list win, so rule- and variant-provided values override
+  # these defaults.
+  set(TCMALLOC_TEST_ENV
+    "TEST_TMPDIR=${CMAKE_CURRENT_BINARY_DIR}"
+    "TEST_SRCDIR=${CMAKE_SOURCE_DIR}"
+    ${TCMALLOC_ENV}
+  )
+  set_tests_properties(${TCMALLOC_NAME} PROPERTIES ENVIRONMENT "${TCMALLOC_TEST_ENV}")
 endfunction()
 
 function(tcmalloc_cc_binary)
