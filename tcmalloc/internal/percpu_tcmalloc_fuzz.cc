@@ -26,6 +26,7 @@
 #include <cstring>
 #include <new>
 #include <optional>
+#include <tuple>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -75,6 +76,12 @@ struct State {
 
   absl::flat_hash_set<void*> allocated_objects[kNumClasses];
   std::vector<void*> available_objects[kNumClasses];
+
+  // Slabs buffers retired by ResizeSlabs/UpdateMaxCapacities.  A thread that
+  // has not refreshed its cached slabs pointer still reads the marker out of
+  // the retired buffer, so it has to stay mapped until we are done using the
+  // slab entirely.
+  std::vector<std::tuple<void*, size_t, std::align_val_t>> retired_slabs;
 
   State()
       : num_cpus(NumCPUs()),
@@ -162,11 +169,14 @@ void State::CheckValidObject(void* obj, size_t sc) const {
 
 State::~State() {
   // Teardown: restart stopped CPUs and drain all CPUs to recover all objects.
+  // Only populated cpus can be drained; an unpopulated region was never
+  // started, so stopping it would violate TcmallocSlab's invariants.
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (cpu_stopped[cpu]) {
       slab.StartCpu(cpu);
       cpu_stopped[cpu] = false;
     }
+    if (!cpu_initialized[cpu]) continue;
     slab.Drain(cpu, [&](int drained_cpu, size_t size_class, void** batch,
                         size_t size, size_t cap) {
       TC_CHECK_EQ(drained_cpu, cpu);
@@ -176,16 +186,19 @@ State::~State() {
         available_objects[size_class].push_back(batch[i]);
       }
     });
-  }
 
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
     for (size_t sc = 1; sc < kNumClasses; ++sc) {
       TC_CHECK_EQ(slab.Length(cpu, sc), 0);
       TC_CHECK_EQ(slab.Capacity(cpu, sc), 0);
     }
   }
 
-  slab.Destroy(sized_aligned_delete);
+  void* deleted_slabs = slab.Destroy(sized_aligned_delete);
+
+  for (const auto& [retired, size, alignment] : retired_slabs) {
+    if (retired == nullptr || retired == deleted_slabs) continue;
+    sized_aligned_delete(retired, size, alignment);
+  }
 
   // Free mock objects.
   for (int sc = 1; sc < kNumClasses; ++sc) {
@@ -437,6 +450,12 @@ struct Drain {
     if (state.cpu_stopped[target_cpu]) {
       return;
     }
+    // Mirror CpuCache::Drain, which returns early for cpus that have not been
+    // populated.  Draining an unpopulated cpu would try to stop a region that
+    // was never started.
+    if (!state.cpu_initialized[target_cpu]) {
+      return;
+    }
     state.slab.Drain(target_cpu, [&](int cpu, size_t size_class, void** batch,
                                      size_t size, size_t cap) {
       TC_CHECK_EQ(cpu, target_cpu);
@@ -533,7 +552,8 @@ struct ResizeSlabs {
           }
         });
     const Shift old_shift = ToShiftType(current_shift);
-    sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(old_shift));
+    state.retired_slabs.emplace_back(old_slabs, old_slabs_size,
+                                     SlabAlignment(old_shift));
     auto [got_cpu, cached] = state.slab.CacheCpuSlab();
     if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
       state.EnsureCpuInitialized(got_cpu);
@@ -585,7 +605,8 @@ struct UpdateMaxCapacities {
           }
         },
         new_caps, 1);
-    sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(shift));
+    state.retired_slabs.emplace_back(old_slabs, old_slabs_size,
+                                     SlabAlignment(shift));
     auto [got_cpu, cached] = state.slab.CacheCpuSlab();
     if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
       state.EnsureCpuInitialized(got_cpu);
@@ -649,6 +670,8 @@ struct StopCpu {
     if (state.cpu_stopped[target_cpu]) {
       return;
     }
+    // Only a populated region can be stopped.
+    state.EnsureCpuInitialized(target_cpu);
     state.slab.StopCpu(target_cpu);
     state.cpu_stopped[target_cpu] = true;
   }

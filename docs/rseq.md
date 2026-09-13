@@ -106,7 +106,7 @@ restart:
 start:
   // Actual sequence
   Slab* slab = tcmalloc_slabs;
-  if ((slabs & MASK) == 0) { return CacheSlab(); }
+  if (slab->marker != vcpu + TCMALLOC_SLAB_CPU_BIAS) { return CacheSlab(); }
   Header* hdr = &slab.header[size_class];
   uint64_t current = hdr->current;
   void* ret = *(&slab + current * sizeof(void*) - sizeof(void*));
@@ -201,7 +201,7 @@ restart:
 start:
   // Actual sequence
   Slab* slab = tcmalloc_slabs;
-  if ((slabs & MASK) == 0) { return CacheSlab(); }
+  if (slab->marker != vcpu + TCMALLOC_SLAB_CPU_BIAS) { return CacheSlab(); }
   Header* hdr = &slab.header[size_class];
   uint64_t current = hdr->current;
   uint64_t end = hdr->end;
@@ -364,26 +364,71 @@ The two CPU ID fields are maintained as follows:
 Calculation of the pointer to the current CPU slabs pointer is relatively
 expensive due to support for virtual CPU IDs and variable shifts. To remove this
 calculation from fast paths, we cache the slabs address for the current CPU in
-thread local storage. To understand that the cached pointer is not valid anymore
-when a thread is rescheduled to another CPU, we overlap the top 4 bytes of the
-cached address with `__rseq_abi.cpu_id_start`. When a thread is rescheduled the
-kernel overwrites `cpu_id_start` with the current CPU number, which gives us the
-signal that the cached address is not valid anymore. To distinguish the high
-part of the cached address from the CPU number, we set the top bit in the cached
-address, real CPU numbers (`<2^31`) do not have this bit set.
+thread local storage.
 
-With these arrangements, slabs address calculation on allocation/deallocation
-fast paths reduces to load and check of the cached address:
+The cached address is validated against the region it points at, rather than
+against any per-thread state. The size class 0 header of every per-CPU region is
+otherwise unused, so it holds a 32-bit *marker*:
+
+*   `0` for a region that has never been populated. Both `mmap` and
+    `MADV_DONTNEED` leave the region zeroed, so this state costs nothing to
+    produce.
+*   `TCMALLOC_SLAB_STOPPED` (`0xffffffff`) for a region that a cross-CPU
+    operation currently owns.
+*   `cpu + TCMALLOC_SLAB_CPU_BIAS` for the current, usable region of `cpu`. The
+    bias keeps CPU 0's marker distinguishable from an unpopulated region. The
+    fast paths load the CPU ID as a 16-bit value, so `cpu +
+    TCMALLOC_SLAB_CPU_BIAS` fits in 17 bits and can never alias
+    `TCMALLOC_SLAB_STOPPED`.
+
+Slabs address validation on allocation/deallocation fast paths reduces to a load
+of the cached address, a load of its marker, and a comparison against the
+current virtual CPU ID (read from `__rseq_abi` at
+`__rseq_virtual_flat_cpu_id_offset`):
 
 ```
-  slabs = __rseq_abi[-4];
-  if ((slabs & (1 << 63)) == 0) goto slowpath;
-  slabs &= ~(1 << 63);
+  slabs = tcmalloc_slabs;
+  if (*(uint32_t*)slabs != vcpu + TCMALLOC_SLAB_CPU_BIAS) goto slowpath;
 ```
 
-Slow paths of these operations do full slabs address calculation and cache it.
+A thread that has no region cached names `tcmalloc_dummy_slab`, a read-only
+region whose marker is `0`, rather than nothing at all. The comparison above
+therefore subsumes the "is a region cached?" question, and the fast paths need
+no separate test for a null address.
 
-Note: this makes `__rseq_abi.cpu_id_start` unusable for its original purpose.
+Both loads happen inside the restartable sequence, so a migration between them
+and the commit store restarts the sequence. A mismatch means the thread was
+rescheduled onto another CPU, a cross-CPU operation owns this CPU's region, or
+`ResizeSlabs` replaced the region. The slow path tells them apart: it does the
+full address calculation and caches the result, except when a cross-CPU
+operation owns the region, where it caches nothing and reports that the caller
+should use the backing cache instead.
+
+Because validity is a property of the region and not of the thread, a cached
+address never has to be invalidated remotely: it simply stops matching. Old slab
+buffers must therefore remain mapped and readable for the lifetime of the
+process. They may be `MADV_DONTNEED`ed, which resets their markers to `0`, but
+they must never be `munmap`ed or `MADV_REMOVE`d.
+
+### Kernel Guarantees This Relies On
+
+Reading the CPU ID inside a restartable sequence is only an identity check if
+the kernel cannot change that ID and then let the thread continue executing
+inside the sequence. It cannot: the kernel writes the ID fields of `struct rseq`
+and performs the sequence's IP fixup in the same return-to-userspace transition,
+with interrupts disabled and the IDs written first (`rseq_set_ids_get_csaddr`
+followed by `rseq_update_user_cs`, upstream `include/linux/rseq_entry.h`). A
+sequence that could observe a stale ID has already been redirected to its abort
+handler. Under virtual CPUs the production kernel releases the virtual CPU ID
+from `prepare_task_switch` immediately before `rseq_preempt`, binding the
+release to the abort in the same way.
+
+The previous scheme relied on a second, stronger property: that the kernel
+writes `cpu_id_start` on *every* rseq event, even when the ID has not changed.
+Upstream has since made that write conditional for registrations longer than the
+original 32-byte `struct rseq`, and in that mode it terminates a process that
+writes the ID fields itself. Validating the region rather than overlapping the
+cached pointer with `cpu_id_start` removes both dependencies.
 
 ## Cross-CPU Operations
 
@@ -400,24 +445,42 @@ sequence that was running has completed *or* that the restartable sequence was
 preempted.
 
 Synchronization protocol between start of a cross-CPU operation and local
-allocation/deallocation: cross-CPU operation sets `stopped_[cpu]` flag and calls
-`FenceCpu`; local operations check `stopped_[cpu]` during slabs pointer caching
-and don't cache the pointer if the flag is set. This ensures that after
-`FenceCpu` completes, all local operations have finished or aborted, and no new
-operations will start (since they require a cached slabs pointer). This part of
-the synchronization protocol uses relaxed atomic operations on `stopped_[cpu]`
-and only compiler ordering. This is sufficient because `FenceCpu` provides all
+allocation/deallocation: the cross-CPU operation stores `TCMALLOC_SLAB_STOPPED`
+into the region's marker and calls `FenceCpu`. Every local operation re-checks
+the marker within its restartable sequence, so after `FenceCpu` completes, all
+local operations have finished or aborted, and no new ones can start. This part
+of the synchronization protocol uses relaxed atomic operations on the marker and
+only compiler ordering. This is sufficient because `FenceCpu` provides all
 necessary synchronization between threads.
 
 Synchronization protocol between end of a cross-CPU operation and local
-allocation/deallocation: cross-CPU operation unsets `stopped_[cpu]` flag using
-release memory ordering. Slabs pointer caching observes unset `stopped_[cpu]`
-flag with acquire memory ordering and caches the pointer, thus allowing local
-operations. Use of release/acquire memory ordering ensures that if a thread
-observes unset `stopped_[cpu]` flag, it will also see all side-effects of the
-cross-CPU operation.
+allocation/deallocation: the cross-CPU operation restores the running marker
+using release memory ordering. On x86, the fast path's load of the marker is
+implicitly acquire, so a thread that observes the running marker also observes
+all side-effects of the cross-CPU operation. AArch64 fast paths load the marker
+with a relaxed `ldr`, so `StartCpu`/`StartAllCpus` issue a
+`FenceCpu`/`FenceAllCpus` before publishing the running marker instead.
 
 Combined these 2 parts of the synchronization protocol ensure that cross-CPU
 operations work on completely quiescent state, with no other threads
 reading/writing slabs. The only exception is `Length`/`Capacity` methods that
 can still read slabs.
+
+`ResizeSlabs` and `UpdateMaxCapacities` initialize the new region for every
+populated CPU before they stop those CPUs, and they publish the new slabs before
+they start them. A newly initialized region is therefore left with
+`TCMALLOC_SLAB_STOPPED` rather than `0`: for the window between publishing and
+starting, `0` would advertise a populated, mid-resize CPU as unpopulated and the
+slow path would tell its caller to populate it a second time.
+
+`Grow` is the one operation that runs on the local CPU but is not confined to a
+restartable sequence: it reads the slabs, the shift and a size class header
+outside of one and commits with a `TcmallocSlab_Internal_StoreCurrentCpu`
+sequence that re-checks the marker. The marker alone is not enough, for two
+reasons. It does not change when the thread is merely rescheduled onto the same
+CPU, so the sequence also compares the header against the value it read. And a
+retired slabs buffer can become current again -- `cpu_cache.h` keeps one buffer
+per shift and recycles it -- so a stale header could compare equal by
+coincidence while `begins_` and the maximum capacities have changed underneath
+it. `TcmallocSlab::slabs_generation_` is bumped every time slabs are published
+and is compared inside the sequence as well, which rules that out.
