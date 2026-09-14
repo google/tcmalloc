@@ -44,6 +44,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/synchronization/barrier.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -388,6 +389,13 @@ class CentralFreeListTestPeer {
 #endif
   }
 
+  template <typename Forwarder>
+  static size_t span_allocations_tracker(const CentralFreeList<Forwarder>& cfl,
+                                         size_t num_spans) {
+    return cfl.span_allocations_tracker_[absl::bit_width(num_spans) - 1]
+        .value();
+  }
+
   static void VerifyLegacyLayout() {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     using CFLType = CFL<StaticForwarder>;
@@ -509,15 +517,26 @@ TEST_P(CentralFreeListTest, SameSpanTracking) {
 
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
+  EXPECT_EQ(e.central_freelist().length(), 0);
   absl::FixedArray<void*> batch(e.batch_size());
   int allocated = e.central_freelist().RemoveRange(
       absl::MakeSpan(&batch[0], e.batch_size()));
   ASSERT_GT(allocated, 0);
+  EXPECT_EQ(e.central_freelist().length(), e.objects_per_span() - allocated);
+  EXPECT_GE(central_freelist_internal::CentralFreeListTestPeer::
+                span_allocations_tracker(e.central_freelist(), 1),
+            1);
 
   EXPECT_CALL(e.forwarder(), MapObjectsToSpans).Times(1);
   EXPECT_CALL(e.forwarder(), DeallocateSpans).Times(testing::AtLeast(0));
 
   e.central_freelist().InsertRange(absl::MakeSpan(&batch[0], allocated));
+  EXPECT_EQ(e.central_freelist().length(), 0);
+
+  SpanStats stats = e.central_freelist().GetSpanStats();
+  EXPECT_EQ(stats.num_spans_requested, 1);
+  EXPECT_EQ(stats.num_spans_returned, 1);
+  EXPECT_EQ(stats.obj_capacity, 0);
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const int expected_same_span = allocated - 1;
@@ -1416,6 +1435,48 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
+TEST_P(CentralFreeListTest, MultithreadedAccounting) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  FakeCentralFreeListEnvironment<
+      central_freelist_internal::CentralFreeList<FakeStaticForwarder>>
+      e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+        std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  if (e.objects_per_span() <= 1) {
+    GTEST_SKIP() << "Single-object spans skip CentralFreeList InsertRange";
+  }
+
+  constexpr int kNumThreads = 8;
+  constexpr int kIterations = 500;
+  const size_t batch_size = e.batch_size();
+
+  absl::Barrier barrier(kNumThreads);
+  std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
+  for (int t = 0; t < kNumThreads; ++t) {
+    threads.emplace_back([&]() {
+      barrier.Block();
+      absl::FixedArray<void*> batch(batch_size);
+      for (int i = 0; i < kIterations; ++i) {
+        int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch));
+        ASSERT_GT(got, 0);
+        e.central_freelist().InsertRange(absl::MakeSpan(&batch[0], got));
+      }
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  EXPECT_EQ(e.central_freelist().length(), 0);
+  SpanStats stats = e.central_freelist().GetSpanStats();
+  EXPECT_EQ(stats.num_spans_requested, stats.num_spans_returned);
+  EXPECT_EQ(stats.obj_capacity, 0);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
     testing::Combine(
