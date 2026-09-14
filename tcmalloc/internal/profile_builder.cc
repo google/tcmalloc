@@ -156,14 +156,9 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
     data.count += entry.count;
     data.sum += entry.sum;
     std::optional<Residency::Info> residency_info;
-    // When the caller did not use a size-returning allocation, only
-    // requested_size bytes are meaningful.  Use the same size for both
-    // residency and compressibility so that EstimateCompressedSize does not
-    // extrapolate to a total_backed derived from the larger allocated_size.
-    const size_t size = entry.requested_size_returning ? entry.allocated_size
-                                                       : entry.requested_size;
     if (residency) {
-      residency_info = residency->Get(entry.span_start_address, size);
+      residency_info =
+          residency->Get(entry.span_start_address, entry.allocated_size);
       // As long as `residency_info` provides data in some samples, the merged
       // data will have their sums.
       // NOTE: The data here is comparable to `tcmalloc::Profile::Sample::sum`,
@@ -208,10 +203,21 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
 
     if (exporting_compressibility && residency_info.has_value() &&
         entry.span_start_address != nullptr && entry.requested_size > 0) {
+      // When the caller did not use a size-returning allocation, only
+      // requested_size bytes are accessible.  Analyze just those bytes and
+      // clamp the residency info to them so that EstimateCompressedSize does
+      // not extrapolate to a total_backed derived from the larger
+      // allocated_size.
+      const size_t size = entry.requested_size_returning ? entry.allocated_size
+                                                         : entry.requested_size;
+      Residency::Info analyzed = *residency_info;
+      analyzed.bytes_resident = std::min(analyzed.bytes_resident, size);
+      analyzed.bytes_swapped =
+          std::min(analyzed.bytes_swapped, size - analyzed.bytes_resident);
       absl::Span<const char> sample_mem(
           reinterpret_cast<const char*>(entry.span_start_address), size);
       absl::StatusOr<CompressionAnalyzer::Results> res =
-          compression_analyzer.Analyze(sample_mem, *residency_info);
+          compression_analyzer.Analyze(sample_mem, analyzed);
       if (res.ok()) {
         data.zero_size += entry.count * res->zero_bytes;
       }
