@@ -2828,6 +2828,47 @@ TEST_F(FillerTestWithSubreleaseUnbacked, CollapsePartiallyReleasedTrackers) {
   DeleteVector(p1);
 }
 
+// Verifies that allocating from a broken (non-hugepage backed) tracker that
+// never had any pages subreleased is not reported as coming from released
+// memory and does not count towards previously released hugepages.
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       BrokenTrackerWithoutReleasedPagesIsNotFromReleased) {
+  randomize_density_ = false;
+
+  PAlloc a = Allocate(Length(10));
+  EXPECT_TRUE(a.pt->unbroken());
+
+  // Mark the tracker as non-hugepage backed with all free pages resident.
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a.p.start_addr(), /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(a.p.start_addr(), {});
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  // The tracker is broken and moved to the partially released list, but no
+  // pages were released.
+  EXPECT_FALSE(a.pt->unbroken());
+  EXPECT_EQ(a.pt->released_pages(), Length(0));
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(10));
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  PAlloc b = Allocate(Length(5));
+  EXPECT_EQ(b.pt, a.pt);
+  EXPECT_FALSE(b.from_released);
+  EXPECT_FALSE(a.pt->was_released());
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  // Clean up.
+  Delete(a);
+  Delete(b);
+}
+
 // Verifies that unbacked subrelease applies to trackers in released lists,
 // subreleasing their free unbacked pages without collapsing the tracker.
 TEST_F(FillerTestWithSubreleaseUnbacked, GardenReleasedTrackers) {
