@@ -55,7 +55,7 @@ class HugeAllocator {
   constexpr HugeAllocator(
       VirtualAllocator& allocate ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MetadataAllocator& meta_allocate ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : free_(meta_allocate), allocate_(allocate) {}
+      : free_(meta_allocate), system_(meta_allocate), allocate_(allocate) {}
 
   // Obtain a range of n unbacked hugepages, distinct from all other
   // calls to Get (other than those that have been Released.)
@@ -87,6 +87,13 @@ class HugeAllocator {
     return node != nullptr && node->range().contains(p);
   }
 
+  // Returns true if p lies in a range obtained from the system by this
+  // allocator, whether it is currently in use or free.
+  [[nodiscard]] bool Owns(HugePage p) const {
+    const HugeAddressMap::Node* node = system_.Predecessor(p);
+    return node != nullptr && node->range().contains(p);
+  }
+
   void Print(Printer& out);
   void PrintInPbtxt(PbtxtRegion& hpaa) const;
 
@@ -105,6 +112,10 @@ class HugeAllocator {
   // requirements.
   HugeAddressMap free_;
   HugeAddressMap::Node* Find(HugeLength n);
+
+  // Ranges obtained from the system, whether in use or not.  Adjacent ranges
+  // are merged, so this stays small.
+  HugeAddressMap system_;
 
   void CheckFreelist();
   void DebugCheckFreelist() {

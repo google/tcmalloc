@@ -1299,8 +1299,14 @@ inline bool HugePageAwareAllocator<Forwarder>::GetPageAllocationStatus(
     return true;
   }
 
-  // 4. If the pagemap leaf exists, the hugepage was allocated to TCMalloc and
-  // is in active use (e.g. allocated via AllocRawHugepages).
+  // 4. Otherwise, hp is only known to us if it was obtained from the system
+  // by alloc_.  Interior hugepages of a span allocated straight from the
+  // HugeCache (AllocRawHugepages) have neither a tracker nor a pagemap
+  // descriptor, but they are fully in use.  Anything else (e.g. neighboring
+  // address space under the same pagemap leaf) is not ours to report.
+  if (!alloc_.Owns(hp)) {
+    return false;
+  }
   pages.SetRange(0, kPagesPerHugePage.raw_num());
   return true;
 }
