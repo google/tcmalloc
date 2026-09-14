@@ -739,7 +739,11 @@ TEST_F(FillerTest, ClockCalls) {
   }
   EXPECT_EQ(put_res2, pt);
   EXPECT_EQ(FakeClock::now_calls(), 2);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  EXPECT_EQ(FakeClock::freq_calls(), 0);
+#else
   EXPECT_EQ(FakeClock::freq_calls(), 1);
+#endif
 
   // 5. Contribute and wait for pt to be sampled.
   while (true) {
@@ -776,9 +780,80 @@ TEST_F(FillerTest, ClockCalls) {
   EXPECT_EQ(put_res1, nullptr);
   EXPECT_EQ(put_res2, pt);
   EXPECT_EQ(FakeClock::now_calls(), 3);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  EXPECT_EQ(FakeClock::freq_calls(), 0);
+#else
   EXPECT_EQ(FakeClock::freq_calls(), 1);
+#endif
 
   delete pt;
+}
+
+TEST_F(FillerTest, RecordLifetimeEdgeCases) {
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  FakeClock::Advance(absl::Seconds(10));
+
+  auto run_release_with_advance = [&](absl::Duration delta) {
+    PageTracker pt(GetBacking(), /*was_donated=*/false, FakeClock::now());
+    PageId page;
+    {
+      PageHeapSpinLockHolder l;
+      page = pt.Get(Length(1), info).page;
+      filler_.Contribute(&pt, /*donated=*/false, info);
+    }
+    FakeClock::Advance(delta);
+    PageTracker* res;
+    {
+      PageHeapSpinLockHolder l;
+      res = filler_.Put(&pt, Range(page, Length(1)), info);
+    }
+    EXPECT_EQ(res, &pt);
+  };
+
+  // 1. Clock regression (negative elapsed cycles -> bucket 0: < 0 ms <= 1).
+  run_release_with_advance(-absl::Milliseconds(500));
+
+  // 2. Exact bucket boundary (10 ms -> bucket 2: < 10 ms <= 1).
+  run_release_with_advance(absl::Milliseconds(10));
+
+  // 3. Large elapsed duration (2000 s = 2,000,000 ms -> top bucket: < 1000000
+  // ms <= 1).
+  run_release_with_advance(absl::Seconds(2000));
+
+  FakePageFlags pageflags;
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    PageHeapSpinLockHolder l;
+    filler_.Print(printer, /*everything=*/true, pageflags);
+  });
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed hps with completed lifetime a <= # hps < b
+HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      1 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
+HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      1
+)"));
+
+  // 4. Extreme elapsed * ms_per_cycle_ exceeding INT64_MAX -> clamps to
+  // top bucket bound without UBSan float-cast overflow.
+  HugePageFiller<PageTracker> low_freq_filler(
+      Clock{.now = []() -> int64_t {
+              return std::numeric_limits<int64_t>::max();
+            },
+            .freq = []() -> double { return 100.0; }},
+      MemoryTag::kNormal, blocking_unback_, blocking_unback_, collapse_,
+      set_anon_vma_name_, mode_);
+  PageTracker pt_overflow(GetBacking(), /*was_donated=*/false, 0);
+  PageId page_overflow;
+  {
+    PageHeapSpinLockHolder l;
+    page_overflow = pt_overflow.Get(Length(1), info).page;
+    low_freq_filler.Contribute(&pt_overflow, /*donated=*/false, info);
+  }
+  PageTracker* res_overflow;
+  {
+    PageHeapSpinLockHolder l;
+    res_overflow = low_freq_filler.Put(&pt_overflow,
+                                       Range(page_overflow, Length(1)), info);
+  }
+  EXPECT_EQ(res_overflow, &pt_overflow);
 }
 
 TEST_F(FillerTest, Density) {
