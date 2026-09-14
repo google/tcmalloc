@@ -339,8 +339,11 @@ class CentralFreeList {
   // Tracks the number of spans used to fill a batch in RemoveRange
   StatsCounters<kSpansUsedStatBuckets> span_allocations_tracker_;
 
-  int LifetimeBucketNum(absl::Duration duration) {
-    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+  [[nodiscard]] int LifetimeBucketNum(absl::Duration duration) const {
+    return LifetimeBucketNum(absl::ToInt64Milliseconds(duration));
+  }
+
+  [[nodiscard]] int LifetimeBucketNum(int64_t duration_ms) const {
     auto it = absl::c_upper_bound(kLifetimeBucketBounds, duration_ms);
     TC_CHECK_NE(it, kLifetimeBucketBounds.begin());
     return it - kLifetimeBucketBounds.begin() - 1;
@@ -679,14 +682,14 @@ void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
     for (Span* span : spans) {
       const double elapsed =
           std::max<double>(now - static_cast<double>(span->AllocTime()), 0.0);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      const absl::Duration lifetime =
-          absl::Milliseconds(elapsed * 1000 / frequency);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const int64_t elapsed_ms = static_cast<int64_t>(elapsed * ms_per_cycle);
+      completed_spans_[LifetimeBucketNum(elapsed_ms)].LossyAdd(1);
 #else
       const absl::Duration lifetime =
-          absl::Milliseconds(elapsed * ms_per_cycle);
-#endif
+          absl::Milliseconds(elapsed * 1000 / frequency);
       completed_spans_[LifetimeBucketNum(lifetime)].LossyAdd(1);
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     }
   }
   return forwarder_.DeallocateSpans(objects_per_span_, spans);
