@@ -638,6 +638,29 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
     EXPECT_EQ(s.GetSinglePageBitmaps(nullptr).status,
               absl::StatusCode::kFailedPrecondition);
   }
+  {
+    // A tail without a preceding head aborts the scan after some stale ranges
+    // have already been recorded.  The returned bitmap must not leak the
+    // partial result.
+    std::string fake_pageflags =
+        absl::StrCat(testing::TempDir(), "/fake_pageflags_partial_stale");
+    const size_t kHardwarePageSize = getpagesize();
+    const size_t kHardwarePagesInHugePage = kHugePageSize / kHardwarePageSize;
+    std::vector<uint64_t> data(kHardwarePagesInHugePage, 0);
+    data[0] = kPageStale;
+    data[1] = kPageStale;
+    data[2] = 0;
+    data[3] = kPageTail;
+
+    std::string content(reinterpret_cast<const char*>(data.data()),
+                        data.size() * sizeof(uint64_t));
+    SetContents(fake_pageflags, content);
+
+    PageFlagsFriend s(fake_pageflags);
+    auto ret = s.GetSinglePageBitmaps(nullptr);
+    EXPECT_EQ(ret.status, absl::StatusCode::kFailedPrecondition);
+    EXPECT_TRUE(ret.stale.IsZero());
+  }
 }
 
 TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
