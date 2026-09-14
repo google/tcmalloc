@@ -80,7 +80,7 @@ class PageTracker : public TList<PageTracker>::Elem {
         abandoned_(false),
         unbroken_(true),
         alloctime_(now),
-        free_{},
+        tracker_{},
         num_objects_(0) {
 #ifndef __ppc64__
 #if defined(__GNUC__)
@@ -93,8 +93,8 @@ class PageTracker : public TList<PageTracker>::Elem {
     // taking the pageheap_lock.
     //
     // On PPC64, kHugePageSize / kPageSize is typically ~2K (16MB / 8KB),
-    // requiring 512 bytes for representing free_.  While its cache line size is
-    // larger, the entirety of free_ will not fit on two cache lines.
+    // requiring 512 bytes for representing tracker_.  While its cache line size
+    // is larger, the entirety of tracker_ will not fit on two cache lines.
 #ifdef NDEBUG
     static_assert(offsetof(PageTracker, location_) + sizeof(location_) <=
                       2 * ABSL_CACHELINE_SIZE,
@@ -105,8 +105,9 @@ class PageTracker : public TList<PageTracker>::Elem {
             2 * ABSL_CACHELINE_SIZE,
         "donated_ should fall within the first two cachelines of PageTracker.");
     static_assert(
-        offsetof(PageTracker, free_) + sizeof(free_) <= 2 * ABSL_CACHELINE_SIZE,
-        "free_ should fall within the first two cachelines of PageTracker.");
+        offsetof(PageTracker, tracker_) + sizeof(tracker_) <=
+            2 * ABSL_CACHELINE_SIZE,
+        "tracker_ should fall within the first two cachelines of PageTracker.");
     static_assert(offsetof(PageTracker, alloctime_) + sizeof(alloctime_) <=
                       2 * ABSL_CACHELINE_SIZE,
                   "alloctime_ should fall within the first two cachelines of "
@@ -182,10 +183,10 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   // These statistics help us measure the fragmentation of a hugepage and
   // the desirability of allocating from this hugepage.
-  Length longest_free_range() const { return Length(free_.longest_free()); }
-  size_t nallocs() const { return free_.allocs(); }
+  Length longest_free_range() const { return Length(tracker_.longest_free()); }
+  size_t nallocs() const { return tracker_.allocs(); }
   size_t nobjects() const { return num_objects_; }
-  Length used_pages() const { return Length(free_.used()); }
+  Length used_pages() const { return Length(tracker_.used()); }
   Length released_pages() const { return Length(released_count_); }
   double alloctime() const { return alloctime_; }
   double last_page_allocation_time() const {
@@ -219,7 +220,7 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   [[nodiscard]] const PageBitmap& allocated_pages_bitmap() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return free_.bits();
+    return tracker_.bits();
   }
 
   // Attempts to collapse memory tracked by this tracker. Returns true if the
@@ -360,7 +361,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   double alloctime_;
   double last_page_allocation_time_ = 0;
 
-  RangeTracker<kPagesPerHugePage.raw_num()> free_;
+  RangeTracker<kPagesPerHugePage.raw_num()> tracker_;
 
   uint64_t num_objects_;
 
@@ -374,7 +375,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   //
   // Before releasing any locks to release memory to the OS, we mark the bitmap.
   //
-  // Once released, a huge page is considered released *until* free_ is
+  // Once released, a huge page is considered released *until* tracker_ is
   // exhausted and no pages released_by_page_ are set.  We may have up to
   // kPagesPerHugePage-1 parallel subreleases in-flight.
   //
@@ -398,7 +399,7 @@ class PageTracker : public TList<PageTracker>::Elem {
 
 inline typename PageTracker::PageAllocation PageTracker::Get(
     Length n, SpanAllocInfo span_alloc_info) {
-  size_t index = free_.FindAndMark(n.raw_num());
+  size_t index = tracker_.FindAndMark(n.raw_num());
   num_objects_ += span_alloc_info.objects_per_span;
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
@@ -437,7 +438,7 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   }
   TC_ASSERT_LE(kHardwarePagesInHugePage, kMaxResidencyBits);
 
-  const PageBitmap& used = free_.bits();
+  const PageBitmap& used = tracker_.bits();
   const PageBitmap free = ~used;
 
   TC_ASSERT_EQ(kHardwarePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
@@ -456,7 +457,7 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
 
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
   Length index = r.p - location_.first_page();
-  free_.Unmark(index.raw_num(), r.n.raw_num());
+  tracker_.Unmark(index.raw_num(), r.n.raw_num());
   TC_ASSERT_GE(num_objects_, span_alloc_info.objects_per_span);
   num_objects_ -= span_alloc_info.objects_per_span;
 }
@@ -470,7 +471,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   // process:
   //
   // 1.  Identify the next range of still backed pages.
-  // 2.  Iterate on the free_ tracker within this range.  For any free range
+  // 2.  Iterate on tracker_ within this range.  For any free range
   //     found, mark these as unbacked.
   // 3.  Release the subrange to the OS.
   while (released_by_page_.NextFreeRange(index, &index, &n)) {
@@ -478,7 +479,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
     size_t free_n;
 
     // Check for freed pages in this unreleased region.
-    if (free_.NextFreeRange(index, &free_index, &free_n) &&
+    if (tracker_.NextFreeRange(index, &free_index, &free_n) &&
         free_index < index + n) {
       // If there is a free range which overlaps with [index, index+n), release
       // it.
@@ -497,7 +498,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
 
       index = end;
     } else {
-      // [index, index+n) did not have an overlapping range in free_, move to
+      // [index, index+n) did not have an overlapping range in tracker_, move to
       // the next backed range of pages.
       index += n;
     }
@@ -513,7 +514,8 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
 }
 
 inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
-  const PageBitmap& free = free_.bits();
+  // tracker_'s bits are set for allocated pages and clear for free pages.
+  const PageBitmap& used = tracker_.bits();
 
   // TODO(b/525422238): The residency bitmap was captured outside of the
   // lock. So, in a rare case, it's possible that the page was allocated,
@@ -521,11 +523,11 @@ inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
   // While we currently ignore this case (resulting in underestimating
   // RSS), we can potentially fix this by re-investigating the bitmaps
   // and marking the pages back to backed to eventually fix this.
-  auto to_release = (~free) & (~released_by_page_) & unbacked;
+  auto to_release = (~used) & (~released_by_page_) & unbacked;
   released_by_page_ = released_by_page_ | to_release;
 
   released_count_ += to_release.CountBits();
-  // Mark this is unbroken regardless of whether it had any unbacked free
+  // Mark this as broken regardless of whether it had any unbacked free
   // TCMalloc pages. Marking this will move this tracker to one of the
   // released lists.
   unbroken_ = false;
@@ -562,7 +564,7 @@ inline void PageTracker::AddSpanStats(SmallSpanStats* small,
                                       LargeSpanStats* large) const {
   size_t index = 0, n;
 
-  while (free_.NextFreeRange(index, &index, &n)) {
+  while (tracker_.NextFreeRange(index, &index, &n)) {
     bool is_released = released_by_page_.GetBit(index);
     // Find the last bit in the run with the same state (set or cleared) as
     // index.
@@ -599,7 +601,7 @@ inline void PageTracker::AddSpanStats(SmallSpanStats* small,
   }
 }
 
-inline bool PageTracker::empty() const { return free_.used() == 0; }
+inline bool PageTracker::empty() const { return tracker_.used() == 0; }
 
 inline Length PageTracker::free_pages() const {
   return kPagesPerHugePage - used_pages();
