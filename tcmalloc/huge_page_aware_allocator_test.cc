@@ -920,6 +920,50 @@ TEST_P(HugePageAwareAllocatorTest, SmallDonations) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
+TEST_P(HugePageAwareAllocatorTest, AddRegionPreservesErrno) {
+  // AddRegion() madvises the new region with MADV_NOHUGEPAGE.  The fake
+  // forwarder hands out addresses that are not mapped, so that madvise fails
+  // and sets errno.  Allocation must not leak that errno to the caller.
+  allocator_->forwarder().set_madvise_cold_regions_nohugepage(
+      MadviseRegionsNoHugepage::kEnabled);
+
+  static constexpr Length kLargeSize = kPagesPerHugePage + Length(1);
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  const Length small_binary_size = HLFromBytes(64 * 1024 * 1024).in_pages();
+
+  auto ActiveRegions = [&]() {
+    PageHeapSpinLockHolder l;
+    return allocator_->region().ActiveRegions();
+  };
+  auto Slack = [&]() {
+    PageHeapSpinLockHolder l;
+    return allocator_->info().slack();
+  };
+
+  // Accumulate enough slack that the next large allocation adds a region.
+  std::vector<Span*> spans;
+  while (Slack() < small_binary_size) {
+    spans.push_back(New(kLargeSize, kSpanInfo));
+    ASSERT_EQ(ActiveRegions(), 0);
+  }
+
+  errno = 0;
+  spans.push_back(New(kLargeSize, kSpanInfo));
+  EXPECT_EQ(errno, 0);
+  EXPECT_EQ(ActiveRegions(), 1);
+
+  // Confirm the region's memory really is unmapped, i.e. the madvise inside
+  // AddRegion() failed and this test exercised the error path.
+  void* region_page = reinterpret_cast<void*>(
+      HugePageContaining(spans.back()->start_address()).start_addr());
+  EXPECT_NE(madvise(region_page, kHugePageSize, MADV_NOHUGEPAGE), 0);
+  errno = 0;
+
+  for (Span* s : spans) {
+    Delete(s, kSpanInfo.objects_per_span);
+  }
+}
+
 TEST_P(HugePageAwareAllocatorTest, LargeDonations) {
   // A small allocation of size (kHugePageSize/2,kHugePageSize]-bytes can be
   // considered not donated if it filled in a gap on an otherwise mostly free
