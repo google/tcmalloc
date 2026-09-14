@@ -1210,7 +1210,10 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     pt = regular_alloc_partial_released_.GetLeast(type, listindex);
     if (pt) {
       TC_ASSERT(!pt->donated());
-      was_released = true;
+      // With SubreleaseUnbackedMode::kEnabled, broken (non-hugepage backed)
+      // trackers live in the released lists even if none of their pages were
+      // actually released.  Only report was_released when pages were.
+      was_released = pt->released();
       TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
       n_used_partial_released_[type] -= pt->used_pages();
       break;
@@ -1218,7 +1221,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     pt = regular_alloc_released_.GetLeast(type, listindex);
     if (pt) {
       TC_ASSERT(!pt->donated());
-      was_released = true;
+      was_released = pt->released();
       TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
       n_used_released_[type] -= pt->used_pages();
       break;
