@@ -21,9 +21,12 @@
 #include <string.h>
 
 #if defined(__linux__)
+#include <sys/syscall.h>
 #include <sys/uio.h>
-#if defined(__GLIBC__) && \
-    ((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 15))
+// process_vm_readv is a Linux syscall (since 3.2).  Invoke it via syscall(2)
+// rather than the libc wrapper, which is absent from some libc
+// implementations (e.g. LLVM-libc) and gated on glibc >= 2.15.
+#if defined(__NR_process_vm_readv)
 #define HAS_PROCESS_VM_READV 1
 #endif
 #endif  // defined(__linux__)
@@ -159,8 +162,12 @@ bool SafeCopyMemory(absl::Span<const absl::string_view> src_chunks, void* dst) {
     dst_iov.iov_base = static_cast<char*>(dst) + dst_offset;
     dst_iov.iov_len = batch_bytes;
 
-    ssize_t bytes = process_vm_readv(getpid(), &dst_iov, /*liovcnt=*/1, src_vec,
-                                     /*riovcnt=*/batch_count, /*flags=*/0);
+    // syscall(2) is variadic and reads every argument as a long; widen the
+    // integer arguments explicitly so none is passed as a narrower type.
+    const ssize_t bytes = syscall(
+        __NR_process_vm_readv, static_cast<long>(getpid()), &dst_iov,
+        /*liovcnt=*/1L, src_vec, /*riovcnt=*/static_cast<long>(batch_count),
+        /*flags=*/0L);
     if (bytes != batch_bytes) {
       return false;
     }
