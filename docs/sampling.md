@@ -43,10 +43,13 @@ We also tell the span that we're sampling it. We can do this because we do
 sampling at tcmalloc page sizes, so each sample corresponds to a particular page
 in the pagemap.
 
-For small allocations, the returned allocation uses an entire TCMalloc page (not
-shared with any other allocations) on a dedicated span. The returned allocation
-is placed on the sampled page heap, allowing us to use the pointer's tag bits to
-identify that the object was sampled and needs special handling on deallocation.
+For small allocations, we make up to two allocations: the returned allocation
+(which uses an entire TCMalloc page, not shared with any other allocations) and
+a proxy allocation in a non-sampled span (the proxy object was formerly used for
+computing fragmentation profiles) for sizes with >1 objects-per-span (mostly
+sizes <8KB in the default configuration). The returned allocation is placed on
+the sampled page heap, allowing us to use the pointer's tag bits to identify
+that the object was sampled and needs special handling on deallocation.
 
 For the sampled page heap, the virtual addresses associated with the allocation
 are
@@ -55,11 +58,11 @@ This, combined with the whole-page behavior above, means that *every allocation
 gets its own native (OS) page(s)* shared with no other allocations.
 
 For large (`>kMaxSize`) allocations, the returned allocation will be on entire
-TCMalloc pages. These objects are requested directly from the non-sampled page
-heaps. These objects will be packed by [Temeraire](temeraire.md) densely onto
-hugepages. While objects that are exact multiples of 2MB are given their own
-hugepages (the `HugeCache`), the access patterns of other objects may affect
-statistics for the profiled ones.
+TCMalloc pages and there is no proxy object. These objects are requested
+directly from the non-sampled page heaps. These objects will be packed by
+[Temeraire](temeraire.md) densely onto hugepages. While objects that are exact
+multiples of 2MB are given their own hugepages (the `HugeCache`), the access
+patterns of other objects may affect statistics for the profiled ones.
 
 | Statistic | Small                         | Large                        |
 | :-------- | :---------------------------- | :--------------------------- |
@@ -75,10 +78,11 @@ we can quickly test whether a particular allocation might be a sample. When we
 are done with the sampled span we release it using
 [tcmalloc::Span::Unsample()](https://github.com/google/tcmalloc/blob/master/tcmalloc/span.cc).
 
-## How Do We Handle Heap Profiling
+## How Do We Handle Heap and Fragmentation Profiling
 
-To handle heap profiling we just need to traverse the list of sampled objects
-and compute the amount of heap they consume.
+To handle heap and fragmentation profiling we just need to traverse the list of
+sampled objects and compute either their degree of fragmentation (with the proxy
+object), or the amount of heap they consume.
 
 Each allocation gets additional metadata associated with it when it is exposed
 in the heap profile. In the preparation for writing the heap profile,
