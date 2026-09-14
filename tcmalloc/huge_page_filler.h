@@ -1355,6 +1355,12 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
 
         if (ABSL_PREDICT_TRUE(success)) {
           unmapping_unaccounted_ += free_pages - released_pages;
+        } else {
+          // Part of the hugepage remains backed, so it must not be handed
+          // back as fully unbacked.  Treat the whole hugepage as backed
+          // (including the pages we previously released), erring high on RSS
+          // rather than under-reporting it.
+          pt->ClearReleased();
         }
       }
     }

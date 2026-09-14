@@ -4758,6 +4758,43 @@ TEST_F(FillerTest, b258965495) {
   DeleteVector(a1);
 }
 
+TEST_F(FillerTest, PutUnbackFailureClearsReleased) {
+  // 1 huge page:  2 pages allocated, kPagesPerHugePage-2 free, 0 released
+  auto a1 = AllocateVector(Length(2));
+  ASSERT_TRUE(!a1.empty());
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+
+  ASSERT_TRUE(blocking_unback_.success_);
+  // 1 huge page:  2 pages allocated, 0 free, kPagesPerHugePage-2 released
+  EXPECT_EQ(HardReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(2));
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
+
+  // Returning a1 empties the hugepage.  The filler tries to unback the
+  // remaining 2 pages so that the whole hugepage can be handed back as
+  // unbacked.  When that fails, the tracker must not claim to be released:
+  // the caller would otherwise account the entire hugepage as unmapped even
+  // though 2 pages remain resident.  We err high and treat it all as backed.
+  blocking_unback_.success_ = false;
+  PageTracker* pt = nullptr;
+  for (const auto& p : a1) {
+    Check(p);
+    PageHeapSpinLockHolder l;
+    pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info);
+  }
+  total_allocated_ -= Length(2);
+  blocking_unback_.success_ = true;
+
+  ASSERT_NE(pt, nullptr);
+  EXPECT_TRUE(pt->empty());
+  EXPECT_FALSE(pt->released());
+  EXPECT_EQ(pt->released_pages(), Length(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.size(), NHugePages(0));
+  --hp_contained_;
+  CheckStats();
+  delete pt;
+}
+
 TEST_F(FillerTest, CheckFillerStats) {
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
