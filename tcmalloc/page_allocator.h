@@ -170,7 +170,8 @@ class PageAllocator {
   }
 
   static void InvokeDeleteHook(PageId start_page, Length n,
-                               SpanAllocInfo span_alloc_info, MemoryTag tag) {
+                               SpanAllocInfo span_alloc_info, MemoryTag tag)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     if (ABSL_PREDICT_TRUE(page_allocator_delete_hooks.empty())) {
       return;
     }
@@ -178,7 +179,8 @@ class PageAllocator {
   }
 
   static void InvokeReleaseHook(Length num_pages, Length released,
-                                PageReleaseReason reason) {
+                                PageReleaseReason reason)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     if (ABSL_PREDICT_TRUE(page_allocator_release_hooks.empty())) {
       return;
     }
@@ -203,10 +205,11 @@ class PageAllocator {
   static void InvokeNewHookSlow(Span* span, Length n, Length align,
                                 SpanAllocInfo span_alloc_info, MemoryTag tag);
   static void InvokeDeleteHookSlow(PageId start_page, Length n,
-                                   SpanAllocInfo span_alloc_info,
-                                   MemoryTag tag);
+                                   SpanAllocInfo span_alloc_info, MemoryTag tag)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void InvokeReleaseHookSlow(Length num_pages, Length released,
-                                    PageReleaseReason reason);
+                                    PageReleaseReason reason)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   ABSL_ATTRIBUTE_NOINLINE void ShrinkToUsageLimitSlow(Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   bool ShrinkHardBy(Length page, LimitKind limit_kind)
