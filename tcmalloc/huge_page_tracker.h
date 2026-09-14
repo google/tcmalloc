@@ -148,6 +148,18 @@ class PageTracker : public TList<PageTracker>::Elem {
   // Returns true if any unused pages have been returned-to-system.
   bool released() const { return released_count_ > 0; }
 
+  // Forgets that any pages were returned-to-system.  Used when the remainder
+  // of an otherwise empty hugepage could not be unbacked: rather than
+  // reporting the whole hugepage as unmapped, we err high and treat it as
+  // backed.
+  //
+  // REQUIRES: empty()
+  void ClearReleased() {
+    TC_ASSERT(empty());
+    released_by_page_.ClearRange(0, kPagesPerHugePage.raw_num());
+    released_count_ = 0;
+  }
+
   // Was this tracker donated from the tail of a multi-hugepage allocation?
   // Only up-to-date when the tracker is on a TrackerList in the Filler;
   // otherwise the value is meaningless.
