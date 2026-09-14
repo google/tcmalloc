@@ -311,6 +311,10 @@ inline size_t RoundUp(const size_t size, const size_t alignment) {
 }
 
 int MapFixedNoReplaceFlagAvailable();
+// Probes whether MADV_DONTNEED_LOCKED is supported, returning the advice to
+// use.  Falls back to MADV_DONTNEED if the probe cannot be performed.
+int ProbeMadvDontNeedAdvice();
+// Cached result of ProbeMadvDontNeedAdvice().
 int MadvDontNeedAdviceAvailable();
 
 inline constexpr int kMapFixedNoReplace = MAP_FIXED_NOREPLACE;

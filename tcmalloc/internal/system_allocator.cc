@@ -97,19 +97,27 @@ int MapFixedNoReplaceFlagAvailable() {
   return noreplace_flag;
 }
 
+int ProbeMadvDontNeedAdvice() {
+  const size_t page_size = GetPageSize();
+  void* ptr =
+      mmap(nullptr, page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (ptr == MAP_FAILED) {
+    // The probe runs lazily on the first Release(), possibly when the process
+    // is already at RLIMIT_AS or vm.max_map_count.  Fall back to the
+    // universally-available advice rather than crashing.
+    return MADV_DONTNEED;
+  }
+  int ret = madvise(ptr, page_size, MADV_DONTNEED_LOCKED);
+  munmap(ptr, page_size);
+  return (ret == 0) ? MADV_DONTNEED_LOCKED : MADV_DONTNEED;
+}
+
 int MadvDontNeedAdviceAvailable() {
   ABSL_CONST_INIT static int advice;
   ABSL_CONST_INIT static absl::once_flag flag;
 
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    const size_t page_size = GetPageSize();
-    void* ptr =
-        mmap(nullptr, page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    TC_CHECK_NE(ptr, MAP_FAILED, "Unable to mmap test allocation.");
-    int ret = madvise(ptr, page_size, MADV_DONTNEED_LOCKED);
-    advice = (ret == 0) ? MADV_DONTNEED_LOCKED : MADV_DONTNEED;
-    munmap(ptr, page_size);
-  });
+  absl::base_internal::LowLevelCallOnce(
+      &flag, [&]() { advice = ProbeMadvDontNeedAdvice(); });
 
   return advice;
 }
