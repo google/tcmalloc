@@ -106,10 +106,38 @@ TEST_F(Cycles32Test, ExactHalfEpochSignInversion) {
 
 TEST_F(Cycles32Test, MaximumElapsedDurationExactness) {
   Cycles32 c(1);
-  g_ticks_ = (0xFFFFFFFFLL << Cycles32::kShift);
-  // 0xFFFFFFFFu - 1 = 0xFFFFFFFEu ticks elapsed.
+  g_ticks_ = (0x80000000LL << Cycles32::kShift);
+  // 0x80000000u - 1 = 0x7FFFFFFFu ticks elapsed, the largest representable
+  // duration (just under half an epoch).
   EXPECT_EQ(c.AsDuration(mock_clock_),
-            absl::Nanoseconds(0xFFFFFFFELL << Cycles32::kShift));
+            absl::Nanoseconds(0x7FFFFFFFLL << Cycles32::kShift));
+}
+
+TEST_F(Cycles32Test, HalfEpochOrOlderIsInfinite) {
+  Cycles32 c(1);
+
+  // Exactly half an epoch elapsed: indistinguishable from a timestamp that is
+  // 1.5 epochs old, so report it as infinitely old rather than aliasing it.
+  g_ticks_ = ((1LL + 0x80000000LL) << Cycles32::kShift);
+  EXPECT_EQ(c.AsDuration(mock_clock_), absl::InfiniteDuration());
+
+  // Nearly a full epoch elapsed.  Without saturation this reports 0xFFFFFFF0
+  // ticks, and one more tick of wraparound would make it report ~0 ticks.
+  g_ticks_ = ((1LL + 0xFFFFFFF0LL) << Cycles32::kShift);
+  EXPECT_EQ(c.AsDuration(mock_clock_), absl::InfiniteDuration());
+}
+
+TEST_F(Cycles32Test, HalfEpochConsistentWithTimeAfterOrEqual) {
+  // AsDuration is finite exactly when the snapshot is TimeAfterOrEqual the
+  // recorded tick, i.e. both share the same half-epoch validity window.
+  Cycles32 c(10);
+  for (uint32_t elapsed : {0u, 1u, 0x7FFFFFFFu, 0x80000000u, 0xFFFFFFFFu}) {
+    const uint32_t now_32 = 10u + elapsed;
+    g_ticks_ = static_cast<int64_t>(now_32) << Cycles32::kShift;
+    EXPECT_EQ(c.AsDuration(mock_clock_) != absl::InfiniteDuration(),
+              Cycles32(now_32).TimeAfterOrEqual(c))
+        << elapsed;
+  }
 }
 
 TEST_F(Cycles32Test, ZeroElapsedDuration) {

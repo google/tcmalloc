@@ -52,6 +52,9 @@ struct Clock {
 // - At 2 GHz: 1 tick = ~0.524 ms; 32-bit epoch = ~26.0 days before wraparound.
 // - At 3 GHz: 1 tick = ~0.349 ms; 32-bit epoch = ~17.3 days before wraparound.
 // - At 4 GHz: 1 tick = ~0.262 ms; 32-bit epoch = ~13.0 days before wraparound.
+// Elapsed durations (AsDuration) and orderings (TimeAfterOrEqual) are only
+// meaningful within half an epoch; older timestamps are reported as infinitely
+// old.
 class Cycles32 {
  public:
   static constexpr int kShift = 20;
@@ -61,9 +64,7 @@ class Cycles32 {
 
   // Updates the timestamp using clock.now() >> kShift.
   void Update(Clock clock = Clock{}) {
-    uint32_t now_32 = static_cast<uint32_t>(clock.now() >> kShift);
-    if (now_32 == 0) now_32 = 1;  // Reserve 0 as the uninitialized sentinel.
-    val_.store(now_32, std::memory_order_relaxed);
+    val_.store(ToTicks(clock.now()), std::memory_order_relaxed);
   }
 
   // Resets the timestamp to 0 (uninitialized sentinel).
@@ -75,11 +76,17 @@ class Cycles32 {
   }
 
   // Returns elapsed time since the recorded tick using a pre-taken snapshot.
-  // Returns absl::InfiniteDuration() if val_ == 0 (uninitialized).
+  // Returns absl::InfiniteDuration() if val_ == 0 (uninitialized) or if the
+  // recorded tick is at least half an epoch old.  Beyond that point the 32-bit
+  // difference is ambiguous (a tick from 1.5 epochs ago looks identical to one
+  // from half an epoch ago), so rather than report a bogus "recent" duration
+  // for a stale timestamp, treat it as infinitely old.  This is the same
+  // validity window as TimeAfterOrEqual.
   absl::Duration AsDuration(Clock::Snapshot snap) const {
     const uint32_t last = val_.load(std::memory_order_relaxed);
     if (last == 0) return absl::InfiniteDuration();
-    const uint32_t now_32 = static_cast<uint32_t>(snap.now >> kShift);
+    const uint32_t now_32 = ToTicks(snap.now);
+    if (!TimeAfterOrEqual(now_32, last)) return absl::InfiniteDuration();
     // Unsigned 32-bit modular subtraction across wraparound is safe.
     const uint32_t elapsed_ticks = now_32 - last;
     const double elapsed_cycles =
@@ -101,6 +108,14 @@ class Cycles32 {
   uint32_t raw() const { return val_.load(std::memory_order_relaxed); }
 
  private:
+  // Converts a clock reading to a 32-bit tick, reserving 0 as the
+  // uninitialized sentinel.  Used for both recorded and snapshot times so that
+  // they compare consistently.
+  static uint32_t ToTicks(int64_t now) {
+    const uint32_t now_32 = static_cast<uint32_t>(now >> kShift);
+    return now_32 == 0 ? 1 : now_32;
+  }
+
   static bool TimeAfterOrEqual(uint32_t a, uint32_t b) {
     return static_cast<int32_t>(a - b) >= 0;
   }
