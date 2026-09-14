@@ -78,7 +78,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_allocation_status.h"
-#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pages.h"
@@ -1864,14 +1863,16 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   } else {
     ASSERT_TRUE(status.has_value());
 
-    const size_t hardware_page_size = GetPageSize();
-    const size_t start_page = (reinterpret_cast<uintptr_t>(ptr) -
-                               reinterpret_cast<uintptr_t>(hp.start_addr())) /
-                              hardware_page_size;
-    const size_t num_pages = kAllocSize / hardware_page_size;
+    // The bitmap has a fixed granularity of PageAllocationStatus::kBytesPerBit
+    // per bit, independent of the hardware page size.
+    constexpr size_t kBytesPerBit = PageAllocationStatus::kBytesPerBit;
+    const size_t start_bit = (reinterpret_cast<uintptr_t>(ptr) -
+                              reinterpret_cast<uintptr_t>(hp.start_addr())) /
+                             kBytesPerBit;
+    const size_t num_bits = kAllocSize / kBytesPerBit;
 
-    // All pages overlapping with ptr must be allocated in the bitmap.
-    EXPECT_EQ(status->allocated.CountBits(start_page, num_pages), num_pages);
+    // All bits overlapping with ptr must be allocated in the bitmap.
+    EXPECT_EQ(status->allocated.CountBits(start_bit, num_bits), num_bits);
   }
 
   ::operator delete(ptr, kAllocSize);
