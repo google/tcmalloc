@@ -56,15 +56,16 @@ void* MetaDataAlloc(size_t bytes);
 // size class into a single word.
 class PackedSpanAndSizeclass {
  public:
-  void set(Span* absl_nullable span, CompactSizeClass sizeclass) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void set(Span* absl_nullable span,
+                                        CompactSizeClass sizeclass) {
     packed_value_ = (static_cast<uintptr_t>(sizeclass) << kSizeclassShift) |
                     reinterpret_cast<uintptr_t>(span);
   }
 
-  Span* absl_nullable span() const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE Span* absl_nullable span() const {
     return reinterpret_cast<Span*>(packed_value_ & kSpanMask);
   }
-  CompactSizeClass sizeclass() const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE CompactSizeClass sizeclass() const {
     return static_cast<CompactSizeClass>(packed_value_ >> kSizeclassShift);
   }
 
@@ -114,7 +115,7 @@ class PageMap3 {
     PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
     void* hugepage[kLeafHugepages];
 
-    Span* absl_nullable span(int i) const {
+    ABSL_ATTRIBUTE_ALWAYS_INLINE Span* absl_nullable span(int i) const {
       return span_and_sizeclass[i].span();
     }
   };
