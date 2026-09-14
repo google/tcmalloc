@@ -778,6 +778,143 @@ TEST_F(HugeRegionTest, GetPageAllocationStatus) {
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
 }
 
+TEST_F(HugeRegionTest, DisjointWordBoundariesAndCoalescing) {
+  const size_t kNumHps = region_.size().raw_num();
+  std::vector<Alloc> allocs;
+  allocs.reserve(kNumHps);
+  for (size_t i = 0; i < kNumHps; ++i) {
+    allocs.push_back(Allocate(kPagesPerHugePage));
+  }
+
+  // Free disjoint hugepages at 64-bit word boundaries: 0, 63, 64, 127, 511.
+  // Indices 63 and 64 form a contiguous 2-hugepage run straddling word 0 and
+  // word 1, which must be coalesced into a single unback call.
+  const size_t freed_indices[] = {0, 63, 64, 127, 511};
+  for (size_t idx : freed_indices) {
+    Delete(allocs[idx]);
+  }
+  EXPECT_EQ(region_.free_backed(), NHugePages(5));
+
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(0), NHugePages(1)));
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(63), NHugePages(2)));
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(127), NHugePages(1)));
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(511), NHugePages(1)));
+
+  EXPECT_EQ(
+      region_.Release(NHugePages(5).in_pages(), /*adaptive_release=*/false),
+      NHugePages(5));
+  CheckMock();
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  for (size_t i = 0; i < kNumHps; ++i) {
+    if (i != 0 && i != 63 && i != 64 && i != 127 && i != 511) {
+      Delete(allocs[i]);
+    }
+  }
+}
+
+TEST_F(HugeRegionTest, SubRangeDirectionalSlicingAcrossWordBoundaries) {
+  const size_t kNumHps = region_.size().raw_num();
+  std::vector<Alloc> allocs;
+  allocs.reserve(kNumHps);
+  for (size_t i = 0; i < kNumHps; ++i) {
+    allocs.push_back(Allocate(kPagesPerHugePage));
+  }
+
+  // Free disjoint singletons at 10 and 200, plus a 5-hugepage contiguous run
+  // [62, 67) straddling the 64-bit word boundary between bit 63 and bit 64.
+  Delete(allocs[10]);
+  for (size_t i = 62; i < 67; ++i) {
+    Delete(allocs[i]);
+  }
+  Delete(allocs[200]);
+  EXPECT_EQ(region_.free_backed(), NHugePages(7));
+
+  // Verify that when partial release consumes only a sub-range of a discovered
+  // free-backed run crossing a 64-bit word boundary ([62, 67)), reverse
+  // traversal (adaptive_release = true) slices from the high end of the run
+  // ([64, 67)) after skipping occupied spans and unbacking higher disjoint
+  // ranges (200), while forward traversal (adaptive_release = false) slices
+  // from the low end ([62, 63)) after unbacking lower disjoint ranges (10).
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(64), NHugePages(3)));
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(200), NHugePages(1)));
+  EXPECT_EQ(
+      region_.Release(NHugePages(4).in_pages(), /*adaptive_release=*/true),
+      NHugePages(4));
+  CheckMock();
+  EXPECT_EQ(region_.free_backed(), NHugePages(3));
+
+  // Remaining free-backed hugepages are at indices 10, 62, 63.
+  // Forward partial release of 2 hugepages should unback 10 and slice the
+  // lowest hugepage (62) from the remaining [62, 64) run.
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(10), NHugePages(1)));
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(62), NHugePages(1)));
+  EXPECT_EQ(
+      region_.Release(NHugePages(2).in_pages(), /*adaptive_release=*/false),
+      NHugePages(2));
+  CheckMock();
+  EXPECT_EQ(region_.free_backed(), NHugePages(1));
+
+  // Only index 63 remains free-backed.
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(63), NHugePages(1)));
+  EXPECT_EQ(
+      region_.Release(NHugePages(1).in_pages(), /*adaptive_release=*/false),
+      NHugePages(1));
+  CheckMock();
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  for (size_t i = 0; i < kNumHps; ++i) {
+    if (i != 10 && (i < 62 || i >= 67) && i != 200) {
+      Delete(allocs[i]);
+    }
+  }
+}
+
+TEST_F(HugeRegionTest, PartialUnbackFailureAcrossDisjointRuns) {
+  const size_t kNumHps = region_.size().raw_num();
+  std::vector<Alloc> allocs;
+  allocs.reserve(kNumHps);
+  for (size_t i = 0; i < kNumHps; ++i) {
+    allocs.push_back(Allocate(kPagesPerHugePage));
+  }
+
+  // Free two disjoint 2-hugepage runs: [10, 12) and [100, 102).
+  Delete(allocs[10]);
+  Delete(allocs[11]);
+  Delete(allocs[100]);
+  Delete(allocs[101]);
+  EXPECT_EQ(region_.free_backed(), NHugePages(4));
+
+  // Unbacking [10, 12) fails (returns false), while [100, 102) succeeds.
+  // Verify that UnbackHugepages restores free_backed_ for [10, 12) and advances
+  // past it to unback [100, 102) without looping infinitely.
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(10), NHugePages(2)),
+               /*success=*/false);
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(100), NHugePages(2)),
+               /*success=*/true);
+
+  EXPECT_EQ(
+      region_.Release(NHugePages(4).in_pages(), /*adaptive_release=*/false),
+      NHugePages(2));
+  CheckMock();
+  EXPECT_EQ(region_.free_backed(), NHugePages(2));
+
+  // Subsequent release should retry and unback the restored [10, 12) range.
+  ExpectUnback(HugeRange::Make(p_ + NHugePages(10), NHugePages(2)),
+               /*success=*/true);
+  EXPECT_EQ(
+      region_.Release(NHugePages(2).in_pages(), /*adaptive_release=*/false),
+      NHugePages(2));
+  CheckMock();
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  for (size_t i = 0; i < kNumHps; ++i) {
+    if (i != 10 && i != 11 && i != 100 && i != 101) {
+      Delete(allocs[i]);
+    }
+  }
+}
+
 class NilUnback final : public MemoryModifyFunction {
  public:
   MemoryModifyStatus operator()(Range r) override {
