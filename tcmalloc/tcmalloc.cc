@@ -1378,10 +1378,19 @@ extern "C" bool TCMalloc_Internal_GetPageAllocationStatus(
   if (!ok) {
     return false;
   }
-  // Scale from TCMalloc pages to 4K pages.
-  status->allocated = tcmalloc::tcmalloc_internal::Scale<512>(
-      pages, tcmalloc::tcmalloc_internal::kPagesPerHugePage.raw_num(),
-      tcmalloc::tcmalloc_internal::ReductionOp::kAny);
+  // Scale from TCMalloc pages to PageAllocationStatus::kBytesPerBit (4 KiB)
+  // granules.  Scale() requires one granularity to be a multiple of the other.
+  using tcmalloc::tcmalloc_internal::PageAllocationStatus;
+  static_assert(tcmalloc::tcmalloc_internal::kPageSize %
+                        PageAllocationStatus::kBytesPerBit ==
+                    0 ||
+                PageAllocationStatus::kBytesPerBit %
+                        tcmalloc::tcmalloc_internal::kPageSize ==
+                    0);
+  status->allocated =
+      tcmalloc::tcmalloc_internal::Scale<PageAllocationStatus::kNumBits>(
+          pages, tcmalloc::tcmalloc_internal::kPagesPerHugePage.raw_num(),
+          tcmalloc::tcmalloc_internal::ReductionOp::kAny);
   return true;
 }
 
