@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -1008,6 +1009,75 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithHitLimit) {
   BackingStats stats = set_.stats();
   EXPECT_EQ(stats.unmapped_bytes, stats.system_bytes);
   EXPECT_EQ(r1->free_backed().in_bytes(), 0);
+}
+
+TEST_P(HugeRegionSetTest, ZeroLengthHitLimitDoesNotResetLowater) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  // Allocate all space.
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+
+  // Put all back.
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Low water mark is 0, so ReleasePages should release nothing, but it
+  // re-arms the low water mark to free_backed_count (the full region).
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                                      /*hit_limit=*/false);
+  EXPECT_EQ(released, Length(0));
+
+  // Allocate half and put it back: the low water mark is now full - to_alloc.
+  size_t to_alloc = allocs.size() / 2;
+  std::vector<Alloc> active_allocs;
+  for (size_t i = 0; i < to_alloc; ++i) {
+    ASSERT_TRUE(set_.MaybeGet(kSize, &p, &from_released));
+    active_allocs.push_back({p, kSize});
+  }
+  for (auto a : active_allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  const HugeLength expected_lowater = NHugePages(allocs.size() - to_alloc);
+  ASSERT_GT(expected_lowater.raw_num(), 0);
+
+  auto print_stats = [&]() {
+    std::vector<char> buf(64 * 1024);
+    Printer out(&buf[0], buf.size());
+    set_.Print(out);
+    return std::string(&buf[0]);
+  };
+  const std::string stats_before = print_stats();
+  EXPECT_THAT(stats_before, testing::HasSubstr("low water mark free backed"));
+
+  // A request to release zero pages under hit_limit (as issued by
+  // ReleaseAtLeastNPagesBreakingHugepages when HugeCache already satisfied
+  // the request) must be a no-op: it must not release anything and must not
+  // re-arm the adaptive low water mark.
+  released = set_.ReleasePages(Length(0), /*use_adaptive=*/true,
+                               /*hit_limit=*/true);
+  EXPECT_EQ(released, Length(0));
+  EXPECT_EQ(print_stats(), stats_before);
+
+  // The next adaptive release must still be bounded by the low water mark
+  // observed before the zero-length request.
+  released = set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                               /*hit_limit=*/false);
+  EXPECT_EQ(released, expected_lowater.in_pages());
+  EXPECT_LT(released, r1->size().in_pages());
 }
 
 TEST_P(HugeRegionSetTest, ReleaseAdaptiveOrder) {

@@ -626,6 +626,8 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
                                                   bool hit_limit) {
   Length to_release;
   if (hit_limit) {
+    // Nothing was requested; do not touch the adaptive low water mark.
+    if (desired == Length(0)) return Length(0);
     to_release = desired;
   } else if (use_adaptive) {
     to_release = lowater_free_backed_.in_pages();
