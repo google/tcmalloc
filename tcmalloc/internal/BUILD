@@ -569,6 +569,7 @@ cc_test(
     ],
     deps = [
         ":allocation_guard",
+        ":page_size",
         ":pageflags",
         ":range_tracker",
         ":strerror",

@@ -586,6 +586,7 @@ tcmalloc_cc_test(
     "absl::time"
     "benchmark::benchmark"
     "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_page_size"
     "tcmalloc::internal_pageflags"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::internal_strerror"
