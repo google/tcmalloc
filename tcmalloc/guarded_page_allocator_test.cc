@@ -32,6 +32,7 @@
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -355,6 +356,47 @@ TEST_F(GuardedPageAllocatorTest, ThreadedHighContention) {
     EXPECT_EQ(alloc_with_status.status,
               Profile::Sample::GuardedStatus::Guarded);
     EXPECT_NE(alloc_with_status.alloc, nullptr);
+  }
+}
+
+// The stack trace filter skips currently covered allocations with a
+// probability proportional to pool utilization; with an empty pool, covered
+// allocations must never be filtered.
+TEST_F(GuardedPageAllocatorTest, CoveredStackTraceNotFilteredWhenPoolEmpty) {
+  // Make guarded sampling as frequent as profile sampling, so that TrySample()
+  // is rate limited at most every other attempt.
+  ScopedGuardedSamplingInterval guarded_sampling_interval(
+      MallocExtension::GetProfileSamplingInterval());
+
+  // Cover the stack trace by allocating and freeing once: the pool is empty,
+  // but the stack trace remains in the filter until it decays.
+  const StackTrace stack_trace = GetStackTrace();
+  auto alloc_with_status = gpa_.Allocate(1, std::align_val_t{0}, stack_trace);
+  ASSERT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  gpa_.Deallocate(alloc_with_status.alloc);
+
+  constexpr int kIter = 4000;
+  for (int i = 0; i < kIter; ++i) {
+    ASSERT_EQ(gpa_.GetNumAvailablePages(), kMaxGpaPages);
+    alloc_with_status =
+        gpa_.TrySample(1, std::align_val_t{0}, Length(1), stack_trace);
+    switch (alloc_with_status.status) {
+      case Profile::Sample::GuardedStatus::RateLimited:
+        // Emulate that non-guarded sampling happened.
+        tc_globals.total_sampled_count_.Add(1);
+        break;
+      case Profile::Sample::GuardedStatus::Guarded:
+        gpa_.Deallocate(alloc_with_status.alloc);
+        break;
+      case Profile::Sample::GuardedStatus::Filtered:
+        FAIL()
+            << "Covered stack trace filtered with an empty pool at iteration "
+            << i;
+      default:
+        FAIL() << "Unexpected status "
+               << static_cast<int>(alloc_with_status.status) << " at iteration "
+               << i;
+    }
   }
 }
 

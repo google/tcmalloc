@@ -321,12 +321,30 @@ TEST_F(GuardedPageAllocatorProfileTest, NeverSample) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, Filtered) {
+  // Guarded sampling is never rate limited with equal intervals, so that the
+  // stack trace filter is the only reason a sampled allocation is not guarded.
+  ScopedGuardedSamplingInterval guarded_sampling_interval(
+      Parameters::profile_sampling_interval());
   auto token = MallocExtension::StartAllocationProfiling();
-  int guarded_count = 0;
+
+  // The probability of filtering an allocation from a covered stack trace
+  // scales with pool utilization, and reaches 100% at 50% utilization: keep
+  // guarded allocations alive until a sampled allocation is filtered.
+  std::vector<std::unique_ptr<void, void (*)(void*)>> allocs;
+  allocs.reserve(tc_globals.guardedpage_allocator().GetNumAvailablePages());
   AllocateGuardableUntil(1058, [&](void* alloc) -> NextSteps {
-    guarded_count += tc_globals.guardedpage_allocator().PointerIsMine(alloc);
-    return {guarded_count == 1000, true};
+    if (IsNormalMemory(alloc)) {
+      return {false, true};
+    }
+    if (tc_globals.guardedpage_allocator().PointerIsMine(alloc)) {
+      allocs.emplace_back(alloc,
+                          static_cast<void (*)(void*)>(::operator delete));
+      return {false, false};
+    }
+    return {true, true};
   });
+  // Filtering is the only remaining reason for not guarding.
+  EXPECT_GT(tc_globals.guardedpage_allocator().GetNumAvailablePages(), 0);
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Filtered);
@@ -339,21 +357,34 @@ TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
   AllocateUntilGuarded();
 
   auto token = MallocExtension::StartAllocationProfiling();
-  // Obtain a few sample guarding candidates, which will eventually yield at
-  // least one that is filtered.
+  // The probability of filtering an allocation from a covered stack trace
+  // scales with pool utilization, and reaches 100% at 50% utilization: keep
+  // guarded allocations alive, so that eventually every sampled allocation that
+  // is not rate limited is filtered.
+  std::vector<std::unique_ptr<void, void (*)(void*)>> allocs;
+  allocs.reserve(tc_globals.guardedpage_allocator().GetNumAvailablePages());
   int guarded_count = 0;
   int sampled_count = 0;
   AllocateGuardableUntil(1062, [&](void* alloc) -> NextSteps {
-    if (!IsNormalMemory(alloc)) {
-      if (tc_globals.guardedpage_allocator().PointerIsMine(alloc)) {
-        ++guarded_count;
-      }
-      ++sampled_count;
+    if (IsNormalMemory(alloc)) {
+      return {false, true};
     }
-    return {guarded_count == 1000, true};
+    ++sampled_count;
+    if (tc_globals.guardedpage_allocator().PointerIsMine(alloc)) {
+      ++guarded_count;
+      allocs.emplace_back(alloc,
+                          static_cast<void (*)(void*)>(::operator delete));
+      return {false, false};
+    }
+    // Sampled but not guarded: rate limiting applies while fewer than 2
+    // allocations were sampled per guarded allocation before this one, so stop
+    // once it cannot be the reason.
+    return {sampled_count - 1 >= 2 * guarded_count, true};
   });
 
   EXPECT_GT(sampled_count, guarded_count);
+  // Filtering is the only remaining reason for not guarding.
+  EXPECT_GT(tc_globals.guardedpage_allocator().GetNumAvailablePages(), 0);
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Filtered);
