@@ -513,7 +513,8 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
 }
 
 inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
-  const PageBitmap& free = free_.bits();
+  // free_ tracks allocated pages: set bits are in use, clear bits are free.
+  const PageBitmap& used = free_.bits();
 
   // TODO(b/525422238): The residency bitmap was captured outside of the
   // lock. So, in a rare case, it's possible that the page was allocated,
@@ -521,11 +522,11 @@ inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
   // While we currently ignore this case (resulting in underestimating
   // RSS), we can potentially fix this by re-investigating the bitmaps
   // and marking the pages back to backed to eventually fix this.
-  auto to_release = (~free) & (~released_by_page_) & unbacked;
+  auto to_release = (~used) & (~released_by_page_) & unbacked;
   released_by_page_ = released_by_page_ | to_release;
 
   released_count_ += to_release.CountBits();
-  // Mark this is unbroken regardless of whether it had any unbacked free
+  // Mark this as broken regardless of whether it had any unbacked free
   // TCMalloc pages. Marking this will move this tracker to one of the
   // released lists.
   unbroken_ = false;

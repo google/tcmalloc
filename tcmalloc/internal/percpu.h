@@ -25,7 +25,8 @@
 // Offset from __rseq_abi to the cached slabs address.
 #define TCMALLOC_RSEQ_SLABS_OFFSET -4
 
-// Offset from the cached slabs address to the sampler.
+// Offset from the sampler to the cached slabs address, i.e.
+// &tcmalloc_slabs == &tcmalloc_sampler + TCMALLOC_SAMPLER_SLABS_OFFSET.
 #define TCMALLOC_SAMPLER_SLABS_OFFSET 36
 
 // The bit denotes that tcmalloc_rseq.slabs contains valid slabs offset.
