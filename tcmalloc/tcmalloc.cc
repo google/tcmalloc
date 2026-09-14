@@ -867,11 +867,7 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
     ReportCorruptedFree(tc_globals, ptr);
   }
 
-#ifdef TCMALLOC_INTERNAL_WITH_ASSERTIONS
-  TC_CHECK(CorrectSize(ptr, size, policy));
-#else
   TC_ASSERT(CorrectSize(ptr, size, policy));
-#endif
 
   const auto [is_small, _] = tc_globals.sizemap().GetSizeClass(policy, size);
   if (ABSL_PREDICT_FALSE(!is_small)) {
