@@ -775,7 +775,8 @@ class CpuCache {
       uint8_t resize_offset);
 
   // madvise-away slab memory, pointed to by <slab_addr> of size <slab_size>.
-  void MadviseAwaySlabs(void* slab_addr, size_t slab_size);
+  // Returns whether the memory was released.
+  bool MadviseAwaySlabs(void* slab_addr, size_t slab_size);
 
   void SetSlabAnonVmaName(void* ptr, size_t size, bool is_drained);
 
@@ -1597,7 +1598,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 }
 
 template <class Forwarder>
-void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
+bool CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
   SetSlabAnonVmaName(slab_addr, slab_size, /*is_drained=*/true);
   // It is important that we do not MADV_REMOVE the memory, since file-backed
   // pages may SIGSEGV/SIGBUS if another thread sees the previous slab after
@@ -1629,7 +1630,9 @@ void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
   if (ret != 0 || madvise_failed) {
     dynamic_slab_info_.madvise_failed_bytes.fetch_add(
         slab_size, std::memory_order_relaxed);
+    return false;
   }
+  return true;
 }
 
 template <class Forwarder>

@@ -318,12 +318,16 @@ class TcmallocSlab {
   // Find whether enough consecutive CPUs are drained so that their metadata
   // spans an entire hugepage, and if so, release their metadata.
   //
+  // <madvise_away_slabs> returns whether it released the memory. The CPUs are
+  // unpopulated either way (their headers are re-initialized on the next
+  // InitCpu). Returns the number of bytes <madvise_away_slabs> released.
+  //
   // All CPUs' ResizeInfo must be locked before calling this function.
   // The function stops them itself.
-  void ReleaseSlabMetadataForDrainedCpus(
+  size_t ReleaseSlabMetadataForDrainedCpus(
       absl::FunctionRef<bool(size_t)> populated,
       absl::FunctionRef<void(size_t)> unpopulate,
-      absl::FunctionRef<void(void*, size_t)> madvise_away_slabs);
+      absl::FunctionRef<bool(void*, size_t)> madvise_away_slabs);
 
   PerCPUMetadataState MetadataMemoryUsage() const;
 
@@ -1435,11 +1439,12 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, DrainHandler drain_handler) {
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
+size_t TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
     absl::FunctionRef<bool(size_t)> populated,
     absl::FunctionRef<void(size_t)> unpopulate,
-    absl::FunctionRef<void(void*, size_t)> madvise_away_slabs) {
+    absl::FunctionRef<bool(void*, size_t)> madvise_away_slabs) {
   const int n_cpus = num_cpus();
+  size_t released_bytes = 0;
 
   // For each hugepage touched by our slabs, track whether there is something
   // there that needs to be freed (because all CPUs belonging to that hugepage
@@ -1469,7 +1474,7 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
   // would tear through a CPU's data, and we can do nothing.
   if (!IsAlignedTo(slabs, slab_size_bytes)) {
     TC_BUG("Slabs are not properly aligned");
-    return;
+    return 0;
   }
 
   auto address_to_hugepage_number = [](const void* addr) {
@@ -1531,7 +1536,9 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
       ++hugepage_idx;
     }
 
-    madvise_away_slabs(hugepage_start, bytes_to_free);
+    if (madvise_away_slabs(hugepage_start, bytes_to_free)) {
+      released_bytes += bytes_to_free;
+    }
     size_t first_cpu = (reinterpret_cast<uintptr_t>(hugepage_start) -
                         reinterpret_cast<uintptr_t>(slabs)) /
                        slab_size_bytes;
@@ -1542,6 +1549,7 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
 
   // Restart the CPUs again.
   StartAllCpus();
+  return released_bytes;
 }
 
 template <size_t NumClasses>
