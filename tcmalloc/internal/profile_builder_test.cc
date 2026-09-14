@@ -716,7 +716,7 @@ TEST(ProfileConverterTest, HeapProfile) {
                                        Pair("objects", 6),
                                    }),
                                    IsSupersetOf({
-                                       Pair("resident_space", 20),
+                                       Pair("resident_space", 40),
                                        Pair("swapped_space", 0),
                                        Pair("space", 4690),
                                        Pair("objects", 10),
@@ -1497,6 +1497,69 @@ TEST(ProfileConverterTest, CompressedSizeDoesNotExceedAnalyzedSize) {
   // work for all possible inputs.
   EXPECT_GE(sizes[1], kRequestedSize);
   EXPECT_LE(sizes[1], kAllocatedSize);
+}
+
+// Verify that resident_space is measured over allocated_size, consistently
+// with space, stale_space, and locked_space, even when the caller did not use
+// a size-returning allocation.
+TEST(ProfileConverterTest, ResidentSpaceCoversAllocatedSize) {
+  constexpr size_t kRequestedSize = 100;
+  constexpr size_t kAllocatedSize = 128;
+  constexpr size_t kCount = 3;
+
+  std::vector<char> buf(kAllocatedSize);
+
+  Profile::Sample sample = {};
+  sample.sum = kAllocatedSize * kCount;
+  sample.count = kCount;
+  sample.requested_size = kRequestedSize;
+  sample.requested_alignment = std::nullopt;
+  sample.requested_size_returning = false;
+  sample.allocated_size = kAllocatedSize;
+  sample.span_start_address = buf.data();
+  sample.depth = 1;
+  sample.stack[0] = reinterpret_cast<void*>(&RealPath);
+  sample.access_hint = hot_cold_t{0};
+  sample.access_allocated = Profile::Sample::Access::Hot;
+  sample.token_id = TokenId{0};
+  sample.guarded_status = Profile::Sample::GuardedStatus::NotAttempted;
+  sample.type = AllocationType::Malloc;
+
+  // The whole allocation is resident, stale, and locked.
+  StubPageFlags pageflags;
+  pageflags.set_bytes_stale(buf.data(), kAllocatedSize);
+  pageflags.set_bytes_locked(buf.data(), kAllocatedSize);
+  pageflags.set_stale_scan_period(buf.data(), 60);
+
+  StubResidency residency;
+  Residency::Info info;
+  info.bytes_resident = kAllocatedSize;
+  info.bytes_swapped = 0;
+  info.page_is_resident.SetBit(0);
+  residency.SetInfo(buf.data(), info);
+
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kHeap);
+  fake_profile->SetDuration(absl::Milliseconds(100));
+  fake_profile->SetSamples({sample});
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+
+  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
+  ASSERT_TRUE(converted_or.ok());
+  const auto& converted = **converted_or;
+
+  ASSERT_EQ(converted.sample_size(), 1);
+  const auto& s = converted.sample(0);
+  ASSERT_EQ(s.value_size(), converted.sample_type_size());
+  absl::flat_hash_map<std::string, int64_t> values;
+  for (int i = 0; i < s.value_size(); ++i) {
+    values.emplace(converted.string_table(converted.sample_type(i).type()),
+                   s.value(i));
+  }
+
+  ASSERT_THAT(values, IsSupersetOf({Key("space"), Key("resident_space")}));
+  EXPECT_EQ(values["space"], kAllocatedSize * kCount);
+  EXPECT_EQ(values["resident_space"], values["space"]);
 }
 
 }  // namespace
