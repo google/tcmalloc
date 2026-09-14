@@ -908,6 +908,8 @@ tcmalloc_cc_test(
     tcmalloc_testing_malloc_tracing_extension_system_malloc_test
   SRCS
     "malloc_tracing_extension_test.cc"
+  COPTS
+    "-DMALLOC_TRACING_EXTENSION_NOT_SUPPORTED"
   DEPS
     "GTest::gtest_main"
     "GTest::gmock_main"
