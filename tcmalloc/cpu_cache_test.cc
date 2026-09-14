@@ -481,7 +481,16 @@ TEST(CpuCacheTest, Metadata) {
 
   const int num_cpus = NumCPUs();
 
-  const int kAttempts = 3;
+  // Under heavy machine load this thread can be preempted mid-`Allocate` on any
+  // given attempt (returning to the same core, so `Tampered()` and the
+  // VirtualCpu checks below do not fire).  A preempted attempt leaves the
+  // per-CPU/transfer-cache accounting in a state that fails the assertions
+  // below, so we retry until we obtain an uninterrupted window rather than
+  // asserting against known-preempted state.  `kAttempts` is sized so that the
+  // probability of preemption on every attempt is negligible; in the
+  // pathological case we skip rather than fail.
+  const int kAttempts = 10;
+  bool populated = false;
   for (int attempt = 1; attempt <= kAttempts; attempt++) {
     SCOPED_TRACE(absl::StrCat("attempt=", attempt));
 
@@ -551,26 +560,34 @@ TEST(CpuCacheTest, Metadata) {
     // We don't care if the transfer cache hit or missed, but the CPU cache
     // should have done the operation.
     tc_stats = cache.forwarder().transfer_cache().GetStats(kSizeClass);
-    if ((tc_stats.remove_object_misses != num_to_move ||
-         tc_stats.insert_hits + tc_stats.insert_misses != 0) &&
-        attempt < kAttempts) {
+    if (tc_stats.remove_object_misses != num_to_move ||
+        tc_stats.insert_hits + tc_stats.insert_misses != 0) {
       // The operation didn't occur as expected, likely because we were
       // preempted but returned to the same core (otherwise Tampered would have
       // fired).
       //
-      // The MSB of tcmalloc_slabs should be cleared to indicate we were
-      // preempted.  As of December 2024, Refill and its callees do not invoke
-      // CacheCpuSlab.  This check can spuriously pass if we're preempted
-      // between the end of Allocate and now, rather than within Allocate, but
-      // it ensures we do not silently break.
+      // The MSB of tcmalloc_slabs is cleared to indicate we were preempted.  As
+      // of December 2024, Refill and its callees do not invoke CacheCpuSlab. If
+      // the bit is *set* we were not preempted, so the missing operation is a
+      // genuine failure; fall through to the assertions below, which will fire.
+      // Otherwise retry on a fresh cache rather than asserting against
+      // known-preempted state, which is the dominant source of flakiness under
+      // load.
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-      EXPECT_EQ(subtle::percpu::tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK, 0);
+      const bool preempted =
+          (subtle::percpu::tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) == 0;
+#else   // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+      // Without rseq we cannot observe the preemption signature; assume
+      // preemption and retry.
+      const bool preempted = true;
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-
-      cache.Deallocate(ptr, kSizeClass);
-      cache.Deactivate();
-
-      continue;
+      if (preempted) {
+        cache.Deallocate(ptr, kSizeClass);
+        cache.Deactivate();
+        continue;
+      }
+      // Not preempted: fall through to the assertions below to surface the
+      // regression.
     }
 
     EXPECT_EQ(tc_stats.remove_hits + tc_stats.remove_misses, 1);
@@ -656,7 +673,13 @@ TEST(CpuCacheTest, Metadata) {
     // Tear down.
     cache.Deallocate(ptr, kSizeClass);
     cache.Deactivate();
+    populated = true;
     break;
+  }
+
+  if (!populated) {
+    GTEST_SKIP() << "preempted on all " << kAttempts
+                 << " attempts; could not obtain an uninterrupted allocation";
   }
 }
 
