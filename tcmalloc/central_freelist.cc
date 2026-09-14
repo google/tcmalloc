@@ -19,7 +19,6 @@
 #include <optional>
 
 #include "absl/base/attributes.h"
-#include "absl/base/call_once.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/debugging/stacktrace.h"
@@ -38,11 +37,6 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
-
-extern "C" {
-ABSL_ATTRIBUTE_WEAK void
-TCMalloc_CentralFreeList_InitAtFirstRemoveRange_Tracing();
-}
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
