@@ -25,8 +25,12 @@
 #include "gtest/gtest.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
+#include "tcmalloc/sizemap.h"
+#include "tcmalloc/static_vars.h"
+#include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -233,16 +237,27 @@ TEST_F(SampledHooksTest, RequestedSizeAndAlignment) {
   DeallocateAligned(p, 24, 16);
 }
 
+// Returns the partition a size-class allocation of `bytes` with `hint` lands
+// in, as selected by the size map.  Cold hints are only honored when cold size
+// classes are compiled in and, under full heap partitioning, only for
+// partition 0.
+MallocHook::Access ExpectedAccess(size_t bytes, tcmalloc::hot_cold_t hint) {
+  const tcmalloc_internal::SizeMap::SizeMapResult result =
+      tcmalloc_internal::tc_globals.sizemap().GetSizeClass(
+          tcmalloc_internal::CppPolicy().AccessAs(hint), bytes);
+  EXPECT_TRUE(result.is_small);
+  return tcmalloc_internal::IsColdSizeClass(result.size_class)
+             ? MallocHook::Access::Cold
+             : MallocHook::Access::Hot;
+}
+
 TEST_F(SampledHooksTest, AccessHintAndAllocated) {
   ScopedProfileSamplingInterval i(1);
 
   // 1. Cold Hint
   void* p = AllocateWithHint(64, tcmalloc::hot_cold_t{0});
   EXPECT_EQ(0, last_access_hint);
-  // The allocator may place cold hints into the Hot partition under some
-  // circumstances (e.g. heap partitioning disabled or unsupported).
-  EXPECT_THAT(last_access_allocated, testing::AnyOf(MallocHook::Access::Hot,
-                                                    MallocHook::Access::Cold));
+  EXPECT_EQ(last_access_allocated, ExpectedAccess(64, tcmalloc::hot_cold_t{0}));
   Deallocate(p, 64);
 
   // 2. Hot Hint
