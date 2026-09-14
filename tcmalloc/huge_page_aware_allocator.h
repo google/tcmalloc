@@ -44,6 +44,7 @@
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/system_allocator.h"
+#include "tcmalloc/internal/util.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pages.h"
@@ -834,6 +835,7 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
 
   if (forwarder_.madvise_cold_regions_nohugepage() ==
       MadviseRegionsNoHugepage::kEnabled) {
+    ErrnoRestorer errno_restorer;
     bool madvise_failed = false;
     do {
       madvise_failed =
