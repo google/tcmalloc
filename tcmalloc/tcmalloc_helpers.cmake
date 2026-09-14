@@ -89,3 +89,51 @@ endfunction()
 function(tcmalloc_cc_binary)
   tcmalloc_cc_test(${ARGN})
 endfunction()
+
+function(create_percpu_tcmalloc_testsuite)
+  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV" ${ARGN})
+  string(REGEX REPLACE "_test$" "" BASE_NAME ${TCMALLOC_NAME})
+
+  set(COMMON_ARGS)
+  if(TCMALLOC_SRCS)
+    list(APPEND COMMON_ARGS SRCS ${TCMALLOC_SRCS})
+  endif()
+  if(TCMALLOC_HDRS)
+    list(APPEND COMMON_ARGS HDRS ${TCMALLOC_HDRS})
+  endif()
+  if(TCMALLOC_COPTS)
+    list(APPEND COMMON_ARGS COPTS ${TCMALLOC_COPTS})
+  endif()
+  if(TCMALLOC_LINKOPTS)
+    list(APPEND COMMON_ARGS LINKOPTS ${TCMALLOC_LINKOPTS})
+  endif()
+  if(TCMALLOC_DEPS)
+    list(APPEND COMMON_ARGS DEPS ${TCMALLOC_DEPS})
+  endif()
+
+  set(DEFAULT_ENV)
+  if(TCMALLOC_ENV)
+    set(DEFAULT_ENV ENV ${TCMALLOC_ENV})
+  endif()
+
+  tcmalloc_cc_test(
+    NAME ${BASE_NAME}_test
+    ${COMMON_ARGS}
+    ${DEFAULT_ENV}
+  )
+  tcmalloc_cc_test(
+    NAME ${BASE_NAME}_flat_test
+    ${COMMON_ARGS}
+    ENV ${TCMALLOC_ENV} "PERCPU_VCPU_MODE=flat"
+  )
+  tcmalloc_cc_test(
+    NAME ${BASE_NAME}_no_glibc_rseq_test
+    ${COMMON_ARGS}
+    ENV ${TCMALLOC_ENV} "GLIBC_TUNABLES=glibc.pthread.rseq=0"
+  )
+  tcmalloc_cc_test(
+    NAME ${BASE_NAME}_real_test
+    ${COMMON_ARGS}
+    ENV ${TCMALLOC_ENV} "PERCPU_VCPU_MODE=none"
+  )
+endfunction()

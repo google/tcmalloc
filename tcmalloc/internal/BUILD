@@ -21,6 +21,7 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark")
+load(":percpu.bzl", "create_percpu_tcmalloc_testsuite")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -933,13 +934,10 @@ cc_library(
     ],
 )
 
-cc_test(
+create_percpu_tcmalloc_testsuite(
     name = "percpu_tcmalloc_test",
-    timeout = "long",
     srcs = ["percpu_tcmalloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
-    malloc = ":system_malloc",
     tags = [
         "nohwasan",
         "noubsan",
@@ -955,7 +953,6 @@ cc_test(
         ":sysinfo",
         ":util",
         "//tcmalloc:malloc_extension",
-        "//tcmalloc/testing:rseq_util",
         "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",

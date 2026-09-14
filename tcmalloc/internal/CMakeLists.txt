@@ -938,7 +938,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_sysinfo"
 )
 
-tcmalloc_cc_test(
+create_percpu_tcmalloc_testsuite(
   NAME
     tcmalloc_internal_percpu_tcmalloc_test
   SRCS
@@ -968,7 +968,6 @@ tcmalloc_cc_test(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::internal_util"
     "tcmalloc::malloc_extension"
-    "tcmalloc::testing_rseq_util"
     "tcmalloc::testing_testutil"
 )
 
