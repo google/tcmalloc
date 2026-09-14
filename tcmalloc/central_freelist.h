@@ -788,7 +788,10 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   // TODO(b/538576012): Use a recommended API for this.
   size_t size = batch.size();
   ASSUME(result <= size);
-  forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
+  // Match InsertRange's contract: hooks only observe non-empty batches.
+  if (ABSL_PREDICT_TRUE(result > 0)) {
+    forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
+  }
   return result;
 }
 
