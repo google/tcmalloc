@@ -24,6 +24,18 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+// Invocation context for the hooks below:
+//
+// Insert hooks run at the start of CentralFreeList::InsertRange and remove
+// hooks at the end of CentralFreeList::RemoveRange, i.e. from inside the
+// deallocation and allocation slow paths.  No TCMalloc locks (neither the
+// CentralFreeList lock nor pageheap_lock) are held at the time of the call.
+// The first RemoveRange invocation additionally runs the weak
+// TCMalloc_CentralFreeList_InitAtFirstRemoveRange_Tracing() initializer.
+//
+// Hooks must not allocate or free memory, block, or otherwise re-enter
+// TCMalloc: doing so would recurse into the same slow path.
+
 using CentralFreelistInsertRangeHook = void (*)(size_t size_class,
                                                 absl::Span<void*> batch);
 using CentralFreelistRemoveRangeHook = void (*)(size_t size_class,

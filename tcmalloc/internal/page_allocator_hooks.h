@@ -28,6 +28,20 @@ namespace tcmalloc_internal {
 
 enum class PageReleaseReason : uint8_t;
 
+// Invocation context for all hooks below:
+//
+// - New hooks run from PageAllocator::New/NewAligned after the underlying
+//   allocation has completed.  pageheap_lock is not held, but the hook runs on
+//   the allocation slow path.  The first invocation additionally runs the weak
+//   TCMalloc_PageAllocator_InitAtFirstNew_Tracing() initializer, so it
+//   executes from inside the first page-heap allocation of the process.
+// - Delete hooks run from PageAllocator::Delete and release hooks from
+//   PageAllocator::ReleaseAtLeastNPages, both with pageheap_lock held.
+//
+// Hooks must therefore not allocate or free memory, block, acquire
+// pageheap_lock, or otherwise re-enter TCMalloc.  In debug builds hook
+// invocation is wrapped in an AllocationGuard, which aborts on allocation.
+
 // Hook invoked after Span allocation attempts in PageAllocator::New and
 // PageAllocator::NewAligned.
 // - start_page_index is 0 if allocation returned nullptr.
