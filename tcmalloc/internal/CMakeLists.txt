@@ -1415,6 +1415,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_page_size"
     "tcmalloc::internal_proc_maps"
     "tcmalloc::internal_system_allocator"
+    "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
 )
@@ -1439,6 +1440,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_page_size"
     "tcmalloc::internal_proc_maps"
     "tcmalloc::internal_system_allocator"
+    "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
   ENV
