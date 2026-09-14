@@ -311,6 +311,62 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
+TEST_F(PageAllocatorTest, ShrinkFailureStickyWithHardLimitTest) {
+  // Turn off subrelease so that we take the ShrinkHardBy path.
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  Span* normal1 = New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  Span* normal2 = New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  Span* sampled = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+
+  BackingStats stats;
+  {
+    PageHeapSpinLockHolder l;
+    stats = allocator_.stats();
+  }
+  EXPECT_EQ(stats.system_bytes, 2 * kHugePageSize);
+  EXPECT_EQ(stats.free_bytes, kHugePageSize);
+  EXPECT_EQ(stats.unmapped_bytes, 0);
+
+  // Choose a hard limit that we do not exceed and a soft limit that we hit
+  // and are not able to satisfy.
+  const size_t metadata_bytes = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.metadata_bytes();
+  }();
+  allocator_.set_limit(metadata_bytes + 2 * kHugePageSize,
+                       PageAllocator::kHard);
+  allocator_.set_limit(metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes(),
+                       PageAllocator::kSoft);
+  EXPECT_EQ(1, allocator_.limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(
+      0, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+  EXPECT_EQ(0, allocator_.limit_hits(PageAllocator::kHard));
+  // Now delete normal1 so that memory can be released to get under limit.
+  // normal2 is still alive on that hugepage, so HugePageFiller::Put does
+  // not unback the hugepage automatically.
+  Delete(normal1, kSpanInfo, MemoryTag::kNormal);
+
+  // A subsequent allocation with may_have_grown == false should attempt to
+  // shrink until below the soft limit, even though we were under the hard
+  // limit.
+  {
+    PageHeapSpinLockHolder l;
+    allocator_.ShrinkToUsageLimit(Length(0), /*may_have_grown=*/false);
+  }
+  EXPECT_EQ(2, allocator_.limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(
+      1, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+  EXPECT_EQ(0, allocator_.limit_hits(PageAllocator::kHard));
+
+  Delete(normal2, kSpanInfo, MemoryTag::kNormal);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
 struct HookRecord {
   size_t start_page_index;
   size_t n;

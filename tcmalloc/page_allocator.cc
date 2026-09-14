@@ -119,7 +119,9 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
     return;
   }
 
-  // We're still not below limit.
+  // We're still not below limit.  Keep re-checking on subsequent allocations,
+  // even if we return early below because the hard limit is satisfied.
+  over_limit_ = true;
   if (limits_[kHard] < std::numeric_limits<size_t>::max()) {
     // Recompute how many pages we still need to release.
     BackingStats s = stats();
@@ -147,8 +149,6 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
         ,
         hard_limit);
   }
-
-  over_limit_ = true;
 
   // Print logs once.
   static bool warned = false;
