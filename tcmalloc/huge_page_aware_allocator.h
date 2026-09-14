@@ -299,9 +299,13 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
 #endif  // NDEBUG
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       pageheap_lock.unlock();
+#endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
       MemoryModifyStatus ret = hpaa_.forwarder_.ReleasePages(r);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       pageheap_lock.lock();
+#endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
       return ret;
     }
 
@@ -841,7 +845,12 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
     } while (madvise_failed && errno == EAGAIN);
   }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   HugeRegion* region = region_allocator_.New(r, unback_, set_anon_vma_name_);
+#else   // !TCMALLOC_INTERNAL_LEGACY_LOCKING
+  HugeRegion* region =
+      region_allocator_.New(r, unback_without_lock_, set_anon_vma_name_);
+#endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
   regions_.Contribute(region);
   return true;
 }
