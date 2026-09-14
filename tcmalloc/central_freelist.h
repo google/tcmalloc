@@ -416,6 +416,9 @@ template <class Forwarder>
 inline void CentralFreeList<Forwarder>::Init(
     size_t size_class, CflSubbucketPrioritization cfl_subbucket_prioritization)
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  // Init is called exactly once per size class; size class 0 leaves
+  // object_size_ at 0.
+  TC_ASSERT_EQ(object_size_, 0);
   size_class_ = size_class;
   object_size_ = forwarder_.class_to_size(size_class);
   if (object_size_ == 0) {

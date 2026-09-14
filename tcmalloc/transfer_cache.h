@@ -487,8 +487,6 @@ class TransferCacheManager : public StaticForwarder {
   void InitCaches() {
     for (int i = 0; i < kNumClasses; ++i) {
       new (&cache_[i].tc) TransferCache(this, i);
-      cache_[i].tc.freelist().Init(i,
-                                   Parameters::cfl_subbucket_prioritization());
     }
   }
 
