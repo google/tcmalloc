@@ -475,7 +475,8 @@ struct ReleasePerCPUSlabMetadata {
       }
     }
 
-    state.slab.ReleaseSlabMetadataForDrainedCpus(
+    size_t requested_bytes = 0;
+    const size_t released_bytes = state.slab.ReleaseSlabMetadataForDrainedCpus(
         [&state](int cpu) { return state.cpu_initialized[cpu]; },
         [&state](int cpu) {
           state.cpu_initialized[cpu] = false;
@@ -485,14 +486,19 @@ struct ReleasePerCPUSlabMetadata {
           }
         },
         [&](void* slab_addr, size_t slab_size) {
+          TC_CHECK_GT(slab_size, 0);
+          TC_CHECK_EQ(slab_size % kHugePageSize, 0);
+          requested_bytes += slab_size;
           if (madvise_fail) {
             // Simulate that the madvise failed.
-            return -1;
-          } else {
-            madvise(slab_addr, slab_size, MADV_NOHUGEPAGE);
-            return madvise(slab_addr, slab_size, MADV_DONTNEED);
+            return false;
           }
+          madvise(slab_addr, slab_size, MADV_NOHUGEPAGE);
+          return madvise(slab_addr, slab_size, MADV_DONTNEED) == 0;
         });
+    // A failed madvise must not be reported as released; a successful one
+    // must be reported in full.
+    TC_CHECK_EQ(released_bytes, madvise_fail ? 0 : requested_bytes);
   }
 };
 
@@ -715,6 +721,12 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
        UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
        UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
        StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}});
+
+  // Both outcomes of the madvise callback must be reflected in the released
+  // byte count.
+  FuzzPercpuTcmalloc({Drain{.cpu_index = 0},
+                      ReleasePerCPUSlabMetadata{.madvise_fail = true},
+                      ReleasePerCPUSlabMetadata{.madvise_fail = false}});
 }
 
 TEST(PercpuTcmallocTest, ShrinkOtherCacheStringify) {

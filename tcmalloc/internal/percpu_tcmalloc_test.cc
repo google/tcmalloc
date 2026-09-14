@@ -853,7 +853,8 @@ void StressThread(size_t thread_id,
             });
       }
 
-      ctx.slab->ReleaseSlabMetadataForDrainedCpus(
+      size_t expected_released_bytes = 0;
+      const size_t released_bytes = ctx.slab->ReleaseSlabMetadataForDrainedCpus(
           [&ctx](int cpu) {
             return ctx.has_init[cpu].load(std::memory_order_relaxed);
           },
@@ -866,15 +867,19 @@ void StressThread(size_t thread_id,
               EXPECT_EQ(ctx.slab->Capacity(cpu, size_class), 0);
             }
           },
-          [&rnd](void* slab_addr, size_t slab_size) {
+          [&rnd, &expected_released_bytes](void* slab_addr, size_t slab_size) {
             if (absl::Bernoulli(rnd, 0.1)) {
               // Simulate that the madvise failed.
-              return -1;
-            } else {
-              madvise(slab_addr, slab_size, MADV_NOHUGEPAGE);
-              return madvise(slab_addr, slab_size, MADV_DONTNEED);
+              return false;
             }
+            madvise(slab_addr, slab_size, MADV_NOHUGEPAGE);
+            if (madvise(slab_addr, slab_size, MADV_DONTNEED) != 0) {
+              return false;
+            }
+            expected_released_bytes += slab_size;
+            return true;
           });
+      EXPECT_EQ(released_bytes, expected_released_bytes);
 
       for (int cpu = 0; cpu < num_cpus; ++cpu) {
         ctx.mutexes[cpu].unlock();

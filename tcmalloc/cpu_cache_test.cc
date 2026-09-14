@@ -123,9 +123,9 @@ class CpuCachePeer {
   }
 
   template <typename CpuCache>
-  static void MadviseAwaySlabs(CpuCache& cpu_cache, void* slab_addr,
+  static bool MadviseAwaySlabs(CpuCache& cpu_cache, void* slab_addr,
                                size_t slab_size) {
-    cpu_cache.MadviseAwaySlabs(slab_addr, slab_size);
+    return cpu_cache.MadviseAwaySlabs(slab_addr, slab_size);
   }
 };
 
@@ -1502,6 +1502,29 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   ASSERT_EQ(ret, 0);
 
   cache.Deactivate();
+}
+
+// Test that MadviseAwaySlabs reports whether the memory was actually released
+// and accounts for failures.
+TEST(CpuCacheTest, MadviseAwaySlabsReportsFailure) {
+  constexpr size_t kSize = kHugePageSize;
+  void* region = mmap(nullptr, kSize, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(region, MAP_FAILED);
+
+  CpuCache cache;
+  EXPECT_EQ(cache.GetDynamicSlabFailedBytes(), 0);
+
+  EXPECT_TRUE(CpuCachePeer::MadviseAwaySlabs(cache, region, kSize));
+  EXPECT_EQ(cache.GetDynamicSlabFailedBytes(), 0);
+
+  // madvise requires a page-aligned address and fails with EINVAL otherwise,
+  // both before and after the munlock fallback.
+  void* misaligned = static_cast<char*>(region) + 1;
+  EXPECT_FALSE(CpuCachePeer::MadviseAwaySlabs(cache, misaligned, kSize));
+  EXPECT_EQ(cache.GetDynamicSlabFailedBytes(), kSize);
+
+  ASSERT_EQ(munmap(region, kSize), 0);
 }
 
 TEST(CpuCacheTest, SlabUsage) {
