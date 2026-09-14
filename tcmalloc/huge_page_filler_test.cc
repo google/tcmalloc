@@ -714,7 +714,11 @@ TEST_F(FillerTest, ClockCalls) {
     page2 = res.page;
   }
   EXPECT_EQ(alloc_pt, pt);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   EXPECT_EQ(FakeClock::now_calls(), 1);
+#else
+  EXPECT_EQ(FakeClock::now_calls(), 2);
+#endif
   EXPECT_EQ(FakeClock::freq_calls(), 0);
 
   // 3. Put (partially freed hugepage).
@@ -730,7 +734,6 @@ TEST_F(FillerTest, ClockCalls) {
   EXPECT_EQ(FakeClock::freq_calls(), 0);
 
   // 4. Put (fully freed hugepage).
-  // TODO(b/73749855): Reduce the number of clock calls.
   FakeClock::ResetCalls();
   PageTracker* put_res2;
   {
@@ -738,7 +741,11 @@ TEST_F(FillerTest, ClockCalls) {
     put_res2 = filler_.Put(pt, Range(page1, Length(1)), info);
   }
   EXPECT_EQ(put_res2, pt);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  EXPECT_EQ(FakeClock::now_calls(), 1);
+#else
   EXPECT_EQ(FakeClock::now_calls(), 2);
+#endif
   EXPECT_EQ(FakeClock::freq_calls(), 1);
 
   // 5. Contribute and wait for pt to be sampled.
@@ -775,9 +782,80 @@ TEST_F(FillerTest, ClockCalls) {
 
   EXPECT_EQ(put_res1, nullptr);
   EXPECT_EQ(put_res2, pt);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  EXPECT_EQ(FakeClock::now_calls(), 2);
+#else
   EXPECT_EQ(FakeClock::now_calls(), 3);
+#endif
   EXPECT_EQ(FakeClock::freq_calls(), 1);
 
+  delete pt;
+}
+
+TEST_F(FillerTest, LifetimeBucketEdgeCases) {
+  huge_page_filler_internal::UsageInfo usage_info;
+
+  struct TestCase {
+    int64_t duration_ms;
+    int expected_bucket;
+  };
+  constexpr TestCase kTestCases[] = {
+      {std::numeric_limits<int64_t>::min(), 0},
+      {-100000, 0},
+      {-1, 0},
+      {0, 0},
+      {1, 1},
+      {9, 1},
+      {10, 2},
+      {99, 2},
+      {100, 3},
+      {999, 3},
+      {1000, 4},
+      {9999, 4},
+      {10000, 5},
+      {99999, 5},
+      {100000, 6},
+      {999999, 6},
+      {1000000, 7},
+      {1000001, 7},
+      {std::numeric_limits<int64_t>::max(), 7},
+  };
+
+  for (const auto& tc : kTestCases) {
+    SCOPED_TRACE(tc.duration_ms);
+    EXPECT_EQ(filler_.LifetimeBucketNum(tc.duration_ms), tc.expected_bucket);
+    EXPECT_EQ(usage_info.LifetimeBucketNum(tc.duration_ms), tc.expected_bucket);
+    if (tc.duration_ms >= 0) {
+      EXPECT_EQ(filler_.LifetimeBucketNum(absl::Milliseconds(tc.duration_ms)),
+                tc.expected_bucket);
+      EXPECT_EQ(
+          usage_info.LifetimeBucketNum(absl::Milliseconds(tc.duration_ms)),
+          tc.expected_bucket);
+    }
+  }
+
+  // Test extreme hugepage lifetimes (months at 3 GHz where elapsed > 9e15,
+  // and near-INT64_MAX clock deltas) to verify no signed 64-bit integer
+  // overflow or UBSan float-cast-overflow occurs during RecordLifetime /
+  // UsageInfo::Record.
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  HugePage hp = HugePageContaining(PageId{0x100000});
+  PageTracker* pt = new PageTracker(hp, /*was_donated=*/false, 0);
+  PageId page;
+  {
+    PageHeapSpinLockHolder l;
+    page = pt->Get(Length(1), info).page;
+    filler_.Contribute(pt, /*donated=*/false, info);
+  }
+
+  // Advance clock by 180 days (~6 months) at 3 GHz (> 4.6e16 cycles > 9e15).
+  FakeClock::Advance(absl::Hours(24 * 180));
+  PageTracker* put_res;
+  {
+    PageHeapSpinLockHolder l;
+    put_res = filler_.Put(pt, Range(page, Length(1)), info);
+  }
+  EXPECT_EQ(put_res, pt);
   delete pt;
 }
 

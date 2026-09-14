@@ -88,11 +88,15 @@ class SkippedSubreleaseCorrectnessTracker {
   }
 
   void ReportUpdatedPeak(Length current_peak) {
+    ReportUpdatedPeak(current_peak, tracker_.clock().now());
+  }
+
+  void ReportUpdatedPeak(Length current_peak, int64_t now) {
     // Record this peak for the current epoch (so we don't double-count correct
     // predictions later) and advance the tracker.
     SkippedSubreleaseUpdate update;
     update.confirmed_peak = current_peak;
-    if (tracker_.Report(update)) {
+    if (tracker_.Report(update, now)) {
       // Also keep track of the largest peak we have confirmed this epoch.
       last_confirmed_peak_ = Length(0);
     }
@@ -296,6 +300,23 @@ class SubreleaseStatsTracker {
               peak, most_recent_record.data.stats[kStatsAtMaxDemand].num_pages);
         }
         skipped_subrelease_correctness_.ReportUpdatedPeak(peak);
+      }
+    }
+  }
+
+  void Report(const SubreleaseStats& stats, int64_t now) {
+    if (ABSL_PREDICT_FALSE(tracker_.Report(stats, now))) {
+      if (ABSL_PREDICT_FALSE(pending_skipped().count > 0)) {
+        Length peak = stats.num_pages;
+        // Consider the peak in the most recent record that reported within the
+        // summary interval to confirm the correctness of any recent subrelease
+        // decisions.
+        auto most_recent_record = tracker_.GetMostRecentRecord();
+        if (most_recent_record.epoch_taken <= summary_epochs_) {
+          peak = std::max(
+              peak, most_recent_record.data.stats[kStatsAtMaxDemand].num_pages);
+        }
+        skipped_subrelease_correctness_.ReportUpdatedPeak(peak, now);
       }
     }
   }

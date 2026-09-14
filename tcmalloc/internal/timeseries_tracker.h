@@ -65,6 +65,7 @@ class TimeSeriesTracker {
   }
 
   bool Report(const S& val);
+  bool Report(const S& val, int64_t now);
 
   // Iterates over the time series, starting from the oldest entry. The callback
   // receives the sequence number of the entry, the epoch_delta (i.e., number of
@@ -90,14 +91,18 @@ class TimeSeriesTracker {
   // reported values.
   void UpdateTimeBase() { UpdateClock(); }
 
+  const Clock& clock() const { return clock_; }
+
  private:
   // Returns true if the tracker moved to a different epoch.
-  bool UpdateClock();
+  bool UpdateClock() { return UpdateClock(clock_.now()); }
+  bool UpdateClock(int64_t now);
 
   // Returns the current epoch number based on the clock.
-  int64_t GetCurrentEpoch() {
+  int64_t GetCurrentEpoch() { return GetCurrentEpoch(clock_.now()); }
+  int64_t GetCurrentEpoch(int64_t now) {
     // This is equivalent to
-    // `clock_.now() / (absl::ToDoubleSeconds(epoch_length_) * clock_.freq())`.
+    // `now / (absl::ToDoubleSeconds(epoch_length_) * clock_.freq())`.
     // We basically follow the technique from
     // https://ridiculousfish.com/blog/posts/labor-of-division-episode-i.html,
     // except that we use one fewer bit of precision than necessary to always
@@ -106,11 +111,11 @@ class TimeSeriesTracker {
     // is <2^63), it shouldn't cause a problem. This way, we don't need to
     // handle overflow so it's simpler. See also:
     // https://lemire.me/blog/2019/02/20/more-fun-with-fast-remainders-when-the-divisor-is-a-constant/.
-    return static_cast<int64_t>(static_cast<absl::uint128>(epoch_ticks_m_) *
-                                    clock_.now() >>
-                                div_precision_);
+    return static_cast<int64_t>(
+        static_cast<absl::uint128>(epoch_ticks_m_) * now >> div_precision_);
   }
-  void InitTracker() {
+  void InitTracker() { InitTracker(clock_.now()); }
+  void InitTracker(int64_t now) {
     // Inits the tracker by "create" an record for "now" on slot 0. The record
     // serves as the first valid record in the tracker, with epoch coverage
     // (delta) 1 and an empty payload. In this way, we would know when was the
@@ -122,7 +127,7 @@ class TimeSeriesTracker {
       entry = TimeSeriesContent();
     }
     size_t delta = 1;
-    last_epoch_ = GetCurrentEpoch();
+    last_epoch_ = GetCurrentEpoch(now);
     entries_[current_slot_] = TimeSeriesContent(delta);
     covered_epochs_ = delta;
   }
@@ -155,14 +160,14 @@ class TimeSeriesTracker {
 // Advances the current slot if the clock had advanced >= 1 epoch; sets the
 // epoch_delta for how many epoch had passed sice the previous clock update.
 template <class T, class S, size_t kSlots>
-bool TimeSeriesTracker<T, S, kSlots>::UpdateClock() {
-  const size_t epoch = GetCurrentEpoch();
+bool TimeSeriesTracker<T, S, kSlots>::UpdateClock(int64_t now) {
+  const size_t epoch = GetCurrentEpoch(now);
   if (ABSL_PREDICT_FALSE(epoch < last_epoch_)) {
     // If the clock has regressed (e.g., across snapshot restore or container
     // migration to a host with a lower monotonic clock), reset the tracker to
     // prevent unsigned underflow in delta calculations and discard stale
     // history.
-    InitTracker();
+    InitTracker(now);
     return false;
   }
   if (epoch == last_epoch_) {
@@ -245,6 +250,13 @@ TimeSeriesTracker<T, S, kSlots>::GetMostRecentRecord() const {
 template <class T, class S, size_t kSlots>
 bool TimeSeriesTracker<T, S, kSlots>::Report(const S& val) {
   bool updated_clock = UpdateClock();
+  entries_[current_slot_].payload.Report(val);
+  return updated_clock;
+}
+
+template <class T, class S, size_t kSlots>
+bool TimeSeriesTracker<T, S, kSlots>::Report(const S& val, int64_t now) {
+  bool updated_clock = UpdateClock(now);
   entries_[current_slot_].payload.Report(val);
   return updated_clock;
 }

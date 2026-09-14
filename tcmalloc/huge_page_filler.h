@@ -258,6 +258,21 @@ class UsageInfo {
     records.nalloc_histo[BucketNum(nalloc - 1)]++;
 
     const double elapsed = std::max<double>(clock_now - pt.alloctime(), 0);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    const int64_t elapsed_ms = static_cast<int64_t>(std::min<double>(
+        elapsed * 1000.0 / clock_frequency,
+        static_cast<double>(std::numeric_limits<int64_t>::max() / 2)));
+    const int bucket = LifetimeBucketNum(elapsed_ms);
+    ++records.live_lifetime_histo[bucket];
+
+    if (elapsed_ms >= absl::ToInt64Milliseconds(kLongLivedLifetime)) {
+      ++records.long_lived_hps_histo[BucketNum(nalloc - 1)];
+    }
+
+    if (free >= kLowOccupancyNumFreePages) {
+      ++records.low_occupancy_lifetime_histo[bucket];
+    }
+#else
     const absl::Duration lifetime =
         absl::Milliseconds(elapsed * 1000 / clock_frequency);
     ++records.live_lifetime_histo[LifetimeBucketNum(lifetime)];
@@ -269,6 +284,7 @@ class UsageInfo {
     if (free >= kLowOccupancyNumFreePages) {
       ++records.low_occupancy_lifetime_histo[LifetimeBucketNum(lifetime)];
     }
+#endif
 
     if (IsHugepageBacked(pt, pageflags).value_or(false)) {
       ++records.hugepage_backed;
@@ -478,15 +494,20 @@ class UsageInfo {
   static constexpr Length kLowOccupancyNumFreePages =
       Length(kPagesPerHugePage.raw_num() - (kPagesPerHugePage.raw_num() >> 3));
 
-  int BucketNum(size_t page) {
+  int BucketNum(size_t page) const {
     auto it =
         std::upper_bound(bucket_bounds_, bucket_bounds_ + buckets_size_, page);
     TC_CHECK_NE(it, bucket_bounds_);
     return it - bucket_bounds_ - 1;
   }
 
-  int LifetimeBucketNum(absl::Duration duration) {
-    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+ public:
+  int LifetimeBucketNum(absl::Duration duration) const {
+    return LifetimeBucketNum(absl::ToInt64Milliseconds(duration));
+  }
+
+  int LifetimeBucketNum(int64_t duration_ms) const {
+    duration_ms = std::max<int64_t>(duration_ms, 0);
     auto it = std::upper_bound(lifetime_bucket_bounds_,
                                lifetime_bucket_bounds_ + kLifetimeBuckets,
                                duration_ms);
@@ -494,6 +515,7 @@ class UsageInfo {
     return it - lifetime_bucket_bounds_ - 1;
   }
 
+ private:
   int HardwarePageBucketNum(size_t page) {
     auto it = std::upper_bound(
         native_page_bucket_bounds_,
@@ -1000,15 +1022,24 @@ class HugePageFiller {
   static constexpr size_t kLifetimeBuckets =
       huge_page_filler_internal::UsageInfo::kLifetimeBuckets;
   using LifetimeHisto = huge_page_filler_internal::UsageInfo::LifetimeHisto;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  void RecordLifetime(const TrackerType* pt, int64_t now);
+#else
   void RecordLifetime(const TrackerType* pt);
+#endif
   void PrintLifetimeHisto(Printer& out, LifetimeHisto h,
                           AccessDensityPrediction type,
                           absl::string_view blurb) const;
   void PrintLifetimeHistoInPbtxt(PbtxtRegion& hpaa, LifetimeHisto h,
                                  absl::string_view key);
 
-  int LifetimeBucketNum(absl::Duration duration) {
-    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+ public:
+  int LifetimeBucketNum(absl::Duration duration) const {
+    return LifetimeBucketNum(absl::ToInt64Milliseconds(duration));
+  }
+
+  int LifetimeBucketNum(int64_t duration_ms) const {
+    duration_ms = std::max<int64_t>(duration_ms, 0);
     auto it = std::upper_bound(lifetime_bucket_bounds_,
                                lifetime_bucket_bounds_ + kLifetimeBuckets,
                                duration_ms);
@@ -1016,6 +1047,7 @@ class HugePageFiller {
     return it - lifetime_bucket_bounds_ - 1;
   }
 
+ private:
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
   static bool CompareForSubrelease(const TrackerType* absl_nonnull a,
@@ -1061,6 +1093,9 @@ class HugePageFiller {
 
   // Functionality related to time series tracking.
   void UpdateFillerStatsTracker();
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  void UpdateFillerStatsTracker(int64_t now);
+#endif
   using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
 
@@ -1268,6 +1303,24 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   return {pt, page_allocation.page, was_released};
 }
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+template <class TrackerType>
+void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt,
+                                                 int64_t now) {
+  const double frequency = clock_.freq();
+  const double elapsed = std::max<double>(now - pt->alloctime(), 0);
+  const int64_t elapsed_ms = static_cast<int64_t>(std::min<double>(
+      elapsed * 1000.0 / frequency,
+      static_cast<double>(std::numeric_limits<int64_t>::max() / 2)));
+  if (pt->HasDenseSpans()) {
+    ++lifetime_histo_[AccessDensityPrediction::kDense]
+                     [LifetimeBucketNum(elapsed_ms)];
+  } else {
+    ++lifetime_histo_[AccessDensityPrediction::kSparse]
+                     [LifetimeBucketNum(elapsed_ms)];
+  }
+}
+#else
 template <class TrackerType>
 void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt) {
   const double now = clock_.now();
@@ -1283,6 +1336,7 @@ void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt) {
                      [LifetimeBucketNum(lifetime)];
   }
 }
+#endif
 
 template <class TrackerType>
 void HugePageFiller<TrackerType>::PrintLifetimeHisto(
@@ -1369,8 +1423,14 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     }
 
     if (!pt->DontFreeTracker()) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const int64_t now = clock_.now();
+      RecordLifetime(pt, now);
+      UpdateFillerStatsTracker(now);
+#else
       RecordLifetime(pt);
       UpdateFillerStatsTracker();
+#endif
       if (pt->GetTagState().sampled_for_tagging) {
         // Set the default region name if the tracked was sampled.
         pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
@@ -2411,6 +2471,19 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
   fillerstats_tracker_.Report(stats);
   subrelease_stats_.reset();
 }
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+template <class TrackerType>
+inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker(int64_t now) {
+  StatsTrackerType::SubreleaseStats stats;
+  stats.num_pages = pages_allocated();
+  stats.free_pages = free_pages();
+  stats.unmapped_pages = unmapped_pages();
+  stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
+  fillerstats_tracker_.Report(stats, now);
+  subrelease_stats_.reset();
+}
+#endif
 
 template <class TrackerType>
 inline size_t HugePageFiller<TrackerType>::IndexFor(
