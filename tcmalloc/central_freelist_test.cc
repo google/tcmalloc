@@ -24,7 +24,6 @@
 #include <cstring>
 #include <memory>
 #include <string>
-#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -1416,6 +1415,51 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
+TEST_P(CentralFreeListTest, ConcurrentInsertAndRemove) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  using Env = FakeCentralFreeListEnvironment<
+      central_freelist_internal::CentralFreeList<FakeStaticForwarder>>;
+  Env e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+        std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  if (e.objects_per_span() == 1) {
+    GTEST_SKIP() << "Skipping test for objects_per_span = 1.";
+  }
+
+  constexpr int kNumThreads = 4;
+  constexpr int kMinIterations = 800;
+  std::atomic<int> iterations{0};
+
+  ThreadManager threads;
+  threads.Start(kNumThreads, [&](int) {
+    void* batch[kMaxObjectsToMove];
+    int got =
+        e.central_freelist().RemoveRange(absl::MakeSpan(batch, e.batch_size()));
+    ASSERT_GT(got, 0);
+    e.central_freelist().InsertRange(
+        absl::MakeSpan(batch, static_cast<size_t>(got)));
+    iterations.fetch_add(1, std::memory_order_relaxed);
+  });
+
+  while (iterations.load(std::memory_order_relaxed) < kMinIterations) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    EXPECT_LT(e.central_freelist().length(), static_cast<size_t>(1) << 60);
+    SpanStats stats = e.central_freelist().GetSpanStats();
+    EXPECT_LT(stats.num_live_spans(), static_cast<size_t>(1) << 60);
+#endif
+  }
+
+  threads.Stop();
+
+  EXPECT_EQ(e.central_freelist().length(), 0);
+  SpanStats stats = e.central_freelist().GetSpanStats();
+  EXPECT_EQ(stats.num_spans_requested, stats.num_spans_returned);
+  EXPECT_EQ(stats.obj_capacity, 0);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
     testing::Combine(

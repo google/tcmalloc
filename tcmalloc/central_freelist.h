@@ -351,8 +351,7 @@ class CentralFreeList {
 
   // The followings are kept as a StatsCounter so that they can read without
   // acquiring a lock. Updates to these variables are guarded by lock_
-  // so writes are performed using LossyAdd for speed, the lock still
-  // guarantees accuracy.
+  // so writes are performed using LossyAdd for speed.
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Records histogram of how many consecutive objects fell on the same span for
@@ -624,23 +623,14 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   Span** free_spans = spans;
   int free_count = 0;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Then, release all individual objects into spans under our mutex
   // and collect spans that become completely free.
   {
     CentralFreeListLockHolder h(lock_);
     for (int i = 0; i < batch.size();) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const absl::Span<void*> b{&batch[i], 1};
       const size_t step = 1;
-#else
-      int j = i + 1;
-      while (j < batch.size() && spans[j] == spans[i]) {
-        ++j;
-      }
-      const size_t step = j - i;
-      const absl::Span<Span::ObjIdx> b{&idx[i], step};
-      ++runs;
-#endif
 
       Span* span = ReleaseToSpans(b, spans[i], object_size, size_reciprocal,
                                   objects_per_span);
@@ -651,16 +641,43 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       i += step;
     }
 
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    const int same_span = batch.size() - runs;
-    TC_ASSERT_GE(same_span, 0);
-    num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
-        .LossyAdd(1);
-#endif
-
     RecordMultiSpansDeallocated(free_count);
     UpdateObjectCounts(batch.size());
   }
+#else
+  // Then, release all individual objects into spans under our mutex
+  // and collect spans that become completely free.
+  {
+    CentralFreeListLockHolder h(lock_);
+    for (int i = 0; i < batch.size();) {
+      int j = i + 1;
+      while (j < batch.size() && spans[j] == spans[i]) {
+        ++j;
+      }
+      const size_t step = j - i;
+      const absl::Span<Span::ObjIdx> b{&idx[i], step};
+      ++runs;
+
+      Span* span = ReleaseToSpans(b, spans[i], object_size, size_reciprocal,
+                                  objects_per_span);
+      if (ABSL_PREDICT_FALSE(span)) {
+        free_spans[free_count] = span;
+        free_count++;
+      }
+      i += step;
+    }
+
+    UpdateObjectCounts(batch.size());
+    if (ABSL_PREDICT_FALSE(free_count > 0)) {
+      RecordMultiSpansDeallocated(free_count);
+    }
+  }
+
+  const int same_span = batch.size() - runs;
+  TC_ASSERT_GE(same_span, 0);
+  num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
+      .LossyAdd(1);
+#endif
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
@@ -714,7 +731,12 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
     size_t num_spans = 0;
     size_t objects_per_span = objects_per_span_;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     CentralFreeListLockHolder h(lock_);
+#else
+    {
+      CentralFreeListLockHolder h(lock_);
+#endif
 
     do {
       num_spans++;
@@ -738,8 +760,9 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       int here = span->FreelistPopBatch(batch.subspan(result), object_size);
 #else
-      // Pass pointer + count directly to avoid absl::Span::subspan's defensive
-      // length clamping (std::min) on this hot drain path.  See b/538576012.
+      // Pass pointer + count directly to avoid absl::Span::subspan's
+      // defensive length clamping (std::min) on this hot drain path.  See
+      // b/538576012.
       const size_t size = batch.size();
       int here = span->FreelistPopBatch(
           absl::MakeSpan(batch.data() + result, size - result), object_size);
@@ -776,12 +799,23 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       result += here;
     } while (result < batch.size());
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     TC_ASSERT_GT(num_spans, 0);
     TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
     TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
     span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
     UpdateObjectCounts(-result);
   }
+#else
+    UpdateObjectCounts(-result);
+    }
+
+    TC_ASSERT_GT(num_spans, 0);
+    TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
+    TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
+    span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
+  }
+#endif
 
   // Use ASSUME to elide the bounds check in subspan, per b/538576012#comment3.
   //
