@@ -82,7 +82,7 @@ class HookList final : HookListBase {
   }
 
   template <typename... Args>
-  void Invoke(Args&&... args) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void Invoke(Args&&... args) const {
     if (ABSL_PREDICT_FALSE(!empty())) {
       InvokeSlow(std::forward<Args>(args)...);
     }

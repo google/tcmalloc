@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_MALLOC_HOOK_INVOKE_H_
 #define TCMALLOC_MALLOC_HOOK_INVOKE_H_
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/malloc_hook.h"
@@ -31,20 +32,22 @@ extern HookList<MallocHook::SampledDeleteHook> sampled_delete_hooks_;
 
 }  // namespace tcmalloc_internal
 
-inline void MallocHook::InvokeNewHook(const NewInfo& info) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void MallocHook::InvokeNewHook(
+    const NewInfo& info) {
   tcmalloc_internal::new_hooks_.Invoke(info);
 }
 
-inline void MallocHook::InvokeDeleteHook(const DeleteInfo& info) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void MallocHook::InvokeDeleteHook(
+    const DeleteInfo& info) {
   tcmalloc_internal::delete_hooks_.Invoke(info);
 }
 
-inline void MallocHook::InvokeSampledNewHook(
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void MallocHook::InvokeSampledNewHook(
     const SampledAlloc& sampled_alloc) {
   tcmalloc_internal::sampled_new_hooks_.Invoke(sampled_alloc);
 }
 
-inline void MallocHook::InvokeSampledDeleteHook(
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void MallocHook::InvokeSampledDeleteHook(
     const
     SampledAlloc& sampled_alloc) {
   tcmalloc_internal::sampled_delete_hooks_.Invoke(sampled_alloc);
