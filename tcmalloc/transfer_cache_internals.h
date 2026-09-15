@@ -408,7 +408,7 @@ class TransferCache {
   // lock_.
 
   // For these we are deliberately fast-and-loose. Some increments may be lost.
-  StatsCounter insert_misses_;
+  ABSL_CACHELINE_ALIGNED StatsCounter insert_misses_;
   StatsCounter remove_misses_;
 
   MissCounts insert_object_misses_;
