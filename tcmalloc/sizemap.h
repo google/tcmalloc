@@ -228,8 +228,9 @@ class SizeMap {
   // TODO(b/171978365): Replace the output parameter with returning
   // absl::optional<uint32_t>.
   template <typename Policy>
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE SizeMapResult
-  GetSizeClass(Policy policy, size_t size) const {
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+      [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE SizeMapResult
+      GetSizeClass(Policy policy, size_t size) const {
     const size_t align = static_cast<size_t>(policy.align());
     TC_ASSERT(absl::has_single_bit(align));
 
@@ -285,10 +286,10 @@ class SizeMap {
     // Profiles say we usually get the right class based on the size,
     // so avoid the loop overhead on the fast path.
     if (ABSL_PREDICT_FALSE(!IsAlignedTo(class_to_size(size_class), align))) {
+      const size_t mask = align - 1;
       do {
         ++size_class;
-      } while (
-          ABSL_PREDICT_FALSE(!IsAlignedTo(class_to_size(size_class), align)));
+      } while (ABSL_PREDICT_FALSE((class_to_size(size_class) & mask) != 0));
     }
     return {true, size_class};
   }
