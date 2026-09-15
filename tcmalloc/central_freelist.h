@@ -844,7 +844,12 @@ inline size_t CentralFreeList<Forwarder>::OverheadBytes() const {
   if (ABSL_PREDICT_FALSE(object_size_ == 0)) {
     return 0;
   }
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const size_t overhead_per_span =
+      pages_per_span_.in_bytes() - objects_per_span_ * object_size_;
+#else
   const size_t overhead_per_span = pages_per_span_.in_bytes() % object_size_;
+#endif
   return num_spans() * overhead_per_span;
 }
 
