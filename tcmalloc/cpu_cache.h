@@ -1165,7 +1165,7 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
     if (ABSL_PREDICT_FALSE(cpu < 0)) {
       // The cpu is stopped.
       void* ptr = nullptr;
-      int r = FetchFromBackingCache(size_class, absl::MakeSpan(&ptr, 1));
+      int r = FetchFromBackingCache(size_class, {&ptr, 1});
 #ifndef NDEBUG
       TC_ASSERT(r == 1 || ptr == nullptr);
 #else
@@ -1205,7 +1205,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
 
   do {
     const size_t want = std::min(kMaxObjectsToMove, target - total);
-    got = FetchFromBackingCache(size_class, absl::MakeSpan(batch, want));
+    got = FetchFromBackingCache(size_class, {batch, want});
     if (got == 0) {
       break;
     }
@@ -2131,6 +2131,9 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
   }
   RecordCacheMissStat(cpu, false);
   const size_t target = UpdateCapacity(cpu, size_class, true);
+  if (target == 1) {
+    return ReleaseToBackingCache(size_class, {&ptr, 1});
+  }
   size_t total = 0;
   size_t count = 1;
   void* batch[kMaxObjectsToMove];
@@ -2143,7 +2146,7 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
     if (!count) break;
 
     total += count;
-    ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
+    ReleaseToBackingCache(size_class, {batch, count});
     if (count != kMaxObjectsToMove) break;
     count = 0;
   } while (total < target);
