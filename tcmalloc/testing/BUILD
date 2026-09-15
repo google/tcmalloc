@@ -70,7 +70,12 @@ create_tcmalloc_testsuite(
         "//conditions:default": None,
     }),
     linkstatic = 1,  # get the most realistic performance
-    shard_count = 3,
+    # Each InvalidSizedOperatorNewDeathTest/*Throw child and each GetStats call
+    # dumps malloc stats, which reads the per-node hugepage fragmentation ratio
+    # from sysfs (0.5-2.5s per node on Forge).  The Throw/Nothrow
+    # parameterizations alternate, so an odd shard count spreads the crashing
+    # cases evenly; 9 leaves at most two stats dumps per shard.
+    shard_count = 9,
     visibility = [
         "//tcmalloc:__pkg__",
     ],
