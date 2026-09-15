@@ -499,8 +499,9 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
                        absl::Seconds(1)}) {}
 
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
-HugePageAwareAllocator<Forwarder>::GetTracker(HugePage p) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline
+    typename HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
+    HugePageAwareAllocator<Forwarder>::GetTracker(HugePage p) {
   void* v = forwarder_.GetHugepage(p);
   FillerType::Tracker* pt = reinterpret_cast<FillerType::Tracker*>(v);
   TC_ASSERT(pt == nullptr || pt->location() == p);
@@ -508,7 +509,8 @@ HugePageAwareAllocator<Forwarder>::GetTracker(HugePage p) {
 }
 
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::SetTracker(
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void
+HugePageAwareAllocator<Forwarder>::SetTracker(
     HugePage p, HugePageAwareAllocator<Forwarder>::FillerType::Tracker* pt) {
   forwarder_.SetHugepage(p, pt);
 }
@@ -811,7 +813,8 @@ inline bool HugePageAwareAllocator<Forwarder>::ShouldBack(
 }
 
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void
+HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
     FillerType::Tracker* pt, Range r, bool might_abandon,
     SpanAllocInfo span_alloc_info) {
   if (ABSL_PREDICT_TRUE(filler_.Put(pt, r, span_alloc_info) == nullptr)) {
@@ -867,7 +870,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
   const PageId p = s.r.p;
   const HugePage hp = HugePageContaining(p);
   const Length n = s.r.n;
-  info_.RecordFree(Range(p, n));
+  info_.RecordFree(s.r);
 
   // Clear the descriptor of the pages so a second pass through the same page
   // could trigger the check in InvokeHooksAndFreePages.
@@ -882,13 +885,13 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
   //    allocation to that hugepage in the filler.
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     TC_ASSERT_EQ(hp, HugePageContaining(p + n - Length(1)));
-    DeleteFromHugepage(pt, Range(p, n), might_abandon, span_alloc_info);
+    DeleteFromHugepage(pt, s.r, might_abandon, span_alloc_info);
     return;
   }
 
   // b) We got put into a region, possibly crossing hugepages -
   //    return our allocation to the region.
-  if (regions_.MaybePut(Range(p, n))) return;
+  if (regions_.MaybePut(s.r)) return;
 
   // c) we came straight from the HugeCache - return straight there.  (We
   //    might have had slack put into the filler - if so, return that virtual
@@ -944,7 +947,7 @@ inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
   TC_ASSERT_EQ(pt->used_pages(), Length(0));
 
   // If the tracker was previously donated/abandoned, fix the telemetry.
-  if (pt->was_donated()) {
+  if (ABSL_PREDICT_FALSE(pt->was_donated())) {
     --donated_huge_pages_;
     if (pt->abandoned()) {
       abandoned_pages_ -= pt->abandoned_count();
@@ -954,8 +957,9 @@ inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
     TC_ASSERT_EQ(pt->abandoned_count(), Length(0));
   }
 
-  HugeRange r = {pt->location(), NHugePages(1)};
-  SetTracker(pt->location(), nullptr);
+  const HugePage hp = pt->location();
+  HugeRange r = {hp, NHugePages(1)};
+  SetTracker(hp, nullptr);
 
   if (pt->released()) {
     cache_.ReleaseUnbacked(r);
