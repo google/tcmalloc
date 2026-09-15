@@ -52,7 +52,11 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   static void InitTSD();
   static ThreadCache* absl_nonnull GetCache();
   static ThreadCache* absl_nullable GetCacheIfPresent();
-  static void BecomeIdle();
+  static void BecomeIdle() {
+    ThreadCache* heap = GetCacheIfPresent();
+    if (ABSL_PREDICT_TRUE(heap == nullptr)) return;
+    BecomeIdleSlow(heap);
+  }
 
   // Adds to *total_bytes the total number of bytes used by all thread heaps.
   // Also, if class_count is not NULL, it must be an array of size kNumClasses,
@@ -112,11 +116,13 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
     void clear_lowwatermark() { lowater_ = length(); }
 
     ABSL_ATTRIBUTE_ALWAYS_INLINE bool TryPop(void** ret) {
-      bool out = LinkedList::TryPop(ret);
-      if (ABSL_PREDICT_TRUE(out) && ABSL_PREDICT_FALSE(length() < lowater_)) {
+      if (ABSL_PREDICT_FALSE(!LinkedList::TryPop(ret))) {
+        return false;
+      }
+      if (ABSL_PREDICT_FALSE(length() < lowater_)) {
         lowater_ = length();
       }
-      return out;
+      return true;
     }
 
     void PopBatch(int N, void** batch) {
@@ -151,6 +157,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   void Scavenge();
   static ThreadCache* CreateCacheIfNecessary();
+  static void BecomeIdleSlow(ThreadCache* absl_nonnull heap);
 
   // If TLS is available, we also store a copy of the per-thread object
   // in a __thread variable since __thread variables are faster to read
@@ -249,7 +256,7 @@ ThreadCache::Deallocate(void* ptr, size_t size_class) {
   // There are two relatively uncommon things that require further work.
   // In the common case we're done, and in that case we need a single branch
   // because of the bitwise-or trick that follows.
-  if ((list_headroom | size_headroom) < 0) {
+  if (ABSL_PREDICT_FALSE((list_headroom | size_headroom) < 0)) {
     DeallocateSlow(ptr, list, size_class);
   }
 }
