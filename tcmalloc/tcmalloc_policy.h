@@ -166,9 +166,13 @@ class AllocationAccessAsPolicy {
   explicit constexpr AllocationAccessAsPolicy(hot_cold_t value)
       : value_(value) {}
 
-  constexpr hot_cold_t access() const { return value_; }
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t access() const {
+    return value_;
+  }
 
-  bool is_cold() const { return value_ < Parameters::min_hot_access_hint(); }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() const {
+    return value_ < Parameters::min_hot_access_hint();
+  }
 
  private:
   hot_cold_t value_;
@@ -178,15 +182,19 @@ struct AllocationAccessHotPolicy {
   // Important: the value here is explicitly hot_cold_t{255} to allow the value
   // to be constant propagated.  This allows allocations without a hot/cold hint
   // to use the normal fast path.
-  static constexpr hot_cold_t access() { return hot_cold_t{255}; }
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t access() {
+    return hot_cold_t{255};
+  }
 
-  static bool is_cold() { return false; }
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() { return false; }
 };
 
 struct AllocationAccessColdPolicy {
-  static constexpr hot_cold_t access() { return hot_cold_t{0}; }
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t access() {
+    return hot_cold_t{0};
+  }
 
-  static bool is_cold() { return true; }
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() { return true; }
 };
 
 using DefaultAllocationAccessPolicy = AllocationAccessHotPolicy;
@@ -207,7 +215,8 @@ struct IsSizeReturningPolicy {
 
   static constexpr bool size_returning() { return true; }
 
-  static constexpr pointer_type as_pointer(void* ptr, size_t capacity) {
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  as_pointer(void* ptr, size_t capacity) {
     return {ptr, capacity};
   }
 
@@ -223,7 +232,10 @@ struct NonSizeReturningPolicy {
 
   static constexpr bool size_returning() { return false; }
 
-  static constexpr pointer_type as_pointer(void* ptr, size_t) { return ptr; }
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  as_pointer(void* ptr, size_t) {
+    return ptr;
+  }
 
   static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type to_pointer(void* ptr,
                                                               size_t) {
@@ -339,18 +351,22 @@ class TCMallocPolicy {
     return !std::is_same_v<DefaultAlignPolicy, AlignPolicy>;
   }
 
-  constexpr std::align_val_t align() const { return align_.align(); }
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE std::align_val_t align() const {
+    return align_.align();
+  }
 
   // NUMA partition
-  constexpr size_t numa_partition() const { return numa_.partition(); }
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t numa_partition() const {
+    return numa_.partition();
+  }
 
   // NUMA partition multiplied by kNumBaseClasses
-  constexpr size_t scaled_numa_partition() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t scaled_numa_partition() const {
     return numa_.scaled_partition();
   }
 
   // Security partition (0 or 1)
-  constexpr size_t security_partition() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t security_partition() const {
     if constexpr (kSecurityPartitions == 1) {
       return 0;
     }
@@ -358,7 +374,7 @@ class TCMallocPolicy {
   }
 
   // NUMA or Security partition (0 or 1)
-  constexpr size_t partition() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t partition() const {
     if constexpr (kSecurityPartitions == 1) {
       return numa_partition();
     }
@@ -366,23 +382,31 @@ class TCMallocPolicy {
   }
 
   // The token ID is used to determine the security partition.
-  constexpr TokenId token_id() const { return partition_.token_id(); }
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE TokenId token_id() const {
+    return partition_.token_id();
+  }
 
-  constexpr hot_cold_t access() const { return access_.access(); }
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t access() const {
+    return access_.access();
+  }
 
-  bool is_cold() const { return access_.is_cold(); }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() const {
+    return access_.is_cold();
+  }
 
   // Hooks policy
   static constexpr bool invoke_hooks() { return HooksPolicy::invoke_hooks(); }
 
   // Size returning functions
-  static constexpr bool size_returning() {
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool size_returning() {
     return SizeReturningPolicy::size_returning();
   }
-  static pointer_type as_pointer(void* ptr, size_t capacity) {
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  as_pointer(void* ptr, size_t capacity) {
     return SizeReturningPolicy::as_pointer(ptr, capacity);
   }
-  static pointer_type to_pointer(void* ptr, size_t size_class) {
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  to_pointer(void* ptr, size_t size_class) {
     return SizeReturningPolicy::to_pointer(ptr, size_class);
   }
 
