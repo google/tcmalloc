@@ -106,12 +106,16 @@ class StaticForwarder : private Parameters {
 #else
       ABSL_LOCKS_EXCLUDED(pageheap_lock)
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-          ABSL_ATTRIBUTE_RETURNS_NONNULL;
+          ABSL_ATTRIBUTE_RETURNS_NONNULL {
+    return Span::New(r);
+  }
   static void DeleteSpan(Span* span)
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-          ABSL_ATTRIBUTE_NONNULL();
+          ABSL_ATTRIBUTE_NONNULL() {
+    Span::Delete(span);
+  }
 
   // Error reporting
   [[noreturn]] static void ReportDoubleFree(void* ptr);
@@ -775,7 +779,8 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline Span*
+HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   return f;
 #else
@@ -792,7 +797,8 @@ inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
 }
 
 template <class Forwarder>
-inline Range HugePageAwareAllocator<Forwarder>::Unspanify(FinalizeType f) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline Range
+HugePageAwareAllocator<Forwarder>::Unspanify(FinalizeType f) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   TC_ASSERT(f);
   return Range(f->first_page(), f->num_pages());
