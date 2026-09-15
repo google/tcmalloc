@@ -487,8 +487,8 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_without_lock_(*this),
       collapse_(*this),
       set_anon_vma_name_(*this),
-      filler_(tag_, unback_, unback_without_lock_, collapse_,
-              set_anon_vma_name_, forwarder_.subrelease_unbacked_hugepages()),
+      filler_(tag_, unback_without_lock_, collapse_, set_anon_vma_name_,
+              forwarder_.subrelease_unbacked_hugepages()),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),
@@ -1047,6 +1047,10 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
                   forwarder_.filler_skip_subrelease_long_interval()},
           forwarder_.release_partial_alloc_pages(),
           /*hit_limit*/ false);
+      FillerType::Tracker* pt;
+      while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
+        ReleaseHugepage(pt);
+      }
     }
   }
 
@@ -1246,6 +1250,10 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
                                    /*release_partial_alloc_pages=*/false,
                                    /*hit_limit=*/true);
+  FillerType::Tracker* pt;
+  while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
+    ReleaseHugepage(pt);
+  }
 
   info_.RecordRelease(n, released, reason);
   return released;

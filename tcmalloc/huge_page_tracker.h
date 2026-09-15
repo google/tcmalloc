@@ -309,6 +309,9 @@ class PageTracker : public TList<PageTracker>::Elem {
   }
   bool DontFreeTracker() const { return dont_free_tracker_mask_ != 0; }
 
+  bool subreleasing() const { return subreleasing_; }
+  void set_subreleasing(bool v) { subreleasing_ = v; }
+
   struct TagState {
     bool sampled_for_tagging = false;
     double record_time = 0;
@@ -351,6 +354,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   bool abandoned_;
   bool unbroken_;
   bool has_dense_spans_ = false;
+  bool subreleasing_ = false;
   // This field is used to avoid freeing this tracker prematurely. When this
   // is set, any maintenance operation (e.g. collapse) that drops
   // pageheap_lock might manipulate the tracker state without holding the
@@ -490,8 +494,9 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       PageId p = location_.first_page() + Length(free_index);
 
       if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
-        // Mark pages as released.  Amortize the update to release_count_.
+        // Mark pages as released.
         released_by_page_.SetRange(free_index, length);
+        released_count_ += length;
         count += length;
       }
 
@@ -503,7 +508,6 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
     }
   }
 
-  released_count_ += count;
   if (count > 0) {
     hugepage_residency_state_.maybe_hugepage_backed = false;
   }
