@@ -56,7 +56,7 @@ ABSL_CONST_INIT static absl::base_internal::SpinLock crash_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
 static bool crashed = false;
 
-static const size_t kStatsBufferSize = 16 << 10;
+static const size_t kStatsBufferSize = 8 << 10;
 #ifndef __APPLE__
 static char stats_buffer[kStatsBufferSize] = {0};
 #endif  // __APPLE__

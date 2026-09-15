@@ -467,14 +467,16 @@ void DumpStats(Printer& out, int level) {
     // clang-format on
   }
 
-  out.printf("\nMachine-level hugepage fragmentation stats:\n");
-  const size_t num_nodes = tc_globals.numa_topology().num_nodes();
-  for (size_t node = 0; node < num_nodes; node++) {
-    std::optional<double> hugepage_frag_ratio =
-        GetHugepageFragmentationRatio(node);
-    if (hugepage_frag_ratio.has_value()) {
-      out.printf("TOTAL: %12.3f Hugepage fragmentation ratio (node%zu)\n",
-                 *hugepage_frag_ratio, node);
+  if (level >= 2) {
+    out.printf("\nMachine-level hugepage fragmentation stats:\n");
+    const size_t num_nodes = tc_globals.numa_topology().num_nodes();
+    for (size_t node = 0; node < num_nodes; node++) {
+      std::optional<double> hugepage_frag_ratio =
+          GetHugepageFragmentationRatio(node);
+      if (hugepage_frag_ratio.has_value()) {
+        out.printf("TOTAL: %12.3f Hugepage fragmentation ratio (node%zu)\n",
+                   *hugepage_frag_ratio, node);
+      }
     }
   }
 
