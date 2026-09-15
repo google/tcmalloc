@@ -1223,6 +1223,22 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
   return Policy::as_pointer(ptr.p, ptr.n);
 }
 
+template <typename Policy>
+ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
+slow_alloc_small_unsampled(size_t size, uint32_t size_class, Policy policy) {
+  if (ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
+      ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
+    return alloc_small_sampled_hooks_or_perthread(size, size_class, policy,
+                                                  /*weight=*/0);
+  }
+
+  void* res;
+  TCMALLOC_ALWAYS_INLINE_CALL res =
+      tc_globals.cpu_cache().AllocateSlowNoHooks(size_class);
+  if (ABSL_PREDICT_FALSE(res == nullptr)) return policy.handle_oom(size);
+  return Policy::to_pointer(res, size_class);
+}
+
 // Slow path implementation.
 // This function is used by `fast_alloc` if the allocation requires page sized
 // allocations or some complex logic is required such as initialization,
@@ -1236,18 +1252,11 @@ ABSL_ATTRIBUTE_NOINLINE static
                                                    uint32_t size_class,
                                                    Policy policy) {
   size_t weight = GetThreadSampler().RecordedAllocationFast(size);
-  if (ABSL_PREDICT_FALSE(weight != 0) ||
-      ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
-      ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
+  if (ABSL_PREDICT_FALSE(weight != 0)) {
     return alloc_small_sampled_hooks_or_perthread(size, size_class, policy,
                                                   weight);
   }
-
-  void* res;
-  TCMALLOC_ALWAYS_INLINE_CALL res =
-      tc_globals.cpu_cache().AllocateSlowNoHooks(size_class);
-  if (ABSL_PREDICT_FALSE(res == nullptr)) return policy.handle_oom(size);
-  return Policy::to_pointer(res, size_class);
+  return slow_alloc_small_unsampled(size, size_class, policy);
 }
 
 template <typename Policy>
@@ -1301,7 +1310,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
   void* ret = tc_globals.cpu_cache().AllocateFast(size_class);
   if (ABSL_PREDICT_FALSE(ret == nullptr)) {
     SLOW_PATH_BARRIER();
-    return slow_alloc_small(size, size_class, policy);
+    return slow_alloc_small_unsampled(size, size_class, policy);
   }
 
   TC_ASSERT_NE(ret, nullptr);
