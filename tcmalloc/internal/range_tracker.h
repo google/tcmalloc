@@ -233,6 +233,17 @@ template <size_t N>
 inline size_t RangeTracker<N>::FindAndMark(size_t n) {
   TC_ASSERT_GT(n, 0);
 
+  if (nused_ == 0) {
+    TC_CHECK_LE(n, N);
+    bits_.SetRange(0, n);
+    longest_free_ = N - n;
+    nused_ = n;
+    nallocs_ = 1;
+    return 0;
+  }
+
+  const size_t old_longest = longest_free_;
+
   // We keep the two longest ranges in the bitmap since we might allocate
   // from one.
   size_t longest_len = 0;
@@ -259,6 +270,13 @@ inline size_t RangeTracker<N>::FindAndMark(size_t n) {
     }
 
     index += len;
+    if (best_len == n || N - index < n) {
+      if (best_len < old_longest || second_len == old_longest ||
+          N - index <= second_len || N - index <= old_longest - n) {
+        longest_len = old_longest;
+        break;
+      }
+    }
   }
 
   TC_CHECK_LT(best_index, N);
