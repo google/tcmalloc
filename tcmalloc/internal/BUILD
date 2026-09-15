@@ -1239,6 +1239,7 @@ cc_test(
     srcs = ["range_tracker_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     linkstatic = 1,
+    shard_count = 5,
     deps = [
         ":range_tracker",
         "@com_google_absl//absl/types:span",
