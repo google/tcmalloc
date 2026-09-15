@@ -20,6 +20,8 @@
 
 #include <asm/unistd.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <optional>
 
@@ -38,6 +40,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/optimization.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
@@ -318,6 +321,41 @@ int ProbeMadvDontNeedAdvice();
 int MadvDontNeedAdviceAvailable();
 
 inline constexpr int kMapFixedNoReplace = MAP_FIXED_NOREPLACE;
+
+// Flushes a single cache line from the processor caches. These flushes are
+// asynchronous so we need to follow up with a memory barrier.
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void FlushCacheLine(
+    [[maybe_unused]] const void* addr) {
+#if (defined(__x86_64__) || defined(__i386__)) && \
+    (defined(__GNUC__) || defined(__clang__))
+  asm volatile("clflushopt (%0)" : : "r"(addr) : "memory");  // NOLINT
+#elif (defined(__aarch64__) || defined(__arm64__)) && \
+    (defined(__GNUC__) || defined(__clang__))
+  asm volatile("dc civac, %0" : : "r"(addr) : "memory");  // NOLINT
+#endif
+}
+
+// Flushes the cache lines covering the range [ptr, ptr + size).
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void FlushCacheRange(const void* ptr,
+                                                         size_t size) {
+  if (ptr == nullptr || size == 0) return;
+  uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
+  const uintptr_t end = p + size;
+  for (; p < end; p += ABSL_CACHELINE_SIZE) {
+    FlushCacheLine(reinterpret_cast<const void*>(p));
+  }
+}
+
+// Memory barrier for cache flush instructions.
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void FlushCacheMemoryBarrier() {
+#if (defined(__x86_64__) || defined(__i386__)) && \
+    (defined(__GNUC__) || defined(__clang__))
+  asm volatile("sfence" : : : "memory");  // NOLINT
+#elif (defined(__aarch64__) || defined(__arm64__)) && \
+    (defined(__GNUC__) || defined(__clang__))
+  asm volatile("dsb ish" : : : "memory");  // NOLINT
+#endif
+}
 
 }  // namespace system_allocator_internal
 
@@ -891,6 +929,14 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
   const uintptr_t mask = GetPageSize() - 1;
   if ((s & mask) != 0 || (e & mask) != 0) {
     return ReleaseStatus::kFailure;
+  }
+
+  if (madvise_preference() != MadvisePreference::kNever) {
+    // Avoid iterating over unbounded number of cache lines.
+    static constexpr size_t kMaxFlushLength = 8 * 1024;
+    system_allocator_internal::FlushCacheRange(
+        start, std::min(length, kMaxFlushLength));
+    system_allocator_internal::FlushCacheMemoryBarrier();
   }
 
   int ret;
