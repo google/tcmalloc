@@ -134,13 +134,6 @@ void StaticForwarder::ShrinkToUsageLimit(Length n, bool may_have_grown) {
   tc_globals.page_allocator().ShrinkToUsageLimit(n, may_have_grown);
 }
 
-Span* StaticForwarder::NewSpan(Range r) {
-  // TODO(b/134687001):  Delete this when span_allocator moves.
-  return Span::New(r);
-}
-
-void StaticForwarder::DeleteSpan(Span* span) { Span::Delete(span); }
-
 AddressRange StaticForwarder::AllocatePages(size_t bytes, size_t align,
                                             MemoryTag tag) {
   return tc_globals.system_allocator().Allocate(bytes, align, tag);
