@@ -122,6 +122,17 @@ TEST_P(PageMapTest, Overflow) {
   ASSERT_FALSE(map->Ensure(kLimit, kLimit + 1));
 }
 
+TEST_P(PageMapTest, HasLeaf) {
+  const uintptr_t kLimit = uintptr_t{1} << kTestBits;
+  EXPECT_FALSE(map->has_leaf(0));
+  EXPECT_FALSE(map->has_leaf(kLimit));
+  EXPECT_FALSE(map->has_leaf(kLimit + 100));
+
+  map->Ensure(0, 1);
+  EXPECT_TRUE(map->has_leaf(0));
+  EXPECT_FALSE(map->has_leaf(kLimit));
+}
+
 TEST_P(PageMapTest, RandomAccess) {
   const intptr_t limit = GetParam();
 

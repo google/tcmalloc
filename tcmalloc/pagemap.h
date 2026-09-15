@@ -280,7 +280,6 @@ class PageMap3 {
   [[nodiscard]] bool has_leaf(Number k) const {
     if (ABSL_PREDICT_FALSE((k >> BITS) > 0)) return false;
     const Number i1 = k >> (kLeafBits + kMidBits);
-    if (ABSL_PREDICT_FALSE(i1 >= kRootLength)) return false;
     const Node* node = root_[i1];
     if (ABSL_PREDICT_FALSE(node == nullptr)) return false;
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
