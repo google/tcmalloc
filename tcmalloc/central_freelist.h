@@ -587,7 +587,8 @@ inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   TC_CHECK(!batch.empty());
-  TC_CHECK_LE(batch.size(), kMaxObjectsToMove);
+  const int batch_size = batch.size();
+  TC_CHECK_LE(batch_size, kMaxObjectsToMove);
 
   forwarder_.InvokeInsertRangeHook(size_class_, batch);
 
@@ -598,7 +599,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
   if (ABSL_PREDICT_FALSE(objects_per_span_ == 1)) {
     // If there is only 1 object per span, skip CentralFreeList entirely.
-    DeallocateSpans({spans, batch.size()});
+    DeallocateSpans({spans, static_cast<size_t>(batch_size)});
     return;
   }
 
@@ -609,11 +610,11 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   Span::ObjIdx idx[kMaxObjectsToMove];
   if (Span::UseBitmapForSize(object_size)) {
-    for (int i = 0; i < batch.size(); ++i) {
+    for (int i = 0; i < batch_size; ++i) {
       idx[i] = spans[i]->BitmapPtrToIdx(batch[i], object_size, size_reciprocal);
     }
   } else {
-    for (int i = 0; i < batch.size(); ++i) {
+    for (int i = 0; i < batch_size; ++i) {
       idx[i] = spans[i]->PtrToIdx(batch[i], object_size);
     }
   }
@@ -628,13 +629,13 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // and collect spans that become completely free.
   {
     CentralFreeListLockHolder h(lock_);
-    for (int i = 0; i < batch.size();) {
+    for (int i = 0; i < batch_size;) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const absl::Span<void*> b{&batch[i], 1};
       const size_t step = 1;
 #else
       int j = i + 1;
-      while (j < batch.size() && spans[j] == spans[i]) {
+      while (j < batch_size && spans[j] == spans[i]) {
         ++j;
       }
       const size_t step = j - i;
@@ -652,14 +653,18 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     }
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    const int same_span = batch.size() - runs;
+    const int same_span = batch_size - runs;
     TC_ASSERT_GE(same_span, 0);
     num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
         .LossyAdd(1);
 #endif
 
-    RecordMultiSpansDeallocated(free_count);
-    UpdateObjectCounts(batch.size());
+    int object_delta = batch_size;
+    if (ABSL_PREDICT_FALSE(free_count > 0)) {
+      num_spans_returned_.LossyAdd(free_count);
+      object_delta -= free_count * static_cast<int>(objects_per_span);
+    }
+    UpdateObjectCounts(object_delta);
   }
 
   // Then, release all free spans into page heap under its mutex.
