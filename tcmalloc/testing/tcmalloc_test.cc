@@ -1151,6 +1151,14 @@ class TcmallocSizedNewTest
 
   std::align_val_t GetAlignment() const { return align_; }
 
+  // Returns true for the first parameter, in instantiation order, among those
+  // that select the same size-returning operator new in the constructor: only
+  // IsOveraligned() and the presence of a non-default hot/cold hint matter.
+  bool IsFirstParamForEntryPoint() const {
+    return (align_ == std::align_val_t{1} || align_ == std::align_val_t{32}) &&
+           (hot_cold_ == hot_cold_t{0} || hot_cold_ == hot_cold_t{128});
+  }
+
   void Delete(sized_ptr_t res) const {
     if (IsOveraligned()) {
       ::operator delete(res.p, align_);
@@ -1245,6 +1253,14 @@ TEST_P(TcmallocSizedNewInvalidSizeTest, InvalidSizedOperatorNewDeathTest) {
 #if defined(ABSL_HAVE_THREAD_SANITIZER)
     GTEST_SKIP() << "Skipping under TSan";
 #endif
+    // The throwing entry point only depends on whether the request is
+    // overaligned and whether it carries a hot/cold hint; the concrete values
+    // never reach the allocator for an impossible size.  Each EXPECT_DEATH
+    // child dumps the full malloc stats when it crashes with OOM, which is
+    // expensive, so only exercise each distinct entry point once.
+    if (!IsFirstParamForEntryPoint()) {
+      GTEST_SKIP() << "Entry point already covered by another parameter";
+    }
     EXPECT_DEATH(New(kBadSize), "");
   }
 }
@@ -1821,31 +1837,39 @@ TEST(TCMalloc, malloc_info) {
   free(buf);
 }
 
-TEST(Check, CustomTypesDeathTest) {
+TEST(Check, CustomTypesLengthDeathTest) {
   Length len1(1), len2(2);
   TC_CHECK_NE(len1, len2);
   EXPECT_DEATH(
       TC_CHECK_EQ(len1, len2),
       absl::StrFormat("len1 == len2 \\(%u == %u\\)", kPageSize, 2 * kPageSize));
+}
 
+TEST(Check, CustomTypesHugeLengthDeathTest) {
   HugeLength hlen1(1.0), hlen2(2.0);
   TC_CHECK_NE(hlen1, hlen2);
   EXPECT_DEATH(TC_CHECK_EQ(hlen1, hlen2),
                absl::StrFormat("hlen1 == hlen2 \\(%u == %u\\)", kHugePageSize,
                                2 * kHugePageSize));
+}
 
+TEST(Check, CustomTypesPageIdDeathTest) {
   PageId page1{1}, page2{2};
   TC_CHECK_NE(page1, page2);
   EXPECT_DEATH(TC_CHECK_EQ(page1, page2),
                absl::StrFormat("page1 == page2 \\(0x%zx == 0x%zx\\)", kPageSize,
                                2 * kPageSize));
+}
 
+TEST(Check, CustomTypesHugePageDeathTest) {
   HugePage hpage1{1}, hpage2{2};
   TC_CHECK_NE(hpage1, hpage2);
   EXPECT_DEATH(TC_CHECK_EQ(hpage1, hpage2),
                absl::StrFormat("hpage1 == hpage2 \\(0x%zx == 0x%zx\\)",
                                kHugePageSize, 2 * kHugePageSize));
+}
 
+TEST(Check, CustomTypesDurationDeathTest) {
   absl::Duration dur1(absl::Seconds(1));
   absl::Duration dur2(absl::Seconds(2));
   TC_CHECK_NE(dur1, dur2);
