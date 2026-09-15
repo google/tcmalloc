@@ -690,8 +690,8 @@ class CpuCache {
                                           absl::Span<void*> batch);
 
   // Releases free batch of objects to the backing transfer cache.
-  void ReleaseToBackingCache(size_t size_class,
-                             absl::Span<void* absl_nonnull> batch);
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void ReleaseToBackingCache(
+      size_t size_class, absl::Span<void* absl_nonnull> batch);
 
   [[nodiscard]] void* absl_nullable Refill(int cpu, size_t size_class);
   std::pair<int, bool> CacheCpuSlab();
@@ -700,7 +700,7 @@ class CpuCache {
   // Returns true if we bypass cpu cache for a <size_class>. We may bypass
   // per-cpu cache when we enable certain configurations of sharded transfer
   // cache.
-  bool BypassCpuCache(size_t size_class) const;
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool BypassCpuCache(size_t size_class) const;
 
   // Returns true if we use sharded transfer cache as a backing cache for
   // per-cpu caches. If a sharded transfer cache is used, we fetch/release
@@ -1138,8 +1138,9 @@ inline int CpuCache<Forwarder>::FetchFromBackingCache(size_t size_class,
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::ReleaseToBackingCache(
-    size_t size_class, absl::Span<void*> batch) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void
+CpuCache<Forwarder>::ReleaseToBackingCache(size_t size_class,
+                                           absl::Span<void*> batch) {
   if (UseBackingShardedTransferCache(size_class)) {
     forwarder_.sharded_transfer_cache().InsertRange(size_class, batch);
     return;
@@ -1226,12 +1227,13 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
 }
 
 template <class Forwarder>
-inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool CpuCache<Forwarder>::BypassCpuCache(
+    size_t size_class) const {
   // We bypass per-cpu cache when sharded transfer cache is enabled for large
   // size classes (i.e. when we use the traditional configuration of the sharded
   // transfer cache).
-  return forwarder_.sharded_transfer_cache().should_use(size_class) &&
-         forwarder_.UseShardedCacheForLargeClassesOnly();
+  return forwarder_.UseShardedCacheForLargeClassesOnly() &&
+         forwarder_.sharded_transfer_cache().should_use(size_class);
 }
 
 template <class Forwarder>
@@ -2119,11 +2121,13 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
   if (ABSL_PREDICT_FALSE(BypassCpuCache(size_class))) {
     return forwarder_.sharded_transfer_cache().Push(size_class, ptr);
   }
+  void* batch[kMaxObjectsToMove];
   auto [cpu, cached] = CacheCpuSlab();
   if (ABSL_PREDICT_FALSE(cached)) {
     if (ABSL_PREDICT_FALSE(cpu < 0)) {
       // The cpu is stopped.
-      return ReleaseToBackingCache(size_class, {&ptr, 1});
+      batch[0] = ptr;
+      return ReleaseToBackingCache(size_class, {batch, 1});
     }
     if (ABSL_PREDICT_FALSE(DeallocateFast(ptr, size_class))) {
       return;
@@ -2131,22 +2135,24 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
   }
   RecordCacheMissStat(cpu, false);
   const size_t target = UpdateCapacity(cpu, size_class, true);
-  size_t total = 0;
-  size_t count = 1;
-  void* batch[kMaxObjectsToMove];
   batch[0] = ptr;
-  do {
-    size_t want = std::min(kMaxObjectsToMove, target - total);
-    if (count < want) {
-      count += freelist_.PopBatch(size_class, batch + count, want - count);
-    }
-    if (!count) break;
-
-    total += count;
-    ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
-    if (count != kMaxObjectsToMove) break;
-    count = 0;
-  } while (total < target);
+  const size_t first_want = std::min(kMaxObjectsToMove, target);
+  size_t count = 1;
+  if (ABSL_PREDICT_TRUE(first_want > 1)) {
+    count += freelist_.PopBatch(size_class, batch + 1, first_want - 1);
+  }
+  ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
+  if (ABSL_PREDICT_FALSE(count == kMaxObjectsToMove &&
+                         target > kMaxObjectsToMove)) {
+    size_t total = kMaxObjectsToMove;
+    do {
+      const size_t want = std::min(kMaxObjectsToMove, target - total);
+      count = freelist_.PopBatch(size_class, batch, want);
+      if (ABSL_PREDICT_FALSE(count == 0)) break;
+      total += count;
+      ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
+    } while (count == kMaxObjectsToMove && total < target);
+  }
 }
 
 template <class Forwarder>
