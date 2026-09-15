@@ -2425,6 +2425,13 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(
   // Prefer to allocate from hugepages with many allocations already present;
   // spaced logarithmically.
   const size_t na = pt.nallocs();
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  constexpr size_t kOffset = absl::countl_zero(size_t{1}) - (kChunks - 1);
+  const size_t neg_ceil_log = absl::countl_zero(2 * na - 1);
+  const size_t i = std::max(neg_ceil_log, kOffset) - kOffset;
+  TC_ASSERT_LT(i, kChunks);
+  return i;
+#else
   // This equals 63 - ceil(log2(na))
   // (or 31 if size_t is 4 bytes, etc.)
   const size_t neg_ceil_log = __builtin_clzl(2 * na - 1);
@@ -2437,6 +2444,7 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(
   const size_t i = std::max(neg_ceil_log, kOffset) - kOffset;
   TC_ASSERT_LT(i, kChunks);
   return i;
+#endif
 }
 
 template <class TrackerType>
