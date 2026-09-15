@@ -284,6 +284,13 @@ inline void RangeTracker<N>::Mark(size_t index, size_t n) {
   nused_ += n;
   nallocs_++;
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  if (nused_ == N) {
+    longest_free_ = 0;
+    return;
+  }
+#endif
+
   size_t longest_len = 0;
   size_t scan_index = 0, scan_len;
 
@@ -308,6 +315,13 @@ inline void RangeTracker<N>::Unmark(size_t index, size_t n) {
   bits_.ClearRange(index, n);
   nused_ -= n;
   nallocs_--;
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  if (nused_ == 0) {
+    longest_free_ = N;
+    return;
+  }
+#endif
 
   // We just opened up a new free range--it might be the longest.
   size_t lim = bits_.FindSet(index + n - 1);
