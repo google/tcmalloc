@@ -1473,32 +1473,34 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
   // Collect miss stats incurred during the current resize interval for all the
   // size classes.
   const int num_cpus = NumCPUs();
-  absl::FixedArray<size_t, 0> total_misses(kNumClasses, 0);
-  int index = 0;
+  size_t total_misses[kNumClasses] = {0};
+  bool any_misses = false;
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    index = 0;
     if (!HasPopulated(cpu)) continue;
     for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
-      total_misses[index] +=
+      const size_t misses =
           resize_[cpu].per_class[size_class].GetAndUpdateIntervalMisses(
               PerClassMissType::kMaxCapacityTotal,
               PerClassMissType::kMaxCapacityResize);
-
-      ++index;
+      if (misses != 0) {
+        total_misses[size_class] += misses;
+        any_misses = true;
+      }
     }
   }
+  if (!any_misses) {
+    return 0;
+  }
 
-  absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses);
-  index = 0;
+  SizeClassMissStat miss_stats[kNumClasses];
   for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
-    miss_stats[index] = SizeClassMissStat{.size_class = size_class,
-                                          .misses = total_misses[index]};
-    ++index;
+    miss_stats[size_class] = SizeClassMissStat{
+        .size_class = size_class, .misses = total_misses[size_class]};
   }
 
   // Sort the collected stats to record size classes with largest number of
   // misses in the last interval.
-  std::sort(miss_stats.begin(), miss_stats.end(),
+  std::sort(miss_stats, miss_stats + kNumClasses,
             [](SizeClassMissStat a, SizeClassMissStat b) {
               // In case of a conflict, prefer growing smaller size classes.
               if (a.misses == b.misses) {
@@ -1734,13 +1736,6 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
 
     ResizeCpuSizeClasses(cpu);
 
-    // Record full stats in previous full stat counters so that we can collect
-    // stats per interval.
-    for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
-      resize_[cpu].per_class[size_class].UpdateIntervalMisses(
-          PerClassMissType::kCapacityTotal, PerClassMissType::kCapacityResize);
-    }
-
     if (++num_cpus_resized >= kNumCpuCachesToResize) break;
   }
   // Record the cpu hint for which the size classes were resized so that we
@@ -1750,25 +1745,36 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
 
 template <class Forwarder>
 void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
-  if (resize_[cpu].available.load(std::memory_order_relaxed) >=
-      kMaxCpuCacheSize) {
+  ResizeInfo& resize = resize_[cpu];
+  if (resize.available.load(std::memory_order_relaxed) >= kMaxCpuCacheSize) {
     // We still have enough available capacity, so all size classes can just
     // grow as they see fit.
+    for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+      resize.per_class[size_class].UpdateIntervalMisses(
+          PerClassMissType::kCapacityTotal, PerClassMissType::kCapacityResize);
+    }
     return;
   }
 
-  absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses - 1);
+  SizeClassMissStat miss_stats[kNumClasses - 1];
+  size_t num_candidates = 0;
   for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
-    miss_stats[size_class - 1] = SizeClassMissStat{
-        .size_class = size_class,
-        .misses = resize_[cpu].per_class[size_class].GetIntervalMisses(
+    const size_t misses =
+        resize.per_class[size_class].GetAndUpdateIntervalMisses(
             PerClassMissType::kCapacityTotal,
-            PerClassMissType::kCapacityResize)};
+            PerClassMissType::kCapacityResize);
+    if (misses > 0) {
+      miss_stats[num_candidates++] =
+          SizeClassMissStat{.size_class = size_class, .misses = misses};
+    }
+  }
+  if (num_candidates == 0) {
+    return;
   }
 
   // Sort the collected stats to record size classes with largest number of
   // misses in the last interval.
-  std::sort(miss_stats.begin(), miss_stats.end(),
+  std::sort(miss_stats, miss_stats + num_candidates,
             [](SizeClassMissStat a, SizeClassMissStat b) {
               // In case of a conflict, prefer growing smaller size classes.
               if (a.misses == b.misses) {
@@ -1777,19 +1783,14 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
               return a.misses > b.misses;
             });
 
-  size_t available =
-      resize_[cpu].available.exchange(0, std::memory_order_relaxed);
+  size_t available = resize.available.exchange(0, std::memory_order_relaxed);
   size_t num_resizes = 0;
   {
-    AllocationGuardSpinLockHolder h(resize_[cpu].lock);
+    AllocationGuardSpinLockHolder h(resize.lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
     const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
-    size_t size_classes_to_resize = 5;
-    TC_ASSERT_LT(size_classes_to_resize, kNumClasses);
+    size_t size_classes_to_resize = std::min<size_t>(5, num_candidates);
     for (size_t i = 0; i < size_classes_to_resize; ++i) {
-      // If a size class with largest misses is zero, break. Other size classes
-      // should also have suffered zero misses as well.
-      if (miss_stats[i].misses == 0) break;
       const size_t size_class_to_grow = miss_stats[i].size_class;
 
       // If we are already at a maximum capacity, nothing to grow.
@@ -1802,7 +1803,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
         // If one of the highest miss classes is already at the max capacity,
         // we need to try to grow more classes. Otherwise, if first 5 are at
         // max capacity, resizing will stop working.
-        if (size_classes_to_resize < kNumClasses) {
+        if (size_classes_to_resize < num_candidates) {
           size_classes_to_resize++;
         }
         continue;
@@ -1820,7 +1821,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
       const ssize_t to_steal_bytes = need_bytes - available;
       if (to_steal_bytes > 0) {
         available += StealCapacityForSizeClassWithinCpu(
-            cpu, {miss_stats.begin(), size_classes_to_resize}, to_steal_bytes);
+            cpu, {miss_stats, size_classes_to_resize}, to_steal_bytes);
       }
       size_t capacity_acquired = std::min<size_t>(can_grow, available / size);
       if (capacity_acquired != 0) {
@@ -1832,9 +1833,9 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
       }
     }
   }
-  resize_[cpu].available.fetch_add(available, std::memory_order_relaxed);
-  resize_[cpu].num_size_class_resizes.fetch_add(num_resizes,
-                                                std::memory_order_relaxed);
+  resize.available.fetch_add(available, std::memory_order_relaxed);
+  resize.num_size_class_resizes.fetch_add(num_resizes,
+                                          std::memory_order_relaxed);
 }
 
 template <class Forwarder>
