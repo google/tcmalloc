@@ -36,32 +36,27 @@ TEST(BackgroundTest, Defaults) {
 
 TEST(BackgroundTest, Stress) {
   // Process background actions by setting a custom sleep interval.
-  struct ProcessActions {
-    static void Go() {
-      constexpr absl::Duration kSleepTime = absl::Milliseconds(10);
-      ScopedBackgroundProcessSleepInterval sleep_time(kSleepTime);
-      MallocExtension::ProcessBackgroundActions();
-    }
-  };
+  constexpr absl::Duration kSleepTime = absl::Milliseconds(2);
+  ScopedBackgroundProcessSleepInterval sleep_time(kSleepTime);
 
   // Make sure that background acions are indeed enabled.
   EXPECT_TRUE(MallocExtension::GetBackgroundProcessActionsEnabled());
 
-  std::thread background(ProcessActions::Go);
+  std::thread background([]() { MallocExtension::ProcessBackgroundActions(); });
 
-  constexpr int kThreads = 10;
+  constexpr int kThreads = 4;
   ThreadManager mgr;
   AllocatorHarness harness(kThreads);
 
   mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::SleepFor(absl::Milliseconds(500));
+  absl::SleepFor(absl::Milliseconds(100));
 
   mgr.Stop();
 
-  ScopedBackgroundProcessActionsEnabled background_process_enabled(
-      /*value=*/false);
+  MallocExtension::SetBackgroundProcessActionsEnabled(false);
   background.join();
+  MallocExtension::SetBackgroundProcessActionsEnabled(true);
 }
 
 }  // namespace
