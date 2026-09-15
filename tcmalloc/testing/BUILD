@@ -357,6 +357,7 @@ cc_test(
     env = {"BORG_EXPERIMENTS": ""},
     linkstatic = 1,
     malloc = "//tcmalloc",
+    shard_count = 2,
     tags = [
         "noasan",
         "nomsan",
