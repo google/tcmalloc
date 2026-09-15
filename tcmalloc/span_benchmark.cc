@@ -28,6 +28,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
@@ -290,6 +291,56 @@ void ForEachConfig(F&& f) {
   }
 }
 
+void BM_MapObjectsToSpans(benchmark::State& state)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  const size_t batch_size = state.range(0);
+  const size_t objects_per_page = state.range(1);
+
+  const size_t size = kPageSize / objects_per_page;
+  const int size_class = FindSizeClass(size);
+
+  const size_t num_pages =
+      (batch_size + objects_per_page - 1) / objects_per_page;
+  void* mem = mmap(nullptr, num_pages * kPageSize, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  TC_CHECK_NE(mem, MAP_FAILED);
+
+  std::vector<std::unique_ptr<Span>> spans;
+  spans.reserve(num_pages);
+  std::vector<void*> batch(batch_size);
+
+  for (size_t i = 0; i < num_pages; ++i) {
+    PageId p = PageIdContaining(reinterpret_cast<char*>(mem) + i * kPageSize);
+    spans.push_back(std::make_unique<Span>(Range(p, Length(1))));
+    TC_CHECK(tc_globals.pagemap().Ensure(Range(p, Length(1))));
+    tc_globals.pagemap().Set(p, spans.back().get());
+    tc_globals.pagemap().RegisterSizeClass(spans.back().get(), size_class);
+  }
+
+  for (size_t i = 0; i < batch_size; ++i) {
+    size_t page_idx = i / objects_per_page;
+    size_t offset_in_page = (i % objects_per_page) * size;
+    batch[i] = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(mem) +
+                                       page_idx * kPageSize + offset_in_page);
+  }
+
+  std::vector<Span*> result_spans(batch_size);
+  while (state.KeepRunningBatch(batch_size)) {
+    tc_globals.pagemap().MapObjectsToSpans(absl::MakeSpan(batch),
+                                           result_spans.data(), size_class,
+                                           [](void*, Span*, size_t, size_t) {});
+    benchmark::DoNotOptimize(result_spans);
+  }
+  state.SetItemsProcessed(state.iterations() * batch_size);
+
+  for (size_t i = 0; i < num_pages; ++i) {
+    PageId p = PageIdContaining(reinterpret_cast<char*>(mem) + i * kPageSize);
+    tc_globals.pagemap().Set(p, nullptr);
+    tc_globals.pagemap().UnregisterSizeClass(spans[i].get());
+  }
+  munmap(mem, num_pages * kPageSize);
+}
+
 class BenchmarkRegistrar {
  public:
   BenchmarkRegistrar() {
@@ -329,6 +380,12 @@ class BenchmarkRegistrar {
                   static_cast<int64_t>(spans)})
           ->ArgNames({"size", "batch", "spans"});
     });
+
+    for (size_t objects_per_page : {1, 2, 4, 8, 16, 32}) {
+      benchmark::RegisterBenchmark("BM_MapObjectsToSpans", BM_MapObjectsToSpans)
+          ->Args({32, static_cast<int64_t>(objects_per_page)})
+          ->ArgNames({"batch", "objects_per_page"});
+    }
   }
 };
 

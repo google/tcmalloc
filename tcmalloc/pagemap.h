@@ -36,6 +36,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
@@ -419,6 +420,50 @@ class PageMap {
   int GetAllocatedSpans(
       std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
                       SpanDetails>& allocated_spans);
+
+  // Maps a batch of pointers to their corresponding Spans, verifying that each
+  // page matches the expected size class. Caches the previous PageId lookup
+  // to avoid redundant radix tree traversals for adjacent objects on the same
+  // page.
+  template <typename MismatchCallback>
+  void MapObjectsToSpans(absl::Span<void*> batch, Span** absl_nonnull spans,
+                         int expected_size_class,
+                         const MismatchCallback& on_mismatch) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    for (int i = 0; i < batch.size(); ++i) {
+      void* ptr = batch[i];
+      const PageId p = PageIdContaining(ptr);
+      auto [span, page_size_class] = GetDescriptorAndSizeClass(p);
+      if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
+        on_mismatch(ptr, span, page_size_class, expected_size_class);
+      }
+      span->Prefetch();
+      spans[i] = span;
+    }
+#else
+    PageId prev_p;
+    Span* prev_span = nullptr;
+    for (int i = 0; i < batch.size(); ++i) {
+      void* ptr = batch[i];
+      const PageId p = PageIdContaining(ptr);
+      Span* span;
+      if (ABSL_PREDICT_TRUE(p == prev_p && prev_span != nullptr)) {
+        span = prev_span;
+      } else {
+        size_t page_size_class;
+        std::tie(span, page_size_class) = GetDescriptorAndSizeClass(p);
+        if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
+          on_mismatch(ptr, span, page_size_class, expected_size_class);
+        }
+        span->Prefetch();
+        prev_p = p;
+        prev_span = span;
+      }
+      spans[i] = span;
+    }
+#endif
+  }
 
  private:
   PageMap3<kAddressBits - kPageShift, MetaDataAlloc> map_;
