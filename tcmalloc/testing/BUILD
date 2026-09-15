@@ -359,7 +359,7 @@ cc_test(
     env = {"BORG_EXPERIMENTS": ""},
     linkstatic = 1,
     malloc = "//tcmalloc",
-    shard_count = 2,
+    shard_count = 8,
     tags = [
         "noasan",
         "nomsan",
@@ -668,6 +668,7 @@ create_tcmalloc_testsuite(
     srcs = ["get_stats_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    shard_count = 4,
     deps = [
         ":rseq_util",
         ":testutil",
@@ -1041,6 +1042,7 @@ create_tcmalloc_testsuite(
     name = "heap_profiling_test",
     srcs = ["heap_profiling_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    shard_count = 4,
     deps = [
         ":test_allocator_harness",
         ":testutil",

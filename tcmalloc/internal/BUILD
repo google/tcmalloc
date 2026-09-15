@@ -436,6 +436,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     data = [
     ],
+    shard_count = 4,
     tags = ["nohwasan"],
     deps = [
         ":logging",
@@ -1137,6 +1138,7 @@ cc_test(
         "testdata/b180635896.so",
         "testdata/gnu-property.so",
     ],
+    shard_count = 2,
     deps = [
         ":environment",
         ":fake_profile",
