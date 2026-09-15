@@ -222,10 +222,15 @@ class TransferCache {
     // mark at the start of each plunder. If we plunder objects below, we record
     // the new value of info.used in the low water mark as we progress.
     low_water_mark_ = info.used;
+    if (to_return == 0) {
+      lock_.unlock();
+      return;
+    }
+
+    const int B = Manager::num_objects_to_move(size_class);
     while (true) {
-      info = GetSlotInfo();
-      const int B = Manager::num_objects_to_move(size_class);
-      const size_t num_to_move = std::min({B, info.used, to_return});
+      const size_t num_to_move =
+          std::min({B, static_cast<int>(info.used), to_return});
       if (num_to_move == 0) break;
 
       void* buf[kMaxObjectsToMove];
@@ -239,6 +244,7 @@ class TransferCache {
 
       freelist().InsertRange({buf, num_to_move});
       if (!lock_.try_lock()) return;
+      info = GetSlotInfo();
     }
     lock_.unlock();
   }
