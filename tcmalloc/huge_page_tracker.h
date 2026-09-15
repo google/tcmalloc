@@ -410,10 +410,19 @@ inline typename PageTracker::PageAllocation PageTracker::Get(
   //
   // This is a performance optimization, not a logical requirement.
   if (ABSL_PREDICT_FALSE(released_count_ > 0)) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    unbacked = released_by_page_.CountBits(index, n.raw_num());
+    if (unbacked > 0) {
+      released_by_page_.ClearRange(index, n.raw_num());
+      TC_ASSERT_GE(released_count_, unbacked);
+      released_count_ -= unbacked;
+    }
+#else
     unbacked = released_by_page_.CountBits(index, n.raw_num());
     released_by_page_.ClearRange(index, n.raw_num());
     TC_ASSERT_GE(released_count_, unbacked);
     released_count_ -= unbacked;
+#endif
   }
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
