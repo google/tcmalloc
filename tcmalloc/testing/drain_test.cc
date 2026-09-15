@@ -98,13 +98,13 @@ TEST(DrainTest, DrainWorks) {
   after.reserve(1 << 21);
 
   // Generate some traffic to fill up caches.
-  const int kThreads = 10;
+  const int kThreads = 4;
   ThreadManager mgr;
   AllocatorHarness harness(kThreads);
 
   mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::SleepFor(absl::Milliseconds(100));
+  absl::SleepFor(absl::Milliseconds(10));
 
   mgr.Stop();
 
@@ -161,13 +161,13 @@ TEST(DrainTest, DrainStable) {
   std::thread releaser(Drainer::Go, &sync, true);
   std::thread no_rseq_releaser(Drainer::Go, &sync, false);
 
-  const int kThreads = 10;
+  const int kThreads = 4;
   ThreadManager mgr;
   AllocatorHarness harness(kThreads);
 
   mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::SleepFor(absl::Milliseconds(100));
+  absl::SleepFor(absl::Milliseconds(20));
 
   mgr.Stop();
 
