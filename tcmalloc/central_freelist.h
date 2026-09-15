@@ -728,7 +728,12 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       ASSUME(prev_allocated > 0);
 #endif
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const uint8_t prev_bitwidth =
+          absl::bit_width(static_cast<uint32_t>(prev_allocated));
+#else
       const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
+#endif
       TC_ASSERT_EQ(prev_index, span->nonempty_index());
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       // Clobber prev_index to trigger reload, restoring previous behavior.
@@ -750,29 +755,49 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       // add it again once we pop the objects.
       const uint16_t cur_allocated = prev_allocated + here;
       TC_ASSERT_EQ(cur_allocated, span->Allocated());
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const uint8_t cur_bitwidth =
+          absl::bit_width(static_cast<uint32_t>(cur_allocated));
+#else
       const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
+#endif
       if (cur_bitwidth != prev_bitwidth) {
         RecordSpanUtil(prev_bitwidth, /*increase=*/false);
         RecordSpanUtil(cur_bitwidth, /*increase=*/true);
       }
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       if (ABSL_PREDICT_FALSE(
               span->FreelistEmpty(object_size, objects_per_span))) {
         nonempty_.Remove(span, prev_index);
+        span->set_nonempty_index(kNumLists);
+      } else if (use_all_buckets_for_few_object_spans_ ||
+                 cur_bitwidth != prev_bitwidth) {
+        // If span allocation changes so that it must be moved to a different
+        // nonempty_ list, we remove it from the previous list and add it to the
+        // desired list indexed by cur_index.
+        const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+        if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+          nonempty_.Move(span, prev_index, cur_index, /*prepend=*/true);
+          span->set_nonempty_index(cur_index);
+        }
+      }
+#else
+      if (ABSL_PREDICT_FALSE(
+              span->FreelistEmpty(object_size, objects_per_span))) {
+        nonempty_.Remove(span, prev_index);
+        span->set_nonempty_index(kNumLists);
       } else {
         // If span allocation changes so that it must be moved to a different
         // nonempty_ list, we remove it from the previous list and add it to the
         // desired list indexed by cur_index.
         const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
         if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
           nonempty_.Remove(span, prev_index);
           nonempty_.Add(span, cur_index, /*prepend=*/true);
-#else
-          nonempty_.Move(span, prev_index, cur_index, /*prepend=*/true);
-#endif
           span->set_nonempty_index(cur_index);
         }
       }
+#endif
       result += here;
     } while (result < batch.size());
 
