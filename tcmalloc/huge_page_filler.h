@@ -2416,11 +2416,15 @@ template <class TrackerType>
 inline size_t HugePageFiller<TrackerType>::IndexFor(
     const TrackerType& pt) const {
   TC_ASSERT(!pt.empty());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // For dense hugepages, the first dimension that we manage trackers along is
   // nallocs. This is different from tracking for sparse spans -- the first
   // dimension is the longest-free-range and the second one uses nallocs. So,
   // for dense spans, there is no need to distribute them using nallocs again.
   if (pt.HasDenseSpans()) return 0;
+#else
+  TC_ASSERT(!pt.HasDenseSpans());
+#endif
 
   // Prefer to allocate from hugepages with many allocations already present;
   // spaced logarithmically.
@@ -2470,10 +2474,20 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
     return;
   }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const AccessDensityPrediction type = pt->HasDenseSpans()
                                            ? AccessDensityPrediction::kDense
                                            : AccessDensityPrediction::kSparse;
   size_t i = ListFor(*pt);
+#else
+  const bool has_dense_spans = pt->HasDenseSpans();
+  const AccessDensityPrediction type = has_dense_spans
+                                           ? AccessDensityPrediction::kDense
+                                           : AccessDensityPrediction::kSparse;
+  const size_t i = has_dense_spans
+                       ? DenseListFor(pt->nallocs())
+                       : SparseListFor(pt->longest_free_range(), IndexFor(*pt));
+#endif
 
   if (!pt->released() &&
       (pt->unbroken() ||
@@ -2520,10 +2534,19 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   // donated allocs.
   pt->set_donated(false);
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const AccessDensityPrediction type = pt->HasDenseSpans()
                                            ? AccessDensityPrediction::kDense
                                            : AccessDensityPrediction::kSparse;
   size_t i = ListFor(*pt);
+#else
+  const bool has_dense_spans = pt->HasDenseSpans();
+  const AccessDensityPrediction type = has_dense_spans
+                                           ? AccessDensityPrediction::kDense
+                                           : AccessDensityPrediction::kSparse;
+  const size_t i = has_dense_spans ? DenseListFor(pt->nallocs())
+                                   : SparseListFor(longest, IndexFor(*pt));
+#endif
 
   if (!pt->released() &&
       (pt->unbroken() ||
