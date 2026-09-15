@@ -98,7 +98,7 @@ int VirtualCpu::Synchronize() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   int vcpu = kCpuIdUninitialized;
 
-  if (TestSynchronize) {
+  if (ABSL_PREDICT_FALSE(TestSynchronize != nullptr)) {
     vcpu = TestSynchronize();
     if (vcpu >= kCpuIdInitialized) {
       tcmalloc_cached_vcpu = vcpu;
@@ -394,7 +394,7 @@ void FenceCpu(int vcpu) {
   int real_cpu = vcpu;
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  if (using_upstream_fence.load(std::memory_order_relaxed)) {
+  if (ABSL_PREDICT_TRUE(using_upstream_fence.load(std::memory_order_relaxed))) {
     UpstreamRseqFenceCpu(real_cpu);
     return;
   }
@@ -416,7 +416,7 @@ void FenceAllCpus() {
   // handled equal in this respect.
   tcmalloc_slabs = 0;
 
-  if (using_upstream_fence.load(std::memory_order_relaxed)) {
+  if (ABSL_PREDICT_TRUE(using_upstream_fence.load(std::memory_order_relaxed))) {
     UpstreamRseqFenceCpu(-1);
     return;
   }
