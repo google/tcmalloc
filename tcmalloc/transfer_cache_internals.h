@@ -155,16 +155,21 @@ class TransferCache {
     TC_ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.capacity > info.used) {
-      AllocationGuardSpinLockHolder h(lock_);
-      // As caches are resized in the background, we do not attempt to grow
-      // them here. Instead, we just check if they have spare free capacity.
-      info = slot_info_.load(std::memory_order_relaxed);
-      int got = std::min(N, info.capacity - info.used);
+      int got = 0;
+      {
+        AllocationGuardSpinLockHolder h(lock_);
+        // As caches are resized in the background, we do not attempt to grow
+        // them here. Instead, we just check if they have spare free capacity.
+        info = slot_info_.load(std::memory_order_relaxed);
+        got = std::min(N, info.capacity - info.used);
+        if (got > 0) {
+          info.used += got;
+          SetSlotInfo(info);
+          void** entry = GetSlot(info.used - got);
+          memcpy(entry, batch.data(), sizeof(void*) * got);
+        }
+      }
       if (got > 0) {
-        info.used += got;
-        SetSlotInfo(info);
-        void** entry = GetSlot(info.used - got);
-        memcpy(entry, batch.data(), sizeof(void*) * got);
         insert_hits_.LossyAdd(1);
         if (got == N) {
           return;
@@ -187,18 +192,23 @@ class TransferCache {
     TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.used) {
-      AllocationGuardSpinLockHolder h(lock_);
-      // Refetch with the lock
-      info = slot_info_.load(std::memory_order_relaxed);
-      int got = std::min<int>(batch.size(), info.used);
+      int got = 0;
+      {
+        AllocationGuardSpinLockHolder h(lock_);
+        // Refetch with the lock
+        info = slot_info_.load(std::memory_order_relaxed);
+        got = std::min<int>(batch.size(), info.used);
+        if (got) {
+          info.used -= got;
+          SetSlotInfo(info);
+          void** entry = GetSlot(info.used);
+          memcpy(batch.data(), entry, sizeof(void*) * got);
+          low_water_mark_ = std::min(low_water_mark_, info.used);
+        }
+      }
       if (got) {
-        info.used -= got;
-        SetSlotInfo(info);
-        void** entry = GetSlot(info.used);
-        memcpy(batch.data(), entry, sizeof(void*) * got);
         remove_hits_.LossyAdd(1);
         remove_object_hits_.LossyAdd(got);
-        low_water_mark_ = std::min(low_water_mark_, info.used);
         return got;
       }
     }
