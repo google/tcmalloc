@@ -1206,7 +1206,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
   do {
     const size_t want = std::min(kMaxObjectsToMove, target - total);
     got = FetchFromBackingCache(size_class, absl::MakeSpan(batch, want));
-    if (got == 0) {
+    if (ABSL_PREDICT_FALSE(got == 0)) {
       break;
     }
     total += got;
@@ -1217,7 +1217,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
     }
     if (i) {
       i -= freelist_.PushBatch(size_class, batch, i);
-      if (i != 0) {
+      if (ABSL_PREDICT_FALSE(i != 0)) {
         ReleaseToBackingCache(size_class, {batch, i});
       }
     }
@@ -2140,7 +2140,7 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
     if (count < want) {
       count += freelist_.PopBatch(size_class, batch + count, want - count);
     }
-    if (!count) break;
+    if (ABSL_PREDICT_FALSE(!count)) break;
 
     total += count;
     ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
