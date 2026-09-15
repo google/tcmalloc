@@ -625,7 +625,14 @@ inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
 inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
                                          uint32_t reciprocal) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   uintptr_t off = static_cast<uint32_t>(p - first_page().start_uintptr());
+#else
+  uintptr_t off = (small_num_pages_ == 1)
+                      ? (p & (kPageSize - 1))
+                      : static_cast<uint32_t>(p - first_page().start_uintptr());
+  TC_ASSERT_EQ(off, static_cast<uint32_t>(p - first_page().start_uintptr()));
+#endif
   ObjIdx idx = OffsetToIdx(off, reciprocal);
   TC_ASSERT_EQ(BitmapIdxToPtr(idx, size), ptr);
   return idx;
