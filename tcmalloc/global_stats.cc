@@ -92,30 +92,30 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
                   SmallSpanStats* absl_nullable small_spans,
                   LargeSpanStats* absl_nullable large_spans,
                   bool report_residence) {
+  const bool use_per_cpu_cache = UsePerCpuCache(tc_globals);
   r.central_bytes = 0;
   r.transfer_bytes = 0;
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    const size_t length = tc_globals.central_freelist(size_class).length();
+    auto& cfl = tc_globals.central_freelist(size_class);
+    const size_t length = cfl.length();
     const size_t tc_length = tc_globals.transfer_cache().tc_length(size_class);
-    const size_t sharded_tc_length =
-        tc_globals.sharded_transfer_cache().TotalObjectsOfClass(size_class);
-    const size_t cache_overhead =
-        tc_globals.central_freelist(size_class).OverheadBytes();
+    const size_t cache_overhead = cfl.OverheadBytes();
     const size_t size = tc_globals.sizemap().class_to_size(size_class);
     r.central_bytes += (size * length) + cache_overhead;
     r.transfer_bytes += (size * tc_length);
     if (class_count) {
+      const size_t sharded_tc_length =
+          tc_globals.sharded_transfer_cache().TotalObjectsOfClass(size_class);
       // Sum the lengths of all per-class freelists, except the per-thread
       // freelists, which get counted when we call GetThreadStats(), below.
       class_count[size_class] = length + tc_length + sharded_tc_length;
-      if (UsePerCpuCache(tc_globals)) {
+      if (use_per_cpu_cache) {
         class_count[size_class] +=
             tc_globals.cpu_cache().TotalObjectsOfClass(size_class);
       }
     }
     if (span_stats) {
-      span_stats[size_class] =
-          tc_globals.central_freelist(size_class).GetSpanStats();
+      span_stats[size_class] = cfl.GetSpanStats();
     }
   }
 
@@ -126,6 +126,13 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
   r.stack_stats = tc_globals.sampledallocation_allocator().stats();
   r.linked_sample_stats = tc_globals.linked_sample_allocator().stats();
   r.tc_stats = ThreadCache::GetStats(&r.thread_bytes, class_count);
+
+  r.per_cpu_bytes = 0;
+  r.sharded_transfer_bytes = 0;
+  if (use_per_cpu_cache) {
+    r.per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
+    r.sharded_transfer_bytes = tc_globals.sharded_transfer_cache().TotalBytes();
+  }
 
   {  // scope
     PageHeapSpinLockHolder l;
@@ -156,24 +163,16 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
     r.num_released_soft_limit_exceeded = release_stats.soft_limit_exceeded;
     r.num_released_hard_limit_exceeded = release_stats.hard_limit_exceeded;
 
-    r.per_cpu_bytes = 0;
-    r.sharded_transfer_bytes = 0;
     r.percpu_metadata_bytes_res = 0;
     r.percpu_metadata_bytes = 0;
-    if (UsePerCpuCache(tc_globals)) {
-      r.per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
-      r.sharded_transfer_bytes =
-          tc_globals.sharded_transfer_cache().TotalBytes();
+    if (use_per_cpu_cache && report_residence) {
+      auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
+      r.percpu_metadata_bytes_res = percpu_metadata.resident_size;
+      r.percpu_metadata_bytes = percpu_metadata.virtual_size;
 
-      if (report_residence) {
-        auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
-        r.percpu_metadata_bytes_res = percpu_metadata.resident_size;
-        r.percpu_metadata_bytes = percpu_metadata.virtual_size;
-
-        TC_ASSERT_GE(r.metadata_bytes, r.percpu_metadata_bytes);
-        r.metadata_bytes = r.metadata_bytes - r.percpu_metadata_bytes +
-                           r.percpu_metadata_bytes_res;
-      }
+      TC_ASSERT_GE(r.metadata_bytes, r.percpu_metadata_bytes);
+      r.metadata_bytes = r.metadata_bytes - r.percpu_metadata_bytes +
+                         r.percpu_metadata_bytes_res;
     }
   }
   // We can access the pagemap without holding the pageheap_lock since it
@@ -1007,19 +1006,19 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "generic.peak_memory_usage") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = static_cast<uint64_t>(stats.peak_stats.backed_bytes);
+    PageHeapSpinLockHolder l;
+    *value = tc_globals.page_allocator().peak_stats().backed_bytes;
     return true;
   }
 
   if (name == "generic.realized_fragmentation") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
+    PageHeapSpinLockHolder l;
+    const PageAllocator::PeakStats peak_stats =
+        tc_globals.page_allocator().peak_stats();
     *value = static_cast<uint64_t>(
-        100. * safe_div(stats.peak_stats.backed_bytes -
-                            stats.peak_stats.sampled_application_bytes,
-                        stats.peak_stats.sampled_application_bytes));
+        100. *
+        safe_div(peak_stats.backed_bytes - peak_stats.sampled_application_bytes,
+                 peak_stats.sampled_application_bytes));
 
     return true;
   }
@@ -1032,23 +1031,29 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "tcmalloc.central_cache_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.central_bytes;
+    size_t central_bytes = 0;
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      auto& cfl = tc_globals.central_freelist(size_class);
+      const size_t length = cfl.length();
+      const size_t cache_overhead = cfl.OverheadBytes();
+      const size_t size = tc_globals.sizemap().class_to_size(size_class);
+      central_bytes += (size * length) + cache_overhead;
+    }
+    *value = central_bytes;
     return true;
   }
 
   if (name == "tcmalloc.cpu_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.per_cpu_bytes;
+    *value = UsePerCpuCache(tc_globals)
+                 ? tc_globals.cpu_cache().TotalUsedBytes()
+                 : 0;
     return true;
   }
 
   if (name == "tcmalloc.sharded_transfer_cache_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.sharded_transfer_bytes;
+    *value = UsePerCpuCache(tc_globals)
+                 ? tc_globals.sharded_transfer_cache().TotalBytes()
+                 : 0;
     return true;
   }
 
@@ -1089,23 +1094,26 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.current_total_thread_cache_bytes" ||
       name == "tcmalloc.thread_cache_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.thread_bytes;
+    uint64_t thread_bytes = 0;
+    ThreadCache::GetStats(&thread_bytes, nullptr);
+    *value = thread_bytes;
     return true;
   }
 
   if (name == "tcmalloc.thread_cache_count") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.tc_stats.in_use;
+    uint64_t thread_bytes = 0;
+    *value = ThreadCache::GetStats(&thread_bytes, nullptr).in_use;
     return true;
   }
 
   if (name == "tcmalloc.local_bytes") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = LocalBytes(stats);
+    uint64_t bytes = 0;
+    ThreadCache::GetStats(&bytes, nullptr);
+    if (UsePerCpuCache(tc_globals)) {
+      bytes += tc_globals.cpu_cache().TotalUsedBytes();
+      bytes += tc_globals.sharded_transfer_cache().TotalBytes();
+    }
+    *value = bytes;
     return true;
   }
 
@@ -1124,9 +1132,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "tcmalloc.transfer_cache_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.transfer_bytes;
+    size_t transfer_bytes = 0;
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      const size_t tc_length =
+          tc_globals.transfer_cache().tc_length(size_class);
+      const size_t size = tc_globals.sizemap().class_to_size(size_class);
+      transfer_bytes += (size * tc_length);
+    }
+    *value = transfer_bytes;
     return true;
   }
 
