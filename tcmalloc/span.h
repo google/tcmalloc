@@ -805,6 +805,7 @@ inline size_t Span::FreelistPopBatch(const absl::Span<void*> batch,
 
 inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
                                  size_t size) __restrict__ {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   size_t result = 0;
 
   // Pop from cache.
@@ -855,6 +856,64 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
   allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
                    std::memory_order_relaxed);
   return result;
+#else
+  size_t result = 0;
+
+  // Pop from cache.
+  auto csize = cache_size_;
+  ASSUME(csize <= kCacheSize);
+  auto cache_reads = csize < N ? csize : N;
+  const uintptr_t span_start = first_page().start_uintptr();
+  if (cache_reads > 0) {
+    const ObjIdx* cache_ptr = &list_.cache[csize - 1];
+    for (; result < cache_reads; result++) {
+      batch[result] = IdxToPtr(*cache_ptr--, size, span_start);
+    }
+  }
+
+  // Store this->cache_size_ one time.
+  cache_size_ = csize - result;
+
+  const uint16_t full_embed_count = size / sizeof(ObjIdx) - 1;
+  while (result < N) {
+    if (ABSL_PREDICT_FALSE(freelist_ == kListEnd)) {
+      break;
+    }
+
+    ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
+    uint16_t embed_count = embed_count_;
+
+    size_t iter = embed_count;
+    if (result + embed_count > N) {
+      iter = N - result;
+    }
+    void** out = batch + result;
+    const ObjIdx* host_ptr = host + embed_count;
+    for (size_t i = 0; i < iter; i++) {
+      // Pop from the first object on freelist.
+      *out++ = IdxToPtr(*host_ptr--, size, span_start);
+    }
+    embed_count -= iter;
+    result += iter;
+
+    if (result == N) {
+      embed_count_ = embed_count;
+      break;
+    }
+
+    // The first object on the freelist is empty, pop it.
+    TC_ASSERT_EQ(embed_count, 0);
+
+    batch[result] = host;
+    result++;
+
+    freelist_ = host[0];
+    embed_count_ = full_embed_count;
+  }
+  allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
+                   std::memory_order_relaxed);
+  return result;
+#endif
 }
 
 inline SampledAllocation* absl_nullable Span::Unsample() {
