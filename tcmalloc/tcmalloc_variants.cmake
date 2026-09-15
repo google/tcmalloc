@@ -315,14 +315,6 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_madv_sampled_holdback
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS}
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK"
-  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_subbucket_prioritization
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
