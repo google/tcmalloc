@@ -552,9 +552,10 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
 }
 
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
-HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown)
-    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline
+    typename HugePageAwareAllocator<Forwarder>::FinalizeType
+    HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown)
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   TC_ASSERT_NE(r.p, PageId{0});
   info_.RecordAlloc(r);
   forwarder_.ShrinkToUsageLimit(r.n, may_have_grown);
@@ -572,14 +573,15 @@ HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown)
 // For anything <= half a huge page, we will unconditionally use the filler
 // to pack it into a single page.  If we need another page, that's fine.
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
-HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
-                                              SpanAllocInfo span_alloc_info,
-                                              bool* from_released) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline
+    typename HugePageAwareAllocator<Forwarder>::FinalizeType
+    HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
+                                                  SpanAllocInfo span_alloc_info,
+                                                  bool* from_released) {
   auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
   *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-    return Finalize(Range(page, n), *from_released);
+    return Finalize(Range(page, n), released);
   }
 
   page = RefillFiller(n, span_alloc_info, from_released);
@@ -708,13 +710,14 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
   TC_CHECK_GT(n, Length(0));
   bool from_released;
   FinalizeType f = LockAndAlloc(n, span_alloc_info, &from_released);
-  if (f) {
-    Range r = Unspanify(f);
-    // Prefetch for writing, as we anticipate using the memory soon.
-    PrefetchW(r.p.start_addr());
-    if (from_released && ShouldBack(r)) {
-      forwarder_.Back(r);
-    }
+  if (ABSL_PREDICT_FALSE(!f)) {
+    return nullptr;
+  }
+  Range r = Unspanify(f);
+  // Prefetch for writing, as we anticipate using the memory soon.
+  PrefetchW(r.p.start_addr());
+  if (ABSL_PREDICT_FALSE(from_released) && ShouldBack(r)) {
+    forwarder_.Back(r);
   }
   Span* s = Spanify(f);
   TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
@@ -729,7 +732,7 @@ HugePageAwareAllocator<Forwarder>::LockAndAlloc(Length n,
   PageHeapSpinLockHolder l;
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
-  if (n <= kSmallAllocPages) {
+  if (ABSL_PREDICT_TRUE(n <= kSmallAllocPages)) {
     return AllocSmall(n, span_alloc_info, from_released);
   }
 
@@ -760,7 +763,10 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
     PageHeapSpinLockHolder l;
     f = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
-  if (f && from_released) {
+  if (ABSL_PREDICT_FALSE(!f)) {
+    return nullptr;
+  }
+  if (ABSL_PREDICT_FALSE(from_released)) {
     Range r = Unspanify(f);
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(r.p.start_addr());
