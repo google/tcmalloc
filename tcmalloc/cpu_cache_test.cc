@@ -39,6 +39,7 @@
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/cleanup/cleanup.h"
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/numeric/bits.h"
@@ -1419,6 +1420,9 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
+  // Undo the mlockall on every exit path so that it does not affect the rest
+  // of the tests in this process.
+  absl::Cleanup munlock = [] { EXPECT_EQ(munlockall(), 0); };
 
   CpuCache cache;
   TestStaticForwarder& forwarder = cache.forwarder();
@@ -1448,9 +1452,6 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   int failed_bytes = cache.GetDynamicSlabFailedBytes();
   EXPECT_EQ(failed_bytes, 0);
 
-  ret = munlockall();
-  ASSERT_EQ(ret, 0);
-
   cache.Deactivate();
 }
 
@@ -1467,6 +1468,9 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
+  // Undo the mlockall on every exit path so that it does not affect the rest
+  // of the tests in this process.
+  absl::Cleanup munlock = [] { EXPECT_EQ(munlockall(), 0); };
 
   CpuCache cache;
   TestStaticForwarder& forwarder = cache.forwarder();
@@ -1497,9 +1501,6 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   }
   int failed_bytes = cache.GetDynamicSlabFailedBytes();
   EXPECT_EQ(failed_bytes, 0);
-
-  ret = munlockall();
-  ASSERT_EQ(ret, 0);
 
   cache.Deactivate();
 }

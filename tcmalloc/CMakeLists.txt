@@ -1728,6 +1728,7 @@ tcmalloc_cc_test(
     "GTest::gmock"
     "absl::bits"
     "absl::btree"
+    "absl::cleanup"
     "absl::core_headers"
     "absl::dynamic_annotations"
     "absl::flat_hash_set"
