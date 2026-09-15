@@ -63,6 +63,7 @@ class Bitmap {
 
   template <typename Visitor>
   size_t PopBatch(Visitor visitor, size_t limit) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     size_t count = 0;
     for (size_t i = 0; i < kWords; ++i) {
       if (count >= limit) break;
@@ -76,6 +77,22 @@ class Bitmap {
       bits_[i] = word;
     }
     return count;
+#else
+    size_t count = 0;
+    for (size_t i = 0; i < kWords; ++i) {
+      if (count >= limit) break;
+      size_t word = bits_[i];
+      if (word == 0) continue;
+      do {
+        size_t off = absl::countr_zero(word);
+        visitor(i * kWordSize + off);
+        count++;
+        word &= word - 1;
+      } while (word != 0 && count < limit);
+      bits_[i] = word;
+    }
+    return count;
+#endif
   }
 
   // If there is at least one free range at or after <start>,
