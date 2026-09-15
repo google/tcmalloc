@@ -18,10 +18,9 @@
 #include <stdint.h>
 
 #include <algorithm>
-#include <cmath>
 
+#include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
-#include "absl/functional/function_ref.h"
 #include "absl/numeric/bits.h"
 #include "absl/numeric/int128.h"
 #include "absl/time/time.h"
@@ -71,12 +70,14 @@ class TimeSeriesTracker {
   // epochs passed since the previous entry), and the entry itself. The sequence
   // number ranges between [0, kSlots), and is relative to the beginning of the
   // buffer.
-  void Iter(absl::FunctionRef<void(size_t, size_t, const T&)> f) const;
+  template <typename F>
+  void Iter(F&& f) const;
 
   // Iterates backwards over the data points recorded in the window.
   // It iterates all entries if w is infinite. The sequence number is relative
   // to the end of the buffer.
-  void IterBackwards(absl::FunctionRef<void(size_t, size_t, const T&)> f,
+  template <typename F>
+  void IterBackwards(F&& f,
                      absl::Duration interval = absl::InfiniteDuration()) const;
 
   // Retrieves the most recent record and when the record was taken (relative to
@@ -92,10 +93,18 @@ class TimeSeriesTracker {
 
  private:
   // Returns true if the tracker moved to a different epoch.
-  bool UpdateClock();
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool UpdateClock() {
+    const size_t epoch = GetCurrentEpoch();
+    if (ABSL_PREDICT_TRUE(epoch == last_epoch_)) {
+      return false;
+    }
+    return AdvanceClock(epoch);
+  }
+
+  ABSL_ATTRIBUTE_NOINLINE bool AdvanceClock(size_t epoch);
 
   // Returns the current epoch number based on the clock.
-  int64_t GetCurrentEpoch() {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE int64_t GetCurrentEpoch() {
     // This is equivalent to
     // `clock_.now() / (absl::ToDoubleSeconds(epoch_length_) * clock_.freq())`.
     // We basically follow the technique from
@@ -155,17 +164,14 @@ class TimeSeriesTracker {
 // Advances the current slot if the clock had advanced >= 1 epoch; sets the
 // epoch_delta for how many epoch had passed sice the previous clock update.
 template <class T, class S, size_t kSlots>
-bool TimeSeriesTracker<T, S, kSlots>::UpdateClock() {
-  const size_t epoch = GetCurrentEpoch();
+ABSL_ATTRIBUTE_NOINLINE bool TimeSeriesTracker<T, S, kSlots>::AdvanceClock(
+    size_t epoch) {
   if (ABSL_PREDICT_FALSE(epoch < last_epoch_)) {
     // If the clock has regressed (e.g., across snapshot restore or container
     // migration to a host with a lower monotonic clock), reset the tracker to
     // prevent unsigned underflow in delta calculations and discard stale
     // history.
     InitTracker();
-    return false;
-  }
-  if (epoch == last_epoch_) {
     return false;
   }
   // How much time had passed?
@@ -184,8 +190,8 @@ bool TimeSeriesTracker<T, S, kSlots>::UpdateClock() {
 }
 
 template <class T, class S, size_t kSlots>
-void TimeSeriesTracker<T, S, kSlots>::Iter(
-    absl::FunctionRef<void(size_t, size_t, const T&)> f) const {
+template <typename F>
+void TimeSeriesTracker<T, S, kSlots>::Iter(F&& f) const {
   size_t j = current_slot_ + 1;
   if (j == kSlots) j = 0;
   for (int sequenc_num = 0; sequenc_num < kSlots; sequenc_num++) {
@@ -201,18 +207,23 @@ void TimeSeriesTracker<T, S, kSlots>::Iter(
 }
 
 template <class T, class S, size_t kSlots>
+template <typename F>
 void TimeSeriesTracker<T, S, kSlots>::IterBackwards(
-    absl::FunctionRef<void(size_t, size_t, const T&)> f,
-    absl::Duration interval) const {
-  if (interval == absl::ZeroDuration()) return;
+    F&& f, absl::Duration interval) const {
+  if (interval <= absl::ZeroDuration()) return;
   size_t epochs_to_traverse;
   if (interval == absl::InfiniteDuration()) {
     // InfiniteDuration() means that we are outputting all records.
     epochs_to_traverse = covered_epochs_;
   } else {
-    epochs_to_traverse = static_cast<size_t>(
-        std::min(ceil(absl::FDivDuration(interval, epoch_length_)),
-                 static_cast<double>(covered_epochs_)));
+    absl::Duration rem;
+    const int64_t q = absl::IDivDuration(interval, epoch_length_, &rem);
+    if (static_cast<size_t>(q) >= covered_epochs_) {
+      epochs_to_traverse = covered_epochs_;
+    } else {
+      epochs_to_traverse =
+          static_cast<size_t>(q) + (rem > absl::ZeroDuration() ? 1 : 0);
+    }
   }
   // We would be returned already if nothing to traverse, plus the covered
   // epochs should always be higher than zero (see UpdateClock() for details).
