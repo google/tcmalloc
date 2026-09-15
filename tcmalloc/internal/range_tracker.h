@@ -568,40 +568,67 @@ template <size_t N>
 template <bool Goal>
 inline size_t Bitmap<N>::FindValue(size_t index) const {
   TC_ASSERT_LT(index, N);
+  if constexpr (kWords == 1) {
+    size_t here = Goal ? bits_[0] : ~bits_[0];
+    here &= ~static_cast<size_t>(0) << index;
+    if (here == 0) return N;
+    size_t ret = absl::countr_zero(here);
+    if constexpr (kDeadBits > 0) {
+      if constexpr (Goal
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+                    && false
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ) {
+        ASSUME(ret < N);
+      } else {
+        ret = std::min(ret, N);
+      }
+    }
+    return ret;
+  }
+
   size_t offset = index % kWordSize;
   size_t word = index / kWordSize;
   ASSUME(word < kWords);
-  size_t here = bits_[word];
-  if (!Goal) here = ~here;
-  size_t mask = ~static_cast<size_t>(0) << offset;
-  here &= mask;
-  while (here == 0) {
-    ++word;
-    if (word >= kWords) {
-      return N;
+  size_t here = Goal ? bits_[word] : ~bits_[word];
+  here &= ~static_cast<size_t>(0) << offset;
+  if (ABSL_PREDICT_TRUE(here != 0)) {
+    size_t ret = (index & ~(kWordSize - 1)) + absl::countr_zero(here);
+    if constexpr (kDeadBits > 0) {
+      if constexpr (Goal
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+                    && false
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ) {
+        ASSUME(ret < N);
+      } else {
+        ret = std::min(ret, N);
+      }
     }
-    here = bits_[word];
-    if (!Goal) here = ~here;
+    return ret;
   }
 
-  word *= kWordSize;
-  ASSUME(here != 0);
-  size_t ret = absl::countr_zero(here) + word;
-  if constexpr (kDeadBits > 0) {
-    if constexpr (Goal
+  constexpr size_t kEmptyWord = Goal ? 0 : ~static_cast<size_t>(0);
+  for (++word; word < kWords; ++word) {
+    size_t val = bits_[word];
+    if (val != kEmptyWord) {
+      here = Goal ? val : ~val;
+      size_t ret = word * kWordSize + absl::countr_zero(here);
+      if constexpr (kDeadBits > 0) {
+        if constexpr (Goal
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-                  && false
+                      && false
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    ) {
-      // We did not early return above, so a set bit was found.  Dead bits are
-      // never set.
-      ASSUME(ret < N);
-    } else {
-      // FindClear inverts the word, so we need to clamp.
-      if (ret > N) ret = N;
+        ) {
+          ASSUME(ret < N);
+        } else {
+          ret = std::min(ret, N);
+        }
+      }
+      return ret;
     }
   }
-  return ret;
+  return N;
 }
 
 template <size_t N>
