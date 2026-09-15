@@ -1462,7 +1462,16 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     absl::Span<TrackerType*> candidates, Length target) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  if (candidates.empty() || target == Length(0)) {
+    return Length(0);
+  }
+  if (candidates.size() > 1) {
+    absl::c_sort(candidates, CompareForSubrelease);
+  }
+#else
   absl::c_sort(candidates, CompareForSubrelease);
+#endif
 
   Length total_released;
   HugeLength total_broken = NHugePages(0);
