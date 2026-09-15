@@ -699,20 +699,22 @@ template <class Forwarder>
 inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   TC_ASSERT(!batch.empty());
 
+  void** const batch_ptr = batch.data();
+  const size_t batch_size = batch.size();
   int result = 0;
 
   if (ABSL_PREDICT_FALSE(objects_per_span_ == 1)) {
     // If there is only 1 object per span, skip CentralFreeList entirely.
     Span* span = AllocateSpan();
     if (ABSL_PREDICT_TRUE(span != nullptr)) {
-      batch[0] = span->start_address();
+      batch_ptr[0] = span->start_address();
       result = 1;
     }
   } else {
     // Use local copy of variable to ensure that it is not reloaded.
-    size_t object_size = object_size_;
+    const size_t object_size = object_size_;
     size_t num_spans = 0;
-    size_t objects_per_span = objects_per_span_;
+    const size_t objects_per_span = objects_per_span_;
 
     CentralFreeListLockHolder h(lock_);
 
@@ -720,7 +722,8 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       num_spans++;
       auto [span, prev_index] = FirstNonEmptySpan();
       if (ABSL_PREDICT_FALSE(!span)) {
-        result += Populate(batch.subspan(result));
+        result +=
+            Populate(absl::MakeSpan(batch_ptr + result, batch_size - result));
         break;
       }
 
@@ -740,9 +743,8 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
 #else
       // Pass pointer + count directly to avoid absl::Span::subspan's defensive
       // length clamping (std::min) on this hot drain path.  See b/538576012.
-      const size_t size = batch.size();
       int here = span->FreelistPopBatch(
-          absl::MakeSpan(batch.data() + result, size - result), object_size);
+          absl::MakeSpan(batch_ptr + result, batch_size - result), object_size);
 #endif
       ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
       // As the objects are being popped from the span, its utilization might
@@ -755,10 +757,17 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         RecordSpanUtil(prev_bitwidth, /*increase=*/false);
         RecordSpanUtil(cur_bitwidth, /*increase=*/true);
       }
-      if (ABSL_PREDICT_FALSE(
-              span->FreelistEmpty(object_size, objects_per_span))) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const bool span_empty =
+          span->FreelistEmpty(object_size, objects_per_span);
+#else
+      // Cheaper check than FreelistEmpty(), avoiding a redundant atomic load
+      // of span->allocated_.
+      const bool span_empty = cur_allocated == objects_per_span;
+#endif
+      if (ABSL_PREDICT_FALSE(span_empty)) {
         nonempty_.Remove(span, prev_index);
-      } else {
+      } else if (prev_index != 0) {
         // If span allocation changes so that it must be moved to a different
         // nonempty_ list, we remove it from the previous list and add it to the
         // desired list indexed by cur_index.
@@ -774,10 +783,10 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         }
       }
       result += here;
-    } while (result < batch.size());
+    } while (result < batch_size);
 
     TC_ASSERT_GT(num_spans, 0);
-    TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
+    TC_ASSERT_LE(batch_size, kMaxObjectsToMove);
     TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
     span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
     UpdateObjectCounts(-result);
@@ -786,9 +795,9 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   // Use ASSUME to elide the bounds check in subspan, per b/538576012#comment3.
   //
   // TODO(b/538576012): Use a recommended API for this.
-  size_t size = batch.size();
-  ASSUME(result <= size);
-  forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
+  ASSUME(result <= batch_size);
+  forwarder_.InvokeRemoveRangeHook(size_class_,
+                                   absl::MakeSpan(batch_ptr, result));
   return result;
 }
 
