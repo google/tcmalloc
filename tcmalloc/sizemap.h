@@ -318,6 +318,7 @@ class SizeMap {
   }
 
   // Mapping from size class to number of pages to allocate at a time
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline Length class_to_pages(
       size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
@@ -326,6 +327,7 @@ class SizeMap {
 
   // Returns the inclusive range of possible sizes for a given size class.
   // REQUIRES: size_class < kNumClasses.
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
   std::pair<size_t, size_t> class_to_size_range(size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     if (size_class == 0) {
@@ -348,6 +350,7 @@ class SizeMap {
   // amortize the lock overhead for accessing the central list.  Making
   // it too big may temporarily cause unnecessary memory wastage in the
   // per-thread free list until the scavenger cleans up the list.
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMap::BatchSize num_objects_to_move(
       size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
