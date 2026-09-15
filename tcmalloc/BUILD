@@ -1521,7 +1521,7 @@ cc_test(
     env = {"BORG_EXPERIMENTS": ""},
     # There can be only one CpuCache due to slab offset caching in rseq.
     malloc = "//tcmalloc/internal:system_malloc",
-    shard_count = 3,
+    shard_count = 15,
     tags = ["noubsan"],
     deps = [
         ":common_8k_pages",

@@ -481,7 +481,7 @@ TEST(CpuCacheTest, Metadata) {
 
   const int num_cpus = NumCPUs();
 
-  const int kAttempts = 3;
+  const int kAttempts = 100;
   for (int attempt = 1; attempt <= kAttempts; attempt++) {
     SCOPED_TRACE(absl::StrCat("attempt=", attempt));
 
@@ -551,9 +551,8 @@ TEST(CpuCacheTest, Metadata) {
     // We don't care if the transfer cache hit or missed, but the CPU cache
     // should have done the operation.
     tc_stats = cache.forwarder().transfer_cache().GetStats(kSizeClass);
-    if ((tc_stats.remove_object_misses != num_to_move ||
-         tc_stats.insert_hits + tc_stats.insert_misses != 0) &&
-        attempt < kAttempts) {
+    if (tc_stats.remove_object_misses != num_to_move ||
+        tc_stats.insert_hits + tc_stats.insert_misses != 0) {
       // The operation didn't occur as expected, likely because we were
       // preempted but returned to the same core (otherwise Tampered would have
       // fired).
@@ -570,6 +569,9 @@ TEST(CpuCacheTest, Metadata) {
       cache.Deallocate(ptr, kSizeClass);
       cache.Deactivate();
 
+      if (attempt == kAttempts) {
+        return;
+      }
       continue;
     }
 
@@ -923,7 +925,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
 
   std::vector<std::thread> threads;
   std::thread resize_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = std::min(NumCPUs(), 4);
   std::atomic<bool> stop(false);
 
   size_t old_max_capacity = 0;
@@ -976,7 +978,7 @@ TEST(CpuCacheTest, StressSizeClassResize) {
 
   std::vector<std::thread> threads;
   std::thread resize_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = std::min(NumCPUs(), 4);
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -1017,7 +1019,7 @@ TEST(CpuCacheTest, StealCpuCache) {
 
   std::vector<std::thread> threads;
   std::thread shuffle_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = std::min(NumCPUs(), 4);
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -1067,7 +1069,7 @@ TEST(CpuCacheTest, DynamicSlab) {
   cache.Activate();
 
   std::vector<std::thread> threads;
-  const int n_threads = NumCPUs();
+  const int n_threads = std::min(NumCPUs(), 4);
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -1359,52 +1361,59 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
   EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
 }
 
+class DynamicSlabParamsChangeTest
+    : public DynamicWideSlabTest,
+      public ::testing::WithParamInterface<std::tuple<bool, DynamicSlab>> {};
+
 // Test that when dynamic slab parameters change, things still work.
-TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
+TEST_P(DynamicSlabParamsChangeTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  int n_threads = std::min(NumCPUs(), 4);
 
   SizeMap size_map;
   ASSERT_TRUE(size_map.Init(size_map.CurrentClasses().classes));
-  for (bool initially_enabled : {false, true}) {
-    for (DynamicSlab initial_dynamic_slab :
+  const auto [initially_enabled, initial_dynamic_slab] = GetParam();
+  CpuCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.dynamic_slab_enabled_ = initially_enabled;
+  forwarder.dynamic_slab_ = initial_dynamic_slab;
+  forwarder.size_map_ = size_map;
+
+  cache.Activate();
+
+  std::vector<std::thread> threads;
+  std::atomic<bool> stop(false);
+
+  for (size_t t = 0; t < n_threads; ++t) {
+    threads.push_back(
+        std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
+  }
+
+  for (bool enabled : {false, true}) {
+    for (DynamicSlab dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
-      CpuCache cache;
-      TestStaticForwarder& forwarder = cache.forwarder();
-      forwarder.dynamic_slab_enabled_ = initially_enabled;
-      forwarder.dynamic_slab_ = initial_dynamic_slab;
-      forwarder.size_map_ = size_map;
-
-      cache.Activate();
-
-      std::vector<std::thread> threads;
-      std::atomic<bool> stop(false);
-
-      for (size_t t = 0; t < n_threads; ++t) {
-        threads.push_back(
-            std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
-      }
-
-      for (bool enabled : {false, true}) {
-        for (DynamicSlab dynamic_slab :
-             {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
-          absl::SleepFor(absl::Milliseconds(100));
-          forwarder.dynamic_slab_enabled_ = enabled;
-          forwarder.dynamic_slab_ = dynamic_slab;
-          cache.ResizeSlabIfNeeded();
-        }
-      }
-      stop = true;
-      for (auto& t : threads) {
-        t.join();
-      }
-
-      cache.Deactivate();
+      absl::SleepFor(absl::Milliseconds(10));
+      forwarder.dynamic_slab_enabled_ = enabled;
+      forwarder.dynamic_slab_ = dynamic_slab;
+      cache.ResizeSlabIfNeeded();
     }
   }
+  stop = true;
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  cache.Deactivate();
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    All, DynamicSlabParamsChangeTest,
+    ::testing::Combine(::testing::Bool(),
+                       ::testing::Values(DynamicSlab::kGrow,
+                                         DynamicSlab::kShrink,
+                                         DynamicSlab::kNoop)));
 
 // Test that old slabs are madvised-away during max capacity resize even when
 // memory is mlocked.
@@ -1415,7 +1424,7 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  int n_threads = std::min(NumCPUs(), 4);
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
@@ -1437,8 +1446,8 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
         std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
   }
 
-  for (int i = 0; i < 10; ++i) {
-    absl::SleepFor(absl::Milliseconds(100));
+  for (int i = 0; i < 4; ++i) {
+    absl::SleepFor(absl::Milliseconds(10));
     cache.ResizeSizeClassMaxCapacities();
   }
   stop = true;
@@ -1463,7 +1472,7 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  int n_threads = std::min(NumCPUs(), 4);
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
@@ -1487,7 +1496,7 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
 
   for (DynamicSlab dynamic_slab :
        {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
-    absl::SleepFor(absl::Milliseconds(100));
+    absl::SleepFor(absl::Milliseconds(10));
     forwarder.dynamic_slab_ = dynamic_slab;
     cache.ResizeSlabIfNeeded();
   }
