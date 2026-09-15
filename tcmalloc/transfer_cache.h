@@ -167,36 +167,44 @@ class ShardedTransferCacheManagerBase {
     }
   }
 
-  bool should_use(int size_class) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool should_use(int size_class) const {
     return active_for_class_[size_class];
   }
 
   size_t TotalBytes() const {
-    if (shards_ == nullptr) return 0;
+    Shard* const shards = shards_;
+    if (shards == nullptr) return 0;
+    const int num_shards = num_shards_;
     size_t out = 0;
-    for (int shard = 0; shard < num_shards_; ++shard) {
-      if (!shard_initialized(shard)) continue;
+    for (int shard = 0; shard < num_shards; ++shard) {
+      TransferCache* const caches =
+          shards[shard].transfer_caches.load(std::memory_order_acquire);
+      if (caches == nullptr) continue;
       for (int size_class = 0; size_class < kNumClasses; ++size_class) {
         const int bytes_per_entry = Manager::class_to_size(size_class);
         if (bytes_per_entry <= 0) continue;
-        out += shards_[shard].transfer_caches[size_class].tc_length() *
-               bytes_per_entry;
+        out += caches[size_class].tc_length() * bytes_per_entry;
       }
     }
     return out;
   }
 
   int TotalObjectsOfClass(int size_class) const {
-    if (shards_ == nullptr) return 0;
+    Shard* const shards = shards_;
+    if (shards == nullptr) return 0;
+    const int num_shards = num_shards_;
     int objects = 0;
-    for (int shard = 0; shard < num_shards_; ++shard) {
-      if (!shard_initialized(shard)) continue;
-      objects += shards_[shard].transfer_caches[size_class].tc_length();
+    for (int shard = 0; shard < num_shards; ++shard) {
+      TransferCache* const caches =
+          shards[shard].transfer_caches.load(std::memory_order_acquire);
+      if (caches == nullptr) continue;
+      objects += caches[size_class].tc_length();
     }
     return objects;
   }
 
-  [[nodiscard]] void* absl_nullable Pop(int size_class) {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE void* absl_nullable Pop(
+      int size_class) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
     void* batch[1];
     const int got =
@@ -204,7 +212,8 @@ class ShardedTransferCacheManagerBase {
     return got == 1 ? batch[0] : nullptr;
   }
 
-  void Push(int size_class, void* absl_nonnull ptr) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void Push(int size_class,
+                                         void* absl_nonnull ptr) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
     get_cache(size_class).InsertRange(size_class, absl::MakeSpan(&ptr, 1));
   }
@@ -276,11 +285,14 @@ class ShardedTransferCacheManagerBase {
   // Returns cumulative stats over all the shards of the sharded transfer cache.
   TransferCacheStats GetStats(int size_class) const {
     TransferCacheStats stats = {};
-    for (int index = 0; index < num_shards_; ++index) {
-      if (!shard_initialized(index)) continue;
-      Shard& shard = shards_[index];
-      TransferCacheStats shard_stats =
-          shard.transfer_caches[size_class].GetStats();
+    Shard* const shards = shards_;
+    if (shards == nullptr) return stats;
+    const int num_shards = num_shards_;
+    for (int index = 0; index < num_shards; ++index) {
+      TransferCache* const caches =
+          shards[index].transfer_caches.load(std::memory_order_acquire);
+      if (caches == nullptr) continue;
+      TransferCacheStats shard_stats = caches[size_class].GetStats();
       stats.insert_hits += shard_stats.insert_hits;
       stats.insert_misses += shard_stats.insert_misses;
       stats.remove_hits += shard_stats.remove_hits;
@@ -294,22 +306,28 @@ class ShardedTransferCacheManagerBase {
     return stats;
   }
 
-  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE int RemoveRange(
+      int size_class, absl::Span<void*> batch) {
     return get_cache(size_class).RemoveRange(size_class, batch);
   }
 
-  void InsertRange(int size_class, absl::Span<void*> batch) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void InsertRange(int size_class,
+                                                absl::Span<void*> batch) {
     get_cache(size_class).InsertRange(size_class, batch);
   }
 
   // All caches not touched since last attempt will return all objects
   // to the non-sharded TransferCache.
   void Plunder() {
-    if (shards_ == nullptr || num_shards_ == 0) return;
-    for (int shard = 0; shard < num_shards_; ++shard) {
-      if (!shard_initialized(shard)) continue;
+    Shard* const shards = shards_;
+    const int num_shards = num_shards_;
+    if (shards == nullptr || num_shards == 0) return;
+    for (int shard = 0; shard < num_shards; ++shard) {
+      TransferCache* const caches =
+          shards[shard].transfer_caches.load(std::memory_order_acquire);
+      if (caches == nullptr) continue;
       for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-        TransferCache& cache = shards_[shard].transfer_caches[size_class];
+        TransferCache& cache = caches[size_class];
         cache.TryPlunder(cache.freelist().size_class());
       }
     }
@@ -319,14 +337,17 @@ class ShardedTransferCacheManagerBase {
     if (shards_ == nullptr) return 0;
     const uint8_t shard = cpu_layout_->CpuShard(cpu);
     TC_ASSERT_LT(shard, num_shards_);
-    if (!shard_initialized(shard)) return 0;
-    return shards_[shard].transfer_caches[size_class].tc_length();
+    TransferCache* const caches =
+        shards_[shard].transfer_caches.load(std::memory_order_acquire);
+    if (caches == nullptr) return 0;
+    return caches[size_class].tc_length();
   }
 
   bool shard_initialized(int shard) const {
     if (shards_ == nullptr) return false;
     TC_ASSERT_LT(shard, num_shards_);
-    return shards_[shard].initialized.load(std::memory_order_acquire);
+    return shards_[shard].transfer_caches.load(std::memory_order_acquire) !=
+           nullptr;
   }
 
   bool UseCacheForLargeClassesOnly() const {
@@ -349,13 +370,10 @@ class ShardedTransferCacheManagerBase {
     Shard() {
       // The constructor of atomic values is not atomic. Set the value
       // explicitly and atomically here.
-      initialized.store(false, std::memory_order_release);
+      transfer_caches.store(nullptr, std::memory_order_release);
     }
-    TransferCache* transfer_caches = nullptr;
+    std::atomic<TransferCache*> transfer_caches;
     absl::once_flag once_flag;
-    // We need to be able to tell whether a given shard is initialized, which
-    // the `once_flag` API doesn't offer.
-    std::atomic<bool> initialized;
   };
 
   struct Capacity {
@@ -391,21 +409,25 @@ class ShardedTransferCacheManagerBase {
       new_caches[size_class].freelist().Init(
           size_class, Parameters::cfl_subbucket_prioritization());
     }
-    shard.transfer_caches = new_caches;
     active_shards_.fetch_add(1, std::memory_order_relaxed);
-    shard.initialized.store(true, std::memory_order_release);
+    shard.transfer_caches.store(new_caches, std::memory_order_release);
   }
 
   // Returns the cache shard corresponding to the given size class and the
   // current cpu's L3 node. The cache will be initialized if required.
-  TransferCache& get_cache(int size_class) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE TransferCache& get_cache(int size_class) {
     const uint8_t shard_index =
         cpu_layout_->CpuShard(cpu_layout_->CurrentCpu());
     TC_ASSERT_LT(shard_index, num_shards_);
     Shard& shard = shards_[shard_index];
-    absl::base_internal::LowLevelCallOnce(
-        &shard.once_flag, [this, &shard]() { InitShard(shard); });
-    return shard.transfer_caches[size_class];
+    TransferCache* caches =
+        shard.transfer_caches.load(std::memory_order_acquire);
+    if (ABSL_PREDICT_FALSE(caches == nullptr)) {
+      absl::base_internal::LowLevelCallOnce(
+          &shard.once_flag, [this, &shard]() { InitShard(shard); });
+      caches = shard.transfer_caches.load(std::memory_order_relaxed);
+    }
+    return caches[size_class];
   }
 
   Shard* shards_ = nullptr;
