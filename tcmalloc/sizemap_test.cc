@@ -89,6 +89,34 @@ const SizeClasses* const kAllSizeClassesConfigs[] = {
     &kExperimentalPow2SizeClasses,
 };
 
+class SizeMapTestPeer {
+ public:
+  static void SetClassArrayRegion(SizeMap* sm, size_t dst_region,
+                                  size_t src_region, CompactSizeClass adjust) {
+    sm->SetClassArrayRegion(dst_region, src_region, adjust);
+  }
+  static CompactSizeClass* class_array(SizeMap* sm) { return sm->class_array_; }
+  static size_t class_array_size() { return SizeMap::kClassArraySize; }
+};
+
+TEST(SizeMapTest, SetClassArrayRegion) {
+  SizeMap size_map;
+  CompactSizeClass* class_array = SizeMapTestPeer::class_array(&size_map);
+  size_t class_array_size = SizeMapTestPeer::class_array_size();
+
+  // Initialize region 0 manually for testing.
+  class_array[0] = 1;
+  for (size_t i = 1; i < class_array_size; ++i) {
+    class_array[i] = i % 100;
+  }
+
+  SizeMapTestPeer::SetClassArrayRegion(&size_map, 1, 0, 10);
+
+  for (size_t i = 0; i < class_array_size; ++i) {
+    EXPECT_EQ(class_array[class_array_size + i], class_array[i] + 10);
+  }
+}
+
 TEST(SizeMapTest, NumBaseClasses) {
   size_t max_classes = 0;
   for (const SizeClasses* sc : kAllSizeClassesConfigs) {

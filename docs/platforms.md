@@ -13,7 +13,7 @@ We guarantee that our code will compile under the following compilation flags:
 
 Linux:
 
-*   gcc 12.1+, clang 11.0+: `-std=c++17`
+*   gcc 9.2+, clang 11.0+: `-std=c++17`
 
 (TL;DR; All code at this time must be built under C++17. We will update this
 list if circumstances change.)
@@ -42,15 +42,14 @@ Architecture, Specific Compiler, and Standard Library implementation.
       <td>Linux</td>
       <td>little-endian, 64-bit</td>
       <td>x86, AArch64</td>
-      <td>gcc 12.1+<br/>clang 11.0+</td>
+      <td>gcc 9.2+<br/>clang 11.0+</td>
       <td>libstdc++<br/>libc++</td>
     </tr>
   </tbody>
 </table>
 
-\* gcc 12.1 and clang 11.0 are the minimum versions enforced by
-`tcmalloc/internal/config.h`; older releases fail to compile. Our continuous
-integration builds use recent releases of each compiler.
+\* We test on gcc 9.2, though gcc versions (which support C++17) prior to that
+release should also work.
 
 **Best Effort**
 
@@ -69,7 +68,7 @@ integration builds use recent releases of each compiler.
       <td>Linux</td>
       <td>little-endian, 64-bit</td>
       <td>PPC</td>
-      <td>gcc 12.1+<br/>clang 11.0+</td>
+      <td>gcc 9.2+<br/>clang 11.0+</td>
       <td>libstdc++<br/>libc++</td>
     </tr>
   </tbody>

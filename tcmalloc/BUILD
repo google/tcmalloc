@@ -1194,10 +1194,8 @@ cc_test(
         "//tcmalloc/internal:page_size",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/testing:testutil",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/numeric:bits",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1583,7 +1581,6 @@ create_tcmalloc_testsuite(
     name = "central_freelist_test",
     srcs = ["central_freelist_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    shard_count = 6,
     tags = [
     ],
     variant_deps = [

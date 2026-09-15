@@ -76,7 +76,21 @@ PageAllocator::PageAllocator() {
   TC_CHECK_LE(part, std::size(choices_));
 }
 
-void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
+void PageAllocator::ShrinkToUsageLimit(Length n, bool may_have_grown) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const bool check_stats = true;
+#else
+#ifndef NDEBUG
+  const bool check_stats = true;
+#else
+  const bool check_stats = may_have_grown;
+#endif  // NDEBUG
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+
+  if (!check_stats) {
+    return;
+  }
+
   BackingStats s = stats();
   const size_t backed =
       s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
@@ -99,7 +113,6 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
   // occur if we allocate space for many objects preemptively and only later
   // sample them (incrementing sampled_objects_size_).
 
-  over_limit_ = false;
   if (limits_[kSoft] == std::numeric_limits<size_t>::max()) {
     // Limits are not set.
     return;
@@ -147,8 +160,6 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
         ,
         hard_limit);
   }
-
-  over_limit_ = true;
 
   // Print logs once.
   static bool warned = false;

@@ -51,7 +51,6 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/allocation_guard.h"
-#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/strerror.h"
 #include "tcmalloc/internal/util.h"
@@ -644,12 +643,9 @@ TEST(PageFlagsTest, GetSinglePageBitmapsErrorCases) {
 TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
   std::string fake_pageflags =
       absl::StrCat(testing::TempDir(), "/fake_pageflags_correct");
-  // GetSinglePageBitmaps reads and scans kHugePageSize / GetPageSize()
-  // entries, which is only kMaxResidencyBits on 4 KiB-page hosts.
-  const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
-  std::vector<uint64_t> data(kHardwarePagesInHugePage, 0);
+  std::vector<uint64_t> data(kMaxResidencyBits, 0);
 
-  for (size_t i = 0; i < kHardwarePagesInHugePage; ++i) {
+  for (size_t i = 0; i < kMaxResidencyBits; ++i) {
     if (i % 2 == 0) {
       data[i] |= kPageStale;
     }
@@ -663,7 +659,7 @@ TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
 
   auto ret = s.GetSinglePageBitmaps(nullptr);
   EXPECT_EQ(ret.status, absl::StatusCode::kOk);
-  EXPECT_EQ(ret.stale.CountBits(), kHardwarePagesInHugePage / 2);
+  EXPECT_EQ(ret.stale.CountBits(), kMaxResidencyBits / 2);
 }
 
 }  // namespace
