@@ -651,16 +651,16 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       i += step;
     }
 
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    const int same_span = batch.size() - runs;
-    TC_ASSERT_GE(same_span, 0);
-    num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
-        .LossyAdd(1);
-#endif
-
     RecordMultiSpansDeallocated(free_count);
     UpdateObjectCounts(batch.size());
   }
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const int same_span = batch.size() - runs;
+  TC_ASSERT_GE(same_span, 0);
+  num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
+      .LossyAdd(1);
+#endif
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
