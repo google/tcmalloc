@@ -523,6 +523,7 @@ inline bool Span::ListPushBatch(absl::Span<void*> batch,
   }
 #endif
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   for (void* ptr : batch) {
     const ObjIdx idx = PtrToIdx(ptr, size);
 
@@ -540,6 +541,47 @@ inline bool Span::ListPushBatch(absl::Span<void*> batch,
       embed_count_ = 0;
     }
   }
+#else
+  ObjIdx freelist = freelist_;
+  uint16_t embed_count = embed_count_;
+
+  ObjIdx* __restrict host;
+  if (ABSL_PREDICT_TRUE(freelist != kListEnd)) {
+    host = IdxToPtr(freelist, size, start);
+  } else {
+    void* ptr = batch[0];
+    batch.remove_prefix(1);
+
+    host = reinterpret_cast<ObjIdx*>(ptr);
+    *host = kListEnd;
+    freelist = PtrToIdx(ptr, size);
+    embed_count = 0;
+  }
+
+  TC_ASSERT_NE(freelist, kListEnd);
+
+  // -1 because the first slot is used by freelist link.
+  const size_t limit = size / sizeof(ObjIdx) - 1;
+
+  for (void* ptr : batch) {
+    const ObjIdx idx = PtrToIdx(ptr, size);
+
+    if (ABSL_PREDICT_TRUE(embed_count != limit)) {
+      // Push onto the first object on freelist.
+      embed_count++;
+      host[embed_count] = idx;
+    } else {
+      // Push onto freelist.
+      ObjIdx* __restrict new_host = reinterpret_cast<ObjIdx*>(ptr);
+      *new_host = freelist;
+      freelist = idx;
+      embed_count = 0;
+      host = new_host;
+    }
+  }
+  freelist_ = freelist;
+  embed_count_ = embed_count;
+#endif
   return true;
 }
 
