@@ -50,7 +50,9 @@ namespace tcmalloc_internal {
 // Denominator for bitmap scaling factor. The idea is that instead of dividing
 // by N we multiply by M = kBitmapScalingDenominator / N and round the resulting
 // value.
-inline constexpr size_t kBitmapScalingDenominator = 1 << 30;
+inline constexpr size_t kBitmapScalingShift = 30;
+inline constexpr size_t kBitmapScalingDenominator = size_t{1}
+                                                    << kBitmapScalingShift;
 
 enum AccessDensityPrediction {
   // Predict that the span would be sparsely-accessed.
@@ -246,18 +248,20 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   typedef uint16_t ObjIdx;
   // Convert object pointer <-> freelist index.
-  [[nodiscard]] ObjIdx PtrToIdx(void* ptr, size_t size) const;
-  [[nodiscard]] ObjIdx* IdxToPtr(ObjIdx idx, size_t size,
-                                 uintptr_t start) const;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE ObjIdx PtrToIdx(void* ptr,
+                                                             size_t size) const;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE ObjIdx* IdxToPtr(
+      ObjIdx idx, size_t size, uintptr_t start) const;
 
   // Convert object pointer <-> freelist index for bitmap managed objects.
-  [[nodiscard]] ObjIdx BitmapPtrToIdx(void* ptr, size_t size,
-                                      uint32_t reciprocal) const;
-  [[nodiscard]] void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  [[nodiscard]] void* BitmapIdxToPtr(ObjIdx idx, size_t size,
-                                     uintptr_t start) const;
-#endif
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE ObjIdx
+  BitmapPtrToIdx(void* ptr, size_t size, uint32_t reciprocal) const;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE ObjIdx BitmapPtrToIdx(
+      void* ptr, size_t size, uint32_t reciprocal, uintptr_t start) const;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE void* BitmapIdxToPtr(
+      size_t idx, size_t size) const;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE void* BitmapIdxToPtr(
+      size_t idx, size_t size, uintptr_t start) const;
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   static constexpr size_t kNonemptyIndexBits = 5;
@@ -409,8 +413,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static_assert(sizeof(large_or_sampled_state_) <= sizeof(list_));
 
   // Helper function for converting a pointer to an index.
-  [[nodiscard]] static ObjIdx OffsetToIdx(uintptr_t offset,
-                                          uint32_t reciprocal);
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE static ObjIdx OffsetToIdx(
+      uintptr_t offset, uint32_t reciprocal);
 
   [[nodiscard]] size_t ListPopBatch(void** __restrict batch, size_t N,
                                     size_t size) __restrict__;
@@ -422,10 +426,10 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   // For spans containing 64 or fewer objects, indicate that the object at the
   // index has been returned. Always returns true.
-  [[nodiscard]] bool BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                                     uint32_t reciprocal) __restrict__;
-  [[nodiscard]] bool BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
-                                     uint32_t reciprocal) __restrict__;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool BitmapPushBatch(
+      absl::Span<void*> batch, size_t size, uint32_t reciprocal) __restrict__;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool BitmapPushBatch(
+      absl::Span<ObjIdx> batch, size_t size, uint32_t reciprocal) __restrict__;
 
   // A bitmap is used to indicate object availability for spans containing
   // 64 or fewer objects.
@@ -433,8 +437,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   // For spans with kBitmapSize or fewer objects populate batch with up to N
   // objects.  Returns number of objects actually popped.
-  [[nodiscard]] size_t BitmapPopBatch(absl::Span<void*> batch,
-                                      size_t size) __restrict__;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+  BitmapPopBatch(absl::Span<void*> batch, size_t size) __restrict__;
 
   [[noreturn]] void ReportDoubleFree(const void* ptr);
 
@@ -450,8 +454,8 @@ inline uint64_t Span::AllocTime() const {
   return alloc_time_ << kAllocTimeShift;
 }
 
-inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
-                                    uintptr_t start) const {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline Span::ObjIdx* Span::IdxToPtr(
+    ObjIdx idx, size_t size, uintptr_t start) const {
   TC_ASSERT_EQ(small_num_pages_, 1u);
   TC_ASSERT_EQ(start, first_page().start_uintptr());
   TC_ASSERT_NE(idx, kListEnd);
@@ -461,7 +465,8 @@ inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
   return ptr;
 }
 
-inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline Span::ObjIdx Span::PtrToIdx(
+    void* ptr, size_t size) const {
   // Object index is an offset from span start divided by kAlignment.
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   // Classes that use freelist must also use 1 page per span,
@@ -602,40 +607,48 @@ inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
   return true;
 }
 
-inline Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline Span::ObjIdx Span::OffsetToIdx(
+    uintptr_t offset, uint32_t reciprocal) {
   // Add kBitmapScalingDenominator / 2 to round to nearest integer.
   return static_cast<ObjIdx>(
-      (offset * reciprocal + kBitmapScalingDenominator / 2) /
-      kBitmapScalingDenominator);
+      (offset * reciprocal + (kBitmapScalingDenominator >> 1)) >>
+      kBitmapScalingShift);
 }
 
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size,
-                                  uintptr_t start) const {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void* Span::BitmapIdxToPtr(
+    size_t idx, size_t size, uintptr_t start) const {
   TC_ASSERT_EQ(start, first_page().start_uintptr());
   uintptr_t off = start + idx * size;
   return reinterpret_cast<void*>(off);
 }
 
-inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void* Span::BitmapIdxToPtr(
+    size_t idx, size_t size) const {
   return BitmapIdxToPtr(idx, size, first_page().start_uintptr());
 }
-#endif
 
-inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
-                                         uint32_t reciprocal) const {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline Span::ObjIdx Span::BitmapPtrToIdx(
+    void* ptr, size_t size, uint32_t reciprocal, uintptr_t start) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
-  uintptr_t off = static_cast<uint32_t>(p - first_page().start_uintptr());
+  uintptr_t off = static_cast<uint32_t>(p - start);
   ObjIdx idx = OffsetToIdx(off, reciprocal);
-  TC_ASSERT_EQ(BitmapIdxToPtr(idx, size), ptr);
+  TC_ASSERT_EQ(BitmapIdxToPtr(idx, size, start), ptr);
   return idx;
 }
 
-inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                                  uint32_t reciprocal) __restrict__ {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline Span::ObjIdx Span::BitmapPtrToIdx(
+    void* ptr, size_t size, uint32_t reciprocal) const {
+  return BitmapPtrToIdx(ptr, size, reciprocal, first_page().start_uintptr());
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool Span::BitmapPushBatch(
+    absl::Span<void*> batch, size_t size, uint32_t reciprocal) __restrict__ {
+#ifndef NDEBUG
   size_t before = bitmap_.CountBits();
+#endif
+  const uintptr_t start = first_page().start_uintptr();
   for (void* ptr : batch) {
-    ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
+    ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal, start);
     // Set the bit indicating where the object was returned.
     bool prior = bitmap_.SetBit(idx);
     // Check that the object is not already returned.
@@ -646,20 +659,26 @@ inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
     }
 #endif
   }
+#ifndef NDEBUG
   TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
+#endif
   return true;
 }
 
-inline bool Span::BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
-                                  uint32_t reciprocal) __restrict__ {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool Span::BitmapPushBatch(
+    absl::Span<ObjIdx> batch, size_t size, uint32_t reciprocal) __restrict__ {
+#ifndef NDEBUG
   size_t before = bitmap_.CountBits();
+#endif
   for (const ObjIdx idx : batch) {
     // Check that the object is not already returned.
     TC_ASSERT_EQ(bitmap_.GetBit(idx), 0);
     // Set the bit indicating where the object was returned.
     bitmap_.SetBit(idx);
   }
+#ifndef NDEBUG
   TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
+#endif
   return true;
 }
 
@@ -759,22 +778,27 @@ inline bool Span::UseBitmapForSize(size_t size) {
   return size >= kBitmapMinObjectSize;
 }
 
-inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
-                                   size_t size) __restrict__ {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t Span::BitmapPopBatch(
+    absl::Span<void*> batch, size_t size) __restrict__ {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+#ifndef NDEBUG
   size_t before = bitmap_.CountBits();
+#endif
   size_t count = 0;
+  const uintptr_t span_start = first_page().start_uintptr();
   // Want to fill the batch either with batch.size() objects, or the number of
   // objects remaining in the span.
   while (!bitmap_.IsZero() && count < batch.size()) {
     size_t offset = bitmap_.FindSet(0);
     TC_ASSERT_LT(offset, bitmap_.size());
-    batch[count] = BitmapIdxToPtr(offset, size);
+    batch[count] = BitmapIdxToPtr(offset, size, span_start);
     bitmap_.ClearLowestBit();
     count++;
   }
 
+#ifndef NDEBUG
   TC_ASSERT_EQ(bitmap_.CountBits() + count, before);
+#endif
   allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
                    std::memory_order_relaxed);
   return count;
@@ -783,7 +807,7 @@ inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
   const uintptr_t span_start = first_page().start_uintptr();
   size_t popped = bitmap_.PopBatch(
       [&](size_t offset) {
-        *ptrs++ = BitmapIdxToPtr(static_cast<ObjIdx>(offset), size, span_start);
+        *ptrs++ = BitmapIdxToPtr(offset, size, span_start);
       },
       batch.size());
   allocated_.store(allocated_.load(std::memory_order_relaxed) + popped,
