@@ -72,6 +72,20 @@ PageAllocator::PageAllocator() {
   } else {
     cold_impl_ = normal_impl_[0];
   }
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  if constexpr (!kSanitizerAddressSpace) {
+    tag_to_impl_[static_cast<size_t>(MemoryTag::kSampled)] = sampled_impl_[0];
+    tag_to_impl_[static_cast<size_t>(MemoryTag::kSampledP1)] =
+        sampled_partition_active_ ? sampled_impl_[1] : nullptr;
+    tag_to_impl_[static_cast<size_t>(MemoryTag::kCold)] = cold_impl_;
+    tag_to_impl_[static_cast<size_t>(MemoryTag::kMetadata)] = nullptr;
+    tag_to_impl_[static_cast<size_t>(MemoryTag::kNormalP0)] = normal_impl_[0];
+    tag_to_impl_[5] = nullptr;
+    tag_to_impl_[static_cast<size_t>(MemoryTag::kNormalP1)] =
+        tc_globals.active_partitions() > 1 ? normal_impl_[1] : nullptr;
+    tag_to_impl_[7] = nullptr;
+  }
+#endif
   alg_ = HPAA;
   TC_CHECK_LE(part, std::size(choices_));
 }

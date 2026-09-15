@@ -229,6 +229,9 @@ class PageAllocator {
   std::array<Interface*, kNormalPartitions> normal_impl_;
   std::array<Interface*, kSecurityPartitions> sampled_impl_;
   Interface* cold_impl_;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  std::array<Interface*, 8> tag_to_impl_{};
+#endif
   Algorithm alg_;
   bool has_cold_impl_;
   bool sampled_partition_active_;
@@ -259,6 +262,14 @@ class PageAllocator {
 };
 
 inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  if constexpr (!kSanitizerAddressSpace) {
+    TC_ASSERT_LT(static_cast<size_t>(tag), tag_to_impl_.size());
+    Interface* iface = tag_to_impl_[static_cast<size_t>(tag)];
+    TC_ASSERT_NE(iface, nullptr);
+    return iface;
+  }
+#endif
   switch (tag) {
     case MemoryTag::kNormalP0:
       return normal_impl_[0];
