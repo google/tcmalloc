@@ -54,7 +54,7 @@ ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 #endif
 
-inline Sampler& GetThreadSampler() {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline Sampler& GetThreadSampler() {
   static_assert(sizeof(Sampler) == TCMALLOC_SAMPLER_SIZE,
                 "update TCMALLOC_SAMPLER_SIZE");
   static_assert(alignof(Sampler) == TCMALLOC_SAMPLER_ALIGN,
@@ -99,8 +99,6 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
 
   if (policy.has_explicit_alignment()) {
     stack_trace.requested_alignment = policy.align();
-  } else {
-    stack_trace.requested_alignment = std::nullopt;
   }
 
   stack_trace.requested_size_returning = policy.size_returning();
@@ -170,6 +168,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
 
   // A span must be provided or created by this point.
   TC_ASSERT_NE(span, nullptr);
+  void* const span_start = span->start_address();
 
   // Do not madvise guarded (GWP-ASan) allocations: GWP-ASan initializes magic
   // canary bytes in the allocated page to detect buffer overflows on
@@ -177,7 +176,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   if (Parameters::madvise_sampled_allocations() ==
           MadviseSampledAllocations::kEnabled &&
       alloc_with_status.status != Profile::Sample::GuardedStatus::Guarded) {
-    switch (GetMemoryTag(span->start_address())) {
+    switch (GetMemoryTag(span_start)) {
       case MemoryTag::kSampled:
       case MemoryTag::kSampledP1:
       case MemoryTag::kCold: {
@@ -190,8 +189,8 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
         if (limit <= hardware_page_size) {
           break;
         }
-        uintptr_t start = reinterpret_cast<uintptr_t>(span->start_address()) +
-                          hardware_page_size;
+        uintptr_t start =
+            reinterpret_cast<uintptr_t>(span_start) + hardware_page_size;
         uintptr_t length = limit - hardware_page_size;
 
         (void)state.system_allocator().Release(reinterpret_cast<void*>(start),
@@ -213,9 +212,10 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   // For guarded allocations under large page sizes, span->start_address()
   // rounds down to a PROT_NONE guard page; record the object address instead
   // so residency queries (e.g. mincore) inspect the accessible page.
-  stack_trace.span_start_address = (alloc_with_status.alloc != nullptr)
-                                       ? alloc_with_status.alloc
-                                       : span->start_address();
+  void* const result_ptr = (alloc_with_status.alloc != nullptr)
+                               ? alloc_with_status.alloc
+                               : span_start;
+  stack_trace.span_start_address = result_ptr;
   stack_trace.allocation_time = absl::Now();
   stack_trace.guarded_status = alloc_with_status.status;
   stack_trace.allocation_type = policy.allocation_type();
@@ -235,7 +235,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
       .weight = allocation_estimate,
       .stack = absl::MakeSpan(stack_trace.stack, stack_trace.depth),
       .allocation_time = stack_trace.allocation_time,
-      .ptr = stack_trace.span_start_address,
+      .ptr = result_ptr,
       .access_hint = stack_trace.access_hint,
       .access_allocated = stack_trace.cold_allocated ? MallocHook::Access::Cold
                                                      : MallocHook::Access::Hot,
@@ -259,9 +259,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   state.peak_heap_tracker().MaybeSaveSample();
 
   TC_ASSERT_EQ(state.pagemap().sizeclass(span->first_page()), 0);
-  return {(alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
-                                               : span->start_address(),
-          capacity};
+  return {result_ptr, capacity};
 }
 
 void MaybeUnsampleAllocation(Static& state, void* absl_nonnull ptr,
@@ -269,16 +267,16 @@ void MaybeUnsampleAllocation(Static& state, void* absl_nonnull ptr,
                              AllocationType type);
 
 template <typename Policy>
-static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
-                                         size_t requested_size, size_t weight,
-                                         Span* span) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline sized_ptr_t SampleLargeAllocation(
+    Static& state, Policy policy, size_t requested_size, size_t weight,
+    Span* span) {
   return SampleifyAllocation(state, policy, requested_size, weight, 0, span);
 }
 
 template <typename Policy>
-static sized_ptr_t SampleSmallAllocation(Static& state, Policy policy,
-                                         size_t requested_size, size_t weight,
-                                         size_t size_class) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline sized_ptr_t SampleSmallAllocation(
+    Static& state, Policy policy, size_t requested_size, size_t weight,
+    size_t size_class) {
   return SampleifyAllocation(state, policy, requested_size, weight, size_class,
                              nullptr);
 }
@@ -330,33 +328,31 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
 
   TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContainingTagged(ptr)), 0);
 
-  const size_t weight = sampled_allocation->sampled_stack.weight;
-  const size_t requested_size =
-      sampled_allocation->sampled_stack.requested_size;
-  const size_t allocated_size =
-      sampled_allocation->sampled_stack.allocated_size;
+  StackTrace& sampled_stack = sampled_allocation->sampled_stack;
+  const size_t weight = sampled_stack.weight;
+  const size_t requested_size = sampled_stack.requested_size;
+  const size_t allocated_size = sampled_stack.allocated_size;
   if (size.has_value()) {
-    if (sampled_allocation->sampled_stack.requested_size_returning) {
+    if (sampled_stack.requested_size_returning) {
       if (ABSL_PREDICT_FALSE(
               !(requested_size <= *size && *size <= allocated_size))) {
         ReportMismatchedDelete(state, ptr, *sampled_allocation, *size,
                                requested_size, allocated_size);
       }
-    } else if (ABSL_PREDICT_FALSE(size != requested_size)) {
+    } else if (ABSL_PREDICT_FALSE(*size != requested_size)) {
       ReportMismatchedDelete(state, ptr, *sampled_allocation, *size,
                              requested_size, std::nullopt);
     }
   }
 
-  if (auto dealloc_type = SimplifyType(policy.allocation_type()),
-      alloc_type =
-          SimplifyType(sampled_allocation->sampled_stack.allocation_type);
-      ABSL_PREDICT_FALSE(dealloc_type != alloc_type)) {
-    ReportMismatchedFree(
-        state, ptr, sampled_allocation->sampled_stack.allocation_type,
-        policy.allocation_type(),
-        absl::MakeSpan(sampled_allocation->sampled_stack.stack,
-                       sampled_allocation->sampled_stack.depth));
+  const AllocationType alloc_type = sampled_stack.allocation_type;
+  const AllocationType dealloc_type = policy.allocation_type();
+  if (ABSL_PREDICT_FALSE(dealloc_type != alloc_type)) {
+    if (SimplifyType(dealloc_type) != SimplifyType(alloc_type)) {
+      ReportMismatchedFree(
+          state, ptr, alloc_type, dealloc_type,
+          absl::MakeSpan(sampled_stack.stack, sampled_stack.depth));
+    }
   }
 
   // Check pointer for misalignment.
@@ -364,31 +360,26 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   // TODO(ckennelly): Eliminate redundant guarded check with
   // InvokeHooksAndFreePages.
   if (ABSL_PREDICT_FALSE(ptr != span.start_address()) &&
-      sampled_allocation->sampled_stack.guarded_status !=
-          Profile::Sample::GuardedStatus::Guarded) {
+      sampled_stack.guarded_status != Profile::Sample::GuardedStatus::Guarded) {
     ReportCorruptedFree(
         tc_globals, static_cast<std::align_val_t>(kPageSize), ptr,
-        absl::MakeSpan(sampled_allocation->sampled_stack.stack,
-                       sampled_allocation->sampled_stack.depth));
+        absl::MakeSpan(sampled_stack.stack, sampled_stack.depth));
   }
 
-  if ((size.has_value() || policy.allocation_type() == AllocationType::New)) {
-    const bool type_mismatch =
-        policy.allocation_type() !=
-        sampled_allocation->sampled_stack.allocation_type;
-    const std::optional<std::align_val_t> deallocated_alignment =
-        policy.has_explicit_alignment()
-            ? std::make_optional<std::align_val_t>(policy.align())
-            : std::nullopt;
+  if (size.has_value() || dealloc_type == AllocationType::New) {
+    const bool type_mismatch = dealloc_type != alloc_type;
     const bool alignment_mismatch =
-        deallocated_alignment !=
-        sampled_allocation->sampled_stack.requested_alignment;
+        policy.has_explicit_alignment()
+            ? (sampled_stack.requested_alignment != policy.align())
+            : sampled_stack.requested_alignment.has_value();
     if (ABSL_PREDICT_FALSE(type_mismatch || alignment_mismatch)) {
+      const std::optional<std::align_val_t> deallocated_alignment =
+          policy.has_explicit_alignment()
+              ? std::make_optional<std::align_val_t>(policy.align())
+              : std::nullopt;
       ReportMismatchedFree(
-          state, ptr, sampled_allocation->sampled_stack.requested_alignment,
-          deallocated_alignment,
-          absl::MakeSpan(sampled_allocation->sampled_stack.stack,
-                         sampled_allocation->sampled_stack.depth));
+          state, ptr, sampled_stack.requested_alignment, deallocated_alignment,
+          absl::MakeSpan(sampled_stack.stack, sampled_stack.depth));
     }
   }
 
@@ -396,21 +387,18 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   // frequency (weight) and its size.
   const double allocation_estimate =
       static_cast<double>(weight) / (requested_size + 1);
-  AllocHandle sampled_alloc_handle =
-      sampled_allocation->sampled_stack.sampled_alloc_handle;
+  AllocHandle sampled_alloc_handle = sampled_stack.sampled_alloc_handle;
   MallocHook::SampledAlloc sampled_alloc = {
       .handle = sampled_alloc_handle,
       .requested_size = requested_size,
-      .requested_alignment =
-          sampled_allocation->sampled_stack.requested_alignment,
+      .requested_alignment = sampled_stack.requested_alignment,
       .allocated_size = allocated_size,
       .weight = allocation_estimate,
-      .stack = absl::MakeSpan(sampled_allocation->sampled_stack.stack,
-                              sampled_allocation->sampled_stack.depth),
-      .allocation_time = sampled_allocation->sampled_stack.allocation_time,
+      .stack = absl::MakeSpan(sampled_stack.stack, sampled_stack.depth),
+      .allocation_time = sampled_stack.allocation_time,
       .ptr = ptr,
-      .access_hint = sampled_allocation->sampled_stack.access_hint,
-      .access_allocated = sampled_allocation->sampled_stack.cold_allocated
+      .access_hint = sampled_stack.access_hint,
+      .access_allocated = sampled_stack.cold_allocated
                               ? MallocHook::Access::Cold
                               : MallocHook::Access::Hot,
   };
