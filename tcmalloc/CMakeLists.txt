@@ -1378,6 +1378,8 @@ tcmalloc_cc_test(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
+    "absl::base"
+    "absl::bits"
     "absl::core_headers"
     "absl::flat_hash_set"
     "tcmalloc::common_8k_pages"
