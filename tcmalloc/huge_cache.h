@@ -48,7 +48,8 @@ class MemoryModifyFunction {
   virtual ~MemoryModifyFunction() = default;
 
   [[nodiscard]] virtual MemoryModifyStatus operator()(Range r) = 0;
-  [[nodiscard]] MemoryModifyStatus operator()(HugeRange r) {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE MemoryModifyStatus
+  operator()(HugeRange r) {
     return (*this)(Range{r.start().first_page(), r.len().in_pages()});
   }
 };
@@ -214,7 +215,7 @@ class HugeCache {
   void MaybeGrowCacheLimit(HugeLength missed);
   // Check if the cache seems consistently too big.  Returns the
   // number of pages *evicted* (not the change in limit).
-  HugeLength MaybeShrinkCacheLimit();
+  HugeLength MaybeShrinkCacheLimit(int64_t now);
 
   // Ensure the cache contains at most <target> hugepages,
   // returning the number removed.

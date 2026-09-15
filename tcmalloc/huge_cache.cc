@@ -224,10 +224,14 @@ void HugeCache::Release(HugeRange r) {
   // Shrink the limit, if we're going to do it, before we shrink to
   // the max size.  (This could reduce the number of regions we break
   // in half to avoid overshrinking.)
-  if ((clock_.now() - last_limit_change_) > (cache_time_ticks_ * 2)) {
-    total_fast_unbacked_ += MaybeShrinkCacheLimit();
+  const int64_t now = clock_.now();
+  if (ABSL_PREDICT_FALSE((now - last_limit_change_) >
+                         (cache_time_ticks_ * 2))) {
+    total_fast_unbacked_ += MaybeShrinkCacheLimit(now);
   }
-  total_fast_unbacked_ += ShrinkCache(limit());
+  if (size_ > limit()) {
+    total_fast_unbacked_ += ShrinkCache(limit());
+  }
   UpdateSize(size());
 }
 
@@ -237,8 +241,8 @@ void HugeCache::ReleaseUnbacked(HugeRange r) {
   allocator_->Release(r);
 }
 
-HugeLength HugeCache::MaybeShrinkCacheLimit() {
-  last_limit_change_ = clock_.now();
+HugeLength HugeCache::MaybeShrinkCacheLimit(int64_t now) {
+  last_limit_change_ = now;
 
   const HugeLength min = size_tracker_.MinOverTime(cache_time_ * 2);
   // If cache size has gotten down to at most 20% of max, we assume
@@ -294,7 +298,7 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
 
 HugeLength HugeCache::ReleaseCachedPages(HugeLength n) {
   // This is a good time to check: is our cache going persistently unused?
-  HugeLength released = MaybeShrinkCacheLimit();
+  HugeLength released = MaybeShrinkCacheLimit(clock_.now());
 
   if (released < n) {
     n -= released;
@@ -330,6 +334,9 @@ HugeAddressMap::Node* HugeCache::Find(HugeLength n) {
     if (curr->range().len() >= n) {
       if (!best || best->range().len() > curr->range().len()) {
         best = curr;
+        if (best->range().len() == n) {
+          return best;
+        }
       }
     }
 
