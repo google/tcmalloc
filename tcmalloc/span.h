@@ -215,9 +215,12 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] size_t FreelistPopBatch(absl::Span<void* absl_nonnull> batch,
                                         size_t size) __restrict__;
 
-  // Initialize freelist to contain all objects in the span.
-  // Pops up to N objects from the freelist and returns them in the batch array.
-  // Returns number of objects actually popped.
+  // Initializes freelist to contain all objects in the span.
+  //  - size: the size of each object in the span.
+  //  - count: the total number of objects in the span.
+  //  - alloc_time: timestamp for tracking the span's allocation time.
+  // Populates up to batch.size() objects in the batch array.
+  // Returns the number of objects actually placed in batch.
   [[nodiscard]] int BuildFreelist(size_t size, size_t count,
                                   absl::Span<void*> batch,
                                   uint64_t alloc_time) __restrict__;
