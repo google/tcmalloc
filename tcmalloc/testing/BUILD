@@ -509,6 +509,7 @@ create_tcmalloc_testsuite(
     srcs = ["limit_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    shard_count = 14,
     tags = [
         "noasan",
         "nomsan",
