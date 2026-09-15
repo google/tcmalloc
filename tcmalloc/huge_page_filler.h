@@ -923,21 +923,23 @@ class HugePageFiller {
   struct DensityTrackerLists {
     PageTrackerLists<kNumLists> sparse;
     PageTrackerLists<kPagesPerHugePage.raw_num()> dense;
-    TrackerType* GetLeast(AccessDensityPrediction type, size_t listindex) {
+    ABSL_ATTRIBUTE_ALWAYS_INLINE TrackerType* GetLeast(
+        AccessDensityPrediction type, size_t listindex) {
       if (type == AccessDensityPrediction::kSparse) {
         return sparse.GetLeast(listindex);
       }
       return dense.GetLeast(listindex);
     }
-    void Add(TrackerType* pt, size_t listindex, AccessDensityPrediction type) {
+    ABSL_ATTRIBUTE_ALWAYS_INLINE void Add(TrackerType* pt, size_t listindex,
+                                          AccessDensityPrediction type) {
       if (type == AccessDensityPrediction::kSparse) {
         sparse.Add(pt, listindex, /*prepend=*/true);
       } else {
         dense.Add(pt, listindex, /*prepend=*/true);
       }
     }
-    void Remove(TrackerType* pt, size_t listindex,
-                AccessDensityPrediction type) {
+    ABSL_ATTRIBUTE_ALWAYS_INLINE void Remove(TrackerType* pt, size_t listindex,
+                                             AccessDensityPrediction type) {
       if (type == AccessDensityPrediction::kSparse) {
         sparse.Remove(pt, listindex);
       } else {
@@ -1554,7 +1556,8 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
         intervals.short_interval, intervals.long_interval);
   }
 
-  Length current_pages = used_pages() + free_pages();
+  const Length free = free_pages();
+  const Length current_pages = used_pages() + free;
 
   if (required_pages != Length(0)) {
     Length new_desired;
@@ -1572,8 +1575,7 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
     // free pages according to the mechanism (recent peak is always larger or
     // equal to current used_pages), however, we still calculate allowed release
     // using the minimum of the two to avoid relying on that assumption.
-    Length releasable_pages =
-        std::min(free_pages(), (new_desired - total_released));
+    Length releasable_pages = std::min(free, (new_desired - total_released));
     // Reports the amount of memory that we didn't release due to this
     // mechanism, but never more than skipped free pages. In other words,
     // skipped_pages is zero if all free pages are allowed to be released by
@@ -1581,7 +1583,7 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
     // (current_pages and required_pages) are skipped, the rest are allowed to
     // be subreleased.
     Length skipped_pages =
-        std::min((free_pages() - releasable_pages), (desired - new_desired));
+        std::min((free - releasable_pages), (desired - new_desired));
     fillerstats_tracker_.ReportSkippedSubreleasePages(
         skipped_pages, std::min(current_pages, required_pages));
     return new_desired;
@@ -2402,19 +2404,22 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void
+HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
+  const Length allocated = pages_allocated();
+  const Length unmapped = unmapped_pages();
   StatsTrackerType::SubreleaseStats stats;
-  stats.num_pages = pages_allocated();
-  stats.free_pages = free_pages();
-  stats.unmapped_pages = unmapped_pages();
+  stats.num_pages = allocated;
+  stats.free_pages = size().in_pages() - allocated - unmapped;
+  stats.unmapped_pages = unmapped;
   stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
   fillerstats_tracker_.Report(stats);
   subrelease_stats_.reset();
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::IndexFor(
-    const TrackerType& pt) const {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+HugePageFiller<TrackerType>::IndexFor(const TrackerType& pt) const {
   TC_ASSERT(!pt.empty());
   // For dense hugepages, the first dimension that we manage trackers along is
   // nallocs. This is different from tracking for sparse spans -- the first
@@ -2433,28 +2438,30 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(
   // kChunks) (clamped at the left edge) instead of [0, 64). So
   // subtract off the difference (computed by forcing na=1 to
   // kChunks - 1.)
-  const size_t kOffset = __builtin_clzl(1) - (kChunks - 1);
+  constexpr size_t kOffset = __builtin_clzl(1) - (kChunks - 1);
   const size_t i = std::max(neg_ceil_log, kOffset) - kOffset;
   TC_ASSERT_LT(i, kChunks);
   return i;
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::SparseListFor(
-    const Length longest, const size_t chunk) const {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+HugePageFiller<TrackerType>::SparseListFor(const Length longest,
+                                           const size_t chunk) const {
   TC_ASSERT_LT(longest, kPagesPerHugePage);
   return longest.raw_num() * kChunks + chunk;
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::DenseListFor(size_t nallocs) const {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+HugePageFiller<TrackerType>::DenseListFor(size_t nallocs) const {
   TC_ASSERT_LE(nallocs, kPagesPerHugePage.raw_num());
   return kPagesPerHugePage.raw_num() - nallocs;
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::ListFor(
-    const TrackerType& pt) const {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+HugePageFiller<TrackerType>::ListFor(const TrackerType& pt) const {
   if (pt.HasDenseSpans()) {
     return DenseListFor(pt.nallocs());
   }
@@ -2462,7 +2469,8 @@ inline size_t HugePageFiller<TrackerType>::ListFor(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void
+HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   if (pt->donated()) {
     Length longest = pt->longest_free_range();
     TC_ASSERT_LT(longest, kPagesPerHugePage);
@@ -2470,23 +2478,29 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
     return;
   }
 
-  const AccessDensityPrediction type = pt->HasDenseSpans()
+  const bool is_dense = pt->HasDenseSpans();
+  const AccessDensityPrediction type = is_dense
                                            ? AccessDensityPrediction::kDense
                                            : AccessDensityPrediction::kSparse;
-  size_t i = ListFor(*pt);
+  const size_t i = is_dense
+                       ? DenseListFor(pt->nallocs())
+                       : SparseListFor(pt->longest_free_range(), IndexFor(*pt));
 
   if (!pt->released() &&
       (pt->unbroken() ||
        subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kDisabled)) {
     regular_alloc_.Remove(pt, i, type);
-  } else if (pt->free_pages() <= pt->released_pages()) {
-    regular_alloc_released_.Remove(pt, i, type);
-    TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
-    n_used_released_[type] -= pt->used_pages();
   } else {
-    regular_alloc_partial_released_.Remove(pt, i, type);
-    TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
-    n_used_partial_released_[type] -= pt->used_pages();
+    const Length used = pt->used_pages();
+    if (kPagesPerHugePage - used <= pt->released_pages()) {
+      regular_alloc_released_.Remove(pt, i, type);
+      TC_ASSERT_GE(n_used_released_[type], used);
+      n_used_released_[type] -= used;
+    } else {
+      regular_alloc_partial_released_.Remove(pt, i, type);
+      TC_ASSERT_GE(n_used_partial_released_[type], used);
+      n_used_partial_released_[type] -= used;
+    }
   }
 }
 
@@ -2503,11 +2517,12 @@ HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void
+HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
   TC_ASSERT_LE(longest, kPagesPerHugePage);
 
-  if (longest == kPagesPerHugePage) {
+  if (ABSL_PREDICT_FALSE(longest == kPagesPerHugePage)) {
     TC_ASSERT(pt->empty());
     TC_ASSERT(pt->DontFreeTracker());
     fully_freed_trackers_.prepend(pt);
@@ -2520,21 +2535,26 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   // donated allocs.
   pt->set_donated(false);
 
-  const AccessDensityPrediction type = pt->HasDenseSpans()
+  const bool is_dense = pt->HasDenseSpans();
+  const AccessDensityPrediction type = is_dense
                                            ? AccessDensityPrediction::kDense
                                            : AccessDensityPrediction::kSparse;
-  size_t i = ListFor(*pt);
+  const size_t i = is_dense ? DenseListFor(pt->nallocs())
+                            : SparseListFor(longest, IndexFor(*pt));
 
   if (!pt->released() &&
       (pt->unbroken() ||
        subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kDisabled)) {
     regular_alloc_.Add(pt, i, type);
-  } else if (pt->free_pages() <= pt->released_pages()) {
-    regular_alloc_released_.Add(pt, i, type);
-    n_used_released_[type] += pt->used_pages();
   } else {
-    regular_alloc_partial_released_.Add(pt, i, type);
-    n_used_partial_released_[type] += pt->used_pages();
+    const Length used = pt->used_pages();
+    if (kPagesPerHugePage - used <= pt->released_pages()) {
+      regular_alloc_released_.Add(pt, i, type);
+      n_used_released_[type] += used;
+    } else {
+      regular_alloc_partial_released_.Add(pt, i, type);
+      n_used_partial_released_[type] += used;
+    }
   }
 }
 
