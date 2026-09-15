@@ -686,8 +686,8 @@ class CpuCache {
   GetShiftMaxCapacity GetMaxCapacityFunctor(uint8_t shift) const;
 
   // Fetches objects from backing transfer cache.
-  [[nodiscard]] int FetchFromBackingCache(size_t size_class,
-                                          absl::Span<void*> batch);
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE int FetchFromBackingCache(
+      size_t size_class, absl::Span<void*> batch);
 
   // Releases free batch of objects to the backing transfer cache.
   void ReleaseToBackingCache(size_t size_class,
@@ -705,7 +705,8 @@ class CpuCache {
   // Returns true if we use sharded transfer cache as a backing cache for
   // per-cpu caches. If a sharded transfer cache is used, we fetch/release
   // from/to a sharded transfer cache. Else, we use a legacy transfer cache.
-  bool UseBackingShardedTransferCache(size_t size_class) const;
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool UseBackingShardedTransferCache(
+      size_t size_class) const;
 
   // Called on <size_class> freelist on <cpu> to record overflow/underflow
   // Returns number of objects to return/request from transfer cache.
@@ -1129,8 +1130,9 @@ inline void CpuCache<Forwarder>::Deactivate() {
 }
 
 template <class Forwarder>
-inline int CpuCache<Forwarder>::FetchFromBackingCache(size_t size_class,
-                                                      absl::Span<void*> batch) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE int
+CpuCache<Forwarder>::FetchFromBackingCache(size_t size_class,
+                                           absl::Span<void*> batch) {
   if (UseBackingShardedTransferCache(size_class)) {
     return forwarder_.sharded_transfer_cache().RemoveRange(size_class, batch);
   }
@@ -1197,31 +1199,40 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
   const size_t target = UpdateCapacity(cpu, size_class, false);
 
   // Refill target objects in batch_length batches.
-  size_t total = 0;
-  size_t got;
-  size_t i;
-  void* result = nullptr;
   void* batch[kMaxObjectsToMove];
+  const size_t first_want = std::min(kMaxObjectsToMove, target);
+  size_t got =
+      FetchFromBackingCache(size_class, absl::MakeSpan(batch, first_want));
+  if (ABSL_PREDICT_FALSE(got == 0)) {
+    return nullptr;
+  }
+  void* result = batch[got - 1];
+  size_t i = got - 1;
+  if (ABSL_PREDICT_TRUE(i != 0)) {
+    i -= freelist_.PushBatch(size_class, batch, i);
+    if (ABSL_PREDICT_FALSE(i != 0)) {
+      ReleaseToBackingCache(size_class, {batch, i});
+      return result;
+    }
+  }
 
-  do {
-    const size_t want = std::min(kMaxObjectsToMove, target - total);
-    got = FetchFromBackingCache(size_class, absl::MakeSpan(batch, want));
-    if (got == 0) {
-      break;
-    }
-    total += got;
-    i = got;
-    if (result == nullptr) {
-      i--;
-      result = batch[i];
-    }
-    if (i) {
-      i -= freelist_.PushBatch(size_class, batch, i);
-      if (i != 0) {
-        ReleaseToBackingCache(size_class, {batch, i});
+  if (ABSL_PREDICT_FALSE(got == kMaxObjectsToMove &&
+                         target > kMaxObjectsToMove)) {
+    size_t total = kMaxObjectsToMove;
+    do {
+      const size_t want = std::min(kMaxObjectsToMove, target - total);
+      got = FetchFromBackingCache(size_class, absl::MakeSpan(batch, want));
+      if (ABSL_PREDICT_FALSE(got == 0)) {
+        break;
       }
-    }
-  } while (got == kMaxObjectsToMove && i == 0 && total < target);
+      total += got;
+      size_t unpushed = got - freelist_.PushBatch(size_class, batch, got);
+      if (ABSL_PREDICT_FALSE(unpushed != 0)) {
+        ReleaseToBackingCache(size_class, {batch, unpushed});
+        break;
+      }
+    } while (got == kMaxObjectsToMove && total < target);
+  }
   return result;
 }
 
@@ -1235,14 +1246,14 @@ inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
 }
 
 template <class Forwarder>
-inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
-    size_t size_class) const {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+CpuCache<Forwarder>::UseBackingShardedTransferCache(size_t size_class) const {
   // Make sure that the thread is registered with rseq.
   TC_ASSERT(subtle::percpu::IsFastNoInit());
   // We enable sharded cache as a backing cache for all size classes when
   // generic configuration is enabled.
-  return forwarder_.sharded_transfer_cache().should_use(size_class) &&
-         forwarder_.UseGenericShardedCache();
+  return forwarder_.UseGenericShardedCache() &&
+         forwarder_.sharded_transfer_cache().should_use(size_class);
 }
 
 // Calculate number of objects to return/request from transfer cache.
