@@ -115,9 +115,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 
   // Stats
   Length used_pages() const { return Length(tracker_.used()); }
-  Length free_pages() const {
-    return size().in_pages() - unmapped_pages() - used_pages();
-  }
+  Length free_pages() const { return nbacked_.in_pages() - used_pages(); }
   Length unmapped_pages() const { return (size() - nbacked_).in_pages(); }
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
@@ -153,7 +151,9 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If release is true, unback any hugepage that becomes empty.
   void Dec(Range r, bool release);
 
-  HugeLength UnbackHugepages(bool should_unback[kNumHugePages]);
+  HugeLength UnbackHugepages(bool should_unback[kNumHugePages],
+                             size_t start_idx = 0,
+                             size_t end_idx = kNumHugePages);
 
   // How many pages are used in each hugepage?
   Length pages_used_[kNumHugePages];
@@ -331,13 +331,14 @@ inline void HugeRegion::Put(Range r, bool release) {
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
 inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
-  if (desired == Length(0)) return NHugePages(0);
-
   const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
+  if (to_release == Length(0)) return NHugePages(0);
 
   HugeLength release_target = NHugePages(0);
   bool should_unback[kNumHugePages] = {};
+  size_t first_unback = kNumHugePages;
+  size_t last_unback = 0;
   const int start = adaptive_release ? kNumHugePages - 1 : 0;
   const int end = adaptive_release ? -1 : kNumHugePages;
   const int step = adaptive_release ? -1 : 1;
@@ -346,12 +347,17 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
   for (int i = start; i != end; i += step) {
     if (backed_[i] && pages_used_[i] == Length(0)) {
       should_unback[i] = true;
+      const size_t idx = static_cast<size_t>(i);
+      first_unback = std::min(first_unback, idx);
+      last_unback = std::max(last_unback, idx);
       ++release_target;
+      if (release_target.in_pages() >= to_release) break;
     }
-
-    if (release_target.in_pages() >= to_release) break;
   }
-  return UnbackHugepages(should_unback);
+  if (ABSL_PREDICT_FALSE(first_unback == kNumHugePages)) {
+    return NHugePages(0);
+  }
+  return UnbackHugepages(should_unback, first_unback, last_unback + 1);
 }
 
 inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
@@ -412,16 +418,7 @@ inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
 
 inline HugeLength HugeRegion::free_backed() const { return free_backed_count_; }
 
-inline HugeLength HugeRegion::backed() const {
-  HugeLength b;
-  for (int i = 0; i < kNumHugePages; ++i) {
-    if (backed_[i]) {
-      ++b;
-    }
-  }
-
-  return b;
-}
+inline HugeLength HugeRegion::backed() const { return nbacked_; }
 
 inline void HugeRegion::Print(Printer& out) const {
   const size_t kib_used = used_pages().in_bytes() / 1024;
@@ -481,7 +478,9 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
 }
 
 inline void HugeRegion::Dec(Range r, bool release) {
-  bool should_unback[kNumHugePages] = {};
+  bool should_unback[kNumHugePages];
+  size_t first_unback = kNumHugePages;
+  size_t last_unback = 0;
   while (r.n > Length(0)) {
     const HugePage hp = HugePageContaining(r.p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
@@ -492,28 +491,35 @@ inline void HugeRegion::Dec(Range r, bool release) {
     TC_ASSERT(backed_[i]);
     pages_used_[i] -= here;
     if (pages_used_[i] == Length(0)) {
-      should_unback[i] = true;
+      if (release) {
+        should_unback[i] = true;
+        first_unback = std::min(first_unback, i);
+        last_unback = std::max(last_unback, i);
+      }
       ++free_backed_count_;
+    } else if (release) {
+      should_unback[i] = false;
     }
     r.p += here;
     r.n -= here;
   }
-  if (release) {
-    UnbackHugepages(should_unback);
+  if (release && first_unback != kNumHugePages) {
+    UnbackHugepages(should_unback, first_unback, last_unback + 1);
   }
 }
 
-inline HugeLength HugeRegion::UnbackHugepages(
-    bool should_unback[kNumHugePages]) {
+inline HugeLength HugeRegion::UnbackHugepages(bool should_unback[kNumHugePages],
+                                              size_t start_idx,
+                                              size_t end_idx) {
   HugeLength released = NHugePages(0);
-  size_t i = 0;
-  while (i < kNumHugePages) {
+  size_t i = start_idx;
+  while (i < end_idx) {
     if (!should_unback[i]) {
       i++;
       continue;
     }
     size_t j = i;
-    while (j < kNumHugePages && should_unback[j]) {
+    while (j < end_idx && should_unback[j]) {
       j++;
     }
 
@@ -637,6 +643,7 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
 
   Length released;
   auto release_from_region = [&](Region& region) {
+    if (region.free_backed() == NHugePages(0)) return;
     Length region_target = to_release - released;
 
     Length region_released =
@@ -644,15 +651,17 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
     released += region_released;
   };
 
-  if (use_adaptive) {
-    for (auto it = list_.rbegin(); it != list_.rend(); ++it) {
-      if (released >= to_release) break;
-      release_from_region(**it);
-    }
-  } else {
-    for (Region* region : list_) {
-      if (released >= to_release) break;
-      release_from_region(*region);
+  if (to_release > Length(0)) {
+    if (use_adaptive) {
+      for (auto it = list_.rbegin(); it != list_.rend(); ++it) {
+        if (released >= to_release) break;
+        release_from_region(**it);
+      }
+    } else {
+      for (Region* region : list_) {
+        if (released >= to_release) break;
+        release_from_region(*region);
+      }
     }
   }
 
