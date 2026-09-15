@@ -1217,7 +1217,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
     }
     if (i) {
       i -= freelist_.PushBatch(size_class, batch, i);
-      if (i != 0) {
+      if (ABSL_PREDICT_FALSE(i != 0)) {
         ReleaseToBackingCache(size_class, {batch, i});
       }
     }
