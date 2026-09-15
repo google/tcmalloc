@@ -130,9 +130,19 @@ label##_trampoline:                                               \
 #define LABEL_ADDR(label) label@GOTPCREL(%rip)
 #endif /* !defined(__PIC__) */
 
+
+/*
+ * FETCH_CPU_OFFSET loads the offset of the current cpu id within __rseq_abi
+ * (cpu_id, vcpu_id or mm_cid, depending on the mode we registered with) into
+ * <dest>, which must be a 32 bit register.  FETCH_CPU takes its 64 bit
+ * counterpart: the 32 bit load zeroes the upper half.
+ */
+
 /* With PIE;  have initial-exec TLS, even in the presence of position
    independent code. */
 #if !defined(__PIC__) || defined(__PIE__)
+#define FETCH_CPU_OFFSET(dest) \
+  movl %fs:__rseq_abi@TPOFF + TCMALLOC_RSEQ_CPU_ID_OFFSET_OFFSET, dest;
 #define FETCH_CPU(dest, offset)         \
   movzwl %fs:__rseq_abi@TPOFF(offset), dest;
 #define FETCH_SLABS(dest)         \
@@ -146,12 +156,14 @@ label##_trampoline:                                               \
 #else  /* !defined(__PIC__) || defined(__PIE__) */
 
 /*
- * FETCH_CPU assumes &__rseq_abi is in %rax.  We cannot call
- * tcmalloc_tls_fetch_pic at this point, as we have started our restartable
- * sequence.  If we are prempted there, the kernel will clear rseq_cs as
- * tcmalloc_tls_fetch_pic does not appear in the restartable sequence's address
- * range.
+ * FETCH_CPU_OFFSET, FETCH_CPU and FETCH_SLABS assume &__rseq_abi is in %rax.
+ * We cannot call tcmalloc_tls_fetch_pic at this point, as we have started our
+ * restartable sequence.  If we are prempted there, the kernel will clear
+ * rseq_cs as tcmalloc_tls_fetch_pic does not appear in the restartable
+ * sequence's address range.
  */
+#define FETCH_CPU_OFFSET(dest) \
+  movl TCMALLOC_RSEQ_CPU_ID_OFFSET_OFFSET(%rax), dest;
 #define FETCH_CPU(dest, offset) movzwl (%rax, offset), dest;
 #define FETCH_SLABS(dest) movq TCMALLOC_RSEQ_SLABS_OFFSET(%rax), dest
 #define START_RSEQ(src)                     \
@@ -234,8 +246,7 @@ ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
  *     void** batch (%rsi),
  *     size_t len (%rdx)) {
  *   uint64_t* r8 = tcmalloc_rseq.slabs;
- *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
- *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
+ *   if (*(uint32_t*)r8 != cpu + TCMALLOC_SLAB_CPU_BIAS) return 0;
  *   Header* hdr = r8 + rdi * 8;
  *   Header eax = *hdr;
  *   uint64_t r9 = eax.current;
@@ -262,8 +273,11 @@ TcmallocSlab_Internal_PushBatch:
   CFI(.cfi_startproc)
   START_RSEQ(TcmallocSlab_Internal_PushBatch);
   FETCH_SLABS(%r8);
-  btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
-  jnc .LTcmallocSlab_Internal_PushBatch_full;
+  FETCH_CPU_OFFSET(%ecx);
+  FETCH_CPU(%r9d, %rcx);
+  addl $TCMALLOC_SLAB_CPU_BIAS, %r9d;
+  cmpl %r9d, (%r8);
+  jne .LTcmallocSlab_Internal_PushBatch_mismatched_slab;
   movl (%r8, %rdi, 4), %eax; /* [current, remaining_capacity] */
   movzwq %ax, %r9; /* current */
   shrq $16, %rax; /* remaining_capacity */
@@ -286,6 +300,7 @@ TcmallocSlab_Internal_PushBatch:
   movl %ecx, (%r8, %rdi, 4);
 .LTcmallocSlab_Internal_PushBatch_commit:
   ret;
+.LTcmallocSlab_Internal_PushBatch_mismatched_slab:
 .LTcmallocSlab_Internal_PushBatch_full:
   xor %rax, %rax;
   ret;
@@ -301,9 +316,8 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
  *     size_t len (%rdx),
  *     std::atomic<uint16_t>* begin_ptr (%rcx)) {
  *   uint64_t* r8 = tcmalloc_rseq.slabs;
- *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
- *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
- *   Header* hdr = GetHeader(rdi, rax, size_class);
+ *   if (*(uint32_t*)r8 != cpu + TCMALLOC_SLAB_CPU_BIAS) return 0;
+ *   Header* hdr = GetHeader(r8, size_class);
  *   Header r9 = *hdr;
  *   uint64_t r10 = *begin_ptr;
  *   if (r9.current <= r10) return 0;
@@ -329,9 +343,14 @@ TcmallocSlab_Internal_PopBatch:
   CFI(.cfi_startproc)
   START_RSEQ(TcmallocSlab_Internal_PopBatch);
   FETCH_SLABS(%r8);
+  FETCH_CPU_OFFSET(%r9d);
+  FETCH_CPU(%r10d, %r9);
+  /* Zero the result only after FETCH_CPU: on the PIC (non-PIE) path it
+   * addresses __rseq_abi through %rax. */
   xorq %rax, %rax;
-  btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
-  jnc .LTcmallocSlab_Internal_PopBatch_commit;
+  addl $TCMALLOC_SLAB_CPU_BIAS, %r10d;
+  cmpl %r10d, (%r8);
+  jne .LTcmallocSlab_Internal_PopBatch_mismatched_slab;
   movl (%r8, %rdi, 4), %r9d; /* [current, remaining_capacity] */
   movzwq (%rcx), %r10; /* begin */
   cmpw %r10w, %r9w;
@@ -353,6 +372,7 @@ TcmallocSlab_Internal_PopBatch:
   cmpw %r9w, %r10w;
   jne .LTcmallocSlab_Internal_PopBatch_loop
   movl %r10d, (%r8, %rdi, 4);
+.LTcmallocSlab_Internal_PopBatch_mismatched_slab:
 .LTcmallocSlab_Internal_PopBatch_commit:
   ret;
   CFI(.cfi_endproc)
