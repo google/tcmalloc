@@ -752,6 +752,14 @@ static void ShuffleThread(CpuCache& cache, const std::atomic<bool>& stop) {
   }
 }
 
+// Number of threads spawned by the stress tests below. NumCPUs() counts
+// *possible* CPUs (e.g. 256 on Forge) while a test typically gets only a
+// couple of cores worth of CPU quota. Spawning one spinning thread per possible
+// CPU does not populate more per-CPU caches, but it does starve the main thread
+// (thread creation, sleeps and joins take seconds) and, under
+// mlockall(MCL_FUTURE), forces every thread stack to be faulted in.
+static int NumStressThreads() { return std::min(NumCPUs(), 16); }
+
 static void StressThread(CpuCache& cache, size_t thread_id,
                          const std::atomic<bool>& stop) {
   if (!subtle::percpu::IsFast()) {
@@ -923,7 +931,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
 
   std::vector<std::thread> threads;
   std::thread resize_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = NumStressThreads();
   std::atomic<bool> stop(false);
 
   size_t old_max_capacity = 0;
@@ -976,7 +984,7 @@ TEST(CpuCacheTest, StressSizeClassResize) {
 
   std::vector<std::thread> threads;
   std::thread resize_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = NumStressThreads();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -1017,7 +1025,7 @@ TEST(CpuCacheTest, StealCpuCache) {
 
   std::vector<std::thread> threads;
   std::thread shuffle_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = NumStressThreads();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -1067,7 +1075,7 @@ TEST(CpuCacheTest, DynamicSlab) {
   cache.Activate();
 
   std::vector<std::thread> threads;
-  const int n_threads = NumCPUs();
+  const int n_threads = NumStressThreads();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -1087,7 +1095,9 @@ TEST(CpuCacheTest, DynamicSlab) {
     for (int i = 0; i < iters; ++i) {
       for (DynamicSlab dynamic_slab : ops) {
         EXPECT_EQ(shift, CpuCachePeer::GetSlabShift(cache));
-        absl::SleepFor(absl::Milliseconds(100));
+        // Let the stress threads run against the current slab for a bit
+        // before resizing it.
+        absl::SleepFor(absl::Milliseconds(10));
         forwarder.clear_vma_name_calls();
         forwarder.dynamic_slab_ = dynamic_slab;
         // If there were no misses in the current resize interval, then we may
@@ -1364,7 +1374,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  int n_threads = NumStressThreads();
 
   SizeMap size_map;
   ASSERT_TRUE(size_map.Init(size_map.CurrentClasses().classes));
@@ -1390,7 +1400,9 @@ TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
       for (bool enabled : {false, true}) {
         for (DynamicSlab dynamic_slab :
              {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
-          absl::SleepFor(absl::Milliseconds(100));
+          // Give the stress threads a chance to record some misses in the
+          // interval between consecutive resizes.
+          absl::SleepFor(absl::Milliseconds(10));
           forwarder.dynamic_slab_enabled_ = enabled;
           forwarder.dynamic_slab_ = dynamic_slab;
           cache.ResizeSlabIfNeeded();
@@ -1415,7 +1427,9 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  // Under MCL_FUTURE every thread stack is faulted in at creation, so keep
+  // the thread count small.
+  int n_threads = NumStressThreads();
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
@@ -1463,7 +1477,9 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  // Under MCL_FUTURE every thread stack is faulted in at creation, so keep
+  // the thread count small.
+  int n_threads = NumStressThreads();
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
