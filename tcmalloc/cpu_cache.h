@@ -159,11 +159,12 @@ class StaticForwarder : private Parameters {
            SizeClassConfiguration::kReuseRelaxedBelow64;
   }
 
-  size_t class_to_size(int size_class) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE size_t class_to_size(int size_class) const {
     return state_.sizemap().class_to_size(size_class);
   }
 
-  size_t num_objects_to_move(int size_class) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+  num_objects_to_move(int size_class) const {
     return state_.sizemap().num_objects_to_move(size_class);
   }
 
@@ -196,7 +197,9 @@ class StaticForwarder : private Parameters {
     return state_.active_partitions() == 1;
   }
 
-  bool HaveHooks() const { return state_.HaveHooks(); }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool HaveHooks() const {
+    return state_.HaveHooks();
+  }
 
   auto active_partitions() const { return state_.active_partitions(); }
 
@@ -2158,8 +2161,10 @@ inline uint64_t CpuCache<Forwarder>::Allocated(int target_cpu) const {
 
   uint64_t total = 0;
   for (int size_class = 1; size_class < kNumClasses; size_class++) {
-    int size = forwarder_.class_to_size(size_class);
-    total += size * freelist_.Capacity(target_cpu, size_class);
+    const size_t cap = freelist_.Capacity(target_cpu, size_class);
+    if (cap != 0) {
+      total += cap * forwarder_.class_to_size(size_class);
+    }
   }
   return total;
 }
@@ -2173,28 +2178,49 @@ inline uint64_t CpuCache<Forwarder>::UsedBytes(int target_cpu) const {
 
   uint64_t total = 0;
   for (int size_class = 1; size_class < kNumClasses; size_class++) {
-    int size = forwarder_.class_to_size(size_class);
-    total += size * freelist_.Length(target_cpu, size_class);
+    const size_t len = freelist_.Length(target_cpu, size_class);
+    if (len != 0) {
+      total += len * forwarder_.class_to_size(size_class);
+    }
   }
   return total;
 }
 
 template <class Forwarder>
-inline bool CpuCache<Forwarder>::HasPopulated(int target_cpu) const {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool CpuCache<Forwarder>::HasPopulated(
+    int target_cpu) const {
   TC_ASSERT_GE(target_cpu, 0);
   return resize_[target_cpu].populated.load(std::memory_order_relaxed);
 }
 
 template <class Forwarder>
-inline PerCPUMetadataState CpuCache<Forwarder>::MetadataMemoryUsage() const {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline PerCPUMetadataState
+CpuCache<Forwarder>::MetadataMemoryUsage() const {
   return freelist_.MetadataMemoryUsage();
 }
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::TotalUsedBytes() const {
+  size_t total_objects[kNumClasses] = {0};
+  const int num_cpus = NumCPUs();
+  bool any_populated = false;
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    if (!HasPopulated(cpu)) {
+      continue;
+    }
+    any_populated = true;
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      total_objects[size_class] += freelist_.Length(cpu, size_class);
+    }
+  }
+  if (!any_populated) {
+    return 0;
+  }
   uint64_t total = 0;
-  for (int cpu = 0, num_cpus = NumCPUs(); cpu < num_cpus; ++cpu) {
-    total += UsedBytes(cpu);
+  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+    if (total_objects[size_class] != 0) {
+      total += total_objects[size_class] * forwarder_.class_to_size(size_class);
+    }
   }
   return total;
 }
@@ -2555,8 +2581,8 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::RecordCacheMissStat(const int cpu,
-                                                     const bool is_alloc) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void
+CpuCache<Forwarder>::RecordCacheMissStat(const int cpu, const bool is_alloc) {
   MissCounts& misses =
       is_alloc ? resize_[cpu].underflows : resize_[cpu].overflows;
   auto& c = misses[MissCount::kTotal];
@@ -2914,8 +2940,8 @@ inline uint32_t CpuCache<Forwarder>::PerClassResizeInfo::Tick() {
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::PerClassResizeInfo::RecordMiss(
-    PerClassMissType type) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void
+CpuCache<Forwarder>::PerClassResizeInfo::RecordMiss(PerClassMissType type) {
   auto& c = misses_[type];
   c.store(c.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
 }
