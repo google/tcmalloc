@@ -63,17 +63,32 @@ class Bitmap {
 
   template <typename Visitor>
   size_t PopBatch(Visitor visitor, size_t limit) {
+    if (ABSL_PREDICT_FALSE(limit == 0)) return 0;
     size_t count = 0;
     for (size_t i = 0; i < kWords; ++i) {
-      if (count >= limit) break;
       size_t word = bits_[i];
-      while (word != 0 && count < limit) {
-        size_t off = absl::countr_zero(word);
-        visitor(i * kWordSize + off);
-        count++;
-        word &= word - 1;
+      if (word == 0) continue;
+      const size_t base = i * kWordSize;
+      const size_t pop = absl::popcount(word);
+      size_t rem = limit - count;
+      if (pop <= rem) {
+        bits_[i] = 0;
+        count += pop;
+        do {
+          size_t off = absl::countr_zero(word);
+          visitor(base + off);
+          word &= word - 1;
+        } while (word != 0);
+        if (count == limit) break;
+      } else {
+        do {
+          size_t off = absl::countr_zero(word);
+          visitor(base + off);
+          word &= word - 1;
+        } while (--rem > 0);
+        bits_[i] = word;
+        return limit;
       }
-      bits_[i] = word;
     }
     return count;
   }
