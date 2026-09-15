@@ -436,12 +436,21 @@ inline size_t Bitmap<N>::CountBits(size_t index, size_t n) const {
 
 template <size_t N>
 inline bool Bitmap<N>::IsZero() const {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  for (size_t i = 0; i < kWords; ++i) {
+    if (bits_[i] != 0) {
+      return false;
+    }
+  }
+  return true;
+#else
   for (int i = 0; i < kWords; ++i) {
     if (bits_[i] != 0) {
       return false;
     }
   }
   return true;
+#endif
 }
 
 template <size_t N>
@@ -456,12 +465,21 @@ inline void Bitmap<N>::ClearRange(size_t index, size_t n) {
 
 template <size_t N>
 inline void Bitmap<N>::ClearLowestBit() {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  for (size_t i = 0; i < kWords; ++i) {
+    if (bits_[i] != 0) {
+      bits_[i] &= bits_[i] - 1;
+      return;
+    }
+  }
+#else
   for (int i = 0; i < kWords; ++i) {
     if (bits_[i] != 0) {
       bits_[i] &= bits_[i] - 1;
       break;
     }
   }
+#endif
 }
 
 template <size_t N>
@@ -517,9 +535,15 @@ inline ssize_t Bitmap<N>::FindClearBackwards(size_t index) const {
 
 template <size_t N>
 inline void Bitmap<N>::Clear() {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  for (size_t i = 0; i < kWords; ++i) {
+    bits_[i] = 0;
+  }
+#else
   for (int i = 0; i < kWords; ++i) {
     bits_[i] = 0;
   }
+#endif
 }
 
 // Bitwise ~ requires special handling of the dead bits.
