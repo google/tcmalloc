@@ -1581,6 +1581,7 @@ create_tcmalloc_testsuite(
     name = "central_freelist_test",
     srcs = ["central_freelist_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    shard_count = 6,
     tags = [
     ],
     variant_deps = [
