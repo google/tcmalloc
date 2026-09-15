@@ -185,7 +185,7 @@ class StaticForwarder : private Parameters {
     return state_.sharded_transfer_cache().UseGenericCache();
   }
 
-  bool UseShardedCacheForLargeClassesOnly() const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool UseShardedCacheForLargeClassesOnly() const {
     return state_.sharded_transfer_cache().UseCacheForLargeClassesOnly();
   }
 
@@ -851,7 +851,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool CpuCache<Forwarder>::DeallocateFast(
 }
 
 template <class Forwarder>
-void CpuCache<Forwarder>::MaybeForceSlowPath() {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void
+CpuCache<Forwarder>::MaybeForceSlowPath() {
   if (ABSL_PREDICT_FALSE(forwarder_.HaveHooks())) {
     freelist_.UncacheCpuSlab();
   }
@@ -1226,12 +1227,13 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
 }
 
 template <class Forwarder>
-inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool CpuCache<Forwarder>::BypassCpuCache(
+    size_t size_class) const {
   // We bypass per-cpu cache when sharded transfer cache is enabled for large
   // size classes (i.e. when we use the traditional configuration of the sharded
   // transfer cache).
-  return forwarder_.sharded_transfer_cache().should_use(size_class) &&
-         forwarder_.UseShardedCacheForLargeClassesOnly();
+  return ABSL_PREDICT_FALSE(forwarder_.UseShardedCacheForLargeClassesOnly()) &&
+         forwarder_.sharded_transfer_cache().should_use(size_class);
 }
 
 template <class Forwarder>
@@ -2979,7 +2981,7 @@ class CpuCache final : public cpu_cache_internal::CpuCache<
 };
 
 template <typename State>
-inline bool UsePerCpuCache(State& state) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool UsePerCpuCache(State& state) {
   // We expect a fast path of per-CPU caches being active and the thread being
   // registered with rseq.
   if (ABSL_PREDICT_FALSE(!state.CpuCacheActive())) {
