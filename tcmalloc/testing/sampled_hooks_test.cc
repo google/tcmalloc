@@ -175,7 +175,6 @@ TEST_F(SampledHooksTest, AlwaysSampled) {
 }
 
 TEST_F(SampledHooksTest, SometimesSampled) {
-  ScopedProfileSamplingInterval s(64 * 1024);
   for (int log_size = 10; log_size < 30; log_size++) {
     const size_t kRequestedSizePerAllocation = 1 << log_size;
     const size_t kTrueSizePerAllocation =

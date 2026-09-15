@@ -187,7 +187,7 @@ TEST(Sampling, InternalFragmentation) {
   ScopedGuardedSamplingInterval gs(-1);
   ScopedProfileSamplingInterval s(1);
 
-  static constexpr size_t kBytes = 1 << 28;
+  static constexpr size_t kBytes = 1 << 30;
   // A power of 2 is very likely a size class, but we will check this.
   static constexpr size_t kLowFragmentationSize = 1 << 13;
   // A power of 2 + 1 is very unlikely to correspond exactly to a size class.

@@ -126,7 +126,6 @@ cc_test(
     srcs = ["tcmalloc_fuzzer.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     malloc = "//tcmalloc/internal:system_malloc",
-    shard_count = 6,
     tags = [
         "noasan",
         "nomsan",
@@ -357,7 +356,6 @@ cc_test(
     env = {"BORG_EXPERIMENTS": ""},
     linkstatic = 1,
     malloc = "//tcmalloc",
-    shard_count = 2,
     tags = [
         "noasan",
         "nomsan",

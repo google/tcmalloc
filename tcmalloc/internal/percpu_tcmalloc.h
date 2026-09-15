@@ -46,15 +46,14 @@
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/sysinfo.h"
 
-#if defined(__GNUC__) && !defined(__clang__) && defined(__x86_64__)
+#if defined(__GNUC__) && __GNUC__ >= 14 && !defined(__clang__) && \
+    defined(__x86_64__)
 // Work around https://gcc.gnu.org/bugzilla/show_bug.cgi?id=125526
 // by force-loading the address of the thread-local rseq_cs_addr into
 // a register instead of giving it as a "m" constraint.
 //
 // TODO: Remove this when GCC releases a fixed version.
 #define TCMALLOC_INTERNAL_PERCPU_USE_TLS_WORKAROUND 1
-#else
-#define TCMALLOC_INTERNAL_PERCPU_USE_TLS_WORKAROUND 0
 #endif
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -273,14 +272,6 @@ class TcmallocSlab {
   // the remote synchronization protocol.
   void StopCpu(int cpu);
   void StartCpu(int cpu);
-
-  // Stop/start all cpus at once. StopAllCpus also executes the Fence for all
-  // cpus, so that no local operation is in flight when it returns.
-  void StopAllCpus();
-  void StartAllCpus();
-
-  // Asserts that <cpu> is currently stopped, as required by remote operations.
-  void AssertCpuStopped(int cpu) const;
 
   // Grows the cpu/size_class slab's capacity to no greater than
   // min(capacity+len, max_capacity(<shift>)) and returns the increment
@@ -843,7 +834,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   TC_ASSERT_NE(size_class, 0);
   void* next;
   void* result;
-  uintptr_t tcmalloc_slabs_addr, current;
+  uintptr_t scratch, current;
 
   asm goto(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
            // scratch = tcmalloc_slabs;
@@ -863,7 +854,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
            "subl $0xffff0001, (%[scratch], %[size_class], 4)\n"
            // Commit
            "5:\n"
-           : [result] "=&r"(result), [scratch] "=&r"(tcmalloc_slabs_addr),
+           : [result] "=&r"(result), [scratch] "=&r"(scratch),
              [current] "=&r"(current), [next] "=&r"(next)
            : TCMALLOC_RSEQ_INPUTS, [begin_mark_mask] "n"(kBeginMark),
              [size_class] "r"(size_class)
@@ -873,9 +864,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   TC_ASSERT(result);
   TSANAcquire(result);
 
-  // The next pop will be from current-2, but because we prefetch the previous
-  // element we've already just read that, so prefetch current-3.
-  PrefetchSlabMemory(tcmalloc_slabs_addr + (current - 3) * sizeof(void*));
+  // The next pop will be from current-1, but because we prefetch the previous
+  // element we've already just read that, so prefetch current-2.
+  PrefetchSlabMemory(scratch + (current - 2) * sizeof(void*));
   PrefetchNextObject(next);
   return AssumeNotNull(result);
 underflow_path:
@@ -892,7 +883,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   void* region_start;
   void* prefetch;
   uintptr_t scratch;
-  uintptr_t current_plus_slabs_addr;
+  uintptr_t current;
   asm goto(
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
       // region_start = tcmalloc_slabs;
@@ -916,7 +907,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
       // Commit
       "5:\n"
       : [result] "=&r"(result), [prefetch] "=&r"(prefetch),
-        [current] "=&r"(current_plus_slabs_addr),
+        [current] "=&r"(current),
         // Temps
         [region_start] "=&r"(region_start), [scratch] "=&r"(scratch)
       // Real inputs
@@ -929,7 +920,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 
   // The next pop will be from current-2, but because we prefetch the previous
   // element we've already just read that, so prefetch current-3.
-  PrefetchSlabMemory(current_plus_slabs_addr - 3 * sizeof(void*));
+  PrefetchSlabMemory(current - 3 * sizeof(void*));
   PrefetchNextObject(prefetch);
   return AssumeNotNull(result);
 underflow_path:
@@ -1200,7 +1191,7 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
                                         DrainHandler drain_handler) {
-  AssertCpuStopped(cpu);
+  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
     uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1285,7 +1276,11 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
         begins_[size_class].load(std::memory_order_relaxed);
   }
 
-  StopAllCpus();
+  for (auto& state : state_) {
+    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
+    state.stopped.store(true, std::memory_order_relaxed);
+  }
+  FenceAllCpus();
 
 #ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
   // TODO(b/29448043): Remove latency injection.
@@ -1303,7 +1298,9 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   InitSlabs(new_slabs, shift, capacity);
 
   // Phase 4: Re-start all CPUs.
-  StartAllCpus();
+  for (auto& state : state_) {
+    state.stopped.store(false, std::memory_order_release);
+  }
 
   // Phase 5: Return pointers from the old slab to the TransferCache.
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
@@ -1338,7 +1335,11 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
     }
   }
 
-  StopAllCpus();
+  for (auto& state : state_) {
+    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
+    state.stopped.store(true, std::memory_order_relaxed);
+  }
+  FenceAllCpus();
 
 #ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
   // TODO(b/29448043): Remove latency injection.
@@ -1349,7 +1350,9 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   InitSlabs(new_slabs, new_shift, capacity);
 
   // Phase 3: Re-start all CPUs.
-  StartAllCpus();
+  for (auto& state : state_) {
+    state.stopped.store(false, std::memory_order_release);
+  }
 
   // Phase 4: Return pointers from the old slab to the TransferCache.
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
@@ -1384,7 +1387,7 @@ template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::GrowOtherCache(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
-  AssertCpuStopped(cpu);
+  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t max_cap = max_capacity(ToUint8(shift));
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1399,7 +1402,7 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
 template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     int cpu, size_t size_class, size_t len, ShrinkHandler shrink_handler) {
-  AssertCpuStopped(cpu);
+  TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -1458,7 +1461,11 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
 
   // Stop all CPUs. They must also be locked, since we are touching the
   // populated bit later.
-  StopAllCpus();
+  for (auto& state : state_) {
+    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
+    state.stopped.store(true, std::memory_order_relaxed);
+  }
+  FenceAllCpus();
 
   // See which ones are actually drained, and which hugepages we can free.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -1541,7 +1548,9 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
   }
 
   // Restart the CPUs again.
-  StartAllCpus();
+  for (auto& state : state_) {
+    state.stopped.store(false, std::memory_order_release);
+  }
 }
 
 template <size_t NumClasses>
@@ -1555,29 +1564,8 @@ void TcmallocSlab<NumClasses>::StopCpu(int cpu) {
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::StartCpu(int cpu) {
   TC_ASSERT(cpu >= 0 && cpu < num_cpus(), "cpu=%d", cpu);
-  AssertCpuStopped(cpu);
-  state_[cpu].stopped.store(false, std::memory_order_release);
-}
-
-template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::StopAllCpus() {
-  for (auto& state : state_) {
-    TC_CHECK(!state.stopped.load(std::memory_order_relaxed));
-    state.stopped.store(true, std::memory_order_relaxed);
-  }
-  FenceAllCpus();
-}
-
-template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::StartAllCpus() {
-  for (auto& state : state_) {
-    state.stopped.store(false, std::memory_order_release);
-  }
-}
-
-template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::AssertCpuStopped(int cpu) const {
   TC_ASSERT(state_[cpu].stopped.load(std::memory_order_relaxed));
+  state_[cpu].stopped.store(false, std::memory_order_release);
 }
 
 template <size_t NumClasses>

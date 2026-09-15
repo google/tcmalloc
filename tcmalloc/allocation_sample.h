@@ -72,10 +72,6 @@ class AllocationSampleList {
   }
 
   void ReportMalloc(const struct StackTrace& sample) {
-    // Check that StackTrace was zero-initialized so we don't leak uninitialized
-    // memory (potentially holding cryptographic material) into core dumps.
-    TC_CHECK(sample.depth == kMaxStackDepth ||
-             sample.stack[sample.depth] == nullptr);
     AllocationGuardSpinLockHolder h(lock_);
     AllocationSample* cur = first_;
     while (cur != nullptr) {

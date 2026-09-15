@@ -75,7 +75,7 @@ TEST(LargeSmallFrag, Test) {
   int64_t allowed = PhysicalMemoryUsed() + 3 * kLarge + (10 << 20);
 
   // Fragmentation loop
-  for (int iter = 0; iter < 25; iter++) {
+  for (int iter = 0; iter < 100; iter++) {
     sized_delete(::operator new(kLarge), kLarge);
 
     // Allocate some small objects and keep the middle one

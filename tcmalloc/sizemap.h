@@ -58,6 +58,8 @@ class SizeMap {
   static constexpr int kLargeSizeAlignment = 128;
 
  private:
+  friend class SizeMapTestPeer;
+
   //-------------------------------------------------------------------
   // Mapping from size to size_class and vice versa
   //-------------------------------------------------------------------
@@ -171,9 +173,10 @@ class SizeMap {
     return ret;
   }
 
-  // Set the specified class_array_ region from region 0 adjusting all
+  // Set the specified class_array_ region from `src_region` adjusting all
   // values by `adjust`.
-  void SetClassArrayRegion(size_t region, CompactSizeClass adjust);
+  void SetClassArrayRegion(size_t dst_region, size_t src_region,
+                           CompactSizeClass adjust);
 
   // Mapping from size class to number of pages to allocate at a time
   unsigned char class_to_pages_[kNumClasses] = {0};
