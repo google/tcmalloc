@@ -185,7 +185,7 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
     GTEST_SKIP() << "CPU cache disabled.";
   }
 
-  ScopedBackgroundProcessActionsEnabled background(false);
+  MallocExtension::SetBackgroundProcessActionsEnabled(false);
 
   auto& cpu_cache = tc_globals.cpu_cache();
   for (int i = 0; i < 100; ++i) {
@@ -196,6 +196,7 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
   EXPECT_THAT(
       properties["tcmalloc.metadata_bytes"],
       testing::Field(&MallocExtension::Property::value, testing::Gt(0)));
+  MallocExtension::SetBackgroundProcessActionsEnabled(true);
 }
 
 }  // namespace

@@ -981,6 +981,7 @@ create_tcmalloc_testsuite(
     name = "malloc_extension_test",
     srcs = ["malloc_extension_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    shard_count = 2,
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
