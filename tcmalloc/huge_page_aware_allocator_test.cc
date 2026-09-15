@@ -2254,6 +2254,17 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
               kPagesPerHugePage.raw_num());
   }
 
+  // 3. A hugepage the allocator never obtained from the system is not tracked
+  // by the filler, regions, cache, or free list, but it is not allocated
+  // either: the status is unknown rather than "fully allocated".
+  const HugePage never_allocated = hp1 + NHugePages(1 << 20);
+  bool known;
+  {
+    PageHeapSpinLockHolder l;
+    known = allocator_->GetPageAllocationStatus(never_allocated, pages);
+  }
+  EXPECT_FALSE(known);
+
   Delete(large, 1);
   {
     PageHeapSpinLockHolder l;
@@ -2262,7 +2273,10 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
 
     EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp1, pages));
     EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
+
+    known = allocator_->GetPageAllocationStatus(never_allocated, pages);
   }
+  EXPECT_FALSE(known);
 }
 
 }  // namespace

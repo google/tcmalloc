@@ -113,7 +113,9 @@ HugeRange HugeAllocator::AllocateRange(HugeLength n) {
   TC_CHECK_EQ(actual % kHugePageSize, 0);
   n = HLFromBytes(actual);
   from_system_ += n;
-  return HugeRange::Make(HugePageContaining(ptr), n);
+  HugeRange r = HugeRange::Make(HugePageContaining(ptr), n);
+  system_.Insert(r);
+  return r;
 }
 
 HugeRange HugeAllocator::Get(HugeLength n) {

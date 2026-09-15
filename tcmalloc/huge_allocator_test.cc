@@ -370,6 +370,32 @@ TEST_P(HugeAllocatorTest, Contains) {
   EXPECT_FALSE(allocator_.Contains(r1.start() - NHugePages(1)));
 }
 
+TEST_P(HugeAllocatorTest, Owns) {
+  HugeRange r1 = allocator_.Get(NHugePages(4));
+  ASSERT_TRUE(r1.valid());
+
+  // Everything obtained from the system is owned, in use or not.  The system
+  // may have handed us more than we asked for.
+  const HugeLength received = HugePagesReceived();
+  EXPECT_GE(received, r1.len());
+  for (HugeLength i = NHugePages(0); i < received; ++i) {
+    EXPECT_TRUE(allocator_.Owns(r1.start() + i));
+  }
+
+  // Pages on either side were never obtained from the system.
+  EXPECT_FALSE(allocator_.Owns(r1.start() - NHugePages(1)));
+  EXPECT_FALSE(allocator_.Owns(r1.start() + received));
+
+  allocator_.Release(r1);
+
+  // Release does not change ownership.
+  for (HugeLength i = NHugePages(0); i < received; ++i) {
+    EXPECT_TRUE(allocator_.Owns(r1.start() + i));
+  }
+  EXPECT_FALSE(allocator_.Owns(r1.start() - NHugePages(1)));
+  EXPECT_FALSE(allocator_.Owns(r1.start() + received));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     NormalOverAlloc, HugeAllocatorTest, testing::Values(false, true),
     +[](const testing::TestParamInfo<bool>& info) {
