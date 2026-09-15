@@ -26,9 +26,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
-#include "absl/base/casts.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
@@ -129,7 +127,7 @@ TEST_F(GuardedPageAllocatorTest, NoAlignmentProvided) {
         ++allocation_count;
 
         size_t observed_alignment =
-            absl::bit_floor(absl::bit_cast<uintptr_t>(ptrs[i]));
+            1 << absl::countr_zero(absl::bit_cast<uintptr_t>(ptrs[i]));
         EXPECT_GE(observed_alignment, std::min(size, kLargeObjectAlignment));
       }
 

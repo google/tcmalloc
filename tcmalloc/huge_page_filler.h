@@ -1233,21 +1233,11 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   TC_ASSERT(type == AccessDensityPrediction::kSparse || pt->HasDenseSpans());
 
   // Log previous features before modifying the page tracker.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const auto now = clock_.now();
-#endif
   if (pt->GetTagState().sampled_for_tagging) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    const auto now = clock_.now();
-#endif
     pt->RecordFeatures();
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    pt->SetLastAllocationTime(now);
-#endif
   }
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   pt->SetLastAllocationTime(now);
-#endif
   const auto page_allocation = pt->Get(n, span_alloc_info);
   AddToFillerList(pt);
   pages_allocated_[type] += n;
@@ -1337,11 +1327,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     TC_ASSERT_EQ(pt->nallocs(), 0);
     --size_;
     if (pt->released()) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      const Length free_pages = kPagesPerHugePage;
-#else
       const Length free_pages = pt->free_pages();
-#endif
       const Length released_pages = pt->released_pages();
       TC_ASSERT_GE(free_pages, released_pages);
       TC_ASSERT_GE(unmapped_, released_pages);

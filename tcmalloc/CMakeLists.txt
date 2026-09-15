@@ -1378,8 +1378,6 @@ tcmalloc_cc_test(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
-    "absl::base"
-    "absl::bits"
     "absl::core_headers"
     "absl::flat_hash_set"
     "tcmalloc::common_8k_pages"
@@ -1498,8 +1496,6 @@ tcmalloc_cc_test(
     "tcmalloc::page_allocator_test_util"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
-  ENV
-    "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"
 )
 
 tcmalloc_cc_test(
@@ -1754,8 +1750,6 @@ tcmalloc_cc_test(
     "tcmalloc::testing_rseq_util"
     "tcmalloc::testing_testutil"
     "tcmalloc::testing_thread_manager"
-  ENV
-    "BORG_EXPERIMENTS="
 )
 
 tcmalloc_cc_test(
@@ -1901,8 +1895,6 @@ tcmalloc_cc_test(
     "tcmalloc::common_8k_pages"
     "tcmalloc::tcmalloc"
     "tcmalloc::want_legacy_size_classes"
-  ENV
-    "BORG_DISABLE_EXPERIMENTS=all"
 )
 
 tcmalloc_cc_test_variants(

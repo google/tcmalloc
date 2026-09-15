@@ -31,14 +31,15 @@ bazel_dep(name = "google_benchmark", version = "1.9.5", dev_dependency = True, r
 bazel_dep(name = "googletest", version = "1.17.0.bcr.2", dev_dependency = True, repo_name = "com_google_googletest")
 bazel_dep(name = "rules_fuzzing", version = "0.5.2", dev_dependency = True)
 
-# Note: Gloop is NOT a dev_dependency, but should never be used directly.  It is only included here
+# Note: Gloop is a dev_dependency so downstream users do not pull it in
+# transitively. It should never be used directly, and is only included here
 # so that we can give visibility into TCMalloc internals.
 bazel_dep(
     name = "gloop",
     version = "20260708.rc1",
+    dev_dependency = True,
     repo_name = "do_not_use_for_gloop_visibility_only",
 )
-
 bazel_dep(name = "docker_toolchain", version = "0.1", dev_dependency = True)
 local_path_override(
     module_name = "docker_toolchain",

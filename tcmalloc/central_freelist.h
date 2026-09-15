@@ -339,11 +339,8 @@ class CentralFreeList {
   // Tracks the number of spans used to fill a batch in RemoveRange
   StatsCounters<kSpansUsedStatBuckets> span_allocations_tracker_;
 
-  [[nodiscard]] int LifetimeBucketNum(absl::Duration duration) const {
-    return LifetimeBucketNum(absl::ToInt64Milliseconds(duration));
-  }
-
-  [[nodiscard]] int LifetimeBucketNum(int64_t duration_ms) const {
+  int LifetimeBucketNum(absl::Duration duration) {
+    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
     auto it = absl::c_upper_bound(kLifetimeBucketBounds, duration_ms);
     TC_CHECK_NE(it, kLifetimeBucketBounds.begin());
     return it - kLifetimeBucketBounds.begin() - 1;
@@ -674,22 +671,12 @@ void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
   if (objects_per_span_ > 1) {
     const double now = forwarder_.clock_now();
     const double frequency = forwarder_.clock_frequency();
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    // Precompute the cycles->milliseconds factor once so the per-span
-    // conversion is a multiply instead of a floating-point division.
-    const double ms_per_cycle = 1000.0 / frequency;
-#endif
     for (Span* span : spans) {
       const double elapsed =
           std::max<double>(now - static_cast<double>(span->AllocTime()), 0.0);
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      const int64_t elapsed_ms = static_cast<int64_t>(elapsed * ms_per_cycle);
-      completed_spans_[LifetimeBucketNum(elapsed_ms)].LossyAdd(1);
-#else
       const absl::Duration lifetime =
           absl::Milliseconds(elapsed * 1000 / frequency);
       completed_spans_[LifetimeBucketNum(lifetime)].LossyAdd(1);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     }
   }
   return forwarder_.DeallocateSpans(objects_per_span_, spans);
@@ -735,15 +722,15 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       prev_index = span->nonempty_index();
 #endif
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      int here = span->FreelistPopBatch(batch.subspan(result), object_size);
-#else
-      // Pass pointer + count directly to avoid absl::Span::subspan's defensive
-      // length clamping (std::min) on this hot drain path.  See b/538576012.
-      const size_t size = batch.size();
-      int here = span->FreelistPopBatch(
-          absl::MakeSpan(batch.data() + result, size - result), object_size);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      // Use ASSUME to elide the bounds check in subspan, per
+      // b/538576012#comment3.
+      //
+      // TODO(b/538576012): Use a recommended API for this.
+      size_t size = batch.size();
+      ASSUME(result < size);
 #endif
+      int here = span->FreelistPopBatch(batch.subspan(result), object_size);
       ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
       // As the objects are being popped from the span, its utilization might
       // change. So, we remove the stale utilization from the histogram here and
@@ -844,12 +831,7 @@ inline size_t CentralFreeList<Forwarder>::OverheadBytes() const {
   if (ABSL_PREDICT_FALSE(object_size_ == 0)) {
     return 0;
   }
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  const size_t overhead_per_span =
-      pages_per_span_.in_bytes() - objects_per_span_ * object_size_;
-#else
   const size_t overhead_per_span = pages_per_span_.in_bytes() % object_size_;
-#endif
   return num_spans() * overhead_per_span;
 }
 
