@@ -161,9 +161,9 @@ class TransferCache {
       info = slot_info_.load(std::memory_order_relaxed);
       int got = std::min(N, info.capacity - info.used);
       if (got > 0) {
+        void** entry = GetSlot(info.used);
         info.used += got;
         SetSlotInfo(info);
-        void** entry = GetSlot(info.used - got);
         memcpy(entry, batch.data(), sizeof(void*) * got);
         insert_hits_.LossyAdd(1);
         if (got == N) {
