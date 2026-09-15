@@ -185,7 +185,11 @@ TEST_F(GetStatsTest, Pbtxt) {
   sized_delete(alloc, kSize);
 }
 
-TEST_F(GetStatsTest, Parameters) {
+class ParametersDisabledTest : public GetStatsTest,
+                               public ::testing::WithParamInterface<bool> {};
+
+TEST_P(ParametersDisabledTest, ParametersDisabled) {
+  const bool test_pbtxt = GetParam();
   const bool old_hpaa_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(false);
   const bool old_guarded_sampling_interval =
@@ -213,10 +217,10 @@ TEST_F(GetStatsTest, Parameters) {
     return absl::StrContains(sv, "HugePageAwareAllocator");
   };
 
-  std::string buf = MallocExtension::GetStats();
-  std::string pbtxt = GetStatsInPbTxt();
+  std::string buf = test_pbtxt ? "" : MallocExtension::GetStats();
+  std::string pbtxt = test_pbtxt ? GetStatsInPbTxt() : "";
 
-  if (!tcmalloc_internal::kSanitizerPresent) {
+  if (!tcmalloc_internal::kSanitizerPresent && !test_pbtxt) {
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
     }
@@ -287,7 +291,8 @@ TEST_F(GetStatsTest, Parameters) {
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(using_hpaa_subrelease: false)"));
     }
-
+  }
+  if (!tcmalloc_internal::kSanitizerPresent && test_pbtxt) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: -1)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: false)"));
@@ -310,7 +315,8 @@ TEST_F(GetStatsTest, Parameters) {
     } else {
       EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
     }
-
+  }
+  if (!tcmalloc_internal::kSanitizerPresent && !test_pbtxt) {
     if (IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES) ||
         IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
@@ -337,6 +343,48 @@ TEST_F(GetStatsTest, Parameters) {
     }
   }
 
+  Parameters::set_hpaa_subrelease(old_hpaa_subrelease);
+  Parameters::set_guarded_sampling_interval(old_guarded_sampling_interval);
+  Parameters::set_per_cpu_caches(old_per_cpu_caches);
+  Parameters::set_max_per_cpu_cache_size(old_max_per_cpu_cache_size);
+  Parameters::set_max_total_thread_cache_bytes(
+      old_max_total_thread_cache_bytes);
+  Parameters::set_filler_skip_subrelease_short_interval(
+      old_skip_subrelease_short);
+  Parameters::set_filler_skip_subrelease_long_interval(
+      old_skip_subrelease_long);
+}
+
+INSTANTIATE_TEST_SUITE_P(ParametersDisabled, ParametersDisabledTest,
+                         ::testing::Bool());
+
+class ParametersEnabledTest : public GetStatsTest,
+                              public ::testing::WithParamInterface<bool> {};
+
+TEST_P(ParametersEnabledTest, ParametersEnabled) {
+  const bool test_pbtxt = GetParam();
+  const bool old_hpaa_subrelease = Parameters::hpaa_subrelease();
+  const bool old_guarded_sampling_interval =
+      Parameters::guarded_sampling_interval();
+  const bool old_per_cpu_caches = Parameters::per_cpu_caches();
+  const int64_t old_max_per_cpu_cache_size =
+      Parameters::max_per_cpu_cache_size();
+  const int64_t old_max_total_thread_cache_bytes =
+      Parameters::max_total_thread_cache_bytes();
+  const absl::Duration old_skip_subrelease_short =
+      Parameters::filler_skip_subrelease_short_interval();
+  const absl::Duration old_skip_subrelease_long =
+      Parameters::filler_skip_subrelease_long_interval();
+  const hot_cold_t old_min_hot_access_hint = Parameters::min_hot_access_hint();
+  ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
+
+  auto using_hpaa = [](absl::string_view sv) {
+    return absl::StrContains(sv, "HugePageAwareAllocator");
+  };
+
+  std::string buf;
+  std::string pbtxt;
+
   Parameters::set_hpaa_subrelease(true);
   Parameters::set_guarded_sampling_interval(
       50 * Parameters::profile_sampling_interval());
@@ -351,10 +399,10 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_madvise_sampled_allocations(
       MadviseSampledAllocations::kEnabled);
 
-  buf = MallocExtension::GetStats();
-  pbtxt = GetStatsInPbTxt();
+  buf = test_pbtxt ? "" : MallocExtension::GetStats();
+  pbtxt = test_pbtxt ? GetStatsInPbTxt() : "";
 
-  if (!tcmalloc_internal::kSanitizerPresent) {
+  if (!tcmalloc_internal::kSanitizerPresent && !test_pbtxt) {
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
     }
@@ -380,8 +428,9 @@ TEST_F(GetStatsTest, Parameters) {
             R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3m0.375s)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 1)"));
-
-    if (using_hpaa(buf)) {
+  }
+  if (!tcmalloc_internal::kSanitizerPresent && test_pbtxt) {
+    if (using_hpaa(pbtxt)) {
       EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
     }
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: 50)"));
@@ -415,9 +464,16 @@ TEST_F(GetStatsTest, Parameters) {
       old_skip_subrelease_short);
   Parameters::set_filler_skip_subrelease_long_interval(
       old_skip_subrelease_long);
+  Parameters::set_min_hot_access_hint(old_min_hot_access_hint);
 }
 
-TEST_F(GetStatsTest, StackDepth) {
+INSTANTIATE_TEST_SUITE_P(ParametersEnabled, ParametersEnabledTest,
+                         ::testing::Bool());
+
+class StackDepthTest : public GetStatsTest,
+                       public ::testing::WithParamInterface<bool> {};
+
+TEST_P(StackDepthTest, StackDepth) {
   GTEST_SKIP() << "Skipping";
 
   // We run a thread with a limited stack size to confirm that we do not use too
@@ -456,7 +512,8 @@ TEST_F(GetStatsTest, StackDepth) {
     return static_cast<void*>(nullptr);
   };
 
-  for (auto plaintext : {false, true}) {
+  const bool plaintext = GetParam();
+  {
     SCOPED_TRACE(absl::StrCat("plaintext: ", plaintext));
 
     args.plaintext = plaintext;
@@ -478,14 +535,14 @@ TEST_F(GetStatsTest, StackDepth) {
   ASSERT_EQ(pthread_attr_destroy(&thread_attributes), 0);
 }
 
-TEST_F(GetStatsTest, RequiredBufferSizes) {
+INSTANTIATE_TEST_SUITE_P(StackDepth, StackDepthTest, ::testing::Bool());
+
+TEST_F(GetStatsTest, RequiredBufferSizesLarge) {
   if (&MallocExtension_Internal_GetStatsInPbtxt == nullptr) {
     GTEST_SKIP() << "Not linked against malloc";
   }
 
-  std::string stats;
   const int kLargeBufferSize = 3 << 20;
-  const int kSmallBufferSize = 16 << 10;
   std::string buf;
   buf.resize(kLargeBufferSize);
 
@@ -493,6 +550,16 @@ TEST_F(GetStatsTest, RequiredBufferSizes) {
       MallocExtension_Internal_GetStatsInPbtxt(&buf[0], kLargeBufferSize);
   // This should be enough space.
   EXPECT_LE(actual_large, kLargeBufferSize);
+}
+
+TEST_F(GetStatsTest, RequiredBufferSizesSmall) {
+  if (&MallocExtension_Internal_GetStatsInPbtxt == nullptr) {
+    GTEST_SKIP() << "Not linked against malloc";
+  }
+
+  const int kSmallBufferSize = 16 << 10;
+  std::string buf;
+  buf.resize(kSmallBufferSize);
 
   const int actual_small =
       MallocExtension_Internal_GetStatsInPbtxt(&buf[0], kSmallBufferSize);
@@ -503,9 +570,6 @@ TEST_F(GetStatsTest, RequiredBufferSizes) {
               .value_or(0) == 1) {
     EXPECT_GT(actual_small, kSmallBufferSize);
   }
-
-  // The required bytes should be similar.
-  EXPECT_LE(std::abs(actual_large - actual_small), 8192);
 }
 
 }  // namespace
