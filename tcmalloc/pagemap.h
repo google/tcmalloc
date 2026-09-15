@@ -133,16 +133,23 @@ class PageMap3 {
   constexpr PageMap3() : root_{}, bytes_used_(0) {}
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  Span* absl_nullable get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    const Number i3 = k & (kLeafLength - 1);
-    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
-        ABSL_PREDICT_FALSE(root_[i1] == nullptr) ||
-        ABSL_PREDICT_FALSE(root_[i1]->leafs[i2] == nullptr)) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE Span* absl_nullable get(Number k) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    if (ABSL_PREDICT_FALSE((k >> BITS) > 0)) {
       return nullptr;
     }
-    return root_[i1]->leafs[i2]->span(i3);
+    const Number i1 = k >> (kLeafBits + kMidBits);
+    const Node* node = root_[i1];
+    if (ABSL_PREDICT_FALSE(node == nullptr)) {
+      return nullptr;
+    }
+    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
+    const Leaf* leaf = node->leafs[i2];
+    if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
+      return nullptr;
+    }
+    const Number i3 = k & (kLeafLength - 1);
+    return leaf->span(i3);
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -221,16 +228,22 @@ class PageMap3 {
   // REQUIRES: Must be a valid page number previously Ensure()d.
   CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
   sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    if (ABSL_PREDICT_FALSE((k >> BITS) > 0)) {
+      return 0;
+    }
     const Number i1 = k >> (kLeafBits + kMidBits);
+    const Node* node = root_[i1];
+    if (ABSL_PREDICT_FALSE(node == nullptr)) {
+      return 0;
+    }
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
-        ABSL_PREDICT_FALSE(root_[i1] == nullptr) ||
-        ABSL_PREDICT_FALSE(root_[i1]->leafs[i2] == nullptr)) {
+    const Leaf* leaf = node->leafs[i2];
+    if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return 0;
     }
     const Number i3 = k & (kLeafLength - 1);
-    auto ret = root_[i1]->leafs[i2]->sizeclass[i3];
-    TC_ASSERT_EQ(ret, root_[i1]->leafs[i2]->span_and_sizeclass[i3].sizeclass());
+    auto ret = leaf->sizeclass[i3];
+    TC_ASSERT_EQ(ret, leaf->span_and_sizeclass[i3].sizeclass());
     return ret;
   }
 
@@ -342,7 +355,8 @@ class PageMap {
   //
   // TODO(b/193887621): Convert to atomics to permit the PageMap to run cleanly
   // under TSan.
-  CompactSizeClass sizeclass(PageId p) ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE CompactSizeClass
+  sizeclass(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return map_.sizeclass(p.index());
   }
 
@@ -369,8 +383,8 @@ class PageMap {
   // Return the descriptor for the specified page.  Returns NULL if
   // this PageId was not allocated previously.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] Span* absl_nullable GetDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE Span* absl_nullable GetDescriptor(
+      PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return map_.get(p.index());
   }
 
