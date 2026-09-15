@@ -487,7 +487,7 @@ TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
     return;
   }
 
-  ShardedTransferCacheManager manager(nullptr, nullptr);
+  ShardedTransferCacheManager manager(nullptr);
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     EXPECT_FALSE(manager.should_use(size_class));
   }
@@ -498,7 +498,7 @@ TEST(ShardedTransferCacheManagerTest, GenericCacheExperiment) {
     return;
   }
 
-  ShardedTransferCacheManager manager(nullptr, nullptr);
+  ShardedTransferCacheManager manager(nullptr);
   manager.Init();
   EXPECT_EQ(manager.UseGenericCache(),
             IsExperimentActive(Experiment::TCMALLOC_SHARDED_TC_ABLATION) &&
@@ -859,7 +859,8 @@ TYPED_TEST_P(RealTransferCacheTest, StressResize) {
     int batch_count = 0;
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
       const size_t batch_size =
-          env.transfer_cache_manager().num_objects_to_move(size_class);
+          env.transfer_cache_manager().forwarder().num_objects_to_move(
+              size_class);
       const int capacity =
           env.transfer_cache_manager().GetStats(size_class).capacity;
       batch_count += batch_size > 0 ? capacity / batch_size : 0;
@@ -884,9 +885,8 @@ TYPED_TEST_P(RealTransferCacheTest, StressResize) {
 
 REGISTER_TYPED_TEST_SUITE_P(RealTransferCacheTest, StressResize);
 
-using TransferCacheRealEnv = MultiSizeClassTransferCacheEnvironment<
-    internal_transfer_cache::TransferCache<CentralFreeList,
-                                           FakeMultiClassTransferCacheManager>>;
+using TransferCacheRealEnv =
+    MultiSizeClassTransferCacheEnvironment<FakeMultiClassTransferCacheManager>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, RealTransferCacheTest,
                                ::testing::Types<TransferCacheRealEnv>);
 TEST(TransferCacheManagerTest, PrintTelemetry) {
@@ -894,7 +894,7 @@ TEST(TransferCacheManagerTest, PrintTelemetry) {
   auto& manager = env.transfer_cache_manager();
 
   int size_class = 1;
-  const size_t batch_size = manager.num_objects_to_move(size_class);
+  const size_t batch_size = manager.forwarder().num_objects_to_move(size_class);
   ASSERT_GT(batch_size, 0);
 
   // Perform 2 inserts of batch_size.
@@ -924,7 +924,7 @@ TEST(TransferCacheManagerTest, PrintTelemetry) {
   std::string pbtxt_output = PrintToString(
       1024 * 1024,
       [&](PbtxtRegion& region) { manager.PrintInPbtxt(counts, region); });
-  size_t class_size = manager.class_to_size(size_class);
+  size_t class_size = manager.forwarder().class_to_size(size_class);
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr(
                                 absl::StrFormat("sizeclass: %d", class_size)));
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("insert_hits: 2"));
