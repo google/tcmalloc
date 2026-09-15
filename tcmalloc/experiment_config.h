@@ -30,7 +30,6 @@ enum class Experiment : int {
   TCMALLOC_RELEASE_FREE_STALE,  // TODO: b/527473378 - Complete experiment.
   TCMALLOC_REUSE_SIZE_CLASSES_ABLATION,  // TODO: b/524296402 - Complete experiment.
   TCMALLOC_SHARDED_TC_ABLATION,  // TODO: b/543102173 - Complete experiment.
-  TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK,  // TODO: b/540945006 - Complete experiment.
   TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS,  // TODO: b/527907199 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
   TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION,  // TODO: b/557224124 - Complete experiment.
@@ -64,7 +63,6 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_RELEASE_FREE_STALE, "TCMALLOC_RELEASE_FREE_STALE"},
     {Experiment::TCMALLOC_REUSE_SIZE_CLASSES_ABLATION, "TCMALLOC_REUSE_SIZE_CLASSES_ABLATION"},
     {Experiment::TCMALLOC_SHARDED_TC_ABLATION, "TCMALLOC_SHARDED_TC_ABLATION"},
-    {Experiment::TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK, "TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.5},
     {Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS, "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
     {Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION, "TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION"},
