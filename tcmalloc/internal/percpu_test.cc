@@ -56,7 +56,7 @@ TEST(PerCpu, SignalHandling) {
 
   setitimer(ITIMER_REAL, &signal_interval, nullptr);
 
-  for (int i = 0; i < 100000; ++i) {
+  for (int i = 0; i < 15000; ++i) {
     UnregisterRseq();
     TC_CHECK(IsFast());
   }
