@@ -241,9 +241,11 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   }
 
   // Fill in the canonical class array in region 0.
-  for (int c = 1, s = 0; c < kNumClasses && s <= kMaxSize; c++) {
-    for (; s <= class_to_size_[c]; s += kSmallSizeAlignment) {
-      class_array_[ClassIndex(s)] = c;
+  size_t next_idx = 0;
+  for (int c = 1; c < kNumBaseClasses && next_idx < kClassArraySize; ++c) {
+    const size_t max_idx = ClassIndex(class_to_size_[c]);
+    for (; next_idx <= max_idx; ++next_idx) {
+      class_array_[next_idx] = c;
     }
   }
 
@@ -299,16 +301,12 @@ void TCMalloc_Internal_GetSizeClasses(
   tcmalloc::tcmalloc_internal::tc_globals.InitIfNecessary();
   size_t num_classes = tcmalloc::tcmalloc_internal::kNumClasses;
   size_classes->resize(num_classes);
+  const auto& sizemap = tcmalloc::tcmalloc_internal::tc_globals.sizemap();
+  auto* __restrict out = size_classes->data();
   for (size_t i = 0; i < num_classes; ++i) {
-    (*size_classes)[i].size =
-        tcmalloc::tcmalloc_internal::tc_globals.sizemap().class_to_size(i);
-    (*size_classes)[i].span_size_in_bytes =
-        tcmalloc::tcmalloc_internal::tc_globals.sizemap()
-            .class_to_pages(i)
-            .in_bytes();
-    (*size_classes)[i].num_objects_to_move =
-        tcmalloc::tcmalloc_internal::tc_globals.sizemap().num_objects_to_move(
-            i);
+    out[i].size = sizemap.class_to_size(i);
+    out[i].span_size_in_bytes = sizemap.class_to_pages(i).in_bytes();
+    out[i].num_objects_to_move = sizemap.num_objects_to_move(i);
   }
 }
 
