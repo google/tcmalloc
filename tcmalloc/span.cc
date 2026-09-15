@@ -115,13 +115,6 @@ SampledAllocation* Span::UnsampleSlow() {
 //              [---|idx|idx|idx|idx|idx|idx|idx]  16-byte object
 //
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
-  uintptr_t off = first_page().start_uintptr() + idx * size;
-  return reinterpret_cast<ObjIdx*>(off);
-}
-#endif
-
 uint32_t Span::CalcReciprocal(size_t size) {
   // Calculate scaling factor. We want to avoid dividing by the size of the
   // object. Instead we'll multiply by a scaled version of the reciprocal.
