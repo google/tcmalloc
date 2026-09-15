@@ -720,7 +720,12 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       num_spans++;
       auto [span, prev_index] = FirstNonEmptySpan();
       if (ABSL_PREDICT_FALSE(!span)) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
         result += Populate(batch.subspan(result));
+#else
+        result += Populate(
+            absl::MakeSpan(batch.data() + result, batch.size() - result));
+#endif
         break;
       }
 
@@ -788,7 +793,12 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   // TODO(b/538576012): Use a recommended API for this.
   size_t size = batch.size();
   ASSUME(result <= size);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
+#else
+  forwarder_.InvokeRemoveRangeHook(size_class_,
+                                   absl::MakeSpan(batch.data(), result));
+#endif
   return result;
 }
 
