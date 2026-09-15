@@ -228,8 +228,12 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   void AddSpanStats(SmallSpanStats* absl_nullable small,
                     LargeSpanStats* absl_nullable large) const;
-  bool HasDenseSpans() const { return has_dense_spans_; }
-  void SetHasDenseSpans() { has_dense_spans_ = true; }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool HasDenseSpans() const {
+    return has_dense_spans_;
+  }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void SetHasDenseSpans() {
+    has_dense_spans_ = true;
+  }
 
   struct HugePageResidencyState {
     // Records the unbacked bitmap for this hugepage. In terms of TCMalloc
@@ -387,7 +391,8 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   HugePageResidencyState hugepage_residency_state_;
 
-  [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool ReleasePages(
+      Range r, MemoryModifyFunction& unback) {
     bool success = unback(r).success;
     if (ABSL_PREDICT_TRUE(success)) {
       unbroken_ = false;
@@ -396,9 +401,10 @@ class PageTracker : public TList<PageTracker>::Elem {
   }
 };
 
-inline typename PageTracker::PageAllocation PageTracker::Get(
-    Length n, SpanAllocInfo span_alloc_info) {
-  size_t index = free_.FindAndMark(n.raw_num());
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE typename PageTracker::PageAllocation
+PageTracker::Get(Length n, SpanAllocInfo span_alloc_info) {
+  const size_t raw_n = n.raw_num();
+  size_t index = free_.FindAndMark(raw_n);
   num_objects_ += span_alloc_info.objects_per_span;
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
@@ -410,8 +416,8 @@ inline typename PageTracker::PageAllocation PageTracker::Get(
   //
   // This is a performance optimization, not a logical requirement.
   if (ABSL_PREDICT_FALSE(released_count_ > 0)) {
-    unbacked = released_by_page_.CountBits(index, n.raw_num());
-    released_by_page_.ClearRange(index, n.raw_num());
+    unbacked = released_by_page_.CountBits(index, raw_n);
+    released_by_page_.ClearRange(index, raw_n);
     TC_ASSERT_GE(released_count_, unbacked);
     released_count_ -= unbacked;
   }
@@ -465,42 +471,20 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   size_t count = 0;
   size_t index = 0;
   size_t n;
-  // For purposes of tracking, pages which are not yet released are "free" in
-  // the released_by_page_ bitmap.  We subrelease these pages in an iterative
-  // process:
-  //
-  // 1.  Identify the next range of still backed pages.
-  // 2.  Iterate on the free_ tracker within this range.  For any free range
-  //     found, mark these as unbacked.
-  // 3.  Release the subrange to the OS.
-  while (released_by_page_.NextFreeRange(index, &index, &n)) {
-    size_t free_index;
-    size_t free_n;
-
-    // Check for freed pages in this unreleased region.
-    if (free_.NextFreeRange(index, &free_index, &free_n) &&
-        free_index < index + n) {
-      // If there is a free range which overlaps with [index, index+n), release
-      // it.
-      size_t end = std::min(free_index + free_n, index + n);
-
-      // In debug builds, verify [free_index, end) is backed.
-      size_t length = end - free_index;
-      TC_ASSERT_EQ(released_by_page_.CountBits(free_index, length), 0);
-      PageId p = location_.first_page() + Length(free_index);
-
-      if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
-        // Mark pages as released.  Amortize the update to release_count_.
-        released_by_page_.SetRange(free_index, length);
-        count += length;
-      }
-
-      index = end;
-    } else {
-      // [index, index+n) did not have an overlapping range in free_, move to
-      // the next backed range of pages.
-      index += n;
+  // Pages eligible for release are those that are neither allocated (set in
+  // free_.bits()) nor already released (set in released_by_page_).  By taking
+  // the bitwise OR of both bitmaps (4 64-bit words), any 0-bit range in
+  // `unavailable` corresponds to a maximal contiguous range of backed, free
+  // pages.
+  const PageBitmap unavailable = released_by_page_ | free_.bits();
+  while (unavailable.NextFreeRange(index, &index, &n)) {
+    TC_ASSERT_EQ(released_by_page_.CountBits(index, n), 0);
+    PageId p = location_.first_page() + Length(index);
+    if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(n)), unback))) {
+      released_by_page_.SetRange(index, n);
+      count += n;
     }
+    index += n;
   }
 
   released_count_ += count;
