@@ -461,6 +461,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   const bool use_prepend =
       cfl_subbucket_prioritization_ == CflSubbucketPrioritization::kDisabled;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const bool was_empty = span->FreelistEmpty(object_size, objects_per_span);
   if (!kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
     const uint8_t index = GetFirstNonEmptyIndex();
@@ -470,6 +471,17 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
 
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
+#else
+  const uint16_t prev_allocated = span->Allocated();
+  const bool was_empty = (prev_allocated == objects_per_span);
+  if (!kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
+    const uint8_t index = GetFirstNonEmptyIndex();
+    nonempty_.Add(span, index, use_prepend);
+    span->set_nonempty_index(index);
+  }
+
+  const uint8_t prev_index = span->nonempty_index();
+#endif
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
   if (ABSL_PREDICT_FALSE(
           !span->FreelistPushBatch(batch, object_size, size_reciprocal))) {
