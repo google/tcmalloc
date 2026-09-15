@@ -688,7 +688,6 @@ create_tcmalloc_testsuite(
         "notsan",
     ],
     deps = [
-        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",

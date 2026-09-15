@@ -288,12 +288,6 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"},
     },
     {
-        "name": "tcmalloc_madv_sampled_holdback",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_MADVISE_SAMPLED_ALLOCATIONS_HOLDBACK"},
-    },
-    {
         "name": "tcmalloc_cfl_subbucket_prioritization",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
