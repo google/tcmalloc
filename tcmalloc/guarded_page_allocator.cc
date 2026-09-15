@@ -107,7 +107,7 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
   const int64_t guarded_sampling_interval =
       tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_interval();
   // Guarded sampling is disabled if guarded_sampling_interval is negative.
-  if (guarded_sampling_interval < 0) {
+  if (ABSL_PREDICT_FALSE(guarded_sampling_interval < 0)) {
     return {nullptr, Profile::Sample::GuardedStatus::Disabled};
   }
   // Never filter if guarded_sampling_interval == 0, or no samples yet.
@@ -122,32 +122,27 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
     // later than the next sampled allocation. Recall that sampled allocations
     // are a superset of guarded sampled allocations, and num_sampled is always
     // incremented _after_ num_guarded.
-    //
-    // Assuming that the number of total samples (num_sampled) must always be
-    // larger or equal to the guarded samples (num_guarded), and allow for a
-    // target num_sampled:num_guarded ratio with up to 1 decimal place, the
-    // above can be rewritten as:
-    //
-    //  guarded_interval * 10 >
-    //     ((num_sampled * 10) / num_guarded) * profile_interval
-    //
-    // This avoids possible overflow if num_sampled or num_guarded grows larger,
-    // when individually multiplied by the intervals. We can avoid floating
-    // point math as well.
     const int64_t profile_sampling_interval =
         tcmalloc::tcmalloc_internal::Parameters::profile_sampling_interval();
     const int64_t num_sampled = tc_globals.total_sampled_count_.value();
+#ifdef ABSL_HAVE_INTRINSIC_INT128
+    if (static_cast<__int128>(num_guarded) * guarded_sampling_interval >
+        static_cast<__int128>(num_sampled) * profile_sampling_interval) {
+      return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
+    }
+#else
     const int64_t ratio = (num_sampled * 10) / num_guarded;
     if (guarded_sampling_interval * 10 > ratio * profile_sampling_interval) {
       return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
     }
+#endif
 
     if (stacktrace_filter_.Contains({stack_trace.stack, stack_trace.depth})) {
       // The probability that we skip a currently covered allocation scales
       // proportional to pool utilization, with pool utilization of 50% or more
       // resulting in always filtering currently covered allocations.
-      const size_t usage_pct = (allocated_pages() * 100) / max_allocated_pages_;
-      if (rand_.Next() % 50 <= usage_pct) {
+      if ((rand_.Next() % 50) * max_allocated_pages_ <=
+          allocated_pages() * 100) {
         // Decay even if the current allocation is filtered, so that we keep
         // sampling even if we only see the same allocations over and over.
         stacktrace_filter_.Decay();
