@@ -18,6 +18,7 @@
 #include <cstddef>
 
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
@@ -66,7 +67,7 @@ class HintedTrackerLists {
   PeekResult PeekLeast(const size_t n) {
     TC_ASSERT_LT(n, N);
     size_t i = nonempty_.FindSet(n);
-    if (i == N) {
+    if (ABSL_PREDICT_FALSE(i == N)) {
       return {nullptr, N};
     }
     TC_ASSERT(!lists_[i].empty());
