@@ -207,8 +207,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   //
   // If the freelist becomes full, we do not push the object onto the freelist.
   template <typename T>
-  [[nodiscard]] bool FreelistPushBatch(absl::Span<T> batch, size_t size,
-                                       uint32_t reciprocal) __restrict__;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool FreelistPushBatch(
+      absl::Span<T> batch, size_t size, uint32_t reciprocal) __restrict__;
 
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
@@ -415,10 +415,10 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] size_t ListPopBatch(void** __restrict batch, size_t N,
                                     size_t size) __restrict__;
 
-  [[nodiscard]] bool ListPushBatch(absl::Span<void*> batch,
-                                   size_t size) __restrict__;
-  [[nodiscard]] bool ListPushBatch(absl::Span<ObjIdx> batch,
-                                   size_t size) __restrict__;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool ListPushBatch(
+      absl::Span<void*> batch, size_t size) __restrict__;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool ListPushBatch(
+      absl::Span<ObjIdx> batch, size_t size) __restrict__;
 
   // For spans containing 64 or fewer objects, indicate that the object at the
   // index has been returned. Always returns true.
@@ -478,8 +478,8 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
 }
 
 template <typename T>
-inline bool Span::FreelistPushBatch(absl::Span<T> batch, size_t size,
-                                    uint32_t reciprocal) __restrict__ {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool Span::FreelistPushBatch(
+    absl::Span<T> batch, size_t size, uint32_t reciprocal) __restrict__ {
   TC_ASSERT(!is_large_or_sampled());
   const auto allocated = allocated_.load(std::memory_order_relaxed);
   TC_ASSERT_GE(allocated, batch.size());
@@ -495,16 +495,17 @@ inline bool Span::FreelistPushBatch(absl::Span<T> batch, size_t size,
   return ListPushBatch(batch, size);
 }
 
-inline bool Span::ListPushBatch(absl::Span<void*> batch,
-                                size_t size) __restrict__ {
-  if (cache_size_ < kCacheSize) {
-    auto cache_writes = std::min(kCacheSize - cache_size_, batch.size());
-    for (int i = 0; i < cache_writes; ++i) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool Span::ListPushBatch(
+    absl::Span<void*> batch, size_t size) __restrict__ {
+  const size_t csize = cache_size_;
+  if (csize < kCacheSize) {
+    const size_t cache_writes = std::min(kCacheSize - csize, batch.size());
+    for (size_t i = 0; i < cache_writes; ++i) {
       // Have empty space in the cache, push there.
       const ObjIdx idx = PtrToIdx(batch[i], size);
-      list_.cache[cache_size_ + i] = idx;
+      list_.cache[csize + i] = idx;
     }
-    cache_size_ += cache_writes;
+    cache_size_ = csize + cache_writes;
     batch.remove_prefix(cache_writes);
   }
 
@@ -523,36 +524,57 @@ inline bool Span::ListPushBatch(absl::Span<void*> batch,
   }
 #endif
 
+  ObjIdx freelist = freelist_;
+  uint16_t embed_count = embed_count_;
+
+  ObjIdx* __restrict host;
+  if (ABSL_PREDICT_TRUE(freelist != kListEnd)) {
+    host = IdxToPtr(freelist, size, start);
+  } else {
+    void* ptr = batch[0];
+    batch.remove_prefix(1);
+    host = static_cast<ObjIdx*>(ptr);
+    *host = kListEnd;
+    freelist = PtrToIdx(ptr, size);
+    embed_count = 0;
+  }
+
+  TC_ASSERT_NE(freelist, kListEnd);
+
+  // -1 because the first slot is used by freelist link.
+  const size_t limit = size / sizeof(ObjIdx) - 1;
+
   for (void* ptr : batch) {
     const ObjIdx idx = PtrToIdx(ptr, size);
-
-    if (ABSL_PREDICT_TRUE(freelist_ != kListEnd) &&
-        // -1 because the first slot is used by freelist link.
-        ABSL_PREDICT_TRUE(embed_count_ != size / sizeof(ObjIdx) - 1)) {
+    if (ABSL_PREDICT_TRUE(embed_count != limit)) {
       // Push onto the first object on freelist.
-      ObjIdx* __restrict host = IdxToPtr(freelist_, size, start);
-      embed_count_++;
-      host[embed_count_] = idx;
+      embed_count++;
+      host[embed_count] = idx;
     } else {
       // Push onto freelist.
-      *reinterpret_cast<ObjIdx*>(ptr) = freelist_;
-      freelist_ = idx;
-      embed_count_ = 0;
+      ObjIdx* __restrict new_host = static_cast<ObjIdx*>(ptr);
+      *new_host = freelist;
+      freelist = idx;
+      embed_count = 0;
+      host = new_host;
     }
   }
+  freelist_ = freelist;
+  embed_count_ = embed_count;
   return true;
 }
 
-inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
-                                size_t size) __restrict__ {
-  if (cache_size_ < kCacheSize) {
-    auto cache_writes = std::min(kCacheSize - cache_size_, batch.size());
-    for (int i = 0; i < cache_writes; ++i) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool Span::ListPushBatch(
+    absl::Span<Span::ObjIdx> batch, size_t size) __restrict__ {
+  const size_t csize = cache_size_;
+  if (csize < kCacheSize) {
+    const size_t cache_writes = std::min(kCacheSize - csize, batch.size());
+    for (size_t i = 0; i < cache_writes; ++i) {
       // Have empty space in the cache, push there.
       const ObjIdx idx = batch[i];
-      list_.cache[cache_size_ + i] = idx;
+      list_.cache[csize + i] = idx;
     }
-    cache_size_ += cache_writes;
+    cache_size_ = csize + cache_writes;
     batch.remove_prefix(cache_writes);
   }
 
