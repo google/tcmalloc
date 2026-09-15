@@ -186,19 +186,19 @@ class TransferCache {
     TC_ASSERT(!batch.empty());
     TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (info.used) {
+    if (ABSL_PREDICT_TRUE(info.used > 0)) {
       AllocationGuardSpinLockHolder h(lock_);
       // Refetch with the lock
       info = slot_info_.load(std::memory_order_relaxed);
       int got = std::min<int>(batch.size(), info.used);
-      if (got) {
+      if (ABSL_PREDICT_TRUE(got > 0)) {
         info.used -= got;
         SetSlotInfo(info);
-        void** entry = GetSlot(info.used);
-        memcpy(batch.data(), entry, sizeof(void*) * got);
+        low_water_mark_ = std::min(low_water_mark_, info.used);
         remove_hits_.LossyAdd(1);
         remove_object_hits_.LossyAdd(got);
-        low_water_mark_ = std::min(low_water_mark_, info.used);
+        void** entry = GetSlot(info.used);
+        memcpy(batch.data(), entry, sizeof(void*) * got);
         return got;
       }
     }

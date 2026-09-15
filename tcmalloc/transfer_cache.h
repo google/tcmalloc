@@ -441,7 +441,8 @@ class TransferCacheManager : public StaticForwarder {
     cache_[size_class].tc.InsertRange(size_class, batch);
   }
 
-  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE int RemoveRange(
+      int size_class, absl::Span<void*> batch) {
     return cache_[size_class].tc.RemoveRange(size_class, batch);
   }
 
