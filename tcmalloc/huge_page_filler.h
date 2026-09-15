@@ -1192,36 +1192,64 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   bool was_released = false;
   const AccessDensityPrediction type = span_alloc_info.density;
   do {
-    const size_t listindex =
-        type == AccessDensityPrediction::kSparse
-            ? SparseListFor(n, /*chunk=*/0)
-            : DenseListFor(/*nallocs=*/kPagesPerHugePage.raw_num() - 1);
-    pt = regular_alloc_.GetLeast(type, listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      break;
-    }
-    if (ABSL_PREDICT_TRUE(type == AccessDensityPrediction::kSparse)) {
-      pt = donated_alloc_.GetLeast(n.raw_num());
-      if (pt) {
+    if (type == AccessDensityPrediction::kSparse) {
+      const size_t listindex = SparseListFor(n, /*chunk=*/0);
+      pt = regular_alloc_.sparse.GetLeast(listindex);
+      if (ABSL_PREDICT_TRUE(pt != nullptr)) {
+        TC_ASSERT(!pt->donated());
         break;
       }
-    }
-    pt = regular_alloc_partial_released_.GetLeast(type, listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      was_released = true;
-      TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
-      n_used_partial_released_[type] -= pt->used_pages();
-      break;
-    }
-    pt = regular_alloc_released_.GetLeast(type, listindex);
-    if (pt) {
-      TC_ASSERT(!pt->donated());
-      was_released = true;
-      TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
-      n_used_released_[type] -= pt->used_pages();
-      break;
+      pt = donated_alloc_.GetLeast(n.raw_num());
+      if (pt != nullptr) {
+        break;
+      }
+      pt = regular_alloc_partial_released_.sparse.GetLeast(listindex);
+      if (pt != nullptr) {
+        TC_ASSERT(!pt->donated());
+        was_released = true;
+        TC_ASSERT_GE(n_used_partial_released_[AccessDensityPrediction::kSparse],
+                     pt->used_pages());
+        n_used_partial_released_[AccessDensityPrediction::kSparse] -=
+            pt->used_pages();
+        break;
+      }
+      pt = regular_alloc_released_.sparse.GetLeast(listindex);
+      if (pt != nullptr) {
+        TC_ASSERT(!pt->donated());
+        was_released = true;
+        TC_ASSERT_GE(n_used_released_[AccessDensityPrediction::kSparse],
+                     pt->used_pages());
+        n_used_released_[AccessDensityPrediction::kSparse] -= pt->used_pages();
+        break;
+      }
+    } else {
+      constexpr size_t kDenseListIndex = 1;
+      TC_ASSERT_EQ(DenseListFor(/*nallocs=*/kPagesPerHugePage.raw_num() - 1),
+                   kDenseListIndex);
+      pt = regular_alloc_.dense.GetLeast(kDenseListIndex);
+      if (ABSL_PREDICT_TRUE(pt != nullptr)) {
+        TC_ASSERT(!pt->donated());
+        break;
+      }
+      pt = regular_alloc_partial_released_.dense.GetLeast(kDenseListIndex);
+      if (pt != nullptr) {
+        TC_ASSERT(!pt->donated());
+        was_released = true;
+        TC_ASSERT_GE(n_used_partial_released_[AccessDensityPrediction::kDense],
+                     pt->used_pages());
+        n_used_partial_released_[AccessDensityPrediction::kDense] -=
+            pt->used_pages();
+        break;
+      }
+      pt = regular_alloc_released_.dense.GetLeast(kDenseListIndex);
+      if (pt != nullptr) {
+        TC_ASSERT(!pt->donated());
+        was_released = true;
+        TC_ASSERT_GE(n_used_released_[AccessDensityPrediction::kDense],
+                     pt->used_pages());
+        n_used_released_[AccessDensityPrediction::kDense] -= pt->used_pages();
+        break;
+      }
     }
 
     return {nullptr, PageId{0}, false};
@@ -1236,7 +1264,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const auto now = clock_.now();
 #endif
-  if (pt->GetTagState().sampled_for_tagging) {
+  if (ABSL_PREDICT_FALSE(pt->GetTagState().sampled_for_tagging)) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     const auto now = clock_.now();
 #endif
@@ -1254,7 +1282,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 
   // If it was in a released state earlier, and is about to be full again,
   // record that the state has been toggled back and update the stat counter.
-  if (was_released && !pt->released() && !pt->was_released()) {
+  if (ABSL_PREDICT_FALSE(was_released) && !pt->released() &&
+      !pt->was_released()) {
     pt->set_was_released(/*status=*/true);
     ++n_was_released_[type];
   }
@@ -1325,15 +1354,13 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     TrackerType* pt, Range r, SpanAllocInfo span_alloc_info) {
   RemoveFromFillerList(pt);
   pt->Put(r, span_alloc_info);
-  if (pt->HasDenseSpans()) {
-    TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kDense], r.n);
-    pages_allocated_[AccessDensityPrediction::kDense] -= r.n;
-  } else {
-    TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kSparse], r.n);
-    pages_allocated_[AccessDensityPrediction::kSparse] -= r.n;
-  }
+  const AccessDensityPrediction type = pt->HasDenseSpans()
+                                           ? AccessDensityPrediction::kDense
+                                           : AccessDensityPrediction::kSparse;
+  TC_ASSERT_GE(pages_allocated_[type], r.n);
+  pages_allocated_[type] -= r.n;
 
-  if (pt->longest_free_range() == kPagesPerHugePage) {
+  if (ABSL_PREDICT_FALSE(pt->longest_free_range() == kPagesPerHugePage)) {
     TC_ASSERT_EQ(pt->nallocs(), 0);
     --size_;
     if (pt->released()) {
@@ -1361,17 +1388,13 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
 
     if (pt->was_released()) {
       pt->set_was_released(/*status=*/false);
-      if (pt->HasDenseSpans()) {
-        --n_was_released_[AccessDensityPrediction::kDense];
-      } else {
-        --n_was_released_[AccessDensityPrediction::kSparse];
-      }
+      --n_was_released_[type];
     }
 
     if (!pt->DontFreeTracker()) {
       RecordLifetime(pt);
       UpdateFillerStatsTracker();
-      if (pt->GetTagState().sampled_for_tagging) {
+      if (ABSL_PREDICT_FALSE(pt->GetTagState().sampled_for_tagging)) {
         // Set the default region name if the tracked was sampled.
         pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
       }
