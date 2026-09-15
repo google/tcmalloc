@@ -574,7 +574,7 @@ create_tcmalloc_testsuite(
     name = "memory_errors_test",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    shard_count = 3,
+    shard_count = 20,
     tags = [
         "nohwasan",
         "nomsan",
