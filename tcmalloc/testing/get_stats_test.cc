@@ -158,7 +158,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   } else {
     EXPECT_THAT(buf, HasSubstr("madvise_cold_regions_nohugepage: false"));
   }
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_cold_pages: false"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_cold_pages: true"));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
   if (MallocExtension::PerCpuCachesActive()) {
@@ -281,7 +281,7 @@ TEST_F(GetStatsTest, Parameters) {
                   HasSubstr(R"(PARAMETER madvise_cold_regions_nohugepage 0)"));
     }
     EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_release_max_cold_pages 0)"));
+                HasSubstr(R"(PARAMETER tcmalloc_release_max_cold_pages 1)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 0)"));
     if (using_hpaa(buf)) {
@@ -291,7 +291,7 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: -1)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: false)"));
-    EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_release_max_cold_pages: false)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_release_max_cold_pages: true)"));
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
