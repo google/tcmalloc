@@ -1476,6 +1476,7 @@ create_tcmalloc_testsuite(
     name = "new_extension_test",
     srcs = ["new_extension_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    shard_count = 6,
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:is_aligned_to",
