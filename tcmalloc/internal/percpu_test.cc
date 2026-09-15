@@ -29,6 +29,15 @@
 namespace tcmalloc::tcmalloc_internal::subtle::percpu {
 namespace {
 
+// percpu.h is the first include of this TU, so the RSEQ gate must be
+// evaluated without relying on macros provided by later includes.
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+static_assert(TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM == 0,
+              "RSEQ must be disabled under HWASan");
+static_assert(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ == 0,
+              "RSEQ must be disabled under HWASan");
+#endif
+
 ABSL_CONST_INIT std::atomic<int> alarms{0};
 
 void sa_alrm(int sig) {
