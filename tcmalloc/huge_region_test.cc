@@ -1231,6 +1231,250 @@ TEST(HugeRegionNamedVmaTest, NamedVmaCold) {
                     mock_set_anon_vma_name);
 }
 
+TEST_F(HugeRegionTest, ReentrantUnbackDuringReleaseDisjointRuns) {
+  // Allocate 5 hugepages: HP 0, 1, 2, 3, 4.
+  Alloc a[5];
+  for (int i = 0; i < 5; ++i) {
+    a[i] = Allocate(kPagesPerHugePage);
+  }
+
+  // Free HP 0, 2, 4 without releasing so they form 3 disjoint backed-free runs.
+  region_.Put(Range(a[0].p, a[0].n), /*release=*/false);
+  region_.Put(Range(a[2].p, a[2].n), /*release=*/false);
+  region_.Put(Range(a[4].p, a[4].n), /*release=*/false);
+  EXPECT_EQ(region_.free_backed(), NHugePages(3));
+
+  int unback_calls = 0;
+  std::vector<Alloc> reentrant_allocs;
+  EXPECT_CALL(*mock_, Unback(testing::_, testing::_))
+      .WillRepeatedly(testing::Invoke([&](PageId p,
+                                          Length len) -> MemoryModifyStatus {
+        ++unback_calls;
+
+        // Pass 1 must have decremented free_backed() for all 3 runs before
+        // the first unback_ call.
+        EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+        // Verify stats and AddSpanStats invariants while unback_ is in
+        // flight.
+        EXPECT_EQ(region_.used_pages() + region_.free_pages() +
+                      region_.unmapped_pages(),
+                  region_.size().in_pages());
+
+        SmallSpanStats small{};
+        LargeSpanStats large{};
+        region_.AddSpanStats(&small, &large);
+        Length small_normal, small_returned;
+        for (size_t i = 0; i < kMaxPages.raw_num(); ++i) {
+          small_normal += Length(i * small.normal_length[i]);
+          small_returned += Length(i * small.returned_length[i]);
+        }
+        EXPECT_EQ(small_normal + large.normal_pages, region_.free_pages());
+        EXPECT_EQ(small_returned + large.returned_pages,
+                  region_.unmapped_pages());
+
+        BackingStats stats = region_.stats();
+        EXPECT_EQ(stats.system_bytes, region_.size().in_bytes());
+        EXPECT_EQ(stats.free_bytes, region_.free_pages().in_bytes());
+        EXPECT_EQ(stats.unmapped_bytes, region_.unmapped_pages().in_bytes());
+
+        if (unback_calls == 1) {
+          // Reentrant allocation must not touch any of the in-flight
+          // unbacking hugepages (HP 0, 2, 4).
+          PageId reentrant_p;
+          bool from_released;
+          EXPECT_TRUE(region_.MaybeGet(kPagesPerHugePage, &reentrant_p,
+                                       &from_released));
+          EXPECT_NE(reentrant_p, a[0].p);
+          EXPECT_NE(reentrant_p, a[2].p);
+          EXPECT_NE(reentrant_p, a[4].p);
+          reentrant_allocs.push_back({reentrant_p, kPagesPerHugePage, 0});
+
+          // Reentrant Release must see 0 free_backed hugepages.
+          EXPECT_EQ(region_.Release(kPagesPerHugePage,
+                                    /*adaptive_release=*/false),
+                    NHugePages(0));
+        }
+
+        return {.success = true, .error_number = 0};
+      }));
+
+  HugeLength released =
+      region_.Release(NHugePages(3).in_pages(), /*adaptive_release=*/false);
+  EXPECT_EQ(released, NHugePages(3));
+  EXPECT_EQ(unback_calls, 3);
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  for (const auto& ra : reentrant_allocs) {
+    region_.Put(Range(ra.p, ra.n), /*release=*/false);
+  }
+  Delete(a[1]);
+  Delete(a[3]);
+}
+
+TEST_F(HugeRegionTest, ReentrantUnbackDuringPut) {
+  Alloc a0 = Allocate(NHugePages(2).in_pages());
+  Alloc a1 = Allocate(kPagesPerHugePage);
+  // Free a1 without releasing so HP 2 is free-backed.
+  region_.Put(Range(a1.p, a1.n), /*release=*/false);
+  EXPECT_EQ(region_.free_backed(), NHugePages(1));
+
+  int unback_calls = 0;
+  EXPECT_CALL(*mock_, Unback(testing::_, testing::_))
+      .WillRepeatedly(
+          testing::Invoke([&](PageId p, Length len) -> MemoryModifyStatus {
+            ++unback_calls;
+
+            EXPECT_EQ(region_.used_pages() + region_.free_pages() +
+                          region_.unmapped_pages(),
+                      region_.size().in_pages());
+
+            SmallSpanStats small{};
+            LargeSpanStats large{};
+            region_.AddSpanStats(&small, &large);
+            Length small_normal, small_returned;
+            for (size_t i = 0; i < kMaxPages.raw_num(); ++i) {
+              small_normal += Length(i * small.normal_length[i]);
+              small_returned += Length(i * small.returned_length[i]);
+            }
+            EXPECT_EQ(small_normal + large.normal_pages, region_.free_pages());
+            EXPECT_EQ(small_returned + large.returned_pages,
+                      region_.unmapped_pages());
+
+            if (unback_calls == 1) {
+              // Trigger a reentrant Release of HP 2 while Put is unbacking
+              // HP 0..1.
+              EXPECT_EQ(region_.Release(kPagesPerHugePage,
+                                        /*adaptive_release=*/false),
+                        NHugePages(1));
+            }
+            return {.success = true, .error_number = 0};
+          }));
+
+  // Freeing a0 with release=true unbacks HP 0..1, and its callback reentrantly
+  // releases HP 2.
+  region_.Put(Range(a0.p, a0.n), /*release=*/true);
+  EXPECT_EQ(unback_calls, 2);
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+  EXPECT_EQ(region_.unmapped_pages(), region_.size().in_pages());
+}
+
+TEST_P(HugeRegionSetTest, ReentrantUnbackOperations) {
+  class CallbackUnback : public MemoryModifyFunction {
+   public:
+    std::function<void(Range)> callback;
+    MemoryModifyStatus operator()(Range r) override {
+      if (callback) callback(r);
+      return {.success = true, .error_number = 0};
+    }
+  };
+
+  CallbackUnback cb_unback;
+  std::vector<std::unique_ptr<Region>> regions;
+  for (int i = 0; i < 3; ++i) {
+    regions.push_back(std::make_unique<Region>(
+        HugeRange{next_, Region::size()}, cb_unback, nil_set_anon_vma_name_));
+    next_ += Region::size();
+    set_.Contribute(regions.back().get());
+  }
+
+  auto verify_invariants = [&]() {
+    HugeLength expected_free_backed = NHugePages(0);
+    BackingStats expected_stats{};
+    for (const auto& r : regions) {
+      expected_free_backed += r->free_backed();
+      expected_stats += r->stats();
+      EXPECT_EQ(r->used_pages() + r->free_pages() + r->unmapped_pages(),
+                r->size().in_pages());
+    }
+    EXPECT_EQ(set_.free_backed(), expected_free_backed);
+
+    BackingStats actual_stats = set_.stats();
+    EXPECT_EQ(actual_stats.system_bytes, expected_stats.system_bytes);
+    EXPECT_EQ(actual_stats.free_bytes, expected_stats.free_bytes);
+    EXPECT_EQ(actual_stats.unmapped_bytes, expected_stats.unmapped_bytes);
+
+    SmallSpanStats small{};
+    LargeSpanStats large{};
+    set_.AddSpanStats(&small, &large);
+    Length total_normal, total_returned;
+    for (size_t i = 0; i < kMaxPages.raw_num(); ++i) {
+      total_normal += Length(i * small.normal_length[i]);
+      total_returned += Length(i * small.returned_length[i]);
+    }
+    total_normal += large.normal_pages;
+    total_returned += large.returned_pages;
+    EXPECT_EQ(total_normal.in_bytes(), actual_stats.free_bytes);
+    EXPECT_EQ(total_returned.in_bytes(), actual_stats.unmapped_bytes);
+  };
+
+  // Allocate several hugepages across the regions.
+  std::vector<Range> allocs;
+  for (int i = 0; i < 12; ++i) {
+    PageId p;
+    bool from_released;
+    ASSERT_TRUE(set_.MaybeGet(kPagesPerHugePage, &p, &from_released));
+    allocs.push_back(Range{p, kPagesPerHugePage});
+  }
+  verify_invariants();
+
+  // Free every other allocation without releasing so regions have disjoint
+  // free_backed hugepages.
+  for (size_t i = 0; i < allocs.size(); i += 2) {
+    for (auto& r : regions) {
+      if (r->contains(allocs[i].p)) {
+        r->Put(allocs[i], /*release=*/false);
+        break;
+      }
+    }
+  }
+  verify_invariants();
+
+  int callback_count = 0;
+  int reentrant_depth = 0;
+  cb_unback.callback = [&](Range r) {
+    ++callback_count;
+    verify_invariants();
+
+    if (reentrant_depth == 0) {
+      ++reentrant_depth;
+
+      // 1. Reentrant MaybeGet (reorders list_ via Fix).
+      PageId p;
+      bool from_released;
+      if (set_.MaybeGet(kPagesPerHugePage, &p, &from_released)) {
+        verify_invariants();
+        // 2. Reentrant MaybePut (modifies free_backed_count_ and reorders
+        // list_).
+        EXPECT_TRUE(set_.MaybePut(Range{p, kPagesPerHugePage}));
+        verify_invariants();
+      }
+
+      // 3. Reentrant ReleasePages while outer ReleasePages / MaybePut is in
+      // flight.
+      set_.ReleasePages(kPagesPerHugePage, /*use_adaptive=*/true,
+                        /*hit_limit=*/true);
+      verify_invariants();
+
+      --reentrant_depth;
+    }
+  };
+
+  // Trigger ReleasePages across the set.
+  Length released = set_.ReleasePages(NHugePages(6).in_pages(),
+                                      /*use_adaptive=*/UseHugeRegionMoreOften(),
+                                      /*hit_limit=*/true);
+  EXPECT_GT(released, Length(0));
+  EXPECT_GT(callback_count, 0);
+  verify_invariants();
+
+  // Also test MaybePut triggering unback when !UseHugeRegionMoreOften().
+  for (size_t i = 1; i < allocs.size(); i += 2) {
+    EXPECT_TRUE(set_.MaybePut(allocs[i]));
+    verify_invariants();
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(
     All, HugeRegionSetTest,
     testing::Values(HugeRegionUsageOption::kDefault,
