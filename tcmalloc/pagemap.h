@@ -13,7 +13,8 @@
 // limitations under the License.
 //
 // A data structure used by the caching malloc.  It maps from page# to
-// a pointer that contains info about that page using a two-level array.
+// a pointer that contains info about that page using a three-level radix
+// tree.
 //
 // The BITS parameter should be the number of bits required to hold
 // a page number.  E.g., with 48-bit virtual address space and 8K pages
@@ -48,7 +49,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// Two-level radix tree
 typedef void* (*PagemapAllocator)(size_t);
 void* MetaDataAlloc(size_t bytes);
 
@@ -76,7 +76,6 @@ class PackedSpanAndSizeclass {
 };
 
 // Three-level radix tree
-// Currently only used for TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 template <int BITS, PagemapAllocator Allocator>
 class PageMap3 {
  private:
