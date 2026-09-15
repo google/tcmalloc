@@ -312,7 +312,7 @@ class ScopedFakeCpuId {
 // Clang, which is why we need this conditional.
 #if (defined(__clang__) || defined(__INTEL_COMPILER))
 #define PRAGMA_NO_UNROLL _Pragma("nounroll")
-#elif (defined(__GNUC__) || defined(__GCUG__))
+#elif defined(__GNUC__)
 // GCC does not always respect "#pragma unroll <N>". The most reliable approach
 // is therefore to completely disable optimizations for this source file.
 #pragma GCC optimize("O0")
