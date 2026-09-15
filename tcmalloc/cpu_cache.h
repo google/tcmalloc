@@ -713,7 +713,7 @@ class CpuCache {
 
   // Tries to grow freelist <size_class> on the current <cpu> by up to
   // <desired_increase> objects if there is available capacity.
-  void Grow(int cpu, size_t size_class, size_t desired_increase);
+  size_t Grow(int cpu, size_t size_class, size_t desired_increase);
 
   // Depending on the number of misses that cpu caches encountered in the
   // previous resize interval, returns if slabs should be grown, shrunk or
@@ -1254,7 +1254,7 @@ inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
   // half of the batches we have. We do this to save on the cost of hitting
   // malloc/free slow path, reduce instruction cache pollution, avoid cache
   // misses when accessing transfer/central caches, etc.
-  const size_t max = (1 << std::min<uint32_t>(successive, 10)) * batch_length;
+  const size_t max = batch_length << std::min<uint32_t>(successive, 10);
   // Aim at returning/refilling roughly half of objects.
   // Round up odd sizes, e.g. if the capacity is 3, we want to refill 2 objects.
   // Also always add 1 to the result to account for the additional object
@@ -1319,7 +1319,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   }
   bool grow_by_batch =
       resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
-  if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
+  if ((grow_by_one || grow_by_batch) && capacity < max_capacity) {
     size_t increase = 1;
     if (grow_by_batch) {
       increase = std::min(batch_length, max_capacity - capacity);
@@ -1328,14 +1328,13 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
       // what we want to request from transfer cache.
       increase = batch_length - capacity;
     }
-    Grow(cpu, size_class, increase);
-    capacity = freelist_.Capacity(cpu, size_class);
+    capacity += Grow(cpu, size_class, increase);
   }
   // We hit the maximum capacity limit when the size class capacity is equal to
   // its maximum allowed capacity. Record a miss due to that so that we can
   // potentially grow the max capacity for this size class later.
-  if (capacity == max_capacity) {
-    resize_[cpu].per_class[size_class].RecordMiss(
+  if (capacity >= max_capacity) {
+    resize.per_class[size_class].RecordMiss(
         PerClassMissType::kMaxCapacityTotal);
   }
   return TargetOverflowRefillCount(capacity, batch_length, successive);
@@ -1380,8 +1379,8 @@ inline size_t subtract_at_least(std::atomic<size_t>* a, size_t min,
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
-                                      size_t desired_increase) {
+inline size_t CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
+                                        size_t desired_increase) {
   const size_t size = forwarder_.class_to_size(size_class);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes =
@@ -1391,7 +1390,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
         PerClassMissType::kCapacityTotal);
   }
   if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
-    return;
+    return 0;
   }
   size_t actual_increase = acquired_bytes / size;
   TC_ASSERT_GT(actual_increase, 0);
@@ -1404,6 +1403,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
     // return whatever we didn't use to the slack.
     resize_[cpu].available.fetch_add(unused, std::memory_order_relaxed);
   }
+  return increase;
 }
 
 template <class Forwarder>
