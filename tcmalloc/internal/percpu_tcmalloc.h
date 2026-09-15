@@ -244,11 +244,11 @@ class TcmallocSlab {
   // cached and the cpu is not stopped. Returns the current cpu and the flag
   // if the offset was previously uncached and is now cached. If the cpu
   // is stopped, returns {-1, true}.
-  std::pair<int, bool> CacheCpuSlab();
+  ABSL_ATTRIBUTE_ALWAYS_INLINE std::pair<int, bool> CacheCpuSlab();
 
   // Uncaches the slab offset for the current thread, so that the next Push/Pop
   // operation will return false.
-  void UncacheCpuSlab();
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void UncacheCpuSlab();
 
   // Synchronization protocol between local and remote operations.
   // This class supports a set of cpu local operations (Push/Pop/
@@ -440,7 +440,7 @@ class TcmallocSlab {
   void InitCpuImpl(void* slabs, Shift shift, int cpu,
                    absl::FunctionRef<size_t(size_t)> capacity);
 
-  std::pair<int, bool> CacheCpuSlabSlow();
+  ABSL_ATTRIBUTE_NOINLINE std::pair<int, bool> CacheCpuSlabSlow();
 
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
@@ -648,11 +648,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
                                                          T v) {
   uintptr_t scratch = 0;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
+  static_assert(TCMALLOC_CACHED_SLABS_BIT == 63);
   asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
           R"(
-      xorq %[scratch], %[scratch]
-      btq $%c[cached_slabs_bit], %[rseq_slabs_addr]
-      jnc 5f
+      xorl %k[scratch], %k[scratch]
+      cmpq $0, %[rseq_slabs_addr]
+      jns 5f
       movl $1, %k[scratch]
       mov %[v], %[p]
       5 :)"
@@ -964,7 +965,8 @@ inline size_t TcmallocSlab<NumClasses>::Grow(
 }
 
 template <size_t NumClasses>
-inline std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlab() {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE std::pair<int, bool>
+TcmallocSlab<NumClasses>::CacheCpuSlab() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   if (ABSL_PREDICT_FALSE((tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) == 0)) {
     return CacheCpuSlabSlow();
@@ -975,7 +977,8 @@ inline std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlab() {
 }
 
 template <size_t NumClasses>
-inline void TcmallocSlab<NumClasses>::UncacheCpuSlab() {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void
+TcmallocSlab<NumClasses>::UncacheCpuSlab() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   tcmalloc_slabs = 0;
 #endif
@@ -1140,21 +1143,24 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
-std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
+ABSL_ATTRIBUTE_NOINLINE std::pair<int, bool>
+TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
   TC_ASSERT(!(tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK));
   int vcpu = -1;
+  const CpuState* const state_data = state_.data();
+  const size_t n_cpus = num_cpus();
   for (;;) {
     tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
     CompilerBarrier();
     vcpu = VirtualCpu::Synchronize();
     TC_ASSERT_GE(vcpu, 0);
-    TC_ASSERT_LT(vcpu, num_cpus());
+    TC_ASSERT_LT(vcpu, n_cpus);
     auto slabs_and_shift = slabs_and_shift_.load(std::memory_order_relaxed);
     const auto [slabs, shift] = slabs_and_shift.Get();
     void* start = CpuMemoryStart(slabs, shift, vcpu);
     uintptr_t new_val =
         reinterpret_cast<uintptr_t>(start) | TCMALLOC_CACHED_SLABS_MASK;
-    if (!StoreCurrentCpu(&tcmalloc_slabs, new_val)) {
+    if (ABSL_PREDICT_FALSE(!StoreCurrentCpu(&tcmalloc_slabs, new_val))) {
       continue;
     }
     // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may
@@ -1164,7 +1170,8 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
     // stopped_ and a Fence in ResizeSlabs, this prevents possibility of
     // mismatching shift/slabs.
     CompilerBarrier();
-    if (state_[vcpu].stopped.load(std::memory_order_acquire)) {
+    if (ABSL_PREDICT_FALSE(
+            state_data[vcpu].stopped.load(std::memory_order_acquire))) {
       tcmalloc_slabs = 0;
       return {-1, true};
     }
@@ -1189,7 +1196,8 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
     // retry, but changing slabs back also implies another Fence, so this thread
     // won't have old slabs cached already (Fence invalidates the cached
     // pointer).
-    if (slabs_and_shift != slabs_and_shift_.load(std::memory_order_relaxed)) {
+    if (ABSL_PREDICT_FALSE(slabs_and_shift !=
+                           slabs_and_shift_.load(std::memory_order_relaxed))) {
       continue;
     }
     return {vcpu, true};
