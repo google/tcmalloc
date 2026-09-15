@@ -161,10 +161,14 @@ class TransferCache {
       info = slot_info_.load(std::memory_order_relaxed);
       int got = std::min(N, info.capacity - info.used);
       if (got > 0) {
+        void** entry = GetSlot(info.used);
         info.used += got;
         SetSlotInfo(info);
-        void** entry = GetSlot(info.used - got);
-        memcpy(entry, batch.data(), sizeof(void*) * got);
+        if (got == 1) {
+          *entry = batch[0];
+        } else {
+          memcpy(entry, batch.data(), sizeof(void*) * got);
+        }
         insert_hits_.LossyAdd(1);
         if (got == N) {
           return;
@@ -195,7 +199,11 @@ class TransferCache {
         info.used -= got;
         SetSlotInfo(info);
         void** entry = GetSlot(info.used);
-        memcpy(batch.data(), entry, sizeof(void*) * got);
+        if (got == 1) {
+          *batch.data() = *entry;
+        } else {
+          memcpy(batch.data(), entry, sizeof(void*) * got);
+        }
         remove_hits_.LossyAdd(1);
         remove_object_hits_.LossyAdd(got);
         low_water_mark_ = std::min(low_water_mark_, info.used);
