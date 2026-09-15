@@ -1447,11 +1447,30 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
       return;
     }
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    // Replace the worst candidate at the root and sift down.
+    size_t parent = 0;
+    const size_t len = current_candidates;
+    while (true) {
+      size_t left = 2 * parent + 1;
+      if (left >= len) break;
+      size_t right = left + 1;
+      size_t child = (right < len &&
+                      CompareForSubrelease(candidates[left], candidates[right]))
+                         ? right
+                         : left;
+      if (!CompareForSubrelease(&pt, candidates[child])) break;
+      candidates[parent] = candidates[child];
+      parent = child;
+    }
+    candidates[parent] = &pt;
+#else
     std::pop_heap(candidates.begin(), candidates.begin() + current_candidates,
                   CompareForSubrelease);
     candidates[current_candidates - 1] = &pt;
     std::push_heap(candidates.begin(), candidates.begin() + current_candidates,
                    CompareForSubrelease);
+#endif
   };
 
   tracker_list.Iter(PushCandidate, tracker_start);
