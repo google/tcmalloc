@@ -127,7 +127,7 @@ struct SampleEqWithSubFields {
                       s.guarded_status, s.type);
     };
     return fields(a) == fields(b) &&
-           std::equal(a.stack, a.stack + a.depth, b.stack, b.stack + b.depth);
+           std::memcmp(a.stack, b.stack, a.depth * sizeof(a.stack[0])) == 0;
   }
 };
 
@@ -432,6 +432,7 @@ void ProfileBuilder::InternCallstack(absl::Span<const void* const> stack,
   // Profile addresses are raw stack unwind addresses, so they should be
   // adjusted by -1 to land inside the call instruction (although potentially
   // misaligned).
+  sample.mutable_location_id()->Reserve(stack.size());
   for (const void* frame : stack) {
     int id = InternLocation(
         absl::bit_cast<const void*>(absl::bit_cast<uintptr_t>(frame) - 1));
@@ -526,23 +527,62 @@ int ProfileBuilder::AddMapping(uintptr_t memory_start, uintptr_t memory_limit,
   return mapping_id;
 }
 
+struct CommonSampleTagIds {
+  explicit CommonSampleTagIds(ProfileBuilder& builder)
+      : alignment_id(builder.InternString("alignment")),
+        bytes_id(builder.InternString("bytes")),
+        request_id(builder.InternString("request")),
+        size_returning_id(builder.InternString("size_returning")),
+        access_hint_id(builder.InternString("access_hint")),
+        access_allocated_id(builder.InternString("access_allocated")),
+        cold_id(builder.InternString("cold")),
+        hot_id(builder.InternString("hot")),
+        token_id(builder.InternString("token_id")),
+        allocation_type_id(builder.InternString("allocation type")),
+        new_id(builder.InternString("new")),
+        malloc_id(builder.InternString("malloc")),
+        aligned_malloc_id(builder.InternString("aligned malloc")),
+        guarded_status_id(builder.InternString("guarded_status")),
+        larger_than_one_page_id(builder.InternString("LargerThanOnePage")),
+        disabled_id(builder.InternString("Disabled")),
+        rate_limited_id(builder.InternString("RateLimited")),
+        no_available_slots_id(builder.InternString("NoAvailableSlots")),
+        m_protect_failed_id(builder.InternString("MProtectFailed")),
+        filtered_id(builder.InternString("Filtered")),
+        not_attempted_id(builder.InternString("NotAttempted")),
+        requested_id(builder.InternString("Requested")),
+        required_id(builder.InternString("Required")),
+        guarded_id(builder.InternString("Guarded")) {}
+
+  const int alignment_id;
+  const int bytes_id;
+  const int request_id;
+  const int size_returning_id;
+  const int access_hint_id;
+  const int access_allocated_id;
+  const int cold_id;
+  const int hot_id;
+  const int token_id;
+  const int allocation_type_id;
+  const int new_id;
+  const int malloc_id;
+  const int aligned_malloc_id;
+  const int guarded_status_id;
+  const int larger_than_one_page_id;
+  const int disabled_id;
+  const int rate_limited_id;
+  const int no_available_slots_id;
+  const int m_protect_failed_id;
+  const int filtered_id;
+  const int not_attempted_id;
+  const int requested_id;
+  const int required_id;
+  const int guarded_id;
+};
+
 static void AddCommonSampleTags(const tcmalloc::Profile::Sample& entry,
                                 perftools::profiles::Sample& sample,
-                                ProfileBuilder& builder) {
-  const int alignment_id = builder.InternString("alignment");
-  const int bytes_id = builder.InternString("bytes");
-  const int request_id = builder.InternString("request");
-  const int size_returning_id = builder.InternString("size_returning");
-  const int access_hint_id = builder.InternString("access_hint");
-  const int access_allocated_id = builder.InternString("access_allocated");
-  const int cold_id = builder.InternString("cold");
-  const int hot_id = builder.InternString("hot");
-  const int token_id = builder.InternString("token_id");
-  const int allocation_type_id = builder.InternString("allocation type");
-  const int new_id = builder.InternString("new");
-  const int malloc_id = builder.InternString("malloc");
-  const int aligned_malloc_id = builder.InternString("aligned malloc");
-
+                                const CommonSampleTagIds& tags) {
   // add fields that are common to all memory profiles
   auto add_label = [&](int key, int unit, size_t value) {
     perftools::profiles::Label& label = *sample.add_label();
@@ -556,13 +596,13 @@ static void AddCommonSampleTags(const tcmalloc::Profile::Sample& entry,
     add_label(key, unit, value);
   };
 
-  add_positive_label(bytes_id, bytes_id, entry.allocated_size);
-  add_positive_label(request_id, bytes_id, entry.requested_size);
+  add_positive_label(tags.bytes_id, tags.bytes_id, entry.allocated_size);
+  add_positive_label(tags.request_id, tags.bytes_id, entry.requested_size);
   if (entry.requested_alignment.has_value()) {
-    add_positive_label(alignment_id, bytes_id,
+    add_positive_label(tags.alignment_id, tags.bytes_id,
                        static_cast<size_t>(*entry.requested_alignment));
   }
-  add_positive_label(size_returning_id, 0, entry.requested_size_returning);
+  add_positive_label(tags.size_returning_id, 0, entry.requested_size_returning);
 
   auto add_access_label = [&](int key,
                               tcmalloc::Profile::Sample::Access access) {
@@ -570,13 +610,13 @@ static void AddCommonSampleTags(const tcmalloc::Profile::Sample& entry,
       case tcmalloc::Profile::Sample::Access::Hot: {
         perftools::profiles::Label& access_label = *sample.add_label();
         access_label.set_key(key);
-        access_label.set_str(hot_id);
+        access_label.set_str(tags.hot_id);
         break;
       }
       case tcmalloc::Profile::Sample::Access::Cold: {
         perftools::profiles::Label& access_label = *sample.add_label();
         access_label.set_key(key);
-        access_label.set_str(cold_id);
+        access_label.set_str(tags.cold_id);
         break;
       }
       default:
@@ -584,71 +624,59 @@ static void AddCommonSampleTags(const tcmalloc::Profile::Sample& entry,
     }
   };
 
-  add_label(access_hint_id, access_hint_id,
+  add_label(tags.access_hint_id, tags.access_hint_id,
             static_cast<uint8_t>(entry.access_hint));
-  add_access_label(access_allocated_id, entry.access_allocated);
+  add_access_label(tags.access_allocated_id, entry.access_allocated);
 
-  add_label(token_id, token_id, static_cast<uint8_t>(entry.token_id));
+  add_label(tags.token_id, tags.token_id, static_cast<uint8_t>(entry.token_id));
 
   perftools::profiles::Label& type_label = *sample.add_label();
-  type_label.set_key(allocation_type_id);
+  type_label.set_key(tags.allocation_type_id);
 
   switch (entry.type) {
     case AllocationType::New:
-      type_label.set_str(new_id);
+      type_label.set_str(tags.new_id);
       break;
     case AllocationType::Malloc:
-      type_label.set_str(malloc_id);
+      type_label.set_str(tags.malloc_id);
       break;
     case AllocationType::AlignedMalloc:
-      type_label.set_str(aligned_malloc_id);
+      type_label.set_str(tags.aligned_malloc_id);
       break;
   }
 
-  const int guarded_status_id = builder.InternString("guarded_status");
-  const int larger_than_one_page_id = builder.InternString("LargerThanOnePage");
-  const int disabled_id = builder.InternString("Disabled");
-  const int rate_limited_id = builder.InternString("RateLimited");
-  const int no_available_slots_id = builder.InternString("NoAvailableSlots");
-  const int m_protect_failed_id = builder.InternString("MProtectFailed");
-  const int filtered_id = builder.InternString("Filtered");
-  const int not_attempted_id = builder.InternString("NotAttempted");
-  const int requested_id = builder.InternString("Requested");
-  const int required_id = builder.InternString("Required");
-  const int guarded_id = builder.InternString("Guarded");
-
   perftools::profiles::Label& guarded_status_label = *sample.add_label();
-  guarded_status_label.set_key(guarded_status_id);
+  guarded_status_label.set_key(tags.guarded_status_id);
   switch (entry.guarded_status) {
     case Profile::Sample::GuardedStatus::LargerThanOnePage:
-      guarded_status_label.set_str(larger_than_one_page_id);
+      guarded_status_label.set_str(tags.larger_than_one_page_id);
       break;
     case Profile::Sample::GuardedStatus::Disabled:
-      guarded_status_label.set_str(disabled_id);
+      guarded_status_label.set_str(tags.disabled_id);
       break;
     case Profile::Sample::GuardedStatus::RateLimited:
-      guarded_status_label.set_str(rate_limited_id);
+      guarded_status_label.set_str(tags.rate_limited_id);
       break;
     case Profile::Sample::GuardedStatus::NoAvailableSlots:
-      guarded_status_label.set_str(no_available_slots_id);
+      guarded_status_label.set_str(tags.no_available_slots_id);
       break;
     case Profile::Sample::GuardedStatus::MProtectFailed:
-      guarded_status_label.set_str(m_protect_failed_id);
+      guarded_status_label.set_str(tags.m_protect_failed_id);
       break;
     case Profile::Sample::GuardedStatus::Filtered:
-      guarded_status_label.set_str(filtered_id);
+      guarded_status_label.set_str(tags.filtered_id);
       break;
     case Profile::Sample::GuardedStatus::NotAttempted:
-      guarded_status_label.set_str(not_attempted_id);
+      guarded_status_label.set_str(tags.not_attempted_id);
       break;
     case Profile::Sample::GuardedStatus::Requested:
-      guarded_status_label.set_str(requested_id);
+      guarded_status_label.set_str(tags.requested_id);
       break;
     case Profile::Sample::GuardedStatus::Required:
-      guarded_status_label.set_str(required_id);
+      guarded_status_label.set_str(tags.required_id);
       break;
     case Profile::Sample::GuardedStatus::Guarded:
-      guarded_status_label.set_str(guarded_id);
+      guarded_status_label.set_str(tags.guarded_id);
       break;
     default:
       ABSL_UNREACHABLE();
@@ -715,6 +743,8 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
   const int deallocation_time_id = builder->InternString("deallocation_time");
   const int requested_size_id = builder->InternString("requested_size");
 
+  const CommonSampleTagIds common_tag_ids(*builder);
+
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     perftools::profiles::Sample& sample = *converted.add_sample();
 
@@ -755,7 +785,7 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
           }
         };
 
-    AddCommonSampleTags(entry, sample, *builder);
+    AddCommonSampleTags(entry, sample, common_tag_ids);
 
     // The following fields are specific to lifetime (deallocation) profiler.
     add_positive_label(callstack_pair_id, count_id, entry.profile_id);
@@ -952,6 +982,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   SampleMergedMap samples = MergeProfileSamplesAndMaybeGetResidencyInfo(
       profile, pageflags, residency, exporting_compressibility);
+  const CommonSampleTagIds common_tag_ids(builder);
+  converted.mutable_sample()->Reserve(samples.size());
   for (const auto& [entry, data] : samples) {
     perftools::profiles::Profile& profile = builder.profile();
     perftools::profiles::Sample& sample = *profile.add_sample();
@@ -984,7 +1016,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       add_label(key, unit, value);
     };
 
-    AddCommonSampleTags(entry, sample, builder);
+    AddCommonSampleTags(entry, sample, common_tag_ids);
 
     add_positive_label(stale_scan_period_id, seconds_id,
                        data.stale_scan_period.value_or(0));
