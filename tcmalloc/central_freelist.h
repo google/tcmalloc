@@ -617,7 +617,16 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       idx[i] = spans[i]->PtrToIdx(batch[i], object_size);
     }
   }
+  uint8_t steps[kMaxObjectsToMove];
   int runs = 0;
+  for (int i = 0; i < batch.size();) {
+    int j = i + 1;
+    while (j < batch.size() && spans[j] == spans[i]) {
+      ++j;
+    }
+    steps[runs++] = j - i;
+    i = j;
+  }
 #endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   // Safe to store free spans into freed up space in span array.
@@ -628,19 +637,10 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // and collect spans that become completely free.
   {
     CentralFreeListLockHolder h(lock_);
-    for (int i = 0; i < batch.size();) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    for (int i = 0; i < batch.size();) {
       const absl::Span<void*> b{&batch[i], 1};
       const size_t step = 1;
-#else
-      int j = i + 1;
-      while (j < batch.size() && spans[j] == spans[i]) {
-        ++j;
-      }
-      const size_t step = j - i;
-      const absl::Span<Span::ObjIdx> b{&idx[i], step};
-      ++runs;
-#endif
 
       Span* span = ReleaseToSpans(b, spans[i], object_size, size_reciprocal,
                                   objects_per_span);
@@ -650,6 +650,20 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       }
       i += step;
     }
+#else
+    int i = 0;
+    for (int r = 0; r < runs; ++r) {
+      const size_t step = steps[r];
+      const absl::Span<Span::ObjIdx> b{&idx[i], step};
+      Span* span = ReleaseToSpans(b, spans[i], object_size, size_reciprocal,
+                                  objects_per_span);
+      if (ABSL_PREDICT_FALSE(span)) {
+        free_spans[free_count] = span;
+        free_count++;
+      }
+      i += step;
+    }
+#endif
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     const int same_span = batch.size() - runs;
