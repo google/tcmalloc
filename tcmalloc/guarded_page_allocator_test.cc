@@ -157,6 +157,10 @@ TEST_F(GuardedPageAllocatorTest, MismatchedAlignment) {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
   GTEST_SKIP() << "Skipping slow death test under ASan";
 #endif
+  constexpr size_t kDefaultAlignment =
+      std::max(static_cast<size_t>(kAlignment),
+               static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__));
+
   for (size_t align = 1; align <= PageSize(); align <<= 1) {
     for (size_t misalign = 1; misalign <= align; misalign <<= 1) {
       constexpr size_t alloc_size = 1;
@@ -169,12 +173,23 @@ TEST_F(GuardedPageAllocatorTest, MismatchedAlignment) {
       EXPECT_EQ(reinterpret_cast<uintptr_t>(alloc_with_status.alloc) % align,
                 0);
 
-      EXPECT_DEATH(
-          {
-            gpa_.Deallocate(absl::bit_cast<void*>(
-                absl::bit_cast<uintptr_t>(alloc_with_status.alloc) + misalign));
-          },
-          "CHECK in AddrToSlot|Attempted to free corrupted pointer");
+      void* misaligned = absl::bit_cast<void*>(
+          absl::bit_cast<uintptr_t>(alloc_with_status.alloc) + misalign);
+      EXPECT_FALSE(gpa_.PointerIsCorrectlyAligned(misaligned));
+
+      // Each EXPECT_DEATH re-executes the test binary, so only a representative
+      // subset of (align, misalign) pairs exercises Deallocate(): misaligning
+      // by one byte keeps the pointer within the object page, while misaligning
+      // by a full alignment unit moves it onto the guard page for right-aligned
+      // (or page-aligned) allocations.
+      const bool death_case =
+          (misalign == 1 && align == kDefaultAlignment) ||
+          (misalign == align &&
+           (align == 1 || align == kDefaultAlignment || align == PageSize()));
+      if (death_case) {
+        EXPECT_DEATH(gpa_.Deallocate(misaligned),
+                     "CHECK in AddrToSlot|Attempted to free corrupted pointer");
+      }
 
       gpa_.Deallocate(alloc_with_status.alloc);
     }
