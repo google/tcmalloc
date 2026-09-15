@@ -44,13 +44,11 @@ ABSL_CONST_INIT bool ShardedStaticForwarder::use_generic_cache_(false);
 ABSL_CONST_INIT bool
     ShardedStaticForwarder::enable_cache_for_large_classes_only_(false);
 
-void BackingTransferCache::InsertRange(absl::Span<void*> batch) const {
-  tc_globals.transfer_cache().InsertRange(size_class_, batch);
-}
-
-[[nodiscard]] int BackingTransferCache::RemoveRange(
-    const absl::Span<void*> batch) const {
-  return tc_globals.transfer_cache().RemoveRange(size_class_, batch);
+void BackingTransferCache::Init(
+    int size_class, central_freelist_internal::CflSubbucketPrioritization
+                        cfl_subbucket_prioritization) {
+  size_class_ = size_class;
+  cache_ = &tc_globals.transfer_cache().cache_[size_class].tc;
 }
 
 #endif

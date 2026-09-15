@@ -105,19 +105,25 @@ class ProdCpuLayout {
   }
 };
 
+class TransferCacheManager;
+
 // Forwards calls to the unsharded TransferCache.
 class BackingTransferCache {
  public:
+  using BackingCache =
+      internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
+                                             TransferCacheManager>;
+
   void Init(int size_class,
             central_freelist_internal::CflSubbucketPrioritization
-                cfl_subbucket_prioritization) {
-    size_class_ = size_class;
-  }
-  void InsertRange(absl::Span<void*> batch) const;
-  [[nodiscard]] int RemoveRange(absl::Span<void*> batch) const;
+                cfl_subbucket_prioritization);
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void InsertRange(absl::Span<void*> batch) const;
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE int RemoveRange(
+      absl::Span<void*> batch) const;
   int size_class() const { return size_class_; }
 
  private:
+  BackingCache* cache_ = nullptr;
   int size_class_ = -1;
 };
 
@@ -427,6 +433,7 @@ class TransferCacheManager : public StaticForwarder {
       internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
                                              TransferCacheManager>;
 
+  friend class BackingTransferCache;
   friend class FakeMultiClassTransferCacheManager;
 
  public:
@@ -571,6 +578,16 @@ class TransferCacheManager : public StaticForwarder {
   };
   Cache cache_[kNumClasses];
 } ABSL_CACHELINE_ALIGNED;
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void BackingTransferCache::InsertRange(
+    absl::Span<void*> batch) const {
+  cache_->InsertRange(size_class_, batch);
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline int BackingTransferCache::RemoveRange(
+    absl::Span<void*> batch) const {
+  return cache_->RemoveRange(size_class_, batch);
+}
 
 #else
 
