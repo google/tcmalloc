@@ -18,6 +18,7 @@
 #include <sys/prctl.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -139,9 +140,6 @@ class TestStaticForwarder : private Parameters {
   using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
   TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
     numa_topology_.Init();
-
-    absl::base_internal::SpinLockHolder l(vma_name_mu_);
-    vma_name_calls_.reserve(10);
   }
 
   void InitializeShardedManager(int num_shards) {
@@ -197,32 +195,43 @@ class TestStaticForwarder : private Parameters {
     size_t size;
     char name[64] = {0};
   };
+  // CpuCache names slab regions while holding every resize_ lock and an
+  // AllocationGuard, so SetAnonVmaName must not allocate.  Calls are recorded
+  // in fixed storage; those beyond kMaxVmaNameCalls are counted but dropped.
+  static constexpr size_t kMaxVmaNameCalls = 256;
   absl::base_internal::SpinLock vma_name_mu_;
-  std::vector<SetAnonVmaNameCall> vma_name_calls_ ABSL_GUARDED_BY(vma_name_mu_);
+  std::array<SetAnonVmaNameCall, kMaxVmaNameCalls> vma_name_calls_
+      ABSL_GUARDED_BY(vma_name_mu_);
+  size_t num_vma_name_calls_ ABSL_GUARDED_BY(vma_name_mu_) = 0;
 
   std::vector<SetAnonVmaNameCall> vma_name_calls() {
     absl::base_internal::SpinLockHolder l(vma_name_mu_);
-    return vma_name_calls_;
+    return std::vector<SetAnonVmaNameCall>(
+        vma_name_calls_.begin(),
+        vma_name_calls_.begin() +
+            std::min(num_vma_name_calls_, kMaxVmaNameCalls));
   }
 
   void clear_vma_name_calls() {
     absl::base_internal::SpinLockHolder l(vma_name_mu_);
-    vma_name_calls_.clear();
+    num_vma_name_calls_ = 0;
   }
 
   void SetAnonVmaName(void* ptr, size_t size,
                       std::optional<absl::string_view> name) {
-    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) % kHugePageSize, 0);
-    EXPECT_EQ(size % kHugePageSize, 0);
+    TC_CHECK_EQ(reinterpret_cast<uintptr_t>(ptr) % kHugePageSize, 0);
+    TC_CHECK_EQ(size % kHugePageSize, 0);
     TC_CHECK(name.has_value());
-    {
-      absl::base_internal::SpinLockHolder l(vma_name_mu_);
-      auto& elem = vma_name_calls_.emplace_back();
-      elem.ptr = ptr;
-      elem.size = size;
-      memcpy(elem.name, name->data(),
-             std::min(name->size(), sizeof(elem.name) - 1));
-    }
+
+    absl::base_internal::SpinLockHolder l(vma_name_mu_);
+    const size_t index = num_vma_name_calls_++;
+    if (index >= kMaxVmaNameCalls) return;
+    SetAnonVmaNameCall& elem = vma_name_calls_[index];
+    elem.ptr = ptr;
+    elem.size = size;
+    const size_t len = std::min(name->size(), sizeof(elem.name) - 1);
+    memcpy(elem.name, name->data(), len);
+    elem.name[len] = '\0';
   }
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t /*alignment*/) {
@@ -1814,6 +1823,54 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
 
     cache.Deactivate();
   }
+}
+
+// Every unpopulate names the released slab region while CpuCache holds all
+// resize_ locks and an AllocationGuard.  Repeated unpopulates must be recorded
+// by the forwarder without allocating.
+TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateRepeated) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.forwarder().release_drained_slab_metadata_ = true;
+  cache.Activate();
+
+  const int num_cpus = NumCPUs();
+  const auto shift =
+      subtle::percpu::ToShiftType(CpuCachePeer::GetSlabShift(cache));
+  if (subtle::percpu::GetSlabsAllocSize(shift, num_cpus) < 3 * kHugePageSize) {
+    cache.Deactivate();
+    GTEST_SKIP() << "Not enough CPUs to run test";
+  }
+
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.clear_vma_name_calls();
+
+  constexpr int kIterations = 32;
+  for (int i = 0; i < kIterations; ++i) {
+    SCOPED_TRACE(absl::StrFormat("Iteration: %d", i));
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      ColdCacheOperations(cache, cpu, /*size_class=*/1);
+    }
+    // The first pass snapshots usage; the second observes it unchanged with
+    // no misses, drains every CPU, and unpopulates whole hugepages.
+    cache.TryDrainingCaches();
+    cache.TryDrainingCaches();
+    EXPECT_EQ(cache.GetNumDrains(), (i + 1) * num_cpus);
+    EXPECT_GT(cache.GetNumUnpopulates(), i);
+  }
+
+  int drained_names = 0;
+  for (const auto& call : forwarder.vma_name_calls()) {
+    if (absl::StartsWith(call.name, "tcmalloc_cpu_slab_drained_")) {
+      ++drained_names;
+    }
+  }
+  EXPECT_GE(drained_names, kIterations);
+
+  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateConcurrent) {
