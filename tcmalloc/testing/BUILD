@@ -70,7 +70,7 @@ create_tcmalloc_testsuite(
         "//conditions:default": None,
     }),
     linkstatic = 1,  # get the most realistic performance
-    shard_count = 20,
+    shard_count = 3,
     visibility = [
         "//tcmalloc:__pkg__",
     ],
@@ -126,9 +126,6 @@ cc_test(
     srcs = ["tcmalloc_fuzzer.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     malloc = "//tcmalloc/internal:system_malloc",
-    # Each FUZZ_TEST spends ~1 s in FuzzTest's unit-test-mode watchdog loop
-    # regardless of its own work, so ~20 cases need ~10 shards to stay <5 s.
-    shard_count = 10,
     tags = [
         "noasan",
         "nomsan",
@@ -359,7 +356,6 @@ cc_test(
     env = {"BORG_EXPERIMENTS": ""},
     linkstatic = 1,
     malloc = "//tcmalloc",
-    shard_count = 2,
     tags = [
         "noasan",
         "nomsan",
@@ -512,7 +508,6 @@ create_tcmalloc_testsuite(
     srcs = ["limit_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    shard_count = 11,
     tags = [
         "noasan",
         "nomsan",
@@ -575,10 +570,12 @@ create_tcmalloc_testsuite(
 
 create_tcmalloc_testsuite(
     name = "memory_errors_test",
-    timeout = "long",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    shard_count = 20,
+    # Death tests re-exec the binary for every expected crash; static linking
+    # keeps each child's startup cheap.
+    linkstatic = 1,
+    shard_count = 3,
     tags = [
         "nohwasan",
         "nomsan",
@@ -830,7 +827,6 @@ create_tcmalloc_testsuite(
     name = "drain_test",
     srcs = ["drain_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    shard_count = 2,
     tags = [
         "noasan",
         "nomsan",
@@ -887,7 +883,6 @@ create_tcmalloc_testsuite(
     name = "deallocation_profiler_test",
     srcs = ["deallocation_profiler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    shard_count = 2,
     tags = [
         "noasan",
         "nomsan",
@@ -924,6 +919,7 @@ cc_test(
         "//tcmalloc/internal:proc_maps",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/debugging:leak_check",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",

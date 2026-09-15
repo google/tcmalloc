@@ -221,7 +221,10 @@ TEST_P(ReadWriteTcMallocTest, ZeroByteAccessDetected) {
 
   const bool write_test = GetParam();
   auto RepeatZeroByteAccess = [&]() {
-    for (int i = 0; i < 100000000; i++) {
+    // Zero-byte allocations only advance the sampler by a single byte each, so
+    // sample every allocation to obtain a guarded one quickly.
+    ScopedAlwaysSample always_sample;
+    for (int i = 0; i < 10000; i++) {
       auto buf = std::make_unique<char[]>(0);
       benchmark::DoNotOptimize(buf);
 
@@ -333,16 +336,24 @@ TEST_F(TcMallocTest, OverflowWriteDetectedAtFree) {
 }
 
 TEST_F(TcMallocTest, ReallocNoFalsePositive) {
+  // Sample every allocation so that the guarded reallocation path is exercised
+  // without needing millions of iterations.
   ScopedAlwaysSample always_sample;
-  ScopedGuardedSamplingInterval gs(0);
+
+  bool guarded = false;
   for (int i = 0; i < 1000; i++) {
     auto sink_buf = reinterpret_cast<char*>(malloc(kPageSize - 1));
     benchmark::DoNotOptimize(sink_buf);
+    guarded |= tc_globals.guardedpage_allocator().PointerIsMine(sink_buf);
     sink_buf = reinterpret_cast<char*>(realloc(sink_buf, kPageSize));
     sink_buf[kPageSize - 1] = '\0';
     benchmark::DoNotOptimize(sink_buf);
     free(sink_buf);
   }
+
+#if !ABSL_HAVE_ADDRESS_SANITIZER && !ABSL_HAVE_HWADDRESS_SANITIZER
+  EXPECT_TRUE(guarded) << "Failed to allocate with GWP-ASan";
+#endif  // !ABSL_HAVE_ADDRESS_SANITIZER
 }
 
 TEST_F(TcMallocTest, OffsetAndLength) {
@@ -537,10 +548,7 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
   }
 }
 
-class MismatchedSampledTest : public TcMallocTest,
-                              public testing::WithParamInterface<size_t> {};
-
-TEST_P(MismatchedSampledTest, MismatchedSampled) {
+TEST_F(TcMallocTest, MismatchedSampled) {
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
@@ -549,8 +557,9 @@ TEST_P(MismatchedSampledTest, MismatchedSampled) {
   // Sampled allocations should be able to provide a richer error (precise
   // size/allocation stack) when there is a mismatch in provided sizes.
 
-  const size_t size = GetParam();
-  {
+  constexpr size_t kSizes[] = {0u, tcmalloc_internal::kMaxSize + 1u,
+                               tcmalloc_internal::kHugePageSize};
+  for (const size_t size : kSizes) {
     const size_t likely_size = MallocExtension::GetEstimatedAllocatedSize(size);
     SCOPED_TRACE(absl::StrCat("size=", size));
 
@@ -614,15 +623,7 @@ TEST_P(MismatchedSampledTest, MismatchedSampled) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(MismatchedSampled, MismatchedSampledTest,
-                         testing::Values(0u, tcmalloc_internal::kMaxSize + 1u,
-                                         tcmalloc_internal::kHugePageSize));
-
-class MismatchedDeleteTooLargeTest
-    : public TcMallocTest,
-      public testing::WithParamInterface<size_t> {};
-
-TEST_P(MismatchedDeleteTooLargeTest, MismatchedDeleteTooLarge) {
+TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "ASan will trap ahead of us";
@@ -639,8 +640,9 @@ TEST_P(MismatchedDeleteTooLargeTest, MismatchedDeleteTooLarge) {
     return r;
   };
 
-  const size_t size = GetParam();
-  {
+  constexpr size_t kSizes[] = {0u, tcmalloc_internal::kMaxSize + 1u,
+                               tcmalloc_internal::kHugePageSize};
+  for (const size_t size : kSizes) {
     const size_t likely_size = MallocExtension::GetEstimatedAllocatedSize(size);
     SCOPED_TRACE(absl::StrCat("size=", size));
 
@@ -692,10 +694,6 @@ TEST_P(MismatchedDeleteTooLargeTest, MismatchedDeleteTooLarge) {
     }
   }
 }
-
-INSTANTIATE_TEST_SUITE_P(MismatchedDeleteTooLarge, MismatchedDeleteTooLargeTest,
-                         testing::Values(0u, tcmalloc_internal::kMaxSize + 1u,
-                                         tcmalloc_internal::kHugePageSize));
 
 TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
@@ -796,14 +794,9 @@ TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
         for (void* ptr : ptrs) {
           ::operator delete(ptr, kSize);
         }
-        // Now double-free.  Iterate in reverse so we double-free the most
-        // recently freed pointers first.  Freeing in forward order double-frees
-        // the earliest-freed spans first; those have sat longest in the page
-        // heap and a background thread may have reallocated them for a
-        // different size class, which surfaces as a mismatched-size-class error
-        // rather than the double-free this test asserts.
-        for (auto it = ptrs.rbegin(); it != ptrs.rend(); ++it) {
-          ::operator delete(*it, kSize);
+        // Now double-free.
+        for (void* ptr : ptrs) {
+          ::operator delete(ptr, kSize);
         }
       },
       absl::StrCat(
@@ -811,14 +804,15 @@ TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
           ")"));
 }
 
-class CorruptedPointerTest
-    : public TcMallocTest,
-      public testing::WithParamInterface<std::tuple<bool, bool, size_t>> {};
-
-TEST_P(CorruptedPointerTest, CorruptedPointer) {
+TEST_F(TcMallocTest, CorruptedPointer) {
 #if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "HWASan does not currently detect alloc-dealloc-mismatch.";
 #endif
+
+  constexpr size_t kSizes[] = {
+      8u,
+      tcmalloc_internal::kMaxSize + 1,
+  };
 
   constexpr size_t kMisalignment[] = {
       1,
@@ -836,14 +830,16 @@ TEST_P(CorruptedPointerTest, CorruptedPointer) {
       tcmalloc::hot_cold_t{255},
   };
 
-  const auto [sampled, guarded, size] = GetParam();
-  SCOPED_TRACE(absl::StrCat("sampled=", sampled, ",guarded=", guarded));
-  if (!sampled && guarded) {
-    return;
-  }
-  {
-    {
-      {
+  for (const bool sampled : {true, false}) {
+    SCOPED_TRACE(absl::StrCat("sampled=", sampled));
+
+    for (const bool guarded : {true, false}) {
+      SCOPED_TRACE(absl::StrCat("guarded=", guarded));
+      if (!sampled && guarded) {
+        continue;
+      }
+
+      for (const size_t size : kSizes) {
         for (const size_t misalignment : kMisalignment) {
           if (misalignment >= size) {
             continue;
@@ -884,11 +880,6 @@ TEST_P(CorruptedPointerTest, CorruptedPointer) {
     }
   }
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    CorruptedPointer, CorruptedPointerTest,
-    testing::Combine(testing::Bool(), testing::Bool(),
-                     testing::Values(8u, tcmalloc_internal::kMaxSize + 1)));
 
 TEST_F(TcMallocTest, CorruptedPointerEdgeCases) {
 #if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
