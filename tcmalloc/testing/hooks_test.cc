@@ -14,6 +14,7 @@
 
 #include <fcntl.h>
 #include <malloc.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -526,56 +527,53 @@ TEST(TCMallocTest, GetStatsReportsHooks) {
       stats,
       HasSubstr("MALLOC HOOKS: NEW=0 DELETE=0 SAMPLED_NEW=0 SAMPLED_DELETE=0"));
 
-  // Add a hook, confirm it's reported, add a second, then remove them.
+  // The hook types are staggered so that each counter is observed at 1, then
+  // 2, then back at 0, while no two counters report the same sequence of
+  // values (so a miscounted or swapped hook list is still detected):
+  //
+  //               NEW  DELETE  SAMPLED_NEW  SAMPLED_DELETE
+  //   snapshot 1   1     1          0             0
+  //   snapshot 2   2     1          1             0
+  //   snapshot 3   0     2          2             1
+  //   snapshot 4   0     0          0             2
+  //
+  // Hooks of a type are always removed together: HookList::size() is a
+  // high-water mark, so removing just one of two identical hooks still
+  // reports 2.
   SetNewHook();
-  stats = MallocExtension::GetStats();
-  EXPECT_THAT(
-      stats,
-      HasSubstr("MALLOC HOOKS: NEW=1 DELETE=0 SAMPLED_NEW=0 SAMPLED_DELETE=0"));
-  SetNewHook();
-  stats = MallocExtension::GetStats();
-  EXPECT_THAT(
-      stats,
-      HasSubstr("MALLOC HOOKS: NEW=2 DELETE=0 SAMPLED_NEW=0 SAMPLED_DELETE=0"));
-  ResetNewHook();
-  ResetNewHook();
-
   SetDeleteHook();
   stats = MallocExtension::GetStats();
   EXPECT_THAT(
       stats,
-      HasSubstr("MALLOC HOOKS: NEW=0 DELETE=1 SAMPLED_NEW=0 SAMPLED_DELETE=0"));
+      HasSubstr("MALLOC HOOKS: NEW=1 DELETE=1 SAMPLED_NEW=0 SAMPLED_DELETE=0"));
+
+  SetNewHook();
+  SetSampledNewHook();
+  stats = MallocExtension::GetStats();
+  EXPECT_THAT(
+      stats,
+      HasSubstr("MALLOC HOOKS: NEW=2 DELETE=1 SAMPLED_NEW=1 SAMPLED_DELETE=0"));
+
+  ResetNewHook();
+  ResetNewHook();
   SetDeleteHook();
-  stats = MallocExtension::GetStats();
-  EXPECT_THAT(
-      stats,
-      HasSubstr("MALLOC HOOKS: NEW=0 DELETE=2 SAMPLED_NEW=0 SAMPLED_DELETE=0"));
-  ResetDeleteHook();
-  ResetDeleteHook();
-
   SetSampledNewHook();
-  stats = MallocExtension::GetStats();
-  EXPECT_THAT(
-      stats,
-      HasSubstr("MALLOC HOOKS: NEW=0 DELETE=0 SAMPLED_NEW=1 SAMPLED_DELETE=0"));
-  SetSampledNewHook();
-  stats = MallocExtension::GetStats();
-  EXPECT_THAT(
-      stats,
-      HasSubstr("MALLOC HOOKS: NEW=0 DELETE=0 SAMPLED_NEW=2 SAMPLED_DELETE=0"));
-  ResetSampledNewHook();
-  ResetSampledNewHook();
-
   SetSampledDeleteHook();
   stats = MallocExtension::GetStats();
   EXPECT_THAT(
       stats,
-      HasSubstr("MALLOC HOOKS: NEW=0 DELETE=0 SAMPLED_NEW=0 SAMPLED_DELETE=1"));
+      HasSubstr("MALLOC HOOKS: NEW=0 DELETE=2 SAMPLED_NEW=2 SAMPLED_DELETE=1"));
+
+  ResetDeleteHook();
+  ResetDeleteHook();
+  ResetSampledNewHook();
+  ResetSampledNewHook();
   SetSampledDeleteHook();
   stats = MallocExtension::GetStats();
   EXPECT_THAT(
       stats,
       HasSubstr("MALLOC HOOKS: NEW=0 DELETE=0 SAMPLED_NEW=0 SAMPLED_DELETE=2"));
+
   ResetSampledDeleteHook();
   ResetSampledDeleteHook();
 }
@@ -612,12 +610,17 @@ TEST(HooksTest, AllocationInHookFails) {
     GTEST_SKIP() << "Sanitizers intercept malloc/new";
   }
 
+  // The hooks below abort() while the thread may still hold pageheap_lock
+  // (delete hooks are invoked with it held).  A failure signal handler that
+  // allocates (e.g. to symbolize the stack) would then deadlock on that lock
+  // until its watchdog fires, so let SIGABRT terminate the child immediately.
   const auto new_hook = [](size_t, size_t, size_t, size_t, uint8_t,
                            tcmalloc_internal::MemoryTag) {
     ::operator delete(::operator new(1));
   };
   EXPECT_DEBUG_DEATH(
       {
+        signal(SIGABRT, SIG_DFL);
         EXPECT_TRUE(page_allocator_new_hooks.Add(new_hook));
         void* ptr = ::operator new(1024 * 1024 * 16);
         ::operator delete(ptr);
@@ -631,6 +634,7 @@ TEST(HooksTest, AllocationInHookFails) {
   };
   EXPECT_DEBUG_DEATH(
       {
+        signal(SIGABRT, SIG_DFL);
         void* ptr = ::operator new(1024 * 1024 * 16);
         EXPECT_TRUE(page_allocator_delete_hooks.Add(delete_hook));
         ::operator delete(ptr);
