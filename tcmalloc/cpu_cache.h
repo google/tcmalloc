@@ -576,17 +576,16 @@ class CpuCache {
    private:
     std::atomic<int32_t> state_;
     // state_ layout:
-    struct State {
-      // last overflow/underflow?
-      uint32_t overflow : 1;
-      // number of times Steal checked this class since the last grow
-      uint32_t quiescent_ticks : 15;
-      // number of successive overflows/underflows
-      uint32_t successive : 16;
-    };
+    //   bit 0: overflow (last miss was overflow vs underflow)
+    //   bits 1..15: quiescent_ticks (number of Steal checks since last grow)
+    //   bits 16..31: successive (number of successive overflows/underflows)
+    static constexpr uint32_t kOverflowBit = 1u << 0;
+    static constexpr uint32_t kQuiescentTicksShift = 1;
+    static constexpr uint32_t kQuiescentTicksMask = 0x7FFFu
+                                                    << kQuiescentTicksShift;
+    static constexpr uint32_t kSuccessiveShift = 16;
+    static constexpr uint32_t kSuccessiveUnit = 1u << kSuccessiveShift;
     PerClassMissCounts misses_;
-    static_assert(sizeof(State) == sizeof(std::atomic<int32_t>),
-                  "size mismatch");
   };
 
   // Helper type so we don't need to sprinkle `static_cast`s everywhere.
@@ -1246,20 +1245,20 @@ inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
 }
 
 // Calculate number of objects to return/request from transfer cache.
-inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
-                                        size_t successive) {
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t TargetOverflowRefillCount(
+    size_t capacity, size_t batch_length, size_t successive) {
   // If the freelist is large and we are hitting a series of overflows or
   // underflows, return/request several batches at once. On the first overflow
   // we return 1 batch, on the second -- 2, on the third -- 4 and so on up to
   // half of the batches we have. We do this to save on the cost of hitting
   // malloc/free slow path, reduce instruction cache pollution, avoid cache
   // misses when accessing transfer/central caches, etc.
-  const size_t max = (1 << std::min<uint32_t>(successive, 10)) * batch_length;
+  const size_t max = batch_length << std::min<size_t>(successive, 10);
   // Aim at returning/refilling roughly half of objects.
   // Round up odd sizes, e.g. if the capacity is 3, we want to refill 2 objects.
   // Also always add 1 to the result to account for the additional object
   // we need to return to the caller on refill, or return on overflow.
-  size_t target = std::min((capacity + 1) / 2 + 1, max);
+  size_t target = std::min((capacity + 3) >> 1, max);
   if (ABSL_PREDICT_FALSE(capacity == 1 && successive < 3)) {
     // If the capacity is 1, it's generally impossible to avoid bad behavior.
     // Consider refills (but the same stands for overflows): if we fetch an
@@ -1335,7 +1334,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // its maximum allowed capacity. Record a miss due to that so that we can
   // potentially grow the max capacity for this size class later.
   if (capacity == max_capacity) {
-    resize_[cpu].per_class[size_class].RecordMiss(
+    resize.per_class[size_class].RecordMiss(
         PerClassMissType::kMaxCapacityTotal);
   }
   return TargetOverflowRefillCount(capacity, batch_length, successive);
@@ -1384,16 +1383,17 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
                                       size_t desired_increase) {
   const size_t size = forwarder_.class_to_size(size_class);
   const size_t desired_bytes = desired_increase * size;
+  ResizeInfo& resize = resize_[cpu];
   size_t acquired_bytes =
-      subtract_at_least(&resize_[cpu].available, size, desired_bytes);
-  if (acquired_bytes < desired_bytes) {
-    resize_[cpu].per_class[size_class].RecordMiss(
-        PerClassMissType::kCapacityTotal);
+      subtract_at_least(&resize.available, size, desired_bytes);
+  size_t actual_increase = desired_increase;
+  if (ABSL_PREDICT_FALSE(acquired_bytes < desired_bytes)) {
+    resize.per_class[size_class].RecordMiss(PerClassMissType::kCapacityTotal);
+    if (acquired_bytes == 0) {
+      return;
+    }
+    actual_increase = acquired_bytes / size;
   }
-  if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
-    return;
-  }
-  size_t actual_increase = acquired_bytes / size;
   TC_ASSERT_GT(actual_increase, 0);
   TC_ASSERT_LE(actual_increase, desired_increase);
   // Remember, Grow may not give us all we ask for.
@@ -1402,7 +1402,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
       [&](uint8_t shift) { return GetMaxCapacity(size_class, shift); });
   if (size_t unused = acquired_bytes - increase * size) {
     // return whatever we didn't use to the slack.
-    resize_[cpu].available.fetch_add(unused, std::memory_order_relaxed);
+    resize.available.fetch_add(unused, std::memory_order_relaxed);
   }
 }
 
@@ -2884,33 +2884,37 @@ inline void CpuCache<Forwarder>::PerClassResizeInfo::Init() {
 }
 
 template <class Forwarder>
-inline bool CpuCache<Forwarder>::PerClassResizeInfo::Update(
-    bool overflow, bool grow, uint32_t* successive) {
-  int32_t raw = state_.load(std::memory_order_relaxed);
-  State state;
-  memcpy(&state, &raw, sizeof(state));
-  const bool overflow_then_underflow = !overflow && state.overflow;
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool
+CpuCache<Forwarder>::PerClassResizeInfo::Update(bool overflow, bool grow,
+                                                uint32_t* successive) {
+  uint32_t raw = static_cast<uint32_t>(state_.load(std::memory_order_relaxed));
+  const bool prev_overflow = (raw & kOverflowBit) != 0;
+  const bool overflow_then_underflow = !overflow && prev_overflow;
   grow |= overflow_then_underflow;
   // Reset quiescent ticks for Steal clock algorithm if we are going to grow.
-  State new_state;
-  new_state.overflow = overflow;
-  new_state.quiescent_ticks = grow ? 0 : state.quiescent_ticks;
-  new_state.successive = overflow == state.overflow ? state.successive + 1 : 0;
-  memcpy(&raw, &new_state, sizeof(raw));
-  state_.store(raw, std::memory_order_relaxed);
-  *successive = new_state.successive;
+  if (ABSL_PREDICT_TRUE(overflow == prev_overflow)) {
+    if (grow) {
+      raw &= ~kQuiescentTicksMask;
+    }
+    raw += kSuccessiveUnit;
+    *successive = raw >> kSuccessiveShift;
+  } else {
+    raw = (grow ? 0u : (raw & kQuiescentTicksMask)) |
+          (overflow ? kOverflowBit : 0u);
+    *successive = 0;
+  }
+  state_.store(static_cast<int32_t>(raw), std::memory_order_relaxed);
   return overflow_then_underflow;
 }
 
 template <class Forwarder>
 inline uint32_t CpuCache<Forwarder>::PerClassResizeInfo::Tick() {
-  int32_t raw = state_.load(std::memory_order_relaxed);
-  State state;
-  memcpy(&state, &raw, sizeof(state));
-  state.quiescent_ticks++;
-  memcpy(&raw, &state, sizeof(raw));
-  state_.store(raw, std::memory_order_relaxed);
-  return state.quiescent_ticks - 1;
+  uint32_t raw = static_cast<uint32_t>(state_.load(std::memory_order_relaxed));
+  const uint32_t ticks = (raw & kQuiescentTicksMask) >> kQuiescentTicksShift;
+  raw = (raw & ~kQuiescentTicksMask) |
+        ((raw + (1u << kQuiescentTicksShift)) & kQuiescentTicksMask);
+  state_.store(static_cast<int32_t>(raw), std::memory_order_relaxed);
+  return ticks;
 }
 
 template <class Forwarder>
