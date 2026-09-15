@@ -437,17 +437,19 @@ class SubreleaseStatsTracker {
     static SubreleaseStatsEntry Nil() { return SubreleaseStatsEntry(); }
 
     void Report(const SubreleaseStats& e) {
-      if (empty()) {
+      if (ABSL_PREDICT_FALSE(empty())) {
         for (int i = 0; i < kNumStatsTypes; i++) {
           stats[i] = e;
         }
+        min_free_pages = e.free_pages + e.unmapped_pages;
+        min_free_backed_pages = e.free_pages;
+        num_pages_subreleased = e.num_pages_subreleased;
+        return;
       }
 
       if (e.num_pages < stats[kStatsAtMinDemand].num_pages) {
         stats[kStatsAtMinDemand] = e;
-      }
-
-      if (e.num_pages > stats[kStatsAtMaxDemand].num_pages) {
+      } else if (e.num_pages > stats[kStatsAtMaxDemand].num_pages) {
         stats[kStatsAtMaxDemand] = e;
       }
 
