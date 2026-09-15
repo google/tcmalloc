@@ -179,7 +179,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   // Disable GWP-ASan, since it allocates different sizes than normal samples.
   MallocExtension::SetGuardedSamplingInterval(-1);
 
-  constexpr size_t kSamplingRate = 64 * 1024;
+  constexpr size_t kSamplingRate = 16 * 1024;
   // Increase sampling rate to decrease flakiness.
   ScopedProfileSamplingInterval ps(kSamplingRate);
 
@@ -305,7 +305,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
       if (s.alignment.has_value()) {
         operator delete(obj, *s.alignment);
       } else {
-        operator delete(obj);
+        sized_delete(obj, s.size);
       }
     }
   }
