@@ -456,20 +456,21 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
 #endif
       ;
 
-  // By default, we prepend (AddFront) to the nonempty_ list. When the
-  // CflSubbucketPrioritization feature is enabled, we append (AddBack).
-  const bool use_prepend =
-      cfl_subbucket_prioritization_ == CflSubbucketPrioritization::kDisabled;
-
+  const uint16_t prev_allocated = span->Allocated();
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const bool was_empty = span->FreelistEmpty(object_size, objects_per_span);
-  if (!kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
+  if (ABSL_PREDICT_FALSE(was_empty)) {
+    const bool use_prepend =
+        cfl_subbucket_prioritization_ == CflSubbucketPrioritization::kDisabled;
     const uint8_t index = GetFirstNonEmptyIndex();
     nonempty_.Add(span, index, use_prepend);
     span->set_nonempty_index(index);
   }
+#else
+  const bool was_empty = prev_allocated == objects_per_span;
+#endif
 
   const uint8_t prev_index = span->nonempty_index();
-  const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
   if (ABSL_PREDICT_FALSE(
           !span->FreelistPushBatch(batch, object_size, size_reciprocal))) {
@@ -494,18 +495,26 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // If span allocation changes so that it moved to a different nonempty_ list,
   // we remove it from the previous list and add it to the desired list indexed
   // by cur_index.
-  const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
   if (kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
+    const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+    const bool use_prepend =
+        cfl_subbucket_prioritization_ == CflSubbucketPrioritization::kDisabled;
     nonempty_.Add(span, cur_index, use_prepend);
     span->set_nonempty_index(cur_index);
-  } else if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+  } else if (cur_bitwidth != prev_bitwidth ||
+             use_all_buckets_for_few_object_spans_) {
+    const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+    if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+      const bool use_prepend = cfl_subbucket_prioritization_ ==
+                               CflSubbucketPrioritization::kDisabled;
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    nonempty_.Remove(span, prev_index);
-    nonempty_.Add(span, cur_index, use_prepend);
+      nonempty_.Remove(span, prev_index);
+      nonempty_.Add(span, cur_index, use_prepend);
 #else
-    nonempty_.Move(span, prev_index, cur_index, use_prepend);
+      nonempty_.Move(span, prev_index, cur_index, use_prepend);
 #endif
-    span->set_nonempty_index(cur_index);
+      span->set_nonempty_index(cur_index);
+    }
   }
   return nullptr;
 }
