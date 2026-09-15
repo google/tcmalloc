@@ -81,6 +81,13 @@ class SizeMap {
   //   ...
   //   32768      (32768 + 127 + (120<<7)) / 128  376
   static constexpr int kSmallSizeAlignment = 8;
+  static constexpr size_t kSmallSizeShift = 3;
+  static constexpr size_t kLargeSizeShift = 7;
+  static constexpr size_t kLargeSizeOffset =
+      kLargeSizeAlignment - 1 +
+      (kLargeSize / kSmallSizeAlignment - kLargeSize / kLargeSizeAlignment) *
+          kLargeSizeAlignment;
+
   static constexpr size_t kClassArraySize =
       kLargeSize / kSmallSizeAlignment +
       (kMaxSize - kLargeSize) / kLargeSizeAlignment + 1;
@@ -138,15 +145,13 @@ class SizeMap {
   // parameter idx and returning true. Otherwise return false.
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
                                                                   size_t& idx) {
+    static_assert((size_t{1} << kSmallSizeShift) == kSmallSizeAlignment);
+    static_assert((size_t{1} << kLargeSizeShift) == kLargeSizeAlignment);
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
-      idx = (s + kSmallSizeAlignment - 1) / kSmallSizeAlignment;
+      idx = (s + kSmallSizeAlignment - 1) >> kSmallSizeShift;
       return true;
     } else if (ABSL_PREDICT_TRUE(s <= kMaxSize)) {
-      idx = ((s + kLargeSizeAlignment - 1 +
-              (kLargeSize / kSmallSizeAlignment -
-               kLargeSize / kLargeSizeAlignment) *
-                  kLargeSizeAlignment) /
-             kLargeSizeAlignment);
+      idx = (s + kLargeSizeOffset) >> kLargeSizeShift;
 
       // TODO(b/64294063): Add a dummy statement to keep the tail of the fast
       // and the slow paths from being deduplicated, turning the shifts into
@@ -166,6 +171,7 @@ class SizeMap {
   }
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(size_t s) {
+    ASSUME(s <= kMaxSize);
     size_t ret;
     TC_CHECK(ClassIndexMaybe(s, ret));
     return ret;
