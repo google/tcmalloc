@@ -35,13 +35,13 @@ namespace tcmalloc_internal {
 //   = (32 + 64) / (8192 - 32) ~= 1.2%.
 // - waste/sampling: overhead due to heap sampling
 //   (rounding to page size, proxy object, metadata).
-// - inc: increment from the previous size class. This caps the dynamic
-//   overhead component based on mismatches between the number of bytes
-//   requested and the number of bytes provided by the size class. Together
-//   they sum to the total overhead; for instance if you asked for a 50-byte
-//   allocation that rounds up to a 64-byte size class, the dynamic overhead
-//   would be 28%, and if waste were 22% it would mean (on average) 25 bytes
-//   of overhead for allocations of that size.
+// - inc: increment from the previous size class. This caps the internal
+//   fragmentation overhead component based on mismatches between the number
+//   of bytes requested and the number of bytes provided by the size class.
+//   Together they sum to the total overhead; for instance if you asked for
+//   a 50-byte allocation that rounds up to a 64-byte size class, the internal
+//   fragmentation would be (64-50)/50 = 28%, and if waste were 22% it would
+//   mean (on average) 25 bytes of overhead for allocations of that size.
 
 // clang-format off
 #if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
