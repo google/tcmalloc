@@ -729,7 +729,7 @@ HugePageAwareAllocator<Forwarder>::LockAndAlloc(Length n,
   PageHeapSpinLockHolder l;
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
-  if (n <= kSmallAllocPages) {
+  if (ABSL_PREDICT_TRUE(n <= kSmallAllocPages)) {
     return AllocSmall(n, span_alloc_info, from_released);
   }
 
