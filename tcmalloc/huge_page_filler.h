@@ -1236,7 +1236,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const auto now = clock_.now();
 #endif
-  if (pt->GetTagState().sampled_for_tagging) {
+  if (ABSL_PREDICT_FALSE(pt->GetTagState().sampled_for_tagging)) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     const auto now = clock_.now();
 #endif
@@ -1254,7 +1254,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 
   // If it was in a released state earlier, and is about to be full again,
   // record that the state has been toggled back and update the stat counter.
-  if (was_released && !pt->released() && !pt->was_released()) {
+  if (ABSL_PREDICT_FALSE(was_released && !pt->released() &&
+                         !pt->was_released())) {
     pt->set_was_released(/*status=*/true);
     ++n_was_released_[type];
   }
