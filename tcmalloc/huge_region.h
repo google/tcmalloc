@@ -139,7 +139,26 @@ class HugeRegion : public TList<HugeRegion>::Elem {
     return longest_free() < rhs->longest_free();
   }
 
+  void set_free_backed_counter(HugeLength* p) { set_free_backed_ = p; }
+  uint64_t last_release_epoch() const { return last_release_epoch_; }
+  void set_last_release_epoch(uint64_t epoch) { last_release_epoch_ = epoch; }
+
  private:
+  void AddFreeBacked(HugeLength hl) {
+    free_backed_count_ += hl;
+    if (set_free_backed_ != nullptr) {
+      *set_free_backed_ += hl;
+    }
+  }
+  void SubFreeBacked(HugeLength hl) {
+    TC_ASSERT_GE(free_backed_count_, hl);
+    free_backed_count_ -= hl;
+    if (set_free_backed_ != nullptr) {
+      TC_ASSERT_GE(*set_free_backed_, hl);
+      *set_free_backed_ -= hl;
+    }
+  }
+
   RangeTracker<kRegionSize.in_pages().raw_num()> tracker_;
 
   HugeRange location_;
@@ -162,6 +181,8 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   HugeLength nbacked_;
   HugeLength total_unbacked_{NHugePages(0)};
   HugeLength free_backed_count_;
+  HugeLength* set_free_backed_ = nullptr;
+  uint64_t last_release_epoch_ = 0;
 
   MemoryModifyFunction& unback_;
 };
@@ -279,6 +300,7 @@ class HugeRegionSet {
   TList<Region> list_;
   HugeLength free_backed_count_;
   HugeLength lowater_free_backed_;
+  uint64_t release_epoch_ = 0;
 };
 
 // REQUIRES: r.len() == size(); r unbacked.
@@ -464,8 +486,7 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
     Length here = std::min(r.n, lim - r.p);
     if (pages_used_[i] == Length(0)) {
       if (backed_[i]) {
-        TC_ASSERT_GT(free_backed_count_, NHugePages(0));
-        --free_backed_count_;
+        SubFreeBacked(NHugePages(1));
       } else {
         backed_[i] = true;
         should_back = true;
@@ -493,7 +514,7 @@ inline void HugeRegion::Dec(Range r, bool release) {
     pages_used_[i] -= here;
     if (pages_used_[i] == Length(0)) {
       should_unback[i] = true;
-      ++free_backed_count_;
+      AddFreeBacked(NHugePages(1));
     }
     r.p += here;
     r.n -= here;
@@ -505,6 +526,25 @@ inline void HugeRegion::Dec(Range r, bool release) {
 
 inline HugeLength HugeRegion::UnbackHugepages(
     bool should_unback[kNumHugePages]) {
+  // Temporarily block allocations and release attempts to all target hugepages
+  // before releasing the lock during unback_.
+  //
+  // We both Mark and toggle pages_used_, as allocations use FindAndMark but
+  // Release only uses pages_used_. Keeping backed_ true and nbacked_ unchanged
+  // while pages are marked busy preserves used_pages(), free_pages(),
+  // unmapped_pages(), and AddSpanStats invariants across lock drops.
+  //
+  // TODO(b/73749855): Optimize release by consulting the bitmap first.
+  for (size_t i = 0; i < kNumHugePages; ++i) {
+    if (!should_unback[i]) continue;
+    TC_ASSERT(backed_[i]);
+    TC_CHECK_EQ(pages_used_[i], Length(0));
+    tracker_.Mark(NHugePages(i).in_pages().raw_num(),
+                  kPagesPerHugePage.raw_num());
+    pages_used_[i] = kPagesPerHugePage;
+    SubFreeBacked(NHugePages(1));
+  }
+
   HugeLength released = NHugePages(0);
   size_t i = 0;
   while (i < kNumHugePages) {
@@ -520,44 +560,24 @@ inline HugeLength HugeRegion::UnbackHugepages(
     HugeLength hl = NHugePages(j - i);
     HugePage p = location_.start() + NHugePages(i);
 
-    // Temporarily block allocations to these pages.
-    //
-    // We both Mark and toggle pages_used_, as allocations use FindAndMark but
-    // Release only uses pages_used_.
-    //
-    // TODO(b/73749855): Optimize release by consulting the bitmap first.
-    tracker_.Mark(NHugePages(i).in_pages().raw_num(), hl.in_pages().raw_num());
-    Length used;
-    for (size_t k = i; k != j; ++k) {
-      used += std::exchange(pages_used_[k], kPagesPerHugePage);
-    }
-    TC_CHECK_EQ(used, Length(0));
-
-    // Temporarily decrement free_backed_count_ as these pages are in the
-    // middle of being unbacked and are not eligible for allocation/release.
-    TC_ASSERT_GE(free_backed_count_, hl);
-    free_backed_count_ -= hl;
-
-    if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)).success)) {
+    const bool ok = ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)).success);
+    if (ok) {
       nbacked_ -= hl;
       total_unbacked_ += hl;
 
-      for (size_t k = i; k < j; k++) {
-        TC_ASSERT(should_unback[k]);
+      for (size_t k = i; k < j; ++k) {
         backed_[k] = false;
       }
 
       released += hl;
     } else {
       // Restore the count if unback failed.
-      free_backed_count_ += hl;
+      AddFreeBacked(hl);
     }
 
-    used = Length(0);
-    for (size_t k = i; k != j; ++k) {
-      used += std::exchange(pages_used_[k], Length(0));
+    for (size_t k = i; k < j; ++k) {
+      TC_CHECK_EQ(std::exchange(pages_used_[k], Length(0)), kPagesPerHugePage);
     }
-    TC_CHECK_EQ(used, hl.in_pages());
 
     tracker_.Unmark(NHugePages(i).in_pages().raw_num(),
                     hl.in_pages().raw_num());
@@ -575,13 +595,7 @@ template <typename Region>
 inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* page,
                                             bool* from_released) {
   for (Region* region : list_) {
-    HugeLength before = region->free_backed();
     if (region->MaybeGet(n, page, from_released)) {
-      HugeLength after = region->free_backed();
-      TC_ASSERT_LE(after, before);
-      HugeLength diff = before - after;
-      TC_ASSERT_GE(free_backed_count_, diff);
-      free_backed_count_ -= diff;
       lowater_free_backed_ = std::min(lowater_free_backed_, free_backed_count_);
       Fix(region);
       return true;
@@ -599,11 +613,7 @@ inline bool HugeRegionSet<Region>::MaybePut(Range r) {
   const bool release = !UseHugeRegionMoreOften();
   for (Region* region : list_) {
     if (region->contains(r.p)) {
-      HugeLength before = region->free_backed();
       region->Put(r, release);
-      HugeLength after = region->free_backed();
-      TC_ASSERT_GE(after, before);
-      free_backed_count_ += (after - before);
       Fix(region);
       return true;
     }
@@ -617,6 +627,7 @@ template <typename Region>
 inline void HugeRegionSet<Region>::Contribute(Region* region) {
   n_++;
   free_backed_count_ += region->free_backed();
+  region->set_free_backed_counter(&free_backed_count_);
   AddToList(region);
 }
 
@@ -636,29 +647,33 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
   }
 
   Length released;
-  auto release_from_region = [&](Region& region) {
+  const uint64_t epoch = ++release_epoch_;
+  while (released < to_release) {
+    Region* target = nullptr;
+    if (use_adaptive) {
+      for (auto it = list_.rbegin(); it != list_.rend(); ++it) {
+        if ((*it)->last_release_epoch() < epoch &&
+            (*it)->free_backed() > NHugePages(0)) {
+          target = *it;
+          break;
+        }
+      }
+    } else {
+      for (Region* region : list_) {
+        if (region->last_release_epoch() < epoch &&
+            region->free_backed() > NHugePages(0)) {
+          target = region;
+          break;
+        }
+      }
+    }
+    if (target == nullptr) break;
+    target->set_last_release_epoch(
+        std::max(target->last_release_epoch(), epoch));
     Length region_target = to_release - released;
-
-    Length region_released =
-        region.Release(region_target, use_adaptive).in_pages();
-    released += region_released;
-  };
-
-  if (use_adaptive) {
-    for (auto it = list_.rbegin(); it != list_.rend(); ++it) {
-      if (released >= to_release) break;
-      release_from_region(**it);
-    }
-  } else {
-    for (Region* region : list_) {
-      if (released >= to_release) break;
-      release_from_region(*region);
-    }
+    released += target->Release(region_target, use_adaptive).in_pages();
   }
 
-  HugeLength released_hl = HLFromPages(released);
-  TC_ASSERT_LE(released_hl, free_backed_count_);
-  free_backed_count_ -= released_hl;
   lowater_free_backed_ = free_backed_count_;
 
   return released;

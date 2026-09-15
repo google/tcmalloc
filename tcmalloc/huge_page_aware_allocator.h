@@ -841,7 +841,8 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
     } while (madvise_failed && errno == EAGAIN);
   }
 
-  HugeRegion* region = region_allocator_.New(r, unback_, set_anon_vma_name_);
+  HugeRegion* region =
+      region_allocator_.New(r, unback_without_lock_, set_anon_vma_name_);
   regions_.Contribute(region);
   return true;
 }
