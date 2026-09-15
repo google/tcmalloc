@@ -487,11 +487,54 @@ template <size_t N>
 inline bool Bitmap<N>::NextFreeRange(size_t start, size_t* index,
                                      size_t* length) const {
   if (start >= N) return false;
-  size_t i = FindClear(start);
-  if (i == N) return false;
-  size_t j = FindSet(i);
+  size_t word = start / kWordSize;
+  size_t offset = start % kWordSize;
+  ASSUME(word < kWords);
+  size_t val = bits_[word];
+  size_t inv = ~val & (~static_cast<size_t>(0) << offset);
+  if (inv == 0) {
+    while (true) {
+      ++word;
+      if (word >= kWords) return false;
+      val = bits_[word];
+      if (val != ~static_cast<size_t>(0)) break;
+    }
+    offset = absl::countr_zero(~val);
+  } else {
+    offset = absl::countr_zero(inv);
+  }
+
+  size_t i = word * kWordSize + offset;
+  if constexpr (kDeadBits > 0) {
+    if (i >= N) return false;
+  }
+
+  size_t set_after = val >> offset;
+  if (ABSL_PREDICT_TRUE(set_after != 0)) {
+    *index = i;
+    size_t len = absl::countr_zero(set_after);
+    if constexpr (kDeadBits > 0) {
+      if (i + len > N) len = N - i;
+    }
+    *length = len;
+    return true;
+  }
+
+  for (++word; word < kWords; ++word) {
+    val = bits_[word];
+    if (val != 0) {
+      *index = i;
+      size_t j = word * kWordSize + absl::countr_zero(val);
+      if constexpr (kDeadBits > 0) {
+        if (j > N) j = N;
+      }
+      *length = j - i;
+      return true;
+    }
+  }
+
   *index = i;
-  *length = j - i;
+  *length = N - i;
   return true;
 }
 
