@@ -597,7 +597,16 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
 // fast-path only does tail calls, which allow compiler to avoid generating
 // costly prologue/epilogue for fast-path.
 ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
-                                                  std::optional<size_t> size,
+                                                  size_t size_class) {
+  if (ABSL_PREDICT_FALSE(Static::HaveHooks()) ||
+      ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
+    return FreeWithHooksOrPerThread(ptr, std::nullopt, size_class);
+  }
+  TCMALLOC_ALWAYS_INLINE_CALL tc_globals.cpu_cache().DeallocateSlowNoHooks(
+      ptr, size_class);
+}
+
+ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr, size_t size,
                                                   size_t size_class) {
   if (ABSL_PREDICT_FALSE(Static::HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
@@ -607,8 +616,28 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
       ptr, size_class);
 }
 
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
-    void* ptr, std::optional<size_t> size, size_t size_class) {
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
+                                                          size_t size_class) {
+  if (!IsColdSizeClass(size_class)) {
+    TC_ASSERT(IsNormalMemory(ptr), "ptr=%p", ptr);
+  } else {
+    TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold, "ptr=%p", ptr);
+  }
+
+  // DeallocateFast may fail if:
+  //  - the cpu cache is full
+  //  - the cpu cache is not initialized
+  //  - hooks are installed
+  //  - per-thread mode is enabled
+  if (ABSL_PREDICT_FALSE(
+          !tc_globals.cpu_cache().DeallocateFast(ptr, size_class))) {
+    FreeSmallSlow(ptr, size_class);
+  }
+}
+
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
+                                                          size_t size,
+                                                          size_t size_class) {
   if (!IsColdSizeClass(size_class)) {
     TC_ASSERT(IsNormalMemory(ptr), "ptr=%p", ptr);
   } else {
@@ -795,7 +824,7 @@ ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
 
   size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
-    FreeSmall(ptr, std::nullopt, size_class);
+    FreeSmall(ptr, size_class);
   } else {
     SLOW_PATH_BARRIER();
     InvokeHooksAndFreePages(ptr, std::nullopt, policy);
@@ -833,7 +862,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
 
   size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
-    FreeSmall(ptr, std::nullopt, size_class);
+    FreeSmall(ptr, size_class);
   } else {
     SLOW_PATH_BARRIER();
     InvokeHooksAndFreePages(ptr, std::nullopt, policy);
