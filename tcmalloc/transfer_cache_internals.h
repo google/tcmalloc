@@ -154,22 +154,22 @@ class TransferCache {
     const int N = batch.size();
     TC_ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (info.capacity > info.used) {
+    if (ABSL_PREDICT_TRUE(info.capacity > info.used)) {
       AllocationGuardSpinLockHolder h(lock_);
       // As caches are resized in the background, we do not attempt to grow
       // them here. Instead, we just check if they have spare free capacity.
       info = slot_info_.load(std::memory_order_relaxed);
       int got = std::min(N, info.capacity - info.used);
-      if (got > 0) {
+      if (ABSL_PREDICT_TRUE(got > 0)) {
+        void** entry = GetSlot(info.used);
         info.used += got;
         SetSlotInfo(info);
-        void** entry = GetSlot(info.used - got);
-        memcpy(entry, batch.data(), sizeof(void*) * got);
         insert_hits_.LossyAdd(1);
-        if (got == N) {
+        memcpy(entry, batch.data(), sizeof(void*) * got);
+        if (ABSL_PREDICT_TRUE(got == N)) {
           return;
         }
-        batch = {batch.data() + got, batch.size() - got};
+        batch = {batch.data() + got, static_cast<size_t>(N - got)};
       }
     }
 
