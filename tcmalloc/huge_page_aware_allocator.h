@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
@@ -278,7 +279,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
 #endif  // NDEBUG
-      return hpaa_.forwarder_.ReleasePages(r);
+      if constexpr (std::is_empty_v<Forwarder>) {
+        return Forwarder::ReleasePages(r);
+      } else {
+        return hpaa_.forwarder_.ReleasePages(r);
+      }
     }
 
    public:
@@ -300,7 +305,12 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       pageheap_lock.AssertHeld();
 #endif  // NDEBUG
       pageheap_lock.unlock();
-      MemoryModifyStatus ret = hpaa_.forwarder_.ReleasePages(r);
+      MemoryModifyStatus ret;
+      if constexpr (std::is_empty_v<Forwarder>) {
+        ret = Forwarder::ReleasePages(r);
+      } else {
+        ret = hpaa_.forwarder_.ReleasePages(r);
+      }
       pageheap_lock.lock();
       return ret;
     }
@@ -970,14 +980,13 @@ inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
 template <class Forwarder>
 inline BackingStats HugePageAwareAllocator<Forwarder>::stats() const {
   BackingStats stats = alloc_.stats();
-  const auto actual_system = stats.system_bytes;
-  stats += cache_.stats();
-  stats += filler_.stats();
-  stats += regions_.stats();
-  // the "system" (total managed) byte count is wildly double counted,
-  // since it all comes from HugeAllocator but is then managed by
-  // cache/regions/filler. Adjust for that.
-  stats.system_bytes = actual_system;
+  stats.free_bytes = cache_.size().in_bytes() + filler_.free_pages().in_bytes();
+  stats.unmapped_bytes += filler_.unmapped_pages().in_bytes();
+  if (ABSL_PREDICT_FALSE(regions_.ActiveRegions() > 0)) {
+    const BackingStats rstats = regions_.stats();
+    stats.free_bytes += rstats.free_bytes;
+    stats.unmapped_bytes += rstats.unmapped_bytes;
+  }
   return stats;
 }
 
@@ -1033,21 +1042,19 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // This is our long term plan but in current state will lead to insufficient
   // THP coverage. It is however very useful to have the ability to turn this on
   // for testing.
-  if (hpaa_subrelease()) {
-    const bool release_max_cold =
-        tag_ == MemoryTag::kCold && forwarder_.release_max_cold_pages();
-    if (released < num_pages || release_max_cold) {
-      Length desired = release_max_cold ? Length::max() : num_pages - released;
-      released += filler_.ReleasePages(
-          desired,
-          SkipSubreleaseIntervals{
-              .short_interval =
-                  forwarder_.filler_skip_subrelease_short_interval(),
-              .long_interval =
-                  forwarder_.filler_skip_subrelease_long_interval()},
-          forwarder_.release_partial_alloc_pages(),
-          /*hit_limit*/ false);
-    }
+  const bool is_cold = tag_ == MemoryTag::kCold;
+  const bool release_max_cold = is_cold && forwarder_.release_max_cold_pages();
+  if ((released < num_pages || release_max_cold) &&
+      (is_cold || forwarder_.hpaa_subrelease())) {
+    Length desired = release_max_cold ? Length::max() : num_pages - released;
+    released += filler_.ReleasePages(
+        desired,
+        SkipSubreleaseIntervals{
+            .short_interval =
+                forwarder_.filler_skip_subrelease_short_interval(),
+            .long_interval = forwarder_.filler_skip_subrelease_long_interval()},
+        forwarder_.release_partial_alloc_pages(),
+        /*hit_limit*/ false);
   }
 
   info_.RecordRelease(num_pages, released, reason);
