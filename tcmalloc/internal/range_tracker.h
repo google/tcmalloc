@@ -233,6 +233,7 @@ template <size_t N>
 inline size_t RangeTracker<N>::FindAndMark(size_t n) {
   TC_ASSERT_GT(n, 0);
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // We keep the two longest ranges in the bitmap since we might allocate
   // from one.
   size_t longest_len = 0;
@@ -273,6 +274,50 @@ inline size_t RangeTracker<N>::FindAndMark(size_t n) {
   nused_ += n;
   nallocs_++;
   return best_index;
+#else
+  // If n < longest_free_, an exact match (len == n) will not change
+  // longest_free_, so we can terminate the scan early upon finding one.
+  size_t longest_len = 0;
+  size_t second_len = 0;
+
+  size_t best_index = N;
+  size_t best_len = 2 * N;
+  size_t index = 0, len;
+
+  while (bits_.NextFreeRange(index, &index, &len)) {
+    if (len > longest_len) {
+      second_len = longest_len;
+      longest_len = len;
+    } else if (len > second_len) {
+      second_len = len;
+    }
+
+    if (len >= n && len < best_len) {
+      best_index = index;
+      best_len = len;
+      if (best_len == n && n < longest_free_) {
+        break;
+      }
+    }
+
+    index += len;
+  }
+
+  TC_CHECK_LT(best_index, N);
+  bits_.SetRange(best_index, n);
+
+  if (best_len != n || n >= longest_free_) {
+    if (best_len == longest_len) {
+      longest_len -= n;
+      if (longest_len < second_len) longest_len = second_len;
+    }
+    longest_free_ = longest_len;
+  }
+
+  nused_ += n;
+  nallocs_++;
+  return best_index;
+#endif
 }
 
 // REQUIRES: the range [index, index + n) is fully unmarked.
