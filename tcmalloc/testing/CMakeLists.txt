@@ -625,7 +625,6 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_stats"
     "tcmalloc::malloc_extension"
-    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test_variants(
