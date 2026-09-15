@@ -795,7 +795,7 @@ void SetEnableUnfilteredCollapse::Perform(State& state) const {
 }
 
 void SetReleaseMaxColdPages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_max_cold_pages(value);
+  state.allocator.forwarder().set_release_max_sampled_or_cold_pages(value);
 }
 
 void SetEnableReleaseStalePages::Perform(State& state) const {
@@ -864,9 +864,9 @@ auto GetHPAADomain() {
       [](MemoryTag tag, HugeRegionUsageOption usage) {
         return FuzzHugePageAwareAllocatorOptions{tag, usage};
       },
-      fuzztest::ElementOf({MemoryTag::kSampled, MemoryTag::kSampledP1,
-                           MemoryTag::kNormalP0, MemoryTag::kNormalP1,
-                           MemoryTag::kNormal, MemoryTag::kCold}),
+      fuzztest::ElementOf({MemoryTag::kSampledOrCold,
+                           MemoryTag::kSampledOrColdP1, MemoryTag::kNormalP0,
+                           MemoryTag::kNormalP1, MemoryTag::kNormal}),
       fuzztest::ElementOf({HugeRegionUsageOption::kDefault,
                            HugeRegionUsageOption::kUseForAllLargeAllocs}));
 }
@@ -987,7 +987,7 @@ TEST(HugePageAwareAllocatorTest, FuzzHPAARegression) {
 
 TEST(HugePageAwareAllocatorTest, FuzzHPAARegression2) {
   FuzzHugePageAwareAllocatorOptions options;
-  options.tag = MemoryTag::kCold;
+  options.tag = MemoryTag::kSampledOrCold;
   options.use_huge_region_more_often =
       HugeRegionUsageOption::kUseForAllLargeAllocs;
 
