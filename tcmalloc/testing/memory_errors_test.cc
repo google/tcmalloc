@@ -781,9 +781,16 @@ TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
         for (void* ptr : ptrs) {
           ::operator delete(ptr, kSize);
         }
-        // Now double-free.
-        for (void* ptr : ptrs) {
-          ::operator delete(ptr, kSize);
+        // Now double-free, starting from the most recently freed objects.
+        //
+        // The spans of the earliest-freed objects were returned to the page
+        // heap long ago (at the start of the loop above).  Another thread can
+        // reuse those pages for a different size class before we revisit them,
+        // in which case the second free is reported as a mismatched size class
+        // rather than a double free.  Walking backwards double-frees objects
+        // whose spans were released only moments earlier, if at all.
+        for (auto it = ptrs.rbegin(); it != ptrs.rend(); ++it) {
+          ::operator delete(*it, kSize);
         }
       },
       absl::StrCat(
