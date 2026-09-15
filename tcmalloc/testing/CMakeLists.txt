@@ -326,8 +326,6 @@ tcmalloc_cc_test(
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
-  ENV
-    "BORG_EXPERIMENTS="
 )
 
 tcmalloc_cc_test_variants(
@@ -637,8 +635,6 @@ tcmalloc_cc_test_variants(
     "absl::str_format"
     "absl::time"
     "tcmalloc::malloc_extension"
-  ENV
-    "BORG_EXPERIMENTS="
 )
 
 tcmalloc_cc_binary(
@@ -908,8 +904,6 @@ tcmalloc_cc_test(
     tcmalloc_testing_malloc_tracing_extension_system_malloc_test
   SRCS
     "malloc_tracing_extension_test.cc"
-  COPTS
-    "-DMALLOC_TRACING_EXTENSION_NOT_SUPPORTED"
   DEPS
     "GTest::gtest_main"
     "GTest::gmock_main"
@@ -1123,8 +1117,6 @@ tcmalloc_cc_test_variants(
     "GTest::gmock_main"
     "GTest::gmock"
     "tcmalloc::internal_numa"
-  ENV
-    "TCMALLOC_NUMA_AWARE=0"
 )
 
 tcmalloc_cc_test(

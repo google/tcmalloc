@@ -586,7 +586,6 @@ tcmalloc_cc_test(
     "absl::time"
     "benchmark::benchmark"
     "tcmalloc::internal_allocation_guard"
-    "tcmalloc::internal_page_size"
     "tcmalloc::internal_pageflags"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::internal_strerror"
@@ -939,7 +938,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_sysinfo"
 )
 
-create_percpu_tcmalloc_testsuite(
+tcmalloc_cc_test(
   NAME
     tcmalloc_internal_percpu_tcmalloc_test
   SRCS
@@ -969,6 +968,7 @@ create_percpu_tcmalloc_testsuite(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::internal_util"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_rseq_util"
     "tcmalloc::testing_testutil"
 )
 
@@ -1442,8 +1442,6 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
-  ENV
-    "LC_ALL=en_US.UTF-8"
 )
 
 tcmalloc_cc_test(
