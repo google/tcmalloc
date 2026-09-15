@@ -137,7 +137,7 @@ class TestStaticForwarder : private Parameters {
  public:
   using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
   using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
-  TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
+  TestStaticForwarder() : sharded_manager_(&cpu_layout_) {
     numa_topology_.Init();
 
     absl::base_internal::SpinLockHolder l(vma_name_mu_);
@@ -307,13 +307,17 @@ class TestStaticForwarder : private Parameters {
     return transfer_cache_;
   }
 
-  bool UseGenericShardedCache() const { return owner_.UseGenericCache(); }
-  void SetGenericShardedCache(bool value) { owner_.SetGenericCache(value); }
+  bool UseGenericShardedCache() const {
+    return sharded_manager_.forwarder().UseGenericCache();
+  }
+  void SetGenericShardedCache(bool value) {
+    sharded_manager_.forwarder().SetGenericCache(value);
+  }
   bool UseShardedCacheForLargeClassesOnly() const {
-    return owner_.EnableCacheForLargeClassesOnly();
+    return sharded_manager_.forwarder().EnableCacheForLargeClassesOnly();
   }
   void SetShardedCacheForLargeClassesOnly(bool value) {
-    owner_.SetCacheForLargeClassesOnly(value);
+    sharded_manager_.forwarder().SetCacheForLargeClassesOnly(value);
   }
 
   bool HaveHooks() const {
@@ -347,7 +351,6 @@ class TestStaticForwarder : private Parameters {
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
-  FakeShardedTransferCacheManager owner_;
   FakeCpuLayout cpu_layout_;
   ShardedManager sharded_manager_;
   ThreeSizeClassManager<FakeCentralFreeList,
