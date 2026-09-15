@@ -133,7 +133,12 @@ class PageMap3 {
   constexpr PageMap3() : root_{}, bytes_used_(0) {}
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  Span* absl_nullable get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  Span* absl_nullable ABSL_ATTRIBUTE_ALWAYS_INLINE
+  get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS
+#ifdef __clang__
+      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+#endif  // __clang__
+  {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -369,8 +374,8 @@ class PageMap {
   // Return the descriptor for the specified page.  Returns NULL if
   // this PageId was not allocated previously.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] Span* absl_nullable GetDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  [[nodiscard]] Span* absl_nullable ABSL_ATTRIBUTE_ALWAYS_INLINE
+  GetDescriptor(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return map_.get(p.index());
   }
 
