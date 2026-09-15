@@ -36,19 +36,28 @@ using tcmalloc::tcmalloc_internal::IsAlignedTo;
 namespace tcmalloc {
 namespace {
 
-TEST(HotColdNew, InvalidSizeFails) {
+class HotColdNewInvalidSizeTest
+    : public testing::TestWithParam<std::tuple<hot_cold_t, bool>> {};
+
+TEST_P(HotColdNewInvalidSizeTest, InvalidSizeFails) {
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
   GTEST_SKIP() << "skipping large allocation tests on sanitizers";
 #endif
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
-  EXPECT_DEATH((void)::operator new(kBadSize, hot_cold_t{0}), ".*");
-  EXPECT_DEATH((void)::operator new(kBadSize, hot_cold_t{128}), ".*");
-  EXPECT_DEATH((void)::operator new(kBadSize, hot_cold_t{255}), ".*");
-  EXPECT_DEATH((void)::operator new[](kBadSize, hot_cold_t{0}), ".*");
-  EXPECT_DEATH((void)::operator new[](kBadSize, hot_cold_t{128}), ".*");
-  EXPECT_DEATH((void)::operator new[](kBadSize, hot_cold_t{255}), ".*");
+  const auto [hot_cold, is_array] = GetParam();
+  if (is_array) {
+    EXPECT_DEATH((void)::operator new[](kBadSize, hot_cold), ".*");
+  } else {
+    EXPECT_DEATH((void)::operator new(kBadSize, hot_cold), ".*");
+  }
 }
+
+INSTANTIATE_TEST_SUITE_P(HotColdNew, HotColdNewInvalidSizeTest,
+                         testing::Combine(testing::Values(hot_cold_t{0},
+                                                          hot_cold_t{128},
+                                                          hot_cold_t{255}),
+                                          testing::Bool()));
 
 TEST(HotColdNew, InvalidSizeNothrow) {
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
