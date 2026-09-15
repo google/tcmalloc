@@ -25,6 +25,7 @@ namespace tcmalloc::tcmalloc_internal {
 enum class HugePageTreatmentType : uint8_t {
   kSampled = 1 << 0,
   kCollapse = 1 << 1,
+  kSubrelease = 1 << 2,
 };
 
 enum class EnableCollapse : uint8_t {

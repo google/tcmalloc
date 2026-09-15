@@ -340,10 +340,23 @@ class MockSetAnonVmaName final : public MemoryTagFunction {
 
 class BlockingUnback final : public MemoryModifyFunction {
  public:
-  constexpr BlockingUnback() = default;
+  BlockingUnback() = default;
 
-  [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    unbacking_pages_.fetch_add(r.n.raw_num(), std::memory_order_relaxed);
+    if (callback_) {
+      const bool held = pageheap_lock.IsHeld();
+      if (held) {
+        pageheap_lock.unlock();
+      }
+      callback_(r);
+      if (held) {
+        pageheap_lock.lock();
+      }
+    }
     if (!mu_) {
+      unbacking_pages_.fetch_sub(r.n.raw_num(), std::memory_order_relaxed);
       return {.success = success_, .error_number = 0};
     }
 
@@ -353,13 +366,20 @@ class BlockingUnback final : public MemoryModifyFunction {
 
     mu_->lock();
     mu_->unlock();
+    unbacking_pages_.fetch_sub(r.n.raw_num(), std::memory_order_relaxed);
     return {.success = success_, .error_number = 0};
+  }
+
+  Length unbacking_pages() const {
+    return Length(unbacking_pages_.load(std::memory_order_relaxed));
   }
 
   absl::BlockingCounter* counter_ = nullptr;
   bool success_ = true;
+  std::function<void(Range)> callback_;
 
  private:
+  std::atomic<size_t> unbacking_pages_{0};
   static thread_local absl::Mutex* mu_;
 };
 
@@ -380,15 +400,15 @@ class FillerTest : public testing::Test {
 
   size_t* GetFakePage(PageId p) { return &backing_[p.index()]; }
 
-  void MarkRange(PageId p, Length n, size_t mark) {
-    for (auto i = Length(0); i < n; ++i) {
-      *GetFakePage(p + i) = mark;
-    }
-  }
-
   void CheckRange(PageId p, Length n, size_t mark) {
     for (auto i = Length(0); i < n; ++i) {
       EXPECT_EQ(mark, *GetFakePage(p + i));
+    }
+  }
+
+  void MarkRange(PageId p, Length n, size_t mark) {
+    for (auto i = Length(0); i < n; ++i) {
+      *GetFakePage(p + i) = mark;
     }
   }
 
@@ -417,10 +437,11 @@ class FillerTest : public testing::Test {
       SubreleaseUnbackedMode mode = SubreleaseUnbackedMode::kDisabled)
       : mode_(mode),
         filler_(Clock{.now = FakeClock::now, .freq = FakeClock::freq},
-                MemoryTag::kNormal, blocking_unback_, blocking_unback_,
-                collapse_, set_anon_vma_name_, mode) {
+                MemoryTag::kNormal, blocking_unback_, collapse_,
+                set_anon_vma_name_, mode) {
     // Reset success state
     blocking_unback_.success_ = true;
+    blocking_unback_.callback_ = nullptr;
   }
 
   ~FillerTest() override { EXPECT_EQ(filler_.size(), NHugePages(0)); }
@@ -452,11 +473,13 @@ class FillerTest : public testing::Test {
   void CheckStats() {
     EXPECT_EQ(filler_.size(), hp_contained_);
     auto stats = filler_.stats();
+    const Length unbacking = blocking_unback_.unbacking_pages();
     const uint64_t freelist_bytes = stats.free_bytes + stats.unmapped_bytes;
     const uint64_t used_bytes = stats.system_bytes - freelist_bytes;
-    EXPECT_EQ(used_bytes, total_allocated_.in_bytes());
-    EXPECT_EQ(freelist_bytes,
-              (hp_contained_.in_pages() - total_allocated_).in_bytes());
+    EXPECT_EQ(used_bytes, (total_allocated_ + unbacking).in_bytes());
+    EXPECT_EQ(
+        freelist_bytes,
+        (hp_contained_.in_pages() - total_allocated_ - unbacking).in_bytes());
   }
 
   PAlloc AllocateWithSpanAllocInfo(Length n, SpanAllocInfo span_alloc_info,
@@ -563,25 +586,31 @@ class FillerTest : public testing::Test {
   }
 
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals = {}) {
-    PageHeapSpinLockHolder l;
-    return filler_.ReleasePages(desired, intervals,
-                                /*release_partial_alloc_pages=*/false,
-                                /*hit_limit=*/false);
+    pageheap_lock.lock();
+    Length ret = filler_.ReleasePages(desired, intervals,
+                                      /*release_partial_alloc_pages=*/false,
+                                      /*hit_limit=*/false);
+    pageheap_lock.unlock();
+    return ret;
   }
 
   Length ReleasePartialPages(Length desired,
                              SkipSubreleaseIntervals intervals = {}) {
-    PageHeapSpinLockHolder l;
-    return filler_.ReleasePages(desired, intervals,
-                                /*release_partial_alloc_pages=*/true,
-                                /*hit_limit=*/false);
+    pageheap_lock.lock();
+    Length ret = filler_.ReleasePages(desired, intervals,
+                                      /*release_partial_alloc_pages=*/true,
+                                      /*hit_limit=*/false);
+    pageheap_lock.unlock();
+    return ret;
   }
 
   Length HardReleasePages(Length desired) {
-    PageHeapSpinLockHolder l;
-    return filler_.ReleasePages(desired, SkipSubreleaseIntervals{},
-                                /*release_partial_alloc_pages=*/false,
-                                /*hit_limit=*/true);
+    pageheap_lock.lock();
+    Length ret = filler_.ReleasePages(desired, SkipSubreleaseIntervals{},
+                                      /*release_partial_alloc_pages=*/false,
+                                      /*hit_limit=*/true);
+    pageheap_lock.unlock();
+    return ret;
   }
 
   void TreatHugepageTrackers(
@@ -620,8 +649,9 @@ class FillerTest : public testing::Test {
   bool DeleteRaw(const PAlloc& p) {
     PageTracker* pt;
     {
-      PageHeapSpinLockHolder l;
+      pageheap_lock.lock();
       pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info);
+      pageheap_lock.unlock();
     }
     total_allocated_ -= p.n;
     if (pt != nullptr) {
@@ -6537,6 +6567,120 @@ TEST_F(FillerTest, ConcurrentTreatmentInterferenceStress) {
     --hp_contained_;
     delete pt;
   }
+  CheckStats();
+}
+
+TEST_F(FillerTest, ReentrantUnbackFreesCurrentTracker) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(10));
+  PAlloc b = Allocate(kPagesPerHugePage - Length(10));
+  ASSERT_EQ(a.pt, b.pt);
+  Delete(a);
+
+  int callbacks = 0;
+  blocking_unback_.callback_ = [&](Range r) {
+    if (++callbacks == 1) {
+      EXPECT_FALSE(DeleteRaw(b));
+      PageHeapSpinLockHolder l;
+      EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
+    }
+  };
+
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage);
+  EXPECT_EQ(callbacks, 2);
+  blocking_unback_.callback_ = nullptr;
+
+  PageTracker* pt;
+  {
+    PageHeapSpinLockHolder l;
+    pt = filler_.FetchFullyFreedTracker();
+  }
+  ASSERT_NE(pt, nullptr);
+  EXPECT_EQ(pt, a.pt);
+  --hp_contained_;
+  delete pt;
+  CheckStats();
+}
+
+TEST_F(FillerTest, ReentrantUnbackFreesOtherCandidateTracker) {
+  randomize_density_ = false;
+  PAlloc a1 = Allocate(Length(10));
+  PAlloc b1 = Allocate(kPagesPerHugePage - Length(10));
+  ASSERT_EQ(a1.pt, b1.pt);
+
+  PAlloc a2 = Allocate(Length(20));
+  PAlloc b2 = Allocate(kPagesPerHugePage - Length(20));
+  ASSERT_EQ(a2.pt, b2.pt);
+  ASSERT_NE(a1.pt, a2.pt);
+
+  Delete(a1);
+  Delete(a2);
+
+  int callbacks = 0;
+  blocking_unback_.callback_ = [&](Range r) {
+    if (++callbacks == 1) {
+      EXPECT_FALSE(DeleteRaw(b1));
+      EXPECT_FALSE(DeleteRaw(b2));
+    }
+  };
+
+  ReleasePages(kPagesPerHugePage);
+  EXPECT_GE(callbacks, 1);
+  blocking_unback_.callback_ = nullptr;
+
+  int freed = 0;
+  while (true) {
+    PageTracker* pt;
+    {
+      PageHeapSpinLockHolder l;
+      pt = filler_.FetchFullyFreedTracker();
+    }
+    if (pt == nullptr) break;
+    --hp_contained_;
+    delete pt;
+    ++freed;
+  }
+  EXPECT_EQ(freed, 2);
+  CheckStats();
+}
+
+TEST_F(FillerTest, ReentrantUnbackAllocatesFromCandidateTracker) {
+  randomize_density_ = false;
+  PAlloc a1 = Allocate(Length(10));
+  PAlloc b1 = Allocate(kPagesPerHugePage - Length(10));
+  ASSERT_EQ(a1.pt, b1.pt);
+
+  PAlloc a2 = Allocate(Length(20));
+  PAlloc b2 = Allocate(kPagesPerHugePage - Length(20));
+  ASSERT_EQ(a2.pt, b2.pt);
+  ASSERT_NE(a1.pt, a2.pt);
+
+  Delete(a1);
+  Delete(a2);
+
+  std::vector<PAlloc> reentrant_allocs;
+  int callbacks = 0;
+  blocking_unback_.callback_ = [&](Range r) {
+    if (++callbacks == 1) {
+      reentrant_allocs.push_back(Allocate(kPagesPerHugePage - Length(5)));
+    }
+  };
+
+  EXPECT_EQ(ReleasePages(Length(20)), Length(20));
+  EXPECT_EQ(callbacks, 1);
+  blocking_unback_.callback_ = nullptr;
+
+  // Verify that candidate tracker a1.pt was properly restored to regular_alloc_
+  // after ReleaseCandidates finished unbacking a2.pt.
+  PAlloc c = Allocate(Length(10));
+  EXPECT_EQ(c.pt, a1.pt);
+  Delete(c);
+
+  for (const PAlloc& p : reentrant_allocs) {
+    Delete(p);
+  }
+  Delete(b1);
+  Delete(b2);
   CheckStats();
 }
 

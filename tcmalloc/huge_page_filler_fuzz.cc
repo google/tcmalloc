@@ -370,8 +370,7 @@ struct State {
         unback(*this),
         collapse(*this),
         filler(Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal,
-               unback, unback, collapse, set_anon_vma_name,
-               subrelease_unbacked_mode) {
+               unback, collapse, set_anon_vma_name, subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
     // To avoid reentrancy during unback, reserve space in released_set.  We
@@ -407,6 +406,7 @@ struct State {
   }
 
   ~State() {
+    reentrant_stack.clear();
     // Shut down, confirm filler is empty.
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     for (auto& [pt, v] : allocs) {
@@ -457,9 +457,17 @@ struct State {
   std::string output;
 };
 
-MemoryModifyStatus MockUnback::operator()(Range r) {
+MemoryModifyStatus MockUnback::operator()(Range r)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
   if (release_callback_) {
+    const bool held = tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld();
+    if (held) {
+      tcmalloc::tcmalloc_internal::pageheap_lock.unlock();
+    }
     release_callback_();
+    if (held) {
+      tcmalloc::tcmalloc_internal::pageheap_lock.lock();
+    }
   }
   if (!state_.unback_success) {
     return {.success = false, .error_number = 0};
@@ -621,6 +629,15 @@ void Release::Perform(State& state) const {
         state.filler.FreePagesInPartialAllocs().raw_num();
     released = state.filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
+    while (PageTracker* pt = state.filler.FetchFullyFreedTracker()) {
+      HugePage hp = pt->location();
+      for (PageId p = hp.first_page(),
+                  end = hp.first_page() + kPagesPerHugePage;
+           p != end; ++p) {
+        state.released_set.erase(p);
+      }
+      delete pt;
+    }
   }
 
   if (!release_partial_allocs || hit_limit ||
@@ -692,6 +709,15 @@ void MemoryLimitHitRelease::Perform(State& state) const {
     released = state.filler.ReleasePages(desired_len, SkipSubreleaseIntervals{},
                                          /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
+    while (PageTracker* pt = state.filler.FetchFullyFreedTracker()) {
+      HugePage hp = pt->location();
+      for (PageId p = hp.first_page(),
+                  end = hp.first_page() + kPagesPerHugePage;
+           p != end; ++p) {
+        state.released_set.erase(p);
+      }
+      delete pt;
+    }
   }
   if (state.depth != 0) {
     return;
@@ -1403,6 +1429,29 @@ TEST(HugePageFillerTest, b547364068) {
                      .swapped_bitmap_val = 1,
                      .stale_bitmap_val = 0}},
       SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, ReentrantRegression) {
+  FuzzFiller(
+      {SetCollapseLatency{.latency = absl::Nanoseconds(9223372036854775807)},
+       ReentrantSubprogram{.subprogram = {}}, GatherStatsPbtxt{},
+       GatherStatsPbtxt{},
+       Allocate{
+           .length = 14317, .num_objects = 3536510400, .density_dense = false},
+       Release{.hit_limit = true,
+               .use_peak_interval = false,
+               .peak_interval = absl::Nanoseconds(9223372036854775807),
+               .short_interval = absl::Nanoseconds(1),
+               .long_interval = absl::Nanoseconds(9223372036854775807),
+               .desired_pages = 32767,
+               .release_partial_allocs = false},
+       ReentrantSubprogram{.subprogram = {ReentrantSubprogram{.subprogram = {}},
+                                          GatherStatsPbtxt{}}},
+       GatherStats{},
+       ReentrantSubprogram{
+           .subprogram = {Allocate{
+               .length = 0, .num_objects = 1, .density_dense = true}}}},
+      SubreleaseUnbackedMode::kEnabled);
 }
 
 }  // namespace
