@@ -163,7 +163,11 @@ class CentralFreeList {
         pages_per_span_(0),
         nonempty_(),
         use_all_buckets_for_few_object_spans_(false),
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
         cfl_subbucket_prioritization_(CflSubbucketPrioritization::kDisabled) {
+#else
+        use_prepend_(true) {
+#endif
   }
 
   CentralFreeList(const CentralFreeList&) = delete;
@@ -406,7 +410,11 @@ class CentralFreeList {
 
   bool use_all_buckets_for_few_object_spans_;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   CflSubbucketPrioritization cfl_subbucket_prioritization_;
+#else
+  bool use_prepend_;
+#endif
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
@@ -440,7 +448,12 @@ inline void CentralFreeList<Forwarder>::Init(
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   TC_ASSERT_LE(absl::bit_width(objects_per_span_), kSpanUtilBucketCapacity);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   cfl_subbucket_prioritization_ = cfl_subbucket_prioritization;
+#else
+  use_prepend_ =
+      cfl_subbucket_prioritization == CflSubbucketPrioritization::kDisabled;
+#endif
 }
 
 template <class Forwarder>
@@ -458,8 +471,12 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
 
   // By default, we prepend (AddFront) to the nonempty_ list. When the
   // CflSubbucketPrioritization feature is enabled, we append (AddBack).
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const bool use_prepend =
       cfl_subbucket_prioritization_ == CflSubbucketPrioritization::kDisabled;
+#else
+  const bool use_prepend = use_prepend_;
+#endif
 
   const bool was_empty = span->FreelistEmpty(object_size, objects_per_span);
   if (!kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
