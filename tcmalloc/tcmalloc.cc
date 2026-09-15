@@ -733,21 +733,27 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
       ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
                           ptr);
     }
+    const MemoryTag tag = GetMemoryTag(ptr);
+    const SpanAllocInfo span_alloc_info = {
+        .objects_per_span = 1, .density = AccessDensityPrediction::kSparse};
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    if (span) {
+      PageAllocator::InvokeDeleteHook(span->first_page(), span->num_pages(),
+                                      span_alloc_info, tag);
+    }
     PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(
-        span, GetMemoryTag(ptr),
-        {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
+    tc_globals.page_allocator().Delete(span, tag, span_alloc_info);
 #else
     PageAllocatorInterface::AllocationState a{
         Range(p, span->num_pages()),
         span->donated(),
     };
     Span::Delete(span);
+    if (a) {
+      PageAllocator::InvokeDeleteHook(a.r.p, a.r.n, span_alloc_info, tag);
+    }
     PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(
-        a, GetMemoryTag(ptr),
-        {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
+    tc_globals.page_allocator().Delete(a, tag, span_alloc_info);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
   // We expect to crash in GuardedPageAllocator::Delete or in

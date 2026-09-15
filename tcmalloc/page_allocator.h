@@ -295,10 +295,6 @@ inline Span* PageAllocator::NewAligned(Length n, Length align,
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
 inline void PageAllocator::Delete(Span* span, MemoryTag tag,
                                   SpanAllocInfo span_alloc_info) {
-  if (span) {
-    InvokeDeleteHook(span->first_page(), span->num_pages(), span_alloc_info,
-                     tag);
-  }
   impl(tag)->Delete(span, span_alloc_info);
 }
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -306,9 +302,6 @@ inline void PageAllocator::Delete(Span* span, MemoryTag tag,
 inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
                                   MemoryTag tag,
                                   SpanAllocInfo span_alloc_info) {
-  if (s) {
-    InvokeDeleteHook(s.r.p, s.r.n, span_alloc_info, tag);
-  }
   impl(tag)->Delete(s, span_alloc_info);
 }
 

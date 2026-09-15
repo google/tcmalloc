@@ -133,11 +133,18 @@ Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
 static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
                                   size_t objects_per_span)
     ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-  PageHeapSpinLockHolder l;
+  const SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span};
   for (Span* const free_span : free_spans) {
     TC_ASSERT_EQ(tag, GetMemoryTag(free_span->start_address()));
-    tc_globals.page_allocator().Delete(free_span, tag,
-                                       {.objects_per_span = objects_per_span});
+    if (free_span) {
+      PageAllocator::InvokeDeleteHook(free_span->first_page(),
+                                      free_span->num_pages(), span_alloc_info,
+                                      tag);
+    }
+  }
+  PageHeapSpinLockHolder l;
+  for (Span* const free_span : free_spans) {
+    tc_globals.page_allocator().Delete(free_span, tag, span_alloc_info);
   }
 }
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -146,6 +153,12 @@ static void ReturnAllocsToPageHeap(
     MemoryTag tag,
     absl::Span<PageAllocatorInterface::AllocationState> free_allocs,
     SpanAllocInfo span_alloc_info) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  for (const auto& alloc : free_allocs) {
+    if (alloc) {
+      PageAllocator::InvokeDeleteHook(alloc.r.p, alloc.r.n, span_alloc_info,
+                                      tag);
+    }
+  }
   PageHeapSpinLockHolder l;
   for (const auto& alloc : free_allocs) {
     tc_globals.page_allocator().Delete(alloc, tag, span_alloc_info);
