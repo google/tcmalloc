@@ -385,6 +385,9 @@ PageFlagsBase::PageFlagsBitmaps PageFlags::GetSinglePageBitmaps(
     }
     if (PageTail(flags)) {
       if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
+        // Discard any ranges recorded so far so that callers never observe a
+        // partially populated bitmap alongside a non-OK status.
+        ret.stale.Clear();
         ret.status = absl::StatusCode::kFailedPrecondition;
         return ret;
       }
