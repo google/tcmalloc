@@ -270,36 +270,30 @@ class ScopedUnregisterRseq {
 // as it exists.
 class ScopedFakeCpuId {
  public:
-  explicit ScopedFakeCpuId(const int cpu_id) {
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    // Now that our unregister_rseq_ member has prevented the kernel from
-    // modifying __rseq_abi, we can inject our own CPU ID.
-    tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
-    test_vcpu_ = cpu_id;
-#endif
-  }
+  explicit ScopedFakeCpuId(const int cpu_id) { SetCpuId(cpu_id); }
 
   ~ScopedFakeCpuId() {
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     // Undo the modification we made in the constructor, as required by
     // ~ScopedFakeCpuId.
-    tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id =
-        tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
-    test_vcpu_ = tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
-#endif
+    SetCpuId(tcmalloc_internal::subtle::percpu::kCpuIdUninitialized);
   }
 
   // Simulate migrating across cores.
-  void SwitchTo(const int cpu_id) {
+  void SwitchTo(const int cpu_id) { SetCpuId(cpu_id); }
+
+ private:
+  static void SetCpuId(const int cpu_id) {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     // Now that our unregister_rseq_ member has prevented the kernel from
     // modifying __rseq_abi, we can inject our own CPU ID.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
+    // The allocation fast paths read the id from whichever field the
+    // registered vCPU mode selects, so inject it there as well. This is a
+    // no-op when that is the low half of cpu_id.
+    *tcmalloc_internal::subtle::percpu::VirtualCpuIdAddress() = cpu_id;
     test_vcpu_ = cpu_id;
 #endif
   }
-
- private:
 
   const ScopedUnregisterRseq unregister_rseq_;
   static thread_local int test_vcpu_;
