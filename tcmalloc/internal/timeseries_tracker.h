@@ -64,7 +64,8 @@ class TimeSeriesTracker {
     InitTracker();
   }
 
-  bool Report(const S& val);
+  bool Report(const S& val, int64_t now);
+  bool Report(const S& val) { return Report(val, clock_.now()); }
 
   // Iterates over the time series, starting from the oldest entry. The callback
   // receives the sequence number of the entry, the epoch_delta (i.e., number of
@@ -92,40 +93,28 @@ class TimeSeriesTracker {
 
  private:
   // Returns true if the tracker moved to a different epoch.
-  bool UpdateClock();
+  bool UpdateClock(int64_t now);
+  bool UpdateClock() { return UpdateClock(clock_.now()); }
 
   // Returns the current epoch number based on the clock.
-  int64_t GetCurrentEpoch() {
-    // This is equivalent to
-    // `clock_.now() / (absl::ToDoubleSeconds(epoch_length_) * clock_.freq())`.
-    // We basically follow the technique from
-    // https://ridiculousfish.com/blog/posts/labor-of-division-episode-i.html,
-    // except that we use one fewer bit of precision than necessary to always
-    // get the correct answer if the numerator were a 64-bit unsigned number. In
-    // this case, because clock_.now() returns a signed 64-bit number (i.e. max
-    // is <2^63), it shouldn't cause a problem. This way, we don't need to
-    // handle overflow so it's simpler. See also:
-    // https://lemire.me/blog/2019/02/20/more-fun-with-fast-remainders-when-the-divisor-is-a-constant/.
+  int64_t GetCurrentEpoch(int64_t now) const {
     return static_cast<int64_t>(static_cast<absl::uint128>(epoch_ticks_m_) *
-                                    clock_.now() >>
+                                    std::max<int64_t>(0, now) >>
                                 div_precision_);
   }
-  void InitTracker() {
-    // Inits the tracker by "create" an record for "now" on slot 0. The record
-    // serves as the first valid record in the tracker, with epoch coverage
-    // (delta) 1 and an empty payload. In this way, we would know when was the
-    // first real data point taken, as it would be the time diff between "now"
-    // and "then". If the first data point is taken immediately, this record
-    // will be updated with real data.
+  int64_t GetCurrentEpoch() const { return GetCurrentEpoch(clock_.now()); }
+
+  void InitTracker(int64_t now) {
     current_slot_ = 0;
     for (auto& entry : entries_) {
       entry = TimeSeriesContent();
     }
     size_t delta = 1;
-    last_epoch_ = GetCurrentEpoch();
+    last_epoch_ = GetCurrentEpoch(now);
     entries_[current_slot_] = TimeSeriesContent(delta);
     covered_epochs_ = delta;
   }
+  void InitTracker() { InitTracker(clock_.now()); }
 
   struct TimeSeriesContent {
     size_t epoch_delta;  // Time gap (in epoch) between this slot and
@@ -155,14 +144,14 @@ class TimeSeriesTracker {
 // Advances the current slot if the clock had advanced >= 1 epoch; sets the
 // epoch_delta for how many epoch had passed sice the previous clock update.
 template <class T, class S, size_t kSlots>
-bool TimeSeriesTracker<T, S, kSlots>::UpdateClock() {
-  const size_t epoch = GetCurrentEpoch();
+bool TimeSeriesTracker<T, S, kSlots>::UpdateClock(int64_t now) {
+  const size_t epoch = GetCurrentEpoch(now);
   if (ABSL_PREDICT_FALSE(epoch < last_epoch_)) {
     // If the clock has regressed (e.g., across snapshot restore or container
     // migration to a host with a lower monotonic clock), reset the tracker to
     // prevent unsigned underflow in delta calculations and discard stale
     // history.
-    InitTracker();
+    InitTracker(now);
     return false;
   }
   if (epoch == last_epoch_) {
@@ -243,8 +232,8 @@ TimeSeriesTracker<T, S, kSlots>::GetMostRecentRecord() const {
 }
 
 template <class T, class S, size_t kSlots>
-bool TimeSeriesTracker<T, S, kSlots>::Report(const S& val) {
-  bool updated_clock = UpdateClock();
+bool TimeSeriesTracker<T, S, kSlots>::Report(const S& val, int64_t now) {
+  bool updated_clock = UpdateClock(now);
   entries_[current_slot_].payload.Report(val);
   return updated_clock;
 }
