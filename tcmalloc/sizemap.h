@@ -318,9 +318,11 @@ class SizeMap {
   }
 
   // Mapping from size class to number of pages to allocate at a time
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+  ABSL_ATTRIBUTE_PURE_FUNCTION
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline Length class_to_pages(
       size_t size_class) const {
-    TC_ASSERT_LT(size_class, kNumClasses);
+    ASSUME(size_class < kNumClasses);
     return Length(class_to_pages_[size_class]);
   }
 
@@ -348,9 +350,11 @@ class SizeMap {
   // amortize the lock overhead for accessing the central list.  Making
   // it too big may temporarily cause unnecessary memory wastage in the
   // per-thread free list until the scavenger cleans up the list.
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+  ABSL_ATTRIBUTE_PURE_FUNCTION
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMap::BatchSize num_objects_to_move(
       size_t size_class) const {
-    TC_ASSERT_LT(size_class, kNumClasses);
+    ASSUME(size_class < kNumClasses);
     return num_objects_to_move_[size_class];
   }
 
