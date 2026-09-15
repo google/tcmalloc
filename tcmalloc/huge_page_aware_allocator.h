@@ -1015,6 +1015,11 @@ inline void HugePageAwareAllocator<Forwarder>::GetSpanStats(
 template <class Forwarder>
 inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
     Length num_pages, PageReleaseReason reason) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  if (ABSL_PREDICT_FALSE(num_pages == Length(0))) {
+    return Length(0);
+  }
+#endif
   Length released =
       cache_.ReleaseCachedPages(HLFromPages(num_pages)).in_pages();
 
