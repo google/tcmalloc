@@ -63,7 +63,15 @@ class MissCounts {
   // Returns the number of misses since the last commit call.
   size_t Commit() {
     size_t t = total_.load(std::memory_order_relaxed);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    size_t c = total_committed_.load(std::memory_order_relaxed);
+    if (t == c) {
+      return 0;
+    }
+    c = total_committed_.exchange(t, std::memory_order_relaxed);
+#else
     size_t c = total_committed_.exchange(t, std::memory_order_relaxed);
+#endif
     if (ABSL_PREDICT_TRUE(t > c)) {
       return t - c;
     }
