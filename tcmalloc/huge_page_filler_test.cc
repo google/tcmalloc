@@ -739,7 +739,11 @@ TEST_F(FillerTest, ClockCalls) {
   }
   EXPECT_EQ(put_res2, pt);
   EXPECT_EQ(FakeClock::now_calls(), 2);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  EXPECT_EQ(FakeClock::freq_calls(), 0);
+#else
   EXPECT_EQ(FakeClock::freq_calls(), 1);
+#endif
 
   // 5. Contribute and wait for pt to be sampled.
   while (true) {
@@ -776,7 +780,11 @@ TEST_F(FillerTest, ClockCalls) {
   EXPECT_EQ(put_res1, nullptr);
   EXPECT_EQ(put_res2, pt);
   EXPECT_EQ(FakeClock::now_calls(), 3);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  EXPECT_EQ(FakeClock::freq_calls(), 0);
+#else
   EXPECT_EQ(FakeClock::freq_calls(), 1);
+#endif
 
   delete pt;
 }

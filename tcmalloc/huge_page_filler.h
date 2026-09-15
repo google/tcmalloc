@@ -1079,6 +1079,9 @@ class HugePageFiller {
   int current_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 0;
   uintptr_t rng_ = 0;
   SubreleaseUnbackedMode subrelease_unbacked_mode_;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  double ms_per_cycle_{0};
+#endif
 };
 
 template <class TrackerType>
@@ -1113,6 +1116,12 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
   for (int i = 2; i <= kLifetimeBuckets; ++i) {
     lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
   }
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const double freq = clock_.freq();
+  if (freq > 0) {
+    ms_per_cycle_ = 1000.0 / freq;
+  }
+#endif
 }
 
 template <class TrackerType>
@@ -1271,10 +1280,15 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 template <class TrackerType>
 void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt) {
   const double now = clock_.now();
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const double elapsed = std::max<double>(now - pt->alloctime(), 0);
+  const absl::Duration lifetime = absl::Milliseconds(elapsed * ms_per_cycle_);
+#else
   const double frequency = clock_.freq();
   const double elapsed = std::max<double>(now - pt->alloctime(), 0);
   const absl::Duration lifetime =
       absl::Milliseconds(elapsed * 1000 / frequency);
+#endif
   if (pt->HasDenseSpans()) {
     ++lifetime_histo_[AccessDensityPrediction::kDense]
                      [LifetimeBucketNum(lifetime)];
@@ -2403,6 +2417,17 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const Length num_pages = pages_allocated();
+  const Length unmapped = unmapped_pages();
+  StatsTrackerType::SubreleaseStats stats;
+  stats.num_pages = num_pages;
+  stats.free_pages = size().in_pages() - num_pages - unmapped;
+  stats.unmapped_pages = unmapped;
+  stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
+  fillerstats_tracker_.Report(stats);
+  subrelease_stats_.reset();
+#else
   StatsTrackerType::SubreleaseStats stats;
   stats.num_pages = pages_allocated();
   stats.free_pages = free_pages();
@@ -2410,6 +2435,7 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
   stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
   fillerstats_tracker_.Report(stats);
   subrelease_stats_.reset();
+#endif
 }
 
 template <class TrackerType>
