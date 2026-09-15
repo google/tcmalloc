@@ -738,21 +738,14 @@ extern "C" [[nodiscard]] size_t nallocx(size_t size, int flags) noexcept;
 extern "C" void sdallocx(void* absl_nullable ptr, size_t size,
                          int flags) noexcept;
 
-#if defined(__GLIBC__) || defined(__Fuchsia__)
-#define TCMALLOC_FREE_SIZED_NOEXCEPT noexcept
-#else
-#define TCMALLOC_FREE_SIZED_NOEXCEPT
-#endif
-
 #if !defined(__STDC_VERSION_STDLIB_H__) || __STDC_VERSION_STDLIB_H__ < 202311L
 // Frees ptr allocated with malloc(size) introduced in C23.
-extern "C" void free_sized(void* absl_nullable ptr,
-                           size_t size) TCMALLOC_FREE_SIZED_NOEXCEPT;
+extern "C" void free_sized(void* absl_nullable ptr, size_t size) noexcept;
 
 // Frees ptr allocated with aligned_alloc/posix_memalign with the specified size
 // and alignment introduced in C23.
 extern "C" void free_aligned_sized(void* absl_nullable ptr, size_t alignment,
-                                   size_t size) TCMALLOC_FREE_SIZED_NOEXCEPT;
+                                   size_t size) noexcept;
 #endif
 
 // Define __sized_ptr_t in the global namespace so that it can be named by the
