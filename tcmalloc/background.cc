@@ -13,11 +13,14 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <limits>
 
 #include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "absl/base/const_init.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -31,6 +34,51 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
+
+namespace tcmalloc {
+namespace tcmalloc_internal {
+namespace {
+
+ABSL_CONST_INIT absl::Mutex background_mutex(absl::kConstInit);
+ABSL_CONST_INIT bool background_process_actions_disabled
+    ABSL_GUARDED_BY(background_mutex) = false;
+
+// As background_process_actions_enabled_ptr() are determined at runtime, we
+// cannot require constant initialization for the atomic.  This avoids an
+// initialization order fiasco.
+std::atomic<bool>& background_process_actions_enabled_ptr() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(
+      &flag, [&]() { v.store(true, std::memory_order_relaxed); });
+  return v;
+}
+
+}  // namespace
+
+bool Parameters::background_process_actions_enabled() {
+  return background_process_actions_enabled_ptr().load(
+      std::memory_order_relaxed);
+}
+
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
+
+extern "C" {
+
+bool MallocExtension_Internal_GetBackgroundProcessActionsEnabled() {
+  return tcmalloc::tcmalloc_internal::Parameters::
+      background_process_actions_enabled();
+}
+
+void MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value) {
+  absl::MutexLock l(tcmalloc::tcmalloc_internal::background_mutex);
+  tcmalloc::tcmalloc_internal::background_process_actions_enabled_ptr().store(
+      value, std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::background_process_actions_disabled = !value;
+}
+
+}  // extern "C"
 
 // Release memory to the system at a constant rate.
 void MallocExtension_Internal_ProcessBackgroundActions() {
@@ -58,6 +106,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   // want to separately account for pages released by ProcessBackgroundActions.
   tcmalloc::tcmalloc_internal::ConstantRatePageAllocatorReleaser releaser;
 
+  absl::MutexLock l(tcmalloc::tcmalloc_internal::background_mutex);
   while (tcmalloc::MallocExtension::GetBackgroundProcessActionsEnabled()) {
     const absl::Duration sleep_time =
         tcmalloc::MallocExtension::GetBackgroundProcessSleepInterval();
@@ -100,9 +149,6 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 
     // TODO(b/278618299):  We guard various actions under a single lock, since
     // individual operations may not be amenable to concurrent operations.
-    {
-      ABSL_CONST_INIT static absl::Mutex mu(absl::kConstInit);
-      absl::MutexLock l(mu);
 
       // We follow the cache hierarchy in TCMalloc from outermost (per-CPU) to
       // innermost (the page heap).  Freeing up objects at one layer can help
@@ -200,8 +246,10 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       }
 
       prev_time = now;
-    }
 
-    absl::SleepFor(sleep_time);
+      tcmalloc::tcmalloc_internal::background_mutex.AwaitWithTimeout(
+          absl::Condition(&tcmalloc::tcmalloc_internal::
+                              background_process_actions_disabled),
+          sleep_time);
   }
 }

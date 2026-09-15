@@ -71,17 +71,6 @@ static std::atomic<bool>& hpaa_subrelease_ptr() {
   return v;
 }
 
-// As background_process_actions_enabled_ptr() are determined at runtime, we
-// cannot require constant initialization for the atomic.  This avoids an
-// initialization order fiasco.
-static std::atomic<bool>& background_process_actions_enabled_ptr() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(
-      &flag, [&]() { v.store(true, std::memory_order_relaxed); });
-  return v;
-}
-
 // As background_process_sleep_interval_ns() are determined at runtime, we
 // cannot require constant initialization for the atomic.  This avoids an
 // initialization order fiasco.
@@ -309,11 +298,6 @@ ABSL_CONST_INIT std::atomic<bool>
         DefaultOrDebugValue(true, false),
     };
 
-bool Parameters::background_process_actions_enabled() {
-  return background_process_actions_enabled_ptr().load(
-      std::memory_order_relaxed);
-}
-
 absl::Duration Parameters::background_process_sleep_interval() {
   return absl::Nanoseconds(
       background_process_sleep_interval_ns().load(std::memory_order_relaxed));
@@ -427,15 +411,6 @@ int64_t MallocExtension_Internal_GetMaxTotalThreadCacheBytes() {
 
 void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(int64_t value) {
   Parameters::set_max_total_thread_cache_bytes(value);
-}
-
-bool MallocExtension_Internal_GetBackgroundProcessActionsEnabled() {
-  return Parameters::background_process_actions_enabled();
-}
-
-void MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value) {
-  tcmalloc::tcmalloc_internal::background_process_actions_enabled_ptr().store(
-      value, std::memory_order_relaxed);
 }
 
 void MallocExtension_Internal_GetBackgroundProcessSleepInterval(
