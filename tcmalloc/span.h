@@ -700,7 +700,7 @@ inline Length Span::num_pages() const {
 }
 
 inline void Span::set_num_pages(Length len) {
-  if (len > kLargeSpanLength || sampled()) {
+  if (ABSL_PREDICT_FALSE(len > kLargeSpanLength || sampled())) {
     large_or_sampled_state_.num_pages = len.raw_num();
     is_large_span_ = len > kLargeSpanLength;
     return;
