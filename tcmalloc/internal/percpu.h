@@ -199,9 +199,13 @@ ABSL_CONST_INIT thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_WEAK = 0;
 // linked in files.
 extern "C" ABSL_CONST_INIT thread_local char tcmalloc_rseq_layout;
 
-inline int GetRealCpuUnsafe() { return __rseq_abi.cpu_id; }
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE int GetRealCpuUnsafe() {
+  return __rseq_abi.cpu_id;
+}
 #else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-inline int GetRealCpuUnsafe() { return kCpuIdUnsupported; }
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE int GetRealCpuUnsafe() {
+  return kCpuIdUnsupported;
+}
 #endif
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
@@ -259,7 +263,8 @@ inline int GetRealCpu() {
 // We just return a void* here since percpu doesn't know about the Sampler
 // type and we need to avoid a circular dependency between percpu and
 // the Sampler.
-inline void* GetThreadSamplerAddress() {
+ABSL_ATTRIBUTE_CONST_FUNCTION inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
+GetThreadSamplerAddress() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   return &tcmalloc_sampler;
 #else
@@ -280,7 +285,7 @@ class VirtualCpu {
   // This is safe, because without a RSEQ critical section to detect thread
   // preemption, a thread may be preempted at any point and the virtual (or
   // real) CPU may change.
-  static int get() {
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE int get() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     return tcmalloc_cached_vcpu;
 #else   // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
@@ -290,7 +295,7 @@ class VirtualCpu {
 
   // Returns the last vCPU ID since the last synchronization point.
   // REQUIRES: Synchronize() has been called by this thread
-  static int GetAfterSynchronize() {
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE int GetAfterSynchronize() {
     const int ret = get();
     TC_ASSERT_GE(ret, kCpuIdInitialized);
     return ret;
@@ -311,10 +316,7 @@ class VirtualCpu {
 bool InitFastPerCpu();
 
 inline bool IsFast() {
-  if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
-    return false;
-  }
-
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   int cpu = GetRealCpuUnsafe();
 
   if (ABSL_PREDICT_TRUE(cpu >= kCpuIdInitialized)) {
@@ -326,20 +328,24 @@ inline bool IsFast() {
     // necessary.
     return InitFastPerCpu();
   }
+#else
+  return false;
+#endif
 }
 
 // As IsFast(), but if this thread isn't already initialized, will not
 // attempt to do so.
-inline bool IsFastNoInit() {
-  if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
-    return false;
-  }
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool IsFastNoInit() {
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   int cpu = GetRealCpuUnsafe();
   return ABSL_PREDICT_TRUE(cpu >= kCpuIdInitialized);
+#else
+  return false;
+#endif
 }
 
 // A barrier that prevents compiler reordering.
-inline void CompilerBarrier() {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void CompilerBarrier() {
 #if defined(__GNUC__)
   __asm__ __volatile__("" : : : "memory");
 #else
