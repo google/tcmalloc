@@ -64,12 +64,13 @@ class MetadataObjectAllocator {
   // request an overaligned instance via NewWithSize as the underaligned result
   // may be freelisted.
   template <typename... Args>
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* New(Args&&... args) {
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL ABSL_ATTRIBUTE_ALWAYS_INLINE T*
+  New(Args&&... args) {
     return NewWithSize(sizeof(T), static_cast<std::align_val_t>(alignof(T)),
                        std::forward<Args>(args)...);
   }
 
-  void Delete(T* p) ABSL_ATTRIBUTE_NONNULL() {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void Delete(T* p) ABSL_ATTRIBUTE_NONNULL() {
     p->~T();
     LockAndDeleteMemory(p);
   }
@@ -82,13 +83,23 @@ class MetadataObjectAllocator {
 
  private:
   template <typename... Args>
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(
-      size_t size, std::align_val_t align, Args&&... args) {
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL ABSL_ATTRIBUTE_ALWAYS_INLINE T*
+  NewWithSize(size_t size, std::align_val_t align, Args&&... args) {
     T* ret = LockAndAllocMemory(size, align);
     return new (ret) T(std::forward<Args>(args)...);
   }
-  ABSL_ATTRIBUTE_RETURNS_NONNULL T* LockAndAllocMemory(size_t size,
-                                                       std::align_val_t align) {
+
+  ABSL_ATTRIBUTE_RETURNS_NONNULL ABSL_ATTRIBUTE_NOINLINE T* AllocSlow(
+      size_t size, std::align_val_t align)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(metadata_lock_) {
+    stats_.total++;
+    T* result = reinterpret_cast<T*>(arena_->Alloc(size, align));
+    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
+    return result;
+  }
+
+  ABSL_ATTRIBUTE_RETURNS_NONNULL ABSL_ATTRIBUTE_ALWAYS_INLINE T*
+  LockAndAllocMemory(size_t size, std::align_val_t align) {
     TC_ASSERT_GE(static_cast<size_t>(align), alignof(T));
 
     AllocationGuardSpinLockHolder l(metadata_lock_);
@@ -96,23 +107,20 @@ class MetadataObjectAllocator {
     // Consult free list
     T* result = free_list_;
     stats_.in_use++;
-    if (ABSL_PREDICT_FALSE(result == nullptr)) {
-      stats_.total++;
-      result = reinterpret_cast<T*>(arena_->Alloc(size, align));
-      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
-      return result;
-    } else {
+    if (ABSL_PREDICT_TRUE(result != nullptr)) {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
       // Unpoison the object on the freelist.
       ASAN_UNPOISON_MEMORY_REGION(result, size);
 #endif
+      free_list_ = *reinterpret_cast<T**>(result);
+      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
+      return result;
     }
-    free_list_ = *(reinterpret_cast<T**>(free_list_));
-    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
-    return result;
+    return AllocSlow(size, align);
   }
 
-  void LockAndDeleteMemory(T* p) ABSL_ATTRIBUTE_NONNULL() {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void LockAndDeleteMemory(T* p)
+      ABSL_ATTRIBUTE_NONNULL() {
     AllocationGuardSpinLockHolder l(metadata_lock_);
 
     *(reinterpret_cast<void**>(p)) = free_list_;
