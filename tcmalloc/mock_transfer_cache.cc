@@ -19,6 +19,7 @@
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+ABSL_CONST_INIT size_t ArenaBasedFakeTransferCacheManager::used_(0);
 ABSL_CONST_INIT bool
     ArenaBasedFakeTransferCacheManager::partial_legacy_transfer_cache_(false);
 ABSL_CONST_INIT bool FakeShardedTransferCacheManager::enable_generic_cache_(

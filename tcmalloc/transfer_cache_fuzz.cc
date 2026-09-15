@@ -38,7 +38,7 @@ using TransferCache =
 using TransferCacheEnv = FakeTransferCacheEnvironment<TransferCache>;
 
 constexpr int kNumObjectsToMove =
-    TransferCache::Manager::num_objects_to_move(1);
+    TransferCache::Forwarder::num_objects_to_move(1);
 
 struct State {
   TransferCacheEnv env;
