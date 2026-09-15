@@ -113,16 +113,9 @@ void* ThreadCache::FetchFromTransferCache(size_t size_class, size_t byte_size) {
   // multiple of batch_size.
   if (list->max_length() < batch_size) {
     list->set_max_length(list->max_length() + 1);
-  } else {
-    // Don't let the list get too long.
-    size_t new_length =
-        std::min(list->max_length() + batch_size, kMaxDynamicFreeListLength);
-    // The list's max_length must always be a multiple of batch_size,
-    // and kMaxDynamicFreeListLength is not necessarily a multiple
-    // of batch_size.
-    new_length -= new_length % batch_size;
-    TC_ASSERT_EQ(new_length % batch_size, 0);
-    list->set_max_length(new_length);
+  } else if (list->max_length() + batch_size <= kMaxDynamicFreeListLength) {
+    TC_ASSERT_EQ(list->max_length() % batch_size, 0);
+    list->set_max_length(list->max_length() + batch_size);
   }
   return batch[0];
 }
@@ -327,10 +320,8 @@ ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
   return heap;
 }
 
-void ThreadCache::BecomeIdle() {
+ABSL_ATTRIBUTE_NOINLINE void ThreadCache::BecomeIdleSlow(ThreadCache* heap) {
   if (!tsd_inited_) return;  // No caches yet
-  ThreadCache* heap = GetCacheIfPresent();
-  if (heap == nullptr) return;        // No thread cache to remove
   if (heap->in_setspecific_) return;  // Do not disturb the active caller
 
   heap->in_setspecific_ = true;
