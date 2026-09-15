@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <vector>
 
@@ -47,8 +48,9 @@ void SetSamplingInterval(int64_t val) {
   MallocExtension::SetProfileSamplingInterval(val);
   // We do this to reset the per-thread sampler - it may have a
   // very large gap put in here if sampling had been disabled.
-  void* ptr = ::operator new(1024 * 1024 * 1024);
-  ::operator delete(ptr);
+  constexpr size_t kResetSize = 32 * 1024 * 1024;
+  void* ptr = ::operator new(kResetSize);
+  ::operator delete(ptr, kResetSize);
 }
 
 size_t CurrentHeapSize() {
@@ -189,13 +191,27 @@ std::vector<size_t> InterestingSizes() {
 }  // namespace tcmalloc
 
 int main(int argc, char** argv) {
+  if (const char* status_file = getenv("TEST_SHARD_STATUS_FILE")) {
+    FILE* f = fopen(status_file, "w");
+    if (f) fclose(f);
+  }
+  size_t total_shards = 1;
+  size_t shard_index = 0;
+  if (const char* total_str = getenv("TEST_TOTAL_SHARDS")) {
+    total_shards = strtoul(total_str, nullptr, 10);
+  }
+  if (const char* index_str = getenv("TEST_SHARD_INDEX")) {
+    shard_index = strtoul(index_str, nullptr, 10);
+  }
+
   // Disable background activity to minimize noise.
   tcmalloc::MallocExtension::SetBackgroundProcessActionsEnabled(false);
   tcmalloc::MallocExtension::SetGuardedSamplingInterval(-1);
 
   bool all_ok = true;
-  for (size_t size : tcmalloc::InterestingSizes()) {
-    if (!tcmalloc::RunTest(size)) {
+  const std::vector<size_t> sizes = tcmalloc::InterestingSizes();
+  for (size_t i = shard_index; i < sizes.size(); i += total_shards) {
+    if (!tcmalloc::RunTest(sizes[i])) {
       all_ok = false;
     }
   }

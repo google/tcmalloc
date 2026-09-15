@@ -385,6 +385,7 @@ create_tcmalloc_testsuite(
     timeout = "long",
     srcs = ["sampling_memusage_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    shard_count = 8,
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
