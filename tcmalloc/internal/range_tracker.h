@@ -256,6 +256,14 @@ inline size_t RangeTracker<N>::FindAndMark(size_t n) {
     if (len >= n && len < best_len) {
       best_index = index;
       best_len = len;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      if (best_len == n && n < longest_free_) {
+        bits_.SetRange(best_index, n);
+        nused_ += n;
+        nallocs_++;
+        return best_index;
+      }
+#endif
     }
 
     index += len;
