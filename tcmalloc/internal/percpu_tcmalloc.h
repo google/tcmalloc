@@ -354,7 +354,7 @@ class TcmallocSlab {
       TC_ASSERT_EQ(reinterpret_cast<void*>(raw_ & kSlabsMask), slabs);
     }
 
-    std::pair<void*, Shift> Get() const {
+    ABSL_ATTRIBUTE_ALWAYS_INLINE std::pair<void*, Shift> Get() const {
       static_assert(kShiftMask >= 0 && kShiftMask <= UCHAR_MAX,
                     "kShiftMask must fit in a uint8_t");
       // Avoid expanding the width of Shift else the compiler will insert an
@@ -420,14 +420,16 @@ class TcmallocSlab {
 
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
-  [[nodiscard]] std::pair<void*, Shift> GetSlabsAndShift(
-      std::memory_order order) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE std::pair<void*, Shift>
+  GetSlabsAndShift(std::memory_order order) const {
     return slabs_and_shift_.load(order).Get();
   }
 
-  static void* CpuMemoryStart(void* slabs, Shift shift, int cpu);
-  static AtomicHeader* GetHeader(void* slabs, Shift shift, int cpu,
-                                 size_t size_class);
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE void* CpuMemoryStart(void* slabs,
+                                                           Shift shift,
+                                                           int cpu);
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE AtomicHeader* GetHeader(
+      void* slabs, Shift shift, int cpu, size_t size_class);
   static Header LoadHeader(AtomicHeader* hdrp);
   static void StoreHeader(AtomicHeader* hdrp, Header hdr);
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
@@ -479,8 +481,8 @@ class ScopedSlabCpuStop {
 };
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::Length(int cpu,
-                                               size_t size_class) const {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+TcmallocSlab<NumClasses>::Length(int cpu, size_t size_class) const {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
@@ -490,12 +492,12 @@ inline size_t TcmallocSlab<NumClasses>::Length(int cpu,
 }
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
-                                                 size_t size_class) const {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+TcmallocSlab<NumClasses>::Capacity(int cpu, size_t size_class) const {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  return std::max<ssize_t>(0, hdr.capacity(begin));
+  return hdr.capacity(begin);
 }
 
 #if defined(__x86_64__)
@@ -1013,28 +1015,29 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
 }
 
 template <size_t NumClasses>
-inline void* TcmallocSlab<NumClasses>::CpuMemoryStart(void* slabs, Shift shift,
-                                                      int cpu) {
-  return &static_cast<char*>(slabs)[cpu << ToUint8(shift)];
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
+TcmallocSlab<NumClasses>::CpuMemoryStart(void* slabs, Shift shift, int cpu) {
+  return static_cast<char*>(slabs) +
+         (static_cast<size_t>(cpu) << ToUint8(shift));
 }
 
 template <size_t NumClasses>
-inline auto TcmallocSlab<NumClasses>::GetHeader(void* slabs, Shift shift,
-                                                int cpu, size_t size_class)
-    -> AtomicHeader* {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::GetHeader(
+    void* slabs, Shift shift, int cpu, size_t size_class) -> AtomicHeader* {
   TC_ASSERT_NE(size_class, 0);
   return &static_cast<AtomicHeader*>(
       CpuMemoryStart(slabs, shift, cpu))[size_class];
 }
 
 template <size_t NumClasses>
-inline auto TcmallocSlab<NumClasses>::LoadHeader(AtomicHeader* hdrp) -> Header {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::LoadHeader(
+    AtomicHeader* hdrp) -> Header {
   return absl::bit_cast<Header>(hdrp->load(std::memory_order_relaxed));
 }
 
 template <size_t NumClasses>
-inline void TcmallocSlab<NumClasses>::StoreHeader(AtomicHeader* hdrp,
-                                                  Header hdr) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void TcmallocSlab<NumClasses>::StoreHeader(
+    AtomicHeader* hdrp, Header hdr) {
   hdrp->store(absl::bit_cast<int32_t>(hdr), std::memory_order_relaxed);
 }
 
@@ -1066,6 +1069,8 @@ void TcmallocSlab<NumClasses>::InitSlabs(
   size_t consumed_bytes =
       (NumClasses * sizeof(Header) + sizeof(void*) - 1) & ~(sizeof(void*) - 1);
   bool prev_empty = false;
+  std::atomic<uint16_t>* const begins = begins_;
+  const size_t max_slab_bytes = size_t{1} << ToUint8(shift);
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
     size_t cap = capacity(size_class);
     TC_CHECK_EQ(static_cast<uint16_t>(cap), cap);
@@ -1074,12 +1079,12 @@ void TcmallocSlab<NumClasses>::InitSlabs(
       consumed_bytes += sizeof(void*);
     }
     prev_empty = cap == 0;
-    begins_[size_class].store(consumed_bytes / sizeof(void*),
-                              std::memory_order_relaxed);
+    begins[size_class].store(consumed_bytes / sizeof(void*),
+                             std::memory_order_relaxed);
     consumed_bytes += cap * sizeof(void*);
-    if (consumed_bytes > (1 << ToUint8(shift))) {
+    if (ABSL_PREDICT_FALSE(consumed_bytes > max_slab_bytes)) {
       TC_BUG("per-CPU memory exceeded, have %v, need %v, size_class %v",
-             1 << ToUint8(shift), consumed_bytes, size_class);
+             max_slab_bytes, consumed_bytes, size_class);
     }
   }
 }
@@ -1098,14 +1103,15 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
     absl::FunctionRef<size_t(size_t)> capacity) {
   TC_CHECK(slabs != GetSlabsAndShift(std::memory_order_relaxed).first ||
            state_[cpu].stopped.load(std::memory_order_relaxed));
-  TC_CHECK_LE((1 << ToUint8(shift)), (1 << 16) * sizeof(void*));
+  const size_t max_slab_bytes = size_t{1} << ToUint8(shift);
+  TC_CHECK_LE(max_slab_bytes, (1 << 16) * sizeof(void*));
 
   // Initialize prefetch target and compute the offsets for the
   // boundaries of each size class' cache.
   void* curr_slab = CpuMemoryStart(slabs, shift, cpu);
+  AtomicHeader* const headers = static_cast<AtomicHeader*>(curr_slab);
   void** elems = reinterpret_cast<void**>(
-      (reinterpret_cast<uintptr_t>(GetHeader(slabs, shift, cpu, NumClasses)) +
-       sizeof(void*) - 1) &
+      (reinterpret_cast<uintptr_t>(&headers[NumClasses]) + sizeof(void*) - 1) &
       ~(sizeof(void*) - 1));
   bool prev_empty = false;
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
@@ -1126,13 +1132,13 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
     Header hdr = {};
     hdr.set_current(elems - reinterpret_cast<void**>(curr_slab));
     hdr.remaining_capacity = 0;
-    StoreHeader(GetHeader(slabs, shift, cpu, size_class), hdr);
+    StoreHeader(&headers[size_class], hdr);
 
     elems += cap;
     const size_t bytes_used_on_curr_slab =
         reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
-    if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
-      TC_BUG("per-CPU memory exceeded, have %v, need %v", 1 << ToUint8(shift),
+    if (ABSL_PREDICT_FALSE(bytes_used_on_curr_slab > max_slab_bytes)) {
+      TC_BUG("per-CPU memory exceeded, have %v, need %v", max_slab_bytes,
              bytes_used_on_curr_slab);
     }
   }
@@ -1201,9 +1207,12 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
                                         DrainHandler drain_handler) {
   AssertCpuStopped(cpu);
+  void* const cpu_slab = CpuMemoryStart(slabs, shift, cpu);
+  AtomicHeader* const headers = static_cast<AtomicHeader*>(cpu_slab);
+  const std::atomic<uint16_t>* const begins = begins_;
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
-    uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-    auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
+    uint16_t begin = begins[size_class].load(std::memory_order_relaxed);
+    auto* hdrp = &headers[size_class];
     Header hdr = LoadHeader(hdrp);
     if (hdr.current == 0) {
       continue;
@@ -1211,8 +1220,7 @@ void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
     const size_t size = hdr.current - begin;
     const size_t cap = hdr.capacity(begin);
 
-    void** batch =
-        reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) + begin;
+    void** batch = reinterpret_cast<void**>(cpu_slab) + begin;
     TSANAcquireBatch(batch, size);
     drain_handler(cpu, size_class, batch, size, cap);
     hdr.set_current(begin);
@@ -1223,9 +1231,12 @@ void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
 
 template <size_t NumClasses>
 bool TcmallocSlab<NumClasses>::CpuIsDrained(void* slabs, Shift shift, int cpu) {
+  const AtomicHeader* const headers =
+      static_cast<const AtomicHeader*>(CpuMemoryStart(slabs, shift, cpu));
+  const std::atomic<uint16_t>* const begins = begins_;
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
-    uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-    auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
+    uint16_t begin = begins[size_class].load(std::memory_order_relaxed);
+    auto* hdrp = const_cast<AtomicHeader*>(&headers[size_class]);
     Header hdr = LoadHeader(hdrp);
     if (hdr.capacity(begin) != 0) {
       return false;
@@ -1239,9 +1250,11 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
     void* slabs, Shift shift, int cpu,
     const std::array<uint16_t, NumClasses>& old_begins,
     DrainHandler drain_handler) {
+  void* const cpu_slab = CpuMemoryStart(slabs, shift, cpu);
+  AtomicHeader* const headers = static_cast<AtomicHeader*>(cpu_slab);
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
     uint16_t begin = old_begins[size_class];
-    auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
+    auto* hdrp = &headers[size_class];
     Header hdr = LoadHeader(hdrp);
     if (hdr.current == 0) {
       continue;
@@ -1249,8 +1262,7 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
     const size_t size = hdr.current - begin;
     const size_t cap = hdr.capacity(begin);
 
-    void** batch =
-        reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) + begin;
+    void** batch = reinterpret_cast<void**>(cpu_slab) + begin;
     TSANAcquireBatch(batch, size);
     drain_handler(cpu, size_class, batch, size, cap);
     hdr.set_current(begin);
@@ -1268,13 +1280,23 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   const int n_cpus = num_cpus();
   const auto [old_slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
+  std::array<uint16_t, NumClasses> caps;
+  for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
+    size_t cap = capacity(size_class);
+    TC_CHECK_EQ(static_cast<uint16_t>(cap), cap);
+    caps[size_class] = static_cast<uint16_t>(cap);
+  }
+  auto cached_capacity = [&caps](size_t size_class) -> size_t {
+    return caps[size_class];
+  };
+
   // Phase 0: Initialize slabs for populated CPUs BEFORE stopping CPUs.
   // This prefaults pages while all CPUs continue running undisturbed.
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
     // populated should not change while this function runs because the caller
     // should be holding all the CPU resize locks.
     if (!populated(cpu)) continue;
-    InitCpuImpl(new_slabs, shift, cpu, capacity);
+    InitCpuImpl(new_slabs, shift, cpu, cached_capacity);
   }
 
   // Phase 1: Stop all CPUs and initialize any CPUs in the new slab that have
@@ -1300,7 +1322,7 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   }
 
   // Phase 3: Initialize slabs.
-  InitSlabs(new_slabs, shift, capacity);
+  InitSlabs(new_slabs, shift, cached_capacity);
 
   // Phase 4: Re-start all CPUs.
   StartAllCpus();
@@ -1331,10 +1353,20 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   }
 
   TC_ASSERT_NE(new_shift, old_shift);
+  std::array<uint16_t, NumClasses> caps;
+  for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
+    size_t cap = capacity(size_class);
+    TC_CHECK_EQ(static_cast<uint16_t>(cap), cap);
+    caps[size_class] = static_cast<uint16_t>(cap);
+  }
+  auto cached_capacity = [&caps](size_t size_class) -> size_t {
+    return caps[size_class];
+  };
+
   const int n_cpus = num_cpus();
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
     if (populated(cpu)) {
-      InitCpuImpl(new_slabs, new_shift, cpu, capacity);
+      InitCpuImpl(new_slabs, new_shift, cpu, cached_capacity);
     }
   }
 
@@ -1346,7 +1378,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
 #endif
 
   // Phase 2: Atomically update slabs and shift.
-  InitSlabs(new_slabs, new_shift, capacity);
+  InitSlabs(new_slabs, new_shift, cached_capacity);
 
   // Phase 3: Re-start all CPUs.
   StartAllCpus();
