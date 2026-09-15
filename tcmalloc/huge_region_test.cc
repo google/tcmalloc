@@ -315,6 +315,66 @@ TEST_F(HugeRegionTest, ReleaseAdaptive) {
   CheckMock();
 }
 
+TEST_F(HugeRegionTest, ReleaseAdaptiveFragmented) {
+  const Length n = kPagesPerHugePage;
+  bool from_released;
+  std::optional<Alloc> allocs[8];
+  for (int i = 0; i < 8; ++i) {
+    allocs[i] = Allocate(n, &from_released);
+    EXPECT_TRUE(from_released);
+  }
+
+  // Delete hugepages: 0, 1, 3, 4, 6, 7 while keeping 2 and 5 allocated.
+  Delete(*allocs[0]);
+  Delete(*allocs[1]);
+  Delete(*allocs[3]);
+  Delete(*allocs[4]);
+  Delete(*allocs[6]);
+  Delete(*allocs[7]);
+
+  // Free backed hugepages are: [0, 1], [3, 4], [6, 7].
+  // Reverse order should release: 7, 6 from the last range, then 4 from the
+  // middle range.
+  ExpectUnback({p_ + NHugePages(4), NHugePages(1)});
+  ExpectUnback({p_ + NHugePages(6), NHugePages(2)});
+  EXPECT_EQ(NHugePages(3), region_.Release(NHugePages(3).in_pages(),
+                                           /*adaptive_release=*/true));
+  CheckMock();
+
+  Delete(*allocs[2]);
+  Delete(*allocs[5]);
+}
+
+TEST_F(HugeRegionTest, ReleaseNonAdaptiveFragmented) {
+  const Length n = kPagesPerHugePage;
+  bool from_released;
+  std::optional<Alloc> allocs[8];
+  for (int i = 0; i < 8; ++i) {
+    allocs[i] = Allocate(n, &from_released);
+    EXPECT_TRUE(from_released);
+  }
+
+  // Delete hugepages: 0, 1, 3, 4, 6, 7 while keeping 2 and 5 allocated.
+  Delete(*allocs[0]);
+  Delete(*allocs[1]);
+  Delete(*allocs[3]);
+  Delete(*allocs[4]);
+  Delete(*allocs[6]);
+  Delete(*allocs[7]);
+
+  // Free backed hugepages are: [0, 1], [3, 4], [6, 7].
+  // Forward order should release: 0, 1 from the first range, then 3 from the
+  // middle range.
+  ExpectUnback({p_, NHugePages(2)});
+  ExpectUnback({p_ + NHugePages(3), NHugePages(1)});
+  EXPECT_EQ(NHugePages(3), region_.Release(NHugePages(3).in_pages(),
+                                           /*adaptive_release=*/false));
+  CheckMock();
+
+  Delete(*allocs[2]);
+  Delete(*allocs[5]);
+}
+
 TEST_F(HugeRegionTest, ReleaseFailure) {
   const Length n = kPagesPerHugePage;
   bool from_released;
