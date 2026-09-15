@@ -1337,7 +1337,11 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     TC_ASSERT_EQ(pt->nallocs(), 0);
     --size_;
     if (pt->released()) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const Length free_pages = kPagesPerHugePage;
+#else
       const Length free_pages = pt->free_pages();
+#endif
       const Length released_pages = pt->released_pages();
       TC_ASSERT_GE(free_pages, released_pages);
       TC_ASSERT_GE(unmapped_, released_pages);
