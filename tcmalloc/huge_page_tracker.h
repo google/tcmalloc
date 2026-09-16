@@ -302,6 +302,9 @@ class PageTracker : public TList<PageTracker>::Elem {
     return hugepage_residency_state_.being_collapsed;
   }
 
+  void SetBeingReleased(bool value) { being_released_ = value; }
+  bool BeingReleased() const { return being_released_; }
+
   void SetDontFreeTracker(HugePageTreatmentType type) {
     dont_free_tracker_mask_ |= static_cast<uint8_t>(type);
   }
@@ -309,6 +312,9 @@ class PageTracker : public TList<PageTracker>::Elem {
     dont_free_tracker_mask_ &= ~static_cast<uint8_t>(type);
   }
   bool DontFreeTracker() const { return dont_free_tracker_mask_ != 0; }
+  bool DontFreeTracker(HugePageTreatmentType type) const {
+    return (dont_free_tracker_mask_ & static_cast<uint8_t>(type)) != 0;
+  }
 
   struct TagState {
     bool sampled_for_tagging = false;
@@ -352,6 +358,10 @@ class PageTracker : public TList<PageTracker>::Elem {
   bool abandoned_;
   bool unbroken_;
   bool has_dense_spans_ = false;
+  // Set while HugePageFiller::ReleasePages unbacks free pages of this tracker
+  // with pageheap_lock dropped.  The filler keeps such trackers off its lists
+  // (see HugePageFiller::AddToFillerList) and Collapse() leaves them alone.
+  bool being_released_ = false;
   // This field is used to avoid freeing this tracker prematurely. When this
   // is set, any maintenance operation (e.g. collapse) that drops
   // pageheap_lock might manipulate the tracker state without holding the
@@ -491,8 +501,12 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       PageId p = location_.first_page() + Length(free_index);
 
       if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
-        // Mark pages as released.  Amortize the update to release_count_.
+        // Mark pages as released.  unback may have dropped pageheap_lock, so
+        // keep released_count_ in sync with released_by_page_ whenever the
+        // lock is held: released() and released_pages() are read under the
+        // lock by other threads (e.g. Collapse(), stats).
         released_by_page_.SetRange(free_index, length);
+        released_count_ += length;
         count += length;
       }
 
@@ -504,7 +518,6 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
     }
   }
 
-  released_count_ += count;
   if (count > 0) {
     hugepage_residency_state_.maybe_hugepage_backed = false;
   }
@@ -542,8 +555,11 @@ inline MemoryModifyStatus PageTracker::Collapse(
   // store the being_collapsed state.
   {
     PageHeapSpinLockHolder l;
-    // If the tracker is in the released state, we do no want to collapse it.
-    if (released()) return {.success = false, .error_number = 0};
+    // If the tracker is in the released state, or is about to be, we do not
+    // want to collapse it.
+    if (released() || BeingReleased()) {
+      return {.success = false, .error_number = 0};
+    }
     TC_ASSERT(!BeingCollapsed());
     SetBeingCollapsed(/*value=*/true);
   }
