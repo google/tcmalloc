@@ -708,11 +708,11 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
   TC_CHECK_GT(n, Length(0));
   bool from_released;
   FinalizeType f = LockAndAlloc(n, span_alloc_info, &from_released);
-  if (f) {
+  if (ABSL_PREDICT_TRUE(f)) {
     Range r = Unspanify(f);
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(r.p.start_addr());
-    if (from_released && ShouldBack(r)) {
+    if (ABSL_PREDICT_FALSE(from_released && ShouldBack(r))) {
       forwarder_.Back(r);
     }
   }
@@ -729,7 +729,7 @@ HugePageAwareAllocator<Forwarder>::LockAndAlloc(Length n,
   PageHeapSpinLockHolder l;
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
-  if (n <= kSmallAllocPages) {
+  if (ABSL_PREDICT_TRUE(n <= kSmallAllocPages)) {
     return AllocSmall(n, span_alloc_info, from_released);
   }
 
