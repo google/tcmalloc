@@ -74,7 +74,7 @@ class PageMapTest : public ::testing::TestWithParam<int> {
 
  public:
   static constexpr int kTestBits = kAddressBits - kPageShift;
-  using Map = PageMap3<kTestBits, alloc>;
+  using Map = PageMap<kTestBits, alloc>;
   Map* map;
 
  private:
@@ -150,20 +150,20 @@ INSTANTIATE_TEST_SUITE_P(Limits, PageMapTest, ::testing::Values(100, 1 << 16));
 static struct PaddedPageMap {
   constexpr PaddedPageMap() : padding_before{}, pagemap{}, padding_after{} {}
   uint64_t padding_before[kHugePageSize / sizeof(uint64_t)];
-  PageMap pagemap;
+  ProdPageMap pagemap;
   uint64_t padding_after[kHugePageSize / sizeof(uint64_t)];
 } padded_pagemap_;
 
 TEST(TestMemoryFootprint, Test) {
   uint64_t pagesize = sysconf(_SC_PAGESIZE);
   ASSERT_NE(pagesize, 0);
-  size_t pages = sizeof(PageMap) / pagesize + 1;
+  size_t pages = sizeof(ProdPageMap) / pagesize + 1;
   std::vector<unsigned char> present(pages);
 
   // mincore needs the address rounded to the start page
   uint64_t basepage =
       reinterpret_cast<uintptr_t>(&padded_pagemap_.pagemap) & ~(pagesize - 1);
-  ASSERT_EQ(mincore(reinterpret_cast<void*>(basepage), sizeof(PageMap),
+  ASSERT_EQ(mincore(reinterpret_cast<void*>(basepage), sizeof(ProdPageMap),
                     present.data()),
             0);
   for (int i = 0; i < pages; i++) {

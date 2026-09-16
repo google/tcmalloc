@@ -51,7 +51,7 @@ namespace {
 void* BenchmarkMetaDataAlloc(size_t bytes) { return ::operator new(bytes); }
 
 using BenchmarkPageMap =
-    PageMap3<kAddressBits - kPageShift, BenchmarkMetaDataAlloc>;
+    PageMap<kAddressBits - kPageShift, BenchmarkMetaDataAlloc>;
 
 // BenchmarkStaticForwarder provides a wrapper around ordinary TCMalloc and a
 // PageMap to allow us to carve up memory we obtained into our own objects.

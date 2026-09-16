@@ -77,7 +77,7 @@ class PackedSpanAndSizeclass {
 
 // Three-level radix tree
 template <int BITS, PagemapAllocator Allocator>
-class PageMap3 {
+class PageMap {
  private:
   // For x86 we currently have 48 usable bits, for POWER we have 46. With
   // 4KiB page sizes (12 bits) we end up with 36 bits for x86 and 34 bits
@@ -129,7 +129,7 @@ class PageMap3 {
  public:
   typedef uintptr_t Number;
 
-  constexpr PageMap3() : root_{}, bytes_used_(0) {}
+  constexpr PageMap() : root_{}, bytes_used_(0) {}
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   Span* absl_nullable get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
@@ -142,6 +142,14 @@ class PageMap3 {
       return nullptr;
     }
     return root_[i1]->leafs[i2]->span(i3);
+  }
+
+  // Return the descriptor for the specified page.  Returns NULL if
+  // this PageId was not allocated previously.
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  [[nodiscard]] Span* absl_nullable GetDescriptor(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return get(p.index());
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -203,6 +211,20 @@ class PageMap3 {
                           span_and_sizeclass.sizeclass());
   }
 
+  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
+  GetDescriptorAndSizeClass(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return get_existing_with_sizeclass<true>(p.index());
+  }
+
+  // Return the descriptor and sizeclass for the specified page.
+  // PageId must have been previously allocated.
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
+  GetExistingDescriptorAndSizeClass(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return get_existing_with_sizeclass<false>(p.index());
+  }
+
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // Requires that the span is known to already exist.
   Span* absl_nullable get_existing(Number k) const
@@ -216,9 +238,17 @@ class PageMap3 {
     return root_[i1]->leafs[i2]->span(i3);
   }
 
+  // Return the descriptor for the specified page.
+  // PageId must have been previously allocated.
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  [[nodiscard]] Span* absl_nullable GetExistingDescriptor(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return get_existing(p.index());
+  }
+
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // REQUIRES: Must be a valid page number previously Ensure()d.
-  CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
+  [[nodiscard]] CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
   sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
@@ -233,6 +263,17 @@ class PageMap3 {
     return ret;
   }
 
+  // Return the size class for p, or 0 if it is not known to tcmalloc
+  // or is a page containing large objects.
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  //
+  // TODO(b/193887621): Convert to atomics to permit the PageMap to run cleanly
+  // under TSan.
+  [[nodiscard]] CompactSizeClass sizeclass(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return sizeclass(p.index());
+  }
+
   void set(Number k, Span* s) {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
@@ -245,6 +286,8 @@ class PageMap3 {
     TC_ASSERT_EQ(leaf->sizeclass[i3], 0);
     leaf->span_and_sizeclass[i3].set(s, 0);
   }
+
+  void Set(PageId p, Span* span) { set(p.index(), span); }
 
   void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
     TC_ASSERT_EQ(k >> BITS, 0);
@@ -276,6 +319,8 @@ class PageMap3 {
     return leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)];
   }
 
+  [[nodiscard]] void* GetHugepage(PageId p) { return get_hugepage(p.index()); }
+
   [[nodiscard]] bool has_leaf(Number k) const {
     if (ABSL_PREDICT_FALSE((k >> BITS) > 0)) return false;
     const Number i1 = k >> (kLeafBits + kMidBits);
@@ -286,6 +331,8 @@ class PageMap3 {
     return node->leafs[i2] != nullptr;
   }
 
+  [[nodiscard]] bool HasLeaf(PageId p) const { return has_leaf(p.index()); }
+
   void set_hugepage(Number k, void* v) {
     TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
@@ -293,6 +340,8 @@ class PageMap3 {
     const Number i3 = k & (kLeafLength - 1);
     root_[i1]->leafs[i2]->hugepage[i3 >> (kLeafBits - kLeafHugeBits)] = v;
   }
+
+  void SetHugepage(PageId p, void* v) { set_hugepage(p.index(), v); }
 
   bool Ensure(Number start, size_t n) {
     for (Number key = start; key <= start + n - 1;) {
@@ -326,90 +375,45 @@ class PageMap3 {
     return true;
   }
 
-  size_t bytes_used() const { return bytes_used_ + sizeof(*this); }
-
-  constexpr size_t RootSize() const { return sizeof(root_); }
-};
-
-class PageMap {
- public:
-  constexpr PageMap() : map_{} {}
-
-  // Return the size class for p, or 0 if it is not known to tcmalloc
-  // or is a page containing large objects.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  //
-  // TODO(b/193887621): Convert to atomics to permit the PageMap to run cleanly
-  // under TSan.
-  CompactSizeClass sizeclass(PageId p) ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return map_.sizeclass(p.index());
-  }
-
-  void Set(PageId p, Span* span) { map_.set(p.index(), span); }
-
   [[nodiscard]] bool Ensure(Range r)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return map_.Ensure(r.p.index(), r.n.raw_num());
+    return Ensure(r.p.index(), r.n.raw_num());
   }
+
+  size_t bytes_used() const { return bytes_used_ + sizeof(*this); }
+
+  size_t bytes() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return bytes_used();
+  }
+
+  constexpr size_t RootSize() const { return sizeof(root_); }
 
   // Mark an allocated span as being used for small objects of the
   // specified size-class.
   // REQUIRES: span was returned by an earlier call to PageAllocator::New()
   //           and has not yet been deleted.
   // Concurrent calls to this method are safe unless they mark the same span.
-  void RegisterSizeClass(Span* span, size_t sc);
+  void RegisterSizeClass(Span* span, size_t sc) {
+    const PageId first = span->first_page();
+    const PageId last = span->last_page();
+    TC_ASSERT_EQ(GetDescriptor(first), span);
+    for (PageId p = first; p <= last; ++p) {
+      set_with_sizeclass(p.index(), span, sc);
+    }
+  }
 
   // Mark an allocated span as being not used for any size-class.
   // REQUIRES: span was returned by an earlier call to PageAllocator::New()
   //           and has not yet been deleted.
   // Concurrent calls to this method are safe unless they mark the same span.
-  void UnregisterSizeClass(Span* span);
-
-  // Return the descriptor for the specified page.  Returns NULL if
-  // this PageId was not allocated previously.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] Span* absl_nullable GetDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return map_.get(p.index());
+  void UnregisterSizeClass(Span* span) {
+    const PageId first = span->first_page();
+    const PageId last = span->last_page();
+    TC_ASSERT_EQ(GetDescriptor(first), span);
+    for (PageId p = first; p <= last; ++p) {
+      clear_sizeclass(p.index());
+    }
   }
-
-  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
-  GetDescriptorAndSizeClass(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return map_.get_existing_with_sizeclass<true>(p.index());
-  }
-
-  // Return the descriptor and sizeclass for the specified page.
-  // PageId must have been previously allocated.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
-  GetExistingDescriptorAndSizeClass(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return map_.get_existing_with_sizeclass<false>(p.index());
-  }
-
-  // Return the descriptor for the specified page.
-  // PageId must have been previously allocated.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] Span* absl_nullable GetExistingDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return map_.get_existing(p.index());
-  }
-
-  size_t bytes() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return map_.bytes_used();
-  }
-
-  constexpr size_t RootSize() const { return map_.RootSize(); }
-
-  [[nodiscard]] void* GetHugepage(PageId p) {
-    return map_.get_hugepage(p.index());
-  }
-
-  [[nodiscard]] bool HasLeaf(PageId p) const {
-    return map_.has_leaf(p.index());
-  }
-
-  void SetHugepage(PageId p, void* v) { map_.set_hugepage(p.index(), v); }
 
   // Returns the count of the currently allocated Spans and also adds details
   // of such Spans in the provided allocated_spans vector. This routine avoids
@@ -418,10 +422,9 @@ class PageMap {
   int GetAllocatedSpans(
       std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
                       SpanDetails>& allocated_spans);
-
- private:
-  PageMap3<kAddressBits - kPageShift, MetaDataAlloc> map_;
 };
+
+using ProdPageMap = PageMap<kAddressBits - kPageShift, MetaDataAlloc>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

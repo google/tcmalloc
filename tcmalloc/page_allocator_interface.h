@@ -34,8 +34,6 @@ namespace tcmalloc_internal {
 
 enum class EnableCollapse : uint8_t;
 
-class PageMap;
-
 class PageAllocatorInterface {
  public:
   PageAllocatorInterface(const char* label, MemoryTag tag);

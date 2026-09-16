@@ -34,31 +34,14 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void PageMap::RegisterSizeClass(Span* span, size_t sc) {
-  const PageId first = span->first_page();
-  const PageId last = span->last_page();
-  TC_ASSERT_EQ(GetDescriptor(first), span);
-  for (PageId p = first; p <= last; ++p) {
-    map_.set_with_sizeclass(p.index(), span, sc);
-  }
-}
-
-void PageMap::UnregisterSizeClass(Span* span) {
-  const PageId first = span->first_page();
-  const PageId last = span->last_page();
-  TC_ASSERT_EQ(GetDescriptor(first), span);
-  for (PageId p = first; p <= last; ++p) {
-    map_.clear_sizeclass(p.index());
-  }
-}
-
-int PageMap::GetAllocatedSpans(
+template <int BITS, PagemapAllocator Allocator>
+int PageMap<BITS, Allocator>::GetAllocatedSpans(
     std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
                     SpanDetails>& allocated_spans) {
   PageHeapSpinLockHolder l;
   int allocated_span_count = 0;
   for (std::optional<uintptr_t> i = 0; i.has_value();
-       i = map_.get_next_set_page(i.value())) {
+       i = get_next_set_page(i.value())) {
     PageId page_id = PageId{i.value()};
     Span* s = GetDescriptor(page_id);
     if (s == nullptr || s == &tc_globals.invalid_span()) {
@@ -82,6 +65,8 @@ int PageMap::GetAllocatedSpans(
   }
   return allocated_span_count;
 }
+
+template class PageMap<kAddressBits - kPageShift, MetaDataAlloc>;
 
 void* MetaDataAlloc(size_t bytes) { return tc_globals.arena().Alloc(bytes); }
 

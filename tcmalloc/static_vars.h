@@ -45,6 +45,7 @@
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/peak_heap_tracker.h"
@@ -58,7 +59,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-class PageMap;
 class ThreadCache;
 
 using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
@@ -127,7 +127,7 @@ class Static final {
     return *reinterpret_cast<PageAllocator*>(page_allocator_.memory);
   }
 
-  static PageMap& pagemap() { return pagemap_; }
+  static ProdPageMap& pagemap() { return pagemap_; }
 
   static GuardedPageAllocator& guardedpage_allocator() {
     return guardedpage_allocator_;
@@ -271,7 +271,7 @@ class Static final {
   };
 
   static PageAllocatorStorage page_allocator_;
-  static PageMap pagemap_;
+  static ProdPageMap pagemap_;
 
   TCMALLOC_ATTRIBUTE_NO_DESTROY
   ABSL_CONST_INIT static NoDestructorStorage<SystemAllocator<

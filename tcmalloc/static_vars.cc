@@ -102,7 +102,7 @@ ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample>
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
 ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
-ABSL_CONST_INIT PageMap Static::pagemap_;
+ABSL_CONST_INIT ProdPageMap Static::pagemap_;
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
 ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
