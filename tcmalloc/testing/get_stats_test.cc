@@ -19,7 +19,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <set>
@@ -489,10 +488,10 @@ TEST_F(GetStatsTest, RequiredBufferSizes) {
   std::string buf;
   buf.resize(kLargeBufferSize);
 
-  const int actual_large =
+  const int actual_before =
       MallocExtension_Internal_GetStatsInPbtxt(&buf[0], kLargeBufferSize);
   // This should be enough space.
-  EXPECT_LE(actual_large, kLargeBufferSize);
+  EXPECT_LE(actual_before, kLargeBufferSize);
 
   const int actual_small =
       MallocExtension_Internal_GetStatsInPbtxt(&buf[0], kSmallBufferSize);
@@ -504,8 +503,20 @@ TEST_F(GetStatsTest, RequiredBufferSizes) {
     EXPECT_GT(actual_small, kSmallBufferSize);
   }
 
-  // The required bytes should be similar.
-  EXPECT_LE(std::abs(actual_large - actual_small), 8192);
+  const int actual_after =
+      MallocExtension_Internal_GetStatsInPbtxt(&buf[0], kLargeBufferSize);
+  EXPECT_LE(actual_after, kLargeBufferSize);
+
+  // The required bytes should be similar.  The stats are not a fixed snapshot:
+  // each dump can take seconds (reading hugepage_fragmentation_ratio from
+  // sysfs), and the filler time series gains an entry per elapsed epoch, so
+  // the output grows between calls.  Bracket the truncated dump between two
+  // untruncated ones instead of comparing against a single one.  The slack
+  // covers the region factory stats, which are appended only when they fit,
+  // and counters whose printed width shrinks between snapshots.
+  constexpr int kSlack = 1024;
+  EXPECT_GE(actual_small + kSlack, std::min(actual_before, actual_after));
+  EXPECT_LE(actual_small, std::max(actual_before, actual_after) + kSlack);
 }
 
 }  // namespace
