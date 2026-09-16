@@ -188,13 +188,13 @@ class Static final {
   }
 
   static bool ABSL_ATTRIBUTE_ALWAYS_INLINE HaveHooks() {
-    return
-        // These boolean operations do not require short-circuiting from &&.
-        // Bitwise AND of booleans triggers -Wbitwise-instead-of-logical, as
-        // this can be a common source of bugs.  Suppress this by casting to
-        // int first.
-        static_cast<int>(!new_hooks_.empty()) |
-        static_cast<int>(!delete_hooks_.empty());
+    // A single load covering both new_hooks_ and delete_hooks_.  Relaxed is
+    // sufficient: this only decides whether to take the hook-invoking slow
+    // path, which re-examines the lists with acquire loads in
+    // HookList::Traverse.  Memory reordering around this load will either lead
+    // to an unnecessary slow path call, or will miss invoking hooks racing with
+    // their installation, neither of which is a problem.
+    return new_delete_hook_count_.load(std::memory_order_relaxed) != 0;
   }
 
   static size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);

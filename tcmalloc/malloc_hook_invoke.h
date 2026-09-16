@@ -15,6 +15,8 @@
 #ifndef TCMALLOC_MALLOC_HOOK_INVOKE_H_
 #define TCMALLOC_MALLOC_HOOK_INVOKE_H_
 
+#include <atomic>
+
 #include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
@@ -26,6 +28,15 @@ namespace tcmalloc_internal {
 
 extern HookList<MallocHook::NewHook> new_hooks_;
 extern HookList<MallocHook::DeleteHook> delete_hooks_;
+
+// Number of hooks installed in new_hooks_ and delete_hooks_ combined.  This
+// lets the allocation and deallocation slow paths test for the presence of any
+// new/delete hook with a single load instead of loading both lists.
+//
+// Maintained only by MallocHook::{Add,Remove}{New,Delete}Hook: it is
+// incremented before a hook is inserted and decremented after a hook is
+// removed, so it is nonzero whenever either list is nonempty.
+extern std::atomic<int> new_delete_hook_count_;
 
 extern HookList<MallocHook::SampledNewHook> sampled_new_hooks_;
 extern HookList<MallocHook::SampledDeleteHook> sampled_delete_hooks_;

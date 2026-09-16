@@ -39,6 +39,7 @@
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/malloc_hook_invoke.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/malloc_hook_recorder.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -578,6 +579,67 @@ TEST(TCMallocTest, GetStatsReportsHooks) {
       HasSubstr("MALLOC HOOKS: NEW=0 DELETE=0 SAMPLED_NEW=0 SAMPLED_DELETE=2"));
   ResetSampledDeleteHook();
   ResetSampledDeleteHook();
+}
+
+TEST(TCMallocTest, HaveHooksTracksNewAndDeleteHooks) {
+  using tcmalloc_internal::Static;
+
+  // Other hooks (e.g. the HeapLeakChecker's) may already be installed, so
+  // compare against the initial state rather than assuming it is false.
+  //
+  // In debug builds, AllocationGuard installs and removes a new hook whenever
+  // any thread holds a guarded lock, so HaveHooks() can flip asynchronously
+  // underneath us.  There we only verify what holds regardless of other
+  // threads: HaveHooks() is true while one of our hooks is installed.
+#ifdef NDEBUG
+  constexpr bool kExactAfterRemove = true;
+#else
+  constexpr bool kExactAfterRemove = false;
+#endif
+  const bool initial = Static::HaveHooks();
+  if (kExactAfterRemove && !absl::LeakCheckerIsActive() && !kSanitizerPresent) {
+    EXPECT_FALSE(initial);
+  }
+  auto expect_restored = [&]() {
+    if (kExactAfterRemove) {
+      EXPECT_EQ(Static::HaveHooks(), initial);
+    }
+  };
+
+  SetNewHook();
+  EXPECT_TRUE(Static::HaveHooks());
+  ResetNewHook();
+  expect_restored();
+
+  SetDeleteHook();
+  EXPECT_TRUE(Static::HaveHooks());
+  ResetDeleteHook();
+  expect_restored();
+
+  // With both kinds installed, HaveHooks() stays true until the last one is
+  // removed, regardless of order.
+  SetNewHook();
+  SetDeleteHook();
+  EXPECT_TRUE(Static::HaveHooks());
+  ResetNewHook();
+  EXPECT_TRUE(Static::HaveHooks());
+  ResetDeleteHook();
+  expect_restored();
+
+  SetNewHook();
+  SetDeleteHook();
+  ResetDeleteHook();
+  EXPECT_TRUE(Static::HaveHooks());
+  ResetNewHook();
+  expect_restored();
+
+  // Sampled hooks do not affect HaveHooks().
+  SetSampledNewHook();
+  SetSampledDeleteHook();
+  expect_restored();
+  ResetSampledNewHook();
+  ResetSampledDeleteHook();
+  expect_restored();
 }
 
 TEST(TCMallocTest, MarkThreadBusy) {

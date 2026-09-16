@@ -14,6 +14,8 @@
 
 #include "tcmalloc/malloc_hook.h"
 
+#include <atomic>
+
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "tcmalloc/internal/config.h"
@@ -49,6 +51,8 @@ static void InitialNewHook(const MallocHook::NewInfo& info) {
 
 ABSL_CONST_INIT HookList<MallocHook::NewHook> new_hooks_{&InitialNewHook};
 ABSL_CONST_INIT HookList<MallocHook::DeleteHook> delete_hooks_;
+// new_hooks_ starts out with InitialNewHook installed.
+ABSL_CONST_INIT std::atomic<int> new_delete_hook_count_{1};
 
 ABSL_CONST_INIT HookList<MallocHook::SampledNewHook> sampled_new_hooks_;
 ABSL_CONST_INIT HookList<MallocHook::SampledDeleteHook> sampled_delete_hooks_;
@@ -61,38 +65,61 @@ void RemoveInitialHooksAndCallInitializers() {
   MallocHook_InitAtFirstAllocation_ForTesting();
 }
 
+namespace {
+
+// AddHook/RemoveHook wrap HookList::Add/Remove for new_hooks_ and
+// delete_hooks_, keeping new_delete_hook_count_ nonzero whenever either list
+// is nonempty.
+//
+// The count is adjusted outside of HookList's hooklist_spinlock_, so we cannot
+// recompute it from the lists (a concurrent Remove on the other list could
+// observe this list as empty and publish a stale value).  Instead, we count
+// successful insertions and removals, which commute: we increment before the
+// hook becomes visible in the list and decrement after it is gone, so the count
+// is an upper bound on the number of installed hooks at every instant and
+// exact once no Add/Remove is in flight.
+//
+// Relaxed RMWs suffice.  HookList::Add publishes the hook with a release store
+// that is sequenced after our increment, so a reader that observes the hook
+// (with the acquire loads in HookList::Traverse) also observes a nonzero count.
+template <typename T>
+bool AddHook(HookList<T>& list, T hook) {
+  new_delete_hook_count_.fetch_add(1, std::memory_order_relaxed);
+  if (!list.Add(hook)) {
+    new_delete_hook_count_.fetch_sub(1, std::memory_order_relaxed);
+    return false;
+  }
+  MallocHook_HooksChanged();
+  return true;
+}
+
+template <typename T>
+bool RemoveHook(HookList<T>& list, T hook) {
+  if (!list.Remove(hook)) {
+    return false;
+  }
+  new_delete_hook_count_.fetch_sub(1, std::memory_order_relaxed);
+  MallocHook_HooksChanged();
+  return true;
+}
+
+}  // namespace
 }  // namespace tcmalloc_internal
 
 bool MallocHook::AddNewHook(NewHook hook) {
-  bool ok = tcmalloc_internal::new_hooks_.Add(hook);
-  if (ok) {
-    MallocHook_HooksChanged();
-  }
-  return ok;
+  return tcmalloc_internal::AddHook(tcmalloc_internal::new_hooks_, hook);
 }
 
 bool MallocHook::RemoveNewHook(NewHook hook) {
-  bool ok = tcmalloc_internal::new_hooks_.Remove(hook);
-  if (ok) {
-    MallocHook_HooksChanged();
-  }
-  return ok;
+  return tcmalloc_internal::RemoveHook(tcmalloc_internal::new_hooks_, hook);
 }
 
 bool MallocHook::AddDeleteHook(DeleteHook hook) {
-  bool ok = tcmalloc_internal::delete_hooks_.Add(hook);
-  if (ok) {
-    MallocHook_HooksChanged();
-  }
-  return ok;
+  return tcmalloc_internal::AddHook(tcmalloc_internal::delete_hooks_, hook);
 }
 
 bool MallocHook::RemoveDeleteHook(DeleteHook hook) {
-  bool ok = tcmalloc_internal::delete_hooks_.Remove(hook);
-  if (ok) {
-    MallocHook_HooksChanged();
-  }
-  return ok;
+  return tcmalloc_internal::RemoveHook(tcmalloc_internal::delete_hooks_, hook);
 }
 
 bool MallocHook::AddSampledNewHook(SampledNewHook hook) {
