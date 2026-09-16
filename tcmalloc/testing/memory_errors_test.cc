@@ -781,9 +781,14 @@ TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
         for (void* ptr : ptrs) {
           ::operator delete(ptr, kSize);
         }
-        // Now double-free.
-        for (void* ptr : ptrs) {
-          ::operator delete(ptr, kSize);
+        // Now double-free.  Iterate in reverse so we double-free the most
+        // recently freed pointers first.  Freeing in forward order double-frees
+        // the earliest-freed spans first; those have sat longest in the page
+        // heap and a background thread may have reallocated them for a
+        // different size class, which surfaces as a mismatched-size-class error
+        // rather than the double-free this test asserts.
+        for (auto it = ptrs.rbegin(); it != ptrs.rend(); ++it) {
+          ::operator delete(*it, kSize);
         }
       },
       absl::StrCat(
