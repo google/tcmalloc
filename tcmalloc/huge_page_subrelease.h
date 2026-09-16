@@ -654,8 +654,8 @@ void SubreleaseStatsTracker<kSlots>::PrintTimeseriesStatsInPbtxt(
   region.PrintI64("min_free_pages", free_pages.free.raw_num());
   region.PrintI64("min_free_backed_pages", free_pages.free_backed.raw_num());
 
-  static const char* labels[kNumStatsTypes] = {"at_minimum_demand",
-                                               "at_maximum_demand"};
+  static constexpr absl::string_view labels[kNumStatsTypes] = {
+      "at_minimum_demand", "at_maximum_demand"};
   int64_t accumulated_delta_ms = 0;
   tracker_.Iter(
       [&](size_t offset, size_t epoch_delta,
