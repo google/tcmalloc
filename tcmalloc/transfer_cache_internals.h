@@ -160,7 +160,7 @@ class TransferCache {
       // them here. Instead, we just check if they have spare free capacity.
       info = slot_info_.load(std::memory_order_relaxed);
       int got = std::min(N, info.capacity - info.used);
-      if (got > 0) {
+      if (ABSL_PREDICT_TRUE(got > 0)) {
         info.used += got;
         SetSlotInfo(info);
         void** entry = GetSlot(info.used - got);
@@ -191,7 +191,7 @@ class TransferCache {
       // Refetch with the lock
       info = slot_info_.load(std::memory_order_relaxed);
       int got = std::min<int>(batch.size(), info.used);
-      if (got) {
+      if (ABSL_PREDICT_TRUE(got)) {
         info.used -= got;
         SetSlotInfo(info);
         void** entry = GetSlot(info.used);
