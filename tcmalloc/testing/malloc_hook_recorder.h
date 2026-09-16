@@ -31,7 +31,7 @@ class MallocHookRecorder {
   explicit MallocHookRecorder(int log_size = 100, bool overflow = false);
   ~MallocHookRecorder();
 
-  enum Type { kNew, kDelete, kMmap, kMremap, kMunmap, kSbrk };
+  enum Type { kNew, kDelete, kMmap, kMremap, kMunmap };
   enum Caller { kError = -3, kOther = -2, kAny = -1, kTCMalloc = 1 };
 
   struct CallEntry {

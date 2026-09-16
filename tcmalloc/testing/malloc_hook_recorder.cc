@@ -99,7 +99,6 @@ static bool IsMMap(MallocHookRecorder::Type t) {
     case MallocHookRecorder::kMmap:
     case MallocHookRecorder::kMremap:
     case MallocHookRecorder::kMunmap:
-    case MallocHookRecorder::kSbrk:
       return true;
   }
 
@@ -256,9 +255,6 @@ std::ostream& operator<<(std::ostream& stream,
     case MallocHookRecorder::kMunmap:
       return stream << ToString(lhs.caller) << "::Munmap(" << lhs.ptr << ", "
                     << *lhs.requested_size << ")";
-    case MallocHookRecorder::kSbrk:
-      return stream << ToString(lhs.caller) << "::Sbrk(" << lhs.ptr << ", "
-                    << static_cast<ptrdiff_t>(*lhs.requested_size) << ")";
   }
   ABSL_UNREACHABLE();
 }
