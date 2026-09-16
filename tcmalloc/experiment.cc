@@ -123,7 +123,10 @@ std::optional<uint64_t> CalculateRolloutBucket(absl::string_view hostname,
 bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
                                 absl::string_view hostname) {
   if (hostname.empty()) {
-    return false;
+    // Without a hostname there is no rollout bucket.  Non-inverted rollouts
+    // stay off; inverted (holdback) rollouts fall back to the enabled
+    // majority.
+    return config.rollout_inverted;
   }
 
   // Ensure experiments are i.i.d. from one another by using their own names as
@@ -138,8 +141,19 @@ bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
   constexpr int digits = std::numeric_limits<double>::digits;
   // Scale val onto [0, 1.0).
   const double target = std::ldexp(*val >> (64 - digits), -digits);
-  return target >= config.rollout_lower_bound &&
-         target < config.rollout_upper_bound;
+  const double lower = config.rollout_lower_bound;
+  const double upper = config.rollout_upper_bound;
+  if (!config.rollout_inverted) {
+    return target >= lower && target < upper;
+  }
+
+  // Inverted: the ablation arm is the top slice [1 - (upper - lower), 1.0),
+  // sized to match [lower, upper).  Every other host, including the original
+  // treatment slot, has the experiment enabled.  Anchoring the ablation arm at
+  // 1.0 lets several equally sized arms that share a salt (multi-arm
+  // experiments) share a single ablation arm.
+  const double ablation_lower = 1.0 - (upper - lower);
+  return target < ablation_lower;
 }
 
 void SelectExperiments(bool* buffer, absl::string_view test_target,
@@ -257,10 +271,19 @@ static_assert(
       for (const auto& e : experiments) {
         if (e.rollout_lower_bound < 0.0) return false;
         if (e.rollout_upper_bound > 1.0) return false;
+        if (!e.rollout_inverted) continue;
+        // The ablation arm [1 - (upper - lower), 1) must be non-empty and
+        // must not overlap the treatment slot [lower, upper), i.e.
+        // 1 - (upper - lower) >= upper.
+        if (e.rollout_upper_bound <= e.rollout_lower_bound) return false;
+        if (2 * e.rollout_upper_bound - e.rollout_lower_bound > 1.0) {
+          return false;
+        }
       }
       return true;
     }(),
-    "rollout bounds must be in [0, 1]");
+    "rollout bounds must be in [0, 1]; inverted rollouts additionally require "
+    "a non-empty ablation arm disjoint from the treatment slot");
 
 }  // namespace tcmalloc_internal
 

@@ -50,6 +50,7 @@ struct ExperimentConfig {
   double rollout_lower_bound = 0;
   double rollout_upper_bound = 0;
   absl::string_view rollout_salt;
+  bool rollout_inverted = false;
 };
 
 // clang-format off
