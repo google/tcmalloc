@@ -855,6 +855,9 @@ class HugePageFiller {
   void UpdateMaxBackoffDelay(absl::Duration latency)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  void set_subrelease_unbacked_mode(SubreleaseUnbackedMode mode)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
   // Iterates through all hugepage trackers and applies different treatments.
   // Treatments applied include:
   // 1. Attempt to collapse eligible memory into hugepages if
@@ -1831,6 +1834,12 @@ void HugePageFiller<TrackerType>::UpdateMaxBackoffDelay(
 }
 
 template <class TrackerType>
+inline void HugePageFiller<TrackerType>::set_subrelease_unbacked_mode(
+    SubreleaseUnbackedMode mode) {
+  subrelease_unbacked_mode_ = mode;
+}
+
+template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     EnableCollapse enable_collapse,
     EnableUnfilteredCollapse enable_unfiltered_collapse,
@@ -2480,9 +2489,7 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
                                            : AccessDensityPrediction::kSparse;
   size_t i = ListFor(*pt);
 
-  if (!pt->released() &&
-      (pt->unbroken() ||
-       subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kDisabled)) {
+  if (!pt->in_released_list()) {
     regular_alloc_.Remove(pt, i, type);
   } else if (pt->free_pages() <= pt->released_pages()) {
     regular_alloc_released_.Remove(pt, i, type);
@@ -2515,6 +2522,7 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   if (longest == kPagesPerHugePage) {
     TC_ASSERT(pt->empty());
     TC_ASSERT(pt->DontFreeTracker());
+    pt->set_in_released_list(false);
     fully_freed_trackers_.prepend(pt);
     return;
   }
@@ -2533,11 +2541,14 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   if (!pt->released() &&
       (pt->unbroken() ||
        subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kDisabled)) {
+    pt->set_in_released_list(false);
     regular_alloc_.Add(pt, i, type);
   } else if (pt->free_pages() <= pt->released_pages()) {
+    pt->set_in_released_list(true);
     regular_alloc_released_.Add(pt, i, type);
     n_used_released_[type] += pt->used_pages();
   } else {
+    pt->set_in_released_list(true);
     regular_alloc_partial_released_.Add(pt, i, type);
     n_used_partial_released_[type] += pt->used_pages();
   }
@@ -2551,6 +2562,7 @@ inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType* pt) {
   // We should never be donating already-released trackers!
   TC_ASSERT(!pt->released());
   pt->set_donated(true);
+  pt->set_in_released_list(false);
 
   // Donated allocs always follow finer indexing based on the longest free
   // range.

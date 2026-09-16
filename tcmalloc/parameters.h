@@ -106,6 +106,10 @@ class Parameters {
 
   static SubreleaseUnbackedMode subrelease_unbacked_hugepages();
 
+  static void set_subrelease_unbacked_hugepages(SubreleaseUnbackedMode value) {
+    TCMalloc_Internal_SetSubreleaseUnbackedHugepages(value);
+  }
+
   static bool back_small_allocations() {
     return back_small_allocations_.load(std::memory_order_relaxed);
   }
@@ -240,6 +244,8 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v);
+  friend void ::TCMalloc_Internal_SetSubreleaseUnbackedHugepages(
+      tcmalloc::tcmalloc_internal::SubreleaseUnbackedMode v);
   friend void ::TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v);
   friend void ::TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
@@ -286,7 +292,7 @@ class Parameters {
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
-  static std::atomic<bool> subrelease_unbacked_hugepages_;
+  static std::atomic<SubreleaseUnbackedMode> subrelease_unbacked_hugepages_;
   static std::atomic<bool> usermode_hugepage_collapse_enabled_;
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;

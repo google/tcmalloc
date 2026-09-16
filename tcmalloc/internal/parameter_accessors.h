@@ -37,6 +37,11 @@ struct TracerSizeClassInfo {
 
 enum class MadviseSampledAllocations : bool { kDisabled, kEnabled };
 
+enum class SubreleaseUnbackedMode : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
@@ -54,6 +59,9 @@ TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration* v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetUsermodeHugepageCollapse();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK
+    tcmalloc::tcmalloc_internal::SubreleaseUnbackedMode
+    TCMalloc_Internal_GetSubreleaseUnbackedHugepages();
 ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled();
 ABSL_ATTRIBUTE_WEAK bool
@@ -71,6 +79,8 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHPAASubrelease(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(
     bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetSubreleaseUnbackedHugepages(
+    tcmalloc::tcmalloc_internal::SubreleaseUnbackedMode v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(
     bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(

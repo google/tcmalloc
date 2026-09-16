@@ -30,6 +30,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/pages.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -390,11 +391,6 @@ inline std::pair<HugeRange, HugeRange> Split(HugeRange r, HugeLength n) {
 
 inline Range::Range(HugeRange r)
     : p(r.start().first_page()), n(r.len().in_pages()) {}
-
-enum class SubreleaseUnbackedMode : bool {
-  kDisabled = false,
-  kEnabled = true,
-};
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

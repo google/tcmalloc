@@ -331,14 +331,24 @@ struct SetCollapseLatency {
   }
 };
 
+struct SetSubreleaseUnbackedMode {
+  bool enabled;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetSubreleaseUnbackedMode& s) {
+    absl::Format(&sink, "SetSubreleaseUnbackedMode{.enabled=%v}", s.enabled);
+  }
+};
+
 struct ReentrantSubprogram;
 
-using Instruction =
-    std::variant<Allocate, Deallocate, Release, AdvanceClock, ToggleUnback,
-                 GatherStats, ModelTail, MemoryLimitHitRelease,
-                 GatherStatsPbtxt, GatherSpanStats, TreatTrackers,
-                 UpdateBitmaps, ToggleCollapseSuccess, SetErrorNumber,
-                 SetCollapseLatency, ReentrantSubprogram>;
+using Instruction = std::variant<
+    Allocate, Deallocate, Release, AdvanceClock, ToggleUnback, GatherStats,
+    ModelTail, MemoryLimitHitRelease, GatherStatsPbtxt, GatherSpanStats,
+    TreatTrackers, UpdateBitmaps, ToggleCollapseSuccess, SetErrorNumber,
+    SetCollapseLatency, SetSubreleaseUnbackedMode, ReentrantSubprogram>;
 
 struct ReentrantSubprogram {
   std::vector<Instruction> subprogram;
@@ -801,6 +811,16 @@ void SetCollapseLatency::Perform(State& state) const {
       std::clamp(latency, absl::ZeroDuration(), absl::Seconds(1)));
 }
 
+void SetSubreleaseUnbackedMode::Perform(State& state) const {
+  if (state.treating_trackers || state.depth > 0) {
+    return;
+  }
+  PageHeapSpinLockHolder l;
+  state.filler.set_subrelease_unbacked_mode(
+      enabled ? SubreleaseUnbackedMode::kEnabled
+              : SubreleaseUnbackedMode::kDisabled);
+}
+
 void ReentrantSubprogram::Perform(State& state) const {
   if (state.depth != 0 || subprogram.empty()) {
     return;
@@ -864,7 +884,9 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
                     fuzztest::Arbitrary<SetErrorNumber>()),
       fuzztest::Map(
           [](absl::Duration d) { return Instruction{SetCollapseLatency{d}}; },
-          NonNegativeDurationDomain()));
+          NonNegativeDurationDomain()),
+      fuzztest::Map([](SetSubreleaseUnbackedMode s) { return Instruction{s}; },
+                    fuzztest::Arbitrary<SetSubreleaseUnbackedMode>()));
 
   if (depth <= 0) {
     return base_domain;
