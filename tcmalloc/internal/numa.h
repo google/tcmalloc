@@ -149,10 +149,12 @@ class NumaTopology {
   uint64_t partition_to_nodes_[kNumInternalPartitions] = {0};
   // Indicates whether NUMA awareness is available & enabled.
   bool numa_aware_ = false;
-  // Desired memory binding behavior.
-  NumaBindMode bind_mode_ = NumaBindMode::kAdvisory;
+  // Desired memory binding behavior.  Every member of this class is zero
+  // initialized so that instances land in .bss rather than .data; Init() (via
+  // InitNumaTopology) unconditionally establishes the real default.
+  NumaBindMode bind_mode_ = NumaBindMode::kNone;
   // The number of NUMA nodes detected in the system.
-  size_t num_nodes_ = 1;
+  size_t num_nodes_ = 0;
 
   // We maintain two sets of CPU-to-partition information.  One is
   // unconditionally available in cpu_to_scaled_partition_.
