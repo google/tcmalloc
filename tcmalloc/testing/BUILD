@@ -126,7 +126,9 @@ cc_test(
     srcs = ["tcmalloc_fuzzer.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
     malloc = "//tcmalloc/internal:system_malloc",
-    shard_count = 6,
+    # Each FUZZ_TEST spends ~1 s in FuzzTest's unit-test-mode watchdog loop
+    # regardless of its own work, so ~20 cases need ~10 shards to stay <5 s.
+    shard_count = 10,
     tags = [
         "noasan",
         "nomsan",
