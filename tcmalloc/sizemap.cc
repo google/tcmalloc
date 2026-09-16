@@ -36,6 +36,7 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/tcmalloc_policy.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -230,9 +231,10 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 // Initialize the mapping arrays
 bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
-  TC_CHECK_EQ(ClassIndex(0), 0);
-  TC_CHECK_EQ(ClassIndex(kMaxSize), kClassArraySize - 1);
-  TC_CHECK_EQ(ClassIndex(kLargeSize) + 1, ClassIndex(kLargeSize + 1));
+  TC_CHECK_EQ(ClassIndex(CppPolicy(), 0), 0);
+  TC_CHECK_EQ(ClassIndex(CppPolicy(), kMaxSize), kClassArraySize - 1);
+  TC_CHECK_EQ(ClassIndex(CppPolicy(), kLargeSize) + 1,
+              ClassIndex(CppPolicy(), kLargeSize + 1));
   static_assert(kSmallSizeAlignment <= static_cast<size_t>(kAlignment));
   static_assert(static_cast<size_t>(kAlignment) <= 16);
 
@@ -243,7 +245,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // Fill in the canonical class array in region 0.
   for (int c = 1, s = 0; c < kNumClasses && s <= kMaxSize; c++) {
     for (; s <= class_to_size_[c]; s += kSmallSizeAlignment) {
-      class_array_[ClassIndex(s)] = c;
+      class_array_[ClassIndex(CppPolicy(), s)] = c;
     }
   }
 
