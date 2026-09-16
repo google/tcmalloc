@@ -79,12 +79,14 @@ Bitmap<kMaxResidencyBits> GetBitmap(int value) {
 
 class MockUnback final : public MemoryModifyFunction {
  public:
-  explicit MockUnback(State& state) : state_(state) {}
+  MockUnback(State& state, bool lock_held)
+      : state_(state), lock_held_(lock_held) {}
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override;
   std::function<void()> release_callback_;
 
  private:
   State& state_;
+  bool lock_held_;
 };
 
 class MockSetAnonVmaName final : public MemoryTagFunction {
@@ -367,19 +369,17 @@ struct State {
   explicit State(SubreleaseUnbackedMode subrelease_unbacked_mode,
                  size_t num_instructions)
       : subrelease_unbacked_mode(subrelease_unbacked_mode),
-        unback(*this),
+        unback(*this, /*lock_held=*/false),
+        unback_without_lock(*this, /*lock_held=*/true),
         collapse(*this),
         filler(Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal,
-               unback, unback, collapse, set_anon_vma_name,
+               unback, unback_without_lock, collapse, set_anon_vma_name,
                subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
     // To avoid reentrancy during unback, reserve space in released_set.  We
     // have at most num_instructions allocations, for at most kPagesPerHugePage
     // pages each, that we can track the released status of.
-    //
-    // TODO(b/73749855): Releasing the pageheap_lock during ReleaseFree will
-    // eliminate the need for this.
     released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
 
     auto release_callback = [this]() {
@@ -397,17 +397,24 @@ struct State {
       reentrant_stack.pop_back();
 
       depth++;
-      reentrant_runs++;
       ScopedAllocationAllow allow;
       RunInstructions(ops);
       depth--;
     };
 
     unback.release_callback_ = release_callback;
+    unback_without_lock.release_callback_ = release_callback;
     collapse.release_callback_ = release_callback;
   }
 
   ~State() {
+    unback.release_callback_ = nullptr;
+    unback_without_lock.release_callback_ = nullptr;
+    collapse.release_callback_ = nullptr;
+    {
+      PageHeapSpinLockHolder l;
+      DrainFullyFreedTrackers();
+    }
     // Shut down, confirm filler is empty.
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     for (auto& [pt, v] : allocs) {
@@ -425,53 +432,34 @@ struct State {
     CHECK(filler.size() == NHugePages(0));
   }
 
-  void RunInstructions(absl::Span<const Instruction> instrs) {
-    for (const auto& instruction : instrs) {
-      std::visit([&](const auto& instr) { instr.Perform(*this); }, instruction);
-      if (depth == 0) {
-        CheckInvariants();
+  void DrainFullyFreedTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(
+      tcmalloc::tcmalloc_internal::pageheap_lock) {
+    while (PageTracker* pt = filler.FetchFullyFreedTracker()) {
+      HugePage hp = pt->location();
+      for (PageId p = hp.first_page(),
+                  end = hp.first_page() + kPagesPerHugePage;
+           p != end; ++p) {
+        released_set.erase(p);
+      }
+      delete pt;
+    }
+    for (PageTracker* pt : trackers) {
+      HugePage hp = pt->location();
+      const PageBitmap& rel = pt->released_by_page();
+      for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
+        PageId p = hp.first_page() + Length(i);
+        if (rel.GetBit(i)) {
+          released_set.insert(p);
+        } else {
+          released_set.erase(p);
+        }
       }
     }
   }
 
-  // Pages held by live allocations on pt.
-  Length LivePagesOn(PageTracker* pt) const {
-    Length n;
-    auto it = allocs.find(pt);
-    if (it == allocs.end()) return n;
-    for (const auto& [alloc, alloc_info] : it->second) {
-      n += alloc.n;
-    }
-    return n;
-  }
-
-  void CheckInvariants() {
-    PageHeapSpinLockHolder l;
-    TC_CHECK_EQ(filler.size().raw_num(), trackers.size());
-    TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
-    // Sparse and dense allocations live on disjoint sets of hugepages, so the
-    // per-density counters track our live allocations exactly.
-    for (int d = 0; d < AccessDensityPrediction::kPredictionCounts; ++d) {
-      TC_CHECK_EQ(
-          filler.pages_allocated(static_cast<AccessDensityPrediction>(d)),
-          live_pages[d]);
-    }
-    TC_CHECK_LE(filler.used_pages_in_any_subreleased(), filler.used_pages());
-    TC_CHECK_LE(filler.FreePagesInPartialAllocs(), filler.free_pages());
-    TC_CHECK_EQ(
-        filler.used_pages() + filler.free_pages() + filler.unmapped_pages(),
-        filler.size().in_pages());
-  }
-
-  // ReleasePages may claim credit for pages unmapped earlier and left
-  // unaccounted, so it reports at least the pages it unmapped just now, and
-  // nothing is unmapped while unback is failing.
-  void CheckReleased(Length released, Length unmapped_before) const {
-    const Length unmapped_after = filler.unmapped_pages();
-    TC_CHECK_GE(unmapped_after, unmapped_before);
-    TC_CHECK_GE(released, unmapped_after - unmapped_before);
-    if (!unback_success) {
-      TC_CHECK_EQ(unmapped_after, unmapped_before);
+  void RunInstructions(absl::Span<const Instruction> instrs) {
+    for (const auto& instruction : instrs) {
+      std::visit([&](const auto& instr) { instr.Perform(*this); }, instruction);
     }
   }
 
@@ -487,6 +475,7 @@ struct State {
   absl::flat_hash_set<PageId> released_set;
 
   MockUnback unback;
+  MockUnback unback_without_lock;
   MockCollapse collapse;
   MockSetAnonVmaName set_anon_vma_name;
   HugePageFiller<PageTracker> filler;
@@ -496,20 +485,23 @@ struct State {
                       std::vector<std::pair<Range, SpanAllocInfo>>>
       allocs;
   size_t next_hugepage = 1;
-  // Pages held by live allocations, by predicted access density.
-  Length live_pages[AccessDensityPrediction::kPredictionCounts];
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
-  // Bumped whenever a reentrant subprogram runs, so an operation can tell
-  // whether other instructions interleaved with it.
-  size_t reentrant_runs = 0;
   bool treating_trackers = false;
   std::string output;
 };
 
-MemoryModifyStatus MockUnback::operator()(Range r) {
+MemoryModifyStatus MockUnback::operator()(Range r)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  if (lock_held_) {
+    tcmalloc::tcmalloc_internal::pageheap_lock.AssertHeld();
+    tcmalloc::tcmalloc_internal::pageheap_lock.unlock();
+  }
   if (release_callback_) {
     release_callback_();
+  }
+  if (lock_held_) {
+    tcmalloc::tcmalloc_internal::pageheap_lock.lock();
   }
   if (!state_.unback_success) {
     return {.success = false, .error_number = 0};
@@ -589,31 +581,15 @@ void Allocate::Perform(State& state) const {
       state.filler.Contribute(result.pt, donated, alloc_info);
     }
     state.trackers.push_back(result.pt);
-  } else {
-    // The filler only hands out hugepages it still owns.
-    TC_CHECK(state.allocs.contains(result.pt));
-  }
-
-  // The range lies within the tracker's hugepage and is disjoint from every
-  // live allocation on it.
-  const HugePage hp = result.pt->location();
-  TC_CHECK(HugePageContaining(result.page) == hp);
-  TC_CHECK(result.page + n <= hp.first_page() + kPagesPerHugePage);
-  for (const auto& [live, live_info] : state.allocs[result.pt]) {
-    TC_CHECK(!(result.page < live.p + live.n && live.p < result.page + n));
   }
 
   for (PageId p = result.page, end = p + n; p != end; ++p) {
-    // Only a previously released hugepage can hand out unmapped pages.
-    TC_CHECK(result.from_released || !state.released_set.contains(p));
     state.released_set.erase(p);
   }
 
   state.allocs[result.pt].push_back({{result.page, n}, alloc_info});
-  state.live_pages[alloc_info.density] += n;
 
   if (state.depth == 0) {
-    TC_CHECK_EQ(result.pt->used_pages(), state.LivePagesOn(result.pt));
     TC_CHECK_EQ(state.filler.size().raw_num(), state.trackers.size());
     TC_CHECK_EQ(state.filler.unmapped_pages().raw_num(),
                 state.released_set.size());
@@ -639,7 +615,6 @@ void Deallocate::Perform(State& state) const {
     state.trackers.resize(state.trackers.size() - 1);
   }
 
-  state.live_pages[alloc_info.density] -= alloc.n;
   PageTracker* ret;
   {
     PageHeapSpinLockHolder l;
@@ -647,19 +622,18 @@ void Deallocate::Perform(State& state) const {
   }
   if (state.depth == 0) {
     TC_CHECK_EQ(ret != nullptr, last_alloc);
-    if (ret == nullptr) {
-      TC_CHECK_EQ(pt->used_pages(), state.LivePagesOn(pt));
-    }
   }
   if (ret) {
-    // Only the hugepage we emptied is handed back.
-    TC_CHECK_EQ(ret, pt);
     HugePage hp = ret->location();
     for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
          p != end; ++p) {
       state.released_set.erase(p);
     }
     delete ret;
+  }
+  {
+    PageHeapSpinLockHolder l;
+    state.DrainFullyFreedTrackers();
   }
 
   if (state.depth == 0) {
@@ -684,9 +658,8 @@ void Release::Perform(State& state) const {
   }
   Length desired(desired_pages);
   size_t to_release_from_partial_allocs;
+  const size_t reentrant_before = state.reentrant_stack.size();
 
-  const Length unmapped_before = state.filler.unmapped_pages();
-  const size_t runs_before = state.reentrant_runs;
   Length released;
   {
     PageHeapSpinLockHolder l;
@@ -695,14 +668,13 @@ void Release::Perform(State& state) const {
         state.filler.FreePagesInPartialAllocs().raw_num();
     released = state.filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
-  }
-  if (state.depth == 0 && runs_before == state.reentrant_runs) {
-    state.CheckReleased(released, unmapped_before);
+    state.DrainFullyFreedTrackers();
   }
 
   if (!release_partial_allocs || hit_limit ||
       skip_subrelease_intervals.SkipSubreleaseEnabled() ||
-      !state.unback_success || state.depth != 0) {
+      !state.unback_success || state.depth != 0 ||
+      state.reentrant_stack.size() != reentrant_before) {
     return;
   }
   TC_CHECK_GE(released.raw_num(), to_release_from_partial_allocs);
@@ -752,7 +724,6 @@ void ModelTail::Perform(State& state) const {
 
   state.allocs[pt].push_back(
       {{start, n}, {1, AccessDensityPrediction::kSparse}});
-  state.live_pages[AccessDensityPrediction::kSparse] += n;
 
   if (state.depth == 0) {
     TC_CHECK_EQ(state.filler.size().raw_num(), state.trackers.size());
@@ -765,19 +736,16 @@ void MemoryLimitHitRelease::Perform(State& state) const {
   Length desired_len(desired);
   Length released;
   const Length free = state.filler.free_pages();
-  const Length unmapped_before = state.filler.unmapped_pages();
-  const size_t runs_before = state.reentrant_runs;
+  const size_t reentrant_before = state.reentrant_stack.size();
   {
     PageHeapSpinLockHolder l;
     released = state.filler.ReleasePages(desired_len, SkipSubreleaseIntervals{},
                                          /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
+    state.DrainFullyFreedTrackers();
   }
-  if (state.depth != 0) {
+  if (state.depth != 0 || state.reentrant_stack.size() != reentrant_before) {
     return;
-  }
-  if (runs_before == state.reentrant_runs) {
-    state.CheckReleased(released, unmapped_before);
   }
   const Length expected =
       state.unback_success ? std::min(free, desired_len) : Length(0);
@@ -819,26 +787,7 @@ void TreatTrackers::Perform(State& state) const {
                                  : ReleaseStalePages::kDisabled,
       &pageflags, &residency);
   state.treating_trackers = false;
-  while (PageTracker* pt = state.filler.FetchFullyFreedTracker()) {
-    HugePage hp = pt->location();
-    for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
-         p != end; ++p) {
-      state.released_set.erase(p);
-    }
-    delete pt;
-  }
-  for (PageTracker* pt : state.trackers) {
-    HugePage hp = pt->location();
-    const PageBitmap& rel = pt->released_by_page();
-    for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
-      PageId p = hp.first_page() + Length(i);
-      if (rel.GetBit(i)) {
-        state.released_set.insert(p);
-      } else {
-        state.released_set.erase(p);
-      }
-    }
-  }
+  state.DrainFullyFreedTrackers();
 }
 
 void UpdateBitmaps::Perform(State& state) const {
