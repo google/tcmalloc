@@ -461,6 +461,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  // Returns hugepages that the filler emptied while it did not hold
+  // pageheap_lock (during TreatHugepageTrackers) to the cache.
+  void DrainFreedTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
   void DeleteFromHugepage(FillerType::Tracker* pt, Range r, bool might_abandon,
                           SpanAllocInfo span_alloc_info)
@@ -1055,6 +1058,14 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
 }
 
 template <class Forwarder>
+inline void HugePageAwareAllocator<Forwarder>::DrainFreedTrackers() {
+  FillerType::Tracker* pt;
+  while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
+    ReleaseHugepage(pt);
+  }
+}
+
+template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
     EnableCollapse enable_collapse) {
   const EnableUnfilteredCollapse enable_unfiltered_collapse =
@@ -1064,10 +1075,7 @@ inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
   PageHeapSpinLockHolder l;
   filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
                                 release_stale_pages);
-  FillerType::Tracker* pt;
-  while ((pt = filler_.FetchFullyFreedTracker()) != nullptr) {
-    ReleaseHugepage(pt);
-  }
+  DrainFreedTrackers();
 }
 
 inline static double BytesToMiB(size_t bytes) {
