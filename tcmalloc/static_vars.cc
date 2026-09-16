@@ -20,105 +20,37 @@
 #include <cstring>
 
 #include "absl/base/attributes.h"
-#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
 #include "absl/types/span.h"
-#include "tcmalloc/allocation_sample.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/cpu_cache.h"
-#include "tcmalloc/deallocation_profiler.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
-#include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
-#include "tcmalloc/internal/gwp_asan_state.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_state.h"
-#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/internal/sysinfo.h"
-#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
-#include "tcmalloc/pagemap.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/peak_heap_tracker.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
-#include "tcmalloc/stack_trace_table.h"
-#include "tcmalloc/thread_cache.h"
 #include "tcmalloc/transfer_cache.h"
-
-// This ensures the marked variables are placed in the .bss section.
-// If the variable contains any non-0 initializers, compiler will complain.
-// Placing large global variables in .bss is important to reduce binary size.
-#define TC_ENSURE_BSS ABSL_CONST_INIT __attribute__((section(".bss")))
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
-// Cacheline-align our SizeMap and CpuCache.  They both have very hot arrays as
-// their first member variables, and aligning them reduces the number of cache
-// lines these arrays use.
-//
-// IF YOU ADD TO THIS LIST, ADD TO STATIC_VAR_SIZE TOO!
-// LINT.IfChange(static_vars)
-TC_ENSURE_BSS absl::base_internal::SpinLock pageheap_lock(
+ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
-TC_ENSURE_BSS Arena Static::arena_;
-TC_ENSURE_BSS ABSL_CACHELINE_ALIGNED SizeMap Static::sizemap_;
-TCMALLOC_ATTRIBUTE_NO_DESTROY TC_ENSURE_BSS TransferCacheManager
-    Static::transfer_cache_;
-TC_ENSURE_BSS ShardedTransferCacheManager
-    Static::sharded_transfer_cache_(nullptr, nullptr);
-TC_ENSURE_BSS ABSL_CACHELINE_ALIGNED Static::CpuCacheType Static::cpu_cache_;
-TC_ENSURE_BSS
-MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
-    Static::sampledallocation_allocator_;
-TC_ENSURE_BSS MetadataObjectAllocator<Span, ArenaAlloc::kSpan>
-    Static::span_allocator_;
-TC_ENSURE_BSS MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
-    Static::threadcache_allocator_;
-TCMALLOC_ATTRIBUTE_NO_DESTROY TC_ENSURE_BSS
-    Static::NoDestructorStorage<SampledAllocationRecorder>
-        Static::sampled_allocation_recorder_;
-ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
-ABSL_CONST_INIT tcmalloc_internal::StatsCounter
-    Static::sampled_internal_fragmentation_;
-ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::total_sampled_count_;
-ABSL_CONST_INIT AllocationSampleList Static::allocation_samples;
-ABSL_CONST_INIT deallocationz::DeallocationProfilerList
-    Static::deallocation_samples;
-ABSL_CONST_INIT std::atomic<int64_t> Static::sampled_alloc_handle_generator{0};
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
-    Static::NoDestructorStorage<PeakHeapTracker>
-        Static::peak_heap_tracker_{sampledallocation_allocator_};
-TC_ENSURE_BSS MetadataObjectAllocator<StackTraceTable::LinkedSample,
-                                      ArenaAlloc::kStackTraceTable>
-    Static::linked_sample_allocator_;
-ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
-ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
-ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
-ABSL_CONST_INIT ProdPageMap Static::pagemap_;
-ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
-ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
-    Static::numa_topology_;
-ABSL_CONST_INIT GwpAsanState Static::gwp_asan_state_;
-ABSL_CONST_INIT Static::PerSizeClassCounts Static::per_size_class_counts_;
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
-    Static::NoDestructorStorage<SystemAllocator<
-        NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>>
-        Static::system_allocator_{numa_topology_, kMinMmapAlloc};
 // Force kInvalidSpan to be read-protected.  Span contains a std::atomic, and
 // libc++'s std::atomic implementation contains a mutable field in one of its
 // implementation details.  This prevents Span from being placed in a read-only
@@ -126,37 +58,21 @@ TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
 // instance.
 ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro)
 constexpr Span Static::kInvalidSpan;
-// LINT.ThenChange(:static_vars_size)
 
-ABSL_CONST_INIT Static tc_globals;
+// We expect tc_globals to be in a zero-initialized section (.bss). This is
+// important to keep binary size smaller. But there is no easy way to enforce
+// this during compilation. ABSL_ATTRIBUTE_SECTION_VARIABLE(.bss) does it,
+// but it places the variable in .bss section, while we want it to be in
+// google_malloc_bss. And compiler does not like
+// ABSL_ATTRIBUTE_SECTION_VARIABLE(google_malloc_bss). So instead,
+// we check this in arena_test.cc (a random test) by declaring another
+// global Static variable with ABSL_ATTRIBUTE_SECTION_VARIABLE(.bss).
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT Static tc_globals;
 
 size_t Static::metadata_bytes() {
-  // This is ugly and doesn't nicely account for e.g. alignment losses
-  // -- I'd like to put all the above in a struct and take that
-  // struct's size.  But we can't due to linking issues.
-  //
-  // TODO(b/242550501):  Progress on constant initialization guarantees allow
-  // state to be consolidated directly into an instance, rather than as a
-  // collection of static variables.  Simplify this.
-  // LINT.IfChange(static_vars_size)
-  const size_t static_var_size =
-      sizeof(pageheap_lock) + sizeof(arena_) + sizeof(sizemap_) +
-      sizeof(sharded_transfer_cache_) + sizeof(transfer_cache_) +
-      sizeof(cpu_cache_) + sizeof(sampledallocation_allocator_) +
-      sizeof(span_allocator_) + sizeof(threadcache_allocator_) +
-      sizeof(sampled_allocation_recorder_) + sizeof(linked_sample_allocator_) +
-      sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
-      sizeof(pagemap_) + sizeof(sampled_objects_size_) +
-      sizeof(sampled_internal_fragmentation_) + sizeof(total_sampled_count_) +
-      sizeof(allocation_samples) + sizeof(deallocation_samples) +
-      sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
-      sizeof(guardedpage_allocator_) + sizeof(numa_topology_) +
-      sizeof(CacheTopology::Instance()) + sizeof(gwp_asan_state_) +
-      sizeof(per_size_class_counts_) + sizeof(system_allocator_) +
-      sizeof(kInvalidSpan);
-  // LINT.ThenChange(:static_vars)
-
-  const size_t internal_dependencies_size = sizeof(PerCpuState::state());
+  const size_t internal_dependencies_size =
+      sizeof(pageheap_lock) + sizeof(kInvalidSpan) +
+      sizeof(CacheTopology::Instance()) + sizeof(PerCpuState::state());
 
   const size_t allocated =
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -165,13 +81,12 @@ size_t Static::metadata_bytes() {
       arena().allocated()
 #endif
       + AddressRegionFactory::InternalBytesAllocated();
-  return allocated + static_var_size + internal_dependencies_size;
+  return sizeof(*this) + allocated + internal_dependencies_size;
 }
 
 size_t Static::pagemap_residence() {
   // Determine residence of the root node of the pagemap.
-  size_t total = MInCore::residence(&pagemap_, sizeof(pagemap_));
-  return total;
+  return MInCore::residence(&pagemap_, sizeof(pagemap_));
 }
 
 SizeClassConfiguration Static::size_class_configuration() {
@@ -194,7 +109,9 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   span_allocator_.Init(arena_);
   threadcache_allocator_.Init(arena_);
   linked_sample_allocator_.Init(arena_);
-  sampled_allocation_recorder_.value.Init(sampledallocation_allocator_);
+  sampled_allocation_recorder_.Init(sampledallocation_allocator_);
+  peak_heap_tracker_.Init(sampledallocation_allocator_);
+  system_allocator_.Init(numa_topology_, kMinMmapAlloc);
 
   // Verify we can determine the number of CPUs now, since we will need it
   // later for per-CPU caches and initializing the cache topology.

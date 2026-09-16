@@ -37,12 +37,12 @@ namespace tcmalloc_internal {
 
 class PeakHeapTracker {
  public:
-  constexpr explicit PeakHeapTracker(
-      MetadataObjectAllocator<SampledAllocation,
-                              ArenaAlloc::kSampledAllocation>& allocator
-          ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : recorder_lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        peak_heap_recorder_(allocator) {}
+  constexpr PeakHeapTracker() = default;
+  void Init(MetadataObjectAllocator<SampledAllocation,
+                                    ArenaAlloc::kSampledAllocation>& allocator)
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    peak_heap_recorder_.Init(allocator);
+  }
 
   // Possibly save high-water-mark allocation stack traces for peak-heap
   // profile. Should be called immediately after sampling an allocation. If
@@ -71,7 +71,8 @@ class PeakHeapTracker {
                                              ArenaAlloc::kSampledAllocation>>;
 
   // Guards the peak heap samples stored in `peak_heap_recorder_`.
-  absl::base_internal::SpinLock recorder_lock_;
+  absl::base_internal::SpinLock recorder_lock_{
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
   absl::Time last_peak_ ABSL_GUARDED_BY(recorder_lock_);
 
