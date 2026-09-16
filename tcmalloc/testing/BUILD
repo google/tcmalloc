@@ -829,6 +829,7 @@ create_tcmalloc_testsuite(
     name = "drain_test",
     srcs = ["drain_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    shard_count = 2,
     tags = [
         "noasan",
         "nomsan",
