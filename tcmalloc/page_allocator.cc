@@ -119,7 +119,11 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
     return;
   }
 
-  // We're still not below limit.
+  // We're still not below limit.  Until something changes the page heap
+  // (a free, a release, or a new limit), a retry of the soft-limit shrink on a
+  // non-growing allocation would repeat the same work and fail again, so
+  // ShrinkToUsageLimit skips it.  Growth (may_have_grown) always re-checks.
+  failed_shrink_epoch_ = change_epoch_;
   if (limits_[kHard] < std::numeric_limits<size_t>::max()) {
     // Recompute how many pages we still need to release.
     BackingStats s = stats();

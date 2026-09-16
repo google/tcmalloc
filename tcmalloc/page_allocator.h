@@ -152,6 +152,13 @@ class PageAllocator {
       return;
     }
 
+    // If the heap did not grow and nothing has been freed, released, or
+    // re-limited since the last soft-limit shrink failed, retrying would walk
+    // the same release path and fail the same way.  Skip it.
+    if (!may_have_grown && change_epoch_ == failed_shrink_epoch_) {
+      return;
+    }
+
     ShrinkToUsageLimitSlow(n);
   }
 
@@ -234,6 +241,15 @@ class PageAllocator {
   bool sampled_partition_active_;
   bool over_limit_ ABSL_GUARDED_BY(pageheap_lock) = false;
 
+  // change_epoch_ advances whenever the page heap changes in a way that could
+  // let a previously failed soft-limit shrink succeed: pages are returned
+  // (Delete), memory is released (ReleaseAtLeastNPages, TreatHugepageTrackers),
+  // or the limits change (set_limit).  failed_shrink_epoch_ records the epoch
+  // at which the soft-limit shrink last failed; while the two are equal and the
+  // heap has not grown, ShrinkToUsageLimit skips the (expensive, futile) retry.
+  uint64_t change_epoch_ ABSL_GUARDED_BY(pageheap_lock) = 1;
+  uint64_t failed_shrink_epoch_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+
   // Max size of backed spans we will attempt to maintain.
   // Crash if we can't maintain below limits_[kHard], which is guaranteed to be
   // higher than limits_[kSoft].
@@ -299,6 +315,7 @@ inline void PageAllocator::Delete(Span* span, MemoryTag tag,
     InvokeDeleteHook(span->first_page(), span->num_pages(), span_alloc_info,
                      tag);
   }
+  ++change_epoch_;
   impl(tag)->Delete(span, span_alloc_info);
 }
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -309,6 +326,7 @@ inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
   if (s) {
     InvokeDeleteHook(s.r.p, s.r.n, span_alloc_info, tag);
   }
+  ++change_epoch_;
   impl(tag)->Delete(s, span_alloc_info);
 }
 
@@ -377,10 +395,15 @@ inline void PageAllocator::TreatHugepageTrackers(
   for (int partition = 0; partition < active_partitions(); partition++) {
     normal_impl_[partition]->TreatHugepageTrackers(enable_collapse);
   }
+  // Stale-page release and fully-freed hugepage unbacking may have lowered
+  // backed memory.
+  PageHeapSpinLockHolder l;
+  ++change_epoch_;
 }
 
 inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
                                                   PageReleaseReason reason) {
+  ++change_epoch_;
   Length released;
   // TODO(ckennelly): Refine this policy.  Cold data should be the most
   // resilient to not being on huge pages.
@@ -455,6 +478,7 @@ inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {
     // Soft limit can not be higher than hard limit.
     limits_[kSoft] = limits_[kHard];
   }
+  ++change_epoch_;
   // Attempt to shed memory to get below the new limit.
   ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
 }
