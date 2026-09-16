@@ -24,6 +24,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <new>
 #include <string>
 #include <utility>
@@ -247,6 +249,16 @@ TEST_F(NumaTopologyTest, Host) {
     size_t partition = nt.GetCpuPartition(cpu);
     EXPECT_LT(partition, active_partitions) << cpu;
   }
+}
+
+// NumaTopology is statically allocated within TCMalloc.  Confirm that it is
+// constant initialized to all zero bytes so that it lands in .bss rather than
+// .data.
+TEST(NumaTopology, ZeroInitialized) {
+  static constinit NumaTopology<2> nt;
+
+  const auto bytes = std::bit_cast<std::array<unsigned char, sizeof(nt)>>(nt);
+  EXPECT_THAT(bytes, testing::Each(0));
 }
 
 }  // namespace
