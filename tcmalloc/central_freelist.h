@@ -756,8 +756,14 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         RecordSpanUtil(prev_bitwidth, /*increase=*/false);
         RecordSpanUtil(cur_bitwidth, /*increase=*/true);
       }
-      if (ABSL_PREDICT_FALSE(
-              span->FreelistEmpty(object_size, objects_per_span))) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      const bool is_empty = span->FreelistEmpty(object_size, objects_per_span);
+#else
+      const bool is_empty = cur_allocated == objects_per_span;
+      TC_ASSERT_EQ(is_empty,
+                   span->FreelistEmpty(object_size, objects_per_span));
+#endif
+      if (ABSL_PREDICT_FALSE(is_empty)) {
         nonempty_.Remove(span, prev_index);
       } else {
         // If span allocation changes so that it must be moved to a different
