@@ -1049,10 +1049,8 @@ tcmalloc_cc_library(
   SRCS
     "compressibility.cc"
   DEPS
+    "absl::bits"
     "absl::fixed_array"
-    "absl::flat_hash_map"
-    "absl::flat_hash_set"
-    "absl::inlined_vector"
     "absl::span"
     "absl::status"
     "absl::status_macros"
