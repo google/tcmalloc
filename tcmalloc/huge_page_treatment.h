@@ -381,6 +381,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
     PageTracker::HugePageResidencyState state = pt.GetHugePageResidencyState();
     if (state.maybe_hugepage_backed) return;
+    // Skip trackers that an in-flight HugePageFiller::ReleasePages() holds as
+    // a candidate:  it may drop pageheap_lock and release from pt after we
+    // have selected it.
+    if (pt.DontFreeTracker(HugePageTreatmentType::kSubrelease)) return;
 
     if (!state.entry_valid) {
       PushCandidate(pt);
@@ -508,6 +512,11 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           treatment_stats_.treated_pages_stale_subreleased +=
               released_length.raw_num();
         }
+      }
+      // HandleReleaseFree() drops pageheap_lock; the tracker may have been
+      // emptied (and parked) in the meantime.
+      if (tracker->fully_freed()) {
+        continue;
       }
 
       if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {

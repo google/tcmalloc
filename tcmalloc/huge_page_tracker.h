@@ -302,6 +302,14 @@ class PageTracker : public TList<PageTracker>::Elem {
     return hugepage_residency_state_.being_collapsed;
   }
 
+  // Whether HugePageFiller::ReleaseFreeFromTracker() is releasing this
+  // tracker's free pages with pageheap_lock temporarily dropped.  While set,
+  // the tracker is not on any filler list and HugePageFiller::Put() defers
+  // list maintenance (and handling of the tracker becoming empty) to the
+  // releasing thread.
+  void SetBeingSubreleased(bool value) { being_subreleased_ = value; }
+  bool BeingSubreleased() const { return being_subreleased_; }
+
   void SetDontFreeTracker(HugePageTreatmentType type) {
     dont_free_tracker_mask_ |= static_cast<uint8_t>(type);
   }
@@ -309,6 +317,9 @@ class PageTracker : public TList<PageTracker>::Elem {
     dont_free_tracker_mask_ &= ~static_cast<uint8_t>(type);
   }
   bool DontFreeTracker() const { return dont_free_tracker_mask_ != 0; }
+  bool DontFreeTracker(HugePageTreatmentType type) const {
+    return (dont_free_tracker_mask_ & static_cast<uint8_t>(type)) != 0;
+  }
 
   struct TagState {
     bool sampled_for_tagging = false;
@@ -358,6 +369,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   // lock. When all the pages on the tracked hugepage are freed, this field
   // is checked to ensure that the tracker is not freed right away.
   uint8_t dont_free_tracker_mask_ = 0;
+  bool being_subreleased_ = false;
   double alloctime_;
   double last_page_allocation_time_ = 0;
 

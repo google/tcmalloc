@@ -485,8 +485,8 @@ struct State {
       if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
         // This permits a slight degree of nondeterminism when linked against
         // TCMalloc for the real memory allocator, as a background thread could
-        // also be holding the lock.  Nevertheless, HPAA doesn't make it clear
-        // when we are releasing with/without the pageheap_lock.
+        // also be holding the lock.  HugeCache and HugePageFiller release with
+        // the lock dropped, HugeRegion does not.
         //
         // TODO(b/73749855): When all release paths unconditionally release the
         // lock, remove this check and take the lock for an instant to ensure it
@@ -713,11 +713,15 @@ void GatherAndCheckStats::Perform(State& state) const {
     PageHeapSpinLockHolder l;
     stats = state.allocator.stats();
   }
-  uint64_t used_bytes =
+  const uint64_t used_bytes =
       stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
-  TC_CHECK_EQ(used_bytes,
-              state.allocated.in_bytes() +
-                  state.allocator.forwarder().pending_release_.in_bytes());
+  // While a release has pageheap_lock dropped, HugeCache has already removed
+  // the range from its size (so it appears used) whereas HugePageFiller keeps
+  // the pages free until unback succeeds.  Outside of a release, the two agree.
+  const uint64_t pending_bytes =
+      state.allocator.forwarder().pending_release_.in_bytes();
+  TC_CHECK_GE(used_bytes, state.allocated.in_bytes());
+  TC_CHECK_LE(used_bytes, state.allocated.in_bytes() + pending_bytes);
 }
 
 void GatherSpanStats::Perform(State& state) const {
