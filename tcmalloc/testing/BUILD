@@ -574,6 +574,7 @@ create_tcmalloc_testsuite(
 
 create_tcmalloc_testsuite(
     name = "memory_errors_test",
+    timeout = "long",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     shard_count = 3,
