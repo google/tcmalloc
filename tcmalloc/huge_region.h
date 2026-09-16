@@ -153,6 +153,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If release is true, unback any hugepage that becomes empty.
   void Dec(Range r, bool release);
 
+  HugeLength ReleaseSlow(Length to_release, bool adaptive_release);
   HugeLength UnbackHugepages(bool should_unback[kNumHugePages]);
 
   // How many pages are used in each hugepage?
@@ -331,25 +332,58 @@ inline void HugeRegion::Put(Range r, bool release) {
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
 inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
-  if (desired == Length(0)) return NHugePages(0);
-
   const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
+  if (to_release == Length(0) ||
+      tracker_.longest_free() < kPagesPerHugePage.raw_num()) {
+    return NHugePages(0);
+  }
+  return ReleaseSlow(to_release, adaptive_release);
+}
 
+ABSL_ATTRIBUTE_NOINLINE inline HugeLength HugeRegion::ReleaseSlow(
+    Length to_release, bool adaptive_release) {
   HugeLength release_target = NHugePages(0);
   bool should_unback[kNumHugePages] = {};
-  const int start = adaptive_release ? kNumHugePages - 1 : 0;
-  const int end = adaptive_release ? -1 : kNumHugePages;
-  const int step = adaptive_release ? -1 : 1;
+  auto check_hp = [&](size_t i) {
+    TC_ASSERT_EQ(pages_used_[i], Length(0));
+    if (!backed_[i]) return false;
+    should_unback[i] = true;
+    ++release_target;
+    return release_target.in_pages() >= to_release;
+  };
 
-  // TODO(b/73749855): Consider optimizing this search by consulting tracker_.
-  for (int i = start; i != end; i += step) {
-    if (backed_[i] && pages_used_[i] == Length(0)) {
-      should_unback[i] = true;
-      ++release_target;
+  if (!adaptive_release) {
+    size_t index = 0, free_start, free_len;
+    while (tracker_.NextFreeRange(index, &free_start, &free_len)) {
+      const size_t free_end = free_start + free_len;
+      index = free_end;
+      const size_t first_hp = (free_start + kPagesPerHugePage.raw_num() - 1) /
+                              kPagesPerHugePage.raw_num();
+      const size_t end_hp = free_end / kPagesPerHugePage.raw_num();
+      for (size_t i = first_hp; i < end_hp; ++i) {
+        if (check_hp(i)) return UnbackHugepages(should_unback);
+      }
     }
-
-    if (release_target.in_pages() >= to_release) break;
+  } else {
+    ssize_t page_idx = size().in_pages().raw_num() - 1;
+    while (page_idx >= static_cast<ssize_t>(kPagesPerHugePage.raw_num() - 1)) {
+      const ssize_t free_last = tracker_.bits().FindClearBackwards(page_idx);
+      if (free_last < static_cast<ssize_t>(kPagesPerHugePage.raw_num() - 1)) {
+        break;
+      }
+      const ssize_t alloc_before = tracker_.bits().FindSetBackwards(free_last);
+      const size_t free_start = static_cast<size_t>(alloc_before + 1);
+      const size_t free_end = static_cast<size_t>(free_last + 1);
+      const size_t first_hp = (free_start + kPagesPerHugePage.raw_num() - 1) /
+                              kPagesPerHugePage.raw_num();
+      const size_t end_hp = free_end / kPagesPerHugePage.raw_num();
+      for (ssize_t i = static_cast<ssize_t>(end_hp) - 1;
+           i >= static_cast<ssize_t>(first_hp); --i) {
+        if (check_hp(i)) return UnbackHugepages(should_unback);
+      }
+      page_idx = alloc_before - 1;
+    }
   }
   return UnbackHugepages(should_unback);
 }
@@ -522,10 +556,8 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
     // Temporarily block allocations to these pages.
     //
-    // We both Mark and toggle pages_used_, as allocations use FindAndMark but
-    // Release only uses pages_used_.
-    //
-    // TODO(b/73749855): Optimize release by consulting the bitmap first.
+    // We both Mark and toggle pages_used_, as allocations use FindAndMark and
+    // Release consults tracker_ while pages_used_ tracks per-hugepage usage.
     tracker_.Mark(NHugePages(i).in_pages().raw_num(), hl.in_pages().raw_num());
     Length used;
     for (size_t k = i; k != j; ++k) {
