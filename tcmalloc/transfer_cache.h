@@ -427,15 +427,17 @@ class TransferCacheManager : public StaticForwarder {
       internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
                                              TransferCacheManager>;
 
-  friend class FakeMultiClassTransferCacheManager;
-
  public:
   constexpr TransferCacheManager() = default;
 
   TransferCacheManager(const TransferCacheManager&) = delete;
   TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
-  void Init() { InitCaches(); }
+  void Init() {
+    for (int i = 0; i < kNumClasses; ++i) {
+      new (&cache_[i].tc) TransferCache(this, i);
+    }
+  }
 
   void InsertRange(int size_class, absl::Span<void*> batch) {
     cache_[size_class].tc.InsertRange(size_class, batch);
@@ -481,14 +483,6 @@ class TransferCacheManager : public StaticForwarder {
   void TryPlunder() {
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
       cache_[size_class].tc.TryPlunder(size_class);
-    }
-  }
-
-  void InitCaches() {
-    for (int i = 0; i < kNumClasses; ++i) {
-      new (&cache_[i].tc) TransferCache(this, i);
-      cache_[i].tc.freelist().Init(i,
-                                   Parameters::cfl_subbucket_prioritization());
     }
   }
 

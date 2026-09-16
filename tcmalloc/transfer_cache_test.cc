@@ -886,7 +886,7 @@ REGISTER_TYPED_TEST_SUITE_P(RealTransferCacheTest, StressResize);
 
 using TransferCacheRealEnv = MultiSizeClassTransferCacheEnvironment<
     internal_transfer_cache::TransferCache<CentralFreeList,
-                                           FakeMultiClassTransferCacheManager>>;
+                                           TransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, RealTransferCacheTest,
                                ::testing::Types<TransferCacheRealEnv>);
 TEST(TransferCacheManagerTest, PrintTelemetry) {

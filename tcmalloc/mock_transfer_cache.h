@@ -318,12 +318,6 @@ class FakeCpuLayout {
   int num_shards_ = 0;
 };
 
-// Defines transfer cache manager for testing legacy transfer cache.
-class FakeMultiClassTransferCacheManager : public TransferCacheManager {
- public:
-  void Init() { InitCaches(); }
-};
-
 // Wires up a largely functional TransferCache + TransferCacheManager +
 // CentralFreeList.
 //
