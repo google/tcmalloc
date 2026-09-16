@@ -572,22 +572,32 @@ inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
 
 inline size_t GetSize(const void* ptr) { return GetSizeAndSampled(ptr).size; }
 
-// This slow path also handles delete hooks and non-per-cpu mode.
-ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
-    void* ptr, std::optional<size_t> size, size_t size_class) {
-  MallocHook::InvokeDeleteHook({ptr, size,
-                                tc_globals.sizemap().class_to_size(size_class),
-                                HookMemoryMutable::kMutable});
-  if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
-    tc_globals.cpu_cache().DeallocateSlow(ptr, size_class);
-  } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent();
-             ABSL_PREDICT_TRUE(cache)) {
+// This slow path handles non-per-cpu mode.  It is kept out-of-line so that the
+// per-CPU slow path does not carry the ThreadCache::Deallocate body.
+ABSL_ATTRIBUTE_NOINLINE static void FreeSmallPerThread(void* ptr,
+                                                       size_t size_class) {
+  if (ThreadCache* cache = ThreadCache::GetCacheIfPresent();
+      ABSL_PREDICT_TRUE(cache)) {
     cache->Deallocate(ptr, size_class);
   } else {
     // This thread doesn't have thread-cache yet or already. Delete directly
     // into central cache.
     tc_globals.transfer_cache().InsertRange(size_class,
                                             absl::Span<void*>(&ptr, 1));
+  }
+}
+
+// This slow path also handles delete hooks.
+ABSL_ATTRIBUTE_NOINLINE static void FreeSmallHooked(void* ptr,
+                                                    std::optional<size_t> size,
+                                                    size_t size_class) {
+  MallocHook::InvokeDeleteHook({ptr, size,
+                                tc_globals.sizemap().class_to_size(size_class),
+                                HookMemoryMutable::kMutable});
+  if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
+    tc_globals.cpu_cache().DeallocateSlow(ptr, size_class);
+  } else {
+    FreeSmallPerThread(ptr, size_class);
   }
 }
 
@@ -599,9 +609,11 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
 ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
                                                   std::optional<size_t> size,
                                                   size_t size_class) {
-  if (ABSL_PREDICT_FALSE(Static::HaveHooks()) ||
-      ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
-    return FreeWithHooksOrPerThread(ptr, size, size_class);
+  if (ABSL_PREDICT_FALSE(Static::HaveHooks())) {
+    return FreeSmallHooked(ptr, size, size_class);
+  }
+  if (ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
+    return FreeSmallPerThread(ptr, size_class);
   }
   TCMALLOC_ALWAYS_INLINE_CALL tc_globals.cpu_cache().DeallocateSlowNoHooks(
       ptr, size_class);
