@@ -136,9 +136,6 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       TC_ASSERT(!IsNormalMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
       span = Span::New(Range(p, num_pages));
       state.pagemap().Set(p, span);
       // If we report capacity back from a size returning allocation, we can not
@@ -151,8 +148,9 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
         stack_trace.allocated_size = requested_size;
       }
       capacity = requested_size;
-    } else if ((span = state.page_allocator().New(
-                    num_pages, {1, AccessDensityPrediction::kSparse}, tag))) {
+    } else if (auto res = state.page_allocator().New(
+                   num_pages, {1, AccessDensityPrediction::kSparse}, tag)) {
+      span = state.AllocAndSetSpan(res.r, res.donated);
       capacity = stack_trace.allocated_size;
     } else {
       return {};

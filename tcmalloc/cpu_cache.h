@@ -918,19 +918,12 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   const uint16_t kSmallObjectDepth = 2000 * kWiderSlabMultiplier;
   const uint16_t kLargeObjectDepth = 144 * kWiderSlabMultiplier;
 #endif
-  if (size_class == 0 || size_class >= kNumClasses) {
+  if (size_class == 0 || size_class >= kNumClasses ||
+      forwarder_.class_to_size(size_class) == 0) {
     return 0;
   }
 
   if (BypassCpuCache(size_class)) {
-    return 0;
-  }
-
-  if (forwarder_.class_to_size(size_class) == 0) {
-    return 0;
-  }
-
-  if (IsColdSizeClass(size_class) && !ColdFeatureActive()) {
     return 0;
   }
 
@@ -1045,24 +1038,7 @@ inline void CpuCache<Forwarder>::Activate() {
   TC_CHECK_EQ(shift_bounds_.max_shift - shift_bounds_.initial_shift + 1,
               kNumPossiblePerCpuShifts);
 
-  // Deal with size classes that correspond only to partitions that are in
-  // use. If NUMA awareness and security partitions are disabled then we may
-  // have a smaller shift than would suffice for all of the unused size classes.
-  const int num_size_classes = forwarder_.active_partitions() * kNumBaseClasses;
-  for (int size_class = 0; size_class < num_size_classes; ++size_class) {
-    const size_t capacity = MaxCapacity(size_class);
-#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    // Check that the capacity is greater than the batch size.
-    if (capacity > 0) {
-      TC_CHECK_GE(capacity, forwarder_.num_objects_to_move(size_class));
-    }
-#endif
-    max_capacity_[size_class].store(capacity, std::memory_order_relaxed);
-  }
-
-  // Deal with cold size classes.
-  for (int size_class = kColdClassesStart; size_class < kNumClasses;
-       ++size_class) {
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     const size_t capacity = MaxCapacity(size_class);
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     // Check that the capacity is greater than the batch size.

@@ -48,6 +48,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using AllocationState = PageAllocatorInterface::AllocationState;
+
 class PageAllocatorTest : public testing::Test {
  protected:
   // Not in constructor so subclasses can mess about with environment
@@ -71,28 +73,19 @@ class PageAllocatorTest : public testing::Test {
     extra_.reset();
   }
 
-  Span* New(Length n, SpanAllocInfo span_alloc_info,
-            MemoryTag tag = MemoryTag::kNormal) {
+  AllocationState New(Length n, SpanAllocInfo span_alloc_info,
+                      MemoryTag tag = MemoryTag::kNormal) {
     return allocator_->New(n, span_alloc_info, tag);
   }
-  Span* NewAligned(Length n, Length align, SpanAllocInfo span_alloc_info,
-                   MemoryTag tag = MemoryTag::kNormal) {
+  AllocationState NewAligned(Length n, Length align,
+                             SpanAllocInfo span_alloc_info,
+                             MemoryTag tag = MemoryTag::kNormal) {
     return allocator_->NewAligned(n, align, span_alloc_info, tag);
   }
-  void Delete(Span* s, SpanAllocInfo span_alloc_info,
+  void Delete(AllocationState s, SpanAllocInfo span_alloc_info,
               MemoryTag tag = MemoryTag::kNormal) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
     allocator_->Delete(s, tag, span_alloc_info);
-#else
-    PageAllocatorInterface::AllocationState a{
-        Range(s->first_page(), s->num_pages()),
-        s->donated(),
-    };
-    Span::Delete(s);
-    PageHeapSpinLockHolder l;
-    allocator_->Delete(a, tag, span_alloc_info);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   Length Release(Length n, PageReleaseReason reason) {
@@ -122,7 +115,7 @@ TEST_F(PageAllocatorTest, Record) {
     tags.push_back(MemoryTag::kNormalP1);
   }
 
-  std::vector<std::pair<Span*, MemoryTag>> spans;
+  std::vector<std::pair<AllocationState, MemoryTag>> spans;
   for (auto tag : tags) {
     for (int i = 0; i < 15; ++i) {
       Delete(New(Length(1), kSpanInfo, tag), kSpanInfo, tag);
@@ -182,8 +175,10 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
 
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
                                        AccessDensityPrediction::kSparse};
-  Span* normal = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
-  Span* sampled = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+  AllocationState normal =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
 
   BackingStats stats;
   {
@@ -216,8 +211,10 @@ TEST_F(PageAllocatorTest, b270916852) {
 
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
                                        AccessDensityPrediction::kSparse};
-  Span* normal = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
-  Span* sampled = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+  AllocationState normal =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
 
   BackingStats stats;
   {
@@ -259,9 +256,12 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
 
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
                                        AccessDensityPrediction::kSparse};
-  Span* normal1 = New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
-  Span* normal2 = New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
-  Span* sampled = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+  AllocationState normal1 =
+      New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  AllocationState normal2 =
+      New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
 
   BackingStats stats;
   {
@@ -373,9 +373,9 @@ TEST_F(PageAllocatorTest, Hooks) {
 
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/5,
                                        AccessDensityPrediction::kSparse};
-  Span* s = New(Length(3), kSpanInfo, MemoryTag::kNormal);
-  ASSERT_NE(s, nullptr);
-  const size_t expected_page_index = s->first_page().index();
+  AllocationState s = New(Length(3), kSpanInfo, MemoryTag::kNormal);
+  ASSERT_TRUE(s);
+  const size_t expected_page_index = s.r.p.index();
   EXPECT_GE(new_record_count, 1);
   bool found_new = false;
   for (int i = 0; i < new_record_count; ++i) {
