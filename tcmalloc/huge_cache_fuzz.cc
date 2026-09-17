@@ -126,9 +126,16 @@ struct Get {
 
   void Perform(State& state) const {
     const HugeLength n = NHugePages(std::max<size_t>(1, count % 1024));
+    const HugeLength previous_size = state.cache.size();
+    const HugeLength previous_usage = state.cache.usage();
     bool from_released = false;
     HugeRange r = state.cache.Get(n, &from_released);
     if (r.valid()) {
+      EXPECT_EQ(r.len(), n);
+      EXPECT_EQ(state.cache.usage(), previous_usage + n);
+      if (!from_released) {
+        EXPECT_LE(state.cache.size() + n, previous_size);
+      }
       state.live_ranges.push_back(r);
       state.outstanding_usage += r.len();
     }
@@ -147,12 +154,14 @@ struct Release {
     if (state.live_ranges.empty()) {
       return;
     }
+    const HugeLength previous_usage = state.cache.usage();
     const size_t idx = index % state.live_ranges.size();
     HugeRange r = state.live_ranges[idx];
     std::swap(state.live_ranges[idx], state.live_ranges.back());
     state.live_ranges.pop_back();
     state.outstanding_usage -= r.len();
     state.cache.Release(r);
+    EXPECT_EQ(state.cache.usage() + r.len(), previous_usage);
   }
 };
 
@@ -168,12 +177,16 @@ struct ReleaseUnbacked {
     if (state.live_ranges.empty()) {
       return;
     }
+    const HugeLength previous_size = state.cache.size();
+    const HugeLength previous_usage = state.cache.usage();
     const size_t idx = index % state.live_ranges.size();
     HugeRange r = state.live_ranges[idx];
     std::swap(state.live_ranges[idx], state.live_ranges.back());
     state.live_ranges.pop_back();
     state.outstanding_usage -= r.len();
     state.cache.ReleaseUnbacked(r);
+    EXPECT_EQ(state.cache.size(), previous_size);
+    EXPECT_EQ(state.cache.usage() + r.len(), previous_usage);
   }
 };
 
@@ -190,6 +203,7 @@ struct ReleaseCachedPages {
     const HugeLength previous_size = state.cache.size();
     const HugeLength released = state.cache.ReleaseCachedPages(n);
     EXPECT_LE(released, previous_size);
+    EXPECT_EQ(state.cache.size() + released, previous_size);
   }
 };
 
@@ -203,8 +217,9 @@ struct AdvanceClock {
   }
 
   void Perform(State& state) const {
-    fake_clock_ticks += absl::ToInt64Nanoseconds(
-        std::clamp(duration, absl::ZeroDuration(), absl::Hours(1)));
+    fake_clock_ticks = std::max<int64_t>(
+        0, fake_clock_ticks + absl::ToInt64Nanoseconds(std::clamp(
+                                  duration, -absl::Hours(1), absl::Hours(1))));
   }
 };
 
