@@ -752,6 +752,14 @@ static void ShuffleThread(CpuCache& cache, const std::atomic<bool>& stop) {
   }
 }
 
+// Number of stress threads for the tests that spawn one thread per CPU and
+// then sleep for a fixed interval on the main thread. NumCPUs() counts
+// possible CPUs, which can far exceed the cores actually available to the
+// test, so beyond a small number the extra spinning threads only starve the
+// main thread. Under mlockall(MCL_FUTURE) (the *FailedBytesMlocked tests) every
+// 8 MiB thread stack is additionally faulted in at creation.
+static int NumStressThreads() { return std::min(NumCPUs(), 16); }
+
 static void StressThread(CpuCache& cache, size_t thread_id,
                          const std::atomic<bool>& stop) {
   if (!subtle::percpu::IsFast()) {
@@ -1067,7 +1075,7 @@ TEST(CpuCacheTest, DynamicSlab) {
   cache.Activate();
 
   std::vector<std::thread> threads;
-  const int n_threads = NumCPUs();
+  const int n_threads = NumStressThreads();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -1364,7 +1372,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  int n_threads = NumStressThreads();
 
   SizeMap size_map;
   ASSERT_TRUE(size_map.Init(size_map.CurrentClasses().classes));
@@ -1415,7 +1423,7 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  int n_threads = NumStressThreads();
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
@@ -1463,7 +1471,7 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = NumCPUs();
+  int n_threads = NumStressThreads();
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   ASSERT_EQ(ret, 0);
