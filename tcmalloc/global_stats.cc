@@ -26,6 +26,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/time/time.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
@@ -129,8 +130,14 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
 
   {  // scope
     PageHeapSpinLockHolder l;
+    // TODO(b/207622377):  Arena is thread-safe, but we take the pageheap_lock
+    // to present a consistent view of memory usage.
+    r.arena = tc_globals.arena().stats();
+
     r.metadata_bytes = tc_globals.metadata_bytes();
-    r.pagemap_bytes = tc_globals.pagemap().bytes();
+    r.pagemap_bytes = sizeof(tc_globals.pagemap()) +
+                      r.arena.bytes_allocated_per_type[static_cast<size_t>(
+                          ArenaAlloc::kPageMap)];
     r.pagemap_root_size = tc_globals.pagemap().RootSize();
     r.pageheap = tc_globals.page_allocator().stats();
     r.peak_stats = tc_globals.page_allocator().peak_stats();
@@ -140,10 +147,6 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
     if (large_spans != nullptr) {
       tc_globals.page_allocator().GetLargeSpanStats(large_spans);
     }
-
-    // TODO(b/207622377):  Arena is thread-safe, but we take the pageheap_lock
-    // to present a consistent view of memory usage.
-    r.arena = tc_globals.arena().stats();
 
     const PageReleaseStats release_stats =
         tc_globals.page_allocator().GetReleaseStats();
@@ -422,6 +425,19 @@ void DumpStats(Printer& out, int level) {
       stats.arena.freelist_blocks
   );
   // clang-format on
+
+  out.printf("MALLOC:   Arena per-type allocations:\n");
+  for (size_t i = 0; i < kNumArenaAllocs; ++i) {
+    const size_t bytes = stats.arena.bytes_allocated_per_type[i];
+    if (bytes == 0) {
+      continue;
+    }
+    const ArenaAllocInfo info = GetArenaAllocInfo(static_cast<ArenaAlloc>(i));
+    char label_buf[32];
+    snprintf(label_buf, sizeof(label_buf),
+             "%.*s:", static_cast<int>(info.label.size()), info.label.data());
+    out.printf("MALLOC:     %-24s %7.3f MiB\n", label_buf, bytes / MiB);
+  }
 
   out.printf("MALLOC EXPERIMENTS:");
   WalkExperiments([&](absl::string_view name, bool active) {
@@ -760,6 +776,18 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintI64("cpus_allowed", CountAllowedCpus());
   region.PrintI64("arena_blocks", stats.arena.blocks);
   region.PrintI64("arena_freelist_blocks", stats.arena.freelist_blocks);
+
+  {
+    auto arena_type_stats = region.CreateSubRegion("arena_type_stats");
+    for (size_t i = 0; i < kNumArenaAllocs; ++i) {
+      const size_t bytes = stats.arena.bytes_allocated_per_type[i];
+      if (bytes == 0) {
+        continue;
+      }
+      const ArenaAllocInfo info = GetArenaAllocInfo(static_cast<ArenaAlloc>(i));
+      arena_type_stats.PrintI64(info.proto_field, bytes);
+    }
+  }
 
   // Print hooks stats.
   region.PrintI64("new_hooks_present", uint64_t(new_hooks_.size()));

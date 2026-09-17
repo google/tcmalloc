@@ -47,7 +47,7 @@ struct AllocatorStats {
 
 // Simple allocator for objects of a specified type.  External locking
 // is required before accessing one of these objects.
-template <class T>
+template <class T, ArenaAlloc AllocType>
 class MetadataObjectAllocator {
   static_assert(sizeof(T) >= sizeof(void*),
                 "Object size must be at least pointer sized to fit intrusive "
@@ -98,7 +98,7 @@ class MetadataObjectAllocator {
     stats_.in_use++;
     if (ABSL_PREDICT_FALSE(result == nullptr)) {
       stats_.total++;
-      result = reinterpret_cast<T*>(arena_->Alloc(size, align));
+      result = reinterpret_cast<T*>(arena_->Alloc(AllocType, size, align));
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
       return result;
     } else {

@@ -127,7 +127,6 @@ class PageMap {
   typedef uintptr_t Number;
 
   Node* absl_nullable root_[kRootLength];  // Top-level node
-  size_t bytes_used_;
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE [[nodiscard]] std::tuple<Number, Number, Number>
   Index(PageId p) const {
@@ -165,7 +164,7 @@ class PageMap {
   }
 
  public:
-  constexpr PageMap() : root_{}, bytes_used_(0) {}
+  constexpr PageMap() : root_{} {}
 
   // Return the descriptor for the specified page.  Returns NULL if
   // this PageId was not allocated previously.
@@ -290,7 +289,6 @@ class PageMap {
       if (root_[i1] == nullptr) {
         Node* node = reinterpret_cast<Node*>(Allocator(sizeof(Node)));
         if (node == nullptr) return false;
-        bytes_used_ += sizeof(Node);
         memset(node, 0, sizeof(*node));
         root_[i1] = node;
       }
@@ -299,7 +297,6 @@ class PageMap {
       if (root_[i1]->leafs[i2] == nullptr) {
         Leaf* leaf = reinterpret_cast<Leaf*>(Allocator(sizeof(Leaf)));
         if (leaf == nullptr) return false;
-        bytes_used_ += sizeof(Leaf);
         memset(leaf, 0, sizeof(*leaf));
         root_[i1]->leafs[i2] = leaf;
       }
@@ -313,8 +310,6 @@ class PageMap {
     }
     return true;
   }
-
-  size_t bytes() const { return bytes_used_ + sizeof(*this); }
 
   constexpr size_t RootSize() const { return sizeof(root_); }
 

@@ -51,20 +51,20 @@ PageAllocator::PageAllocator() {
   normal_impl_[0] = new (&choices_[part++].hpaa)
       HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
   if (tc_globals.active_partitions() > 1) {
-    normal_impl_[1] =
-        new (tc_globals.arena().Alloc(sizeof(HugePageAwareAllocator)))
-            HugePageAwareAllocator(
-                HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
+    normal_impl_[1] = new (tc_globals.arena().Alloc(
+        ArenaAlloc::kPageAllocator, sizeof(HugePageAwareAllocator)))
+        HugePageAwareAllocator(
+            HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
   sampled_impl_[0] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
       HugePageAwareAllocatorOptions{MemoryTag::kSampled});
   if (sampled_partition_active_) {
     // this is not the case for NUMA partitions, hence, we can't use the
     // active_partitions() check.
-    sampled_impl_[1] =
-        new (tc_globals.arena().Alloc(sizeof(HugePageAwareAllocator)))
-            HugePageAwareAllocator(
-                HugePageAwareAllocatorOptions{MemoryTag::kSampledP1});
+    sampled_impl_[1] = new (tc_globals.arena().Alloc(
+        ArenaAlloc::kPageAllocator, sizeof(HugePageAwareAllocator)))
+        HugePageAwareAllocator(
+            HugePageAwareAllocatorOptions{MemoryTag::kSampledP1});
   }
   if (has_cold_impl_) {
     cold_impl_ = new (&choices_[part++].hpaa)

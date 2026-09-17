@@ -185,6 +185,20 @@ TEST_F(GetStatsTest, Pbtxt) {
   sized_delete(alloc, kSize);
 }
 
+TEST_F(GetStatsTest, ArenaTypeStats) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    return;
+  }
+
+  const std::string text = MallocExtension::GetStats();
+  EXPECT_THAT(text, HasSubstr("MALLOC:   Arena per-type allocations:"));
+  EXPECT_THAT(text,
+              ContainsRegex(R"(MALLOC:     Span:\s+[0-9]+\.[0-9]{3} MiB)"));
+  EXPECT_THAT(text,
+              ContainsRegex(R"(MALLOC:     PageMap:\s+[0-9]+\.[0-9]{3} MiB)"));
+  EXPECT_THAT(text, Not(HasSubstr("Test:")));
+}
+
 TEST_F(GetStatsTest, Parameters) {
   const bool old_hpaa_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(false);

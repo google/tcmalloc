@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -67,7 +68,9 @@ int PageMap<BITS, Allocator>::GetAllocatedSpans(
 
 template class PageMap<kAddressBits - kPageShift, MetaDataAlloc>;
 
-void* MetaDataAlloc(size_t bytes) { return tc_globals.arena().Alloc(bytes); }
+void* MetaDataAlloc(size_t bytes) {
+  return tc_globals.arena().Alloc(ArenaAlloc::kPageMap, bytes);
+}
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

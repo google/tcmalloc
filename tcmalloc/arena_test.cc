@@ -33,11 +33,19 @@ std::align_val_t Align(int align) {
 
 TEST(Arena, AlignedAlloc) {
   Arena arena;
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(arena.Alloc(64, Align(64))) % 64, 0);
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(arena.Alloc(7)) % 8, 0);
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(arena.Alloc(128, Align(64))) % 64, 0);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(
+                arena.Alloc(ArenaAlloc::kTest, 64, Align(64))) %
+                64,
+            0);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(arena.Alloc(ArenaAlloc::kTest, 7)) % 8,
+            0);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(
+                arena.Alloc(ArenaAlloc::kTest, 128, Align(64))) %
+                64,
+            0);
   for (int alignment = 1; alignment < 100; ++alignment) {
-    EXPECT_EQ(reinterpret_cast<uintptr_t>(arena.Alloc(7, Align(alignment))) %
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(
+                  arena.Alloc(ArenaAlloc::kTest, 7, Align(alignment))) %
                   alignment,
               0);
   }
@@ -46,9 +54,10 @@ TEST(Arena, AlignedLargeAlloc) {
   for (int align = 1; align < 100000000; align *= 2) {
     Arena arena;
     for (int i = 0; i < 5; ++i) {
-      EXPECT_EQ(
-          reinterpret_cast<uintptr_t>(arena.Alloc(123, Align(align))) % align,
-          0);
+      EXPECT_EQ(reinterpret_cast<uintptr_t>(
+                    arena.Alloc(ArenaAlloc::kTest, 123, Align(align))) %
+                    align,
+                0);
     }
   }
 }
@@ -64,7 +73,7 @@ TEST(Arena, Stats) {
   EXPECT_EQ(stats.blocks, 0);
 
   // Trigger an allocation and grab new stats.
-  void* ptr = arena.Alloc(1, Align(1));
+  void* ptr = arena.Alloc(ArenaAlloc::kTest, 1, Align(1));
   ArenaStats stats_after_alloc = arena.stats();
 
   EXPECT_NE(ptr, nullptr);
@@ -80,7 +89,8 @@ TEST(Arena, Stats) {
   //
   // b/201694482: The remaining bytes from the first block are freelisted rather
   // than being wasted, with only 7 bytes lost to alignment padding for Block.
-  ptr = arena.Alloc(stats_after_alloc.bytes_unallocated + 1, Align(1));
+  ptr = arena.Alloc(ArenaAlloc::kTest, stats_after_alloc.bytes_unallocated + 1,
+                    Align(1));
   ArenaStats stats_after_alloc2 = arena.stats();
   EXPECT_NE(ptr, nullptr);
 
@@ -97,7 +107,7 @@ TEST(Arena, Stats) {
 
 TEST(Arena, ReportUnmapped) {
   Arena arena;
-  void* ptr = arena.Alloc(10, Align(1));
+  void* ptr = arena.Alloc(ArenaAlloc::kTest, 10, Align(1));
   ArenaStats stats_after_alloc = arena.stats();
   EXPECT_NE(ptr, nullptr);
 
@@ -129,7 +139,7 @@ TEST(Arena, BytesImpending) {
   EXPECT_EQ(stats.bytes_allocated, 100);
 
   arena.UpdateAllocatedAndNonresident(-100, 0);
-  void* ptr = arena.Alloc(100, Align(1));
+  void* ptr = arena.Alloc(ArenaAlloc::kTest, 100, Align(1));
   stats = arena.stats();
 
   EXPECT_NE(ptr, nullptr);
@@ -139,7 +149,7 @@ TEST(Arena, BytesImpending) {
 TEST(Arena, FreelistReuse) {
   Arena arena;
   // Step 1: Allocate from initial arena block and record remaining capacity.
-  void* p1 = arena.Alloc(104, Align(8));
+  void* p1 = arena.Alloc(ArenaAlloc::kTest, 104, Align(8));
   EXPECT_NE(p1, nullptr);
   ArenaStats s1 = arena.stats();
   EXPECT_EQ(s1.blocks, 1);
@@ -149,7 +159,7 @@ TEST(Arena, FreelistReuse) {
   // Step 2: Request more bytes than remain in block 1.
   // This pushes block 1's remainder onto freelist_ and allocates block 2 from
   // the OS.
-  void* p2 = arena.Alloc(b1_remaining + 104, Align(8));
+  void* p2 = arena.Alloc(ArenaAlloc::kTest, b1_remaining + 104, Align(8));
   EXPECT_NE(p2, nullptr);
   ArenaStats s2 = arena.stats();
   EXPECT_EQ(s2.blocks, 2);
@@ -162,14 +172,15 @@ TEST(Arena, FreelistReuse) {
                             ? s2.bytes_unallocated - b1_remaining
                             : 0;
   if (b2_remaining > 100) {
-    void* p_drain = arena.Alloc(b2_remaining - 100, Align(8));
+    void* p_drain =
+        arena.Alloc(ArenaAlloc::kTest, b2_remaining - 100, Align(8));
     EXPECT_NE(p_drain, nullptr);
   }
 
   // Step 4: Request 1000 bytes. Block 2 cannot satisfy this (only 100 bytes
   // left), but block 1 on freelist_ can. Arena should reuse block 1 without
   // allocating block 3.
-  void* p3 = arena.Alloc(1000, Align(8));
+  void* p3 = arena.Alloc(ArenaAlloc::kTest, 1000, Align(8));
   EXPECT_NE(p3, nullptr);
   ArenaStats s3 = arena.stats();
   EXPECT_EQ(s3.blocks, 2);
@@ -179,19 +190,19 @@ TEST(Arena, FreelistReuse) {
 TEST(Arena, FreelistMultipleBlocks) {
   Arena arena;
   // Step 1: Allocate from block 1, then drain it down to 5000 bytes remaining.
-  void* p1 = arena.Alloc(128, Align(8));
+  void* p1 = arena.Alloc(ArenaAlloc::kTest, 128, Align(8));
   EXPECT_NE(p1, nullptr);
   ArenaStats s1 = arena.stats();
   size_t to_drain =
       s1.bytes_unallocated > 5000 ? s1.bytes_unallocated - 5000 : 0;
   if (to_drain > 0) {
-    void* p_drain1 = arena.Alloc(to_drain, Align(8));
+    void* p_drain1 = arena.Alloc(ArenaAlloc::kTest, to_drain, Align(8));
     EXPECT_NE(p_drain1, nullptr);
   }
 
   // Step 2: Request 10000 bytes. Block 1 (5000 bytes left) is pushed to
   // freelist_, and block 2 is allocated from the OS.
-  void* p2 = arena.Alloc(10000, Align(8));
+  void* p2 = arena.Alloc(ArenaAlloc::kTest, 10000, Align(8));
   EXPECT_NE(p2, nullptr);
   ArenaStats s2 = arena.stats();
   EXPECT_EQ(s2.blocks, 2);
@@ -201,14 +212,14 @@ TEST(Arena, FreelistMultipleBlocks) {
   size_t b2_avail =
       s2.bytes_unallocated > 5000 ? s2.bytes_unallocated - 5000 : 0;
   if (b2_avail > 3000) {
-    void* p_drain2 = arena.Alloc(b2_avail - 3000, Align(8));
+    void* p_drain2 = arena.Alloc(ArenaAlloc::kTest, b2_avail - 3000, Align(8));
     EXPECT_NE(p_drain2, nullptr);
   }
 
   // Step 4: Request 10000 bytes. Neither active block 2 (3000 left) nor
   // freelisted block 1 (5000 left) can satisfy this. Block 2 is pushed to
   // freelist_, and block 3 is allocated from the OS.
-  void* p3 = arena.Alloc(10000, Align(8));
+  void* p3 = arena.Alloc(ArenaAlloc::kTest, 10000, Align(8));
   EXPECT_NE(p3, nullptr);
   ArenaStats s3 = arena.stats();
   EXPECT_EQ(s3.blocks, 3);
@@ -219,14 +230,14 @@ TEST(Arena, FreelistMultipleBlocks) {
                         ? s3.bytes_unallocated - 5000 - 3000
                         : 0;
   if (b3_avail > 1000) {
-    void* p_drain3 = arena.Alloc(b3_avail - 1000, Align(8));
+    void* p_drain3 = arena.Alloc(ArenaAlloc::kTest, b3_avail - 1000, Align(8));
     EXPECT_NE(p_drain3, nullptr);
   }
 
   // Step 6: Request 2000 bytes. Active block 3 (1000 left) cannot satisfy
   // this, but block 2 on freelist_ (3000 left) can. It is reused without
   // adding a new OS block.
-  void* p4 = arena.Alloc(2000, Align(8));
+  void* p4 = arena.Alloc(ArenaAlloc::kTest, 2000, Align(8));
   EXPECT_NE(p4, nullptr);
   ArenaStats s4 = arena.stats();
   EXPECT_EQ(s4.blocks, 3);
@@ -234,7 +245,7 @@ TEST(Arena, FreelistMultipleBlocks) {
 
   // Step 7: Request 4000 bytes. Block 1 on freelist_ (5000 left) satisfies
   // this.
-  void* p5 = arena.Alloc(4000, Align(8));
+  void* p5 = arena.Alloc(ArenaAlloc::kTest, 4000, Align(8));
   EXPECT_NE(p5, nullptr);
   ArenaStats s5 = arena.stats();
   EXPECT_EQ(s5.blocks, 3);
@@ -245,7 +256,7 @@ TEST(Arena, SmallRemainderUnavailable) {
   Arena arena;
   // Step 1: Allocate 1 byte to initialize the first OS block and record its
   // capacity.
-  void* p1 = arena.Alloc(1, Align(1));
+  void* p1 = arena.Alloc(ArenaAlloc::kTest, 1, Align(1));
   EXPECT_NE(p1, nullptr);
   ArenaStats s1 = arena.stats();
   size_t rem = s1.bytes_unallocated;
@@ -254,7 +265,7 @@ TEST(Arena, SmallRemainderUnavailable) {
   EXPECT_EQ(s1.freelist_blocks, 0);
 
   // Step 2: Consume all but 4 bytes of the first block.
-  void* p2 = arena.Alloc(rem - 4, Align(1));
+  void* p2 = arena.Alloc(ArenaAlloc::kTest, rem - 4, Align(1));
   EXPECT_NE(p2, nullptr);
   ArenaStats s2 = arena.stats();
   EXPECT_EQ(s2.freelist_blocks, 0);
@@ -265,7 +276,7 @@ TEST(Arena, SmallRemainderUnavailable) {
   // Step 3: Request 100 bytes. The remaining 4 bytes cannot satisfy the request
   // and are too small (< sizeof(Block) == 16) to be placed on freelist_. They
   // are marked as bytes_unavailable, and block 2 is allocated from the OS.
-  void* p3 = arena.Alloc(100, Align(1));
+  void* p3 = arena.Alloc(ArenaAlloc::kTest, 100, Align(1));
   ArenaStats s3 = arena.stats();
   EXPECT_EQ(s3.bytes_unavailable, 4);
   EXPECT_EQ(s3.blocks, 2);
@@ -276,21 +287,21 @@ TEST(Arena, SmallRemainderUnavailable) {
 TEST(Arena, FreelistAlignmentEdgeCase) {
   Arena arena;
   // Step 1: Initialize block 1 and record its remaining capacity.
-  void* p1 = arena.Alloc(1, Align(1));
+  void* p1 = arena.Alloc(ArenaAlloc::kTest, 1, Align(1));
   EXPECT_NE(p1, nullptr);
   ArenaStats s1 = arena.stats();
   size_t rem = s1.bytes_unallocated;
   EXPECT_GT(rem, 200);
 
   // Step 2: Leave exactly 134 bytes remaining in block 1.
-  void* p2 = arena.Alloc(rem - 134, Align(1));
+  void* p2 = arena.Alloc(ArenaAlloc::kTest, rem - 134, Align(1));
   EXPECT_NE(p2, nullptr);
   ArenaStats s2 = arena.stats();
   EXPECT_EQ(s2.bytes_unallocated, 134);
 
   // Step 3: Request 2000 bytes. Block 1 (134 bytes left) is placed on
   // freelist_, and block 2 is allocated from the OS.
-  void* p3 = arena.Alloc(2000, Align(64));
+  void* p3 = arena.Alloc(ArenaAlloc::kTest, 2000, Align(64));
   EXPECT_NE(p3, nullptr);
   ArenaStats s3 = arena.stats();
   EXPECT_EQ(s3.blocks, 2);
@@ -298,7 +309,7 @@ TEST(Arena, FreelistAlignmentEdgeCase) {
   // Step 4: Drain active block 2 down to 10 bytes remaining.
   size_t b2_rem = s3.bytes_unallocated > 134 ? s3.bytes_unallocated - 134 : 0;
   if (b2_rem > 10) {
-    void* p_drain = arena.Alloc(b2_rem - 10, Align(1));
+    void* p_drain = arena.Alloc(ArenaAlloc::kTest, b2_rem - 10, Align(1));
     EXPECT_NE(p_drain, nullptr);
   }
 
@@ -306,7 +317,7 @@ TEST(Arena, FreelistAlignmentEdgeCase) {
   // Although block 1 on freelist_ has 134 bytes, satisfying a 150-byte request
   // exceeds 134 bytes. Thus block 1 cannot be used, and block 3 is allocated
   // from the OS.
-  void* p4 = arena.Alloc(150, Align(64));
+  void* p4 = arena.Alloc(ArenaAlloc::kTest, 150, Align(64));
   EXPECT_NE(p4, nullptr);
   ArenaStats s4 = arena.stats();
   EXPECT_EQ(s4.blocks, 3);
@@ -315,7 +326,7 @@ TEST(Arena, FreelistAlignmentEdgeCase) {
   // With smaller size and alignment requirements, block 1 on freelist_ (134
   // bytes) can satisfy the request and is reused without allocating an OS
   // block.
-  void* p5 = arena.Alloc(80, Align(4));
+  void* p5 = arena.Alloc(ArenaAlloc::kTest, 80, Align(4));
   EXPECT_NE(p5, nullptr);
   ArenaStats s5 = arena.stats();
   EXPECT_EQ(s5.blocks, 3);
@@ -323,7 +334,8 @@ TEST(Arena, FreelistAlignmentEdgeCase) {
 
 TEST(Arena, FreelistLimit) {
   Arena dummy_arena;
-  dummy_arena.Alloc(1, Align(1));
+  void* p = dummy_arena.Alloc(ArenaAlloc::kTest, 1, Align(1));
+  EXPECT_NE(p, nullptr);
   size_t block_size = dummy_arena.stats().bytes_unallocated + 1;
 
   // We want to force the freelist to grow beyond 100 blocks.
@@ -339,7 +351,7 @@ TEST(Arena, FreelistLimit) {
 
   Arena arena;
   for (int i = 0; i < 105; ++i) {
-    void* p = arena.Alloc(X, Align(1));
+    void* p = arena.Alloc(ArenaAlloc::kTest, X, Align(1));
     EXPECT_NE(p, nullptr);
   }
 
@@ -350,6 +362,68 @@ TEST(Arena, FreelistLimit) {
   EXPECT_EQ(stats.bytes_unallocated, expected_unallocated);
 
   EXPECT_EQ(stats.bytes_allocated, X * 105);
+}
+
+TEST(Arena, PerTypeStats) {
+  Arena arena;
+  ArenaStats stats = arena.stats();
+  for (size_t i = 0; i < kNumArenaAllocs; ++i) {
+    EXPECT_EQ(stats.bytes_allocated_per_type[i], 0);
+  }
+
+  // Allocate 100 bytes of kSpan.
+  void* p1 = arena.Alloc(ArenaAlloc::kSpan, 100, Align(1));
+  EXPECT_NE(p1, nullptr);
+  stats = arena.stats();
+  EXPECT_EQ(
+      stats.bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kSpan)],
+      100);
+  EXPECT_EQ(stats.bytes_allocated, 100);
+
+  // Allocate 200 bytes of kPageMap.
+  void* p2 = arena.Alloc(ArenaAlloc::kPageMap, 200, Align(1));
+  EXPECT_NE(p2, nullptr);
+  stats = arena.stats();
+  EXPECT_EQ(
+      stats.bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kSpan)],
+      100);
+  EXPECT_EQ(
+      stats.bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kPageMap)],
+      200);
+  EXPECT_EQ(stats.bytes_allocated, 300);
+
+  // Allocate with alignment and ensure alignment padding is accounted.
+  size_t before_alloc = stats.bytes_allocated;
+  void* p3 = arena.Alloc(ArenaAlloc::kTest, 7, Align(64));
+  EXPECT_NE(p3, nullptr);
+  stats = arena.stats();
+  size_t test_bytes =
+      stats.bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kTest)];
+  EXPECT_EQ(test_bytes, stats.bytes_allocated - before_alloc);
+  EXPECT_GE(test_bytes, 7);
+
+  // Sum of all per-type stats should equal bytes_allocated.
+  size_t total_per_type = 0;
+  for (size_t i = 0; i < kNumArenaAllocs; ++i) {
+    total_per_type += stats.bytes_allocated_per_type[i];
+  }
+  EXPECT_EQ(total_per_type, stats.bytes_allocated);
+}
+
+TEST(Arena, ArenaAllocInfo) {
+  for (size_t i = 0; i < kNumArenaAllocs; ++i) {
+    ArenaAllocInfo info = GetArenaAllocInfo(static_cast<ArenaAlloc>(i));
+    EXPECT_FALSE(info.label.empty());
+    EXPECT_FALSE(info.proto_field.empty());
+    for (size_t j = i + 1; j < kNumArenaAllocs; ++j) {
+      ArenaAllocInfo other = GetArenaAllocInfo(static_cast<ArenaAlloc>(j));
+      EXPECT_NE(info.label, other.label);
+      EXPECT_NE(info.proto_field, other.proto_field);
+    }
+  }
+  ArenaAllocInfo invalid = GetArenaAllocInfo(ArenaAlloc::kNumTypes);
+  EXPECT_TRUE(invalid.label.empty());
+  EXPECT_TRUE(invalid.proto_field.empty());
 }
 
 }  // namespace

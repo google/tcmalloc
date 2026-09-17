@@ -62,7 +62,8 @@ namespace tcmalloc_internal {
 class ThreadCache;
 
 using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
-    SampledAllocation, MetadataObjectAllocator<SampledAllocation>>;
+    SampledAllocation,
+    MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>>;
 
 class Static final {
  public:
@@ -133,16 +134,18 @@ class Static final {
     return guardedpage_allocator_;
   }
 
-  static MetadataObjectAllocator<SampledAllocation>&
+  static MetadataObjectAllocator<SampledAllocation,
+                                 ArenaAlloc::kSampledAllocation>&
   sampledallocation_allocator() {
     return sampledallocation_allocator_;
   }
 
-  static MetadataObjectAllocator<Span>& span_allocator() {
+  static MetadataObjectAllocator<Span, ArenaAlloc::kSpan>& span_allocator() {
     return span_allocator_;
   }
 
-  static MetadataObjectAllocator<ThreadCache>& threadcache_allocator() {
+  static MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
+  threadcache_allocator() {
     return threadcache_allocator_;
   }
 
@@ -175,7 +178,8 @@ class Static final {
   // other data.
   ABSL_CONST_INIT static std::atomic<int64_t> sampled_alloc_handle_generator;
 
-  static MetadataObjectAllocator<StackTraceTable::LinkedSample>&
+  static MetadataObjectAllocator<StackTraceTable::LinkedSample,
+                                 ArenaAlloc::kStackTraceTable>&
   linked_sample_allocator() {
     return linked_sample_allocator_;
   }
@@ -227,11 +231,14 @@ class Static final {
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   ABSL_CONST_INIT static CpuCache<Static> cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
-  static MetadataObjectAllocator<SampledAllocation>
+  static MetadataObjectAllocator<SampledAllocation,
+                                 ArenaAlloc::kSampledAllocation>
       sampledallocation_allocator_;
-  static MetadataObjectAllocator<Span> span_allocator_;
-  static MetadataObjectAllocator<ThreadCache> threadcache_allocator_;
-  static MetadataObjectAllocator<StackTraceTable::LinkedSample>
+  static MetadataObjectAllocator<Span, ArenaAlloc::kSpan> span_allocator_;
+  static MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
+      threadcache_allocator_;
+  static MetadataObjectAllocator<StackTraceTable::LinkedSample,
+                                 ArenaAlloc::kStackTraceTable>
       linked_sample_allocator_;
   ABSL_CONST_INIT static std::atomic<bool> inited_;
   ABSL_CONST_INIT static std::atomic<bool> cpu_cache_active_;

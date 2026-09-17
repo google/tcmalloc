@@ -124,7 +124,7 @@ void Arena::AllocSlow(size_t bytes, size_t align) {
   free_avail_ = actual_size;
 }
 
-void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
+void* Arena::Alloc(ArenaAlloc type, size_t bytes, std::align_val_t alignment) {
   size_t align = static_cast<size_t>(alignment);
   TC_ASSERT_GT(align, 0);
 
@@ -146,9 +146,12 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
   free_avail_ -= bytes;
   // TODO: b/201694482 - Consider whether to account for alignment bytes to
   // bytes_allocated or bytes_unavailable.
-  bytes_allocated_.store(bytes_allocated_.load(std::memory_order_relaxed) +
-                             alignment_bytes + bytes,
-                         std::memory_order_relaxed);
+  size_t total_alloc = alignment_bytes + bytes;
+  bytes_allocated_.store(
+      bytes_allocated_.load(std::memory_order_relaxed) + total_alloc,
+      std::memory_order_relaxed);
+  TC_ASSERT_LT(static_cast<size_t>(type), kNumArenaAllocs);
+  bytes_allocated_per_type_[static_cast<size_t>(type)] += total_alloc;
   return reinterpret_cast<void*>(result);
 }
 

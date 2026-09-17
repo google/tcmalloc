@@ -382,7 +382,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     static void operator delete(void*) { __builtin_trap(); }
 
     [[nodiscard]] void* operator()(size_t bytes) override {
-      return hpaa_.forwarder_.arena().Alloc(bytes);
+      return hpaa_.forwarder_.arena().Alloc(ArenaAlloc::kHugePageMetadata,
+                                            bytes);
     }
 
    public:
@@ -391,9 +392,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   HugeRegionSet<HugeRegion> regions_ ABSL_GUARDED_BY(pageheap_lock);
 
-  MetadataObjectAllocator<FillerType::Tracker> tracker_allocator_
-      ABSL_GUARDED_BY(pageheap_lock);
-  MetadataObjectAllocator<HugeRegion> region_allocator_
+  MetadataObjectAllocator<FillerType::Tracker, ArenaAlloc::kFillerTracker>
+      tracker_allocator_ ABSL_GUARDED_BY(pageheap_lock);
+  MetadataObjectAllocator<HugeRegion, ArenaAlloc::kHugeRegion> region_allocator_
       ABSL_GUARDED_BY(pageheap_lock);
 
   FillerType::Tracker* GetTracker(HugePage p);

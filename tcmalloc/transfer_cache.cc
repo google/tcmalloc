@@ -37,7 +37,7 @@ size_t StaticForwarder::num_objects_to_move(int size_class) {
   return tc_globals.sizemap().num_objects_to_move(size_class);
 }
 void* StaticForwarder::Alloc(size_t size, std::align_val_t alignment) {
-  return tc_globals.arena().Alloc(size, alignment);
+  return tc_globals.arena().Alloc(ArenaAlloc::kTransferCache, size, alignment);
 }
 
 ABSL_CONST_INIT bool ShardedStaticForwarder::use_generic_cache_(false);

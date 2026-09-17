@@ -402,8 +402,8 @@ void GuardedPageAllocator::MapPages() {
   }
 
   // Allocate memory for slot metadata.
-  data_ = reinterpret_cast<SlotMetadata*>(
-      tc_globals.arena().Alloc(sizeof(*data_) * total_pages_));
+  data_ = reinterpret_cast<SlotMetadata*>(tc_globals.arena().Alloc(
+      ArenaAlloc::kGuardedPageAllocator, sizeof(*data_) * total_pages_));
   for (size_t i = 0; i < total_pages_; ++i) {
     new (&data_[i]) SlotMetadata;
   }

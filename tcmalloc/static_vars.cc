@@ -78,10 +78,12 @@ ABSL_CONST_INIT ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
 ABSL_CONST_INIT CpuCache<Static> ABSL_CACHELINE_ALIGNED Static::cpu_cache_{
     tc_globals};
-ABSL_CONST_INIT MetadataObjectAllocator<SampledAllocation>
+ABSL_CONST_INIT
+MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
     Static::sampledallocation_allocator_{arena_};
-ABSL_CONST_INIT MetadataObjectAllocator<Span> Static::span_allocator_{arena_};
-ABSL_CONST_INIT MetadataObjectAllocator<ThreadCache>
+ABSL_CONST_INIT MetadataObjectAllocator<Span, ArenaAlloc::kSpan>
+    Static::span_allocator_{arena_};
+ABSL_CONST_INIT MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
     Static::threadcache_allocator_{arena_};
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
     Static::NoDestructorStorage<SampledAllocationRecorder>
@@ -97,7 +99,8 @@ ABSL_CONST_INIT std::atomic<int64_t> Static::sampled_alloc_handle_generator{0};
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
     Static::NoDestructorStorage<PeakHeapTracker>
         Static::peak_heap_tracker_{sampledallocation_allocator_};
-ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample>
+ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample,
+                                        ArenaAlloc::kStackTraceTable>
     Static::linked_sample_allocator_{arena_};
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};

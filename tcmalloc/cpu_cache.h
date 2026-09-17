@@ -42,6 +42,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
@@ -112,7 +113,7 @@ class StaticForwarder : private Parameters {
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
-    return state_.arena().Alloc(size, alignment);
+    return state_.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
   }
   [[nodiscard]] void* absl_nonnull AllocReportedImpending(
       size_t size, std::align_val_t alignment)
@@ -124,7 +125,7 @@ class StaticForwarder : private Parameters {
     // Negate previous update to allocated that accounted for this allocation.
     state_.arena().UpdateAllocatedAndNonresident(-static_cast<int64_t>(size),
                                                  0);
-    return state_.arena().Alloc(size, alignment);
+    return state_.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
   }
 
   void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {

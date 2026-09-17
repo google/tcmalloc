@@ -19,11 +19,13 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <iterator>
 #include <new>
 
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -31,6 +33,76 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+enum class ArenaAlloc : uint8_t {
+  kSpan,
+  kSampledAllocation,
+  kThreadCache,
+  kStackTraceTable,
+  kFillerTracker,
+  kHugeRegion,
+  kPageMap,
+  kPageAllocator,
+  kGuardedPageAllocator,
+  kHugePageMetadata,
+  kTransferCache,
+  kCpuCache,
+  kTest,
+  kNumTypes,
+};
+
+inline constexpr size_t kNumArenaAllocs =
+    static_cast<size_t>(ArenaAlloc::kNumTypes);
+
+struct ArenaAllocInfo {
+  absl::string_view label;
+  absl::string_view proto_field;
+};
+
+inline constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
+  switch (type) {
+    case ArenaAlloc::kSpan:
+      return {"Span", "span"};
+    case ArenaAlloc::kSampledAllocation:
+      return {"SampledAllocation", "sampled_allocation"};
+    case ArenaAlloc::kThreadCache:
+      return {"ThreadCache", "thread_cache"};
+    case ArenaAlloc::kStackTraceTable:
+      return {"StackTraceTable", "stack_trace_table"};
+    case ArenaAlloc::kFillerTracker:
+      return {"FillerTracker", "filler_tracker"};
+    case ArenaAlloc::kHugeRegion:
+      return {"HugeRegion", "huge_region"};
+    case ArenaAlloc::kPageMap:
+      return {"PageMap", "pagemap"};
+    case ArenaAlloc::kPageAllocator:
+      return {"PageAllocator", "page_allocator"};
+    case ArenaAlloc::kGuardedPageAllocator:
+      return {"GuardedPageAllocator", "guarded_page_allocator"};
+    case ArenaAlloc::kHugePageMetadata:
+      return {"HugePageMetadata", "huge_page_metadata"};
+    case ArenaAlloc::kTransferCache:
+      return {"TransferCache", "transfer_cache"};
+    case ArenaAlloc::kCpuCache:
+      return {"CpuCache", "cpu_cache"};
+    case ArenaAlloc::kTest:
+      return {"Test", "test"};
+    case ArenaAlloc::kNumTypes:
+      break;
+  }
+  return {"", ""};
+}
+
+constexpr bool CheckArenaAllocInfo() {
+  for (size_t i = 0; i < kNumArenaAllocs; ++i) {
+    ArenaAllocInfo info = GetArenaAllocInfo(static_cast<ArenaAlloc>(i));
+    if (info.label.empty() || info.proto_field.empty()) {
+      return false;
+    }
+  }
+  return true;
+}
+static_assert(CheckArenaAllocInfo());
 
 struct ArenaStats {
   // The number of bytes allocated and in-use by calls to Alloc().
@@ -49,6 +121,9 @@ struct ArenaStats {
   size_t blocks;
   // The number of blocks currently on the freelist.
   size_t freelist_blocks;
+
+  // The number of bytes allocated per allocation type.
+  size_t bytes_allocated_per_type[kNumArenaAllocs];
 };
 
 // Arena allocation; designed for use by tcmalloc internal data structures like
@@ -61,8 +136,8 @@ class ABSL_CACHELINE_ALIGNED Arena {
 
   // Returns a properly aligned byte array of length "bytes".  Crashes if
   // allocation fails.
-  ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(
-      size_t bytes, std::align_val_t alignment = kAlignment);
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(
+      ArenaAlloc type, size_t bytes, std::align_val_t alignment = kAlignment);
 
   // Updates the stats for allocated and non-resident bytes.
   void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident) {
@@ -74,7 +149,7 @@ class ABSL_CACHELINE_ALIGNED Arena {
   }
 
   // Returns statistics about memory allocated and managed by this Arena.
-  ArenaStats stats() const {
+  [[nodiscard]] ArenaStats stats() const {
     AllocationGuardSpinLockHolder l(arena_lock_);
 
     ArenaStats s;
@@ -84,6 +159,9 @@ class ABSL_CACHELINE_ALIGNED Arena {
     s.bytes_unavailable = bytes_unavailable_;
     s.bytes_nonresident = bytes_nonresident_;
     s.blocks = blocks_;
+    for (size_t i = 0; i < kNumArenaAllocs; ++i) {
+      s.bytes_allocated_per_type[i] = bytes_allocated_per_type_[i];
+    }
     return s;
   }
 
@@ -134,12 +212,12 @@ class ABSL_CACHELINE_ALIGNED Arena {
   // Total number of blocks on the freelist. Capped at kMaxFreelistBlocks.
   uint8_t freelist_blocks_ ABSL_GUARDED_BY(arena_lock_) = 0;
 
+  size_t bytes_allocated_per_type_[kNumArenaAllocs] ABSL_GUARDED_BY(
+      arena_lock_) = {};
+
   Arena(const Arena&) = delete;
   Arena& operator=(const Arena&) = delete;
 };
-
-static_assert(sizeof(Arena) <= ABSL_CACHELINE_SIZE,
-              "Arena is unexpectedly large");
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
