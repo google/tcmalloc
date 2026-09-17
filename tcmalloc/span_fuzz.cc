@@ -113,8 +113,17 @@ struct Alloc {
 
     size_t popped = state.span->FreelistPopBatch(
         absl::MakeSpan(state.batch.data(), n), state.object_size);
+    EXPECT_GT(popped, 0);
+    EXPECT_LE(popped, n);
+    for (size_t i = 0; i < popped; ++i) {
+      memset(state.batch[i], 0xFF, state.object_size);
+    }
     state.live_ptrs.insert(state.live_ptrs.end(), state.batch.data(),
                            state.batch.data() + popped);
+    EXPECT_EQ(state.span->Allocated(), state.live_ptrs.size());
+    EXPECT_EQ(
+        state.span->FreelistEmpty(state.object_size, state.objects_per_span),
+        state.live_ptrs.size() == state.objects_per_span);
   }
 };
 
@@ -146,9 +155,17 @@ struct Dealloc {
 
     absl::Span<void*> ptrs =
         absl::MakeSpan(state.live_ptrs.data() + state.live_ptrs.size() - n, n);
-    (void)state.span->FreelistPushBatch(ptrs, state.object_size,
-                                        state.size_reciprocal);
+    const bool pushed = state.span->FreelistPushBatch(ptrs, state.object_size,
+                                                      state.size_reciprocal);
+    EXPECT_EQ(pushed, n < state.live_ptrs.size());
     state.live_ptrs.resize(state.live_ptrs.size() - n);
+    if (!pushed) {
+      EXPECT_EQ(state.span->BuildFreelist(state.object_size,
+                                          state.objects_per_span, {},
+                                          /*alloc_time=*/0),
+                0);
+    }
+    EXPECT_EQ(state.span->Allocated(), state.live_ptrs.size());
   }
 };
 
@@ -176,17 +193,30 @@ struct DeallocIndex {
       for (size_t i = 0; i < ptrs.size(); ++i) {
         idx[i] = state.span->BitmapPtrToIdx(ptrs[i], state.object_size,
                                             state.size_reciprocal);
+        EXPECT_EQ(state.span->BitmapIdxToPtr(idx[i], state.object_size),
+                  ptrs[i]);
       }
     } else {
+      const uintptr_t start = state.span->first_page().start_uintptr();
       for (size_t i = 0; i < ptrs.size(); ++i) {
         idx[i] = state.span->PtrToIdx(ptrs[i], state.object_size);
+        EXPECT_EQ(state.span->IdxToPtr(idx[i], state.object_size, start),
+                  ptrs[i]);
       }
     }
 
-    (void)state.span->FreelistPushBatch(
+    const bool pushed = state.span->FreelistPushBatch(
         absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
         state.size_reciprocal);
+    EXPECT_EQ(pushed, n < state.live_ptrs.size());
     state.live_ptrs.resize(state.live_ptrs.size() - n);
+    if (!pushed) {
+      EXPECT_EQ(state.span->BuildFreelist(state.object_size,
+                                          state.objects_per_span, {},
+                                          /*alloc_time=*/0),
+                0);
+    }
+    EXPECT_EQ(state.span->Allocated(), state.live_ptrs.size());
   }
 };
 
