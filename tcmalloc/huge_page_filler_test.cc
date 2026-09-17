@@ -2693,6 +2693,70 @@ TEST_F(FillerTestWithSubreleaseUnbacked, PreferFullyBackedOverUnbackedBroken) {
   Delete(c);
 }
 
+TEST_F(FillerTest, SetSubreleaseUnbackedModeLazyTransition) {
+  randomize_density_ = false;
+  {
+    PageHeapSpinLockHolder l;
+    filler_.set_subrelease_unbacked_mode(SubreleaseUnbackedMode::kEnabled);
+  }
+
+  PAlloc b1 = Allocate(Length(10), /*donated=*/true);
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(b1.p.start_addr(), /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> empty_unbacked, empty_swapped;
+  residency.SetUnbackedAndSwappedBitmaps(b1.p.start_addr(), empty_unbacked,
+                                         empty_swapped);
+  pageflags.SetStaleBitmap(b1.p.start_addr(), {});
+
+  collapse_.SetSuccess(/*success=*/false);
+  collapse_.SetErrorNumber(EINVAL);
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_FALSE(b1.pt->unbroken());
+  EXPECT_FALSE(b1.pt->donated());
+  EXPECT_EQ(b1.pt->released_pages(), Length(0));
+  EXPECT_TRUE(b1.pt->in_released_list());
+
+  // Allocate two more spans from b1.pt while it is the only hugepage in the
+  // filler.
+  PAlloc b2 = Allocate(Length(1));
+  PAlloc b3 = Allocate(Length(1));
+  EXPECT_EQ(b2.pt, b1.pt);
+  EXPECT_EQ(b3.pt, b1.pt);
+  EXPECT_TRUE(b1.pt->in_released_list());
+
+  // Toggle mode to kDisabled while b1.pt is !released() && !unbroken().
+  // Because list membership is tracked on PageTracker via in_released_list_,
+  // b1.pt remains in the released list until touched.
+  {
+    PageHeapSpinLockHolder l;
+    filler_.set_subrelease_unbacked_mode(SubreleaseUnbackedMode::kDisabled);
+  }
+  EXPECT_TRUE(b1.pt->in_released_list());
+
+  // Touching b1.pt via Delete(b2) removes it from the released list and
+  // re-inserts it into regular_alloc_ under the active kDisabled mode.
+  Delete(b2);
+  EXPECT_FALSE(b1.pt->in_released_list());
+
+  // Toggling back to kEnabled leaves b1.pt in regular_alloc_ until touched.
+  {
+    PageHeapSpinLockHolder l;
+    filler_.set_subrelease_unbacked_mode(SubreleaseUnbackedMode::kEnabled);
+  }
+  EXPECT_FALSE(b1.pt->in_released_list());
+
+  // Touching b1.pt via Delete(b3) transitions it back to the released list.
+  Delete(b3);
+  EXPECT_TRUE(b1.pt->in_released_list());
+
+  Delete(b1);
+}
+
 // Verifies that if all released pages in a broken tracker are re-allocated
 // (rendering the tracker residency state invalid), a subsequent successful
 // collapse correctly restores the tracker's unbroken status.

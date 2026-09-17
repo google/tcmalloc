@@ -1040,6 +1040,8 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
     const bool release_max_cold =
         tag_ == MemoryTag::kCold && forwarder_.release_max_cold_pages();
     if (released < num_pages || release_max_cold) {
+      filler_.set_subrelease_unbacked_mode(
+          forwarder_.subrelease_unbacked_hugepages());
       Length desired = release_max_cold ? Length::max() : num_pages - released;
       released += filler_.ReleasePages(
           desired,
@@ -1072,7 +1074,10 @@ inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
       forwarder_.enable_unfiltered_collapse();
   const ReleaseStalePages release_stale_pages =
       forwarder_.release_stale_pages();
+  const SubreleaseUnbackedMode subrelease_unbacked_mode =
+      forwarder_.subrelease_unbacked_hugepages();
   PageHeapSpinLockHolder l;
+  filler_.set_subrelease_unbacked_mode(subrelease_unbacked_mode);
   filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
                                 release_stale_pages);
   DrainFreedTrackers();

@@ -79,6 +79,7 @@ class PageTracker : public TList<PageTracker>::Elem {
         was_released_(false),
         abandoned_(false),
         unbroken_(true),
+        in_released_list_(false),
         alloctime_(now),
         tracker_{},
         num_objects_(0) {
@@ -201,6 +202,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   TrackerFeatures features() const { return features_; }
   bool unbroken() const { return unbroken_; }
   void set_unbroken(bool status) { unbroken_ = status; }
+  bool in_released_list() const { return in_released_list_; }
+  void set_in_released_list(bool status) { in_released_list_ = status; }
 
   // Returns the hugepage whose availability is being tracked.
   HugePage location() const { return location_; }
@@ -351,6 +354,17 @@ class PageTracker : public TList<PageTracker>::Elem {
   // reset it once we measure those pages in abandoned_count_.
   bool abandoned_;
   bool unbroken_;
+  // True iff this tracker is currently linked into HugePageFiller's
+  // regular_alloc_released_ or regular_alloc_partial_released_ lists (and its
+  // used_pages() are accounted for in n_used_released_ /
+  // n_used_partial_released_); false if it is in regular_alloc_,
+  // donated_alloc_, or unlinked. Because subrelease_unbacked_mode_ can change
+  // dynamically while a broken, unreleased tracker (!released() && !unbroken())
+  // is in a list, recording list placement on the tracker ensures
+  // RemoveFromFillerList always unlinks from the exact list where
+  // AddToFillerList placed it and maintains used-page counter invariants
+  // without scanning lists on mode changes.
+  bool in_released_list_;
   bool has_dense_spans_ = false;
   // This field is used to avoid freeing this tracker prematurely. When this
   // is set, any maintenance operation (e.g. collapse) that drops

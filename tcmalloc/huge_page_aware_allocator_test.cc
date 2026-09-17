@@ -2184,6 +2184,54 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
   }
 }
 
+TEST(HugePageAwareAllocatorTest, SubreleaseUnbackedHugepages) {
+  constexpr SpanAllocInfo kAllocInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr Length kAllocPages = kPagesPerHugePage / 2;
+
+  FakeHugePageAwareAllocator allocator(HugePageAwareAllocatorOptions{});
+  allocator.forwarder().set_filler_skip_subrelease_short_interval(
+      absl::ZeroDuration());
+  allocator.forwarder().set_filler_skip_subrelease_long_interval(
+      absl::ZeroDuration());
+
+  SpanDeleter deleter(&allocator);
+  Span* persistent = allocator.New(kAllocPages, kAllocInfo);
+
+  for (SubreleaseUnbackedMode mode :
+       {SubreleaseUnbackedMode::kDisabled, SubreleaseUnbackedMode::kEnabled,
+        SubreleaseUnbackedMode::kDisabled}) {
+    allocator.forwarder().set_subrelease_unbacked_hugepages(mode);
+
+    Span* s1 = allocator.New(kAllocPages, kAllocInfo);
+    Span* s2 = allocator.New(kAllocPages, kAllocInfo);
+    Span* s3 = allocator.New(kAllocPages, kAllocInfo);
+    Span* s4 = allocator.New(kAllocPages, kAllocInfo);
+
+    deleter(s1);
+    deleter(s3);
+
+    Length released;
+    {
+      PageHeapSpinLockHolder l;
+      released = allocator.ReleaseAtLeastNPages(
+          kAllocPages, PageReleaseReason::kReleaseMemoryToSystem);
+    }
+    EXPECT_GE(released, kAllocPages);
+
+    allocator.TreatHugepageTrackers(EnableCollapse::kEnabled);
+
+    Span* s5 = allocator.New(kAllocPages, kAllocInfo);
+    deleter(s5);
+    deleter(s2);
+    deleter(s4);
+  }
+
+  deleter(persistent);
+}
+
 TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   PageBitmap pages;

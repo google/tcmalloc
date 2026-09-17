@@ -167,12 +167,11 @@ SubreleaseUnbackedMode Parameters::subrelease_unbacked_hugepages() {
     if (IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES) ||
         IsExperimentActive(Experiment::TCMALLOC_PAGE_HEAP_GARDENING)) {
-      subrelease_unbacked_hugepages_.store(true, std::memory_order_relaxed);
+      subrelease_unbacked_hugepages_.store(SubreleaseUnbackedMode::kEnabled,
+                                           std::memory_order_relaxed);
     }
   });
-  return subrelease_unbacked_hugepages_.load(std::memory_order_relaxed)
-             ? SubreleaseUnbackedMode::kEnabled
-             : SubreleaseUnbackedMode::kDisabled;
+  return subrelease_unbacked_hugepages_.load(std::memory_order_relaxed);
 }
 
 std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
@@ -230,8 +229,9 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
-ABSL_CONST_INIT std::atomic<bool> Parameters::subrelease_unbacked_hugepages_(
-    false);
+ABSL_CONST_INIT std::atomic<SubreleaseUnbackedMode>
+    Parameters::subrelease_unbacked_hugepages_(
+        SubreleaseUnbackedMode::kDisabled);
 
 // TODO: b/134694141 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
@@ -401,6 +401,7 @@ static bool want_disable_dynamic_slabs() {
 
 using tcmalloc::tcmalloc_internal::MadviseSampledAllocations;
 using tcmalloc::tcmalloc_internal::Parameters;
+using tcmalloc::tcmalloc_internal::SubreleaseUnbackedMode;
 using tcmalloc::tcmalloc_internal::tc_globals;
 
 extern "C" {
@@ -511,6 +512,10 @@ bool TCMalloc_Internal_GetUsermodeHugepageCollapse() {
          tcmalloc::tcmalloc_internal::EnableCollapse::kEnabled;
 }
 
+SubreleaseUnbackedMode TCMalloc_Internal_GetSubreleaseUnbackedHugepages() {
+  return Parameters::subrelease_unbacked_hugepages();
+}
+
 bool TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled() {
   return Parameters::resize_size_class_max_capacity();
 }
@@ -560,6 +565,13 @@ void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {
 void TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v) {
   Parameters::usermode_hugepage_collapse_enabled_.store(
       v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetSubreleaseUnbackedHugepages(
+    SubreleaseUnbackedMode v) {
+  (void)Parameters::subrelease_unbacked_hugepages();
+  Parameters::subrelease_unbacked_hugepages_.store(v,
+                                                   std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v) {

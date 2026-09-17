@@ -1884,5 +1884,31 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
+TEST(TCMalloc, SubreleaseUnbackedHugepages) {
+  const SubreleaseUnbackedMode original_mode =
+      Parameters::subrelease_unbacked_hugepages();
+  for (SubreleaseUnbackedMode mode :
+       {SubreleaseUnbackedMode::kDisabled, SubreleaseUnbackedMode::kEnabled,
+        SubreleaseUnbackedMode::kDisabled}) {
+    Parameters::set_subrelease_unbacked_hugepages(mode);
+    EXPECT_EQ(Parameters::subrelease_unbacked_hugepages(), mode);
+
+    std::vector<void*> ptrs;
+    for (size_t size :
+         {16, 128, 1024, 64 * 1024, 256 * 1024, 2 * 1024 * 1024}) {
+      for (int i = 0; i < 16; ++i) {
+        void* p = ::operator new(size);
+        memset(p, 0x42, size);
+        ptrs.push_back(p);
+      }
+    }
+    MallocExtension::ReleaseMemoryToSystem(1 << 20);
+    for (void* p : ptrs) {
+      ::operator delete(p);
+    }
+  }
+  Parameters::set_subrelease_unbacked_hugepages(original_mode);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
