@@ -162,7 +162,8 @@ void SampleRecorder<T, Allocator>::PushNew(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::PushDead(T* sample) {
-  if (auto* dispose = dispose_.load(std::memory_order_relaxed)) {
+  if (auto* dispose = dispose_.load(std::memory_order_relaxed);
+      ABSL_PREDICT_FALSE(dispose != nullptr)) {
     dispose(*sample);
   }
 
@@ -175,18 +176,24 @@ void SampleRecorder<T, Allocator>::PushDead(T* sample) {
 template <typename T, typename Allocator>
 template <typename... Targs>
 T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
-  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
+  AllocationGuard enforce_no_alloc;
+  T* sample;
+  {
+    absl::base_internal::SpinLockHolder graveyard_lock(graveyard_.lock);
 
-  // The list is circular, so eventually it collapses down to
-  //   graveyard_.dead == &graveyard_
-  // when it is empty.
-  T* sample = graveyard_.dead;
-  if (sample == &graveyard_) return nullptr;
+    // The list is circular, so eventually it collapses down to
+    //   graveyard_.dead == &graveyard_
+    // when it is empty.
+    sample = graveyard_.dead;
+    if (ABSL_PREDICT_FALSE(sample == &graveyard_)) return nullptr;
 
-  AllocationGuardSpinLockHolder sample_lock(sample->lock);
-  graveyard_.dead = sample->dead;
-  sample->dead = nullptr;
+    graveyard_.dead = sample->dead;
+  }
+  absl::base_internal::SpinLockHolder sample_lock(sample->lock);
+  // TODO(b/73749855): This could be moved out but requires updating our lock
+  // annotations.
   sample->PrepareForSampling(std::forward<Targs>(args)...);
+  sample->dead = nullptr;
   return sample;
 }
 
@@ -194,7 +201,7 @@ template <typename T, typename Allocator>
 template <typename... Targs>
 T* SampleRecorder<T, Allocator>::Register(Targs&&... args) {
   T* sample = PopDead(std::forward<Targs>(args)...);
-  if (sample == nullptr) {
+  if (ABSL_PREDICT_FALSE(sample == nullptr)) {
     // Resurrection failed.  Hire a new warlock.
     sample = allocator_->New(std::forward<Targs>(args)...);
     PushNew(sample);
