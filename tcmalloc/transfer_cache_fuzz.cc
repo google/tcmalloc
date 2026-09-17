@@ -37,11 +37,16 @@ using TransferCache =
                                            FakeTransferCacheManager>;
 using TransferCacheEnv = FakeTransferCacheEnvironment<TransferCache>;
 
-constexpr int kNumObjectsToMove =
+constexpr size_t kNumObjectsToMove =
     TransferCache::Manager::num_objects_to_move(1);
 
 struct State {
   TransferCacheEnv env;
+  // Reference model of TransferCache::low_water_mark_: the minimum of `used`
+  // observed since the last TryPlunder.
+  size_t low_water_mark = 0;
+  // Object misses already returned by FetchCommitIntervalMisses.
+  size_t committed_object_misses = 0;
 
   State() = default;
 
@@ -52,17 +57,42 @@ struct State {
     CHECK_EQ(env.transfer_cache().tc_length(), 0);
   }
 
+  TransferCacheStats GetStats() { return env.transfer_cache().GetStats(); }
+
   void CheckInvariants() {
-    const TransferCacheStats stats = env.transfer_cache().GetStats();
+    const TransferCacheStats stats = GetStats();
     CHECK_GE(stats.used, 0);
     CHECK_LE(stats.used, stats.capacity);
     CHECK_LE(stats.capacity, stats.max_capacity);
     CHECK_EQ(stats.used, env.transfer_cache().tc_length());
     CHECK_EQ(stats.max_capacity, env.transfer_cache().max_capacity());
+    CHECK_EQ(env.transfer_cache().HasSpareCapacity(kSizeClass),
+             stats.capacity - stats.used >= kNumObjectsToMove);
+    CHECK_EQ(env.transfer_cache().CanIncreaseCapacity(kSizeClass),
+             stats.max_capacity - stats.capacity >= kNumObjectsToMove);
+
+    // The low water mark only ever decreases between plunders.
+    low_water_mark = std::min(low_water_mark, stats.used);
   }
 
   void Drain() { env.Drain(); }
 };
+
+// Checks that the hit/miss counters not touched by an operation are unchanged.
+void ExpectInsertStatsUnchanged(const TransferCacheStats& before,
+                                const TransferCacheStats& after) {
+  CHECK_EQ(after.insert_hits, before.insert_hits);
+  CHECK_EQ(after.insert_misses, before.insert_misses);
+  CHECK_EQ(after.insert_object_misses, before.insert_object_misses);
+}
+
+void ExpectRemoveStatsUnchanged(const TransferCacheStats& before,
+                                const TransferCacheStats& after) {
+  CHECK_EQ(after.remove_hits, before.remove_hits);
+  CHECK_EQ(after.remove_object_hits, before.remove_object_hits);
+  CHECK_EQ(after.remove_misses, before.remove_misses);
+  CHECK_EQ(after.remove_object_misses, before.remove_object_misses);
+}
 
 struct Grow {
   template <typename Sink>
@@ -71,12 +101,19 @@ struct Grow {
   }
 
   void Perform(State& state) const {
-    const TransferCacheStats stats = state.env.transfer_cache().GetStats();
+    const TransferCacheStats before = state.GetStats();
     // Confirm that we are always able to grow the cache provided we
     // have sufficient capacity to grow.
     const bool expected =
-        stats.capacity + kNumObjectsToMove <= stats.max_capacity;
+        before.capacity + kNumObjectsToMove <= before.max_capacity;
     CHECK_EQ(state.env.Grow(), expected);
+
+    const TransferCacheStats after = state.GetStats();
+    CHECK_EQ(after.capacity,
+             before.capacity + (expected ? kNumObjectsToMove : 0));
+    CHECK_EQ(after.used, before.used);
+    ExpectInsertStatsUnchanged(before, after);
+    ExpectRemoveStatsUnchanged(before, after);
   }
 };
 
@@ -87,11 +124,24 @@ struct Shrink {
   }
 
   void Perform(State& state) const {
-    const TransferCacheStats stats = state.env.transfer_cache().GetStats();
+    const TransferCacheStats before = state.GetStats();
     // Confirm that we are always able to shrink the cache provided we
     // have sufficient capacity to shrink.
-    const bool expected = stats.capacity > kNumObjectsToMove;
+    const bool expected = before.capacity > kNumObjectsToMove;
     CHECK_EQ(state.env.Shrink(), expected);
+
+    // Shrinking evicts only the objects that no longer fit in the reduced
+    // capacity; evictions go to the freelist without counting as misses.
+    const TransferCacheStats after = state.GetStats();
+    if (expected) {
+      CHECK_EQ(after.capacity, before.capacity - kNumObjectsToMove);
+      CHECK_EQ(after.used, std::min(before.used, after.capacity));
+    } else {
+      CHECK_EQ(after.capacity, before.capacity);
+      CHECK_EQ(after.used, before.used);
+    }
+    ExpectInsertStatsUnchanged(before, after);
+    ExpectRemoveStatsUnchanged(before, after);
   }
 };
 
@@ -101,7 +151,19 @@ struct TryPlunder {
     absl::Format(&sink, "TryPlunder{}");
   }
 
-  void Perform(State& state) const { state.env.TryPlunder(); }
+  void Perform(State& state) const {
+    const TransferCacheStats before = state.GetStats();
+    state.env.TryPlunder();
+
+    // Plundering returns exactly the objects that sat unused since the last
+    // plunder (the low water mark) and resets the mark to the new occupancy.
+    const TransferCacheStats after = state.GetStats();
+    CHECK_EQ(after.used, before.used - state.low_water_mark);
+    CHECK_EQ(after.capacity, before.capacity);
+    ExpectInsertStatsUnchanged(before, after);
+    ExpectRemoveStatsUnchanged(before, after);
+    state.low_water_mark = after.used;
+  }
 };
 
 struct GetStats {
@@ -111,10 +173,28 @@ struct GetStats {
   }
 
   void Perform(State& state) const {
-    const TransferCacheStats stats = state.env.transfer_cache().GetStats();
+    const TransferCacheStats stats = state.GetStats();
     CHECK_GE(stats.used, 0);
     CHECK_LE(stats.used, stats.capacity);
     CHECK_LE(stats.capacity, stats.max_capacity);
+  }
+};
+
+struct CommitMisses {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const CommitMisses& c) {
+    absl::Format(&sink, "CommitMisses{}");
+  }
+
+  void Perform(State& state) const {
+    const TransferCacheStats stats = state.GetStats();
+    const size_t total =
+        stats.insert_object_misses + stats.remove_object_misses;
+    // Each object miss is reported by exactly one interval.
+    CHECK_EQ(state.env.transfer_cache().FetchCommitIntervalMisses(),
+             total - state.committed_object_misses);
+    state.committed_object_misses = total;
+    CHECK_EQ(state.env.transfer_cache().FetchCommitIntervalMisses(), 0);
   }
 };
 
@@ -130,7 +210,23 @@ struct Insert {
     if (batch <= 0) {
       return;
     }
+    const size_t n = batch;
+    const TransferCacheStats before = state.GetStats();
     state.env.Insert(batch);
+
+    // Objects are cached up to the spare capacity; any remainder is a single
+    // miss that spills the rest of the batch to the freelist.
+    const TransferCacheStats after = state.GetStats();
+    const size_t cached = std::min(n, before.capacity - before.used);
+    CHECK_EQ(after.used, before.used + cached);
+    CHECK_EQ(after.capacity, before.capacity);
+    CHECK_EQ(after.insert_hits - before.insert_hits,
+             static_cast<size_t>(cached > 0));
+    CHECK_EQ(after.insert_misses - before.insert_misses,
+             static_cast<size_t>(cached < n));
+    CHECK_EQ(after.insert_object_misses - before.insert_object_misses,
+             n - cached);
+    ExpectRemoveStatsUnchanged(before, after);
   }
 };
 
@@ -146,12 +242,29 @@ struct Remove {
     if (batch <= 0) {
       return;
     }
+    const size_t n = batch;
+    const TransferCacheStats before = state.GetStats();
     state.env.Remove(batch);
+
+    // Cached objects are served first as a single hit; the environment then
+    // fetches any shortfall from the (now empty) cache, which is one miss.
+    const TransferCacheStats after = state.GetStats();
+    const size_t from_cache = std::min(n, before.used);
+    CHECK_EQ(after.used, before.used - from_cache);
+    CHECK_EQ(after.capacity, before.capacity);
+    CHECK_EQ(after.remove_hits - before.remove_hits,
+             static_cast<size_t>(from_cache > 0));
+    CHECK_EQ(after.remove_object_hits - before.remove_object_hits, from_cache);
+    CHECK_EQ(after.remove_misses - before.remove_misses,
+             static_cast<size_t>(from_cache < n));
+    CHECK_EQ(after.remove_object_misses - before.remove_object_misses,
+             n - from_cache);
+    ExpectInsertStatsUnchanged(before, after);
   }
 };
 
-using Instruction =
-    std::variant<Grow, Shrink, TryPlunder, GetStats, Insert, Remove>;
+using Instruction = std::variant<Grow, Shrink, TryPlunder, GetStats,
+                                 CommitMisses, Insert, Remove>;
 
 void FuzzTransferCache(const std::vector<Instruction>& instructions) {
   // TODO(b/271282540): We should also add a capability to fuzz-test multiple
@@ -173,10 +286,12 @@ auto GetInstructionDomain() {
                     fuzztest::Arbitrary<TryPlunder>()),
       fuzztest::Map([](GetStats g) { return Instruction{g}; },
                     fuzztest::Arbitrary<GetStats>()),
+      fuzztest::Map([](CommitMisses c) { return Instruction{c}; },
+                    fuzztest::Arbitrary<CommitMisses>()),
       fuzztest::Map([](int batch) { return Instruction{Insert{batch}}; },
-                    fuzztest::InRange(0, kNumObjectsToMove)),
+                    fuzztest::InRange<int>(0, kNumObjectsToMove)),
       fuzztest::Map([](int batch) { return Instruction{Remove{batch}}; },
-                    fuzztest::InRange(0, kNumObjectsToMove)));
+                    fuzztest::InRange<int>(0, kNumObjectsToMove)));
 }
 
 FUZZ_TEST(TransferCacheTest, FuzzTransferCache)
