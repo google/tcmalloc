@@ -714,15 +714,27 @@ void StressThread(size_t thread_id,
       if (n != 0) {
         const int cpu = ctx.slab->CacheCpuSlab().first;
         if (cpu >= 0) {
-          // Grow mutates the header array and must be operating on
-          // an initialized core.
-          absl::MutexLock lock(ctx.mutexes[cpu]);
-          InitCpuOnceLockHeld(ctx, cpu);
-
+          {
+            absl::MutexLock lock(ctx.mutexes[cpu]);
+            InitCpuOnceLockHeld(ctx, cpu);
+          }
+          // Grow runs unlocked, as CpuCache::Grow does: it must be safe
+          // against a concurrent resize, which holds every mutex.
           res = ctx.slab->Grow(cpu, size_class, n, [&](uint8_t shift) {
             return ctx.GetMaxCapacityFunctor()(size_class);
           });
           EXPECT_LE(res, n);
+          if (res != 0) {
+            // A Grow racing a resize can leave capacity above max_capacity.
+            // Check now, before Shrink/Drain/resize take the excess back.  The
+            // mutex keeps Capacity() and max_capacity consistent across
+            // UpdateMaxCapacities.
+            absl::MutexLock lock(ctx.mutexes[cpu]);
+            EXPECT_LE(
+                ctx.slab->Capacity(cpu, size_class),
+                ctx.max_capacity[size_class].load(std::memory_order_relaxed))
+                << "cpu " << cpu << " size_class " << size_class;
+          }
         }
         ctx.capacity->fetch_add(n - res);
       }
