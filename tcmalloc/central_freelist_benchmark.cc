@@ -92,7 +92,7 @@ class BenchmarkStaticForwarder
   void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                          int expected_size_class) {
     for (size_t i = 0; i < batch.size(); ++i) {
-      Span* span = pagemap_->GetDescriptor(PageIdContaining(batch[i]));
+      Span* span = pagemap_->get(PageIdContaining(batch[i]).index());
       span->Prefetch();
       spans[i] = span;
     }
@@ -117,7 +117,7 @@ class BenchmarkStaticForwarder
     PageId page = PageIdContaining(mem);
 
     // Ensure the PageMap covers this range.
-    if (!pagemap_->Ensure(Range(page, pages_per_span))) {
+    if (!pagemap_->Ensure(page.index(), pages_per_span.raw_num())) {
       ::operator delete(mem, std::align_val_t(page_size_));
       return nullptr;
     }
@@ -139,15 +139,17 @@ class BenchmarkStaticForwarder
  private:
   void RegisterSpanLocked(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     PageId page = span->first_page();
-    for (PageId p = page; p <= span->last_page(); ++p) {
-      pagemap_->Set(p, span);
+    Length num = span->num_pages();
+    for (size_t i = 0; i < num.raw_num(); ++i) {
+      pagemap_->set(page.index() + i, span);
     }
   }
 
   void UnregisterSpanLocked(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     PageId page = span->first_page();
-    for (PageId p = page; p <= span->last_page(); ++p) {
-      pagemap_->Set(p, nullptr);
+    Length num = span->num_pages();
+    for (size_t i = 0; i < num.raw_num(); ++i) {
+      pagemap_->set(page.index() + i, nullptr);
     }
   }
 

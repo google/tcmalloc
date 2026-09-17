@@ -85,43 +85,41 @@ TEST_P(PageMapTest, Sequential) {
   const intptr_t limit = GetParam();
 
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_TRUE(map->Ensure(Range(PageId(i), Length(1))));
-    map->Set(PageId(i), span(i));
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
-    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)), span(i));
+    map->Ensure(i, 1);
+    map->set(i, span(i));
+    ASSERT_EQ(map->get(i), span(i));
 
     // Test size class handling
-    ASSERT_EQ(0, map->sizeclass(PageId(i)));
-    ASSERT_EQ(map->GetDescriptorAndSizeClass(PageId(i)),
-              (std::pair<Span*, CompactSizeClass>(span(i), 0)));
-    map->Set(PageId(i), span(i), sc(i));
-    ASSERT_EQ(sc(i), map->sizeclass(PageId(i)));
+    ASSERT_EQ(0, map->sizeclass(i));
+    ASSERT_EQ(map->get_existing_with_sizeclass<false>(i),
+              (std::pair<Span*, int>(span(i), 0)));
+    map->set_with_sizeclass(i, span(i), sc(i));
+    ASSERT_EQ(sc(i), map->sizeclass(i));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
-    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)), span(i));
-    ASSERT_EQ(map->sizeclass(PageId(i)), sc(i));
-    ASSERT_EQ(map->GetDescriptorAndSizeClass(PageId(i)),
-              (std::pair<Span*, CompactSizeClass>(span(i), sc(i))));
+    ASSERT_EQ(map->get(i), span(i));
+    ASSERT_EQ(map->sizeclass(i), sc(i));
+    ASSERT_EQ(map->get_existing_with_sizeclass<false>(i),
+              (std::pair<Span*, int>(span(i), sc(i))));
   }
 }
 
 TEST_P(PageMapTest, Bulk) {
   const intptr_t limit = GetParam();
 
-  ASSERT_TRUE(map->Ensure(Range(PageId(0), Length(limit))));
+  map->Ensure(0, limit);
   for (intptr_t i = 0; i < limit; i++) {
-    map->Set(PageId(i), span(i));
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    map->set(i, span(i));
+    ASSERT_EQ(map->get(i), span(i));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    ASSERT_EQ(map->get(i), span(i));
   }
 }
 
 TEST_P(PageMapTest, Overflow) {
   const uintptr_t kLimit = uintptr_t{1} << kTestBits;
-  ASSERT_FALSE(map->Ensure(Range(PageId(kLimit), Length(kLimit + 1))));
+  ASSERT_FALSE(map->Ensure(kLimit, kLimit + 1));
 }
 
 TEST_P(PageMapTest, RandomAccess) {
@@ -134,12 +132,12 @@ TEST_P(PageMapTest, RandomAccess) {
   std::shuffle(elements.begin(), elements.end(), absl::BitGen());
 
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_TRUE(map->Ensure(Range(PageId(elements[i]), Length(1))));
-    map->Set(PageId(elements[i]), span(elements[i]));
-    ASSERT_EQ(map->GetDescriptor(PageId(elements[i])), span(elements[i]));
+    map->Ensure(elements[i], 1);
+    map->set(elements[i], span(elements[i]));
+    ASSERT_EQ(map->get(elements[i]), span(elements[i]));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    ASSERT_EQ(map->get(i), span(i));
   }
 }
 
