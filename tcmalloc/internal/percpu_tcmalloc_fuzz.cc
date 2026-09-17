@@ -217,14 +217,28 @@ struct Push {
       state.available_objects[sc].push_back(state.AllocateObject(sc));
     }
     void* item = state.available_objects[sc].back();
+    const int cpu = state.current_cpu;
+    size_t len_before = state.slab.Length(cpu, sc);
+    size_t cap_before = state.slab.Capacity(cpu, sc);
+    bool exact = true;
     bool pushed = state.slab.Push(sc, item);
     if (!pushed) {
       auto [got_cpu, cached] = state.slab.CacheCpuSlab();
       if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
+        TC_CHECK_EQ(got_cpu, cpu);
         state.EnsureCpuInitialized(got_cpu);
+        len_before = state.slab.Length(cpu, sc);
+        cap_before = state.slab.Capacity(cpu, sc);
         pushed = state.slab.Push(sc, item);
+      } else if (got_cpu < 0) {
+        exact = false;
       }
     }
+    // A cached slab on a running CPU accepts the item iff it has room.
+    if (exact) {
+      TC_CHECK_EQ(pushed, len_before < cap_before);
+    }
+    TC_CHECK_EQ(state.slab.Length(cpu, sc), len_before + pushed);
     if (pushed) {
       state.available_objects[sc].pop_back();
     }
@@ -241,14 +255,27 @@ struct Pop {
 
   void Perform(State& state) const {
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
+    const int cpu = state.current_cpu;
+    size_t len_before = state.slab.Length(cpu, sc);
+    bool exact = true;
     void* item = state.slab.Pop(sc);
     if (item == nullptr) {
       auto [got_cpu, cached] = state.slab.CacheCpuSlab();
       if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
+        TC_CHECK_EQ(got_cpu, cpu);
         state.EnsureCpuInitialized(got_cpu);
+        len_before = state.slab.Length(cpu, sc);
         item = state.slab.Pop(sc);
+      } else if (got_cpu < 0) {
+        exact = false;
       }
     }
+    // A cached slab on a running CPU yields an item iff it holds one.
+    if (exact) {
+      TC_CHECK_EQ(item != nullptr, len_before > 0);
+    }
+    TC_CHECK_EQ(state.slab.Length(cpu, sc),
+                len_before - (item != nullptr ? 1 : 0));
     if (item != nullptr) {
       state.CheckValidObject(item, sc);
       state.available_objects[sc].push_back(item);
@@ -273,16 +300,31 @@ struct PushBatch {
     for (size_t i = 0; i < count; ++i) {
       batch[i] = state.AllocateObject(sc);
     }
+    const int cpu = state.current_cpu;
+    size_t len_before = state.slab.Length(cpu, sc);
+    size_t cap_before = state.slab.Capacity(cpu, sc);
+    bool exact = true;
     size_t pushed = state.slab.PushBatch(sc, batch, count);
     TC_CHECK_LE(pushed, count);
     if (pushed == 0) {
       auto [got_cpu, cached] = state.slab.CacheCpuSlab();
       if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
+        TC_CHECK_EQ(got_cpu, cpu);
         state.EnsureCpuInitialized(got_cpu);
+        len_before = state.slab.Length(cpu, sc);
+        cap_before = state.slab.Capacity(cpu, sc);
         pushed = state.slab.PushBatch(sc, batch, count);
         TC_CHECK_LE(pushed, count);
+      } else if (got_cpu < 0) {
+        exact = false;
       }
     }
+    // A cached slab on a running CPU takes exactly what fits.
+    if (exact) {
+      const size_t expected = std::min(count, cap_before - len_before);
+      TC_CHECK_EQ(pushed, expected);
+    }
+    TC_CHECK_EQ(state.slab.Length(cpu, sc), len_before + pushed);
     for (size_t i = 0; i < count - pushed; ++i) {
       state.FreeObject(batch[i], sc);
     }
@@ -303,16 +345,29 @@ struct PopBatch {
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
     const size_t count = 1 + (this->count % kMaxBatchSize);
     void* batch[kMaxBatchSize];
+    const int cpu = state.current_cpu;
+    size_t len_before = state.slab.Length(cpu, sc);
+    bool exact = true;
     size_t popped = state.slab.PopBatch(sc, batch, count);
     TC_CHECK_LE(popped, count);
     if (popped == 0) {
       auto [got_cpu, cached] = state.slab.CacheCpuSlab();
       if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
+        TC_CHECK_EQ(got_cpu, cpu);
         state.EnsureCpuInitialized(got_cpu);
+        len_before = state.slab.Length(cpu, sc);
         popped = state.slab.PopBatch(sc, batch, count);
         TC_CHECK_LE(popped, count);
+      } else if (got_cpu < 0) {
+        exact = false;
       }
     }
+    // A cached slab on a running CPU yields exactly what it holds.
+    if (exact) {
+      const size_t expected = std::min(count, len_before);
+      TC_CHECK_EQ(popped, expected);
+    }
+    TC_CHECK_EQ(state.slab.Length(cpu, sc), len_before - popped);
     for (size_t i = 0; i < popped; ++i) {
       state.CheckValidObject(batch[i], sc);
       state.available_objects[sc].push_back(batch[i]);
@@ -336,10 +391,16 @@ struct Grow {
       return;
     }
     state.EnsureCpuInitialized(state.current_cpu);
+    const size_t cap_before = state.slab.Capacity(state.current_cpu, sc);
     size_t grew = state.slab.Grow(
         state.current_cpu, sc, len,
         [&state, sc](uint8_t) { return state.MaxCapacity(sc); });
     TC_CHECK_LE(grew, len);
+    // Grow either aborts (uncached slab) or grows by exactly what fits under
+    // the max capacity.
+    const size_t expected = std::min(len, state.MaxCapacity(sc) - cap_before);
+    TC_CHECK(grew == 0 || grew == expected);
+    TC_CHECK_EQ(state.slab.Capacity(state.current_cpu, sc), cap_before + grew);
   }
 };
 
@@ -370,10 +431,15 @@ struct GrowOtherClass {
       state.slab.StopCpu(target_cpu);
       state.cpu_stopped[target_cpu] = true;
     }
+    const size_t cap_before = state.slab.Capacity(target_cpu, sc);
     size_t grew = state.slab.GrowOtherCache(
         target_cpu, sc, len,
         [&state, sc](uint8_t) { return state.MaxCapacity(sc); });
     TC_CHECK_LE(grew, len);
+    // A stopped CPU always grows by exactly what fits under the max capacity.
+    const size_t expected = std::min(len, state.MaxCapacity(sc) - cap_before);
+    TC_CHECK_EQ(grew, expected);
+    TC_CHECK_EQ(state.slab.Capacity(target_cpu, sc), cap_before + grew);
     if (!was_stopped) {
       state.slab.StartCpu(target_cpu);
       state.cpu_stopped[target_cpu] = false;
@@ -408,15 +474,28 @@ struct ShrinkOtherCache {
       state.slab.StopCpu(target_cpu);
       state.cpu_stopped[target_cpu] = true;
     }
+    const size_t len_before = state.slab.Length(target_cpu, sc);
+    const size_t cap_before = state.slab.Capacity(target_cpu, sc);
+    size_t returned = 0;
     size_t shrunk = state.slab.ShrinkOtherCache(
         target_cpu, sc, len, [&](size_t size_class, void** batch, size_t size) {
           TC_CHECK_EQ(size_class, sc);
+          returned += size;
           for (size_t i = 0; i < size; ++i) {
             state.CheckValidObject(batch[i], size_class);
             state.available_objects[size_class].push_back(batch[i]);
           }
         });
     TC_CHECK_LE(shrunk, len);
+    // Capacity drops by exactly min(len, capacity); unused capacity goes
+    // first and only the shortfall is popped from the slab.
+    const size_t expected_shrunk = std::min(len, cap_before);
+    TC_CHECK_EQ(shrunk, expected_shrunk);
+    const size_t unused = cap_before - len_before;
+    const size_t expected_returned = shrunk > unused ? shrunk - unused : 0;
+    TC_CHECK_EQ(returned, expected_returned);
+    TC_CHECK_EQ(state.slab.Capacity(target_cpu, sc), cap_before - shrunk);
+    TC_CHECK_EQ(state.slab.Length(target_cpu, sc), len_before - returned);
     if (!was_stopped) {
       state.slab.StartCpu(target_cpu);
       state.cpu_stopped[target_cpu] = false;
@@ -437,22 +516,28 @@ struct Drain {
     if (state.cpu_stopped[target_cpu]) {
       return;
     }
+    std::array<size_t, kNumClasses> len_before, cap_before;
+    for (size_t sc = 1; sc < kNumClasses; ++sc) {
+      len_before[sc] = state.slab.Length(target_cpu, sc);
+      cap_before[sc] = state.slab.Capacity(target_cpu, sc);
+    }
     state.slab.Drain(target_cpu, [&](int cpu, size_t size_class, void** batch,
                                      size_t size, size_t cap) {
       TC_CHECK_EQ(cpu, target_cpu);
       TC_CHECK_LT(size_class, kNumClasses);
+      // The handler receives every cached object and the prior capacity.
+      TC_CHECK_EQ(size, len_before[size_class]);
+      TC_CHECK_EQ(cap, cap_before[size_class]);
       for (size_t i = 0; i < size; ++i) {
         state.CheckValidObject(batch[i], size_class);
         state.available_objects[size_class].push_back(batch[i]);
       }
     });
 
+    // Draining empties the slab and resets every capacity to zero.
     for (size_t sc = 1; sc < kNumClasses; ++sc) {
       TC_CHECK_EQ(state.slab.Length(target_cpu, sc), 0);
-      const size_t cap = state.slab.Capacity(target_cpu, sc);
-      const size_t max_cap = state.MaxCapacity(sc);
-      TC_CHECK_LE(0, cap);
-      TC_CHECK_LE(cap, max_cap);
+      TC_CHECK_EQ(state.slab.Capacity(target_cpu, sc), 0);
     }
   }
 };
