@@ -919,6 +919,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":atomic_danger",
         ":delay_injection",
         ":is_aligned_to",
         ":logging",
@@ -951,6 +952,7 @@ create_percpu_tcmalloc_testsuite(
         ":page_size",
         ":percpu",
         ":percpu_tcmalloc",
+        ":proc_maps",
         ":sysinfo",
         ":util",
         "//tcmalloc:malloc_extension",
@@ -963,6 +965,7 @@ create_percpu_tcmalloc_testsuite(
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:seed_sequences",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
