@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
 
   TC_CHECK_LE(classes.size(), tcmalloc::tcmalloc_internal::kNumClasses);
   for (int c = 0; c < classes.size(); ++c) {
-    if (tcmalloc::tcmalloc_internal::Static::sizemap().class_to_size(c) !=
+    if (tcmalloc::tcmalloc_internal::tc_globals.sizemap().class_to_size(c) !=
         classes[c]) {
       printf("Other");
       return 0;

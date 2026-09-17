@@ -49,10 +49,6 @@ struct AllocatorStats {
 // is required before accessing one of these objects.
 template <class T, ArenaAlloc AllocType>
 class MetadataObjectAllocator {
-  static_assert(sizeof(T) >= sizeof(void*),
-                "Object size must be at least pointer sized to fit intrusive "
-                "freelist link pointer");
-
  public:
   constexpr explicit MetadataObjectAllocator(
       Arena& arena ABSL_ATTRIBUTE_LIFETIME_BOUND)
@@ -84,6 +80,9 @@ class MetadataObjectAllocator {
   template <typename... Args>
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(
       size_t size, std::align_val_t align, Args&&... args) {
+    static_assert(sizeof(T) >= sizeof(void*),
+                  "Object size must be at least pointer sized to fit intrusive "
+                  "freelist link pointer");
     T* ret = LockAndAllocMemory(size, align);
     return new (ret) T(std::forward<Args>(args)...);
   }

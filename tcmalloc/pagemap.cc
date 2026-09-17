@@ -36,7 +36,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 template <int BITS, PagemapAllocator Allocator>
-int PageMap<BITS, Allocator>::GetAllocatedSpans(
+GOOGLE_MALLOC_SECTION int PageMap<BITS, Allocator>::GetAllocatedSpans(
     std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
                     SpanDetails>& allocated_spans) {
   PageHeapSpinLockHolder l;
@@ -56,9 +56,9 @@ int PageMap<BITS, Allocator>::GetAllocatedSpans(
     // adding more entries after we reach its existing capacity. Note that the
     // count returned will still be the total number of allocated Spans.
     if (allocated_spans.capacity() > allocated_spans.size()) {
-      allocated_spans.push_back({s->first_page().start_uintptr(),
-                                 s->bytes_in_span(),
-                                 Static::sizemap().class_to_size(size_class)});
+      allocated_spans.push_back(
+          {s->first_page().start_uintptr(), s->bytes_in_span(),
+           tc_globals.sizemap().class_to_size(size_class)});
     }
     ++allocated_span_count;
     p = s->last_page();

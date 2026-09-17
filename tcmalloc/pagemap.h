@@ -345,7 +345,7 @@ class PageMap {
   // of such Spans in the provided allocated_spans vector. This routine avoids
   // allocation events since we hold the pageheap_lock, so no more elements will
   // be added to allocated_spans after it reaches its already reserved capacity.
-  int GetAllocatedSpans(
+  GOOGLE_MALLOC_SECTION int GetAllocatedSpans(
       std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
                       SpanDetails>& allocated_spans);
 };
