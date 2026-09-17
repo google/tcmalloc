@@ -1213,7 +1213,29 @@ TEST_P(TcmallocSizedNewTest, SizedOperatorNew) {
   }
 }
 
-TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNewDeathTest) {
+// The invalid size below is rejected before alignment or hot/cold matter, so
+// the fixture only needs to reach each of the 8 size-returning entry points
+// once: {default, overaligned} x {default, explicit hot_cold} x
+// {throwing, nothrow}.  Each throwing case is a death test that dumps malloc
+// stats, which is slow, so avoid the redundant instantiations.
+class TcmallocSizedNewInvalidSizeTest : public TcmallocSizedNewTest {};
+
+INSTANTIATE_TEST_SUITE_P(
+    AlignedHotColdThrow, TcmallocSizedNewInvalidSizeTest,
+    testing::Combine(testing::Values(8, 64),
+                     testing::Values(hot_cold_t{128}, hot_cold_t{255}),
+                     testing::Values(ThrowException::kNo,
+                                     ThrowException::kYes)),
+    [](const testing::TestParamInfo<TcmallocSizedNewInvalidSizeTest::ParamType>&
+           info) {
+      std::string name = absl::StrCat(
+          "Align", std::get<0>(info.param), "HotCold",
+          static_cast<int>(std::get<1>(info.param)),
+          std::get<2>(info.param) == ThrowException::kNo ? "Nothrow" : "Throw");
+      return name;
+    });
+
+TEST_P(TcmallocSizedNewInvalidSizeTest, InvalidSizedOperatorNewDeathTest) {
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
   if (IsNothrow()) {
     sized_ptr_t res = New(kBadSize);
