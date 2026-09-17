@@ -22,7 +22,9 @@
 #include <vector>
 
 #include "fuzztest/fuzztest.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/str_format.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
@@ -33,6 +35,7 @@
 #include "tcmalloc/mock_static_forwarder.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
+#include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -50,6 +53,9 @@ auto AnyLength() {
 struct State {
   CentralFreelistEnv env;
   std::vector<void*> objects;
+  // Reference model of live objects per span, keyed by the span the
+  // forwarder's page map resolves each object to.
+  absl::flat_hash_map<Span*, size_t> allocated_per_span;
 
   State(size_t object_size, Length num_pages, size_t num_objects_to_move,
         central_freelist_internal::CflSubbucketPrioritization
@@ -59,14 +65,69 @@ struct State {
 
   ~State();
 
+  // Removes up to n objects from the central freelist and records them.
+  void Allocate(size_t n);
+  // Returns the last n live objects to the central freelist.
+  void Deallocate(size_t n);
+
   void CheckInvariants();
 };
+
+void State::Allocate(size_t n) {
+  TC_CHECK_GT(n, 0);
+  TC_CHECK_LE(n, kMaxObjectsToMove);
+  const size_t object_size =
+      env.forwarder().class_to_size(CentralFreelistEnv::kSizeClass);
+  const size_t objects_per_span = env.objects_per_span();
+  const size_t free_before = env.central_freelist().length();
+
+  void* batch[kMaxObjectsToMove];
+  const int allocated =
+      env.central_freelist().RemoveRange(absl::MakeSpan(batch, n));
+  // Nonempty spans are drained first, then at most one span is populated.
+  const size_t expected_allocated = std::min(n, free_before + objects_per_span);
+  TC_CHECK_EQ(allocated, expected_allocated);
+
+  for (int i = 0; i < allocated; ++i) {
+    void* object = batch[i];
+    Span* span = env.forwarder().MapObjectToSpan(object);
+    TC_CHECK_NE(span, nullptr);
+    // Objects are carved from the start of the span at object_size strides.
+    const uintptr_t offset = reinterpret_cast<uintptr_t>(object) -
+                             reinterpret_cast<uintptr_t>(span->start_address());
+    TC_CHECK_EQ(offset % object_size, 0);
+    TC_CHECK_LT(offset / object_size, objects_per_span);
+    // A span never hands out more objects than it holds.
+    TC_CHECK_LE(++allocated_per_span[span], objects_per_span);
+  }
+  objects.insert(objects.end(), batch, batch + allocated);
+}
+
+void State::Deallocate(size_t n) {
+  TC_CHECK_GT(n, 0);
+  TC_CHECK_LE(n, objects.size());
+  TC_CHECK_LE(n, kMaxObjectsToMove);
+  absl::Span<void*> batch(&objects[objects.size() - n], n);
+  // Resolve spans before InsertRange, which may return fully freed spans.
+  for (void* object : batch) {
+    Span* span = env.forwarder().MapObjectToSpan(object);
+    TC_CHECK_NE(span, nullptr);
+    auto it = allocated_per_span.find(span);
+    TC_CHECK(it != allocated_per_span.end());
+    if (--it->second == 0) {
+      allocated_per_span.erase(it);
+    }
+  }
+  env.central_freelist().InsertRange(batch);
+  objects.resize(objects.size() - n);
+}
 
 void State::CheckInvariants() {
   if (env.objects_per_span() == 1) {
     return;
   }
 
+  const size_t objects_per_span = env.objects_per_span();
   const tcmalloc_internal::SpanStats stats =
       env.central_freelist().GetSpanStats();
   TC_CHECK_EQ(env.central_freelist().length() + objects.size(),
@@ -76,20 +137,46 @@ void State::CheckInvariants() {
   } else {
     TC_CHECK_GT(stats.num_live_spans(), 0);
   }
+
+  // A span stays live exactly as long as it has an allocated object.
+  TC_CHECK_EQ(stats.num_live_spans(), allocated_per_span.size());
+  const size_t overhead_per_span =
+      env.forwarder()
+          .class_to_pages(CentralFreelistEnv::kSizeClass)
+          .in_bytes() -
+      objects_per_span *
+          env.forwarder().class_to_size(CentralFreelistEnv::kSizeClass);
+  TC_CHECK_EQ(env.central_freelist().OverheadBytes(),
+              stats.num_live_spans() * overhead_per_span);
+
+  // The utilization histogram buckets live spans by
+  // bit_width(allocated); the nonempty_ lists hold exactly the spans that
+  // still have free objects.
+  const int max_bitwidth = absl::bit_width(objects_per_span);
+  std::vector<size_t> expected_spans_with(max_bitwidth + 1, 0);
+  size_t expected_nonempty = 0;
+  for (const auto& [span, allocated] : allocated_per_span) {
+    ++expected_spans_with[absl::bit_width(allocated)];
+    expected_nonempty += allocated < objects_per_span;
+  }
+  for (int bitwidth = 1; bitwidth <= max_bitwidth; ++bitwidth) {
+    TC_CHECK_EQ(env.central_freelist().NumSpansWith(bitwidth),
+                expected_spans_with[bitwidth]);
+  }
+  size_t nonempty = 0;
+  for (int i = 0; i < central_freelist_internal::kNumLists; ++i) {
+    nonempty += env.central_freelist().NumSpansInList(i);
+  }
+  TC_CHECK_EQ(nonempty, expected_nonempty);
 }
 
 State::~State() {
-  const size_t allocated = objects.size();
-  size_t returned = 0;
-  while (returned < allocated) {
-    const size_t to_return =
-        std::min(allocated - returned, static_cast<size_t>(kMaxObjectsToMove));
-    env.central_freelist().InsertRange({&objects[returned], to_return});
-    returned += to_return;
+  while (!objects.empty()) {
+    Deallocate(std::min<size_t>(objects.size(), kMaxObjectsToMove));
   }
-  objects.clear();
 
   CheckInvariants();
+  TC_CHECK(allocated_per_span.empty());
 }
 
 struct Allocate {
@@ -100,13 +187,7 @@ struct Allocate {
     absl::Format(&sink, "Allocate{.num_objects=%v}", a.num_objects);
   }
 
-  void Perform(State& state) const {
-    void* batch[kMaxObjectsToMove];
-    const size_t n = num_objects;
-    int allocated =
-        state.env.central_freelist().RemoveRange(absl::MakeSpan(batch, n));
-    state.objects.insert(state.objects.end(), batch, batch + allocated);
-  }
+  void Perform(State& state) const { state.Allocate(num_objects); }
 };
 
 struct Deallocate {
@@ -120,10 +201,7 @@ struct Deallocate {
   void Perform(State& state) const {
     if (state.objects.empty()) return;
 
-    const size_t n = std::min<size_t>(num_objects, state.objects.size());
-    state.env.central_freelist().InsertRange(
-        {&state.objects[state.objects.size() - n], n});
-    state.objects.resize(state.objects.size() - n);
+    state.Deallocate(std::min<size_t>(num_objects, state.objects.size()));
   }
 };
 

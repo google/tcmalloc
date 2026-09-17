@@ -1039,7 +1039,9 @@ tcmalloc_cc_test(
   DEPS
     "GTest::gtest"
     "GTest::gmock"
+    "absl::bits"
     "absl::check"
+    "absl::flat_hash_map"
     "absl::span"
     "absl::str_format"
     "absl::time"
