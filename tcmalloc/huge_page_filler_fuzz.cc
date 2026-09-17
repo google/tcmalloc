@@ -370,22 +370,15 @@ struct State {
         unback(*this),
         collapse(*this),
         filler(Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal,
-               unback, unback, collapse, set_anon_vma_name,
-               subrelease_unbacked_mode) {
+               unback, collapse, set_anon_vma_name, subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
-    // To avoid reentrancy during unback, reserve space in released_set.  We
-    // have at most num_instructions allocations, for at most kPagesPerHugePage
-    // pages each, that we can track the released status of.
-    //
-    // TODO(b/73749855): Releasing the pageheap_lock during ReleaseFree will
-    // eliminate the need for this.
-    released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
 
+    // Both unback and collapse are invoked with pageheap_lock dropped.  Run
+    // pending reentrant instructions there to interleave other operations with
+    // the in-flight release or treatment.
     auto release_callback = [this]() {
-      if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
-        return;
-      }
+      TC_CHECK(!tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld());
       if (reentrant_stack.empty()) {
         return;
       }
@@ -407,7 +400,12 @@ struct State {
   }
 
   ~State() {
-    // Shut down, confirm filler is empty.
+    // Shut down, confirm filler is empty.  Every release and treatment drains
+    // the trackers it emptied, so none should be parked here.  Unbacking the
+    // remainder of partially released hugepages below drops pageheap_lock, so
+    // discard any remaining reentrant instructions first:  they would mutate
+    // allocs while it is being iterated.
+    reentrant_stack.clear();
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     for (auto& [pt, v] : allocs) {
       for (size_t i = 0, n = v.size(); i < n; ++i) {
@@ -427,6 +425,29 @@ struct State {
   void RunInstructions(absl::Span<const Instruction> instrs) {
     for (const auto& instruction : instrs) {
       std::visit([&](const auto& instr) { instr.Perform(*this); }, instruction);
+    }
+  }
+
+  // Fetches and deletes the trackers that were emptied while a release or
+  // treatment had pageheap_lock dropped.  Their released pages were already
+  // discounted from the filler's accounting when they were emptied.
+  void DrainFullyFreedTrackers() {
+    while (true) {
+      PageTracker* pt;
+      {
+        PageHeapSpinLockHolder l;
+        pt = filler.FetchFullyFreedTracker();
+      }
+      if (pt == nullptr) {
+        return;
+      }
+      HugePage hp = pt->location();
+      for (PageId p = hp.first_page(),
+                  end = hp.first_page() + kPagesPerHugePage;
+           p != end; ++p) {
+        released_set.erase(p);
+      }
+      delete pt;
     }
   }
 
@@ -457,20 +478,30 @@ struct State {
   std::string output;
 };
 
-MemoryModifyStatus MockUnback::operator()(Range r) {
-  if (release_callback_) {
-    release_callback_();
+MemoryModifyStatus MockUnback::operator()(Range r)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  // Models HugePageAwareAllocator::UnbackWithoutLock.
+  TC_CHECK(pageheap_lock.IsHeld());
+  pageheap_lock.unlock();
+  MemoryModifyStatus ret = {.success = true,
+                            .error_number = state_.error_number};
+  {
+    // The caller's PageHeapSpinLockHolder still forbids allocation.
+    ScopedAllocationAllow allow;
+    if (release_callback_) {
+      release_callback_();
+    }
+    if (!state_.unback_success) {
+      ret = {.success = false, .error_number = 0};
+    } else {
+      PageId end = r.p + r.n;
+      for (; r.p != end; ++r.p) {
+        state_.released_set.insert(r.p);
+      }
+    }
   }
-  if (!state_.unback_success) {
-    return {.success = false, .error_number = 0};
-  }
-
-  PageId end = r.p + r.n;
-  for (; r.p != end; ++r.p) {
-    state_.released_set.insert(r.p);
-  }
-
-  return {.success = true, .error_number = state_.error_number};
+  pageheap_lock.lock();
+  return ret;
 }
 
 PageFlagsBase::PageFlagsBitmaps FakePageFlags::GetSinglePageBitmaps(
@@ -612,6 +643,9 @@ void Release::Perform(State& state) const {
   }
   Length desired(desired_pages);
   size_t to_release_from_partial_allocs;
+  // Reentrant instructions run while the lock is dropped may allocate from or
+  // empty the release candidates, so the amount released is then unpredictable.
+  const bool reentrant_was_pending = !state.reentrant_stack.empty();
 
   Length released;
   {
@@ -622,10 +656,11 @@ void Release::Perform(State& state) const {
     released = state.filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
   }
+  state.DrainFullyFreedTrackers();
 
   if (!release_partial_allocs || hit_limit ||
       skip_subrelease_intervals.SkipSubreleaseEnabled() ||
-      !state.unback_success || state.depth != 0) {
+      !state.unback_success || state.depth != 0 || reentrant_was_pending) {
     return;
   }
   TC_CHECK_GE(released.raw_num(), to_release_from_partial_allocs);
@@ -687,13 +722,15 @@ void MemoryLimitHitRelease::Perform(State& state) const {
   Length desired_len(desired);
   Length released;
   const Length free = state.filler.free_pages();
+  const bool reentrant_was_pending = !state.reentrant_stack.empty();
   {
     PageHeapSpinLockHolder l;
     released = state.filler.ReleasePages(desired_len, SkipSubreleaseIntervals{},
                                          /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
   }
-  if (state.depth != 0) {
+  state.DrainFullyFreedTrackers();
+  if (state.depth != 0 || reentrant_was_pending) {
     return;
   }
   const Length expected =
@@ -727,26 +764,25 @@ void TreatTrackers::Perform(State& state) const {
   state.treating_trackers = true;
   FakePageFlags pageflags(state);
   FakeResidency residency(state);
-  PageHeapSpinLockHolder l;
-  state.filler.TreatHugepageTrackers(
-      enable_collapse ? EnableCollapse::kEnabled : EnableCollapse::kDisabled,
-      enable_unfiltered_collapse ? EnableUnfilteredCollapse::kEnabled
-                                 : EnableUnfilteredCollapse::kDisabled,
-      enable_release_stale_pages ? ReleaseStalePages::kEnabled
-                                 : ReleaseStalePages::kDisabled,
-      &pageflags, &residency);
-  state.treating_trackers = false;
-  while (PageTracker* pt = state.filler.FetchFullyFreedTracker()) {
-    HugePage hp = pt->location();
-    for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
-         p != end; ++p) {
-      state.released_set.erase(p);
-    }
-    delete pt;
+  {
+    PageHeapSpinLockHolder l;
+    state.filler.TreatHugepageTrackers(
+        enable_collapse ? EnableCollapse::kEnabled : EnableCollapse::kDisabled,
+        enable_unfiltered_collapse ? EnableUnfilteredCollapse::kEnabled
+                                   : EnableUnfilteredCollapse::kDisabled,
+        enable_release_stale_pages ? ReleaseStalePages::kEnabled
+                                   : ReleaseStalePages::kDisabled,
+        &pageflags, &residency);
   }
+  state.treating_trackers = false;
+  state.DrainFullyFreedTrackers();
   for (PageTracker* pt : state.trackers) {
     HugePage hp = pt->location();
-    const PageBitmap& rel = pt->released_by_page();
+    PageBitmap rel;
+    {
+      PageHeapSpinLockHolder l;
+      rel = pt->released_by_page();
+    }
     for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
       PageId p = hp.first_page() + Length(i);
       if (rel.GetBit(i)) {
@@ -1208,6 +1244,63 @@ TEST(HugePageFillerTest, ConcurrentTreatmentInterferenceStress) {
   });
 
   FuzzFiller(instructions, SubreleaseUnbackedMode::kDisabled);
+}
+
+// Interleavings with an in-flight release, which drops pageheap_lock for each
+// range unbacked.
+TEST(HugePageFillerTest, ReentrantDeallocateEmptiesTrackerDuringRelease) {
+  // The reentrant Deallocate frees the only allocation of the hugepage being
+  // released, so the tracker is parked and drained after ReleasePages.
+  FuzzFiller({Allocate{.length = 1, .num_objects = 1},
+              ReentrantSubprogram{.subprogram = {Deallocate{.tracker_index = 0,
+                                                            .alloc_index = 0},
+                                                 GatherStats{}}},
+              Release{.desired_pages = 65535, .release_partial_allocs = true},
+              GatherSpanStats{}},
+             SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, ReentrantReleaseAndAllocateDuringRelease) {
+  // Two hugepages are candidates; the reentrant program allocates, releases
+  // and deallocates while the first is being released.
+  FuzzFiller(
+      {Allocate{.length = 1, .num_objects = 1}, ModelTail{.length = 1},
+       ReentrantSubprogram{
+           .subprogram = {Allocate{.length = 8, .num_objects = 1},
+                          MemoryLimitHitRelease{.desired = 65535},
+                          Deallocate{.tracker_index = 1, .alloc_index = 0},
+                          Deallocate{.tracker_index = 0, .alloc_index = 0},
+                          Release{.desired_pages = 65535,
+                                  .release_partial_allocs = true}}},
+       Release{.desired_pages = 65535, .release_partial_allocs = true},
+       GatherStatsPbtxt{}},
+      SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, ReentrantTreatmentDuringRelease) {
+  FuzzFiller(
+      {UpdateBitmaps{.hugepage_backed_set = true,
+                     .hugepage_backed_val = false,
+                     .unbacked_bitmap_val = 0xff,
+                     .swapped_bitmap_val = 0xff},
+       Allocate{.length = 1, .num_objects = 1}, ModelTail{.length = 1},
+       ReentrantSubprogram{
+           .subprogram = {TreatTrackers{.enable_collapse = true,
+                                        .enable_unfiltered_collapse = true},
+                          Deallocate{.tracker_index = 0, .alloc_index = 0}}},
+       Release{.desired_pages = 65535, .release_partial_allocs = true},
+       TreatTrackers{.enable_collapse = true,
+                     .enable_unfiltered_collapse = true}},
+      SubreleaseUnbackedMode::kEnabled);
+}
+
+TEST(HugePageFillerTest, ReentrantModelTailDuringTeardown) {
+  // The remaining reentrant program would otherwise run while ~State unbacks
+  // the remainder of the partially released hugepage.
+  FuzzFiller({ModelTail{.length = 0}, MemoryLimitHitRelease{.desired = 22219},
+              ReentrantSubprogram{.subprogram = {ModelTail{.length = 0}}},
+              ToggleUnback{}},
+             SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest, SubreleaseUnbackedRegression) {
