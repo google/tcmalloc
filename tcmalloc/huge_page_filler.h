@@ -989,6 +989,13 @@ class HugePageFiller {
   void RemoveFromFillerList(TrackerType* absl_nonnull pt);
   // Put pt in the appropriate PageTrackerList.
   void AddToFillerList(TrackerType* absl_nonnull pt);
+  // Retires a tracker that has become empty.  Returns pt if the caller now owns
+  // it; returns nullptr if pt was parked on fully_freed_trackers_ because a
+  // concurrent operation still holds a pointer to it.  May drop and reacquire
+  // pageheap_lock.
+  [[nodiscard]] TrackerType* absl_nullable HandleFullyFreedTracker(
+      TrackerType* absl_nonnull pt)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Like AddToFillerList(), but for use when donating from the tail of a
   // multi-hugepage allocation.
   void DonateToFillerList(TrackerType* absl_nonnull pt);
@@ -1334,58 +1341,69 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     pages_allocated_[AccessDensityPrediction::kSparse] -= r.n;
   }
 
-  if (pt->longest_free_range() == kPagesPerHugePage) {
-    TC_ASSERT_EQ(pt->nallocs(), 0);
-    --size_;
-    if (pt->released()) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      const Length free_pages = kPagesPerHugePage;
-#else
-      const Length free_pages = pt->free_pages();
-#endif
-      const Length released_pages = pt->released_pages();
-      TC_ASSERT_GE(free_pages, released_pages);
-      TC_ASSERT_GE(unmapped_, released_pages);
-      unmapped_ -= released_pages;
-
-      if (free_pages > released_pages) {
-        // pt is partially released.  As the rest of the hugepage-aware
-        // allocator works in terms of whole hugepages, we need to release the
-        // rest of the hugepage.  This simplifies subsequent accounting by
-        // allowing us to work with hugepage-granularity, rather than needing to
-        // retain pt's state indefinitely.
-        bool success =
-            unback_without_lock_(HugeRange(pt->location(), NHugePages(1)))
-                .success;
-
-        if (ABSL_PREDICT_TRUE(success)) {
-          unmapping_unaccounted_ += free_pages - released_pages;
-        }
-      }
-    }
-
-    if (pt->was_released()) {
-      pt->set_was_released(/*status=*/false);
-      if (pt->HasDenseSpans()) {
-        --n_was_released_[AccessDensityPrediction::kDense];
-      } else {
-        --n_was_released_[AccessDensityPrediction::kSparse];
-      }
-    }
-
-    if (!pt->DontFreeTracker()) {
-      RecordLifetime(pt);
-      UpdateFillerStatsTracker();
-      if (pt->GetTagState().sampled_for_tagging) {
-        // Set the default region name if the tracked was sampled.
-        pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
-      }
-      return pt;
-    }
+  if (ABSL_PREDICT_FALSE(pt->fully_freed())) {
+    return HandleFullyFreedTracker(pt);
   }
   AddToFillerList(pt);
   UpdateFillerStatsTracker();
   return nullptr;
+}
+
+template <class TrackerType>
+inline TrackerType* absl_nullable
+HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt) {
+  TC_ASSERT_EQ(pt->nallocs(), 0);
+  --size_;
+  if (pt->released()) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    const Length free_pages = kPagesPerHugePage;
+#else
+    const Length free_pages = pt->free_pages();
+#endif
+    const Length released_pages = pt->released_pages();
+    TC_ASSERT_GE(free_pages, released_pages);
+    TC_ASSERT_GE(unmapped_, released_pages);
+    unmapped_ -= released_pages;
+
+    if (free_pages > released_pages) {
+      // pt is partially released.  As the rest of the hugepage-aware
+      // allocator works in terms of whole hugepages, we need to release the
+      // rest of the hugepage.  This simplifies subsequent accounting by
+      // allowing us to work with hugepage-granularity, rather than needing to
+      // retain pt's state indefinitely.
+      bool success =
+          unback_without_lock_(HugeRange(pt->location(), NHugePages(1)))
+              .success;
+
+      if (ABSL_PREDICT_TRUE(success)) {
+        unmapping_unaccounted_ += free_pages - released_pages;
+      }
+    }
+  }
+
+  if (pt->was_released()) {
+    pt->set_was_released(/*status=*/false);
+    if (pt->HasDenseSpans()) {
+      --n_was_released_[AccessDensityPrediction::kDense];
+    } else {
+      --n_was_released_[AccessDensityPrediction::kSparse];
+    }
+  }
+
+  if (ABSL_PREDICT_FALSE(pt->DontFreeTracker())) {
+    // A concurrent operation that dropped pageheap_lock still holds a pointer
+    // to pt.  Park it until the last pin is cleared (FetchFullyFreedTracker).
+    AddToFillerList(pt);
+    UpdateFillerStatsTracker();
+    return nullptr;
+  }
+  RecordLifetime(pt);
+  UpdateFillerStatsTracker();
+  if (pt->GetTagState().sampled_for_tagging) {
+    // Set the default region name if the tracked was sampled.
+    pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
+  }
+  return pt;
 }
 
 template <class TrackerType>
