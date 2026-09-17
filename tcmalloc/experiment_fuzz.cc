@@ -33,8 +33,11 @@ void FuzzSelectExperiments(absl::string_view test_target,
   }
 
   bool buffer[tcmalloc::tcmalloc_internal::kNumExperiments];
+  bool buffer2[tcmalloc::tcmalloc_internal::kNumExperiments];
 
   SelectExperiments(buffer, test_target, active, disabled, unset, hostname,
+                    experiments);
+  SelectExperiments(buffer2, test_target, active, disabled, unset, hostname,
                     experiments);
 
   auto IsCompilerExperiment = [](Experiment exp) {
@@ -46,12 +49,22 @@ void FuzzSelectExperiments(absl::string_view test_target,
   };
 
   for (const auto& config : experiments) {
+    const int id = static_cast<int>(config.id);
+    if (!(unset && !test_target.empty())) {
+      EXPECT_EQ(buffer[id], buffer2[id]);
+    }
+
     if (config.force_disable) {
-      EXPECT_FALSE(buffer[static_cast<int>(config.id)]);
+      EXPECT_FALSE(buffer[id]);
     }
 
     if (disabled == "all" && !IsCompilerExperiment(config.id)) {
-      EXPECT_FALSE(buffer[static_cast<int>(config.id)]);
+      EXPECT_FALSE(buffer[id]);
+    }
+
+    if (active == "enable-all-known-experiments" && disabled.empty() &&
+        !config.force_disable && !config.brittle) {
+      EXPECT_TRUE(buffer[id]);
     }
   }
 }
@@ -67,7 +80,32 @@ TEST(ExperimentTest, FuzzSelectExperiments_b395212979) {
 
 void FuzzRolloutEnabled(const ExperimentConfig& config,
                         absl::string_view hostname) {
-  IsExperimentRolloutEnabled(config, hostname);
+  const bool enabled = IsExperimentRolloutEnabled(config, hostname);
+  EXPECT_EQ(enabled, IsExperimentRolloutEnabled(config, hostname));
+
+  if (hostname.empty()) {
+    EXPECT_EQ(enabled, config.rollout_inverted);
+    return;
+  }
+
+  if (!config.rollout_inverted) {
+    if (config.rollout_lower_bound >= config.rollout_upper_bound ||
+        config.rollout_upper_bound <= 0.0 ||
+        config.rollout_lower_bound >= 1.0) {
+      EXPECT_FALSE(enabled);
+    } else if (config.rollout_lower_bound <= 0.0 &&
+               config.rollout_upper_bound >= 1.0) {
+      EXPECT_TRUE(enabled);
+    }
+  } else {
+    const double ablation_lower =
+        1.0 - (config.rollout_upper_bound - config.rollout_lower_bound);
+    if (ablation_lower <= 0.0) {
+      EXPECT_FALSE(enabled);
+    } else if (ablation_lower >= 1.0) {
+      EXPECT_TRUE(enabled);
+    }
+  }
 }
 
 FUZZ_TEST(ExperimentTest, FuzzRolloutEnabled);
