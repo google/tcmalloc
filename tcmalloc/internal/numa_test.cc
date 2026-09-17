@@ -168,6 +168,8 @@ TEST_F(NumaTopologyTest, TwoNode) {
 
   EXPECT_EQ(nt.numa_aware(), true);
   EXPECT_EQ(nt.active_partitions(), 2);
+  // TCMALLOC_NUMA_AWARE is unset, so we expect the default binding behavior.
+  EXPECT_EQ(nt.bind_mode(), NumaBindMode::kAdvisory);
 
   for (int cpu = 0; cpu <= 5; cpu++) {
     EXPECT_EQ(nt.GetCpuPartition(cpu), 0);
@@ -246,6 +248,18 @@ TEST_F(NumaTopologyTest, Host) {
   for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
     size_t partition = nt.GetCpuPartition(cpu);
     EXPECT_LT(partition, active_partitions) << cpu;
+  }
+}
+
+// NumaTopology is statically allocated within TCMalloc.  Confirm that it is
+// constant initialized to all zero bytes so that it lands in .bss rather than
+// .data.
+TEST(NumaTopology, ZeroInitialized) {
+  static constinit NumaTopology<2> nt;
+
+  const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&nt);
+  for (size_t i = 0; i < sizeof(nt); ++i) {
+    EXPECT_EQ(bytes[i], 0);
   }
 }
 

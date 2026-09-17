@@ -66,6 +66,9 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
 
   partition_to_nodes[NodeToPartition(0, num_partitions)] |= 1 << 0;
   *num_nodes = 1;
+  // Establish the default binding behavior here rather than relying on
+  // NumaTopology's in-class member initializer.
+  *bind_mode = NumaBindMode::kAdvisory;
 
   // We rely on rseq to quickly obtain a CPU ID & lookup the appropriate
   // partition in NumaTopology::GetCurrentPartition(). If rseq is unavailable,
