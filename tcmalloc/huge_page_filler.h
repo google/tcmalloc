@@ -1934,7 +1934,6 @@ inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
     PageTracker* tracker) {
   RemoveFromFillerList(tracker);
   Length released_length = tracker->ReleaseFree(unback_);
-  subrelease_stats_.total_pages_subreleased += released_length;
   unmapped_ += released_length;
   unmapping_unaccounted_ += released_length;
   AddToFillerList(tracker);
@@ -1954,7 +1953,6 @@ inline Length HugePageFiller<TrackerType>::HandleUnbackedHugePage(
     PageTracker* tracker, const PageBitmap& unbacked) {
   RemoveFromFillerList(tracker);
   Length unmapped_length = tracker->MarkSubreleased(unbacked);
-  subrelease_stats_.total_pages_subreleased += unmapped_length;
   unmapped_ += unmapped_length;
   unmapping_unaccounted_ += unmapped_length;
   AddToFillerList(tracker);
