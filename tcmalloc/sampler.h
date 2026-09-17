@@ -153,8 +153,8 @@ class Sampler {
   ssize_t GetGeometricVariable(ssize_t mean);
 };
 
-inline size_t Sampler::RecordAllocation(size_t k) {
-  if (!TryRecordAllocationFast(k)) {
+inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE Sampler::RecordAllocation(size_t k) {
+  if (ABSL_PREDICT_FALSE(!TryRecordAllocationFast(k))) {
     return RecordAllocationSlow(k);
   }
   return 0;
@@ -173,7 +173,8 @@ Sampler::TryRecordAllocationFast(size_t k) {
       bytes_until_sample_, k, reinterpret_cast<size_t*>(&bytes_until_sample_)));
 }
 
-inline size_t Sampler::RecordedAllocationFast(size_t k) {
+inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE
+Sampler::RecordedAllocationFast(size_t k) {
   // TryRecordAllocationFast already decremented the counter.
   if (ABSL_PREDICT_FALSE(bytes_until_sample_ < 0)) {
     return RecordAllocationSlow(k);
@@ -181,7 +182,8 @@ inline size_t Sampler::RecordedAllocationFast(size_t k) {
   return 0;
 }
 
-inline bool Sampler::WillRecordAllocation(size_t k) {
+inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
+Sampler::WillRecordAllocation(size_t k) {
   return ABSL_PREDICT_FALSE(bytes_until_sample_ < (k + 1));
 }
 
