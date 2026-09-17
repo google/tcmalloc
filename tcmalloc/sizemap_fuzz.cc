@@ -60,6 +60,12 @@ void FuzzSizeMap(const std::vector<FuzzSizeClassInfo>& fuzz_info) {
     const size_t s = m.class_to_size(size_class);
     EXPECT_LE(size, s);
     EXPECT_NE(s, 0) << size;
+    EXPECT_GT(m.num_objects_to_move(size_class), 0) << size;
+    EXPECT_GT(m.class_to_pages(size_class), Length(0)) << size;
+
+    const auto [min_size, max_size] = m.class_to_size_range(size_class);
+    EXPECT_LE(min_size, size);
+    EXPECT_EQ(max_size, s);
 
     EXPECT_LE(last_size_class, size_class);
     last_size_class = size_class;
@@ -84,18 +90,31 @@ void FuzzGetSizeClass(size_t size) {
 
   // After m.Init(), GetSizeClass should return a size class.
   ASSERT_TRUE(m.Init(kSizeClasses.classes));
-  {
-    if (auto [is_small, size_class] = m.GetSizeClass(CppPolicy(), size);
-        is_small) {
+  auto check_policy = [&](auto policy) {
+    if (auto [is_small, size_class] = m.GetSizeClass(policy, size); is_small) {
+      EXPECT_EQ(m.SizeClass(policy, size), size_class);
       const size_t mapped_size = m.class_to_size(size_class);
-      // The size class needs to hold size.
+      const size_t alignment = static_cast<size_t>(policy.align());
+      // The size class needs to hold size and satisfy policy alignment.
       EXPECT_GE(mapped_size, size);
+      EXPECT_EQ(mapped_size % alignment, 0);
+      if (size_class < kNumBaseClasses && size > 0 &&
+          policy.align() <= kAlignment) {
+        const auto [min_size, max_size] = m.class_to_size_range(size_class);
+        EXPECT_LE(min_size, size);
+        EXPECT_EQ(max_size, mapped_size);
+      }
+      EXPECT_GT(m.num_objects_to_move(size_class), 0);
+      EXPECT_GT(m.class_to_pages(size_class), Length(0));
     } else {
       // We should only fail to lookup the size class when size is outside of
       // the size classes.
       EXPECT_GT(size, kMaxSize);
     }
-  }
+  };
+  check_policy(CppPolicy());
+  check_policy(MallocPolicy());
+  check_policy(CppPolicy().AccessAsCold());
 }
 
 void FuzzGetSizeClassWithAlignment(size_t size, size_t alignment) {
@@ -118,10 +137,8 @@ void FuzzGetSizeClassWithAlignment(size_t size, size_t alignment) {
 
   // After m.Init(), GetSizeClass should return a size class.
   ASSERT_TRUE(m.Init(kSizeClasses.classes));
-  {
-    if (auto [is_small, size_class] =
-            m.GetSizeClass(CppPolicy().AlignAs(alignment), size);
-        is_small) {
+  auto check_aligned_policy = [&](auto policy) {
+    if (auto [is_small, size_class] = m.GetSizeClass(policy, size); is_small) {
       const size_t mapped_size = m.class_to_size(size_class);
       // The size class needs to hold size.
       EXPECT_GE(mapped_size, size);
@@ -133,7 +150,10 @@ void FuzzGetSizeClassWithAlignment(size_t size, size_t alignment) {
       // We should only fail to lookup the size class when size is large.
       EXPECT_GT(size, kMaxSize) << alignment;
     }
-  }
+  };
+  check_aligned_policy(CppPolicy().AlignAs(alignment));
+  check_aligned_policy(MallocPolicy().AlignAs(alignment));
+  check_aligned_policy(CppPolicy().AlignAs(alignment).AccessAsCold());
 }
 
 void FuzzSizeClass(size_t size) {
