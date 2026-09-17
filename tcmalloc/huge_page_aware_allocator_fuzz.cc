@@ -16,8 +16,11 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <functional>
+#include <optional>
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -30,6 +33,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -40,25 +44,18 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/scoped_allow_allocation.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
-#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc::tcmalloc_internal {
 
 namespace {
-
-__attribute__((constructor)) void InitTcmalloc() {
-  // If this test is not linked against TCMalloc, the global arena used for
-  // metadata will not be initialized.
-  tc_globals.InitIfNecessary();
-}
-
 using huge_page_allocator_internal::FakeStaticForwarder;
 using huge_page_allocator_internal::HugePageAwareAllocator;
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
@@ -390,17 +387,6 @@ struct SetReleaseMaxColdPages {
   }
 };
 
-struct SetReleaseMaxFillerPages {
-  bool value;
-
-  void Perform(State& state) const;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const SetReleaseMaxFillerPages& s) {
-    absl::Format(&sink, "SetReleaseMaxFillerPages{.value=%v}", s.value);
-  }
-};
-
 struct SetEnableReleaseStalePages {
   bool value;
 
@@ -428,7 +414,23 @@ struct Instruction;
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i);
 
+// Runs when the allocator next drops pageheap_lock, nested inside the
+// operation that dropped it.  The subprogram always finishes before that
+// operation resumes.
 struct ReentrantSubprogram {
+  std::vector<Instruction> subprogram;
+
+  void Perform(State& state) const;
+};
+
+// Runs on a helper thread that alternates with the main thread in lock-step:
+// each time the allocator drops pageheap_lock on one thread, the other thread
+// runs until it, in turn, drops pageheap_lock or finishes.  Unlike
+// ReentrantSubprogram, an operation started this way can outlive the operation
+// it interrupted, so two releases can be in flight at the same time and finish
+// in either order.  Performing another ConcurrentSubprogram while one is
+// active advances the active one by a step and queues the new one.
+struct ConcurrentSubprogram {
   std::vector<Instruction> subprogram;
 
   void Perform(State& state) const;
@@ -441,8 +443,8 @@ using ParamOp = std::variant<
     SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
-    SetReleaseMaxFillerPages, SetEnableReleaseStalePages,
-    SetMadvNoHugepageHugeRegions>;
+    SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions,
+    ConcurrentSubprogram>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -490,6 +492,15 @@ void AbslStringify(Sink& sink, const ReentrantSubprogram& r) {
                              }));
 }
 
+template <typename Sink>
+void AbslStringify(Sink& sink, const ConcurrentSubprogram& c) {
+  absl::Format(&sink, "ConcurrentSubprogram{.subprogram={%s}}",
+               absl::StrJoin(c.subprogram, ", ",
+                             [](std::string* out, const Instruction& i) {
+                               absl::StrAppend(out, i);
+                             }));
+}
+
 struct SpanInfo {
   Span* span;
   size_t objects_per_span;
@@ -514,6 +525,13 @@ struct State {
         return;
       }
 
+      if (OnHelperThread()) {
+        // Hand control back to the main thread until it next drops the lock.
+        YieldToMain();
+        return;
+      }
+      StepHelper();
+
       if (reentrant_stack.empty()) {
         return;
       }
@@ -531,9 +549,82 @@ struct State {
     };
   }
 
+  ~State() { FinishHelper(); }
+
+  bool OnHelperThread() const {
+    return helper.has_value() && std::this_thread::get_id() == helper->get_id();
+  }
+
+  // True if instructions other than the current one may run before it
+  // completes, so postconditions that assume otherwise must be relaxed.
+  bool interleaving_possible() const {
+    return !reentrant_stack.empty() || helper_active ||
+           !concurrent_queue.empty();
+  }
+
+  // Runs the helper thread until it next drops pageheap_lock or finishes its
+  // subprogram, starting a queued subprogram if none is active.  Must be
+  // called on the main thread without pageheap_lock held.
+  void StepHelper() {
+    TC_CHECK(!OnHelperThread());
+    if (!helper_active) {
+      if (concurrent_queue.empty()) {
+        return;
+      }
+      // We may be inside the release callback, under the caller's
+      // AllocationGuard; std::thread allocates.
+      ScopedAllocationAllow allow;
+      if (helper.has_value()) {
+        helper->join();
+      }
+      helper_program = concurrent_queue.front();
+      concurrent_queue.pop_front();
+      helper_active = true;
+      helper.emplace([this]() {
+        {
+          absl::MutexLock l(&mu);
+          mu.Await(absl::Condition(&helper_turn));
+        }
+        RunInstructions(helper_program);
+        helper_active = false;
+        absl::MutexLock l(&mu);
+        helper_turn = false;
+      });
+    }
+    absl::MutexLock l(&mu);
+    helper_turn = true;
+    mu.Await(absl::Condition(+[](bool* turn) { return !*turn; }, &helper_turn));
+  }
+
+  // Parks the helper thread until the main thread next calls StepHelper.
+  void YieldToMain() {
+    TC_CHECK(OnHelperThread());
+    absl::MutexLock l(&mu);
+    helper_turn = false;
+    mu.Await(absl::Condition(&helper_turn));
+  }
+
+  // Runs any active helper subprogram to completion and drops queued ones.
+  void FinishHelper() {
+    concurrent_queue.clear();
+    while (helper_active) {
+      StepHelper();
+    }
+    if (helper.has_value()) {
+      helper->join();
+      helper.reset();
+    }
+  }
+
   void RunInstructions(absl::Span<const Instruction> instrs) {
     for (const auto& instruction_wrapper : instrs) {
       instruction_wrapper.Perform(*this);
+      if (depth == 0) {
+        // Between top-level instructions nothing is in flight unless a
+        // concurrent subprogram is parked mid-release, which
+        // GatherAndCheckStats accounts for via pending_release_.
+        GatherAndCheckStats{}.Perform(*this);
+      }
     }
   }
 
@@ -544,6 +635,15 @@ struct State {
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
   std::string output;
+
+  // Lock-step helper thread state (see ConcurrentSubprogram).  The two threads
+  // never run at the same time: helper_turn says which one may proceed.
+  std::deque<absl::Span<const Instruction>> concurrent_queue;
+  std::optional<std::thread> helper;
+  absl::Span<const Instruction> helper_program;
+  bool helper_active = false;
+  absl::Mutex mu;
+  bool helper_turn ABSL_GUARDED_BY(mu) = false;
 };
 
 void ChangeParam::Perform(State& state) const {
@@ -679,7 +779,7 @@ void ReleasePagesBreakingHugepages::Perform(State& state) const {
   PageReleaseStats actual_stats;
   // If we might run other operations when we simulate the lock being
   // released, we might not get the results we expected.
-  const bool reentrant_was_pending = !state.reentrant_stack.empty();
+  const bool reentrant_was_pending = state.interleaving_possible();
   {
     PageHeapSpinLockHolder l;
     releasable_bytes = state.allocator.FillerStats().free_bytes +
@@ -735,7 +835,14 @@ void GatherAndCheckStats::Perform(State& state) const {
   }
   uint64_t used_bytes =
       stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
-  TC_CHECK_EQ(used_bytes,
+  // We only get here with pending_release_ != 0 from a reentrant subprogram or
+  // while a concurrent subprogram is parked inside a release.
+  // HugeCache takes a range out of its free stats while it is being released
+  // (used == allocated + pending), whereas HugePageFiller accounts pages in
+  // flight as unmapped (used == allocated), so used_bytes can land anywhere in
+  // between.
+  TC_CHECK_GE(used_bytes, state.allocated.in_bytes());
+  TC_CHECK_LE(used_bytes,
               state.allocated.in_bytes() +
                   state.allocator.forwarder().pending_release_.in_bytes());
 }
@@ -810,16 +917,22 @@ void ReentrantSubprogram::Perform(State& state) const {
   state.reentrant_stack.push_back(subprogram);
 }
 
+void ConcurrentSubprogram::Perform(State& state) const {
+  if (state.depth != 0 || state.OnHelperThread()) {
+    return;
+  }
+  if (!subprogram.empty()) {
+    state.concurrent_queue.push_back(subprogram);
+  }
+  state.StepHelper();
+}
+
 void SetEnableUnfilteredCollapse::Perform(State& state) const {
   state.allocator.forwarder().set_enable_unfiltered_collapse(value);
 }
 
 void SetReleaseMaxColdPages::Perform(State& state) const {
   state.allocator.forwarder().set_release_max_cold_pages(value);
-}
-
-void SetReleaseMaxFillerPages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_max_filler_pages(value);
 }
 
 void SetEnableReleaseStalePages::Perform(State& state) const {
@@ -847,6 +960,7 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
 
   // Stop recursing, since allocator.Delete below might cause us to "release"
   // more pages to the system.
+  state.FinishHelper();
   state.reentrant_stack.clear();
 
   // Clean up.
@@ -897,6 +1011,9 @@ auto GetHPAADomain() {
 
 fuzztest::Domain<Instruction> GetInstructionDomain(int depth);
 
+// Maximum nesting of subprograms in generated instruction lists.
+constexpr int kMaxSubprogramDepth = 5;
+
 fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
   auto base_domain = fuzztest::OneOf(
       fuzztest::Map([](ResetSubreleaseIntervals r) { return ChangeParam{r}; },
@@ -937,8 +1054,6 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
           fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
       fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
-      fuzztest::Map([](SetReleaseMaxFillerPages s) { return ChangeParam{s}; },
-                    fuzztest::Arbitrary<SetReleaseMaxFillerPages>()),
       fuzztest::Map([](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
       fuzztest::Map(
@@ -956,12 +1071,22 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                              .WithSize(0)));
   }
 
-  return fuzztest::OneOf(
-      base_domain, fuzztest::Map(
-                       [](std::vector<Instruction> v) {
-                         return ChangeParam{ReentrantSubprogram{v}};
-                       },
-                       fuzztest::VectorOf(GetInstructionDomain(depth - 1))));
+  auto subprogram_domain = fuzztest::VectorOf(GetInstructionDomain(depth - 1));
+  auto reentrant_domain = fuzztest::Map(
+      [](std::vector<Instruction> v) {
+        return ChangeParam{ReentrantSubprogram{v}};
+      },
+      subprogram_domain);
+  if (depth < kMaxSubprogramDepth) {
+    return fuzztest::OneOf(base_domain, reentrant_domain);
+  }
+  // ConcurrentSubprogram only does anything at the top level.
+  return fuzztest::OneOf(base_domain, reentrant_domain,
+                         fuzztest::Map(
+                             [](std::vector<Instruction> v) {
+                               return ChangeParam{ConcurrentSubprogram{v}};
+                             },
+                             subprogram_domain));
 }
 
 fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
@@ -991,7 +1116,7 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
 
 FUZZ_TEST(HugePageAwareAllocatorTest, FuzzHPAA)
     .WithDomains(GetHPAADomain(),
-                 fuzztest::VectorOf(GetInstructionDomain(/*depth=*/5)));
+                 fuzztest::VectorOf(GetInstructionDomain(kMaxSubprogramDepth)));
 
 TEST(HugePageAwareAllocatorTest, FuzzHPAARegression) {
   FuzzHugePageAwareAllocatorOptions options;
