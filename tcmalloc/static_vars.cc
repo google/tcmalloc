@@ -75,7 +75,7 @@ ABSL_CONST_INIT SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT TransferCacheManager
     Static::transfer_cache_;
 ABSL_CONST_INIT ShardedTransferCacheManager
-    Static::sharded_transfer_cache_(nullptr, nullptr);
+    Static::sharded_transfer_cache_(nullptr);
 ABSL_CONST_INIT CpuCache<Static> ABSL_CACHELINE_ALIGNED Static::cpu_cache_{
     tc_globals};
 ABSL_CONST_INIT
@@ -178,7 +178,6 @@ SizeClassConfiguration Static::size_class_configuration() {
   // TODO(b/512895228): remove this opt out once we are done experimenting.
   const char* e_reuse = thread_safe_getenv("TCMALLOC_REUSE_SIZE_CLASSES");
   const char* e_legacy = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
-
 
   if (e_reuse != nullptr) {
     if (!strcmp(e_reuse, "reuserelaxedbelow64")) {
