@@ -61,6 +61,8 @@ struct State {
   void* mem = nullptr;
   std::unique_ptr<Span> span;
   std::vector<void*> live_ptrs;
+  // live[i] mirrors whether object i of the span is in live_ptrs.
+  std::vector<bool> live;
   std::vector<void*> batch;
   std::mt19937 rng;
   bool donated = false;
@@ -80,7 +82,9 @@ struct State {
                 0);
 
     live_ptrs.reserve(objects_per_span);
+    live.resize(objects_per_span, false);
     batch.resize(kMaxObjectsToMove);
+    CheckInvariants();
   }
 
   ~State() {
@@ -91,6 +95,54 @@ struct State {
       i += limit;
     }
     free(mem);
+  }
+
+  // Returns the index of ptr within the span, checking that it is an object
+  // boundary inside the span.
+  size_t IndexOf(void* ptr) const {
+    const uintptr_t offset =
+        reinterpret_cast<uintptr_t>(ptr) - reinterpret_cast<uintptr_t>(mem);
+    TC_CHECK_EQ(offset % object_size, 0);
+    const size_t index = offset / object_size;
+    TC_CHECK_LT(index, objects_per_span);
+    return index;
+  }
+
+  // Records objects popped from the span, which must not already be live.
+  void Popped(absl::Span<void* const> ptrs) {
+    for (void* ptr : ptrs) {
+      const size_t index = IndexOf(ptr);
+      TC_CHECK(!live[index]);
+      live[index] = true;
+    }
+    live_ptrs.insert(live_ptrs.end(), ptrs.begin(), ptrs.end());
+  }
+
+  // Returns the last n live objects to the span, checking that the push
+  // reports whether the span still has allocated objects.  A push that would
+  // free the whole span is rejected and leaves the objects allocated.
+  template <typename Push>
+  void Pushed(size_t n, Push push) {
+    TC_CHECK_LE(n, live_ptrs.size());
+    absl::Span<void*> ptrs =
+        absl::MakeSpan(live_ptrs.data() + live_ptrs.size() - n, n);
+    const bool expected = n != live_ptrs.size();
+    TC_CHECK_EQ(push(ptrs), expected);
+    if (!expected) {
+      return;
+    }
+    for (void* ptr : ptrs) {
+      const size_t index = IndexOf(ptr);
+      TC_CHECK(live[index]);
+      live[index] = false;
+    }
+    live_ptrs.resize(live_ptrs.size() - n);
+  }
+
+  void CheckInvariants() const {
+    TC_CHECK_EQ(span->Allocated(), live_ptrs.size());
+    TC_CHECK_EQ(span->FreelistEmpty(object_size, objects_per_span),
+                live_ptrs.size() == objects_per_span);
   }
 };
 
@@ -111,10 +163,14 @@ struct Alloc {
       return;
     }
 
-    size_t popped = state.span->FreelistPopBatch(
+    const size_t popped = state.span->FreelistPopBatch(
         absl::MakeSpan(state.batch.data(), n), state.object_size);
-    state.live_ptrs.insert(state.live_ptrs.end(), state.batch.data(),
-                           state.batch.data() + popped);
+    // The freelist hands out every remaining object before running dry.
+    const size_t expected_popped =
+        std::min(n, state.objects_per_span - state.live_ptrs.size());
+    TC_CHECK_EQ(popped, expected_popped);
+    state.Popped(absl::MakeSpan(state.batch.data(), popped));
+    state.CheckInvariants();
   }
 };
 
@@ -144,11 +200,11 @@ struct Dealloc {
       return;
     }
 
-    absl::Span<void*> ptrs =
-        absl::MakeSpan(state.live_ptrs.data() + state.live_ptrs.size() - n, n);
-    (void)state.span->FreelistPushBatch(ptrs, state.object_size,
-                                        state.size_reciprocal);
-    state.live_ptrs.resize(state.live_ptrs.size() - n);
+    state.Pushed(n, [&](absl::Span<void*> ptrs) {
+      return state.span->FreelistPushBatch(ptrs, state.object_size,
+                                           state.size_reciprocal);
+    });
+    state.CheckInvariants();
   }
 };
 
@@ -168,25 +224,24 @@ struct DeallocIndex {
       return;
     }
 
-    absl::Span<void*> ptrs =
-        absl::MakeSpan(state.live_ptrs.data() + state.live_ptrs.size() - n, n);
-
-    Span::ObjIdx idx[kMaxObjectsToMove];
-    if (Span::UseBitmapForSize(state.object_size)) {
-      for (size_t i = 0; i < ptrs.size(); ++i) {
-        idx[i] = state.span->BitmapPtrToIdx(ptrs[i], state.object_size,
-                                            state.size_reciprocal);
+    state.Pushed(n, [&](absl::Span<void*> ptrs) {
+      Span::ObjIdx idx[kMaxObjectsToMove];
+      if (Span::UseBitmapForSize(state.object_size)) {
+        for (size_t i = 0; i < ptrs.size(); ++i) {
+          idx[i] = state.span->BitmapPtrToIdx(ptrs[i], state.object_size,
+                                              state.size_reciprocal);
+        }
+      } else {
+        for (size_t i = 0; i < ptrs.size(); ++i) {
+          idx[i] = state.span->PtrToIdx(ptrs[i], state.object_size);
+        }
       }
-    } else {
-      for (size_t i = 0; i < ptrs.size(); ++i) {
-        idx[i] = state.span->PtrToIdx(ptrs[i], state.object_size);
-      }
-    }
 
-    (void)state.span->FreelistPushBatch(
-        absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
-        state.size_reciprocal);
-    state.live_ptrs.resize(state.live_ptrs.size() - n);
+      return state.span->FreelistPushBatch(
+          absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
+          state.size_reciprocal);
+    });
+    state.CheckInvariants();
   }
 };
 
@@ -313,6 +368,14 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   TC_CHECK(span->FreelistEmpty(object_size, objects_per_span));
   TC_CHECK_EQ(ptrs.size(), objects_per_span);
   TC_CHECK_EQ(ptrs.size(), span->Allocated());
+
+  // Between them, BuildFreelist and FreelistPopBatch hand out each object in
+  // the span exactly once, at object_size strides from its start.
+  std::vector<void*> sorted = ptrs;
+  std::sort(sorted.begin(), sorted.end());
+  for (size_t i = 0; i < sorted.size(); ++i) {
+    TC_CHECK_EQ(sorted[i], static_cast<char*>(mem) + i * object_size);
+  }
 
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
     bool ok = span->FreelistPushBatch(absl::MakeSpan(&ptrs[i], 1), object_size,
