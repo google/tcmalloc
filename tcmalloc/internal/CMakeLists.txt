@@ -1256,8 +1256,10 @@ tcmalloc_cc_test(
     "GTest::gtest"
     "GTest::gmock"
     "absl::span"
+    "absl::str_format"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::internal_logging"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::tcmalloc"
 )

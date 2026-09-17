@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
+#include <variant>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
+#include "absl/strings/str_format.h"
 #include "absl/types/span.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/range_tracker.h"
 
 namespace tcmalloc::tcmalloc_internal {
@@ -219,6 +224,235 @@ FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCopyBitsContractingSizes)
                  fuzztest::InRange<size_t>(0, 300),
                  fuzztest::InRange<size_t>(0, 127),
                  fuzztest::InRange<size_t>(0, 127));
+
+// Odd and larger than three words so ranges straddle word boundaries and the
+// final partial word.
+constexpr size_t kTrackerBits = 253;
+
+struct TrackerState {
+  RangeTracker<kTrackerBits> tracker;
+  // Reference copy of the tracker's bits.
+  std::vector<bool> model = std::vector<bool>(kTrackerBits, false);
+  // Ranges handed out by FindAndMark/Mark that have not been unmarked yet.
+  std::vector<std::pair<size_t, size_t>> live;
+
+  // Free runs of the model as (index, length) in increasing index order.
+  std::vector<std::pair<size_t, size_t>> FreeRuns() const {
+    std::vector<std::pair<size_t, size_t>> runs;
+    for (size_t i = 0; i < kTrackerBits;) {
+      if (model[i]) {
+        ++i;
+        continue;
+      }
+      size_t j = i;
+      while (j < kTrackerBits && !model[j]) ++j;
+      runs.emplace_back(i, j - i);
+      i = j;
+    }
+    return runs;
+  }
+
+  void CheckInvariants() const {
+    size_t used = 0;
+    for (size_t i = 0; i < kTrackerBits; ++i) {
+      TC_CHECK_EQ(tracker.bits().GetBit(i), model[i]);
+      used += model[i];
+    }
+    TC_CHECK_EQ(tracker.used(), used);
+    TC_CHECK_EQ(tracker.allocs(), live.size());
+
+    const std::vector<std::pair<size_t, size_t>> runs = FreeRuns();
+    size_t longest = 0;
+    for (const auto& [index, length] : runs) {
+      longest = std::max(longest, length);
+    }
+    TC_CHECK_EQ(tracker.longest_free(), longest);
+
+    // Walking NextFreeRange from the start enumerates exactly the free runs.
+    size_t start = 0;
+    for (const auto& [index, length] : runs) {
+      size_t found_index, found_length;
+      TC_CHECK(tracker.NextFreeRange(start, &found_index, &found_length));
+      TC_CHECK_EQ(found_index, index);
+      TC_CHECK_EQ(found_length, length);
+      start = index + length;
+    }
+    size_t unused_index, unused_length;
+    TC_CHECK(!tracker.NextFreeRange(start, &unused_index, &unused_length));
+  }
+};
+
+struct FindAndMark {
+  size_t n;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const FindAndMark& f) {
+    absl::Format(&sink, "FindAndMark{.n=%v}", f.n);
+  }
+
+  void Perform(TrackerState& state) const {
+    const size_t len = 1 + n % kTrackerBits;
+    if (len > state.tracker.longest_free()) {
+      return;
+    }
+    // Best fit: the first free run of the smallest length that still fits.
+    size_t expected_index = kTrackerBits;
+    size_t expected_length = 2 * kTrackerBits;
+    for (const auto& [index, length] : state.FreeRuns()) {
+      if (length >= len && length < expected_length) {
+        expected_index = index;
+        expected_length = length;
+      }
+    }
+    TC_CHECK_LT(expected_index, kTrackerBits);
+
+    const size_t index = state.tracker.FindAndMark(len);
+    TC_CHECK_EQ(index, expected_index);
+    std::fill(state.model.begin() + index, state.model.begin() + index + len,
+              true);
+    state.live.emplace_back(index, len);
+  }
+};
+
+struct Mark {
+  size_t index;
+  size_t n;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Mark& m) {
+    absl::Format(&sink, "Mark{.index=%v, .n=%v}", m.index, m.n);
+  }
+
+  void Perform(TrackerState& state) const {
+    const size_t start = index % kTrackerBits;
+    const size_t len = 1 + n % (kTrackerBits - start);
+    // Mark requires the range to be entirely free.
+    for (size_t i = start; i < start + len; ++i) {
+      if (state.model[i]) {
+        return;
+      }
+    }
+    state.tracker.Mark(start, len);
+    std::fill(state.model.begin() + start, state.model.begin() + start + len,
+              true);
+    state.live.emplace_back(start, len);
+  }
+};
+
+struct Unmark {
+  size_t which;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Unmark& u) {
+    absl::Format(&sink, "Unmark{.which=%v}", u.which);
+  }
+
+  void Perform(TrackerState& state) const {
+    if (state.live.empty()) {
+      return;
+    }
+    const size_t i = which % state.live.size();
+    const auto [index, len] = state.live[i];
+    std::swap(state.live[i], state.live.back());
+    state.live.pop_back();
+    state.tracker.Unmark(index, len);
+    std::fill(state.model.begin() + index, state.model.begin() + index + len,
+              false);
+  }
+};
+
+struct NextFreeRangeFrom {
+  size_t start;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const NextFreeRangeFrom& n) {
+    absl::Format(&sink, "NextFreeRangeFrom{.start=%v}", n.start);
+  }
+
+  void Perform(TrackerState& state) const {
+    // Include kTrackerBits itself to exercise the out-of-range start.
+    const size_t from = start % (kTrackerBits + 1);
+    size_t expected_index = from;
+    while (expected_index < kTrackerBits && state.model[expected_index]) {
+      ++expected_index;
+    }
+    size_t index, length;
+    const bool found = state.tracker.NextFreeRange(from, &index, &length);
+    if (expected_index >= kTrackerBits) {
+      TC_CHECK(!found);
+      return;
+    }
+    TC_CHECK(found);
+    // A start inside a free run yields the remainder of that run.
+    size_t expected_end = expected_index;
+    while (expected_end < kTrackerBits && !state.model[expected_end]) {
+      ++expected_end;
+    }
+    TC_CHECK_EQ(index, expected_index);
+    TC_CHECK_EQ(length, expected_end - expected_index);
+  }
+};
+
+struct Clear {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Clear&) {
+    sink.Append("Clear{}");
+  }
+
+  void Perform(TrackerState& state) const {
+    state.tracker.Clear();
+    std::fill(state.model.begin(), state.model.end(), false);
+    state.live.clear();
+  }
+};
+
+using Instruction =
+    std::variant<FindAndMark, Mark, Unmark, NextFreeRangeFrom, Clear>;
+
+template <typename Sink>
+void AbslStringify(Sink& sink, const Instruction& i) {
+  std::visit([&](auto&& arg) { absl::Format(&sink, "%v", arg); }, i);
+}
+
+void FuzzRangeTracker(const std::vector<Instruction>& instructions) {
+  TrackerState state;
+  state.CheckInvariants();
+  for (const auto& inst : instructions) {
+    std::visit([&](auto&& arg) { arg.Perform(state); }, inst);
+    state.CheckInvariants();
+  }
+}
+
+fuzztest::Domain<Instruction> GetInstructionDomain() {
+  return fuzztest::OneOf(
+      fuzztest::Map([](FindAndMark f) { return Instruction{f}; },
+                    fuzztest::Arbitrary<FindAndMark>()),
+      fuzztest::Map([](Mark m) { return Instruction{m}; },
+                    fuzztest::Arbitrary<Mark>()),
+      fuzztest::Map([](Unmark u) { return Instruction{u}; },
+                    fuzztest::Arbitrary<Unmark>()),
+      fuzztest::Map([](NextFreeRangeFrom n) { return Instruction{n}; },
+                    fuzztest::Arbitrary<NextFreeRangeFrom>()),
+      fuzztest::Map([](Clear c) { return Instruction{c}; },
+                    fuzztest::Arbitrary<Clear>()));
+}
+
+FUZZ_TEST(RangeTrackerFuzzTest, FuzzRangeTracker)
+    .WithDomains(fuzztest::VectorOf(GetInstructionDomain()));
+
+TEST(RangeTrackerFuzzTest, BestFitPrefersShortestRun) {
+  // Two runs of free bits remain after the unmark; the shorter must win.
+  FuzzRangeTracker({
+      FindAndMark{.n = 99},
+      FindAndMark{.n = 9},
+      FindAndMark{.n = 19},
+      Unmark{.which = 1},
+      FindAndMark{.n = 4},
+      Unmark{.which = 0},
+      NextFreeRangeFrom{.start = 5},
+      Clear{},
+  });
+}
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

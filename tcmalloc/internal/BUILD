@@ -1241,7 +1241,9 @@ cc_test(
     linkstatic = 1,
     shard_count = 5,
     deps = [
+        ":logging",
         ":range_tracker",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
