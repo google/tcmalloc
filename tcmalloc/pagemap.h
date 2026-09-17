@@ -31,14 +31,15 @@
 #include <string.h>
 
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_tracing_extension.h"
@@ -123,119 +124,59 @@ class PageMap {
     Leaf* absl_nullable leafs[kMidLength];
   };
 
+  typedef uintptr_t Number;
+
   Node* absl_nullable root_[kRootLength];  // Top-level node
   size_t bytes_used_;
 
- public:
-  typedef uintptr_t Number;
-
-  constexpr PageMap() : root_{}, bytes_used_(0) {}
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  Span* absl_nullable get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE [[nodiscard]] std::tuple<Number, Number, Number>
+  Index(PageId p) const {
+    const Number k = p.index();
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
-    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
-        ABSL_PREDICT_FALSE(root_[i1] == nullptr) ||
-        ABSL_PREDICT_FALSE(root_[i1]->leafs[i2] == nullptr)) {
-      return nullptr;
-    }
-    return root_[i1]->leafs[i2]->span(i3);
+    return {i1, i2, i3};
   }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE
+  [[nodiscard]] std::pair<Leaf* absl_nonnull, Number> MustIndex(
+      PageId p) const {
+    TC_ASSERT_EQ(p.index() >> BITS, 0);
+    auto [i1, i2, i3] = Index(p);
+    TC_ASSERT_NE(root_[i1], nullptr);
+    Leaf* leaf = root_[i1]->leafs[i2];
+    TC_ASSERT_NE(leaf, nullptr);
+    return {leaf, i3};
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE
+  [[nodiscard]] std::pair<Leaf* absl_nullable, Number> MaybeIndex(
+      PageId p) const {
+    const Number k = p.index();
+    if (ABSL_PREDICT_FALSE((k >> BITS) > 0)) {
+      return {nullptr, 0};
+    }
+    auto [i1, i2, i3] = Index(p);
+    const Node* node = root_[i1];
+    if (ABSL_PREDICT_FALSE(node == nullptr)) {
+      return {nullptr, 0};
+    }
+    return {node->leafs[i2], i3};
+  }
+
+ public:
+  constexpr PageMap() : root_{}, bytes_used_(0) {}
 
   // Return the descriptor for the specified page.  Returns NULL if
   // this PageId was not allocated previously.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   [[nodiscard]] Span* absl_nullable GetDescriptor(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return get(p.index());
-  }
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  std::optional<Number> get_next_set_page(Number k) const {
-    Number next_k = k + 1;
-    Number i1 = next_k >> (kLeafBits + kMidBits);
-    Number i2 = (next_k >> kLeafBits) & (kMidLength - 1);
-    Number i3 = next_k & (kLeafLength - 1);
-    for (; i1 < kRootLength; ++i1, i2 = 0, i3 = 0) {
-      if (root_[i1] == nullptr) continue;
-      for (; i2 < kMidLength; ++i2, i3 = 0) {
-        if (root_[i1]->leafs[i2] == nullptr) continue;
-        for (; i3 < kLeafLength; ++i3) {
-          if (root_[i1]->leafs[i2]->span(i3) != nullptr)
-            return (i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) | i3;
-        }
-      }
+    auto [leaf, i3] = MaybeIndex(p);
+    if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
+      return nullptr;
     }
-    return std::nullopt;
-  }
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  // Requires that the span is known to already exist.
-  //
-  // ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED is to disable array-bounds sanitizer.
-  // This function is hot, and we can manually prove the array accesses.
-  //
-  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
-  // optimizes out the array bounds check.
-  template <bool check_bounds>
-  std::pair<Span* absl_nullable, int> get_existing_with_sizeclass(
-      Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS
-#ifdef __clang__
-      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
-#endif  // __clang__
-  {
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    const Number i3 = k & (kLeafLength - 1);
-    if constexpr (check_bounds) {
-      if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
-          ABSL_PREDICT_FALSE(root_[i1] == nullptr) ||
-          ABSL_PREDICT_FALSE(root_[i1]->leafs[i2] == nullptr)) {
-        return std::make_pair(nullptr, 0);
-      }
-    }
-    TC_ASSERT_EQ(k >> BITS, 0);
-    TC_ASSERT_NE(root_[i1], nullptr);
-    TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
-    // This is a static_assert to ensure that the index into root_ is within
-    // bounds. The index into leafs and span_and_sizeclass are trivially
-    // within bounds, because i2 and i3 mask to the correct number of bits.
-    static_assert((((Number(1) << BITS) - 1) >> (kLeafBits + kMidBits)) <
-                  kRootLength);
-    PackedSpanAndSizeclass span_and_sizeclass =
-        root_[i1]->leafs[i2]->span_and_sizeclass[i3];
-
-    return std::make_pair(span_and_sizeclass.span(),
-                          span_and_sizeclass.sizeclass());
-  }
-
-  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
-  GetDescriptorAndSizeClass(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return get_existing_with_sizeclass<true>(p.index());
-  }
-
-  // Return the descriptor and sizeclass for the specified page.
-  // PageId must have been previously allocated.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
-  GetExistingDescriptorAndSizeClass(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return get_existing_with_sizeclass<false>(p.index());
-  }
-
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  // Requires that the span is known to already exist.
-  Span* absl_nullable get_existing(Number k) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    const Number i3 = k & (kLeafLength - 1);
-    TC_ASSERT_EQ(k >> BITS, 0);
-    TC_ASSERT_NE(root_[i1], nullptr);
-    TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
-    return root_[i1]->leafs[i2]->span(i3);
+    return leaf->span(i3);
   }
 
   // Return the descriptor for the specified page.
@@ -243,24 +184,31 @@ class PageMap {
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   [[nodiscard]] Span* absl_nullable GetExistingDescriptor(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return get_existing(p.index());
+    auto [leaf, i3] = MustIndex(p);
+    return leaf->span(i3);
   }
 
+  // Return the descriptor and sizeclass for the specified page.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  // REQUIRES: Must be a valid page number previously Ensure()d.
-  [[nodiscard]] CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
-  sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    if (ABSL_PREDICT_FALSE((k >> BITS) > 0) ||
-        ABSL_PREDICT_FALSE(root_[i1] == nullptr) ||
-        ABSL_PREDICT_FALSE(root_[i1]->leafs[i2] == nullptr)) {
-      return 0;
+  //
+  // ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED is to disable array-bounds sanitizer.
+  // This function is hot, and we can manually prove the array accesses.
+  //
+  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
+  // optimizes out the array bounds check.
+  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
+  GetDescriptorAndSizeClass(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS
+#ifdef __clang__
+      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+#endif  // __clang__
+  {
+    auto [leaf, i3] = MaybeIndex(p);
+    if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
+      return std::make_pair(nullptr, 0);
     }
-    const Number i3 = k & (kLeafLength - 1);
-    auto ret = root_[i1]->leafs[i2]->sizeclass[i3];
-    TC_ASSERT_EQ(ret, root_[i1]->leafs[i2]->span_and_sizeclass[i3].sizeclass());
-    return ret;
+    PackedSpanAndSizeclass span_and_sizeclass = leaf->span_and_sizeclass[i3];
+    return std::make_pair(span_and_sizeclass.span(),
+                          span_and_sizeclass.sizeclass());
   }
 
   // Return the size class for p, or 0 if it is not known to tcmalloc
@@ -271,82 +219,69 @@ class PageMap {
   // under TSan.
   [[nodiscard]] CompactSizeClass sizeclass(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return sizeclass(p.index());
+    auto [leaf, i3] = MaybeIndex(p);
+    if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
+      return 0;
+    }
+    auto ret = leaf->sizeclass[i3];
+    TC_ASSERT_EQ(ret, leaf->span_and_sizeclass[i3].sizeclass());
+    return ret;
   }
 
-  void set(Number k, Span* s) {
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    const Number i3 = k & (kLeafLength - 1);
-    Leaf* leaf = root_[i1]->leafs[i2];
+  void Set(PageId p, Span* span) {
+    auto [leaf, i3] = MustIndex(p);
     // This function should be used just after allocating a new Span;
     // in that case, the sizeclass should have been left at zero when the
     // old span was deallocated/unregistered (or it would have been zero
     // at initialization time.)
     TC_ASSERT_EQ(leaf->sizeclass[i3], 0);
-    leaf->span_and_sizeclass[i3].set(s, 0);
+    leaf->span_and_sizeclass[i3].set(span, 0);
   }
 
-  void Set(PageId p, Span* span) { set(p.index(), span); }
-
-  void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    const Number i3 = k & (kLeafLength - 1);
-    Leaf* leaf = root_[i1]->leafs[i2];
-    leaf->span_and_sizeclass[i3].set(s, sc);
+  void Set(PageId p, Span* span, CompactSizeClass sc) {
+    auto [leaf, i3] = MustIndex(p);
+    leaf->span_and_sizeclass[i3].set(span, sc);
     leaf->sizeclass[i3] = sc;
   }
 
-  void clear_sizeclass(Number k) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    const Number i3 = k & (kLeafLength - 1);
-    root_[i1]->leafs[i2]->sizeclass[i3] = 0;
-  }
-
-  void* get_hugepage(Number k) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    const Number i3 = k & (kLeafLength - 1);
-    const Node* node = root_[i1];
-    TC_ASSERT_NE(node, nullptr);
-    const Leaf* leaf = node->leafs[i2];
-    TC_ASSERT_NE(leaf, nullptr);
+  [[nodiscard]] void* GetHugepage(PageId p) const {
+    auto [leaf, i3] = MustIndex(p);
     return leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)];
   }
 
-  [[nodiscard]] void* GetHugepage(PageId p) { return get_hugepage(p.index()); }
-
-  [[nodiscard]] bool has_leaf(Number k) const {
-    if (ABSL_PREDICT_FALSE((k >> BITS) > 0)) return false;
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    if (ABSL_PREDICT_FALSE(i1 >= kRootLength)) return false;
-    const Node* node = root_[i1];
-    if (ABSL_PREDICT_FALSE(node == nullptr)) return false;
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    return node->leafs[i2] != nullptr;
+  void SetHugepage(PageId p, void* v) {
+    auto [leaf, i3] = MustIndex(p);
+    leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)] = v;
   }
 
-  [[nodiscard]] bool HasLeaf(PageId p) const { return has_leaf(p.index()); }
-
-  void set_hugepage(Number k, void* v) {
-    TC_ASSERT_EQ(k >> BITS, 0);
-    const Number i1 = k >> (kLeafBits + kMidBits);
-    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
-    const Number i3 = k & (kLeafLength - 1);
-    root_[i1]->leafs[i2]->hugepage[i3 >> (kLeafBits - kLeafHugeBits)] = v;
+  [[nodiscard]] bool HasLeaf(PageId p) const {
+    auto [leaf, i3] = MaybeIndex(p);
+    return leaf != nullptr;
   }
 
-  void SetHugepage(PageId p, void* v) { set_hugepage(p.index(), v); }
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  [[nodiscard]] std::optional<PageId> get_next_set_page(PageId p) const {
+    auto [i1, i2, i3] = Index(p + Length(1));
+    for (; i1 < kRootLength; ++i1, i2 = 0, i3 = 0) {
+      if (root_[i1] == nullptr) continue;
+      for (; i2 < kMidLength; ++i2, i3 = 0) {
+        if (root_[i1]->leafs[i2] == nullptr) continue;
+        for (; i3 < kLeafLength; ++i3) {
+          if (root_[i1]->leafs[i2]->span(i3) != nullptr)
+            return PageId((i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) |
+                          i3);
+        }
+      }
+    }
+    return std::nullopt;
+  }
 
-  bool Ensure(Number start, size_t n) {
-    for (Number key = start; key <= start + n - 1;) {
-      const Number i1 = key >> (kLeafBits + kMidBits);
-      const Number i2 = (key >> kLeafBits) & (kMidLength - 1);
+  [[nodiscard]] bool Ensure(Range r) {
+    if (r.n == Length(0)) return true;
+    const PageId last = r.p + r.n - Length(1);
+    for (PageId p = r.p; p <= last;) {
+      const auto [i1, i2, i3] = Index(p);
+      (void)i3;
 
       // Check within root
       if (i1 >= kRootLength) return false;
@@ -369,22 +304,17 @@ class PageMap {
         root_[i1]->leafs[i2] = leaf;
       }
 
-      // Advance key past whatever is covered by this leaf node
-      key = ((key >> kLeafBits) + 1) << kLeafBits;
+      // Advance p past whatever is covered by this leaf node
+      Number key = ((p.index() >> kLeafBits) + 1) << kLeafBits;
+      if (key == 0) {
+        return false;
+      }
+      p = PageId(key);
     }
     return true;
   }
 
-  [[nodiscard]] bool Ensure(Range r)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return Ensure(r.p.index(), r.n.raw_num());
-  }
-
-  size_t bytes_used() const { return bytes_used_ + sizeof(*this); }
-
-  size_t bytes() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return bytes_used();
-  }
+  size_t bytes() const { return bytes_used_ + sizeof(*this); }
 
   constexpr size_t RootSize() const { return sizeof(root_); }
 
@@ -398,7 +328,7 @@ class PageMap {
     const PageId last = span->last_page();
     TC_ASSERT_EQ(GetDescriptor(first), span);
     for (PageId p = first; p <= last; ++p) {
-      set_with_sizeclass(p.index(), span, sc);
+      Set(p, span, sc);
     }
   }
 
@@ -411,7 +341,8 @@ class PageMap {
     const PageId last = span->last_page();
     TC_ASSERT_EQ(GetDescriptor(first), span);
     for (PageId p = first; p <= last; ++p) {
-      clear_sizeclass(p.index());
+      auto [leaf, i3] = MustIndex(p);
+      leaf->sizeclass[i3] = 0;
     }
   }
 

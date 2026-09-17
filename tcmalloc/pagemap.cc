@@ -40,17 +40,16 @@ int PageMap<BITS, Allocator>::GetAllocatedSpans(
                     SpanDetails>& allocated_spans) {
   PageHeapSpinLockHolder l;
   int allocated_span_count = 0;
-  for (std::optional<uintptr_t> i = 0; i.has_value();
-       i = get_next_set_page(i.value())) {
-    PageId page_id = PageId{i.value()};
-    Span* s = GetDescriptor(page_id);
+  for (std::optional<PageId> p = PageId{0}; p.has_value();
+       p = get_next_set_page(p.value())) {
+    Span* s = GetDescriptor(p.value());
     if (s == nullptr || s == &tc_globals.invalid_span()) {
       continue;
     }
     // Free'd up Span that's not yet removed from PageMap.
-    if (page_id < s->first_page() || s->last_page() < page_id) continue;
-    CompactSizeClass size_class = sizeclass(page_id);
-    TC_ASSERT_EQ(s->first_page().index(), i);
+    if (p.value() < s->first_page() || s->last_page() < p.value()) continue;
+    CompactSizeClass size_class = sizeclass(p.value());
+    TC_ASSERT_EQ(s->first_page(), p.value());
     // As documented, GetAllocatedSpans wants to avoid allocating more memory
     // for the output vector while holding the pageheap_lock. So, we stop
     // adding more entries after we reach its existing capacity. Note that the
@@ -61,7 +60,7 @@ int PageMap<BITS, Allocator>::GetAllocatedSpans(
                                  Static::sizemap().class_to_size(size_class)});
     }
     ++allocated_span_count;
-    i = s->last_page().index();
+    p = s->last_page();
   }
   return allocated_span_count;
 }
