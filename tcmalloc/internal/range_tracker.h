@@ -78,6 +78,28 @@ class Bitmap {
     return count;
   }
 
+  template <typename Visitor>
+  void ForEachSet(size_t start, Visitor visitor) const {
+    if (start >= N) return;
+    size_t word_idx = start / kWordSize;
+    size_t offset = start % kWordSize;
+    size_t word = bits_[word_idx] & ((~size_t{0}) << offset);
+    while (true) {
+      while (word != 0) {
+        size_t off = absl::countr_zero(word);
+        size_t idx = word_idx * kWordSize + off;
+        if constexpr (kDeadBits > 0) {
+          if (idx >= N) return;
+        }
+        visitor(idx);
+        word &= word - 1;
+      }
+      ++word_idx;
+      if (word_idx >= kWords) break;
+      word = bits_[word_idx];
+    }
+  }
+
   // If there is at least one free range at or after <start>,
   // put it in *index, *length and return true; else return false.
   bool NextFreeRange(size_t start, size_t* index, size_t* length) const;

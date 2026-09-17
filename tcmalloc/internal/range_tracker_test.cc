@@ -18,6 +18,7 @@
 #include <sys/types.h>
 
 #include <cstdint>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -31,10 +32,19 @@ namespace tcmalloc_internal {
 namespace {
 
 using testing::ElementsAre;
+using testing::ElementsAreArray;
+using testing::IsEmpty;
 using testing::Pair;
 
 class BitmapTest : public testing::Test {
  protected:
+  template <size_t N>
+  std::vector<size_t> ForEachSetResults(const Bitmap<N>& map, size_t start) {
+    std::vector<size_t> results;
+    map.ForEachSet(start, [&](size_t idx) { results.push_back(idx); });
+    return results;
+  }
+
   template <size_t N>
   std::vector<size_t> FindSetResults(const Bitmap<N>& map) {
     return FindResults<N, true>(map);
@@ -159,6 +169,76 @@ TEST_F(BitmapTest, FindSet) {
   map.SetBit(0);
   EXPECT_THAT(FindSetResultsBackwards(map),
               ElementsAre(252, 251, 196, 195, 128, 63, 15, 14, 7, 0));
+}
+
+TEST_F(BitmapTest, ForEachSet) {
+  Bitmap<253> map;
+  EXPECT_THAT(ForEachSetResults(map, 0), IsEmpty());
+  EXPECT_THAT(ForEachSetResults(map, 100), IsEmpty());
+  EXPECT_THAT(ForEachSetResults(map, 253), IsEmpty());
+  EXPECT_THAT(ForEachSetResults(map, 300), IsEmpty());
+
+  map.SetBit(0);
+  map.SetBit(7);
+  map.SetBit(14);
+  map.SetBit(15);
+  map.SetBit(63);
+  map.SetBit(64);
+  map.SetBit(128);
+  map.SetBit(195);
+  map.SetBit(196);
+  map.SetBit(251);
+  map.SetBit(252);
+
+  EXPECT_THAT(ForEachSetResults(map, 0),
+              ElementsAre(0, 7, 14, 15, 63, 64, 128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 1),
+              ElementsAre(7, 14, 15, 63, 64, 128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 7),
+              ElementsAre(7, 14, 15, 63, 64, 128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 8),
+              ElementsAre(14, 15, 63, 64, 128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 15),
+              ElementsAre(15, 63, 64, 128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 16),
+              ElementsAre(63, 64, 128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 63),
+              ElementsAre(63, 64, 128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 64),
+              ElementsAre(64, 128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 65), ElementsAre(128, 195, 196, 251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 251), ElementsAre(251, 252));
+  EXPECT_THAT(ForEachSetResults(map, 252), ElementsAre(252));
+  EXPECT_THAT(ForEachSetResults(map, 253), IsEmpty());
+  EXPECT_THAT(ForEachSetResults(map, 500), IsEmpty());
+
+  map.SetRange(0, 253);
+  std::vector<size_t> all_indices(253);
+  std::iota(all_indices.begin(), all_indices.end(), 0);
+  EXPECT_THAT(ForEachSetResults(map, 0), ElementsAreArray(all_indices));
+  EXPECT_THAT(ForEachSetResults(map, 100),
+              ElementsAreArray(all_indices.begin() + 100, all_indices.end()));
+  EXPECT_THAT(ForEachSetResults(map, 252), ElementsAre(252));
+  EXPECT_THAT(ForEachSetResults(map, 253), IsEmpty());
+
+  Bitmap<64> map64;
+  map64.SetBit(0);
+  map64.SetBit(31);
+  map64.SetBit(63);
+  EXPECT_THAT(ForEachSetResults(map64, 0), ElementsAre(0, 31, 63));
+  EXPECT_THAT(ForEachSetResults(map64, 1), ElementsAre(31, 63));
+  EXPECT_THAT(ForEachSetResults(map64, 32), ElementsAre(63));
+  EXPECT_THAT(ForEachSetResults(map64, 63), ElementsAre(63));
+  EXPECT_THAT(ForEachSetResults(map64, 64), IsEmpty());
+
+  Bitmap<30> map30;
+  map30.SetBit(0);
+  map30.SetBit(15);
+  map30.SetBit(29);
+  EXPECT_THAT(ForEachSetResults(map30, 0), ElementsAre(0, 15, 29));
+  EXPECT_THAT(ForEachSetResults(map30, 1), ElementsAre(15, 29));
+  EXPECT_THAT(ForEachSetResults(map30, 29), ElementsAre(29));
+  EXPECT_THAT(ForEachSetResults(map30, 30), IsEmpty());
 }
 
 TEST_F(BitmapTest, FindClear) {

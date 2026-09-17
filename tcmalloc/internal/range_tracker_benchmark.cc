@@ -389,6 +389,43 @@ BENCHMARK_TEMPLATE(BM_ScanChunks, 64);
 BENCHMARK_TEMPLATE(BM_ScanChunks, 256);
 BENCHMARK_TEMPLATE(BM_ScanChunks, 256 * 32);
 
+template <size_t N>
+static void BM_IterSet_FindSet(benchmark::State& state) {
+  Bitmap<N> set;
+  absl::BitGen rng;
+  for (size_t i = 0; i < N; ++i) {
+    if (absl::Bernoulli(rng, 0.25)) set.SetBit(i);
+  }
+  for (auto s : state) {
+    size_t i = set.FindSet(0);
+    while (i < N) {
+      benchmark::DoNotOptimize(i);
+      i++;
+      if (i < N) i = set.FindSet(i);
+    }
+  }
+}
+
+BENCHMARK_TEMPLATE(BM_IterSet_FindSet, 64);
+BENCHMARK_TEMPLATE(BM_IterSet_FindSet, 256);
+BENCHMARK_TEMPLATE(BM_IterSet_FindSet, 256 * 32);
+
+template <size_t N>
+static void BM_IterSet_ForEachSet(benchmark::State& state) {
+  Bitmap<N> set;
+  absl::BitGen rng;
+  for (size_t i = 0; i < N; ++i) {
+    if (absl::Bernoulli(rng, 0.25)) set.SetBit(i);
+  }
+  for (auto s : state) {
+    set.ForEachSet(0, [&](size_t i) { benchmark::DoNotOptimize(i); });
+  }
+}
+
+BENCHMARK_TEMPLATE(BM_IterSet_ForEachSet, 64);
+BENCHMARK_TEMPLATE(BM_IterSet_ForEachSet, 256);
+BENCHMARK_TEMPLATE(BM_IterSet_ForEachSet, 256 * 32);
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
