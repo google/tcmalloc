@@ -128,7 +128,7 @@ class PageMap {
 
   Node* absl_nullable root_[kRootLength];  // Top-level node
 
-  ABSL_ATTRIBUTE_ALWAYS_INLINE [[nodiscard]] std::tuple<Number, Number, Number>
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE std::tuple<Number, Number, Number>
   Index(PageId p) const {
     const Number k = p.index();
     const Number i1 = k >> (kLeafBits + kMidBits);
@@ -137,9 +137,9 @@ class PageMap {
     return {i1, i2, i3};
   }
 
-  ABSL_ATTRIBUTE_ALWAYS_INLINE
-  [[nodiscard]] std::pair<Leaf* absl_nonnull, Number> MustIndex(
-      PageId p) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE
+      std::pair<Leaf* absl_nonnull, Number>
+      MustIndex(PageId p) const {
     TC_ASSERT_EQ(p.index() >> BITS, 0);
     auto [i1, i2, i3] = Index(p);
     TC_ASSERT_NE(root_[i1], nullptr);
@@ -148,9 +148,9 @@ class PageMap {
     return {leaf, i3};
   }
 
-  ABSL_ATTRIBUTE_ALWAYS_INLINE
-  [[nodiscard]] std::pair<Leaf* absl_nullable, Number> MaybeIndex(
-      PageId p) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE
+      std::pair<Leaf* absl_nullable, Number>
+      MaybeIndex(PageId p) const {
     const Number k = p.index();
     if (ABSL_PREDICT_FALSE((k >> BITS) > 0)) {
       return {nullptr, 0};
