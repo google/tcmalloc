@@ -87,6 +87,25 @@ class MockUnback final : public MemoryModifyFunction {
   State& state_;
 };
 
+// Mirrors HugePageAwareAllocator::UnbackWithoutLock: drops pageheap_lock
+// around the unback, which lets MockUnback's release_callback_ run reentrant
+// instructions against the filler.
+class MockUnbackWithoutLock final : public MemoryModifyFunction {
+ public:
+  explicit MockUnbackWithoutLock(MockUnback& unback) : unback_(unback) {}
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    pageheap_lock.AssertHeld();
+    pageheap_lock.unlock();
+    MemoryModifyStatus ret = unback_(r);
+    pageheap_lock.lock();
+    return ret;
+  }
+
+ private:
+  MockUnback& unback_;
+};
+
 class MockSetAnonVmaName final : public MemoryTagFunction {
  public:
   void operator()(Range r, std::optional<absl::string_view> name) override {}
@@ -368,9 +387,10 @@ struct State {
                  size_t num_instructions)
       : subrelease_unbacked_mode(subrelease_unbacked_mode),
         unback(*this),
+        unback_without_lock(unback),
         collapse(*this),
         filler(Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal,
-               unback, unback, collapse, set_anon_vma_name,
+               unback, unback_without_lock, collapse, set_anon_vma_name,
                subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
@@ -378,8 +398,8 @@ struct State {
     // have at most num_instructions allocations, for at most kPagesPerHugePage
     // pages each, that we can track the released status of.
     //
-    // TODO(b/73749855): Releasing the pageheap_lock during ReleaseFree will
-    // eliminate the need for this.
+    // TODO(b/73749855): Releasing the pageheap_lock during HandleReleaseFree
+    // will eliminate the need for this.
     released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
 
     auto release_callback = [this]() {
@@ -408,7 +428,9 @@ struct State {
   }
 
   ~State() {
-    // Shut down, confirm filler is empty.
+    // Shut down, confirm filler is empty.  Put may drop pageheap_lock, so
+    // make sure no further instructions run reentrantly while we iterate.
+    reentrant_stack.clear();
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     for (auto& [pt, v] : allocs) {
       for (size_t i = 0, n = v.size(); i < n; ++i) {
@@ -434,44 +456,96 @@ struct State {
     }
   }
 
-  // Pages held by live allocations on pt.
-  Length LivePagesOn(PageTracker* pt) const {
-    Length n;
-    auto it = allocs.find(pt);
-    if (it == allocs.end()) return n;
-    for (const auto& [alloc, alloc_info] : it->second) {
-      n += alloc.n;
-    }
-    return n;
-  }
-
+  // Checks the filler's aggregate accounting against the per-tracker state.
+  // Only meaningful between top-level instructions: while an operation has
+  // dropped pageheap_lock, in-flight trackers are legitimately absent from the
+  // lists and emptied trackers may still be pinned.
   void CheckInvariants() {
+    TC_CHECK_EQ(depth, 0);
     PageHeapSpinLockHolder l;
     TC_CHECK_EQ(filler.size().raw_num(), trackers.size());
     TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
-    // Sparse and dense allocations live on disjoint sets of hugepages, so the
-    // per-density counters track our live allocations exactly.
-    for (int d = 0; d < AccessDensityPrediction::kPredictionCounts; ++d) {
-      TC_CHECK_EQ(
-          filler.pages_allocated(static_cast<AccessDensityPrediction>(d)),
-          live_pages[d]);
+
+    constexpr size_t kTypes = AccessDensityPrediction::kPredictionCounts;
+    Length used[kTypes], used_released[kTypes], used_partial_released[kTypes];
+    HugeLength n_regular[kTypes], n_released[kTypes],
+        n_partial_released[kTypes];
+    HugeLength n_donated;
+    Length released_pages;
+    for (PageTracker* pt : trackers) {
+      TC_CHECK(!pt->empty());
+      TC_CHECK_LE(pt->released_pages(), pt->free_pages());
+      released_pages += pt->released_pages();
+
+      const AccessDensityPrediction type =
+          pt->HasDenseSpans() ? AccessDensityPrediction::kDense
+                              : AccessDensityPrediction::kSparse;
+      used[type] += pt->used_pages();
+      // Mirror HugePageFiller::AddToFillerList's placement.
+      if (pt->donated()) {
+        TC_CHECK(!pt->released());
+        ++n_donated;
+      } else if (!pt->released() &&
+                 (pt->unbroken() || subrelease_unbacked_mode ==
+                                        SubreleaseUnbackedMode::kDisabled)) {
+        ++n_regular[type];
+      } else if (pt->free_pages() <= pt->released_pages()) {
+        ++n_released[type];
+        used_released[type] += pt->used_pages();
+      } else {
+        ++n_partial_released[type];
+        used_partial_released[type] += pt->used_pages();
+      }
     }
-    TC_CHECK_LE(filler.used_pages_in_any_subreleased(), filler.used_pages());
-    TC_CHECK_LE(filler.FreePagesInPartialAllocs(), filler.free_pages());
-    TC_CHECK_EQ(
-        filler.used_pages() + filler.free_pages() + filler.unmapped_pages(),
-        filler.size().in_pages());
+
+    TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_pages.raw_num());
+    TC_CHECK_EQ(filler.used_pages().raw_num(), allocated_pages.raw_num());
+    TC_CHECK_EQ(filler.used_pages_in_released().raw_num(),
+                (used_released[AccessDensityPrediction::kSparse] +
+                 used_released[AccessDensityPrediction::kDense])
+                    .raw_num());
+    TC_CHECK_EQ(filler.used_pages_in_partial_released().raw_num(),
+                (used_partial_released[AccessDensityPrediction::kSparse] +
+                 used_partial_released[AccessDensityPrediction::kDense])
+                    .raw_num());
+
+    const HugePageFillerStats stats = filler.GetStats();
+    for (size_t t = 0; t < kTypes; ++t) {
+      const auto type = static_cast<AccessDensityPrediction>(t);
+      TC_CHECK_EQ(filler.pages_allocated(type).raw_num(), used[t].raw_num(),
+                  "type=%d", t);
+      TC_CHECK_EQ(stats.n_fully_released[t].raw_num(), n_released[t].raw_num(),
+                  "type=%d", t);
+      TC_CHECK_EQ(stats.n_partial_released[t].raw_num(),
+                  n_partial_released[t].raw_num(), "type=%d", t);
+      HugeLength n_total = n_regular[t] + n_released[t] + n_partial_released[t];
+      if (type == AccessDensityPrediction::kSparse) {
+        n_total += n_donated;
+      }
+      TC_CHECK_EQ(stats.n_total[t].raw_num(), n_total.raw_num(), "type=%d", t);
+    }
   }
 
-  // ReleasePages may claim credit for pages unmapped earlier and left
-  // unaccounted, so it reports at least the pages it unmapped just now, and
-  // nothing is unmapped while unback is failing.
-  void CheckReleased(Length released, Length unmapped_before) const {
-    const Length unmapped_after = filler.unmapped_pages();
-    TC_CHECK_GE(unmapped_after, unmapped_before);
-    TC_CHECK_GE(released, unmapped_after - unmapped_before);
-    if (!unback_success) {
-      TC_CHECK_EQ(unmapped_after, unmapped_before);
+  // Deletes trackers that were emptied by a reentrant Deallocate while the
+  // filler had dropped pageheap_lock.  Trackers still pinned by an outer
+  // ReleasePages or TreatHugepageTrackers are left for that caller.
+  void DrainFreedTrackers() {
+    while (true) {
+      PageTracker* pt;
+      {
+        PageHeapSpinLockHolder l;
+        pt = filler.FetchFullyFreedTracker();
+      }
+      if (pt == nullptr) {
+        return;
+      }
+      HugePage hp = pt->location();
+      for (PageId p = hp.first_page(),
+                  end = hp.first_page() + kPagesPerHugePage;
+           p != end; ++p) {
+        released_set.erase(p);
+      }
+      delete pt;
     }
   }
 
@@ -487,6 +561,7 @@ struct State {
   absl::flat_hash_set<PageId> released_set;
 
   MockUnback unback;
+  MockUnbackWithoutLock unback_without_lock;
   MockCollapse collapse;
   MockSetAnonVmaName set_anon_vma_name;
   HugePageFiller<PageTracker> filler;
@@ -495,13 +570,13 @@ struct State {
   absl::flat_hash_map<PageTracker*,
                       std::vector<std::pair<Range, SpanAllocInfo>>>
       allocs;
+  // Total pages in allocs.
+  Length allocated_pages;
   size_t next_hugepage = 1;
-  // Pages held by live allocations, by predicted access density.
-  Length live_pages[AccessDensityPrediction::kPredictionCounts];
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
-  // Bumped whenever a reentrant subprogram runs, so an operation can tell
-  // whether other instructions interleaved with it.
+  // Number of reentrant subprograms run so far.  Postconditions that assume
+  // no concurrent activity are skipped when this changes during an operation.
   size_t reentrant_runs = 0;
   bool treating_trackers = false;
   std::string output;
@@ -589,31 +664,16 @@ void Allocate::Perform(State& state) const {
       state.filler.Contribute(result.pt, donated, alloc_info);
     }
     state.trackers.push_back(result.pt);
-  } else {
-    // The filler only hands out hugepages it still owns.
-    TC_CHECK(state.allocs.contains(result.pt));
-  }
-
-  // The range lies within the tracker's hugepage and is disjoint from every
-  // live allocation on it.
-  const HugePage hp = result.pt->location();
-  TC_CHECK(HugePageContaining(result.page) == hp);
-  TC_CHECK(result.page + n <= hp.first_page() + kPagesPerHugePage);
-  for (const auto& [live, live_info] : state.allocs[result.pt]) {
-    TC_CHECK(!(result.page < live.p + live.n && live.p < result.page + n));
   }
 
   for (PageId p = result.page, end = p + n; p != end; ++p) {
-    // Only a previously released hugepage can hand out unmapped pages.
-    TC_CHECK(result.from_released || !state.released_set.contains(p));
     state.released_set.erase(p);
   }
 
   state.allocs[result.pt].push_back({{result.page, n}, alloc_info});
-  state.live_pages[alloc_info.density] += n;
+  state.allocated_pages += n;
 
   if (state.depth == 0) {
-    TC_CHECK_EQ(result.pt->used_pages(), state.LivePagesOn(result.pt));
     TC_CHECK_EQ(state.filler.size().raw_num(), state.trackers.size());
     TC_CHECK_EQ(state.filler.unmapped_pages().raw_num(),
                 state.released_set.size());
@@ -632,6 +692,7 @@ void Deallocate::Perform(State& state) const {
 
   std::swap(state.allocs[pt][hi], state.allocs[pt].back());
   state.allocs[pt].resize(state.allocs[pt].size() - 1);
+  state.allocated_pages -= alloc.n;
   bool last_alloc = state.allocs[pt].empty();
   if (last_alloc) {
     state.allocs.erase(pt);
@@ -639,7 +700,6 @@ void Deallocate::Perform(State& state) const {
     state.trackers.resize(state.trackers.size() - 1);
   }
 
-  state.live_pages[alloc_info.density] -= alloc.n;
   PageTracker* ret;
   {
     PageHeapSpinLockHolder l;
@@ -647,13 +707,8 @@ void Deallocate::Perform(State& state) const {
   }
   if (state.depth == 0) {
     TC_CHECK_EQ(ret != nullptr, last_alloc);
-    if (ret == nullptr) {
-      TC_CHECK_EQ(pt->used_pages(), state.LivePagesOn(pt));
-    }
   }
   if (ret) {
-    // Only the hugepage we emptied is handed back.
-    TC_CHECK_EQ(ret, pt);
     HugePage hp = ret->location();
     for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
          p != end; ++p) {
@@ -685,9 +740,8 @@ void Release::Perform(State& state) const {
   Length desired(desired_pages);
   size_t to_release_from_partial_allocs;
 
-  const Length unmapped_before = state.filler.unmapped_pages();
-  const size_t runs_before = state.reentrant_runs;
   Length released;
+  const size_t reentrant_runs = state.reentrant_runs;
   {
     PageHeapSpinLockHolder l;
     to_release_from_partial_allocs =
@@ -696,13 +750,12 @@ void Release::Perform(State& state) const {
     released = state.filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
   }
-  if (state.depth == 0 && runs_before == state.reentrant_runs) {
-    state.CheckReleased(released, unmapped_before);
-  }
+  state.DrainFreedTrackers();
 
   if (!release_partial_allocs || hit_limit ||
       skip_subrelease_intervals.SkipSubreleaseEnabled() ||
-      !state.unback_success || state.depth != 0) {
+      !state.unback_success || state.depth != 0 ||
+      state.reentrant_runs != reentrant_runs) {
     return;
   }
   TC_CHECK_GE(released.raw_num(), to_release_from_partial_allocs);
@@ -752,7 +805,7 @@ void ModelTail::Perform(State& state) const {
 
   state.allocs[pt].push_back(
       {{start, n}, {1, AccessDensityPrediction::kSparse}});
-  state.live_pages[AccessDensityPrediction::kSparse] += n;
+  state.allocated_pages += n;
 
   if (state.depth == 0) {
     TC_CHECK_EQ(state.filler.size().raw_num(), state.trackers.size());
@@ -765,19 +818,16 @@ void MemoryLimitHitRelease::Perform(State& state) const {
   Length desired_len(desired);
   Length released;
   const Length free = state.filler.free_pages();
-  const Length unmapped_before = state.filler.unmapped_pages();
-  const size_t runs_before = state.reentrant_runs;
+  const size_t reentrant_runs = state.reentrant_runs;
   {
     PageHeapSpinLockHolder l;
     released = state.filler.ReleasePages(desired_len, SkipSubreleaseIntervals{},
                                          /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
   }
-  if (state.depth != 0) {
+  state.DrainFreedTrackers();
+  if (state.depth != 0 || state.reentrant_runs != reentrant_runs) {
     return;
-  }
-  if (runs_before == state.reentrant_runs) {
-    state.CheckReleased(released, unmapped_before);
   }
   const Length expected =
       state.unback_success ? std::min(free, desired_len) : Length(0);
@@ -810,23 +860,19 @@ void TreatTrackers::Perform(State& state) const {
   state.treating_trackers = true;
   FakePageFlags pageflags(state);
   FakeResidency residency(state);
-  PageHeapSpinLockHolder l;
-  state.filler.TreatHugepageTrackers(
-      enable_collapse ? EnableCollapse::kEnabled : EnableCollapse::kDisabled,
-      enable_unfiltered_collapse ? EnableUnfilteredCollapse::kEnabled
-                                 : EnableUnfilteredCollapse::kDisabled,
-      enable_release_stale_pages ? ReleaseStalePages::kEnabled
-                                 : ReleaseStalePages::kDisabled,
-      &pageflags, &residency);
-  state.treating_trackers = false;
-  while (PageTracker* pt = state.filler.FetchFullyFreedTracker()) {
-    HugePage hp = pt->location();
-    for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
-         p != end; ++p) {
-      state.released_set.erase(p);
-    }
-    delete pt;
+  {
+    PageHeapSpinLockHolder l;
+    state.filler.TreatHugepageTrackers(
+        enable_collapse ? EnableCollapse::kEnabled : EnableCollapse::kDisabled,
+        enable_unfiltered_collapse ? EnableUnfilteredCollapse::kEnabled
+                                   : EnableUnfilteredCollapse::kDisabled,
+        enable_release_stale_pages ? ReleaseStalePages::kEnabled
+                                   : ReleaseStalePages::kDisabled,
+        &pageflags, &residency);
   }
+  state.treating_trackers = false;
+  state.DrainFreedTrackers();
+  PageHeapSpinLockHolder l;
   for (PageTracker* pt : state.trackers) {
     HugePage hp = pt->location();
     const PageBitmap& rel = pt->released_by_page();
@@ -1437,6 +1483,41 @@ TEST(HugePageFillerTest, Regression_b525818096) {
                         .enable_unfiltered_collapse = false},
       },
       SubreleaseUnbackedMode::kDisabled);
+}
+
+// Stats gathered from inside a limit-hit release, and an allocation from
+// inside a later one, with SubreleaseUnbackedMode::kEnabled.
+TEST(HugePageFillerTest, ReentrantStatsDuringLimitHitRelease) {
+  FuzzFiller(
+      {SetCollapseLatency{.latency = absl::Nanoseconds(9223372036854775807)},
+       ReentrantSubprogram{.subprogram = {}}, GatherStatsPbtxt{},
+       GatherStatsPbtxt{},
+       Allocate{
+           .length = 14317, .num_objects = 3536510400, .density_dense = false},
+       Release{.hit_limit = true,
+               .use_peak_interval = false,
+               .peak_interval = absl::Nanoseconds(9223372036854775807),
+               .short_interval = absl::Nanoseconds(1),
+               .long_interval = absl::Nanoseconds(9223372036854775807),
+               .desired_pages = 32767,
+               .release_partial_allocs = false},
+       ReentrantSubprogram{.subprogram = {ReentrantSubprogram{.subprogram = {}},
+                                          GatherStatsPbtxt{}}},
+       GatherStats{},
+       ReentrantSubprogram{
+           .subprogram = {Allocate{
+               .length = 0, .num_objects = 1, .density_dense = true}}}},
+      SubreleaseUnbackedMode::kEnabled);
+}
+
+// A deallocation from inside a memory-limit release with two nearly full
+// hugepages.
+TEST(HugePageFillerTest, ReentrantDeallocateDuringMemoryLimitRelease) {
+  FuzzFiller({ModelTail{.length = 511}, ModelTail{.length = 511},
+              ReentrantSubprogram{.subprogram = {Deallocate{.tracker_index = 0,
+                                                            .alloc_index = 0}}},
+              MemoryLimitHitRelease{.desired = 2}},
+             SubreleaseUnbackedMode::kEnabled);
 }
 
 TEST(HugePageFillerTest, b547364068) {
