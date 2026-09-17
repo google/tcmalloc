@@ -44,8 +44,23 @@ void FuzzSizeMap(const std::vector<FuzzSizeClassInfo>& fuzz_info) {
         SizeClassInfo(f.size, Length(f.pages).in_bytes(), f.num_to_move));
   }
 
+  // Init accepts a configuration iff it has a zero sentinel class followed by
+  // 1 to kNumBaseClasses-1 strictly increasing, individually valid classes
+  // ending at kMaxSize.
+  bool expected_valid =
+      fuzz_info.size() > 1 && fuzz_info.size() <= kNumBaseClasses &&
+      fuzz_info[0].size == 0 && fuzz_info[0].pages == 0 &&
+      fuzz_info[0].num_to_move == 0 && fuzz_info.back().size == kMaxSize;
+  for (size_t c = 1; expected_valid && c < fuzz_info.size(); ++c) {
+    expected_valid =
+        fuzz_info[c].size > fuzz_info[c - 1].size &&
+        SizeMap::IsValidSizeClass(fuzz_info[c].size, Length(fuzz_info[c].pages),
+                                  fuzz_info[c].num_to_move);
+  }
+
   SizeMap m;
-  if (!m.Init(absl::MakeSpan(info))) {
+  ASSERT_EQ(m.Init(absl::MakeSpan(info)), expected_valid);
+  if (!expected_valid) {
     return;
   }
 
@@ -63,6 +78,30 @@ void FuzzSizeMap(const std::vector<FuzzSizeClassInfo>& fuzz_info) {
 
     EXPECT_LE(last_size_class, size_class);
     last_size_class = size_class;
+
+    // The lookup tables reproduce the configuration for the base class.
+    const int base_class = size_class % kNumBaseClasses;
+    ASSERT_GT(base_class, 0) << size;
+    ASSERT_LT(base_class, fuzz_info.size()) << size;
+    EXPECT_EQ(s, fuzz_info[base_class].size) << size;
+    EXPECT_EQ(m.class_to_pages(size_class), Length(fuzz_info[base_class].pages))
+        << size;
+    EXPECT_EQ(m.num_objects_to_move(size_class),
+              fuzz_info[base_class].num_to_move)
+        << size;
+
+    // The size class is the tightest fit: the preceding class is too small.
+    if (base_class > 1) {
+      EXPECT_LT(m.class_to_size(size_class - 1), size) << size;
+    }
+    const auto [min_size, max_size] = m.class_to_size_range(size_class);
+    EXPECT_LE(min_size, size) << size;
+    EXPECT_EQ(max_size, s) << size;
+
+    // GetSizeClass agrees with SizeClass for every size it can serve.
+    const auto [is_small, looked_up] = m.GetSizeClass(CppPolicy(), size);
+    EXPECT_TRUE(is_small) << size;
+    EXPECT_EQ(looked_up, size_class) << size;
   }
 }
 
@@ -127,6 +166,14 @@ void FuzzGetSizeClassWithAlignment(size_t size, size_t alignment) {
       EXPECT_GE(mapped_size, size);
       // The size needs to be a multiple of alignment.
       EXPECT_EQ(mapped_size % alignment, 0);
+      // It is the first class at or after the unaligned fit that satisfies
+      // the alignment, so no smaller class was skipped over needlessly.
+      const uint32_t unaligned = m.SizeClass(CppPolicy(), size);
+      EXPECT_LE(unaligned, size_class) << size << " " << alignment;
+      for (uint32_t c = unaligned; c < size_class; ++c) {
+        EXPECT_NE(m.class_to_size(c) % alignment, 0)
+            << size << " " << alignment << " " << c;
+      }
     } else if (alignment <= kPageSize) {
       // When alignment > kPageSize, we do not produce a size class.
       //
