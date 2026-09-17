@@ -234,9 +234,9 @@ constexpr bool IsColdSizeClass(unsigned size_class) {
 #if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
 inline constexpr size_t kMinMmapAlloc = 1 << 30;  // mmap() in 1GiB ranges.
 #else
-// mmap() in units of 32MiB. This is a multiple of huge page size for
+// mmap() in units of at least 64MiB. This is a multiple of huge page size for
 // both x86 (2MiB) and Power (16MiB)
-inline constexpr size_t kMinMmapAlloc = 32 << 20;
+inline constexpr size_t kMinMmapAlloc = 64 << 20;
 #endif
 
 static_assert(
