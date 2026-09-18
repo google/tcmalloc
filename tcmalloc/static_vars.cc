@@ -178,29 +178,6 @@ SizeClassConfiguration Static::size_class_configuration() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     return SizeClassConfiguration::kPow2Only;
   }
-
-  // TODO(b/512895228): remove this opt out once we are done experimenting.
-  const char* e_reuse = thread_safe_getenv("TCMALLOC_REUSE_SIZE_CLASSES");
-  const char* e_legacy = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
-
-
-  if (e_reuse != nullptr) {
-    if (!strcmp(e_reuse, "reuserelaxedbelow64")) {
-      return SizeClassConfiguration::kReuseRelaxedBelow64;
-    } else if (!strcmp(e_reuse, "0")) {
-      // "0" is a valid value that falls back to the default.
-    } else {
-      TC_BUG("bad TCMALLOC_REUSE_SIZE_CLASSES env var '%s'", e_reuse);
-    }
-  }
-
-  if (e_legacy == nullptr) {
-    return SizeClassConfiguration::kReuseRelaxedBelow64;
-  } else if (!strcmp(e_legacy, "0")) {
-    return SizeClassConfiguration::kReuseRelaxedBelow64;
-  } else {
-    TC_BUG("bad TCMALLOC_LEGACY_SIZE_CLASSES env var '%s'", e_legacy);
-  }
   return SizeClassConfiguration::kReuseRelaxedBelow64;
 }
 
