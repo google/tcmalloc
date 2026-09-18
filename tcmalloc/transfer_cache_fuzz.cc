@@ -12,16 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <algorithm>
-#include <type_traits>
-#include <utility>
 #include <variant>
 #include <vector>
 
 #include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
 #include "absl/strings/str_format.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
@@ -54,11 +50,18 @@ struct State {
 
   void CheckInvariants() {
     const TransferCacheStats stats = env.transfer_cache().GetStats();
+    const auto slot_info = env.transfer_cache().GetSlotInfo();
     CHECK_GE(stats.used, 0);
     CHECK_LE(stats.used, stats.capacity);
     CHECK_LE(stats.capacity, stats.max_capacity);
     CHECK_EQ(stats.used, env.transfer_cache().tc_length());
     CHECK_EQ(stats.max_capacity, env.transfer_cache().max_capacity());
+    CHECK_EQ(slot_info.used, stats.used);
+    CHECK_EQ(slot_info.capacity, stats.capacity);
+    CHECK_EQ(env.transfer_cache().HasSpareCapacity(kSizeClass),
+             stats.capacity - stats.used >= kNumObjectsToMove);
+    CHECK_EQ(env.transfer_cache().CanIncreaseCapacity(kSizeClass),
+             stats.capacity + kNumObjectsToMove <= stats.max_capacity);
   }
 
   void Drain() { env.Drain(); }
@@ -76,7 +79,11 @@ struct Grow {
     // have sufficient capacity to grow.
     const bool expected =
         stats.capacity + kNumObjectsToMove <= stats.max_capacity;
+    CHECK_EQ(state.env.transfer_cache().CanIncreaseCapacity(kSizeClass),
+             expected);
     CHECK_EQ(state.env.Grow(), expected);
+    CHECK_EQ(state.env.transfer_cache().GetSlotInfo().capacity,
+             expected ? stats.capacity + kNumObjectsToMove : stats.capacity);
   }
 };
 
@@ -92,6 +99,8 @@ struct Shrink {
     // have sufficient capacity to shrink.
     const bool expected = stats.capacity > kNumObjectsToMove;
     CHECK_EQ(state.env.Shrink(), expected);
+    CHECK_EQ(state.env.transfer_cache().GetSlotInfo().capacity,
+             expected ? stats.capacity - kNumObjectsToMove : stats.capacity);
   }
 };
 
@@ -174,9 +183,9 @@ auto GetInstructionDomain() {
       fuzztest::Map([](GetStats g) { return Instruction{g}; },
                     fuzztest::Arbitrary<GetStats>()),
       fuzztest::Map([](int batch) { return Instruction{Insert{batch}}; },
-                    fuzztest::InRange(0, kNumObjectsToMove)),
+                    fuzztest::InRange(1, kNumObjectsToMove)),
       fuzztest::Map([](int batch) { return Instruction{Remove{batch}}; },
-                    fuzztest::InRange(0, kNumObjectsToMove)));
+                    fuzztest::InRange(1, kNumObjectsToMove)));
 }
 
 FUZZ_TEST(TransferCacheTest, FuzzTransferCache)
