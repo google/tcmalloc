@@ -577,6 +577,69 @@ TEST_F(HugeRegionTest, ReleaseDuringPut) {
   Delete(a3);
 }
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+TEST_F(HugeRegionTest, DisjointRunReentrantMaybeGetAndRelease) {
+  int callback_count = 0;
+  HugeLength reentrant_released;
+  bool reentrant_alloc_ok = true;
+  PageId reentrant_p;
+  bool from_released;
+  Alloc a1, a2, a3;
+
+  CallbackRelease blocking([&]() {
+    callback_count++;
+    // Verify invariants while unbacking is in flight.
+    BackingStats stats = region_.stats();
+    EXPECT_EQ(stats.system_bytes, region_.size().in_bytes());
+    EXPECT_EQ(
+        region_.used_pages() + region_.free_pages() + region_.unmapped_pages(),
+        region_.size().in_pages());
+    EXPECT_LE(region_.free_backed(), region_.backed());
+
+    if (callback_count == 1) {
+      // Attempt to allocate a hugepage while both disjoint runs are prepared
+      // for unbacking. Because all remaining pages are unbacked or reserved
+      // for unbacking, any allocation from unbacked space will back a new page
+      // rather than stealing the second prepared run (a3).
+      reentrant_alloc_ok =
+          region_.MaybeGet(kPagesPerHugePage, &reentrant_p, &from_released);
+      EXPECT_NE(reentrant_p, a3.p);
+      // A reentrant Release() should not double-unback a3.
+      reentrant_released = region_.Release(region_.size().in_pages(),
+                                           /*adaptive_release=*/false);
+    }
+  });
+  region_.~HugeRegion();
+  new (&region_)
+      HugeRegion({p_, region_.size()}, blocking, mock_set_anon_vma_name_);
+
+  a1 = Allocate(kPagesPerHugePage);
+  a2 = Allocate(kPagesPerHugePage);
+  a3 = Allocate(kPagesPerHugePage);
+  EXPECT_EQ(region_.backed(), NHugePages(3));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  // Free a1 and a3 without unbacking so they form two disjoint free-backed runs
+  // separated by a2.
+  Delete(a1);
+  Delete(a3);
+  EXPECT_EQ(region_.free_backed(), NHugePages(2));
+
+  HugeLength released =
+      region_.Release(region_.size().in_pages(), /*adaptive_release=*/false);
+  EXPECT_EQ(released, NHugePages(2));
+  EXPECT_EQ(reentrant_released, NHugePages(0));
+  EXPECT_EQ(callback_count, 2);
+
+  if (reentrant_alloc_ok) {
+    region_.Put(Range(reentrant_p, kPagesPerHugePage), /*release=*/true);
+  }
+  DeleteUnback(a2);
+  EXPECT_EQ(region_.used_pages(), Length(0));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+}
+#endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
+
 TEST_F(HugeRegionTest, Stats) {
   const Length kLen = region_.size().in_pages();
   const size_t kBytes = kLen.in_bytes();
@@ -1196,6 +1259,69 @@ TEST_P(HugeRegionSetTest, GetPageAllocationStatus) {
 
   ASSERT_TRUE(set_.MaybePut(Range(p, Length(7))));
 }
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+TEST_P(HugeRegionSetTest, ReentrantReleaseAndMaybePut) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  int callback_count = 0;
+  Alloc a_reentrant{PageId{0}, Length(0)};
+  CallbackRelease blocking([&]() {
+    callback_count++;
+    BackingStats stats = set_.stats();
+    EXPECT_GT(stats.system_bytes, 0);
+
+    if (callback_count == 1) {
+      // Perform a concurrent allocation and deallocation from set_ while
+      // ReleasePages has dropped pageheap_lock during unbacking.
+      bool from_released;
+      if (set_.MaybeGet(kPagesPerHugePage, &a_reentrant.p, &from_released)) {
+        a_reentrant.n = kPagesPerHugePage;
+        ASSERT_TRUE(set_.MaybePut(Range(a_reentrant.p, a_reentrant.n)));
+      }
+      // Also invoke a nested ReleasePages.
+      set_.ReleasePages(kPagesPerHugePage, /*use_adaptive=*/false,
+                        /*hit_limit=*/true);
+    }
+  });
+
+  auto r1 = std::make_unique<Region>(HugeRange{next_, Region::size()}, blocking,
+                                     nil_set_anon_vma_name_);
+  next_ += Region::size();
+  auto r2 = std::make_unique<Region>(HugeRange{next_, Region::size()}, blocking,
+                                     nil_set_anon_vma_name_);
+  next_ += Region::size();
+
+  set_.Contribute(r1.get());
+  set_.Contribute(r2.get());
+
+  PageId p;
+  bool from_released;
+  std::vector<Alloc> allocs;
+  for (int i = 0; i < 6; ++i) {
+    ASSERT_TRUE(set_.MaybeGet(kPagesPerHugePage, &p, &from_released));
+    allocs.push_back({p, kPagesPerHugePage});
+  }
+  for (const auto& a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  Length released = set_.ReleasePages(Length::max(), /*use_adaptive=*/false,
+                                      /*hit_limit=*/true);
+  EXPECT_GE(released, NHugePages(5).in_pages());
+  EXPECT_GT(callback_count, 0);
+
+  // Verify stats match sum of individual regions.
+  BackingStats stats = set_.stats();
+  BackingStats expected = r1->stats();
+  expected += r2->stats();
+  EXPECT_EQ(stats.system_bytes, expected.system_bytes);
+  EXPECT_EQ(stats.free_bytes, expected.free_bytes);
+  EXPECT_EQ(stats.unmapped_bytes, expected.unmapped_bytes);
+}
+#endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
 
 TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {
   MockMemoryTagFunction mock_set_anon_vma_name;

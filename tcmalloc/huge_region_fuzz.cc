@@ -210,6 +210,9 @@ struct State {
     output.resize(1 << 20);
 
     unback.release_callback_ = [this]() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      return;
+#else
       if (!this->reentrant_release) return;
       if (reentrant_stack.empty()) return;
       if (depth >= 5) return;
@@ -220,6 +223,7 @@ struct State {
       depth++;
       Execute(prog);
       depth--;
+#endif
     };
   }
 
@@ -424,6 +428,108 @@ TEST(HugeRegionTest, b339521569) {
 
   FuzzRegion(p, false);
 }
+
+struct SetState {
+  bool reentrant_release;
+  MockUnback unback;
+  NilMemoryTagFunction nil_set_anon_vma_name;
+  HugeRegionSet<HugeRegion> set;
+  std::vector<std::unique_ptr<HugeRegion>> regions;
+  std::vector<Range> allocs;
+  std::vector<absl::Span<const Instruction>> reentrant_stack;
+  int depth = 0;
+
+  explicit SetState(bool reentrant_release, bool use_more_often)
+      : reentrant_release(reentrant_release),
+        set(use_more_often ? HugeRegionUsageOption::kUseForAllLargeAllocs
+                           : HugeRegionUsageOption::kDefault) {
+    HugePage start = HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal));
+    for (int i = 0; i < 2; ++i) {
+      regions.push_back(std::make_unique<HugeRegion>(
+          HugeRange{start, HugeRegion::size()}, unback, nil_set_anon_vma_name));
+      set.Contribute(regions.back().get());
+      start += HugeRegion::size();
+    }
+    unback.release_callback_ = [this]() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      return;
+#else
+      if (!this->reentrant_release) return;
+      if (reentrant_stack.empty()) return;
+      if (depth >= 4) return;
+      auto prog = std::move(reentrant_stack.back());
+      reentrant_stack.pop_back();
+      depth++;
+      Execute(prog);
+      depth--;
+#endif
+    };
+  }
+
+  ~SetState() {
+    reentrant_stack.clear();
+    for (const auto& alloc : allocs) {
+      CHECK(set.MaybePut(alloc));
+    }
+    allocs.clear();
+    CheckInvariants();
+  }
+
+  void Execute(absl::Span<const Instruction> instructions) {
+    for (const auto& inst : instructions) {
+      if (const auto* a = std::get_if<Allocate>(&inst)) {
+        const Length n = Length(std::max<size_t>(a->length % (1 << 18), 1));
+        PageId p;
+        bool from_released;
+        if (set.MaybeGet(n, &p, &from_released)) {
+          allocs.emplace_back(p, n);
+        }
+      } else if (const auto* d = std::get_if<Deallocate>(&inst)) {
+        if (!allocs.empty()) {
+          const int idx = d->index % allocs.size();
+          const Range alloc = allocs[idx];
+          using std::swap;
+          swap(allocs[idx], allocs.back());
+          allocs.pop_back();
+          CHECK(set.MaybePut(alloc));
+        }
+      } else if (const auto* r = std::get_if<Release>(&inst)) {
+        const Length len = Length(r->length % (1 << 18));
+        set.ReleasePages(len, r->adaptive_release, /*hit_limit=*/true);
+      } else if (std::holds_alternative<Stats>(inst)) {
+        CheckInvariants();
+      } else if (std::holds_alternative<Toggle>(inst)) {
+        unback.unback_success_ = !unback.unback_success_;
+      } else if (const auto* s = std::get_if<SetUnbackSuccess>(&inst)) {
+        unback.unback_success_ = s->success;
+      } else if (const auto* re = std::get_if<Reentrant>(&inst)) {
+        reentrant_stack.push_back(re->subprogram);
+      }
+      CheckInvariants();
+    }
+  }
+
+  void CheckInvariants() {
+    BackingStats total = set.stats();
+    BackingStats sum;
+    for (const auto& r : regions) {
+      sum += r->stats();
+    }
+    EXPECT_EQ(total.system_bytes, sum.system_bytes);
+    EXPECT_EQ(total.free_bytes, sum.free_bytes);
+    EXPECT_EQ(total.unmapped_bytes, sum.unmapped_bytes);
+  }
+};
+
+void FuzzRegionSet(const std::vector<Instruction>& instructions,
+                   bool reentrant_release, bool use_more_often) {
+  SetState state(reentrant_release, use_more_often);
+  state.Execute(instructions);
+}
+
+FUZZ_TEST(HugeRegionTest, FuzzRegionSet)
+    .WithDomains(fuzztest::VectorOf(GetInstructionDomain(4)),
+                 fuzztest::Arbitrary<bool>(), fuzztest::Arbitrary<bool>());
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
