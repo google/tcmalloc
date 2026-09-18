@@ -87,12 +87,12 @@ class SkippedSubreleaseCorrectnessTracker {
     tracker_.Report(update);
   }
 
-  void ReportUpdatedPeak(Length current_peak) {
+  void ReportUpdatedPeak(Length current_peak, int64_t now) {
     // Record this peak for the current epoch (so we don't double-count correct
     // predictions later) and advance the tracker.
     SkippedSubreleaseUpdate update;
     update.confirmed_peak = current_peak;
-    if (tracker_.Report(update)) {
+    if (tracker_.Report(update, now)) {
       // Also keep track of the largest peak we have confirmed this epoch.
       last_confirmed_peak_ = Length(0);
     }
@@ -283,8 +283,8 @@ class SubreleaseStatsTracker {
   SubreleaseStatsTracker(const SubreleaseStatsTracker&) = delete;
   SubreleaseStatsTracker& operator=(const SubreleaseStatsTracker&) = delete;
 
-  void Report(const SubreleaseStats& stats) {
-    if (ABSL_PREDICT_FALSE(tracker_.Report(stats))) {
+  void Report(const SubreleaseStats& stats, int64_t now) {
+    if (ABSL_PREDICT_FALSE(tracker_.Report(stats, now))) {
       if (ABSL_PREDICT_FALSE(pending_skipped().count > 0)) {
         Length peak = stats.num_pages;
         // Consider the peak in the most recent record that reported within the
@@ -295,7 +295,7 @@ class SubreleaseStatsTracker {
           peak = std::max(
               peak, most_recent_record.data.stats[kStatsAtMaxDemand].num_pages);
         }
-        skipped_subrelease_correctness_.ReportUpdatedPeak(peak);
+        skipped_subrelease_correctness_.ReportUpdatedPeak(peak, now);
       }
     }
   }
