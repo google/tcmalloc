@@ -575,6 +575,8 @@ inline size_t GetSize(const void* ptr) { return GetSizeAndSampled(ptr).size; }
 // This slow path also handles delete hooks and non-per-cpu mode.
 ABSL_ATTRIBUTE_NOINLINE static void FreeWithHooksOrPerThread(
     void* ptr, std::optional<size_t> size, size_t size_class) {
+  ReentrancyGuard guard;
+
   MallocHook::InvokeDeleteHook({ptr, size,
                                 tc_globals.sizemap().class_to_size(size_class),
                                 HookMemoryMutable::kMutable});
@@ -603,6 +605,9 @@ ABSL_ATTRIBUTE_NOINLINE static void FreeSmallSlow(void* ptr,
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
     return FreeWithHooksOrPerThread(ptr, size, size_class);
   }
+  // Constructed after the tail call above; FreeWithHooksOrPerThread has its
+  // own guard.
+  ReentrancyGuard guard;
   TCMALLOC_ALWAYS_INLINE_CALL tc_globals.cpu_cache().DeallocateSlowNoHooks(
       ptr, size_class);
 }
@@ -667,6 +672,8 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     void* ptr, std::optional<size_t> size, Policy policy) {
+  ReentrancyGuard guard;
+
   const PageId p = PageIdContaining(ptr);
 
   // We use GetDescriptor rather than GetExistingDescriptor here, since `ptr`
@@ -1192,6 +1199,8 @@ template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
 alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
                                        Policy policy, size_t weight) {
+  ReentrancyGuard guard;
+
   if (ABSL_PREDICT_FALSE(size_class == 0)) {
     // This happens on the first call then the size class table is not inited.
     TC_ASSERT(tc_globals.IsInited());
@@ -1243,6 +1252,9 @@ ABSL_ATTRIBUTE_NOINLINE static
                                                   weight);
   }
 
+  // Constructed after the tail call above;
+  // alloc_small_sampled_hooks_or_perthread has its own guard.
+  ReentrancyGuard guard;
   void* res;
   TCMALLOC_ALWAYS_INLINE_CALL res =
       tc_globals.cpu_cache().AllocateSlowNoHooks(size_class);
@@ -1253,6 +1265,8 @@ ABSL_ATTRIBUTE_NOINLINE static
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
     size_t size, Policy policy) {
+  ReentrancyGuard guard;
+
   size_t weight = GetThreadSampler().RecordAllocation(size);
   __sized_ptr_t res = do_malloc_pages(size, weight, policy);
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
@@ -1620,6 +1634,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
     do_free(old_ptr, MallocPolicy());
     return new_ptr;
   } else {
+    // The reallocating branch above is covered by the guards in fast_alloc's
+    // and do_free's slow paths, but this branch invokes hooks directly.
+    tcmalloc::tcmalloc_internal::ReentrancyGuard guard;
+
     // We still need to call hooks to report the updated size:
     tcmalloc::MallocHook::InvokeDeleteHook(
         {const_cast<void*>(old_ptr), std::nullopt, old_size,
