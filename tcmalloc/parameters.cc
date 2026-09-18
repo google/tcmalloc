@@ -315,6 +315,11 @@ bool Parameters::background_process_actions_enabled() {
       std::memory_order_relaxed);
 }
 
+void Parameters::set_background_process_actions_enabled(bool value) {
+  background_process_actions_enabled_ptr().store(value,
+                                                 std::memory_order_relaxed);
+}
+
 absl::Duration Parameters::background_process_sleep_interval() {
   return absl::Nanoseconds(
       background_process_sleep_interval_ns().load(std::memory_order_relaxed));
@@ -432,11 +437,6 @@ void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(int64_t value) {
 
 bool MallocExtension_Internal_GetBackgroundProcessActionsEnabled() {
   return Parameters::background_process_actions_enabled();
-}
-
-void MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value) {
-  tcmalloc::tcmalloc_internal::background_process_actions_enabled_ptr().store(
-      value, std::memory_order_relaxed);
 }
 
 void MallocExtension_Internal_GetBackgroundProcessSleepInterval(

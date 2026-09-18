@@ -32,6 +32,30 @@
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 
+namespace tcmalloc {
+namespace tcmalloc_internal {
+namespace {
+
+ABSL_CONST_INIT absl::Mutex background_mutex(absl::kConstInit);
+
+bool BackgroundProcessActionsDisabled(void*) {
+  return !Parameters::background_process_actions_enabled();
+}
+
+}  // namespace
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
+
+extern "C" {
+
+void MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value) {
+  absl::MutexLock l(tcmalloc::tcmalloc_internal::background_mutex);
+  tcmalloc::tcmalloc_internal::Parameters::
+      set_background_process_actions_enabled(value);
+}
+
+}  // extern "C"
+
 // Release memory to the system at a constant rate.
 void MallocExtension_Internal_ProcessBackgroundActions() {
   using ::tcmalloc::tcmalloc_internal::Parameters;
@@ -58,6 +82,10 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   // want to separately account for pages released by ProcessBackgroundActions.
   tcmalloc::tcmalloc_internal::ConstantRatePageAllocatorReleaser releaser;
 
+  // We guard actions under background_mutex to ensure concurrent invocations
+  // are serialized and SetBackgroundProcessActionsEnabled(false) waits for any
+  // in-flight iteration to complete.
+  absl::MutexLock l(tcmalloc::tcmalloc_internal::background_mutex);
   while (tcmalloc::MallocExtension::GetBackgroundProcessActionsEnabled()) {
     const absl::Duration sleep_time =
         tcmalloc::MallocExtension::GetBackgroundProcessSleepInterval();
@@ -98,112 +126,108 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 
     absl::Time now = absl::Now();
 
-    // TODO(b/278618299):  We guard various actions under a single lock, since
-    // individual operations may not be amenable to concurrent operations.
-    {
-      ABSL_CONST_INIT static absl::Mutex mu(absl::kConstInit);
-      absl::MutexLock l(mu);
+    // We follow the cache hierarchy in TCMalloc from outermost (per-CPU) to
+    // innermost (the page heap).  Freeing up objects at one layer can help
+    // aid memory coalescing for inner caches.
 
-      // We follow the cache hierarchy in TCMalloc from outermost (per-CPU) to
-      // innermost (the page heap).  Freeing up objects at one layer can help
-      // aid memory coalescing for inner caches.
+    if (tcmalloc::MallocExtension::PerCpuCachesActive()) {
+      // Accelerate fences as part of this operation by registering this
+      // thread with rseq.  While this is not strictly required to succeed, we
+      // do not expect an inconsistent state for rseq (some threads registered
+      // and some threads unable to).
+      TC_CHECK(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
 
-      if (tcmalloc::MallocExtension::PerCpuCachesActive()) {
-        // Accelerate fences as part of this operation by registering this
-        // thread with rseq.  While this is not strictly required to succeed, we
-        // do not expect an inconsistent state for rseq (some threads registered
-        // and some threads unable to).
-        TC_CHECK(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
-
-        // Try to drain per-cpu caches once every cpu_cache_drain_period
-        // when enabled.
-        if (now - last_drain >= cpu_cache_drain_period) {
-          tc_globals.cpu_cache().TryDrainingCaches();
-          last_drain = now;
-        }
-
-        if (now - last_shuffle >= cpu_cache_shuffle_period) {
-          tc_globals.cpu_cache().ShuffleCpuCaches();
-          last_shuffle = now;
-        }
-
-        if (now - last_size_class_resize >= size_class_resize_period) {
-          tc_globals.cpu_cache().ResizeSizeClasses();
-          last_size_class_resize = now;
-        }
-
-        if (Parameters::resize_size_class_max_capacity() &&
-            now - last_size_class_max_capacity_resize >=
-                size_class_max_capacity_resize_period) {
-          tc_globals.cpu_cache().ResizeSizeClassMaxCapacities();
-          last_size_class_max_capacity_resize = now;
-        }
-
-        // See if we need to grow the slab once every kCpuCacheSlabResizePeriod
-        // when enabled.
-        if (Parameters::per_cpu_caches_dynamic_slab_enabled() &&
-            now - last_slab_resize_check >= cpu_cache_slab_resize_period) {
-          tc_globals.cpu_cache().ResizeSlabIfNeeded();
-          last_slab_resize_check = now;
-        }
-
-        tc_globals.cpu_cache().ClearTouchedCpus();
+      // Try to drain per-cpu caches once every cpu_cache_drain_period
+      // when enabled.
+      if (now - last_drain >= cpu_cache_drain_period) {
+        tc_globals.cpu_cache().TryDrainingCaches();
+        last_drain = now;
       }
 
-      tc_globals.sharded_transfer_cache().Plunder();
-
-#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-      // Try to plunder and reclaim unused objects from transfer caches.
-      if (now - last_transfer_cache_plunder_check >=
-          transfer_cache_plunder_period) {
-        tc_globals.transfer_cache().TryPlunder();
-        last_transfer_cache_plunder_check = now;
+      if (now - last_shuffle >= cpu_cache_shuffle_period) {
+        tc_globals.cpu_cache().ShuffleCpuCaches();
+        last_shuffle = now;
       }
 
-      if (now - last_transfer_cache_resize_check >=
-          transfer_cache_resize_period) {
-        tc_globals.transfer_cache().TryResizingCaches();
-        last_transfer_cache_resize_check = now;
-      }
-#endif
-
-      if (now - last_hpaa_hugepage_check >= hpaa_hugepage_check_period) {
-        tc_globals.page_allocator().TreatHugepageTrackers(
-            Parameters::usermode_hugepage_collapse());
-        last_hpaa_hugepage_check = now;
+      if (now - last_size_class_resize >= size_class_resize_period) {
+        tc_globals.cpu_cache().ResizeSizeClasses();
+        last_size_class_resize = now;
       }
 
-      // If time goes backwards, we would like to cap the release rate at 0.
-      //
-      // TODO(b/495452446): Improve test coverage and possibly move to working
-      // integer space entirely.
-      double calculated_bytes =
-          static_cast<size_t>(Parameters::background_release_rate()) *
-          absl::ToDoubleSeconds(now - prev_time);
-      constexpr double kMaxSsize =
-          static_cast<double>(std::numeric_limits<ssize_t>::max());
-
-      ssize_t bytes_to_release = calculated_bytes >= kMaxSsize
-                                     ? std::numeric_limits<ssize_t>::max()
-                                     : calculated_bytes;
-      bytes_to_release = std::max<ssize_t>(bytes_to_release, 0);
-
-      // If release rate is set to 0, do not release memory to system. However,
-      // if we want to release free and backed hugepages from HugeRegion or
-      // follow HugePageFiller's smoothing of demand,
-      // ReleaseMemoryToSystem should be able to release those pages to the
-      // system even with bytes_to_release = 0.
-      if (bytes_to_release > 0 ||
-          Parameters::release_pages_from_huge_region() ||
-          Parameters::release_max_filler_pages()) {
-        releaser.Release(bytes_to_release,
-                         /*reason=*/tcmalloc::tcmalloc_internal::
-                             PageReleaseReason::kProcessBackgroundActions);
+      if (Parameters::resize_size_class_max_capacity() &&
+          now - last_size_class_max_capacity_resize >=
+              size_class_max_capacity_resize_period) {
+        tc_globals.cpu_cache().ResizeSizeClassMaxCapacities();
+        last_size_class_max_capacity_resize = now;
       }
 
-      prev_time = now;
+      // See if we need to grow the slab once every kCpuCacheSlabResizePeriod
+      // when enabled.
+      if (Parameters::per_cpu_caches_dynamic_slab_enabled() &&
+          now - last_slab_resize_check >= cpu_cache_slab_resize_period) {
+        tc_globals.cpu_cache().ResizeSlabIfNeeded();
+        last_slab_resize_check = now;
+      }
+
+      tc_globals.cpu_cache().ClearTouchedCpus();
     }
 
-    absl::SleepFor(sleep_time);
+    tc_globals.sharded_transfer_cache().Plunder();
+
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+    // Try to plunder and reclaim unused objects from transfer caches.
+    if (now - last_transfer_cache_plunder_check >=
+        transfer_cache_plunder_period) {
+      tc_globals.transfer_cache().TryPlunder();
+      last_transfer_cache_plunder_check = now;
+    }
+
+    if (now - last_transfer_cache_resize_check >=
+        transfer_cache_resize_period) {
+      tc_globals.transfer_cache().TryResizingCaches();
+      last_transfer_cache_resize_check = now;
+    }
+#endif
+
+    if (now - last_hpaa_hugepage_check >= hpaa_hugepage_check_period) {
+      tc_globals.page_allocator().TreatHugepageTrackers(
+          Parameters::usermode_hugepage_collapse());
+      last_hpaa_hugepage_check = now;
+    }
+
+    // If time goes backwards, we would like to cap the release rate at 0.
+    //
+    // TODO(b/495452446): Improve test coverage and possibly move to working
+    // integer space entirely.
+    double calculated_bytes =
+        static_cast<size_t>(Parameters::background_release_rate()) *
+        absl::ToDoubleSeconds(now - prev_time);
+    constexpr double kMaxSsize =
+        static_cast<double>(std::numeric_limits<ssize_t>::max());
+
+    ssize_t bytes_to_release = calculated_bytes >= kMaxSsize
+                                   ? std::numeric_limits<ssize_t>::max()
+                                   : calculated_bytes;
+    bytes_to_release = std::max<ssize_t>(bytes_to_release, 0);
+
+    // If release rate is set to 0, do not release memory to system. However,
+    // if we want to release free and backed hugepages from HugeRegion or
+    // follow HugePageFiller's smoothing of demand,
+    // ReleaseMemoryToSystem should be able to release those pages to the
+    // system even with bytes_to_release = 0.
+    if (bytes_to_release > 0 || Parameters::release_pages_from_huge_region() ||
+        Parameters::release_max_filler_pages()) {
+      releaser.Release(bytes_to_release,
+                       /*reason=*/tcmalloc::tcmalloc_internal::
+                           PageReleaseReason::kProcessBackgroundActions);
+    }
+
+    prev_time = now;
+
+    tcmalloc::tcmalloc_internal::background_mutex.AwaitWithTimeout(
+        absl::Condition(
+            &tcmalloc::tcmalloc_internal::BackgroundProcessActionsDisabled,
+            nullptr),
+        sleep_time);
   }
 }
