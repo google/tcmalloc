@@ -73,22 +73,22 @@ namespace tcmalloc_internal {
 //
 // IF YOU ADD TO THIS LIST, ADD TO STATIC_VAR_SIZE TOO!
 // LINT.IfChange(static_vars)
-ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
+TC_ENSURE_BSS absl::base_internal::SpinLock pageheap_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
-ABSL_CONST_INIT Arena Static::arena_;
-ABSL_CONST_INIT SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
+TC_ENSURE_BSS Arena Static::arena_;
+TC_ENSURE_BSS ABSL_CACHELINE_ALIGNED SizeMap Static::sizemap_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT TransferCacheManager
     Static::transfer_cache_;
-ABSL_CONST_INIT ShardedTransferCacheManager
+TC_ENSURE_BSS ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
 TC_ENSURE_BSS ABSL_CACHELINE_ALIGNED Static::CpuCacheType Static::cpu_cache_;
-ABSL_CONST_INIT
+TC_ENSURE_BSS
 MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
-    Static::sampledallocation_allocator_{arena_};
-ABSL_CONST_INIT MetadataObjectAllocator<Span, ArenaAlloc::kSpan>
-    Static::span_allocator_{arena_};
-ABSL_CONST_INIT MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
-    Static::threadcache_allocator_{arena_};
+    Static::sampledallocation_allocator_;
+TC_ENSURE_BSS MetadataObjectAllocator<Span, ArenaAlloc::kSpan>
+    Static::span_allocator_;
+TC_ENSURE_BSS MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
+    Static::threadcache_allocator_;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
     Static::NoDestructorStorage<SampledAllocationRecorder>
         Static::sampled_allocation_recorder_{sampledallocation_allocator_};
@@ -103,9 +103,9 @@ ABSL_CONST_INIT std::atomic<int64_t> Static::sampled_alloc_handle_generator{0};
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
     Static::NoDestructorStorage<PeakHeapTracker>
         Static::peak_heap_tracker_{sampledallocation_allocator_};
-ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample,
-                                        ArenaAlloc::kStackTraceTable>
-    Static::linked_sample_allocator_{arena_};
+TC_ENSURE_BSS MetadataObjectAllocator<StackTraceTable::LinkedSample,
+                                      ArenaAlloc::kStackTraceTable>
+    Static::linked_sample_allocator_;
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
 ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
@@ -208,36 +208,43 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   PageHeapSpinLockHolder l;
 
   // double-checked locking
-  if (!inited_.load(std::memory_order_acquire)) {
-    TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
-    // Verify we can determine the number of CPUs now, since we will need it
-    // later for per-CPU caches and initializing the cache topology.
-    if (ABSL_PREDICT_FALSE(!NumCPUsMaybe().has_value())) {
-      TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(false);
-    }
-    (void)subtle::percpu::IsFast();
-    PerCpuState::state().Init();
-    numa_topology_.Init();
-    CacheTopology::Instance().Init();
-    cpu_cache_.Init();
-
-    if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
-    ) {
-      TCMalloc_Internal_SetMinHotAccessHint(/*v=*/2);
-    }
-
-    // Do a bit of sanitizing: make sure central_cache is aligned properly
-    TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);
-    transfer_cache_.Init();
-    // The constructor of the sharded transfer cache leaves it in a disabled
-    // state.
-    sharded_transfer_cache_.Init();
-    new (page_allocator_.memory) PageAllocator;
-    guardedpage_allocator_.Init(/*max_allocated_pages=*/64,
-                                /*total_pages=*/128);
-
-    inited_.store(true, std::memory_order_release);
+  if (inited_.load(std::memory_order_acquire)) {
+    return;
   }
+
+  TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
+  sampledallocation_allocator_.Init(arena_);
+  span_allocator_.Init(arena_);
+  threadcache_allocator_.Init(arena_);
+  linked_sample_allocator_.Init(arena_);
+
+  // Verify we can determine the number of CPUs now, since we will need it
+  // later for per-CPU caches and initializing the cache topology.
+  if (ABSL_PREDICT_FALSE(!NumCPUsMaybe().has_value())) {
+    TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(false);
+  }
+  (void)subtle::percpu::IsFast();
+  PerCpuState::state().Init();
+  numa_topology_.Init();
+  CacheTopology::Instance().Init();
+  cpu_cache_.Init();
+
+  if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
+  ) {
+    TCMalloc_Internal_SetMinHotAccessHint(/*v=*/2);
+  }
+
+  // Do a bit of sanitizing: make sure central_cache is aligned properly
+  TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);
+  transfer_cache_.Init();
+  // The constructor of the sharded transfer cache leaves it in a disabled
+  // state.
+  sharded_transfer_cache_.Init();
+  new (page_allocator_.memory) PageAllocator;
+  guardedpage_allocator_.Init(/*max_allocated_pages=*/64,
+                              /*total_pages=*/128);
+
+  inited_.store(true, std::memory_order_release);
 }
 
 }  // namespace tcmalloc_internal

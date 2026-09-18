@@ -50,9 +50,15 @@ struct AllocatorStats {
 template <class T, ArenaAlloc AllocType>
 class MetadataObjectAllocator {
  public:
+  constexpr MetadataObjectAllocator() = default;
   constexpr explicit MetadataObjectAllocator(
       Arena& arena ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : arena_(&arena), free_list_(nullptr), stats_{0, 0} {}
+      : arena_(&arena) {}
+
+  void Init(Arena& arena) {
+    TC_CHECK(!arena_);
+    arena_ = &arena;
+  }
 
   // Allocates storage for a T.
   //
@@ -125,15 +131,15 @@ class MetadataObjectAllocator {
   }
 
   // Arena from which to allocate memory
-  Arena* arena_;
+  Arena* arena_ = nullptr;
 
   mutable absl::base_internal::SpinLock metadata_lock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
   // Free list of already carved objects
-  T* free_list_ ABSL_GUARDED_BY(metadata_lock_);
+  T* free_list_ ABSL_GUARDED_BY(metadata_lock_) = nullptr;
 
-  AllocatorStats stats_ ABSL_GUARDED_BY(metadata_lock_);
+  AllocatorStats stats_ ABSL_GUARDED_BY(metadata_lock_) = {};
 };
 
 }  // namespace tcmalloc_internal
