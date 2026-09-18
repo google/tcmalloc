@@ -47,6 +47,9 @@ const SizeClasses& SizeMap::CurrentClasses() {
       return kExperimentalPow2SizeClasses;
     case SizeClassConfiguration::kReuseRelaxedBelow64:
       return kSizeClasses;
+    case SizeClassConfiguration::kLegacy:
+      // TODO(b/242710633): remove this opt out.
+      return kLegacySizeClasses;
   }
   TC_BUG("unreachable");
 }

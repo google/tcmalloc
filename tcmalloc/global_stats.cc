@@ -277,6 +277,9 @@ static absl::string_view SizeClassConfigurationString(
   switch (config) {
     case SizeClassConfiguration::kPow2Only:
       return "SIZE_CLASS_POW2_ONLY";
+    case SizeClassConfiguration::kLegacy:
+      // TODO(b/242710633): remove this opt out.
+      return "SIZE_CLASS_LEGACY";
     case SizeClassConfiguration::kReuseRelaxedBelow64:
       return "SIZE_CLASS_REUSE_RELAXED_BELOW_64";
   }

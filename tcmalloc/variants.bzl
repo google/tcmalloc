@@ -183,6 +183,15 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
+        "name": "legacy_size_classes",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+            "//tcmalloc:want_legacy_size_classes",
+        ],
+        "copts": [],
+    },
+    {
         "name": "hpaa",
         "malloc": "//tcmalloc",
         "deps": [
