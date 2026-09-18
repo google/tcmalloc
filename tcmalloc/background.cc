@@ -189,11 +189,13 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       bytes_to_release = std::max<ssize_t>(bytes_to_release, 0);
 
       // If release rate is set to 0, do not release memory to system. However,
-      // if we want to release free and backed hugepages from HugeRegion,
+      // if we want to release free and backed hugepages from HugeRegion or
+      // follow HugePageFiller's smoothing of demand,
       // ReleaseMemoryToSystem should be able to release those pages to the
       // system even with bytes_to_release = 0.
       if (bytes_to_release > 0 ||
-          Parameters::release_pages_from_huge_region()) {
+          Parameters::release_pages_from_huge_region() ||
+          Parameters::release_max_filler_pages()) {
         releaser.Release(bytes_to_release,
                          /*reason=*/tcmalloc::tcmalloc_internal::
                              PageReleaseReason::kProcessBackgroundActions);

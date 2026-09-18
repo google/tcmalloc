@@ -2184,6 +2184,76 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
   }
 }
 
+TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
+  constexpr SpanAllocInfo kAllocInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr Length kAllocPages = kPagesPerHugePage / 2;
+
+  struct TestCase {
+    bool release_max_filler_pages;
+    bool enable_smoothing;
+    Length expected_released;
+  };
+
+  const TestCase kTestCases[] = {
+      // With demand smoothing and release_max_filler_pages = true, we release
+      // all pages down to the demand smoothing bound (kAllocPages), stopping
+      // before releasing all free pages (2 * kAllocPages).
+      {.release_max_filler_pages = true,
+       .enable_smoothing = true,
+       .expected_released = kAllocPages},
+      // With demand smoothing and release_max_filler_pages = false, calling
+      // with Length(0) does not release any filler pages (0), confirming that
+      // we would not have released down to the smoothing bound without
+      // release_max_filler_pages.
+      {.release_max_filler_pages = false,
+       .enable_smoothing = true,
+       .expected_released = Length(0)},
+      // Without demand smoothing, release_max_filler_pages = true releases all
+      // free pages (2 * kAllocPages), confirming that demand smoothing was what
+      // bounded the release above.
+      {.release_max_filler_pages = true,
+       .enable_smoothing = false,
+       .expected_released = 2 * kAllocPages},
+      // Without demand smoothing and release_max_filler_pages = false, calling
+      // with Length(0) does not release any filler pages (0).
+      {.release_max_filler_pages = false,
+       .enable_smoothing = false,
+       .expected_released = Length(0)},
+  };
+
+  for (const auto& test_case : kTestCases) {
+    FakeHugePageAwareAllocator allocator({});
+    allocator.forwarder().set_filler_skip_subrelease_short_interval(
+        test_case.enable_smoothing ? absl::Minutes(1) : absl::ZeroDuration());
+    allocator.forwarder().set_filler_skip_subrelease_long_interval(
+        test_case.enable_smoothing ? absl::Minutes(5) : absl::ZeroDuration());
+    allocator.forwarder().set_release_max_filler_pages(
+        test_case.release_max_filler_pages);
+
+    Span* s1 = allocator.New(kAllocPages, kAllocInfo);
+    Span* s2 = allocator.New(kAllocPages, kAllocInfo);
+    Span* s3 = allocator.New(kAllocPages, kAllocInfo);
+
+    SpanDeleter deleter(&allocator);
+    deleter(s1);
+
+    Length released;
+    {
+      PageHeapSpinLockHolder l;
+      released = allocator.ReleaseAtLeastNPages(
+          Length(0), PageReleaseReason::kReleaseMemoryToSystem);
+    }
+
+    EXPECT_EQ(released, test_case.expected_released);
+
+    deleter(s2);
+    deleter(s3);
+  }
+}
+
 TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   PageBitmap pages;
