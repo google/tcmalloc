@@ -77,7 +77,7 @@ TC_ENSURE_BSS absl::base_internal::SpinLock pageheap_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
 TC_ENSURE_BSS Arena Static::arena_;
 TC_ENSURE_BSS ABSL_CACHELINE_ALIGNED SizeMap Static::sizemap_;
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT TransferCacheManager
+TCMALLOC_ATTRIBUTE_NO_DESTROY TC_ENSURE_BSS TransferCacheManager
     Static::transfer_cache_;
 TC_ENSURE_BSS ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);

@@ -571,22 +571,23 @@ class TransferCacheManager : public StaticForwarder {
 // For the small memory model, the transfer cache is not used.
 class TransferCacheManager {
  public:
-  constexpr TransferCacheManager() : freelist_() {}
+  constexpr TransferCacheManager() = default;
   TransferCacheManager(const TransferCacheManager&) = delete;
   TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
   void Init() {
     for (int i = 0; i < kNumClasses; ++i) {
-      freelist_[i].Init(i, Parameters::cfl_subbucket_prioritization());
+      new (&cache_[i].freelist) CentralFreeList();
+      cache_[i].freelist.Init(i, Parameters::cfl_subbucket_prioritization());
     }
   }
 
   void InsertRange(int size_class, absl::Span<void*> batch) {
-    freelist_[size_class].InsertRange(batch);
+    cache_[size_class].freelist.InsertRange(batch);
   }
 
   [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
-    return freelist_[size_class].RemoveRange(batch);
+    return cache_[size_class].freelist.RemoveRange(batch);
   }
 
   static constexpr size_t tc_length(int size_class) { return 0; }
@@ -594,11 +595,11 @@ class TransferCacheManager {
   static constexpr TransferCacheStats GetStats(int size_class) { return {}; }
 
   const CentralFreeList& central_freelist(int size_class) const {
-    return freelist_[size_class];
+    return cache_[size_class].freelist;
   }
 
   CentralFreeList& central_freelist(int size_class) {
-    return freelist_[size_class];
+    return cache_[size_class].freelist;
   }
 
   void Print(const StatsCounters<kNumClasses>&, Printer& out) const {}
@@ -606,7 +607,14 @@ class TransferCacheManager {
                     PbtxtRegion& region) const {}
 
  private:
-  CentralFreeList freelist_[kNumClasses];
+  union Cache {
+    constexpr Cache() : dummy(false) {}
+    ~Cache() {}
+
+    CentralFreeList freelist;
+    bool dummy;
+  };
+  Cache cache_[kNumClasses];
 } ABSL_CACHELINE_ALIGNED;
 
 // A trivial no-op implementation.
