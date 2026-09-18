@@ -779,6 +779,25 @@ static constexpr uintptr_t kNormalOrBadDeallocationMask =
 static constexpr uintptr_t kTagOrBadDeallocationMask =
     kBadDeallocationHighMask | kTagMask | kBadAlignmentMask;
 
+// Exact tag values for the two normal partitions.  Comparing
+// (uptr & kTagOrBadDeallocationMask) against these selects the partition in the
+// same compare that rejects nullptr, misaligned, out-of-range, sampled, and
+// cold pointers, so the (overwhelmingly common) P0 case needs no separate
+// partition test.
+static constexpr uintptr_t kNormalP0Mask =
+    static_cast<uintptr_t>(MemoryTag::kNormalP0) << kTagShift;
+static constexpr uintptr_t kNormalP1Mask =
+    static_cast<uintptr_t>(MemoryTag::kNormalP1) << kTagShift;
+// A single equality against kNormalPxMask implies "in range, aligned, and tag
+// == kNormalPx" only if the three fields of kTagOrBadDeallocationMask are
+// disjoint and each exact tag value lies entirely within the tag field.
+static_assert((kTagMask & (kBadDeallocationHighMask | kBadAlignmentMask)) == 0);
+static_assert((kNormalP0Mask & kTagMask) == kNormalP0Mask);
+static_assert(kNormalPartitions == 1 ||
+              (kNormalP1Mask & kTagMask) == kNormalP1Mask);
+// nullptr has tag 0 (kSampled), so it fails both compares and takes the branch.
+static_assert(kNormalP0Mask != 0 && kNormalP1Mask != 0);
+
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
                                                               Policy policy) {
@@ -888,7 +907,7 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
   return ReportCorruptedFree(tc_globals, kAlignment, ptr);
 }
 
-template <typename Policy>
+template <size_t kPartition, typename Policy>
 static void fast_free_with_size(void* ptr, size_t size, Policy policy);
 
 template <typename Policy>
@@ -906,8 +925,18 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // whose deletions trigger more operations and require to visit metadata.
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
 
-  if (ABSL_PREDICT_FALSE((uptr & kNormalOrBadDeallocationMask) !=
-                         kNormalMask)) {
+  // Compare the full tag against the exact kNormalP0 value.  Heap partitioning
+  // defaults to off, so nearly every pointer is P0 and falls through with a
+  // single compare that also selects the partition.  Everything else (P1,
+  // nullptr, cold, sampled, misaligned, out-of-range) takes the branch.
+  if (ABSL_PREDICT_FALSE((uptr & kTagOrBadDeallocationMask) != kNormalP0Mask)) {
+    if constexpr (kNormalPartitions > 1) {
+      // Test P1 first so that a partitioned heap pays the same two compares
+      // it did when the partition was derived from the pointer separately.
+      if ((uptr & kTagOrBadDeallocationMask) == kNormalP1Mask) {
+        return fast_free_with_size<1>(ptr, size, policy.AccessAsHot());
+      }
+    }
     if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
     }
@@ -918,13 +947,13 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
       return handle_sampled_or_illformed_ptrs(ptr, size, policy);
     } else {
       // Clone the callsite here to enable constant propgation of is_cold.
-      return fast_free_with_size(ptr, size, policy.AccessAsCold());
+      return fast_free_with_size<0>(ptr, size, policy.AccessAsCold());
     }
   }
-  fast_free_with_size(ptr, size, policy.AccessAsHot());
+  fast_free_with_size<0>(ptr, size, policy.AccessAsHot());
 }
 
-template <typename Policy>
+template <size_t kPartition, typename Policy>
 inline
 // The slow path (e.g. handling sampled allocation) has very deep stack
 // and can create out of stack issues when building in dbg mode because
@@ -935,16 +964,14 @@ inline
     ABSL_ATTRIBUTE_ALWAYS_INLINE
 #endif
     static void fast_free_with_size(void* ptr, size_t size, Policy policy) {
+  static_assert(kPartition < kNormalPartitions);
   // Mismatched-size-delete error detection for sampled memory is performed in
   // the slow path above in all builds.
   TC_ASSERT(CorrectSize(ptr, size, policy));
 
-  // At this point, since ptr's tag bit is 1, it means that it
-  // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
+  // At this point, ptr's tag matched a non-zero tag value exactly, so it cannot
+  // be nullptr either. Thus all code below may rely on ptr != nullptr.
   TC_ASSERT_NE(ptr, nullptr);
-
-  // TODO: b/470136917 - Investigate if we can beautify (i.e., avoiding the code
-  // duplication) this code without losing performance.
 
   // AllocHint/Partition-id  -->  Tag(SizeClass) space
   // (with Security Partition off)
@@ -968,27 +995,19 @@ inline
   //                         └──────────────> kNormalP1 (for numa node 1)
   // C/[0|1] ───────────────────────────────> kCold
 
-  // 'policy.is_cold()' means the ptr has kCold tag. To make the delete
-  // operation correctly maps to the cold size class, partition 0 needs
-  // to be used. If partition 1 used, it will be wrongly mapped to NormalP1
-  // classes (see above diagrams). Additional note: partition number specified
-  // at allocation time is not recorded in the tag for cold objects and
-  // 'PartitionFromPointerFast' will return wrong results for them (and
-  // therefore there is assertion failure if used for kCold ptrs)
-  if (policy.is_cold() || PartitionFromPointerFast(ptr) == 0) {
-    const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
-        policy.template InPartition<0>(), size);
-    if (ABSL_PREDICT_TRUE(is_small)) {
-      FreeSmall(ptr, size, size_class);
-      return;
-    }
-  } else {
-    const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
-        policy.template InPartition<1>(), size);
-    if (ABSL_PREDICT_TRUE(is_small)) {
-      FreeSmall(ptr, size, size_class);
-      return;
-    }
+  // The caller selected kPartition from the pointer's tag.  Cold objects do not
+  // record their allocation-time partition in the tag (see the diagrams above)
+  // and share one set of cold size classes, which GetSizeClass only reaches
+  // from partition 0, so the caller always passes kPartition == 0 for them.
+  // PartitionFromPointerFast asserts on kCold tags, so only consult it for hot
+  // objects.
+  TC_ASSERT(policy.is_cold() ? kPartition == 0
+                             : PartitionFromPointerFast(ptr) == kPartition);
+  const auto [is_small, size_class] = tc_globals.sizemap().GetSizeClass(
+      policy.template InPartition<kPartition>(), size);
+  if (ABSL_PREDICT_TRUE(is_small)) {
+    FreeSmall(ptr, size, size_class);
+    return;
   }
   // We couldn't calculate the size class, which means size > kMaxSize.
   TC_ASSERT(size > kMaxSize ||
