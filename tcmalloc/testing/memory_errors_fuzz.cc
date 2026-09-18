@@ -125,10 +125,14 @@ void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
     return;
   }
 
-  // The pointer must either be non-normal or larger than kMaxSize.  We don't
-  // expect to have lightweight checks otherwise.
+  // The pointer must either be sampled/metadata or larger than kMaxSize.  We
+  // don't expect to have lightweight checks otherwise: normal and cold memory
+  // with a size <= kMaxSize take the fast sized-delete path that derives the
+  // size class from `size` without consulting the pagemap, so a wild pointer is
+  // not detected.
   if (auto tag = GetMemoryTag(p);
-      (tag == MemoryTag::kNormal || tag == MemoryTag::kNormalP1) &&
+      (tag == MemoryTag::kNormal || tag == MemoryTag::kNormalP1 ||
+       tag == MemoryTag::kCold) &&
       size <= kMaxSize) {
     return;
   }
@@ -146,6 +150,11 @@ TEST(MemoryErrorsFuzzTest, WildPointerSizedDeleteRegression) {
   WildPointerSizedDelete(18446744073709551615ull, 18446744073709551615ull);
   WildPointerSizedDelete(0, 18446744073709551615ull);
   WildPointerSizedDelete(17592186048512ull, 0);
+  // Cold-tagged wild pointers with a size <= kMaxSize take the same
+  // non-validating fast sized-delete path as normal memory and are not caught.
+  WildPointerSizedDelete(8796093022208ull, 0);
+  WildPointerSizedDelete(8796093022208ull, 131072);
+  WildPointerSizedDelete(8796093022216ull, 131073);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerSizedDelete);
