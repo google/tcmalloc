@@ -88,7 +88,11 @@ class GuardedPageAllocator {
         page_size_(0),
         rand_(0),
         initialized_(false),
-        allow_allocations_(false) {}
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+        use_madv_guard_(false),
+#endif
+        allow_allocations_(false) {
+  }
 
   GuardedPageAllocator(const GuardedPageAllocator&) = delete;
   GuardedPageAllocator& operator=(const GuardedPageAllocator&) = delete;
@@ -323,6 +327,11 @@ class GuardedPageAllocator {
 
   // True if this object has been fully initialized.
   bool initialized_ ABSL_GUARDED_BY(guarded_page_lock_);
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  // True if MADV_GUARD_INSTALL/MADV_GUARD_REMOVE are used instead of mprotect.
+  bool use_madv_guard_;
+#endif
 
   // Flag to control whether we can return allocations or not.
   bool allow_allocations_ ABSL_GUARDED_BY(guarded_page_lock_);
