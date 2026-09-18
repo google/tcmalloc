@@ -664,52 +664,81 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
 // carried out.  The test first allocates objects and deallocates them.  After
 // each operation, the actual index is matched against the expected one.
 template <typename IndexingFunc>
-void TestIndexing(TypeParam& e, IndexingFunc f) {
+void TestIndexing(TypeParam& e, IndexingFunc f, int step = 1) {
   TC_ASSERT_GT(kNumLists, 0);
   const int num_objects_to_fetch = e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch);
   size_t fetched = 0;
-  int expected_idx = kNumLists - 1;
 
-  // Fetch one object at a time from a span and confirm that the span is moved
-  // through the nonempty_ lists as we allocate more objects from it.
+  // Fetch `step` objects at a time from a span and confirm that the span is
+  // moved through the nonempty_ lists and span utilization histogram buckets as
+  // we allocate objects from it.
   while (fetched < num_objects_to_fetch) {
-    // Try to fetch one object from the span.
-    int got =
-        e.central_freelist().RemoveRange(absl::MakeSpan(&objects[fetched], 1));
+    const int to_get =
+        std::min<int>(step, num_objects_to_fetch - static_cast<int>(fetched));
+    int got = e.central_freelist().RemoveRange(
+        absl::MakeSpan(&objects[fetched], to_get));
+    ASSERT_EQ(got, to_get);
     fetched += got;
     TC_ASSERT(fetched);
-    if (fetched % num_objects_to_fetch == 0) {
+    const size_t expected_bitwidth = absl::bit_width(fetched);
+    if (num_objects_to_fetch > 1) {
+      for (uint16_t bw = 1; bw <= 16; ++bw) {
+        EXPECT_EQ(e.central_freelist().NumSpansWith(bw),
+                  bw == expected_bitwidth ? 1 : 0);
+      }
+    }
+    if (fetched == num_objects_to_fetch) {
       // Span should have been removed from nonempty_ lists because we have
       // allocated all the objects from it.
-      EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 0);
+      for (int i = 0; i < kNumLists; ++i) {
+        EXPECT_EQ(e.central_freelist().NumSpansInList(i), 0);
+      }
     } else {
-      expected_idx = f(fetched);
+      const int expected_idx = f(fetched);
       TC_ASSERT_GE(expected_idx, 0);
       TC_ASSERT_LT(expected_idx, kNumLists);
-      // Check that the span exists in the corresponding nonempty_ list.
-      EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
+      // Check that the span exists only in the corresponding nonempty_ list.
+      for (int i = 0; i < kNumLists; ++i) {
+        EXPECT_EQ(e.central_freelist().NumSpansInList(i),
+                  i == expected_idx ? 1 : 0);
+      }
     }
   }
 
   // Similar to our previous test, we now make sure that the span is moved
   // through the nonempty_ lists when we deallocate objects back to it.
   size_t remaining = fetched;
-  while (--remaining > 0) {
-    // Return objects back to the span one at a time.
-    e.central_freelist().InsertRange({&objects[remaining], 1});
-    TC_ASSERT(remaining);
-    // When allocated objects are more than the threshold, the span is indexed
-    // to nonempty_ list 0.
-    expected_idx = f(remaining);
-    EXPECT_LT(expected_idx, kNumLists);
-    EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
+  while (remaining > 0) {
+    const int to_put = std::min<int>(step, static_cast<int>(remaining));
+    remaining -= to_put;
+    e.central_freelist().InsertRange(
+        {&objects[remaining], static_cast<size_t>(to_put)});
+    if (remaining > 0) {
+      const size_t expected_bitwidth = absl::bit_width(remaining);
+      if (num_objects_to_fetch > 1) {
+        for (uint16_t bw = 1; bw <= 16; ++bw) {
+          EXPECT_EQ(e.central_freelist().NumSpansWith(bw),
+                    bw == expected_bitwidth ? 1 : 0);
+        }
+      }
+      const int expected_idx = f(remaining);
+      EXPECT_LT(expected_idx, kNumLists);
+      for (int i = 0; i < kNumLists; ++i) {
+        EXPECT_EQ(e.central_freelist().NumSpansInList(i),
+                  i == expected_idx ? 1 : 0);
+      }
+    } else {
+      // When the last objects are returned, we release the span to the page
+      // heap. All nonempty_ lists and utilization buckets should be empty.
+      for (int i = 0; i < kNumLists; ++i) {
+        EXPECT_EQ(e.central_freelist().NumSpansInList(i), 0);
+      }
+      for (uint16_t bw = 1; bw <= 16; ++bw) {
+        EXPECT_EQ(e.central_freelist().NumSpansWith(bw), 0);
+      }
+    }
   }
-
-  // When the last object is returned, we release the span to the page heap. So,
-  // nonempty_[0] should also be empty.
-  e.central_freelist().InsertRange({&objects[remaining], 1});
-  EXPECT_EQ(e.central_freelist().NumSpansInList(0), 0);
 }
 
 TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
@@ -728,7 +757,11 @@ TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
     size_t bitwidth = absl::bit_width(allocated);
     return kNumLists - std::min(bitwidth, kNumLists);
   };
-  TestIndexing(e, bitwidth_indexing);
+  for (int step : {1, 2, 3, 5}) {
+    if (step <= e.batch_size()) {
+      TestIndexing(e, bitwidth_indexing, step);
+    }
+  }
 }
 
 TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
@@ -746,7 +779,11 @@ TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
     if (allocated <= kNumLists) return kNumLists - allocated;
     return 0;
   };
-  TestIndexing(e, direct_indexing);
+  for (int step : {1, 2, 3, 5}) {
+    if (step <= e.batch_size()) {
+      TestIndexing(e, direct_indexing, step);
+    }
+  }
 }
 
 // Checks if we are indexing a span in the nonempty_ lists as expected. We also

@@ -469,6 +469,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     span->set_nonempty_index(index);
   }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
@@ -500,15 +501,54 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     nonempty_.Add(span, cur_index, use_prepend);
     span->set_nonempty_index(cur_index);
   } else if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     nonempty_.Remove(span, prev_index);
     nonempty_.Add(span, cur_index, use_prepend);
-#else
-    nonempty_.Move(span, prev_index, cur_index, use_prepend);
-#endif
     span->set_nonempty_index(cur_index);
   }
   return nullptr;
+#else
+  const uint16_t prev_allocated = span->Allocated();
+  ASSUME(prev_allocated > 0);
+  const uint8_t prev_bitwidth = absl::bit_width<uint32_t>(prev_allocated);
+  if (ABSL_PREDICT_FALSE(
+          !span->FreelistPushBatch(batch, object_size, size_reciprocal))) {
+    // Update the histogram as the span is full and will be removed from the
+    // nonempty_ list.
+    RecordSpanUtil(prev_bitwidth, /*increase=*/false);
+    if (ABSL_PREDICT_TRUE(!was_empty)) {
+      nonempty_.Remove(span, span->nonempty_index());
+    }
+    return span;
+  }
+  // As the objects are being added to the span, its utilization might change.
+  // We remove the stale utilization from the histogram and add the new
+  // utilization to the histogram after we release objects to the span.
+  uint16_t cur_allocated = prev_allocated - batch.size();
+  TC_ASSERT_EQ(cur_allocated, span->Allocated());
+  ASSUME(cur_allocated > 0);
+  const uint8_t cur_bitwidth = absl::bit_width<uint32_t>(cur_allocated);
+  if (cur_bitwidth != prev_bitwidth) {
+    RecordSpanUtil(prev_bitwidth, /*increase=*/false);
+    RecordSpanUtil(cur_bitwidth, /*increase=*/true);
+  }
+  // If span allocation changes so that it moved to a different nonempty_ list,
+  // we remove it from the previous list and add it to the desired list indexed
+  // by cur_index.
+  if (ABSL_PREDICT_FALSE(was_empty)) {
+    const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+    nonempty_.Add(span, cur_index, use_prepend);
+    span->set_nonempty_index(cur_index);
+  } else if (cur_bitwidth != prev_bitwidth ||
+             use_all_buckets_for_few_object_spans_) {
+    const uint8_t prev_index = span->nonempty_index();
+    const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+    if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+      nonempty_.Move(span, prev_index, cur_index, use_prepend);
+      span->set_nonempty_index(cur_index);
+    }
+  }
+  return nullptr;
+#endif
 }
 
 template <class Forwarder>
@@ -726,19 +766,18 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       }
 
       const uint16_t prev_allocated = span->Allocated();
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ASSUME(prev_allocated > 0);
-#endif
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
       TC_ASSERT_EQ(prev_index, span->nonempty_index());
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       // Clobber prev_index to trigger reload, restoring previous behavior.
       prev_index = span->nonempty_index();
-#endif
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       int here = span->FreelistPopBatch(batch.subspan(result), object_size);
 #else
+      ASSUME(prev_allocated > 0);
+      const uint8_t prev_bitwidth = absl::bit_width<uint32_t>(prev_allocated);
+      TC_ASSERT_EQ(prev_index, span->nonempty_index());
+
       // Pass pointer + count directly to avoid absl::Span::subspan's defensive
       // length clamping (std::min) on this hot drain path.  See b/538576012.
       const size_t size = batch.size();
@@ -751,6 +790,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       // add it again once we pop the objects.
       const uint16_t cur_allocated = prev_allocated + here;
       TC_ASSERT_EQ(cur_allocated, span->Allocated());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
       if (cur_bitwidth != prev_bitwidth) {
         RecordSpanUtil(prev_bitwidth, /*increase=*/false);
@@ -771,15 +811,33 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         // desired list indexed by cur_index.
         const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
         if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
           nonempty_.Remove(span, prev_index);
           nonempty_.Add(span, cur_index, /*prepend=*/true);
-#else
-          nonempty_.Move(span, prev_index, cur_index, /*prepend=*/true);
-#endif
           span->set_nonempty_index(cur_index);
         }
       }
+#else
+      ASSUME(cur_allocated > 0);
+      const uint8_t cur_bitwidth = absl::bit_width<uint32_t>(cur_allocated);
+      if (cur_bitwidth != prev_bitwidth) {
+        RecordSpanUtil(prev_bitwidth, /*increase=*/false);
+        RecordSpanUtil(cur_bitwidth, /*increase=*/true);
+      }
+      if (ABSL_PREDICT_FALSE(
+              span->FreelistEmpty(object_size, objects_per_span))) {
+        nonempty_.Remove(span, prev_index);
+      } else if (cur_bitwidth != prev_bitwidth ||
+                 use_all_buckets_for_few_object_spans_) {
+        // If span allocation changes so that it must be moved to a different
+        // nonempty_ list, we remove it from the previous list and add it to the
+        // desired list indexed by cur_index.
+        const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+        if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+          nonempty_.Move(span, prev_index, cur_index, /*prepend=*/true);
+          span->set_nonempty_index(cur_index);
+        }
+      }
+#endif
       result += here;
     } while (result < batch.size());
 
@@ -845,7 +903,12 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
   // Update the histogram once we populate the span.
   const uint16_t allocated = result;
   TC_ASSERT_EQ(allocated, span->Allocated());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const uint8_t bitwidth = absl::bit_width(allocated);
+#else
+  ASSUME(allocated > 0);
+  const uint8_t bitwidth = absl::bit_width<uint32_t>(allocated);
+#endif
   RecordSpanUtil(bitwidth, /*increase=*/true);
   if (!span_empty) {
     const uint8_t index = IndexFor(allocated, bitwidth);
