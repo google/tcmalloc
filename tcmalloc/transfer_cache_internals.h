@@ -98,9 +98,9 @@ class TransferCache {
         low_water_mark_(0),
         slot_info_(SizeInfo({0, capacity.capacity})),
         slots_(nullptr),
-        freelist_do_not_access_directly_(),
         owner_(owner),
-        max_capacity_(capacity.max_capacity) {
+        max_capacity_(capacity.max_capacity),
+        freelist_do_not_access_directly_() {
     freelist().Init(size_class, Parameters::cfl_subbucket_prioritization());
     slots_ = max_capacity_ != 0 ? reinterpret_cast<void**>(owner_->Alloc(
                                       max_capacity_ * sizeof(void*)))
@@ -173,10 +173,17 @@ class TransferCache {
       }
     }
 
+    freelist().InsertRange(batch);
+
+    // Record the miss after the freelist call.  The counters live on a
+    // cacheline that is written by every missing core, so the RMW is likely to
+    // miss; issued before the freelist's lock acquisition (a full barrier on
+    // x86), its store would have to drain before the lock CAS could execute.
+    // Issued afterwards, it drains from the store buffer asynchronously.  The
+    // counters are lossy and nothing on this path reads them, so the count is
+    // unchanged.
     insert_misses_.LossyAdd(1);
     insert_object_misses_.Inc(batch.size());
-
-    freelist().InsertRange(batch);
   }
 
   // Returns the actual number of fetched elements and stores elements in the
@@ -203,9 +210,11 @@ class TransferCache {
       }
     }
 
+    const int got = freelist().RemoveRange(batch);
+    // See InsertRange for why the miss is recorded after the freelist call.
     remove_misses_.LossyAdd(1);
     remove_object_misses_.Inc(batch.size());
-    return freelist().RemoveRange(batch);
+    return got;
   }
 
   // We record the lowest value of info.used in a low water mark since the last
@@ -353,6 +362,8 @@ class TransferCache {
   int32_t max_capacity() const { return max_capacity_; }
 
  private:
+  friend class TransferCacheTestPeer;
+
   // Returns first object of the i-th slot.
   void** GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     return slots_ + i;
@@ -372,8 +383,7 @@ class TransferCache {
   absl::base_internal::SpinLock lock_;
 
   // All the following fields are accessed when holding lock_, so they should
-  // be collocated with lock_ on the same cacheline. Align insert_hits_ to
-  // ensure the following fields are on a separate cacheline.
+  // be collocated with lock_ on the same cacheline.
 
   // Lowest value of "slot_info_.used" since last call to TryPlunder. All
   // elements not used for a full cycle (2 seconds) are unlikely to get used
@@ -396,23 +406,37 @@ class TransferCache {
   // entries.
   void** slots_ ABSL_GUARDED_BY(lock_);
 
-  FreeList freelist_do_not_access_directly_;
-
+  // owner_ and max_capacity_ are immutable after construction and only read on
+  // slow paths, so they may share the cacheline with lock_.
   Manager* const owner_;
 
   // Maximum size of the cache.
   const int32_t max_capacity_;
 
-  // The following 4 *_misses_ counters
-  // are frequently updated, so they should reside in a separate cacheline from
-  // lock_.
-
+  // The following 4 *_misses_ counters are updated on every miss by any core
+  // that falls through to the freelist, so they reside on their own cacheline,
+  // apart from both lock_ (hit path) and the freelist's lock (miss path).
+  //
   // For these we are deliberately fast-and-loose. Some increments may be lost.
-  StatsCounter insert_misses_;
+  alignas(ABSL_CACHELINE_SIZE) StatsCounter insert_misses_;
   StatsCounter remove_misses_;
 
   MissCounts insert_object_misses_;
   MissCounts remove_object_misses_;
+
+  // CentralFreeList carries its own lock at offset 0 and is mutated by every
+  // core that misses, while other cores concurrently hit under lock_ above.
+  // Start it on a fresh cacheline so the two locks do not false share.  Kept
+  // last so its tail padding merges with that of ABSL_CACHELINE_ALIGNED.
+  //
+  // A FreeList no larger than a pointer (BackingTransferCache, which holds
+  // only a size class) is an immutable forwarder with no lock, so it needs no
+  // isolation and packs into the miss counters' cacheline, keeping the sharded
+  // TransferCache at two cachelines.
+  static constexpr size_t kFreeListAlignment = sizeof(FreeList) <= sizeof(void*)
+                                                   ? alignof(FreeList)
+                                                   : ABSL_CACHELINE_SIZE;
+  alignas(kFreeListAlignment) FreeList freelist_do_not_access_directly_;
 } ABSL_CACHELINE_ALIGNED;
 
 template <typename Manager>

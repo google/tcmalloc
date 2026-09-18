@@ -18,12 +18,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstring>
 #include <thread>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/optimization.h"
 #include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -42,6 +44,49 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+namespace internal_transfer_cache {
+
+class TransferCacheTestPeer {
+ public:
+  // Checks that the fields hot on the hit path, the miss counters and the
+  // freelist do not false share.  All checks are compile-time; the function
+  // exists only so that the static_asserts can name private members.
+  template <typename TC>
+  static constexpr bool VerifyLayout() {
+    // lock_ and the state touched on the hit path share the first cacheline.
+    static_assert(offsetof(TC, lock_) == 0);
+    static_assert(offsetof(TC, slots_) + sizeof(void*) <= ABSL_CACHELINE_SIZE);
+    // The miss counters are written by every core that falls through to the
+    // freelist; they get a cacheline of their own, apart from lock_.
+    static_assert(offsetof(TC, insert_misses_) % ABSL_CACHELINE_SIZE == 0);
+    static_assert(offsetof(TC, remove_object_misses_) + sizeof(MissCounts) <=
+                  offsetof(TC, insert_misses_) + ABSL_CACHELINE_SIZE);
+    constexpr size_t kFreeListOffset =
+        offsetof(TC, freelist_do_not_access_directly_);
+    if constexpr (sizeof(typename TC::FreeList) <= sizeof(void*)) {
+      // An immutable forwarder packs into the miss counters' cacheline.
+      static_assert(kFreeListOffset >= offsetof(TC, insert_misses_));
+      static_assert(kFreeListOffset + sizeof(typename TC::FreeList) <=
+                    offsetof(TC, insert_misses_) + ABSL_CACHELINE_SIZE);
+      static_assert(sizeof(TC) == 2 * ABSL_CACHELINE_SIZE);
+    } else {
+      // A freelist with its own lock at offset 0 must not share a cacheline
+      // with lock_ or with the miss counters.
+      static_assert(kFreeListOffset % ABSL_CACHELINE_SIZE == 0);
+      static_assert(kFreeListOffset >=
+                    offsetof(TC, insert_misses_) + ABSL_CACHELINE_SIZE);
+    }
+    return true;
+  }
+};
+
+static_assert(TransferCacheTestPeer::VerifyLayout<
+              TransferCache<CentralFreeList, TransferCacheManager>>());
+static_assert(TransferCacheTestPeer::VerifyLayout<
+              TransferCache<BackingTransferCache, ShardedStaticForwarder>>());
+
+}  // namespace internal_transfer_cache
+
 namespace {
 
 using ::testing::Return;
