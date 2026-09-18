@@ -17,9 +17,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
-#include "absl/algorithm/container.h"
+#include "absl/numeric/bits.h"
 #include "absl/status/status.h"
 #include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
@@ -98,11 +99,42 @@ absl::StatusOr<size_t> CopyResidentPages(absl::Span<const char> data,
   return total_resident_bytes;
 }
 
+// Returns the number of zero bytes in `sample`.  Runs one word at a time so
+// that all-zero samples (common: freshly mapped pages are zero-filled) cost a
+// single load and compare per 8 bytes; mixed words are resolved without
+// branching via a SWAR zero-byte mask.
+size_t CountZeroBytes(absl::Span<const char> sample) {
+  constexpr uint64_t kHighBits = 0x8080808080808080ULL;
+  constexpr uint64_t kLow7Bits = 0x7F7F7F7F7F7F7F7FULL;
+
+  const char* p = sample.data();
+  size_t remaining = sample.size();
+  size_t zeroes = 0;
+  for (; remaining >= sizeof(uint64_t);
+       p += sizeof(uint64_t), remaining -= sizeof(uint64_t)) {
+    uint64_t word;
+    memcpy(&word, p, sizeof(word));
+    if (word == 0) {
+      zeroes += sizeof(uint64_t);
+      continue;
+    }
+    // Bit 7 of each lane is set iff the byte is zero: `(b & 0x7F) + 0x7F` sets
+    // bit 7 iff the low 7 bits are non-zero, and `| b` folds in bit 7 itself.
+    const uint64_t zero_lanes = ~(((word & kLow7Bits) + kLow7Bits) | word);
+    zeroes += absl::popcount(zero_lanes & kHighBits);
+  }
+  for (; remaining > 0; ++p, --remaining) {
+    zeroes += (*p == '\0');
+  }
+  return zeroes;
+}
+
 // Extrapolates total zero bytes in the allocation by combining zeroes measured
 // within the resident sample with known unbacked pages.
 size_t EstimateZeroBytes(size_t alloc_size,
                          const Residency::Info& residency_info,
-                         absl::Span<const char> resident_sample) {
+                         absl::Span<const char> resident_sample,
+                         size_t sample_zeroes) {
   const size_t backed_bytes = std::min(
       alloc_size, residency_info.bytes_resident + residency_info.bytes_swapped);
   const size_t unbacked_bytes = alloc_size - backed_bytes;
@@ -110,7 +142,6 @@ size_t EstimateZeroBytes(size_t alloc_size,
     return unbacked_bytes;
   }
 
-  const size_t sample_zeroes = absl::c_count(resident_sample, '\0');
   const double zero_ratio =
       static_cast<double>(sample_zeroes) / resident_sample.size();
   const size_t estimated_backed_zeroes =
@@ -125,6 +156,9 @@ CompressionAnalyzer::CompressionAnalyzer(size_t max_local_copy_size)
     : local_copy_(max_local_copy_size)
 {}
 
+CompressionAnalyzer::~CompressionAnalyzer() {
+}
+
 absl::StatusOr<CompressionAnalyzer::Results> CompressionAnalyzer::Analyze(
     absl::Span<const char> data, const Residency::Info& residency_info) {
   // Sample resident pages up to local buffer capacity (2MB).
@@ -134,10 +168,11 @@ absl::StatusOr<CompressionAnalyzer::Results> CompressionAnalyzer::Analyze(
 
   const absl::Span<const char> resident_sample =
       absl::MakeConstSpan(local_copy_).first(copied_bytes);
+  const size_t sample_zeroes = CountZeroBytes(resident_sample);
 
   Results results;
-  results.zero_bytes =
-      EstimateZeroBytes(data.size(), residency_info, resident_sample);
+  results.zero_bytes = EstimateZeroBytes(data.size(), residency_info,
+                                         resident_sample, sample_zeroes);
 
   return results;
 }

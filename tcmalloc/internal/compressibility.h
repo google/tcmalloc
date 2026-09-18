@@ -26,12 +26,21 @@
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+// Estimates how compressible a sampled allocation is.
+//
+// An instance owns scratch buffers (and a compression context) that are reused
+// across calls to Analyze(), so it is not safe to call Analyze() concurrently
+// on the same instance.  Callers use one instance per (serial) profile walk.
 class CompressionAnalyzer {
  public:
   static constexpr size_t kDefaultMaxLocalCopySize = 2 * 1024 * 1024;
 
   explicit CompressionAnalyzer(
       size_t max_local_copy_size = kDefaultMaxLocalCopySize);
+  ~CompressionAnalyzer();
+
+  CompressionAnalyzer(const CompressionAnalyzer&) = delete;
+  CompressionAnalyzer& operator=(const CompressionAnalyzer&) = delete;
 
   struct Results {
     size_t zero_bytes = 0;
