@@ -26,6 +26,7 @@
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -111,11 +112,17 @@ class NumaTopology {
   }
 
   // Returns the number of NUMA nodes detected in the system.
-  size_t num_nodes() const { return num_nodes_; }
+  [[nodiscard]] size_t num_nodes() const {
+    TC_ASSERT_NE(num_nodes_, 0);
+    return num_nodes_;
+  }
 
   // Return a value indicating how we should behave with regards to binding
   // memory regions to NUMA nodes.
-  NumaBindMode bind_mode() const { return bind_mode_; }
+  [[nodiscard]] NumaBindMode bind_mode() const {
+    TC_ASSERT_NE(num_nodes_, 0);
+    return bind_mode_;
+  }
 
   // Return the NUMA partition number to which the CPU we're currently
   // executing upon belongs. Note that whilst the CPU->partition mapping is
@@ -150,9 +157,9 @@ class NumaTopology {
   // Indicates whether NUMA awareness is available & enabled.
   bool numa_aware_ = false;
   // Desired memory binding behavior.
-  NumaBindMode bind_mode_ = NumaBindMode::kAdvisory;
+  NumaBindMode bind_mode_ = NumaBindMode::kNone;
   // The number of NUMA nodes detected in the system.
-  size_t num_nodes_ = 1;
+  size_t num_nodes_ = 0;
 
   // We maintain two sets of CPU-to-partition information.  One is
   // unconditionally available in cpu_to_scaled_partition_.

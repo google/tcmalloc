@@ -82,13 +82,16 @@ class SimpleRegionFactory : public AddressRegionFactory {
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
     void* region_space = MallocInternal(sizeof(SimpleRegion));
     TC_CHECK_NE(region_space, nullptr);
-    usage_hint_ = hint;
+    fprintf(stderr, "Create: size=%zu hint=%d\n", size, (int)hint);
+    if (hint == UsageHint::kMetadata) {
+      metadata_region_created_ = true;
+    }
     return new (region_space)
         SimpleRegion(reinterpret_cast<uintptr_t>(start), size);
   }
 
   // Used to verify that the correct usage hint was passed to Create().
-  std::optional<UsageHint> usage_hint_;
+  bool metadata_region_created_ = false;
 };
 
 absl::string_view hintToString(AddressRegionFactory::UsageHint usage_hint) {
@@ -151,16 +154,16 @@ TEST(Basic, RetryFailTest) {
 
 // Verify the usage hint is kMetadata for metadata
 TEST(UsageHint, VerifyUsageHintkMetadataTest) {
-  f.usage_hint_ = std::nullopt;
+  f.metadata_region_created_ = false;
   MallocExtension::SetRegionFactory(&f);
   // Need a large enough size to trigger the system allocator,
-  //  2.0 is an arbitrary number. Else it would continue to use the previous
-  //  hugepage region and a new usage hint wouldn't be assigned
-  void* ptr = ::operator new(kMinMmapAlloc * 2.0);
+  // 10 is an arbitrary number. Else it would continue to use the previous
+  // hugepage region and a new usage hint wouldn't be assigned.
+  // It also needs to be large enough to trigger enough pagemap allocations
+  // to trigger new metadata region allocation.
+  void* ptr = ::operator new(kMinMmapAlloc * 10);
 
-  ASSERT_TRUE(f.usage_hint_.has_value());
-  EXPECT_EQ(*f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
-      << "Usage hint is " << hintToString(*f.usage_hint_);
+  ASSERT_TRUE(f.metadata_region_created_);
 
   // Deliberately leak memory so it isn't reused by other tests exercising this
   // code path.

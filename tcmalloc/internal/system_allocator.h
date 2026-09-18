@@ -103,10 +103,20 @@ struct MemoryModifyStatus {
 template <typename Topology, size_t NormalPartitions>
 class SystemAllocator {
  public:
-  constexpr explicit SystemAllocator(const Topology& topology
-                                         ABSL_ATTRIBUTE_LIFETIME_BOUND,
-                                     size_t min_mmap_size)
-      : topology_(topology), min_mmap_size_(min_mmap_size) {}
+  constexpr SystemAllocator() = default;
+  SystemAllocator(const Topology& topology ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                  size_t min_mmap_size) {
+    Init(topology, min_mmap_size);
+  }
+
+  void Init(const Topology& topology,
+            size_t min_mmap_size) ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    TC_CHECK(!topology_);
+    topology_ = &topology;
+    min_mmap_size_ = min_mmap_size;
+    madvise_ = MadvisePreference::kDontNeed;
+    InitRegionFactory();
+  }
 
   // REQUIRES: "alignment" is a power of two or "0" to indicate default
   // alignment REQUIRES: "alignment" and "size" <= kTagMask
@@ -174,7 +184,7 @@ class SystemAllocator {
   }
 
   // Returns the current address region factory.
-  [[nodiscard]] AddressRegionFactory* GetRegionFactory() const;
+  [[nodiscard]] AddressRegionFactory* GetRegionFactory();
 
   // Sets the current address region factory to factory.
   void SetRegionFactory(AddressRegionFactory* factory);
@@ -188,8 +198,9 @@ class SystemAllocator {
       ABSL_LOCKS_EXCLUDED(spinlock_);
 
  private:
-  const Topology& topology_;
-  const size_t min_mmap_size_;
+  const Topology* topology_ = nullptr;
+  ;
+  size_t min_mmap_size_ = 0;
 
   static constexpr size_t kNumPartitions =
       std::max(Topology::kNumPartitions, NormalPartitions);
@@ -210,7 +221,7 @@ class SystemAllocator {
   uintptr_t next_metadata_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
 
   std::atomic<int> release_errors_{0};
-  std::atomic<MadvisePreference> madvise_{MadvisePreference::kDontNeed};
+  std::atomic<MadvisePreference> madvise_{MadvisePreference::kNever};
   bool unlock_vmas_ = false;
 
   void DiscardMappedRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
@@ -260,9 +271,16 @@ class SystemAllocator {
     std::atomic<size_t> bytes_reserved_{0};
   };
 
-  MmapRegionFactory mmap_factory_ ABSL_GUARDED_BY(spinlock_);
-  AddressRegionFactory* region_factory_ ABSL_GUARDED_BY(spinlock_) =
-      &mmap_factory_;
+  // Union hack to call the constructor lazily, to make this class
+  // suitable for placing in .bss section.
+  union DefaultFactory {
+    constexpr DefaultFactory() : dummy(false) {}
+    ~DefaultFactory() {}
+    MmapRegionFactory factory;
+    bool dummy;
+  };
+  DefaultFactory mmap_factory_ ABSL_GUARDED_BY(spinlock_);
+  AddressRegionFactory* region_factory_ ABSL_GUARDED_BY(spinlock_) = nullptr;
 
   AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) const;
   void BindMemory(void* base, size_t size, size_t partition) const
@@ -280,6 +298,7 @@ class SystemAllocator {
   };
 
   [[nodiscard]] ReleaseStatus ReleasePages(void* start, size_t length) const;
+  void InitRegionFactory();
 };
 
 namespace system_allocator_internal {
@@ -322,6 +341,15 @@ inline constexpr int kMapFixedNoReplace = MAP_FIXED_NOREPLACE;
 }  // namespace system_allocator_internal
 
 template <typename Topology, size_t NormalPartitions>
+void SystemAllocator<Topology, NormalPartitions>::InitRegionFactory()
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  if (region_factory_ == nullptr) {
+    new (&mmap_factory_.factory) MmapRegionFactory();
+    region_factory_ = &mmap_factory_.factory;
+  }
+}
+
+template <typename Topology, size_t NormalPartitions>
 AddressRange SystemAllocator<Topology, NormalPartitions>::Allocate(
     size_t bytes, size_t alignment, const MemoryTag tag) {
   // If default alignment is set request the minimum alignment provided by
@@ -345,8 +373,9 @@ AddressRange SystemAllocator<Topology, NormalPartitions>::Allocate(
 
 template <typename Topology, size_t NormalPartitions>
 AddressRegionFactory*
-SystemAllocator<Topology, NormalPartitions>::GetRegionFactory() const {
+SystemAllocator<Topology, NormalPartitions>::GetRegionFactory() {
   AllocationGuardSpinLockHolder lock_holder(spinlock_);
+  InitRegionFactory();
   return region_factory_;
 }
 
@@ -549,7 +578,7 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
             numa_partition = 0;
             return &next_normal_addr_[0];
           case MemoryTag::kNormalP1:
-            numa_partition = topology_.numa_aware() ? 1 : 0;
+            numa_partition = topology_->numa_aware() ? 1 : 0;
             return &next_normal_addr_[1];
           case MemoryTag::kCold:
             return &next_cold_addr_;
@@ -730,12 +759,12 @@ void SystemAllocator<Topology, NormalPartitions>::BindMemory(
     void* const base, const size_t size, const size_t partition) const {
   // If NUMA awareness is unavailable or disabled, or the user requested that
   // we don't bind memory then do nothing.
-  const NumaBindMode bind_mode = topology_.bind_mode();
-  if (!topology_.numa_aware() || bind_mode == NumaBindMode::kNone) {
+  const NumaBindMode bind_mode = topology_->bind_mode();
+  if (!topology_->numa_aware() || bind_mode == NumaBindMode::kNone) {
     return;
   }
 
-  const uint64_t nodemask = topology_.GetPartitionNodes(partition);
+  const uint64_t nodemask = topology_->GetPartitionNodes(partition);
   int err =
       syscall(__NR_mbind, base, size, MPOL_BIND | MPOL_F_STATIC_NODES,
               &nodemask, sizeof(nodemask) * 8, MPOL_MF_STRICT | MPOL_MF_MOVE);
@@ -760,12 +789,12 @@ SystemAllocator<Topology, NormalPartitions>::TagToHint(MemoryTag tag) const {
   using UsageHint = AddressRegionFactory::UsageHint;
   switch (tag) {
     case MemoryTag::kNormal:
-      if (topology_.numa_aware()) {
+      if (topology_->numa_aware()) {
         return UsageHint::kNormalNumaAwareS0;
       }
       return UsageHint::kNormal;
     case MemoryTag::kNormalP1:
-      if (topology_.numa_aware()) {
+      if (topology_->numa_aware()) {
         return UsageHint::kNormalNumaAwareS1;
       }
       return UsageHint::kNormal;
