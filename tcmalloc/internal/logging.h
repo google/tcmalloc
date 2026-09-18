@@ -347,13 +347,16 @@ class PbtxtRegion {
   PbtxtRegionType type_;
 };
 
+// ReentrancyGuard detects malloc/free reentering the allocator on the same
+// thread (e.g., from a malloc hook or a signal handler).  It is only active in
+// debug builds; in release builds it is an empty, trivially destructible type.
 #if !defined(NDEBUG)
 ABSL_CONST_INIT extern thread_local int tcmalloc_reentrancy_count;
 
 class [[maybe_unused]] ReentrancyGuard {
  public:
   ReentrancyGuard() {
-    // TODO(ckennelly): Reenable reentrancy check.
+    TC_CHECK_EQ(tcmalloc_reentrancy_count, 0);
     ++tcmalloc_reentrancy_count;
   }
   ~ReentrancyGuard() { --tcmalloc_reentrancy_count; }
