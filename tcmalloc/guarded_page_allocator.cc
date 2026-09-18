@@ -49,6 +49,14 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 
+#ifndef MADV_GUARD_INSTALL
+#define MADV_GUARD_INSTALL 102
+#endif
+
+#ifndef MADV_GUARD_REMOVE
+#define MADV_GUARD_REMOVE 103
+#endif
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -80,6 +88,9 @@ void GuardedPageAllocator::Destroy() {
     TC_ASSERT_NE(err, -1);
     (void)err;
     initialized_ = false;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    use_madv_guard_ = false;
+#endif
   }
 }
 
@@ -191,8 +202,17 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
 
   // For size == 0, the page remains protected.
   if (size > 0) {
-    if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
-      TC_ASSERT(false, "mprotect(.., PROT_READ|PROT_WRITE) failed");
+    int err;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    if (use_madv_guard_) {
+      err = madvise(result, page_size_, MADV_GUARD_REMOVE);
+    } else
+#endif
+    {
+      err = mprotect(result, page_size_, PROT_READ | PROT_WRITE);
+    }
+    if (err == -1) {
+      TC_ASSERT(false, "Failed to unprotect page");
       AllocationGuardSpinLockHolder h(guarded_page_lock_);
       failed_allocations_.LossyAdd(1);
       successful_allocations_.LossyAdd(-1);
@@ -262,16 +282,25 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
 
   // For zero-byte allocations WriteOverflowOccurred() and mprotect are skipped.
   if (d.requested_size > 0) {
-    // Needs to be done before mprotect() because it accesses the object page to
-    // check canary bytes.
+    // Needs to be done before mprotect()/madvise() because it accesses the
+    // object page to check canary bytes.
     if (WriteOverflowOccurred(slot)) {
       d.write_overflow_detected = true;
     }
 
-    // Calling mprotect() should also be done outside the guarded_page_lock_
-    // critical section, since mprotect() can have relatively large latency.
-    TC_CHECK_EQ(
-        0, mprotect(reinterpret_cast<void*>(page_addr), page_size_, PROT_NONE));
+    // Calling mprotect()/madvise() should also be done outside the
+    // guarded_page_lock_ critical section, since it can have relatively large
+    // latency.
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    if (use_madv_guard_) {
+      TC_CHECK_EQ(0, madvise(reinterpret_cast<void*>(page_addr), page_size_,
+                             MADV_GUARD_INSTALL));
+    } else
+#endif
+    {
+      TC_CHECK_EQ(0, mprotect(reinterpret_cast<void*>(page_addr), page_size_,
+                              PROT_NONE));
+    }
 
     if (d.write_overflow_detected) {
       ForceTouchPage(ptr);
@@ -402,6 +431,15 @@ void GuardedPageAllocator::MapPages() {
           len, page_size_, MemoryTag::kSampled));
   TC_ASSERT(base_addr);
   if (!base_addr) return;
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  if (madvise(reinterpret_cast<void*>(base_addr), len, MADV_GUARD_INSTALL) ==
+      0) {
+    TC_CHECK_EQ(0, mprotect(reinterpret_cast<void*>(base_addr), len,
+                            PROT_READ | PROT_WRITE));
+    use_madv_guard_ = true;
+  }
+#endif
 
   // Tell TCMalloc's PageMap about the memory we own.
   const PageId page = PageIdContaining(reinterpret_cast<void*>(base_addr));
