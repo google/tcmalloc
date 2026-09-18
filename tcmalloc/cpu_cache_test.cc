@@ -97,11 +97,9 @@ class CpuCachePeer {
   // Validate that we're using >90% of the available slab bytes.
   template <typename CpuCache>
   static void ValidateSlabBytes(const CpuCache& cpu_cache) {
-    cpu_cache_internal::SlabShiftBounds bounds =
-        cpu_cache.GetPerCpuSlabShiftBounds();
+    SlabShiftBounds bounds = cpu_cache.GetPerCpuSlabShiftBounds();
     for (uint8_t shift = bounds.initial_shift;
-         shift <= bounds.max_shift &&
-         shift > cpu_cache_internal::kInitialBasePerCpuShift;
+         shift <= bounds.max_shift && shift > kInitialBasePerCpuShift;
          ++shift) {
       const auto [bytes_required, bytes_available] =
           EstimateSlabBytes(cpu_cache.GetMaxCapacityFunctor(shift));
@@ -355,7 +353,7 @@ class TestStaticForwarder : private Parameters {
       transfer_cache_;
 };
 
-using CpuCache = cpu_cache_internal::CpuCache<TestStaticForwarder>;
+using CpuCache = CpuCache<TestStaticForwarder>;
 using MissCount = CpuCache::MissCount;
 using PerClassMissType = CpuCache::PerClassMissType;
 
@@ -491,8 +489,7 @@ TEST(CpuCacheTest, Metadata) {
     cache.Init();
     cache.Activate();
 
-    cpu_cache_internal::SlabShiftBounds shift_bounds =
-        cache.GetPerCpuSlabShiftBounds();
+    SlabShiftBounds shift_bounds = cache.GetPerCpuSlabShiftBounds();
 
     PerCPUMetadataState r = cache.MetadataMemoryUsage();
     size_t slabs_size = subtle::percpu::GetSlabsAllocSize(
@@ -1092,8 +1089,7 @@ TEST(CpuCacheTest, DynamicSlab) {
         std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
   }
 
-  cpu_cache_internal::SlabShiftBounds shift_bounds =
-      cache.GetPerCpuSlabShiftBounds();
+  SlabShiftBounds shift_bounds = cache.GetPerCpuSlabShiftBounds();
   int shift = shift_bounds.initial_shift;
 
   const auto repeat_dynamic_slab_ops = [&](DynamicSlab op, int shift_update,
@@ -1364,8 +1360,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
   ASSERT_LT(total_misses.overflows,
             total_misses.underflows * kDynamicSlabGrowThreshold);
 
-  cpu_cache_internal::SlabShiftBounds shift_bounds =
-      cache.GetPerCpuSlabShiftBounds();
+  SlabShiftBounds shift_bounds = cache.GetPerCpuSlabShiftBounds();
   const int shift = shift_bounds.initial_shift;
   EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
   cache.ResizeSlabIfNeeded();
@@ -2407,7 +2402,7 @@ TEST(TouchedCpus, Multithreaded) {
 }
 
 TEST(CpuCacheTest, TargetOverflowRefillCount) {
-  auto F = cpu_cache_internal::TargetOverflowRefillCount;
+  auto F = TargetOverflowRefillCount;
   // Args are: capacity, batch_length, successive.
   EXPECT_EQ(F(0, 8, 0), 1);
   EXPECT_EQ(F(0, 8, 10), 1);

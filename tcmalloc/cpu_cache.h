@@ -70,7 +70,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 class CpuCachePeer;
 
-namespace cpu_cache_internal {
 template <class CpuCache>
 struct DrainHandler;
 
@@ -92,19 +91,20 @@ constexpr inline uint8_t kNumPossiblePerCpuShifts =
 constexpr inline uint8_t kResizeSlabCopies = 2;
 constexpr inline uint8_t kTotalPossibleSlabs =
     kNumPossiblePerCpuShifts * kResizeSlabCopies;
-// StaticForwarder provides access to the SizeMap and transfer caches.
+
+// CpuCacheForwarder provides access to the SizeMap and transfer caches.
 //
 // This is a class, rather than namespaced globals, so that it can be mocked for
 // testing.
 template <typename State, State& state>
-class StaticForwarder : private Parameters {
+class CpuCacheForwarder : private Parameters {
  public:
   using Parameters::per_cpu_caches_dynamic_slab_enabled;
   using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
   using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
   using Parameters::release_drained_slab_metadata;
 
-  constexpr StaticForwarder() = default;
+  constexpr CpuCacheForwarder() = default;
 
   [[nodiscard]] void* absl_nonnull Alloc(size_t size,
                                          std::align_val_t alignment)
@@ -2969,16 +2969,6 @@ void CpuCache<Forwarder>::PerClassResizeInfo::UpdateIntervalMisses(
   // miss stats are safe.
   misses_[interval_type].store(total_misses, std::memory_order_relaxed);
 }
-
-}  // namespace cpu_cache_internal
-
-template <typename State, State& state>
-class CpuCache final : public cpu_cache_internal::CpuCache<
-                           cpu_cache_internal::StaticForwarder<State, state>> {
- public:
-  using cpu_cache_internal::CpuCache<
-      cpu_cache_internal::StaticForwarder<State, state>>::CpuCache;
-};
 
 template <typename State>
 inline bool UsePerCpuCache(State& state) {

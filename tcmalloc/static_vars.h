@@ -232,7 +232,8 @@ class Static final {
   TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT static TransferCacheManager
       transfer_cache_;
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
-  ABSL_CONST_INIT static CpuCache<Static, tc_globals> cpu_cache_;
+  using CpuCacheType = CpuCache<CpuCacheForwarder<Static, tc_globals>>;
+  ABSL_CONST_INIT static CpuCacheType cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static MetadataObjectAllocator<SampledAllocation,
                                  ArenaAlloc::kSampledAllocation>
