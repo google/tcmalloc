@@ -691,7 +691,7 @@ class CpuCache {
                              absl::Span<void* absl_nonnull> batch);
 
   [[nodiscard]] void* absl_nullable Refill(int cpu, size_t size_class);
-  std::pair<int, bool> CacheCpuSlab();
+  ABSL_ATTRIBUTE_ALWAYS_INLINE std::pair<int, bool> CacheCpuSlab();
   void Populate(int cpu);
 
   // Returns true if we bypass cpu cache for a <size_class>. We may bypass
@@ -1344,11 +1344,14 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
 }
 
 template <class Forwarder>
-std::pair<int, bool> CpuCache<Forwarder>::CacheCpuSlab() {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE std::pair<int, bool>
+CpuCache<Forwarder>::CacheCpuSlab() {
   auto [cpu, cached] = freelist_.CacheCpuSlab();
   if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0)) {
     auto& state = resize_[cpu];
-    state.touched.store(true, std::memory_order_relaxed);
+    if (ABSL_PREDICT_FALSE(!state.touched.load(std::memory_order_relaxed))) {
+      state.touched.store(true, std::memory_order_relaxed);
+    }
 
     if (ABSL_PREDICT_FALSE(!state.populated.load(std::memory_order_acquire))) {
       Populate(cpu);
