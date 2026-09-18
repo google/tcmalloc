@@ -203,14 +203,6 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_POW2_SIZECLASS,TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_legacy_size_classes
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS}
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages,tcmalloc::want_legacy_size_classes>
-    ENV ${TCMALLOC_ENV}
-  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_hpaa
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
