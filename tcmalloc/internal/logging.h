@@ -348,12 +348,21 @@ class PbtxtRegion {
 };
 
 #if !defined(NDEBUG)
-ABSL_CONST_INIT extern thread_local int tcmalloc_reentrancy_count;
+ABSL_CONST_INIT extern thread_local int tcmalloc_reentrancy_count
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
 
+// Crashes if TCMalloc is reentered, e.g., by an allocation hook or an
+// interposed libc function that itself allocates.
+//
+// Instances are not reentrant themselves, so a guarded function must not call
+// another guarded function.  Guards also pin their enclosing frame until the
+// destructor runs, so they must not be constructed before a tail call: tools
+// such as the heap checker inspect a fixed number of frames above the hook
+// caller and an extra frame changes their attribution.
 class [[maybe_unused]] ReentrancyGuard {
  public:
   ReentrancyGuard() {
-    // TODO(ckennelly): Reenable reentrancy check.
+    TC_CHECK_EQ(tcmalloc_reentrancy_count, 0);
     ++tcmalloc_reentrancy_count;
   }
   ~ReentrancyGuard() { --tcmalloc_reentrancy_count; }
