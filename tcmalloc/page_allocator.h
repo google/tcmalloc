@@ -80,10 +80,10 @@ class PageAllocator {
 
   BackingStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void GetSmallSpanStats(SmallSpanStats* result)
+  void GetSmallSpanStats(SmallSpanStats* result) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void GetLargeSpanStats(LargeSpanStats* result)
+  void GetLargeSpanStats(LargeSpanStats* result) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Try to release at least num_pages for reuse by the OS.  Returns
@@ -101,7 +101,7 @@ class PageAllocator {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] bool GetPageAllocationStatus(HugePage hp, PageBitmap& pages,
-                                             MemoryTag tag)
+                                             MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     switch (tag) {
       case MemoryTag::kNormal:
@@ -327,7 +327,7 @@ inline BackingStats PageAllocator::stats() const {
   return ret;
 }
 
-inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
+inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) const {
   SmallSpanStats normal, sampled;
   for (int partition = 0; partition < active_partitions(); partition++) {
     SmallSpanStats part_stats;
@@ -348,7 +348,7 @@ inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
   }
 }
 
-inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
+inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) const {
   LargeSpanStats normal, sampled;
   for (int partition = 0; partition < active_partitions(); partition++) {
     LargeSpanStats part_stats;

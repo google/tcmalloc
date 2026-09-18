@@ -73,10 +73,10 @@ class PageAllocatorInterface {
   virtual BackingStats stats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
-  virtual void GetSmallSpanStats(SmallSpanStats* result)
+  virtual void GetSmallSpanStats(SmallSpanStats* result) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
-  virtual void GetLargeSpanStats(LargeSpanStats* result)
+  virtual void GetLargeSpanStats(LargeSpanStats* result) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   // Try to release at least num_pages for reuse by the OS.  Returns

@@ -835,9 +835,9 @@ class HugePageFiller {
   };
 
   HugePageFillerStats GetStats() const;
-  void Print(Printer& out, bool everything, PageFlagsBase& pageflags)
+  void Print(Printer& out, bool everything, PageFlagsBase& pageflags) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags)
+  void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   template <typename F>
@@ -1008,11 +1008,11 @@ class HugePageFiller {
       huge_page_filler_internal::UsageInfo::kLifetimeBuckets;
   using LifetimeHisto = huge_page_filler_internal::UsageInfo::LifetimeHisto;
   void RecordLifetime(const TrackerType* pt);
-  void PrintLifetimeHisto(Printer& out, LifetimeHisto h,
+  void PrintLifetimeHisto(Printer& out, const LifetimeHisto& h,
                           AccessDensityPrediction type,
                           absl::string_view blurb) const;
-  void PrintLifetimeHistoInPbtxt(PbtxtRegion& hpaa, LifetimeHisto h,
-                                 absl::string_view key);
+  void PrintLifetimeHistoInPbtxt(PbtxtRegion& hpaa, const LifetimeHisto& h,
+                                 absl::string_view key) const;
 
   int LifetimeBucketNum(absl::Duration duration) {
     int64_t duration_ms = absl::ToInt64Milliseconds(duration);
@@ -1294,7 +1294,7 @@ void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt) {
 
 template <class TrackerType>
 void HugePageFiller<TrackerType>::PrintLifetimeHisto(
-    Printer& out, LifetimeHisto h, AccessDensityPrediction type,
+    Printer& out, const LifetimeHisto& h, AccessDensityPrediction type,
     absl::string_view blurb) const {
   absl::string_view typestring = type == AccessDensityPrediction::kDense
                                      ? "densely-accessed"
@@ -1311,7 +1311,7 @@ void HugePageFiller<TrackerType>::PrintLifetimeHisto(
 
 template <class TrackerType>
 void HugePageFiller<TrackerType>::PrintLifetimeHistoInPbtxt(
-    PbtxtRegion& hpaa, LifetimeHisto h, absl::string_view key) {
+    PbtxtRegion& hpaa, const LifetimeHisto& h, absl::string_view key) const {
   for (size_t i = 0; i < kLifetimeBuckets; ++i) {
     if (h[i] == 0) continue;
     auto hist = hpaa.CreateSubRegion(key);
@@ -1981,7 +1981,7 @@ inline Length HugePageFiller<TrackerType>::HandleUnbackedHugePage(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
-                                               PageFlagsBase& pageflags) {
+                                               PageFlagsBase& pageflags) const {
   out.printf("HugePageFiller: densely pack small requests into hugepages\n");
   const HugePageFillerStats stats = GetStats();
 
@@ -2221,7 +2221,7 @@ inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::PrintInPbtxt(
-    PbtxtRegion& hpaa, PageFlagsBase& pageflags) {
+    PbtxtRegion& hpaa, PageFlagsBase& pageflags) const {
   const HugePageFillerStats stats = GetStats();
 
   // A donated alloc full list is impossible because it would have never been

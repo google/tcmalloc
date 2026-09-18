@@ -181,10 +181,10 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   BackingStats stats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  void GetSmallSpanStats(SmallSpanStats* result)
+  void GetSmallSpanStats(SmallSpanStats* result) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  void GetLargeSpanStats(LargeSpanStats* result)
+  void GetLargeSpanStats(LargeSpanStats* result) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   // Try to release at least num_pages for reuse by the OS.  Returns
@@ -258,7 +258,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // IsValidSizeClass verifies size class parameters from the HPAA perspective.
   static bool IsValidSizeClass(size_t size, Length pages);
 
-  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp, PageBitmap& pages)
+  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp,
+                                             PageBitmap& pages) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   Forwarder& forwarder() { return forwarder_; }
@@ -398,7 +399,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   MetadataObjectAllocator<HugeRegion, ArenaAlloc::kHugeRegion> region_allocator_
       ABSL_GUARDED_BY(pageheap_lock);
 
-  FillerType::Tracker* GetTracker(HugePage p);
+  FillerType::Tracker* GetTracker(HugePage p) const;
 
   void SetTracker(HugePage p, FillerType::Tracker* pt);
 
@@ -421,7 +422,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // reassembled.
   Length abandoned_pages_ ABSL_GUARDED_BY(pageheap_lock);
 
-  void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large)
+  void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   PageId RefillFiller(Length n, SpanAllocInfo span_alloc_info,
@@ -505,7 +506,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
 
 template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
-HugePageAwareAllocator<Forwarder>::GetTracker(HugePage p) {
+HugePageAwareAllocator<Forwarder>::GetTracker(HugePage p) const {
   void* v = forwarder_.GetHugepage(p);
   FillerType::Tracker* pt = reinterpret_cast<FillerType::Tracker*>(v);
   TC_ASSERT(pt == nullptr || pt->location() == p);
@@ -989,20 +990,20 @@ inline BackingStats HugePageAwareAllocator<Forwarder>::stats() const {
 // public
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::GetSmallSpanStats(
-    SmallSpanStats* result) {
+    SmallSpanStats* result) const {
   GetSpanStats(result, nullptr);
 }
 
 // public
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::GetLargeSpanStats(
-    LargeSpanStats* result) {
+    LargeSpanStats* result) const {
   GetSpanStats(nullptr, result);
 }
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::GetSpanStats(
-    SmallSpanStats* small, LargeSpanStats* large) {
+    SmallSpanStats* small, LargeSpanStats* large) const {
   if (small != nullptr) {
     *small = SmallSpanStats();
   }
@@ -1291,7 +1292,7 @@ inline bool HugePageAwareAllocator<Forwarder>::hpaa_subrelease() const {
 
 template <class Forwarder>
 inline bool HugePageAwareAllocator<Forwarder>::GetPageAllocationStatus(
-    HugePage hp, PageBitmap& pages) {
+    HugePage hp, PageBitmap& pages) const {
   // 1. Check PageTracker (HugePageFiller).
   FillerType::Tracker* pt = GetTracker(hp);
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {

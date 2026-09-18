@@ -26,7 +26,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void HugeAllocator::Print(Printer& out) {
+void HugeAllocator::Print(Printer& out) const {
   out.printf("HugeAllocator: contiguous, unbacked hugepage(s)\n");
   free_.Print(out);
   out.printf("HugeAllocator: %zu requested - %zu in use = %zu hugepages free\n",

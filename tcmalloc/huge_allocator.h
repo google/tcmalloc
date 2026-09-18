@@ -87,7 +87,7 @@ class HugeAllocator {
     return node != nullptr && node->range().contains(p);
   }
 
-  void Print(Printer& out);
+  void Print(Printer& out) const;
   void PrintInPbtxt(PbtxtRegion& hpaa) const;
 
  private:

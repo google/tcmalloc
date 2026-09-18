@@ -322,7 +322,7 @@ static int GetChainedInterval() {
   }
 }
 
-void GuardedPageAllocator::Print(Printer& out) {
+void GuardedPageAllocator::Print(Printer& out) const {
   out.printf(
       "\n"
       "------------------------------------------------\n"
@@ -361,7 +361,7 @@ void GuardedPageAllocator::Print(Printer& out) {
       GetChainedInterval());
 }
 
-void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) {
+void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) const {
   gwp_asan.PrintI64("successful_allocations", successful_allocations_.value());
   gwp_asan.PrintI64("failed_allocations", failed_allocations_.value());
   gwp_asan.PrintI64("skipped_allocations_noslots",
