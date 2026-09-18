@@ -14,6 +14,7 @@
 
 #include "tcmalloc/internal/system_allocator.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -39,6 +40,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/proc_maps.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -121,23 +123,37 @@ TEST_F(MmapAlignedTest, LargeSizeSmallAlignment) {
   MmapAndCheck(uintptr_t{1} << kTagShift, 1 << 12);
 }
 
-TEST(SystemAllocatorTest, ReleaseLockedMemory) {
+class ReleaseLockedMemoryTest
+    : public ::testing::TestWithParam<MadvisePreference> {};
+
+TEST_P(ReleaseLockedMemoryTest, ReleaseLockedMemory) {
   constexpr size_t kMinMmapAlloc = 1 << 30;
   NumaTopology<2> topology;
   SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+  allocator.set_madvise_preference(GetParam());
 
   const size_t kPageSize = GetPageSize();
   AddressRange res =
       allocator.Allocate(kPageSize, kPageSize, MemoryTag::kNormal);
   ASSERT_NE(res.ptr, nullptr);
 
+  if (GetParam() == MadvisePreference::kFreeOnly &&
+      madvise(res.ptr, res.bytes, MADV_FREE) != 0) {
+    GTEST_SKIP() << "MADV_FREE unsupported: " << errno;
+  }
+
   if (mlock(res.ptr, res.bytes) == 0) {
     memset(res.ptr, 0xAB, res.bytes);
   }
   MemoryModifyStatus status = allocator.Release(res.ptr, res.bytes);
-  EXPECT_TRUE(status.success);
+  EXPECT_TRUE(status.success) << status.error_number;
   EXPECT_EQ(allocator.release_errors(), 0);
 }
+
+INSTANTIATE_TEST_SUITE_P(MadvisePreferences, ReleaseLockedMemoryTest,
+                         ::testing::Values(MadvisePreference::kDontNeed,
+                                           MadvisePreference::kFreeAndDontNeed,
+                                           MadvisePreference::kFreeOnly));
 
 }  // namespace
 }  // namespace tcmalloc_internal

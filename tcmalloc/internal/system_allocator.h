@@ -910,6 +910,7 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
   }
 #endif
 
+  ReleaseStatus status = ReleaseStatus::kFailure;
 #ifdef MADV_FREE
   const bool do_madvfree = [&]() {
     switch (madvise_preference()) {
@@ -928,9 +929,12 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
     do {
       ret = madvise(start, length, MADV_FREE);
     } while (ret == -1 && errno == EAGAIN);
+
+    // MADV_FREE fails with EINVAL on locked memory, so retry after munlock
+    // unless MADV_DONTNEED_LOCKED below can handle it.
+    status = ReleaseStatus::kRetryAfterMunlock;
   }
 #endif
-  ReleaseStatus status = ReleaseStatus::kFailure;
 #ifdef MADV_DONTNEED
   const bool do_madvdontneed = [&]() {
     switch (madvise_preference()) {
@@ -952,9 +956,8 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
       ret = madvise(start, length, advice);
     } while (ret == -1 && errno == EAGAIN);
 
-    if (advice == MADV_DONTNEED) {
-      status = ReleaseStatus::kRetryAfterMunlock;
-    }
+    status = (advice == MADV_DONTNEED) ? ReleaseStatus::kRetryAfterMunlock
+                                       : ReleaseStatus::kFailure;
   }
 #endif
   if (ret == 0) {
