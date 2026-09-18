@@ -394,6 +394,79 @@ TEST_F(BitmapTest, PopBatch) {
   EXPECT_TRUE(map.IsZero());
 }
 
+TEST_F(BitmapTest, PrevFreeRange) {
+  // Empty bitmap (all free).
+  {
+    Bitmap<253> map;
+    size_t index = map.size(), len = 0;
+    EXPECT_TRUE(map.PrevFreeRange(index, &index, &len));
+    EXPECT_EQ(index, 0);
+    EXPECT_EQ(len, 253);
+    EXPECT_FALSE(map.PrevFreeRange(index, &index, &len));
+  }
+
+  // Full bitmap (no free ranges).
+  {
+    Bitmap<253> map;
+    map.SetRange(0, 253);
+    size_t index = map.size(), len = 0;
+    EXPECT_FALSE(map.PrevFreeRange(index, &index, &len));
+  }
+
+  // Bounds and edge conditions.
+  {
+    Bitmap<64> map;
+    size_t index = 0, len = 0;
+    EXPECT_FALSE(map.PrevFreeRange(0, &index, &len));
+
+    // end > N clamps to N.
+    EXPECT_TRUE(map.PrevFreeRange(100, &index, &len));
+    EXPECT_EQ(index, 0);
+    EXPECT_EQ(len, 64);
+
+    // end inside a free range truncates it.
+    EXPECT_TRUE(map.PrevFreeRange(30, &index, &len));
+    EXPECT_EQ(index, 0);
+    EXPECT_EQ(len, 30);
+
+    // A free range ending at bit 0.
+    map.SetRange(1, 63);
+    EXPECT_TRUE(map.PrevFreeRange(64, &index, &len));
+    EXPECT_EQ(index, 0);
+    EXPECT_EQ(len, 1);
+    EXPECT_FALSE(map.PrevFreeRange(index, &index, &len));
+  }
+
+  // Multiple ranges, including ones straddling word boundaries, matching
+  // forward traversal in reverse.
+  {
+    Bitmap<253> map;
+    map.SetRange(0, 253);
+    // Open free ranges: [10, 20), [50, 80), [120, 150), [200, 253)
+    map.ClearRange(10, 10);
+    map.ClearRange(50, 30);
+    map.ClearRange(120, 30);
+    map.ClearRange(200, 53);
+
+    std::vector<std::pair<size_t, size_t>> forward_ranges;
+    size_t f_index = 0, f_len;
+    while (map.NextFreeRange(f_index, &f_index, &f_len)) {
+      forward_ranges.push_back({f_index, f_len});
+      f_index += f_len;
+    }
+    EXPECT_THAT(forward_ranges, ElementsAre(Pair(10, 10), Pair(50, 30),
+                                            Pair(120, 30), Pair(200, 53)));
+
+    std::vector<std::pair<size_t, size_t>> backward_ranges;
+    size_t b_index = map.size(), b_len;
+    while (map.PrevFreeRange(b_index, &b_index, &b_len)) {
+      backward_ranges.push_back({b_index, b_len});
+    }
+    EXPECT_THAT(backward_ranges, ElementsAre(Pair(200, 53), Pair(120, 30),
+                                             Pair(50, 30), Pair(10, 10)));
+  }
+}
+
 class RangeTrackerTest : public ::testing::Test {
  protected:
   std::vector<std::pair<size_t, size_t>> FreeRanges() {

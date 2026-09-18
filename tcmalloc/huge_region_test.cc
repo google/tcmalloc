@@ -315,6 +315,54 @@ TEST_F(HugeRegionTest, ReleaseAdaptive) {
   CheckMock();
 }
 
+// Release skips in-use hugepages between free ones, in both directions.
+TEST_F(HugeRegionTest, ReleaseFragmented) {
+  for (const bool adaptive_release : {false, true}) {
+    SCOPED_TRACE(adaptive_release);
+    const Length n = kPagesPerHugePage;
+    bool from_released;
+    std::optional<Alloc> allocs[8];
+    for (int i = 0; i < 8; ++i) {
+      allocs[i] = Allocate(n, &from_released);
+      EXPECT_TRUE(from_released);
+    }
+
+    // Delete hugepages 0, 1, 3, 4, 6, 7 while keeping 2 and 5 allocated, so
+    // the free, backed hugepages are [0, 1], [3, 4], [6, 7].
+    for (int i : {0, 1, 3, 4, 6, 7}) {
+      Delete(*allocs[i]);
+    }
+
+    if (adaptive_release) {
+      // Reverse order releases 7, 6 from the last range, then 4.
+      ExpectUnback({p_ + NHugePages(4), NHugePages(1)});
+      ExpectUnback({p_ + NHugePages(6), NHugePages(2)});
+    } else {
+      // Forward order releases 0, 1 from the first range, then 3.
+      ExpectUnback({p_, NHugePages(2)});
+      ExpectUnback({p_ + NHugePages(3), NHugePages(1)});
+    }
+    EXPECT_EQ(NHugePages(3),
+              region_.Release(NHugePages(3).in_pages(), adaptive_release));
+    CheckMock();
+
+    // Release the remaining five backed hugepages so the next iteration starts
+    // from an empty, unbacked region.
+    Delete(*allocs[2]);
+    Delete(*allocs[5]);
+    if (adaptive_release) {
+      ExpectUnback({p_, NHugePages(4)});
+      ExpectUnback({p_ + NHugePages(5), NHugePages(1)});
+    } else {
+      ExpectUnback({p_ + NHugePages(2), NHugePages(1)});
+      ExpectUnback({p_ + NHugePages(4), NHugePages(4)});
+    }
+    EXPECT_EQ(NHugePages(5),
+              region_.Release(NHugePages(8).in_pages(), adaptive_release));
+    CheckMock();
+  }
+}
+
 TEST_F(HugeRegionTest, ReleaseFailure) {
   const Length n = kPagesPerHugePage;
   bool from_released;

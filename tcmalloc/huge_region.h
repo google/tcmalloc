@@ -159,6 +159,11 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   Length pages_used_[kNumHugePages];
   // Is this hugepage backed?
   bool backed_[kNumHugePages];
+  // Set for hugepages that cannot be released: unbacked or with pages in use.
+  // Its clear bits are the free-and-backed hugepages counted by
+  // free_backed_count_, so Release can find them without scanning pages_used_
+  // and backed_.
+  Bitmap<kNumHugePages> unreleasable_;
   HugeLength nbacked_;
   HugeLength total_unbacked_{NHugePages(0)};
   HugeLength free_backed_count_;
@@ -295,6 +300,7 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback,
     pages_used_[i] = Length(0);
     backed_[i] = false;
   }
+  unreleasable_.SetRange(0, kNumHugePages);
   free_backed_count_ = NHugePages(0);
 
   char name[256];
@@ -331,26 +337,29 @@ inline void HugeRegion::Put(Range r, bool release) {
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
 inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
-  if (desired == Length(0)) return NHugePages(0);
-
   const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
+  if (to_release == Length(0)) return NHugePages(0);
+  TC_ASSERT_EQ(free_backed_count_.raw_num(),
+               kNumHugePages - unreleasable_.CountBits());
 
-  HugeLength release_target = NHugePages(0);
+  // Releasable hugepages are the free ranges of unreleasable_.  Adaptive
+  // release takes them from the end of the region, non-adaptive release from
+  // the start.
+  const size_t needed = HLFromPages(to_release).raw_num();
+  size_t released = 0;
   bool should_unback[kNumHugePages] = {};
-  const int start = adaptive_release ? kNumHugePages - 1 : 0;
-  const int end = adaptive_release ? -1 : kNumHugePages;
-  const int step = adaptive_release ? -1 : 1;
-
-  // TODO(b/73749855): Consider optimizing this search by consulting tracker_.
-  for (int i = start; i != end; i += step) {
-    if (backed_[i] && pages_used_[i] == Length(0)) {
-      should_unback[i] = true;
-      ++release_target;
-    }
-
-    if (release_target.in_pages() >= to_release) break;
+  size_t index = adaptive_release ? kNumHugePages : 0, n;
+  while (released < needed &&
+         (adaptive_release ? unreleasable_.PrevFreeRange(index, &index, &n)
+                           : unreleasable_.NextFreeRange(index, &index, &n))) {
+    const size_t take = std::min(n, needed - released);
+    const size_t first = adaptive_release ? index + n - take : index;
+    std::fill_n(should_unback + first, take, true);
+    released += take;
+    if (!adaptive_release) index += n;
   }
+  TC_ASSERT_EQ(released, needed);
   return UnbackHugepages(should_unback);
 }
 
@@ -466,6 +475,7 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
       if (backed_[i]) {
         TC_ASSERT_GT(free_backed_count_, NHugePages(0));
         --free_backed_count_;
+        unreleasable_.SetBit(i);
       } else {
         backed_[i] = true;
         should_back = true;
@@ -494,6 +504,7 @@ inline void HugeRegion::Dec(Range r, bool release) {
     if (pages_used_[i] == Length(0)) {
       should_unback[i] = true;
       ++free_backed_count_;
+      unreleasable_.ClearBit(i);
     }
     r.p += here;
     r.n -= here;
@@ -522,10 +533,8 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
     // Temporarily block allocations to these pages.
     //
-    // We both Mark and toggle pages_used_, as allocations use FindAndMark but
-    // Release only uses pages_used_.
-    //
-    // TODO(b/73749855): Optimize release by consulting the bitmap first.
+    // We both Mark and toggle pages_used_, as allocations use FindAndMark.
+    // Release consults unreleasable_, which is set below.
     tracker_.Mark(NHugePages(i).in_pages().raw_num(), hl.in_pages().raw_num());
     Length used;
     for (size_t k = i; k != j; ++k) {
@@ -537,6 +546,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
     // middle of being unbacked and are not eligible for allocation/release.
     TC_ASSERT_GE(free_backed_count_, hl);
     free_backed_count_ -= hl;
+    unreleasable_.SetRange(i, j - i);
 
     if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)).success)) {
       nbacked_ -= hl;
@@ -551,6 +561,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
     } else {
       // Restore the count if unback failed.
       free_backed_count_ += hl;
+      unreleasable_.ClearRange(i, j - i);
     }
 
     used = Length(0);
