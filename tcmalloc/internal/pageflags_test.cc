@@ -22,6 +22,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#ifndef MADV_COLLAPSE  // Linux 6.1+
+#define MADV_COLLAPSE 25
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -354,26 +358,36 @@ TEST(PageFlagsTest, Locked) {
 
   ASSERT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}));
 
+  // Synchronously collapse the MADV_HUGEPAGE regions into transparent
+  // hugepages before measuring. Otherwise khugepaged forms them
+  // asynchronously, and while a collapse is in flight the kernel's per-page
+  // flags (COMPOUND_HEAD/TAIL and MLOCKED/UNEVICTABLE) are transiently
+  // inconsistent, so the reported locked byte count oscillates a few pages
+  // around the true value. MADV_COLLAPSE must run before mlock() (it can fail
+  // on pinned pages) and is best-effort (Linux 6.1+); ignore failures on
+  // kernels that lack it.
+  (void)madvise(p + kHugePageSize, 3 * kHugePageSize, MADV_COLLAPSE);
+  (void)madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_COLLAPSE);
+
   ASSERT_EQ(mlock(p, kHardwarePageSize * kNumPages), 0) << errno;
 
-  // Wait until the kernel has had time to propagate flags.
+  // Wait until the kernel has had time to propagate flags, then assert on the
+  // same reading that observed the full count. A separate re-read would be a
+  // TOCTOU: it could sample a transiently inconsistent state and undercount.
+  std::optional<PageStats> res;
   absl::Time start = absl::Now();
   do {
-    auto res = s.Get(p, kHardwarePageSize * kNumPages);
+    res = s.Get(p, kHardwarePageSize * kNumPages);
     ASSERT_TRUE(res.has_value());
-    if (res->bytes_locked > kNumPages * kHardwarePageSize / 2) {
+    if (res->bytes_locked == kNumPages * kHardwarePageSize) {
       LOG(INFO) << "Got " << res->bytes_locked
                 << " bytes locked, pointer is at " << (uintptr_t)p;
-
-      if (res->bytes_locked == kNumPages * kHardwarePageSize) {
-        break;
-      }
+      break;
     }
     LOG(INFO) << "still waiting; locked = " << res->bytes_locked;
     absl::SleepFor(absl::Milliseconds(100));
   } while (absl::Now() - start < absl::Seconds(60));
 
-  auto res = s.Get(p, kHardwarePageSize * kNumPages);
   ASSERT_TRUE(res.has_value());
   ASSERT_EQ(res->bytes_locked, kHardwarePageSize * kNumPages);
 
