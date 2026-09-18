@@ -136,7 +136,17 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
     // point math as well.
     const int64_t profile_sampling_interval =
         tcmalloc::tcmalloc_internal::Parameters::profile_sampling_interval();
-    const int64_t num_sampled = tc_globals.total_sampled_count_.value();
+    // total_sampled_count_ (num_sampled) and successful_allocations_
+    // (num_guarded) are incremented non-atomically, and by design num_sampled
+    // is incremented _after_ num_guarded (see above). A concurrent or reentrant
+    // guarded allocation can therefore have bumped num_guarded but not yet
+    // num_sampled, transiently making num_sampled < num_guarded even though
+    // sampled allocations are a superset of guarded ones. Clamp to the
+    // invariant num_sampled >= num_guarded so this window cannot spuriously
+    // rate-limit (which, with equal intervals, must never happen).
+    const int64_t num_sampled =
+        std::max<int64_t>(tc_globals.total_sampled_count_.value(),
+                          static_cast<int64_t>(num_guarded));
     const int64_t ratio = (num_sampled * 10) / num_guarded;
     if (guarded_sampling_interval * 10 > ratio * profile_sampling_interval) {
       return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
