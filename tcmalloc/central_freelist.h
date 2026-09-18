@@ -33,7 +33,6 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/numeric/bits.h"
-#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/hinted_tracker_lists.h"
@@ -199,15 +198,13 @@ class CentralFreeList {
   size_t NumSpansInList(int n) ABSL_LOCKS_EXCLUDED(lock_);
   SpanStats GetSpanStats() const;
 
-  // Reports span utilization, lifetime histogram stats, and number of spans
+  // Reports span utilization, and number of spans
   // used to fill a batch.
   void PrintSpanUtilStats(Printer& out);
-  void PrintSpanLifetimeStats(Printer& out);
   void PrintNumSpansUsed(Printer& out);
   void PrintSameSpanStats(Printer& out);
   void PrintSpanUtilStatsInPbtxt(PbtxtRegion& region);
   void PrintSameSpanStatsInPbtxt(PbtxtRegion& region);
-  void PrintSpanLifetimeStatsInPbtxt(PbtxtRegion& region);
   void PrintNumSpansUsedInPbtxt(PbtxtRegion& region);
 
   // Get number of spans in the histogram bucket. We record spans in the
@@ -320,34 +317,8 @@ class CentralFreeList {
     counter_.LossyAdd(num);
   }
 
-  static constexpr size_t kLifetimeBuckets = 8;
-  static constexpr std::array<size_t, kLifetimeBuckets> kLifetimeBucketBounds =
-      []() {
-        std::array<size_t, kLifetimeBuckets> bounds{};
-        static_assert(kLifetimeBuckets >= 2, "Buckets must be >= 2");
-        bounds[0] = 0;
-        bounds[1] = 1;
-        for (size_t i = 2; i < kLifetimeBuckets; ++i) {
-          bounds[i] = bounds[i - 1] * 10;
-        }
-        return bounds;
-      }();
-  using LifetimeHistogram = size_t[kLifetimeBuckets];
-
-  StatsCounter completed_spans_[kLifetimeBuckets];
-
   // Tracks the number of spans used to fill a batch in RemoveRange
   StatsCounters<kSpansUsedStatBuckets> span_allocations_tracker_;
-
-  [[nodiscard]] int LifetimeBucketNum(absl::Duration duration) const {
-    return LifetimeBucketNum(absl::ToInt64Milliseconds(duration));
-  }
-
-  [[nodiscard]] int LifetimeBucketNum(int64_t duration_ms) const {
-    auto it = absl::c_upper_bound(kLifetimeBucketBounds, duration_ms);
-    TC_CHECK_NE(it, kLifetimeBucketBounds.begin());
-    return it - kLifetimeBucketBounds.begin() - 1;
-  }
 
   // The followings are kept as a StatsCounter so that they can read without
   // acquiring a lock. Updates to these variables are guarded by lock_
@@ -671,28 +642,6 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
 template <class Forwarder>
 void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
-  // Size classes with 1 object per span skip CentralFreeList entirely.
-  if (objects_per_span_ > 1) {
-    const double now = forwarder_.clock_now();
-    const double frequency = forwarder_.clock_frequency();
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    // Precompute the cycles->milliseconds factor once so the per-span
-    // conversion is a multiply instead of a floating-point division.
-    const double ms_per_cycle = 1000.0 / frequency;
-#endif
-    for (Span* span : spans) {
-      const double elapsed =
-          std::max<double>(now - static_cast<double>(span->AllocTime()), 0.0);
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      const int64_t elapsed_ms = static_cast<int64_t>(elapsed * ms_per_cycle);
-      completed_spans_[LifetimeBucketNum(elapsed_ms)].LossyAdd(1);
-#else
-      const absl::Duration lifetime =
-          absl::Milliseconds(elapsed * 1000 / frequency);
-      completed_spans_[LifetimeBucketNum(lifetime)].LossyAdd(1);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    }
-  }
   return forwarder_.DeallocateSpans(objects_per_span_, spans);
 }
 
@@ -813,9 +762,7 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
     return 0;
   }
 
-  const uint64_t alloc_time = forwarder_.clock_now();
-  int result =
-      span->BuildFreelist(object_size_, objects_per_span_, batch, alloc_time);
+  int result = span->BuildFreelist(object_size_, objects_per_span_, batch, 0);
   TC_ASSERT_GT(result, 0);
   // This is a cheaper check than using FreelistEmpty().
   bool span_empty = result == objects_per_span_;
@@ -951,47 +898,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer& out) {
   out.printf("\n");
 }
 
-template <class Forwarder>
-inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
-  const double now = forwarder_.clock_now();
-  double frequency = forwarder_.clock_frequency();
-  LifetimeHistogram lifetime_histo{};
 
-  {
-    CentralFreeListLockHolder h(lock_);
-    nonempty_.Iter(
-        [&](const Span& s) GOOGLE_MALLOC_SECTION {
-          const double elapsed =
-              std::max<double>(now - static_cast<double>(s.AllocTime()), 0.0);
-          const absl::Duration lifetime =
-              absl::Milliseconds(elapsed * 1000 / frequency);
-          ++lifetime_histo[LifetimeBucketNum(lifetime)];
-        },
-        0);
-  }
-
-  out.printf("class %3d [ %8zu bytes ] live spans: ", size_class_,
-             object_size_);
-  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
-    out.printf("%3zu ms < %6zu", kLifetimeBucketBounds[i], lifetime_histo[i]);
-    if (i < kLifetimeBuckets - 1) {
-      out.printf(",");
-    }
-  }
-  out.printf("\n");
-
-  out.printf("class %3d [ %8zu bytes ] completed spans: ", size_class_,
-             object_size_);
-  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
-    out.printf("%3zu ms < %6zu", kLifetimeBucketBounds[i],
-               completed_spans_[i].value());
-
-    if (i < kLifetimeBuckets - 1) {
-      out.printf(",");
-    }
-  }
-  out.printf("\n");
-}
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintNumSpansUsed(Printer& out) {
@@ -1041,44 +948,6 @@ inline void CentralFreeList<Forwarder>::PrintNumSpansUsedInPbtxt(
   }
 }
 
-template <class Forwarder>
-inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
-    PbtxtRegion& region) {
-  const double now = forwarder_.clock_now();
-  double frequency = forwarder_.clock_frequency();
-  LifetimeHistogram lifetime_histo{};
-
-  {
-    CentralFreeListLockHolder h(lock_);
-    nonempty_.Iter(
-        [&](const Span& s) GOOGLE_MALLOC_SECTION {
-          const double elapsed =
-              std::max<double>(now - static_cast<double>(s.AllocTime()), 0.0);
-          const absl::Duration lifetime =
-              absl::Milliseconds(elapsed * 1000 / frequency);
-          ++lifetime_histo[LifetimeBucketNum(lifetime)];
-        },
-        0);
-  }
-
-  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
-    PbtxtRegion histogram = region.CreateSubRegion("span_lifetime_histogram");
-    histogram.PrintI64("lower_bound", kLifetimeBucketBounds[i]);
-    histogram.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
-                                           ? kLifetimeBucketBounds[i]
-                                           : kLifetimeBucketBounds[i + 1]));
-    histogram.PrintI64("value", lifetime_histo[i]);
-  }
-  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
-    PbtxtRegion histogram =
-        region.CreateSubRegion("span_completed_lifetime_histogram");
-    histogram.PrintI64("lower_bound", kLifetimeBucketBounds[i]);
-    histogram.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
-                                           ? kLifetimeBucketBounds[i]
-                                           : kLifetimeBucketBounds[i + 1]));
-    histogram.PrintI64("value", completed_spans_[i].value());
-  }
-}
 
 }  // namespace central_freelist_internal
 
