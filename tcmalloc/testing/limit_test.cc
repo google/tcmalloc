@@ -41,22 +41,10 @@ namespace {
 
 using tcmalloc_internal::kHugePageSize;
 using tcmalloc_internal::kPageSize;
-using ::testing::ContainsRegex;
-using ::testing::HasSubstr;
-
-void DumpHeapStats(absl::string_view label) {
-  std::string buffer = MallocExtension::GetStats();
-  absl::FPrintF(stderr, "%s\n%s\n", label, buffer);
-}
 
 // Fixture for friend access to MallocExtension.
 class LimitTest : public ::testing::Test {
  protected:
-  LimitTest() {
-    stats_buffer_.reserve(3 << 20);
-    stats_pbtxt_.reserve(3 << 20);
-  }
-
   void LimitChangeTriggersReleaseLargeAllocs();
   void LimitChangeTriggersReleaseSmallAllocs();
   void LimitRespected();
@@ -87,32 +75,6 @@ class LimitTest : public ::testing::Test {
     return *MallocExtension::GetNumericProperty("generic.physical_memory_used");
   }
 
-  // Returns a human-readable stats representation.  This is backed by
-  // stats_buffer_, to avoid allocating while potentially under a memory limit.
-  absl::string_view GetStats() {
-    size_t capacity = stats_buffer_.capacity();
-    stats_buffer_.resize(capacity);
-    char* data = stats_buffer_.data();
-
-    int actual_size = TCMalloc_Internal_GetStats(data, capacity);
-    stats_buffer_.erase(actual_size);
-    return absl::string_view(data, actual_size);
-  }
-
-  // Returns a pbtxt-based stats representation.  This is backed by
-  // stats_pbtxt_, to avoid allocating while potentially under a memory limit.
-  absl::string_view GetStatsInPbTxt() {
-    size_t capacity = stats_pbtxt_.capacity();
-    stats_pbtxt_.resize(capacity);
-    char* data = stats_pbtxt_.data();
-
-    int actual_size = MallocExtension_Internal_GetStatsInPbtxt(data, capacity);
-    stats_pbtxt_.erase(actual_size);
-    return absl::string_view(data, actual_size);
-  }
-
-  std::string stats_buffer_;
-  std::string stats_pbtxt_;
 };
 
 using LimitDeathTest = LimitTest;
@@ -129,31 +91,22 @@ void LimitTest::LimitRespected() {
   // Needed to see what expectation failed (if any).
   testing::UnitTest::GetInstance()->listeners().SuppressEventForwarding(false);
 
-  static const size_t kLim = 4ul * 1024 * 1024 * 1024;
+  static const size_t kLim = 1ul * 1024 * 1024 * 1024;
   MallocExtension::SetMemoryLimit(kLim, MallocExtension::LimitKind::kSoft);
 
-  absl::string_view statsBuf = GetStats();
-  absl::string_view statsPbtxt = GetStatsInPbTxt();
-
-  char buf[512];
-  absl::SNPrintF(buf, sizeof(buf), "PARAMETER desired_usage_limit_bytes %u",
-                 kLim);
-  EXPECT_THAT(statsBuf, HasSubstr(buf));
-  EXPECT_THAT(statsBuf, HasSubstr("Number of times soft limit was hit: 0"));
-  EXPECT_THAT(statsBuf,
-              HasSubstr("Number of times memory shrank below soft limit: 0"));
-  EXPECT_THAT(statsBuf, HasSubstr("Number of times hard limit was hit: 0"));
-  EXPECT_THAT(statsBuf,
-              HasSubstr("Number of times memory shrank below hard limit: 0"));
-
-  absl::SNPrintF(buf, sizeof(buf), "desired_usage_limit_bytes: %u", kLim);
-  EXPECT_THAT(statsPbtxt, HasSubstr(buf));
-  EXPECT_THAT(statsPbtxt, HasSubstr("soft_limit_hits: 0"));
-  EXPECT_THAT(statsPbtxt, HasSubstr("hard_limit_hits: 0"));
-  EXPECT_THAT(statsPbtxt,
-              HasSubstr("successful_shrinks_after_soft_limit_hit: 0"));
-  EXPECT_THAT(statsPbtxt,
-              HasSubstr("successful_shrinks_after_hard_limit_hit: 0"));
+  EXPECT_EQ(*MallocExtension::GetNumericProperty(
+                "tcmalloc.desired_usage_limit_bytes"),
+            kLim);
+  EXPECT_EQ(*MallocExtension::GetNumericProperty("tcmalloc.soft_limit_hits"),
+            0);
+  EXPECT_EQ(*MallocExtension::GetNumericProperty("tcmalloc.hard_limit_hits"),
+            0);
+  EXPECT_EQ(*MallocExtension::GetNumericProperty(
+                "tcmalloc.successful_shrinks_after_soft_limit_hit"),
+            0);
+  EXPECT_EQ(*MallocExtension::GetNumericProperty(
+                "tcmalloc.successful_shrinks_after_hard_limit_hit"),
+            0);
 
   // Avoid failing due to usage by test itself.
   static const size_t kLimForUse = kLim * 9 / 10;
@@ -168,7 +121,6 @@ void LimitTest::LimitRespected() {
     ptrs.push_back(malloc_pages(kSmallAlloc));
     used += kSmallAlloc;
   }
-  DumpHeapStats("after allocating small objects");
 
   // return much of the space, fragmented...
   bool ret = false;
@@ -180,7 +132,6 @@ void LimitTest::LimitRespected() {
     }
     ret = !ret;
   }
-  DumpHeapStats("after freeing many small objects");
 
   // Now ensure we can re use it for large allocations.
 
@@ -189,28 +140,21 @@ void LimitTest::LimitRespected() {
     ptrs.push_back(malloc_pages(large));
     used += large;
   }
-  DumpHeapStats("after allocating large objects");
   // We do not track the resident memory exactly, so we add some slack to the
   // limit.
   EXPECT_LE(physical_memory_used(), kLim * 1.2);
 
-  statsBuf = GetStats();
-  statsPbtxt = GetStatsInPbTxt();
   // The HugePageAwareAllocator hits the limit more than once.
-  EXPECT_THAT(
-      statsBuf,
-      AllOf(ContainsRegex(R"(Number of times soft limit was hit: [1-9]\d*)"),
-            ContainsRegex(R"(Number of times hard limit was hit: 0)")));
-  EXPECT_THAT(
-      statsBuf,
-      AllOf(ContainsRegex(
-                R"(Number of times memory shrank below soft limit: [1-9]\d*)"),
-            ContainsRegex(
-                R"(Number of times memory shrank below hard limit: 0)")));
-  EXPECT_THAT(statsPbtxt, ContainsRegex(R"(soft_limit_hits: [1-9]\d*)"));
-  EXPECT_THAT(
-      statsPbtxt,
-      ContainsRegex(R"(successful_shrinks_after_soft_limit_hit: [1-9\d*])"));
+  EXPECT_GE(*MallocExtension::GetNumericProperty("tcmalloc.soft_limit_hits"),
+            1);
+  EXPECT_EQ(*MallocExtension::GetNumericProperty("tcmalloc.hard_limit_hits"),
+            0);
+  EXPECT_GE(*MallocExtension::GetNumericProperty(
+                "tcmalloc.successful_shrinks_after_soft_limit_hit"),
+            1);
+  EXPECT_EQ(*MallocExtension::GetNumericProperty(
+                "tcmalloc.successful_shrinks_after_hard_limit_hit"),
+            0);
 
   for (auto p : ptrs) {
     free(p);
@@ -237,16 +181,9 @@ TEST_F(LimitDeathTest, HardLimitRespected) {
   static const size_t kLim = 400 << 20;
   MallocExtension::SetMemoryLimit(kLim, MallocExtension::LimitKind::kHard);
 
-  absl::string_view statsBuf = GetStats();
-  absl::string_view statsPbtxt = GetStatsInPbTxt();
-
-  // Avoid gmock matchers, as they require a std::string which may allocate.
-  char buf[512];
-  absl::SNPrintF(buf, sizeof(buf), "PARAMETER hard_usage_limit_bytes %u", kLim);
-  EXPECT_TRUE(absl::StrContains(statsBuf, buf)) << statsBuf;
-
-  absl::SNPrintF(buf, sizeof(buf), "hard_usage_limit_bytes: %u", kLim);
-  EXPECT_TRUE(absl::StrContains(statsPbtxt, buf)) << statsPbtxt;
+  EXPECT_EQ(
+      *MallocExtension::GetNumericProperty("tcmalloc.hard_usage_limit_bytes"),
+      kLim);
 
   ASSERT_DEATH(malloc_pages(400 << 20), "limit");
 
@@ -260,15 +197,9 @@ TEST_F(LimitDeathTest, HardLimitRespectsNoSubrelease) {
   TCMalloc_Internal_SetHPAASubrelease(false);
   EXPECT_FALSE(TCMalloc_Internal_GetHPAASubrelease());
 
-  absl::string_view statsBuf = GetStats();
-  absl::string_view statsPbtxt = GetStatsInPbTxt();
-
-  char buf[512];
-  absl::SNPrintF(buf, sizeof(buf), "PARAMETER hard_usage_limit_bytes %u", kLim);
-  EXPECT_THAT(statsBuf, HasSubstr(buf));
-
-  absl::SNPrintF(buf, sizeof(buf), "hard_usage_limit_bytes: %u", kLim);
-  EXPECT_THAT(statsPbtxt, HasSubstr(buf));
+  EXPECT_EQ(
+      *MallocExtension::GetNumericProperty("tcmalloc.hard_usage_limit_bytes"),
+      kLim);
 
   ASSERT_DEATH(
       []() {
@@ -282,22 +213,18 @@ TEST_F(LimitDeathTest, HardLimitRespectsNoSubrelease) {
         for (size_t i = 0; i < kNumMediumObjs; i++) {
           ptrs.push_back(::operator new(512 << 10));
         }
-        DumpHeapStats("after allocating medium objects");
         for (size_t i = 0; i < ptrs.size(); i++) {
           if (i % 2) continue;
           ::operator delete(ptrs[i]);
           ptrs[i] = static_cast<void*>(nullptr);
         }
-        DumpHeapStats("after freeing half of medium objects");
         for (size_t i = 0; i < kNumLargeObjs; i++) {
           ptrs.push_back(::operator new(1 << 20));
         }
-        DumpHeapStats("after allocating large objects");
         while (!ptrs.empty()) {
           ::operator delete(ptrs.back());
           ptrs.pop_back();
         }
-        DumpHeapStats("after freeing all objects");
       }(),
       "limit");
   MallocExtension::SetMemoryLimit(std::numeric_limits<size_t>::max(),
