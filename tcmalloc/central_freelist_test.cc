@@ -1113,6 +1113,29 @@ TEST_P(CentralFreeListTest, HookTracing) {
   EXPECT_TRUE(e.forwarder().remove_range_hooks_.Remove(remove_hook));
 }
 
+TEST_P(CentralFreeListTest, RemoveRangeHookNotInvokedOnAllocationFailure) {
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+
+  static int remove_calls = 0;
+  remove_calls = 0;
+  auto remove_hook = [](size_t size_class, absl::Span<void*> batch) {
+    ++remove_calls;
+    EXPECT_FALSE(batch.empty());
+  };
+  EXPECT_TRUE(e.forwarder().remove_range_hooks_.Add(remove_hook));
+
+  // Simulate the page heap failing to provide a span.
+  EXPECT_CALL(e.forwarder(), AllocateSpan).WillOnce(testing::Return(nullptr));
+
+  void* batch[kMaxObjectsToMove];
+  int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
+  EXPECT_EQ(got, 0);
+  EXPECT_EQ(remove_calls, 0);
+
+  EXPECT_TRUE(e.forwarder().remove_range_hooks_.Remove(remove_hook));
+}
+
 TEST_P(CentralFreeListTest, SpanLifetime) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP()
