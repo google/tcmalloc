@@ -540,6 +540,7 @@ struct State {
   HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator;
   std::vector<SpanInfo> allocs;
   Length allocated;
+  size_t deallocs_in_flight = 0;
   PageReleaseStats expected_stats;
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
@@ -628,6 +629,9 @@ void Dealloc::Perform(State& state) const {
   SpanInfo span_info = state.allocs.back();
   state.allocs.pop_back();
   state.allocated -= span_info.span->num_pages();
+  if (state.depth > 0) {
+    ++state.deallocs_in_flight;
+  }
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   PageHeapSpinLockHolder l;
@@ -735,9 +739,17 @@ void GatherAndCheckStats::Perform(State& state) const {
   }
   uint64_t used_bytes =
       stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
-  TC_CHECK_EQ(used_bytes,
+  // HugeCache takes a range out of its free stats while it is being released
+  // (used == allocated + pending), whereas HugePageFiller accounts pages in
+  // flight as unmapped (used == allocated), so used_bytes can land anywhere in
+  // between.  deallocs_in_flight is nonzero only while a tracker emptied under
+  // an in-flight operation may still be parked (a whole hugepage the filler no
+  // longer reports as free).
+  TC_CHECK_GE(used_bytes, state.allocated.in_bytes());
+  TC_CHECK_LE(used_bytes,
               state.allocated.in_bytes() +
-                  state.allocator.forwarder().pending_release_.in_bytes());
+                  state.allocator.forwarder().pending_release_.in_bytes() +
+                  state.deallocs_in_flight * kHugePageSize);
 }
 
 void GatherSpanStats::Perform(State& state) const {
@@ -877,6 +889,21 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
 
   TC_CHECK_EQ(state.allocated.in_bytes(), 0);
   TC_CHECK_EQ(final_stats, state.expected_stats);
+
+  // With every span returned, nothing may be left in the filler: every
+  // tracker (including any parked on fully_freed_trackers_ by an operation
+  // that dropped pageheap_lock) must have gone back to HugeCache, unwinding
+  // the donation and abandonment telemetry with it.  A parked tracker is
+  // already outside FillerStats() but shows up as used in stats(), which
+  // GatherAndCheckStats now requires to be exactly zero.
+  state.deallocs_in_flight = 0;
+  GatherAndCheckStats{}.Perform(state);
+  {
+    PageHeapSpinLockHolder l;
+    TC_CHECK_EQ(state.allocator.FillerStats().system_bytes, 0);
+    TC_CHECK_EQ(state.allocator.DonatedHugePages().raw_num(), 0);
+    TC_CHECK_EQ(state.allocator.AbandonedPages().raw_num(), 0);
+  }
 }
 
 auto AnyDuration() { return fuzztest::NonNegative<int64_t>(); }
