@@ -612,7 +612,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
   if (!IsColdSizeClass(size_class)) {
     TC_ASSERT(IsNormalMemory(ptr), "ptr=%p", ptr);
   } else {
-    TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold, "ptr=%p", ptr);
+    TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kSampledOrCold, "ptr=%p", ptr);
   }
 
   // DeallocateFast may fail if:
@@ -634,10 +634,10 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
-  if (policy.is_cold() &&
+  if (ColdFeatureActive() && policy.is_cold() &&
       (Parameters::heap_partitioning_mode() != HeapPartitioningMode::kFull ||
        policy.security_partition() == 0)) {
-    tag = MemoryTag::kCold;
+    tag = MemoryTag::kSampledOrCold;
   } else if (tc_globals.active_partitions() > 1) {
     tag = MultiNormalTag(policy.partition());
   }
@@ -768,8 +768,8 @@ static constexpr uintptr_t kBadAlignmentMask =
 // overlapping tag bit.  This is the same property IsNormalMemory relies on.
 static constexpr uintptr_t kNormalMask =
     static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift;
-static constexpr uintptr_t kColdMask = static_cast<uintptr_t>(MemoryTag::kCold)
-                                       << kTagShift;
+static constexpr uintptr_t kSampledOrColdMask =
+    static_cast<uintptr_t>(MemoryTag::kSampledOrCold) << kTagShift;
 static_assert((static_cast<uintptr_t>(MemoryTag::kNormal) &
                static_cast<uintptr_t>(MemoryTag::kNormalP1)) != 0);
 
@@ -787,13 +787,16 @@ ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
   if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
     ReportCorruptedFree(tc_globals, ptr);
   }
+
   // kNormal allocations should not be misaligned.  GWP-ASan may deliberately
   // misalign small allocations, but they will appear as kSampled.
-  if (ABSL_PREDICT_FALSE(uptr & kBadAlignmentMask) && !IsSampledMemory(ptr)) {
+  if (ABSL_PREDICT_FALSE(uptr & kBadAlignmentMask) &&
+      !IsSampledOrColdMemory(ptr)) {
     ReportCorruptedFree(tc_globals, kAlignment, ptr);
   }
 
-  size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
+  const size_t size_class =
+      tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
     FreeSmall(ptr, std::nullopt, size_class);
   } else {
@@ -849,11 +852,10 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
   auto tag = GetMemoryTag(ptr);
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
   TC_ASSERT((uptr & (kBadAlignmentMask | kBadDeallocationHighMask)) != 0 ||
-            (tag != MemoryTag::kNormal && tag != MemoryTag::kNormalP1 &&
-             tag != MemoryTag::kCold));
+            (tag != MemoryTag::kNormal && tag != MemoryTag::kNormalP1));
 
-  if (ABSL_PREDICT_TRUE(IsSampledMemory(ptr))) {
-    // we don't know true class size of the ptr
+  if (ABSL_PREDICT_TRUE(IsSampledOrColdMemory(
+          ptr))) {  // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr, size, policy);
   }
   // At this point, the pointer is purely illformed: wrong alignment, corrupted
@@ -911,13 +913,21 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
     }
-    bool is_cold = ((uptr & kTagOrBadDeallocationMask) == kColdMask);
+    // The tag alone no longer identifies cold objects: sampled (and guarded)
+    // allocations share the tag with cold memory.  Consult the pagemap so that
+    // only objects that really came from a cold size class take the sized-free
+    // fast path.  Sampled and guarded spans, and large cold objects, all have a
+    // size class of 0 and need the slow path.
+    bool is_cold =
+        (uptr & kTagOrBadDeallocationMask) == kSampledOrColdMask &&
+        IsColdSizeClass(tc_globals.pagemap().sizeclass(PageIdContaining(ptr)));
     if (ABSL_PREDICT_FALSE(!is_cold)) {
       // Outline cold path to avoid putting cold size lookup on the fast path.
       SLOW_PATH_BARRIER();
       return handle_sampled_or_illformed_ptrs(ptr, size, policy);
     } else {
-      // Clone the callsite here to enable constant propgation of is_cold.
+      // Clone the callsite here to enable constant propagation of
+      // is_cold.
       return fast_free_with_size(ptr, size, policy.AccessAsCold());
     }
   }
@@ -1039,7 +1049,7 @@ bool CorrectSize(const void* ptr, const size_t provided_size, Policy policy) {
 
   // Recompute the provided size and how it maps onto a size class.
   const hot_cold_t access_hint =
-      ABSL_PREDICT_FALSE(GetMemoryTag(ptr) == MemoryTag::kCold)
+      ABSL_PREDICT_FALSE(IsColdSizeClass(size_class) || policy.is_cold())
           ? hot_cold_t{0}
           : hot_cold_t{255};
   auto [is_small, provided_size_class] = tc_globals.sizemap().GetSizeClass(

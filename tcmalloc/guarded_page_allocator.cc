@@ -399,7 +399,7 @@ void GuardedPageAllocator::MapPages() {
   size_t len = (2 * total_pages_ + 1) * page_size_;
   auto base_addr =
       reinterpret_cast<uintptr_t>(tc_globals.system_allocator().MmapAligned(
-          len, page_size_, MemoryTag::kSampled));
+          len, page_size_, MemoryTag::kSampledOrCold));
   TC_ASSERT(base_addr);
   if (!base_addr) return;
 
