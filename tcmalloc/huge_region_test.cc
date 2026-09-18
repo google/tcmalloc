@@ -778,6 +778,78 @@ TEST_F(HugeRegionTest, GetPageAllocationStatus) {
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
 }
 
+TEST_F(HugeRegionTest, ReleaseDuringRelease) {
+  HugeLength released_during_callback;
+  int callback_count = 0;
+
+  class LocalMemoryTagFunction final : public MemoryTagFunction {
+   public:
+    void operator()(Range r, std::optional<absl::string_view> name) override {}
+  };
+  LocalMemoryTagFunction tag;
+
+  CallbackRelease blocking([&]() {
+    callback_count++;
+    if (callback_count != 1) {
+      return;
+    }
+
+    // Simulate a Release from another thread while we are unbacking from the
+    // first Release. This concurrent Release will try to release all pages in
+    // the region. It should skip HP 0 (since it is currently unbacking and
+    // thus marked busy). It should find HP 2 is free and backed, and
+    // successfully unback it.
+    released_during_callback =
+        region_.Release(region_.size().in_pages(), /*adaptive_release=*/false);
+  });
+
+  region_.~HugeRegion();
+  new (&region_) HugeRegion({p_, region_.size()}, blocking, tag);
+
+  const Length hp = kPagesPerHugePage;
+
+  // Setup: HP 0, 2 are free; HP 1 is allocated.
+  bool from_released;
+  auto a0 = Allocate(hp, &from_released);
+  auto a1 = Allocate(hp, &from_released);
+  auto a2 = Allocate(hp, &from_released);
+
+  // Make HP 0 and 2 free (but backed)
+  Delete(a0);
+  Delete(a2);
+
+  EXPECT_EQ(callback_count, 0);
+
+  // Start the first Release. It will try to release HP 0 and 2.
+  // It finds HP 0 first, starts unbacking it, which triggers the 'blocking'
+  // callback.
+  HugeLength total_released =
+      region_.Release(hp * 2, /*adaptive_release=*/false);
+
+  // We expect that:
+  // 1. The concurrent Release (inside callback) successfully unbacked HP 2
+  //    (1 hugepage).
+  EXPECT_EQ(released_during_callback, NHugePages(1));
+  // 2. The original Release successfully unbacked HP 0 (1 hugepage).
+  //    And it safely skipped HP 2 because it was already unbacked by the
+  //    callback.
+  EXPECT_EQ(total_released, NHugePages(1));
+
+  EXPECT_EQ(callback_count, 2);  // 1 for HP 0 unback, 1 for HP 2 unback
+
+  std::vector<Range> unbacked = blocking.regions();
+  ASSERT_EQ(unbacked.size(), 2);
+  // The inner release (HP 2) completes and records its range first.
+  EXPECT_EQ(unbacked[0].p, p_.first_page() + kPagesPerHugePage * 2);
+  EXPECT_EQ(unbacked[0].n, kPagesPerHugePage);
+  // The outer release (HP 0) completes and records its range second.
+  EXPECT_EQ(unbacked[1].p, p_.first_page());
+  EXPECT_EQ(unbacked[1].n, kPagesPerHugePage);
+
+  // Clean up
+  Delete(a1);
+}
+
 class NilUnback final : public MemoryModifyFunction {
  public:
   MemoryModifyStatus operator()(Range r) override {

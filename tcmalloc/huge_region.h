@@ -146,6 +146,11 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 
   Length longest_free() const { return Length(tracker_.longest_free()); }
 
+  bool CanUnback(size_t i) const {
+    TC_ASSERT_LT(i, kNumHugePages);
+    return backed_[i] && pages_used_[i] == Length(0);
+  }
+
   // Adjust counts of allocs-per-hugepage for r being added/removed.
 
   // *from_released is set to true iff r is currently unbacked
@@ -153,7 +158,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If release is true, unback any hugepage that becomes empty.
   void Dec(Range r, bool release);
 
-  HugeLength UnbackHugepages(bool should_unback[kNumHugePages]);
+  HugeLength UnbackHugepages(bool maybe_unback[kNumHugePages]);
 
   // How many pages are used in each hugepage?
   Length pages_used_[kNumHugePages];
@@ -344,7 +349,7 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
 
   // TODO(b/73749855): Consider optimizing this search by consulting tracker_.
   for (int i = start; i != end; i += step) {
-    if (backed_[i] && pages_used_[i] == Length(0)) {
+    if (CanUnback(i)) {
       should_unback[i] = true;
       ++release_target;
     }
@@ -504,16 +509,16 @@ inline void HugeRegion::Dec(Range r, bool release) {
 }
 
 inline HugeLength HugeRegion::UnbackHugepages(
-    bool should_unback[kNumHugePages]) {
+    bool maybe_unback[kNumHugePages]) {
   HugeLength released = NHugePages(0);
   size_t i = 0;
   while (i < kNumHugePages) {
-    if (!should_unback[i]) {
+    if (!maybe_unback[i] || !CanUnback(i)) {
       i++;
       continue;
     }
     size_t j = i;
-    while (j < kNumHugePages && should_unback[j]) {
+    while (j < kNumHugePages && maybe_unback[j] && CanUnback(j)) {
       j++;
     }
 
@@ -543,7 +548,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
       total_unbacked_ += hl;
 
       for (size_t k = i; k < j; k++) {
-        TC_ASSERT(should_unback[k]);
+        TC_ASSERT(maybe_unback[k]);
         backed_[k] = false;
       }
 
@@ -636,7 +641,7 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
   }
 
   Length released;
-  auto release_from_region = [&](Region& region) {
+  auto release_from_region = [&](Region& region) GOOGLE_MALLOC_SECTION {
     Length region_target = to_release - released;
 
     Length region_released =
