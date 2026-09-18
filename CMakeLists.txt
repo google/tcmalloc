@@ -63,6 +63,14 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(protobuf)
 
 FetchContent_Declare(
+  re2
+  GIT_REPOSITORY https://github.com/google/re2.git
+  GIT_TAG        main
+  FIND_PACKAGE_ARGS NAMES re2
+)
+FetchContent_MakeAvailable(re2)
+
+FetchContent_Declare(
   benchmark
   GIT_REPOSITORY https://github.com/google/benchmark.git
   GIT_TAG        main
