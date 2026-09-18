@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -25,7 +26,6 @@
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "absl/base/attributes.h"
-#include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
@@ -55,23 +55,19 @@ class NilMemoryTagFunction final : public MemoryTagFunction {
 class MockUnback final : public MemoryModifyFunction {
  public:
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+    begin_unback_(r);
     release_callback_();
-
-    if (!unback_success_) {
-      return {.success = false, .error_number = 0};
-    }
-
-    PageId end = r.p + r.n;
-    for (; r.p != end; ++r.p) {
-      released_.insert(r.p);
-    }
-
-    return {.success = true, .error_number = 0};
+    const bool success = unback_success_;
+    end_unback_(r, success);
+    return {.success = success, .error_number = 0};
   }
 
-  absl::flat_hash_set<PageId> released_;
   bool unback_success_ = true;
   std::function<void()> release_callback_;
+  // Bracket each unback so the model can mirror HugeRegion::UnbackHugepages,
+  // which treats the hugepages as fully used while the unback is in flight.
+  std::function<void(Range)> begin_unback_;
+  std::function<void(Range, bool)> end_unback_;
 };
 
 struct State;
@@ -198,16 +194,42 @@ struct State {
   std::string output;
   int depth = 0;
 
+  // Per-hugepage mirror of the region's bookkeeping.
+  struct HugePageModel {
+    Length used;
+    bool backed = false;
+  };
+  std::array<HugePageModel, HugeRegion::kNumHugePages> model{};
+  // Hugepages whose unback started / succeeded, indexed by the reentrancy
+  // depth of the operation that triggered it.
+  static constexpr int kMaxDepth = 8;
+  std::array<HugeLength, kMaxDepth> begun_by_depth{};
+  std::array<HugeLength, kMaxDepth> released_by_depth{};
+
   explicit State(bool reentrant_release)
       : reentrant_release(reentrant_release),
         start(HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal))),
         region({start, HugeRegion::size()}, unback, nil_set_anon_vma_name) {
-    unback.released_.reserve(HugeRegion::size().in_pages().raw_num());
-    for (PageId p = start.first_page(), end = p + HugeRegion::size().in_pages();
-         p != end; ++p) {
-      unback.released_.insert(p);
-    }
     output.resize(1 << 20);
+
+    unback.begin_unback_ = [this](Range r) {
+      ForEachHugePage(r, [&](size_t i, Length here) {
+        TC_CHECK_EQ(here, kPagesPerHugePage);
+        TC_CHECK(model[i].backed);
+        TC_CHECK_EQ(model[i].used, Length(0));
+        model[i].used = kPagesPerHugePage;
+        ++begun_by_depth[depth];
+      });
+    };
+    unback.end_unback_ = [this](Range r, bool success) {
+      ForEachHugePage(r, [&](size_t i, Length here) {
+        model[i].used = Length(0);
+        if (success) {
+          model[i].backed = false;
+          ++released_by_depth[depth];
+        }
+      });
+    };
 
     unback.release_callback_ = [this]() {
       if (!this->reentrant_release) return;
@@ -226,7 +248,7 @@ struct State {
   ~State() {
     reentrant_stack.clear();
     for (const auto& alloc : allocs) {
-      region.Put(alloc, false);
+      Put(alloc, false);
     }
     allocs.clear();
     EXPECT_EQ(region.used_pages(), Length(0));
@@ -240,7 +262,60 @@ struct State {
     }
   }
 
+  size_t IndexOf(PageId p) const {
+    return (HugePageContaining(p) - start) / NHugePages(1);
+  }
+
+  // Invokes f(index, pages) for each hugepage r overlaps.
+  template <typename F>
+  void ForEachHugePage(Range r, F f) const {
+    PageId p = r.p;
+    const PageId end = r.p + r.n;
+    while (p != end) {
+      const size_t i = IndexOf(p);
+      const PageId lim = (start + NHugePages(i + 1)).first_page();
+      const Length here = std::min(end - p, lim - p);
+      f(i, here);
+      p += here;
+    }
+  }
+
+  // Returns r to the region, checking that exactly the hugepages it empties
+  // are unbacked, and only when release is requested.
+  void Put(Range r, bool release) {
+    HugeLength emptied;
+    ForEachHugePage(r, [&](size_t i, Length here) {
+      TC_CHECK(model[i].backed);
+      TC_CHECK_GE(model[i].used, here);
+      model[i].used -= here;
+      if (model[i].used == Length(0)) {
+        ++emptied;
+      }
+    });
+    begun_by_depth[depth] = NHugePages(0);
+    region.Put(r, release);
+    TC_CHECK_EQ(begun_by_depth[depth], release ? emptied : NHugePages(0));
+  }
+
   void CheckInvariants() {
+    Length used;
+    HugeLength backed;
+    HugeLength free_backed;
+    for (const HugePageModel& hp : model) {
+      used += hp.used;
+      if (hp.backed) {
+        ++backed;
+        if (hp.used == Length(0)) {
+          ++free_backed;
+        }
+      }
+    }
+    TC_CHECK_EQ(region.used_pages(), used);
+    TC_CHECK_EQ(region.backed(), backed);
+    TC_CHECK_EQ(region.free_backed(), free_backed);
+    TC_CHECK_EQ(region.unmapped_pages(),
+                (HugeRegion::size() - backed).in_pages());
+
     SmallSpanStats small;
     LargeSpanStats large;
     region.AddSpanStats(&small, &large);
@@ -265,19 +340,26 @@ void Allocate::Perform(State& state) const {
   }
   EXPECT_TRUE(state.region.contains(p));
   EXPECT_TRUE(state.region.contains(p + n - Length(1)));
+  // The range is disjoint from every live allocation.
+  for (const Range& live : state.allocs) {
+    TC_CHECK(!(p < live.p + live.n && live.p < p + n));
+  }
   state.allocs.emplace_back(p, n);
-  if (!from_released) {
-    return;
-  }
-  bool did_release = false;
-  for (PageId q = p, end = p + n; q != end; ++q) {
-    auto it = state.unback.released_.find(q);
-    if (it != state.unback.released_.end()) {
-      state.unback.released_.erase(it);
-      did_release = true;
+
+  // from_released is set iff the range touched an unbacked hugepage, which is
+  // backed afterwards.
+  bool expected_from_released = false;
+  state.ForEachHugePage({p, n}, [&](size_t i, Length here) {
+    auto& hp = state.model[i];
+    if (!hp.backed) {
+      TC_CHECK_EQ(hp.used, Length(0));
+      hp.backed = true;
+      expected_from_released = true;
     }
-  }
-  CHECK(did_release);
+    hp.used += here;
+    TC_CHECK_LE(hp.used, kPagesPerHugePage);
+  });
+  TC_CHECK_EQ(from_released, expected_from_released);
 }
 
 void Deallocate::Perform(State& state) const {
@@ -289,14 +371,38 @@ void Deallocate::Perform(State& state) const {
   using std::swap;
   swap(state.allocs[target_index], state.allocs.back());
   state.allocs.pop_back();
-  state.region.Put(alloc, release);
+  state.Put(alloc, release);
 }
 
 void Release::Perform(State& state) const {
   const Length len = Length(length % (1 << 18));
   const HugeLength max_expected =
       std::min(state.region.free_backed(), HLFromPages(len));
+
+  // Mirror HugeRegion::Release's candidate selection: walk the hugepages in
+  // allocation order (or reverse when adaptive) taking every free, backed
+  // hugepage until at least min(desired, free_backed) pages are covered.
+  HugeLength expected_begun;
+  if (len > Length(0)) {
+    const Length to_release =
+        std::min(len, state.region.free_backed().in_pages());
+    const int n = HugeRegion::kNumHugePages;
+    for (int k = 0; k < n; ++k) {
+      const int i = adaptive_release ? n - 1 - k : k;
+      if (state.model[i].backed && state.model[i].used == Length(0)) {
+        ++expected_begun;
+      }
+      if (expected_begun.in_pages() >= to_release) break;
+    }
+  }
+
+  state.begun_by_depth[state.depth] = NHugePages(0);
+  state.released_by_depth[state.depth] = NHugePages(0);
   const HugeLength actual = state.region.Release(len, adaptive_release);
+  TC_CHECK_EQ(state.begun_by_depth[state.depth], expected_begun);
+  // Release reports exactly the hugepages whose unback succeeded.
+  TC_CHECK_EQ(actual, state.released_by_depth[state.depth]);
+
   if (!state.unback.unback_success_) {
     TC_CHECK_EQ(actual, NHugePages(0));
     return;
