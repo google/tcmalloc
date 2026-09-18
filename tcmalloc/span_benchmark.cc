@@ -270,7 +270,7 @@ void BM_SpanDrainFill(benchmark::State& state) {
 
 template <typename F>
 void ForEachConfig(F&& f) {
-  std::vector<size_t> sizes = {8, 32, 48, 64, 1024};
+  std::vector<size_t> sizes = {8, 32, 48, 64, 128, 256, 1024};
   std::vector<size_t> spans = {1, 100, 10000};
 
   for (size_t size : sizes) {

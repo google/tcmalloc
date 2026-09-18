@@ -482,6 +482,8 @@ BENCHMARK(BM_Populate)
     ->Arg(48)
     ->Arg(64)
     ->Arg(80)
+    ->Arg(128)
+    ->Arg(256)
     ->Arg(4096)
     ->Arg(28672);
 
@@ -607,23 +609,31 @@ ActiveObjectPool SetupFreelistOccupancy(BenchmarkEnv& env,
   absl::BitGen rnd;
   absl::c_shuffle(run_lengths, rnd);
 
-  int next_span_idx = 0;
-  int span_objects_size = static_cast<int>(span_objects.size());
-  for (int L : run_lengths) {
-    int s = next_span_idx;
-    next_span_idx = (next_span_idx + 1) % span_objects_size;
-    int attempts = 0;
-    while (span_objects[s].empty() && attempts < span_objects_size) {
-      s = (s + 1) % span_objects_size;
-      attempts++;
+  std::vector<int> non_empty_spans;
+  non_empty_spans.reserve(span_objects.size());
+  for (int s = 0; s < static_cast<int>(span_objects.size()); ++s) {
+    if (!span_objects[s].empty()) {
+      non_empty_spans.push_back(s);
     }
-    if (span_objects[s].empty()) {
+  }
+
+  size_t cur_pos = 0;
+  for (int L : run_lengths) {
+    if (non_empty_spans.empty()) {
       break;
     }
+    cur_pos %= non_empty_spans.size();
+    int s = non_empty_spans[cur_pos];
     int count = std::min<int>(L, static_cast<int>(span_objects[s].size()));
     for (int i = 0; i < count; ++i) {
       pool.fifo_queue.push_back(span_objects[s].back());
       span_objects[s].pop_back();
+    }
+    if (span_objects[s].empty()) {
+      non_empty_spans[cur_pos] = non_empty_spans.back();
+      non_empty_spans.pop_back();
+    } else {
+      cur_pos++;
     }
   }
 
@@ -690,6 +700,8 @@ BENCHMARK(BM_SteadyState)
     ->Arg(48)
     ->Arg(64)
     ->Arg(80)
+    ->Arg(128)
+    ->Arg(256)
     ->Arg(4096)
     ->Arg(28672);
 
@@ -794,6 +806,8 @@ BENCHMARK(BM_Multithreaded)
     ->Arg(48)
     ->Arg(64)
     ->Arg(80)
+    ->Arg(128)
+    ->Arg(256)
     ->Arg(4096)
     ->Arg(28672)
     ->Setup(BM_Multithreaded_Setup)
