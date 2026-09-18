@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_MOCK_STATIC_FORWARDER_H_
 #define TCMALLOC_MOCK_STATIC_FORWARDER_H_
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -70,9 +71,12 @@ class FakeStaticForwarder {
 
   void set_clock_now(uint64_t t) { clock_.store(t, std::memory_order_relaxed); }
   void AdvanceClock(absl::Duration d) {
-    clock_.fetch_add(
-        static_cast<int64_t>(absl::ToDoubleSeconds(d) * clock_frequency()),
-        std::memory_order_relaxed);
+    const int64_t delta =
+        static_cast<int64_t>(absl::ToDoubleSeconds(d) * clock_frequency());
+    const int64_t cur =
+        static_cast<int64_t>(clock_.load(std::memory_order_relaxed));
+    clock_.store(static_cast<uint64_t>(std::max<int64_t>(0, cur + delta)),
+                 std::memory_order_relaxed);
   }
   double clock_frequency() const { return clock_frequency_; }
 

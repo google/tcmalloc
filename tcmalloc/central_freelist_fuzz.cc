@@ -64,6 +64,8 @@ struct State {
 
 void State::CheckInvariants() {
   if (env.objects_per_span() == 1) {
+    TC_CHECK_EQ(env.central_freelist().length(), 0);
+    TC_CHECK_EQ(env.central_freelist().OverheadBytes(), 0);
     return;
   }
 
@@ -105,6 +107,13 @@ struct Allocate {
     const size_t n = num_objects;
     int allocated =
         state.env.central_freelist().RemoveRange(absl::MakeSpan(batch, n));
+    TC_CHECK_GT(allocated, 0);
+    TC_CHECK_LE(allocated, n);
+    const size_t object_size =
+        state.env.forwarder().class_to_size(CentralFreelistEnv::kSizeClass);
+    for (int i = 0; i < allocated; ++i) {
+      memset(batch[i], 0xFF, object_size);
+    }
     state.objects.insert(state.objects.end(), batch, batch + allocated);
   }
 };
@@ -168,10 +177,14 @@ struct PrintStats {
     Printer p(&s[0], s.size());
     state.env.central_freelist().PrintSpanUtilStats(p);
     state.env.central_freelist().PrintSpanLifetimeStats(p);
+    state.env.central_freelist().PrintNumSpansUsed(p);
+    state.env.central_freelist().PrintSameSpanStats(p);
 
     PbtxtRegion region(p, kTop);
     state.env.central_freelist().PrintSpanUtilStatsInPbtxt(region);
     state.env.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
+    state.env.central_freelist().PrintNumSpansUsedInPbtxt(region);
+    state.env.central_freelist().PrintSameSpanStatsInPbtxt(region);
   }
 };
 
