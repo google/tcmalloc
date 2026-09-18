@@ -142,21 +142,21 @@ TEST_F(TCMallocHookTest, FreeSizedInvokesHook) {
 // Large objects are backed directly by the page heap and freed through a
 // different path than size-classed objects.  Verify hooks still see them with
 // the span-derived allocated size.
-TEST_F(TCMallocHookTest, LargeDeleteInvokesHook) {
+TEST_F(TCMallocHookTest, LargeFreeInvokesHook) {
   constexpr size_t kSize = 1 << 20;
-  void* p1 = ::operator new(kSize);
+  void* p1 = malloc(kSize);
   size_t allocated_size = GetAllocatedSize(p1);
   ASSERT_GE(allocated_size, kSize);
   // Copy pointers to suppress use-after-free warnings.
   void* copy_p1 = p1;
   benchmark::DoNotOptimize(copy_p1);
-  ::operator delete(p1);
-  EXPECT_THAT(Log(/*include_mmap=*/false),
+  free(p1);
+  EXPECT_THAT(Log(false),
               ElementsAre(NewCall(copy_p1, kSize, allocated_size),
                           DeleteCall(copy_p1, std::nullopt, allocated_size)));
 }
 
-TEST_F(TCMallocHookTest, LargeSizedDeleteInvokesHook) {
+TEST_F(TCMallocHookTest, LargeFreeSizedInvokesHook) {
   constexpr size_t kSize = 1 << 20;
   void* p1 = ::operator new(kSize);
   size_t allocated_size = GetAllocatedSize(p1);
@@ -166,7 +166,7 @@ TEST_F(TCMallocHookTest, LargeSizedDeleteInvokesHook) {
   benchmark::DoNotOptimize(copy_p1);
   ::operator delete(p1, kSize);
   EXPECT_THAT(
-      Log(/*include_mmap=*/false),
+      Log(false),
       ElementsAre(NewCall(copy_p1, kSize, allocated_size),
                   DeleteCall(copy_p1,
                              kSanitizerPresent ? std::nullopt

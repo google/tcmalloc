@@ -703,9 +703,10 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     valid_ptr = false;
   }
 
-  // HookList::Invoke checks for an empty hook list, but only after its
-  // DeleteInfo argument (and the span walk behind GetLargeSize) has been
-  // materialized.  Check first so the no-hook path skips both.
+  // Check for delete hooks before calling GetLargeSize (span flags and, for
+  // sampled objects, GWP-ASan metadata) and materializing the DeleteInfo.
+  // HookList::Invoke performs the same emptiness check, but only after its
+  // argument has been constructed.
   if (ABSL_PREDICT_TRUE(valid_ptr) &&
       ABSL_PREDICT_FALSE(!delete_hooks_.empty())) {
     MallocHook::InvokeDeleteHook(
