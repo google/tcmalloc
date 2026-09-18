@@ -315,6 +315,69 @@ TEST_F(HugeRegionTest, ReleaseAdaptive) {
   CheckMock();
 }
 
+// Adaptive (reverse-order) release must walk across disjoint runs of free
+// backed hugepages separated by live allocations, and take the highest
+// hugepages of a run when only part of it is needed.
+TEST_F(HugeRegionTest, ReleaseAdaptiveFragmented) {
+  const Length n = kPagesPerHugePage;
+  bool from_released;
+  std::vector<Alloc> allocs;
+  for (int i = 0; i < 8; ++i) {
+    allocs.push_back(Allocate(n, &from_released));
+    EXPECT_TRUE(from_released);
+  }
+
+  // Free hugepages 0, 1, 3, 4, 6, 7; keep 2 and 5 allocated so the free
+  // backed hugepages form the runs [0, 1], [3, 4], [6, 7].
+  Delete(allocs[0]);
+  Delete(allocs[1]);
+  Delete(allocs[3]);
+  Delete(allocs[4]);
+  Delete(allocs[6]);
+  Delete(allocs[7]);
+
+  // Reverse order releases 7 and 6 from the last run, then 4 from the middle.
+  ExpectUnback({p_ + NHugePages(4), NHugePages(1)});
+  ExpectUnback({p_ + NHugePages(6), NHugePages(2)});
+  EXPECT_EQ(NHugePages(3), region_.Release(NHugePages(3).in_pages(),
+                                           /*adaptive_release=*/true));
+  CheckMock();
+
+  Delete(allocs[2]);
+  Delete(allocs[5]);
+}
+
+// Non-adaptive (forward-order) release must walk across disjoint runs of free
+// backed hugepages separated by live allocations.
+TEST_F(HugeRegionTest, ReleaseNonAdaptiveFragmented) {
+  const Length n = kPagesPerHugePage;
+  bool from_released;
+  std::vector<Alloc> allocs;
+  for (int i = 0; i < 8; ++i) {
+    allocs.push_back(Allocate(n, &from_released));
+    EXPECT_TRUE(from_released);
+  }
+
+  // Free hugepages 0, 1, 3, 4, 6, 7; keep 2 and 5 allocated so the free
+  // backed hugepages form the runs [0, 1], [3, 4], [6, 7].
+  Delete(allocs[0]);
+  Delete(allocs[1]);
+  Delete(allocs[3]);
+  Delete(allocs[4]);
+  Delete(allocs[6]);
+  Delete(allocs[7]);
+
+  // Forward order releases 0 and 1 from the first run, then 3 from the middle.
+  ExpectUnback({p_, NHugePages(2)});
+  ExpectUnback({p_ + NHugePages(3), NHugePages(1)});
+  EXPECT_EQ(NHugePages(3), region_.Release(NHugePages(3).in_pages(),
+                                           /*adaptive_release=*/false));
+  CheckMock();
+
+  Delete(allocs[2]);
+  Delete(allocs[5]);
+}
+
 TEST_F(HugeRegionTest, ReleaseFailure) {
   const Length n = kPagesPerHugePage;
   bool from_released;
