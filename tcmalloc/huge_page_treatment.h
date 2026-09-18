@@ -316,7 +316,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         enable_collapse_(enable_collapse),
         subrelease_unbacked_mode_(subrelease_unbacked_mode),
         enable_unfiltered_collapse_(enable_unfiltered_collapse),
-        release_stale_pages_(release_stale_pages) {}
+        release_stale_pages_(release_stale_pages),
+        clock_now_(clock.now()),
+        record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
+                                clock.freq()) {}
   ~HugePageUnbackedTrackerTreatment() override = default;
 
   static void operator delete(void*) { __builtin_trap(); }
@@ -386,8 +389,11 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       PushCandidate(pt);
       return;
     }
-    double elapsed = std::max<double>(clock_.now() - state.record_time, 0);
-    if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * clock_.freq()) {
+    // Evaluate against the cached clock and the precomputed interval to avoid
+    // repeatedly reading the hardware clock and recomputing the threshold
+    // under lock.
+    double elapsed = std::max<double>(clock_now_ - state.record_time, 0);
+    if (elapsed > record_interval_cycles_) {
       PushCandidate(pt);
     }
   }
@@ -584,6 +590,12 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
   ReleaseStalePages release_stale_pages_;
+
+  // Clock state cached at construction time, so that we do not read the
+  // hardware clock nor recompute the record interval threshold for every
+  // tracker we examine under pageheap_lock.
+  double clock_now_;
+  double record_interval_cycles_;
 };
 
 }  // namespace tcmalloc_internal
