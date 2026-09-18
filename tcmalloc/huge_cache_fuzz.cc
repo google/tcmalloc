@@ -126,12 +126,33 @@ struct Get {
 
   void Perform(State& state) const {
     const HugeLength n = NHugePages(std::max<size_t>(1, count % 1024));
+    const HugeLength size_before = state.cache.size();
+    const HugeLength limit_before = state.cache.limit();
     bool from_released = false;
     HugeRange r = state.cache.Get(n, &from_released);
-    if (r.valid()) {
-      state.live_ranges.push_back(r);
-      state.outstanding_usage += r.len();
+    if (!r.valid()) {
+      // Only the backing allocator can fail, leaving the cache untouched.
+      TC_CHECK(!from_released);
+      TC_CHECK_EQ(state.cache.size(), size_before);
+      TC_CHECK_EQ(state.cache.limit(), limit_before);
+      return;
     }
+    TC_CHECK_EQ(r.len(), n);
+    for (HugeRange live : state.live_ranges) {
+      TC_CHECK(!r.intersects(live));
+    }
+    if (from_released) {
+      // A miss leaves the cached ranges alone and can only grow the limit.
+      TC_CHECK_EQ(state.cache.size(), size_before);
+      TC_CHECK_GE(state.cache.limit(), limit_before);
+    } else {
+      // A hit is carved out of the cached ranges and never moves the limit.
+      TC_CHECK_GE(size_before, n);
+      TC_CHECK_EQ(state.cache.size(), size_before - n);
+      TC_CHECK_EQ(state.cache.limit(), limit_before);
+    }
+    state.live_ranges.push_back(r);
+    state.outstanding_usage += r.len();
   }
 };
 
@@ -152,7 +173,21 @@ struct Release {
     std::swap(state.live_ranges[idx], state.live_ranges.back());
     state.live_ranges.pop_back();
     state.outstanding_usage -= r.len();
+    const HugeLength size_before = state.cache.size();
+    const HugeLength limit_before = state.cache.limit();
+    const bool unback_success = state.unback.unback_success_;
     state.cache.Release(r);
+    // Releasing can only shrink the limit.  Everything above the resulting
+    // limit is unbacked, exactly, unless unbacking fails part way.
+    TC_CHECK_LE(state.cache.limit(), limit_before);
+    const HugeLength fits =
+        std::min(size_before + r.len(), state.cache.limit());
+    if (unback_success) {
+      TC_CHECK_EQ(state.cache.size(), fits);
+    } else {
+      TC_CHECK_GE(state.cache.size(), fits);
+      TC_CHECK_LE(state.cache.size(), size_before + r.len());
+    }
   }
 };
 
@@ -173,7 +208,12 @@ struct ReleaseUnbacked {
     std::swap(state.live_ranges[idx], state.live_ranges.back());
     state.live_ranges.pop_back();
     state.outstanding_usage -= r.len();
+    const HugeLength size_before = state.cache.size();
+    const HugeLength limit_before = state.cache.limit();
     state.cache.ReleaseUnbacked(r);
+    // The range bypasses the cache entirely.
+    TC_CHECK_EQ(state.cache.size(), size_before);
+    TC_CHECK_EQ(state.cache.limit(), limit_before);
   }
 };
 
@@ -188,8 +228,19 @@ struct ReleaseCachedPages {
   void Perform(State& state) const {
     const HugeLength n = NHugePages(count % 1024);
     const HugeLength previous_size = state.cache.size();
+    const HugeLength limit_before = state.cache.limit();
+    const bool unback_success = state.unback.unback_success_;
     const HugeLength released = state.cache.ReleaseCachedPages(n);
     EXPECT_LE(released, previous_size);
+    // Every released hugepage left the cache; failed unbacks stay cached.
+    TC_CHECK_EQ(released, previous_size - state.cache.size());
+    TC_CHECK_LE(state.cache.limit(), limit_before);
+    if (unback_success) {
+      // At least n pages are released, capped by what was cached; shrinking
+      // the limit can release more.
+      const HugeLength requested = std::min(n, previous_size);
+      TC_CHECK_GE(released, requested);
+    }
   }
 };
 
