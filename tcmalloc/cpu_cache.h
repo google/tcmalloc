@@ -96,7 +96,7 @@ constexpr inline uint8_t kTotalPossibleSlabs =
 //
 // This is a class, rather than namespaced globals, so that it can be mocked for
 // testing.
-template <typename State>
+template <typename State, State& state>
 class StaticForwarder : private Parameters {
  public:
   using Parameters::per_cpu_caches_dynamic_slab_enabled;
@@ -104,28 +104,27 @@ class StaticForwarder : private Parameters {
   using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
   using Parameters::release_drained_slab_metadata;
 
-  constexpr explicit StaticForwarder(State& state) : state_(state) {}
+  constexpr StaticForwarder() = default;
 
   [[nodiscard]] void* absl_nonnull Alloc(size_t size,
                                          std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(state_.IsInited());
+    TC_ASSERT(state.IsInited());
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
-    return state_.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
+    return state.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
   }
   [[nodiscard]] void* absl_nonnull AllocReportedImpending(
       size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(state_.IsInited());
+    TC_ASSERT(state.IsInited());
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     // Negate previous update to allocated that accounted for this allocation.
-    state_.arena().UpdateAllocatedAndNonresident(-static_cast<int64_t>(size),
-                                                 0);
-    return state_.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
+    state.arena().UpdateAllocatedAndNonresident(-static_cast<int64_t>(size), 0);
+    return state.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
   }
 
   void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
@@ -136,77 +135,74 @@ class StaticForwarder : private Parameters {
                       std::optional<absl::string_view> name) {
     TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) % kHugePageSize, 0);
     TC_ASSERT_EQ(size % kHugePageSize, 0);
-    state_.system_allocator().SetAnonVmaName(ptr, size, name);
+    state.system_allocator().SetAnonVmaName(ptr, size, name);
   }
 
   void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
                                           int64_t nonresident)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(state_.IsInited());
+    TC_ASSERT(state.IsInited());
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     if (allocated > 0) {
-      state_.page_allocator().ShrinkToUsageLimit(
+      state.page_allocator().ShrinkToUsageLimit(
           BytesToLengthCeil(allocated),
           /*may_have_grown=*/allocated > nonresident);
     }
-    state_.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
+    state.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
 
 
   bool reuse_size_classes() const {
-    return state_.size_class_configuration() ==
+    return state.size_class_configuration() ==
            SizeClassConfiguration::kReuseRelaxedBelow64;
   }
 
   size_t class_to_size(int size_class) const {
-    return state_.sizemap().class_to_size(size_class);
+    return state.sizemap().class_to_size(size_class);
   }
 
   size_t num_objects_to_move(int size_class) const {
-    return state_.sizemap().num_objects_to_move(size_class);
+    return state.sizemap().num_objects_to_move(size_class);
   }
 
   const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
-    return state_.numa_topology();
+    return state.numa_topology();
   }
 
   ShardedTransferCacheManager& sharded_transfer_cache() {
-    return state_.sharded_transfer_cache();
+    return state.sharded_transfer_cache();
   }
 
   const ShardedTransferCacheManager& sharded_transfer_cache() const {
-    return state_.sharded_transfer_cache();
+    return state.sharded_transfer_cache();
   }
 
-  TransferCacheManager& transfer_cache() { return state_.transfer_cache(); }
+  TransferCacheManager& transfer_cache() { return state.transfer_cache(); }
 
   bool UseGenericShardedCache() const {
-    return state_.sharded_transfer_cache().UseGenericCache();
+    return state.sharded_transfer_cache().UseGenericCache();
   }
 
   bool UseShardedCacheForLargeClassesOnly() const {
-    return state_.sharded_transfer_cache().UseCacheForLargeClassesOnly();
+    return state.sharded_transfer_cache().UseCacheForLargeClassesOnly();
   }
 
   bool UseWiderSlabs() const {
     // We use wider 512KiB slab only when partitioning is not enabled. NUMA
     // and security partitions increase shift by 1 by itself, so we can not
     // increase it further.
-    return state_.active_partitions() == 1;
+    return state.active_partitions() == 1;
   }
 
-  bool HaveHooks() const { return state_.HaveHooks(); }
+  bool HaveHooks() const { return state.HaveHooks(); }
 
-  auto active_partitions() const { return state_.active_partitions(); }
+  auto active_partitions() const { return state.active_partitions(); }
 
   bool multiple_non_numa_partitions() const {
-    return state_.multiple_non_numa_partitions();
+    return state.multiple_non_numa_partitions();
   }
-
- private:
-  State& state_;
 };
 
 // Translates from a shift value to the offset of that shift in arrays of
@@ -308,21 +304,21 @@ class CpuCache {
   };
 
   struct DynamicSlabInfo {
-    std::atomic<size_t> grow_count[kNumPossiblePerCpuShifts];
-    std::atomic<size_t> shrink_count[kNumPossiblePerCpuShifts];
-    std::atomic<size_t> madvise_failed_bytes;
+    std::atomic<size_t> grow_count[kNumPossiblePerCpuShifts] = {};
+    std::atomic<size_t> shrink_count[kNumPossiblePerCpuShifts] = {};
+    std::atomic<size_t> madvise_failed_bytes = 0;
   };
 
   // Sets the lower limit on the capacity that can be stolen from the cpu cache.
   static constexpr double kCacheCapacityThreshold = 0.20;
 
-  template <typename... Args>
-  explicit constexpr CpuCache(Args&&... u)
-      : forwarder_(std::forward<Args>(u)...) {};
+  constexpr CpuCache() = default;
 
-  // tcmalloc explicitly initializes its global state (to be safe for
+  // We explicitly initialize global state (to be safe for
   // use in global constructors) so our constructor must be trivial;
   // do all initialization here instead.
+  void Init();
+
   void Activate();
 
   // For testing
@@ -809,7 +805,7 @@ class CpuCache {
   std::atomic<int> resize_slab_offset_ = 0;
 
   // Per-core cache limit in bytes.
-  std::atomic<uint64_t> max_per_cpu_cache_size_{kMaxCpuCacheSize};
+  std::atomic<uint64_t> max_per_cpu_cache_size_ = 0;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
@@ -1019,6 +1015,11 @@ template <class Forwarder>
 inline size_t CpuCache<Forwarder>::GetDynamicSlabFailedBytes() const {
   return dynamic_slab_info_.madvise_failed_bytes.load(
       std::memory_order_relaxed);
+}
+
+template <class Forwarder>
+void CpuCache<Forwarder>::Init() {
+  max_per_cpu_cache_size_ = kMaxCpuCacheSize;
 }
 
 template <class Forwarder>
@@ -2971,12 +2972,12 @@ void CpuCache<Forwarder>::PerClassResizeInfo::UpdateIntervalMisses(
 
 }  // namespace cpu_cache_internal
 
-template <typename State>
+template <typename State, State& state>
 class CpuCache final : public cpu_cache_internal::CpuCache<
-                           cpu_cache_internal::StaticForwarder<State>> {
+                           cpu_cache_internal::StaticForwarder<State, state>> {
  public:
   using cpu_cache_internal::CpuCache<
-      cpu_cache_internal::StaticForwarder<State>>::CpuCache;
+      cpu_cache_internal::StaticForwarder<State, state>>::CpuCache;
 };
 
 template <typename State>

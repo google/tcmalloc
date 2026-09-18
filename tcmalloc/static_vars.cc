@@ -59,6 +59,11 @@
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/transfer_cache.h"
 
+// This ensures the marked variables are placed in the .bss section.
+// If the variable contains any non-0 initializers, compiler will complain.
+// Placing large global variables in .bss is important to reduce binary size.
+#define TC_ENSURE_BSS ABSL_CONST_INIT __attribute__((section(".bss")))
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -76,8 +81,8 @@ TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT TransferCacheManager
     Static::transfer_cache_;
 ABSL_CONST_INIT ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
-ABSL_CONST_INIT CpuCache<Static> ABSL_CACHELINE_ALIGNED Static::cpu_cache_{
-    tc_globals};
+TC_ENSURE_BSS ABSL_CACHELINE_ALIGNED CpuCache<Static, tc_globals>
+    Static::cpu_cache_;
 ABSL_CONST_INIT
 MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
     Static::sampledallocation_allocator_{arena_};
@@ -215,6 +220,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     PerCpuState::state().Init();
     numa_topology_.Init();
     CacheTopology::Instance().Init();
+    cpu_cache_.Init();
 
     if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
     ) {

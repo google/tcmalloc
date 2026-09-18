@@ -65,6 +65,9 @@ using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
     SampledAllocation,
     MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>>;
 
+class Static;
+ABSL_CONST_INIT extern Static tc_globals;
+
 class Static final {
  public:
   constexpr Static() = default;
@@ -229,7 +232,7 @@ class Static final {
   TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT static TransferCacheManager
       transfer_cache_;
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
-  ABSL_CONST_INIT static CpuCache<Static> cpu_cache_;
+  ABSL_CONST_INIT static CpuCache<Static, tc_globals> cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static MetadataObjectAllocator<SampledAllocation,
                                  ArenaAlloc::kSampledAllocation>
@@ -293,8 +296,6 @@ class Static final {
   ABSL_CONST_INIT static NoDestructorStorage<SampledAllocationRecorder>
       sampled_allocation_recorder_;
 };
-
-ABSL_CONST_INIT extern Static tc_globals;
 
 inline bool Static::IsInited() {
   return inited_.load(std::memory_order_acquire);

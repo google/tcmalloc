@@ -364,6 +364,7 @@ TEST(CpuCacheTest, MinimumShardsForGenericCache) {
     return;
   }
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   using ShardedManager = TestStaticForwarder::ShardedManager;
@@ -415,6 +416,7 @@ TEST(CpuCacheTest, UsesShardedAsBackingCache) {
     return;
   }
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   using ShardedManager = TestStaticForwarder::ShardedManager;
@@ -486,6 +488,7 @@ TEST(CpuCacheTest, Metadata) {
     SCOPED_TRACE(absl::StrCat("attempt=", attempt));
 
     CpuCache cache;
+    cache.Init();
     cache.Activate();
 
     cpu_cache_internal::SlabShiftBounds shift_bounds =
@@ -668,6 +671,7 @@ TEST(CpuCacheTest, CacheMissStats) {
   const int num_cpus = NumCPUs();
 
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   //  The number of underflows and overflows must be zero for all the caches.
@@ -820,6 +824,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
   }
 
   CpuCache cache;
+  cache.Init();
   // Increase cache capacity so that we can exhaust max capacity for the size
   // class before hitting the maximum cache limit.
   const size_t max_cpu_cache_size = 128 << 10 << 10;
@@ -927,6 +932,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
   }
 
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   std::vector<std::thread> threads;
@@ -980,6 +986,7 @@ TEST(CpuCacheTest, StressSizeClassResize) {
   }
 
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   std::vector<std::thread> threads;
@@ -1021,6 +1028,7 @@ TEST(CpuCacheTest, StealCpuCache) {
   }
 
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   std::vector<std::thread> threads;
@@ -1062,6 +1070,7 @@ TEST(CpuCacheTest, DynamicSlab) {
     return;
   }
   CpuCache cache;
+  cache.Init();
   TestStaticForwarder& forwarder = cache.forwarder();
 
   size_t prev_reported_nonresident_bytes =
@@ -1173,6 +1182,7 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   }
 
   CpuCache cache;
+  cache.Init();
   // Reduce cache capacity so that it will see need in stealing and rebalancing.
   const size_t max_cpu_cache_size = 128 << 10;
   cache.SetCacheLimit(max_cpu_cache_size);
@@ -1316,6 +1326,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
 
   constexpr double kDynamicSlabGrowThreshold = 0.9;
   CpuCache cache;
+  cache.Init();
   TestStaticForwarder& forwarder = cache.forwarder();
   forwarder.dynamic_slab_enabled_ = true;
   forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
@@ -1380,6 +1391,7 @@ TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
     for (DynamicSlab initial_dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
       CpuCache cache;
+      cache.Init();
       TestStaticForwarder& forwarder = cache.forwarder();
       forwarder.dynamic_slab_enabled_ = initially_enabled;
       forwarder.dynamic_slab_ = initial_dynamic_slab;
@@ -1429,6 +1441,7 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   ASSERT_EQ(ret, 0);
 
   CpuCache cache;
+  cache.Init();
   TestStaticForwarder& forwarder = cache.forwarder();
   forwarder.dynamic_slab_enabled_ = true;
   cache.Activate();
@@ -1477,6 +1490,7 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   ASSERT_EQ(ret, 0);
 
   CpuCache cache;
+  cache.Init();
   TestStaticForwarder& forwarder = cache.forwarder();
   forwarder.dynamic_slab_enabled_ = true;
   cache.Activate();
@@ -1524,6 +1538,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   }
 
   CpuCache cache;
+  cache.Init();
   // Reduce cache capacity so that it will see need in stealing and rebalancing.
   const size_t max_cpu_cache_size = 1 << 10;
   cache.SetCacheLimit(max_cpu_cache_size);
@@ -1607,6 +1622,7 @@ TEST(CpuCacheTest, DrainCpuCache) {
   }
 
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   //  The number of underflows and overflows must be zero for all the caches.
@@ -1731,6 +1747,7 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
     SCOPED_TRACE(absl::StrFormat("Feature enabled: %d", enabled));
 
     CpuCache cache;
+    cache.Init();
     cache.forwarder().release_drained_slab_metadata_ = enabled;
     cache.Activate();
 
@@ -1838,6 +1855,7 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateConcurrent) {
   const int num_cpus = NumCPUs();
 
   CpuCache cache;
+  cache.Init();
   cache.forwarder().release_drained_slab_metadata_ = true;
   cache.Activate();
 
@@ -1903,6 +1921,7 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
   }
 
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   const int num_cpus = NumCPUs();
@@ -1979,6 +1998,7 @@ class CpuCacheEnvironment {
   ~CpuCacheEnvironment() { cache_.Deactivate(); }
 
   void Activate() {
+    cache_.Init();
     cache_.Activate();
     ready_.store(true, std::memory_order_release);
   }
@@ -2261,6 +2281,7 @@ TEST(TouchedCpus, SingleThreaded) {
   }
 
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   // Pin to a specific CPU to ensure consistent behavior with rseq.
@@ -2334,6 +2355,7 @@ TEST(TouchedCpus, Multithreaded) {
   }
 
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   ThreadManager threads;
@@ -2420,6 +2442,7 @@ TEST(CpuCacheTest, NamedVma) {
     return;
   }
   CpuCache cache;
+  cache.Init();
   cache.Activate();
 
   TestStaticForwarder& forwarder = cache.forwarder();
