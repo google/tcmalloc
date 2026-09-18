@@ -1303,6 +1303,7 @@ tcmalloc_cc_library(
     "absl::function_ref"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
 )
 
 tcmalloc_cc_test(

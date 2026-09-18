@@ -31,6 +31,7 @@
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -55,8 +56,10 @@ class SampleRecorder {
  public:
   using Allocator = AllocatorT;
 
+  constexpr SampleRecorder() = default;
   constexpr explicit SampleRecorder(
       Allocator& allocator ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  constexpr void Init(Allocator& allocator);
   ~SampleRecorder();
 
   SampleRecorder(const SampleRecorder&) = delete;
@@ -122,11 +125,11 @@ class SampleRecorder {
   //     ^                                      |
   //     +--------------------------------------+
   //
-  std::atomic<T*> all_;
+  std::atomic<T*> all_ = nullptr;
   T graveyard_;
 
-  std::atomic<DisposeCallback> dispose_;
-  Allocator* const allocator_;
+  std::atomic<DisposeCallback> dispose_ = nullptr;
+  Allocator* allocator_ = nullptr;
 };
 
 template <typename T, typename Allocator>
@@ -136,8 +139,15 @@ SampleRecorder<T, Allocator>::SetDisposeCallback(DisposeCallback f) {
 }
 
 template <typename T, typename Allocator>
-constexpr SampleRecorder<T, Allocator>::SampleRecorder(Allocator& allocator)
-    : all_(nullptr), dispose_(nullptr), allocator_(&allocator) {
+constexpr SampleRecorder<T, Allocator>::SampleRecorder(Allocator& allocator) {
+  Init(allocator);
+}
+
+template <typename T, typename Allocator>
+constexpr void SampleRecorder<T, Allocator>::Init(Allocator& allocator)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  TC_CHECK(!allocator_);
+  allocator_ = &allocator;
   graveyard_.dead = &graveyard_;
 }
 

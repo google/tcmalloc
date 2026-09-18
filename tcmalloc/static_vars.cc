@@ -89,9 +89,9 @@ TC_ENSURE_BSS MetadataObjectAllocator<Span, ArenaAlloc::kSpan>
     Static::span_allocator_;
 TC_ENSURE_BSS MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
     Static::threadcache_allocator_;
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
+TCMALLOC_ATTRIBUTE_NO_DESTROY TC_ENSURE_BSS
     Static::NoDestructorStorage<SampledAllocationRecorder>
-        Static::sampled_allocation_recorder_{sampledallocation_allocator_};
+        Static::sampled_allocation_recorder_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter
     Static::sampled_internal_fragmentation_;
@@ -194,6 +194,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   span_allocator_.Init(arena_);
   threadcache_allocator_.Init(arena_);
   linked_sample_allocator_.Init(arena_);
+  sampled_allocation_recorder_.value.Init(sampledallocation_allocator_);
 
   // Verify we can determine the number of CPUs now, since we will need it
   // later for per-CPU caches and initializing the cache topology.
