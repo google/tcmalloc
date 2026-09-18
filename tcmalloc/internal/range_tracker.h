@@ -104,6 +104,14 @@ class Bitmap {
   // put it in *index, *length and return true; else return false.
   bool NextFreeRange(size_t start, size_t* index, size_t* length) const;
 
+  // If there is at least one free range within [0, min(end, N)), put the last
+  // one in *index, *length and return true; else return false.  Mirrors
+  // NextFreeRange.  To iterate backwards through all free ranges:
+  //   size_t index = bitmap.size(), n;
+  //   while (bitmap.PrevFreeRange(index, &index, &n)) { ... }
+  [[nodiscard]] bool PrevFreeRange(size_t end, size_t* index,
+                                   size_t* length) const;
+
   // Returns index of the first {true, false} bit >= index, or N if none.
   size_t FindSet(size_t index) const;
   size_t FindClear(size_t index) const;
@@ -513,6 +521,20 @@ inline bool Bitmap<N>::NextFreeRange(size_t start, size_t* index,
   if (i == N) return false;
   size_t j = FindSet(i);
   *index = i;
+  *length = j - i;
+  return true;
+}
+
+template <size_t N>
+inline bool Bitmap<N>::PrevFreeRange(size_t end, size_t* index,
+                                     size_t* length) const {
+  if (end == 0) return false;
+  if (end > N) end = N;
+  const ssize_t j = FindClearBackwards(end - 1);
+  if (j < 0) return false;
+  // -1 if the free range starts at bit 0.
+  const ssize_t i = FindSetBackwards(j);
+  *index = i + 1;
   *length = j - i;
   return true;
 }

@@ -394,6 +394,100 @@ TEST_F(BitmapTest, PopBatch) {
   EXPECT_TRUE(map.IsZero());
 }
 
+TEST_F(BitmapTest, PrevFreeRange) {
+  auto backward_ranges = [](const auto& map) {
+    std::vector<std::pair<size_t, size_t>> ret;
+    size_t index = map.size(), len;
+    while (map.PrevFreeRange(index, &index, &len)) {
+      ret.push_back({index, len});
+    }
+    return ret;
+  };
+  auto forward_ranges = [](const auto& map) {
+    std::vector<std::pair<size_t, size_t>> ret;
+    size_t index = 0, len;
+    while (map.NextFreeRange(index, &index, &len)) {
+      ret.push_back({index, len});
+      index += len;
+    }
+    return ret;
+  };
+
+  size_t index = 0, len = 0;
+
+  // All clear: a single free range covering the whole bitmap.
+  {
+    Bitmap<253> map;
+    EXPECT_THAT(backward_ranges(map), ElementsAre(Pair(0, 253)));
+    // end == 0 never yields a range.
+    EXPECT_FALSE(map.PrevFreeRange(0, &index, &len));
+    // end > N is clamped to N.
+    EXPECT_TRUE(map.PrevFreeRange(1000, &index, &len));
+    EXPECT_EQ(index, 0);
+    EXPECT_EQ(len, 253);
+    // end inside a free range truncates it.
+    EXPECT_TRUE(map.PrevFreeRange(30, &index, &len));
+    EXPECT_EQ(index, 0);
+    EXPECT_EQ(len, 30);
+  }
+
+  // All set: no free ranges, regardless of end.
+  {
+    Bitmap<253> map;
+    map.SetRange(0, 253);
+    EXPECT_THAT(backward_ranges(map), IsEmpty());
+    EXPECT_FALSE(map.PrevFreeRange(0, &index, &len));
+    EXPECT_FALSE(map.PrevFreeRange(1, &index, &len));
+    EXPECT_FALSE(map.PrevFreeRange(1000, &index, &len));
+  }
+
+  // Free ranges at index 0 and ending at N, with N a multiple of the word size.
+  {
+    Bitmap<128> map;
+    map.SetRange(5, 118);
+    EXPECT_THAT(backward_ranges(map), ElementsAre(Pair(123, 5), Pair(0, 5)));
+    EXPECT_THAT(forward_ranges(map), ElementsAre(Pair(0, 5), Pair(123, 5)));
+
+    // Single-bit free ranges on both sides of a word boundary.
+    map.ClearBit(63);
+    map.ClearBit(64);
+    EXPECT_THAT(backward_ranges(map),
+                ElementsAre(Pair(123, 5), Pair(63, 2), Pair(0, 5)));
+    EXPECT_THAT(forward_ranges(map),
+                ElementsAre(Pair(0, 5), Pair(63, 2), Pair(123, 5)));
+  }
+
+  // Multiple ranges, including ones crossing word boundaries and one ending at
+  // N with dead bits in the last word; backward traversal must be the reverse
+  // of forward traversal.
+  {
+    Bitmap<253> map;
+    map.SetRange(0, 253);
+    map.ClearRange(10, 10);
+    map.ClearRange(50, 30);
+    map.ClearRange(120, 30);
+    map.ClearRange(200, 53);
+    EXPECT_THAT(forward_ranges(map), ElementsAre(Pair(10, 10), Pair(50, 30),
+                                                 Pair(120, 30), Pair(200, 53)));
+    EXPECT_THAT(backward_ranges(map), ElementsAre(Pair(200, 53), Pair(120, 30),
+                                                  Pair(50, 30), Pair(10, 10)));
+
+    // end on a set bit skips back to the preceding free range.
+    EXPECT_TRUE(map.PrevFreeRange(100, &index, &len));
+    EXPECT_EQ(index, 50);
+    EXPECT_EQ(len, 30);
+    // end at the first bit of a free range yields the previous range.
+    EXPECT_TRUE(map.PrevFreeRange(50, &index, &len));
+    EXPECT_EQ(index, 10);
+    EXPECT_EQ(len, 10);
+    // end just past the first free bit yields a length-1 range.
+    EXPECT_TRUE(map.PrevFreeRange(11, &index, &len));
+    EXPECT_EQ(index, 10);
+    EXPECT_EQ(len, 1);
+    EXPECT_FALSE(map.PrevFreeRange(10, &index, &len));
+  }
+}
+
 class RangeTrackerTest : public ::testing::Test {
  protected:
   std::vector<std::pair<size_t, size_t>> FreeRanges() {

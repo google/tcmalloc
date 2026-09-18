@@ -162,6 +162,13 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   HugeLength nbacked_;
   HugeLength total_unbacked_{NHugePages(0)};
   HugeLength free_backed_count_;
+  // Bit i is set iff hugepage i cannot be released right now: it is unbacked,
+  // has pages in use, or is mid-unback in UnbackHugepages.  Equivalently, the
+  // clear bits are exactly the free-but-backed hugepages, so Release can find
+  // candidates with word-at-a-time scans (NextFreeRange/PrevFreeRange) rather
+  // than a linear walk over backed_ and pages_used_.  Invariant:
+  //   CountBits() == kNumHugePages - free_backed_count_.raw_num()
+  Bitmap<kNumHugePages> unreleasable_hugepages_;
 
   MemoryModifyFunction& unback_;
 };
@@ -295,6 +302,8 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback,
     pages_used_[i] = Length(0);
     backed_[i] = false;
   }
+  // Nothing is backed yet, so nothing is releasable.
+  unreleasable_hugepages_.SetRange(0, kNumHugePages);
   free_backed_count_ = NHugePages(0);
 
   char name[256];
@@ -331,26 +340,44 @@ inline void HugeRegion::Put(Range r, bool release) {
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
 inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
-  if (desired == Length(0)) return NHugePages(0);
-
   const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
+  if (to_release == Length(0)) return NHugePages(0);
 
-  HugeLength release_target = NHugePages(0);
+  // Round up to whole hugepages.  to_release <= free_yet_backed, so the bitmap
+  // has at least `needed` clear bits and the scans below always find them.
+  size_t needed = HLFromPages(to_release).raw_num();
   bool should_unback[kNumHugePages] = {};
-  const int start = adaptive_release ? kNumHugePages - 1 : 0;
-  const int end = adaptive_release ? -1 : kNumHugePages;
-  const int step = adaptive_release ? -1 : 1;
-
-  // TODO(b/73749855): Consider optimizing this search by consulting tracker_.
-  for (int i = start; i != end; i += step) {
-    if (backed_[i] && pages_used_[i] == Length(0)) {
+  auto select = [&](size_t start, size_t count) {
+    for (size_t i = start; i < start + count; ++i) {
+      TC_ASSERT(backed_[i]);
+      TC_ASSERT_EQ(pages_used_[i], Length(0));
       should_unback[i] = true;
-      ++release_target;
     }
+    needed -= count;
+  };
 
-    if (release_target.in_pages() >= to_release) break;
+  // Each free range in unreleasable_hugepages_ is a run of free-but-backed
+  // hugepages.  Adaptive release walks them back to front; within a range we
+  // take the highest hugepages first to match the reverse scan order.
+  size_t index, n;
+  if (adaptive_release) {
+    index = kNumHugePages;
+    while (needed > 0 &&
+           unreleasable_hugepages_.PrevFreeRange(index, &index, &n)) {
+      const size_t count = std::min(n, needed);
+      select(index + n - count, count);
+    }
+  } else {
+    index = 0;
+    while (needed > 0 &&
+           unreleasable_hugepages_.NextFreeRange(index, &index, &n)) {
+      const size_t count = std::min(n, needed);
+      select(index, count);
+      index += n;
+    }
   }
+  TC_ASSERT_EQ(needed, 0);
   return UnbackHugepages(should_unback);
 }
 
@@ -466,6 +493,7 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
       if (backed_[i]) {
         TC_ASSERT_GT(free_backed_count_, NHugePages(0));
         --free_backed_count_;
+        unreleasable_hugepages_.SetBit(i);
       } else {
         backed_[i] = true;
         should_back = true;
@@ -494,6 +522,7 @@ inline void HugeRegion::Dec(Range r, bool release) {
     if (pages_used_[i] == Length(0)) {
       should_unback[i] = true;
       ++free_backed_count_;
+      unreleasable_hugepages_.ClearBit(i);
     }
     r.p += here;
     r.n -= here;
@@ -522,14 +551,14 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
     // Temporarily block allocations to these pages.
     //
-    // We both Mark and toggle pages_used_, as allocations use FindAndMark but
-    // Release only uses pages_used_.
-    //
-    // TODO(b/73749855): Optimize release by consulting the bitmap first.
+    // Allocations use FindAndMark on tracker_ and Release consults
+    // unreleasable_hugepages_, so both are updated here.  pages_used_ is
+    // toggled too so the checks below can verify these hugepages stayed empty.
     tracker_.Mark(NHugePages(i).in_pages().raw_num(), hl.in_pages().raw_num());
     Length used;
     for (size_t k = i; k != j; ++k) {
       used += std::exchange(pages_used_[k], kPagesPerHugePage);
+      unreleasable_hugepages_.SetBit(k);
     }
     TC_CHECK_EQ(used, Length(0));
 
@@ -549,8 +578,12 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
       released += hl;
     } else {
-      // Restore the count if unback failed.
+      // Restore the count if unback failed; the hugepages are free and backed
+      // again, so they become releasable.
       free_backed_count_ += hl;
+      for (size_t k = i; k < j; k++) {
+        unreleasable_hugepages_.ClearBit(k);
+      }
     }
 
     used = Length(0);
@@ -565,6 +598,8 @@ inline HugeLength HugeRegion::UnbackHugepages(
     i = j;
   }
 
+  TC_ASSERT_EQ(unreleasable_hugepages_.CountBits(),
+               kNumHugePages - free_backed_count_.raw_num());
   return released;
 }
 
