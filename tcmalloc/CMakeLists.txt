@@ -269,6 +269,7 @@ tcmalloc_cc_library_variants(
     "huge_page_treatment.h"
     "huge_pages.h"
     "huge_region.h"
+    "legacy_size_classes.cc"
     "metadata_object_allocator.h"
     "page_allocator.cc"
     "page_allocator.h"

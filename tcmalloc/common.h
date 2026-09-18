@@ -120,7 +120,7 @@ static_assert(sizeof(void*) == 8);
 
 #if TCMALLOC_PAGE_SHIFT == 12
 inline constexpr size_t kPageShift = 12;
-inline constexpr size_t kNumBaseClasses = 26;
+inline constexpr size_t kNumBaseClasses = 46;
 inline constexpr bool kHasColdClasses = false;
 inline constexpr size_t kMaxSize = 8 << 10;
 inline constexpr size_t kMinThreadCacheSize = 4 * 1024;
@@ -130,7 +130,7 @@ inline constexpr size_t kDefaultOverallThreadCacheSize = kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = kMinThreadCacheSize;
 #elif TCMALLOC_PAGE_SHIFT == 15
 inline constexpr size_t kPageShift = 15;
-inline constexpr size_t kNumBaseClasses = 48;
+inline constexpr size_t kNumBaseClasses = 78;
 inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
@@ -141,7 +141,7 @@ inline constexpr size_t kDefaultOverallThreadCacheSize =
 inline constexpr size_t kStealAmount = 1 << 16;
 #elif TCMALLOC_PAGE_SHIFT == 18
 inline constexpr size_t kPageShift = 18;
-inline constexpr size_t kNumBaseClasses = 51;
+inline constexpr size_t kNumBaseClasses = 89;
 inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
@@ -152,11 +152,7 @@ inline constexpr size_t kDefaultOverallThreadCacheSize =
 inline constexpr size_t kStealAmount = 1 << 16;
 #elif TCMALLOC_PAGE_SHIFT == 13
 inline constexpr size_t kPageShift = 13;
-#if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
-inline constexpr size_t kNumBaseClasses = 50;
-#else
-inline constexpr size_t kNumBaseClasses = 49;
-#endif
+inline constexpr size_t kNumBaseClasses = 86;
 inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
@@ -193,11 +189,15 @@ inline constexpr size_t kNumClasses =
 
 // Size classes are often stored as uint32_t values, but there are some
 // situations where we need to store a size class with as compact a
-// representation as possible (e.g. in PageMap). We make sure that we
-// don't choose so many size classes that we need to go to uint16_t
-// (which would bloat the PageMap leaf by ~10%).
+// representation as possible (e.g. in PageMap). Here we determine the integer
+// type to use in these situations - i.e. the smallest integer type large
+// enough to store values in the range [0,kNumClasses).
 constexpr size_t kMaxClass = kNumClasses - 1;
-using CompactSizeClass = uint8_t;
+using CompactSizeClass =
+    std::conditional_t<kMaxClass <= std::numeric_limits<uint8_t>::max(),
+                       uint8_t, uint16_t>;
+
+// ~64K classes ought to be enough for anybody, but let's be sure.
 static_assert(kMaxClass <= std::numeric_limits<CompactSizeClass>::max());
 
 // Minimum/maximum number of batches in TransferCache per size class.
