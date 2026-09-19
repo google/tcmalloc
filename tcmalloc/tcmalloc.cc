@@ -112,6 +112,7 @@
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
+#include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
@@ -702,7 +703,11 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     valid_ptr = false;
   }
 
-  if (ABSL_PREDICT_TRUE(valid_ptr)) {
+  // HookList::Invoke checks for an empty hook list, but only after its
+  // DeleteInfo argument (and the span walk behind GetLargeSize) has been
+  // materialized.  Check first so the no-hook path skips both.
+  if (ABSL_PREDICT_TRUE(valid_ptr) &&
+      ABSL_PREDICT_FALSE(!delete_hooks_.empty())) {
     MallocHook::InvokeDeleteHook(
         {ptr, size, GetLargeSize(ptr, *span), HookMemoryMutable::kMutable});
   }
