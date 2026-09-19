@@ -133,7 +133,7 @@ static void BM_AppendRemove(benchmark::State& state) {
   }
 
   for (MockSpan* s : vappend) {
-    delete s;
+    MockSpan::Delete(s);
   }
 }
 

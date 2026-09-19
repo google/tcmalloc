@@ -15,6 +15,8 @@
 #ifndef TCMALLOC_INTERNAL_MOCK_SPAN_H_
 #define TCMALLOC_INTERNAL_MOCK_SPAN_H_
 
+#include <new>
+
 #include "tcmalloc/internal/linked_list.h"
 
 namespace tcmalloc {
@@ -32,6 +34,8 @@ class MockSpan : public MockSpanList::Elem {
     ret->index_ = idx;
     return ret;
   }
+
+  static void Delete(MockSpan* s) { ::operator delete(s, sizeof(MockSpan)); }
 
   int index_;
 };
