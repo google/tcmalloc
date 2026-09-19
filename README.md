@@ -1,5 +1,7 @@
 # TCMalloc
 
+![Bazel build](https://github.com/google/tcmalloc/workflows/Bazel%20build/badge.svg)
+
 This repository contains the TCMalloc C++ code.
 
 TCMalloc is Google's customized implementation of C's `malloc()` and C++'s
