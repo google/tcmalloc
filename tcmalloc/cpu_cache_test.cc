@@ -139,7 +139,7 @@ class TestStaticForwarder : private Parameters {
     numa_topology_.Init();
 
     absl::base_internal::SpinLockHolder l(vma_name_mu_);
-    vma_name_calls_.reserve(10);
+    vma_name_calls_.reserve(4096);
   }
 
   void InitializeShardedManager(int num_shards) {
@@ -215,11 +215,13 @@ class TestStaticForwarder : private Parameters {
     TC_CHECK(name.has_value());
     {
       absl::base_internal::SpinLockHolder l(vma_name_mu_);
-      auto& elem = vma_name_calls_.emplace_back();
-      elem.ptr = ptr;
-      elem.size = size;
-      memcpy(elem.name, name->data(),
-             std::min(name->size(), sizeof(elem.name) - 1));
+      if (vma_name_calls_.size() < vma_name_calls_.capacity()) {
+        auto& elem = vma_name_calls_.emplace_back();
+        elem.ptr = ptr;
+        elem.size = size;
+        memcpy(elem.name, name->data(),
+               std::min(name->size(), sizeof(elem.name) - 1));
+      }
     }
   }
 

@@ -25,7 +25,9 @@
 #include "absl/base/call_once.h"
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
+#if __linux__
 #include "tcmalloc/internal/cpu_utils.h"
+#endif
 #include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

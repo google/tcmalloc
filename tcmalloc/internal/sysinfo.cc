@@ -28,7 +28,9 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
+#if __linux__
 #include "tcmalloc/internal/cpu_utils.h"
+#endif
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
