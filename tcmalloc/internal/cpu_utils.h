@@ -15,6 +15,8 @@
 #ifndef TCMALLOC_INTERNAL_CPU_UTILS_H_
 #define TCMALLOC_INTERNAL_CPU_UTILS_H_
 
+#ifdef __linux__
+
 #include <sched.h>
 
 #include <array>
@@ -80,5 +82,7 @@ class CpuSet {
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
+
+#endif  // __linux__
 
 #endif  // TCMALLOC_INTERNAL_CPU_UTILS_H_
