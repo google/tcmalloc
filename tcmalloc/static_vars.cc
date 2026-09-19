@@ -113,12 +113,12 @@ TC_ENSURE_BSS ProdPageMap Static::pagemap_;
 TC_ENSURE_BSS GuardedPageAllocator Static::guardedpage_allocator_;
 TC_ENSURE_BSS NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
-ABSL_CONST_INIT GwpAsanState Static::gwp_asan_state_;
-ABSL_CONST_INIT Static::PerSizeClassCounts Static::per_size_class_counts_;
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
+TC_ENSURE_BSS GwpAsanState Static::gwp_asan_state_;
+TC_ENSURE_BSS Static::PerSizeClassCounts Static::per_size_class_counts_;
+TCMALLOC_ATTRIBUTE_NO_DESTROY TC_ENSURE_BSS
     Static::NoDestructorStorage<SystemAllocator<
         NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>>
-        Static::system_allocator_{numa_topology_, kMinMmapAlloc};
+        Static::system_allocator_;
 // Force kInvalidSpan to be read-protected.  Span contains a std::atomic, and
 // libc++'s std::atomic implementation contains a mutable field in one of its
 // implementation details.  This prevents Span from being placed in a read-only
@@ -128,7 +128,7 @@ ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro)
 constexpr Span Static::kInvalidSpan;
 // LINT.ThenChange(:static_vars_size)
 
-ABSL_CONST_INIT Static tc_globals;
+TC_ENSURE_BSS Static tc_globals;
 
 size_t Static::metadata_bytes() {
   // This is ugly and doesn't nicely account for e.g. alignment losses
@@ -196,6 +196,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   linked_sample_allocator_.Init(arena_);
   sampled_allocation_recorder_.value.Init(sampledallocation_allocator_);
   peak_heap_tracker_.value.Init(sampledallocation_allocator_);
+  system_allocator_.value.Init(numa_topology_, kMinMmapAlloc);
 
   // Verify we can determine the number of CPUs now, since we will need it
   // later for per-CPU caches and initializing the cache topology.
