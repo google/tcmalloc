@@ -92,17 +92,17 @@ TC_ENSURE_BSS MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
 TCMALLOC_ATTRIBUTE_NO_DESTROY TC_ENSURE_BSS
     Static::NoDestructorStorage<SampledAllocationRecorder>
         Static::sampled_allocation_recorder_;
-ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
-ABSL_CONST_INIT tcmalloc_internal::StatsCounter
+TC_ENSURE_BSS tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
+TC_ENSURE_BSS tcmalloc_internal::StatsCounter
     Static::sampled_internal_fragmentation_;
-ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::total_sampled_count_;
-ABSL_CONST_INIT AllocationSampleList Static::allocation_samples;
-ABSL_CONST_INIT deallocationz::DeallocationProfilerList
+TC_ENSURE_BSS tcmalloc_internal::StatsCounter Static::total_sampled_count_;
+TC_ENSURE_BSS AllocationSampleList Static::allocation_samples;
+TC_ENSURE_BSS deallocationz::DeallocationProfilerList
     Static::deallocation_samples;
-ABSL_CONST_INIT std::atomic<int64_t> Static::sampled_alloc_handle_generator{0};
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
+TC_ENSURE_BSS std::atomic<int64_t> Static::sampled_alloc_handle_generator{0};
+TCMALLOC_ATTRIBUTE_NO_DESTROY TC_ENSURE_BSS
     Static::NoDestructorStorage<PeakHeapTracker>
-        Static::peak_heap_tracker_{sampledallocation_allocator_};
+        Static::peak_heap_tracker_;
 TC_ENSURE_BSS MetadataObjectAllocator<StackTraceTable::LinkedSample,
                                       ArenaAlloc::kStackTraceTable>
     Static::linked_sample_allocator_;
@@ -195,6 +195,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   threadcache_allocator_.Init(arena_);
   linked_sample_allocator_.Init(arena_);
   sampled_allocation_recorder_.value.Init(sampledallocation_allocator_);
+  peak_heap_tracker_.value.Init(sampledallocation_allocator_);
 
   // Verify we can determine the number of CPUs now, since we will need it
   // later for per-CPU caches and initializing the cache topology.
