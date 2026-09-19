@@ -176,11 +176,6 @@ class UsageInfo {
       ++native_page_buckets_size_;
     }
 
-    lifetime_bucket_bounds_[0] = 0;
-    lifetime_bucket_bounds_[1] = 1;
-    for (int i = 2; i <= kLifetimeBuckets; ++i) {
-      lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
-    }
     TC_CHECK_LE(buckets_size_, kBucketCapacity);
   }
 
@@ -207,6 +202,8 @@ class UsageInfo {
       kBucketsAtBounds + kBucketsInBetween + kBucketsAtBounds;
 
   static constexpr size_t kLifetimeBuckets = 8;
+  static constexpr size_t kLifetimeBucketBounds[kLifetimeBuckets + 1] = {
+      0, 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000};
   using LifetimeHisto = uint32_t[kLifetimeBuckets];
 
   using Histo = uint32_t[kBucketCapacity];
@@ -487,11 +484,11 @@ class UsageInfo {
 
   int LifetimeBucketNum(absl::Duration duration) {
     int64_t duration_ms = absl::ToInt64Milliseconds(duration);
-    auto it = std::upper_bound(lifetime_bucket_bounds_,
-                               lifetime_bucket_bounds_ + kLifetimeBuckets,
-                               duration_ms);
-    TC_CHECK_NE(it, lifetime_bucket_bounds_);
-    return it - lifetime_bucket_bounds_ - 1;
+    auto it = std::upper_bound(
+        kLifetimeBucketBounds, kLifetimeBucketBounds + kLifetimeBuckets,
+        static_cast<size_t>(std::max<int64_t>(0, duration_ms)));
+    TC_CHECK_NE(it, kLifetimeBucketBounds);
+    return it - kLifetimeBucketBounds - 1;
   }
 
   int HardwarePageBucketNum(size_t page) {
@@ -548,7 +545,7 @@ class UsageInfo {
       if (i % 6 == 0) {
         out.printf("\nHugePageFiller:");
       }
-      out.printf(" < %3zu ms <= %6zu", lifetime_bucket_bounds_[i], h[i]);
+      out.printf(" < %3zu ms <= %6zu", kLifetimeBucketBounds[i], h[i]);
     }
     out.printf("\n");
   }
@@ -594,10 +591,10 @@ class UsageInfo {
     for (size_t i = 0; i < kLifetimeBuckets; ++i) {
       if (h[i] == 0) continue;
       auto hist = hpaa.CreateSubRegion(key);
-      hist.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
-      hist.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
-                                        ? lifetime_bucket_bounds_[i]
-                                        : lifetime_bucket_bounds_[i + 1]));
+      hist.PrintI64("lower_bound", kLifetimeBucketBounds[i]);
+      hist.PrintI64("upper_bound",
+                    (i == kLifetimeBuckets - 1 ? kLifetimeBucketBounds[i]
+                                               : kLifetimeBucketBounds[i + 1]));
       hist.PrintI64("value", h[i]);
     }
   }
@@ -688,7 +685,6 @@ class UsageInfo {
   // Arrays, because they are split per alloc type.
   size_t bucket_bounds_[kBucketCapacity];
   size_t native_page_bucket_bounds_[kBucketCapacity];
-  size_t lifetime_bucket_bounds_[kLifetimeBuckets + 1];
   size_t hugepage_backed_previously_released_ = 0;
   int buckets_size_ = 0;
   int native_page_buckets_size_ = 0;
@@ -1006,6 +1002,8 @@ class HugePageFiller {
 
   static constexpr size_t kLifetimeBuckets =
       huge_page_filler_internal::UsageInfo::kLifetimeBuckets;
+  static constexpr auto& kLifetimeBucketBounds =
+      huge_page_filler_internal::UsageInfo::kLifetimeBucketBounds;
   using LifetimeHisto = huge_page_filler_internal::UsageInfo::LifetimeHisto;
   void RecordLifetime(const TrackerType* pt, int64_t now);
   void PrintLifetimeHisto(Printer& out, const LifetimeHisto& h,
@@ -1014,13 +1012,16 @@ class HugePageFiller {
   void PrintLifetimeHistoInPbtxt(PbtxtRegion& hpaa, const LifetimeHisto& h,
                                  absl::string_view key) const;
 
-  int LifetimeBucketNum(absl::Duration duration) {
-    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
-    auto it = std::upper_bound(lifetime_bucket_bounds_,
-                               lifetime_bucket_bounds_ + kLifetimeBuckets,
-                               duration_ms);
-    TC_CHECK_NE(it, lifetime_bucket_bounds_);
-    return it - lifetime_bucket_bounds_ - 1;
+  [[nodiscard]] int LifetimeBucketNum(absl::Duration duration) const {
+    return LifetimeBucketNum(absl::ToInt64Milliseconds(duration));
+  }
+
+  [[nodiscard]] int LifetimeBucketNum(int64_t duration_ms) const {
+    auto it = std::upper_bound(
+        kLifetimeBucketBounds, kLifetimeBucketBounds + kLifetimeBuckets,
+        static_cast<size_t>(std::max<int64_t>(0, duration_ms)));
+    TC_CHECK_NE(it, kLifetimeBucketBounds);
+    return it - kLifetimeBucketBounds - 1;
   }
 
   // CompareForSubrelease identifies the worse candidate for subrelease, between
@@ -1073,9 +1074,11 @@ class HugePageFiller {
 
   // Lifetime tracking for completely-freed hugepages
   LifetimeHisto lifetime_histo_[AccessDensityPrediction::kPredictionCounts]{};
-  size_t lifetime_bucket_bounds_[kLifetimeBuckets + 1];
 
   Clock clock_;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const double ms_per_cycle_;
+#endif
   const MemoryTag tag_;
   // TODO(b/73749855):  Remove remaining uses of unback_.
   MemoryModifyFunction& unback_;
@@ -1109,17 +1112,15 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
     : size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ms_per_cycle_(1000.0 / clock.freq()),
+#endif
       tag_(tag),
       unback_(unback),
       unback_without_lock_(unback_without_lock),
       collapse_(collapse),
       set_anon_vma_name_(set_anon_vma_name),
       subrelease_unbacked_mode_(subrelease_unbacked_mode) {
-  lifetime_bucket_bounds_[0] = 0;
-  lifetime_bucket_bounds_[1] = 1;
-  for (int i = 2; i <= kLifetimeBuckets; ++i) {
-    lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
-  }
 }
 
 template <class TrackerType>
@@ -1277,16 +1278,22 @@ void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt,
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   now = clock_.now();
 #endif
+  const double elapsed = std::max<double>(0.0, now - pt->alloctime());
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const int64_t elapsed_ms = static_cast<int64_t>(std::min<double>(
+      static_cast<double>(kLifetimeBucketBounds[kLifetimeBuckets - 1]),
+      elapsed * ms_per_cycle_));
+  const int bucket = LifetimeBucketNum(elapsed_ms);
+#else
   const double frequency = clock_.freq();
-  const double elapsed = std::max<double>(now - pt->alloctime(), 0);
   const absl::Duration lifetime =
       absl::Milliseconds(elapsed * 1000 / frequency);
+  const int bucket = LifetimeBucketNum(lifetime);
+#endif
   if (pt->HasDenseSpans()) {
-    ++lifetime_histo_[AccessDensityPrediction::kDense]
-                     [LifetimeBucketNum(lifetime)];
+    ++lifetime_histo_[AccessDensityPrediction::kDense][bucket];
   } else {
-    ++lifetime_histo_[AccessDensityPrediction::kSparse]
-                     [LifetimeBucketNum(lifetime)];
+    ++lifetime_histo_[AccessDensityPrediction::kSparse][bucket];
   }
 }
 
@@ -1302,7 +1309,7 @@ void HugePageFiller<TrackerType>::PrintLifetimeHisto(
     if (i % 6 == 0) {
       out.printf("\nHugePageFiller:");
     }
-    out.printf(" < %3zu ms <= %6zu", lifetime_bucket_bounds_[i], h[i]);
+    out.printf(" < %3zu ms <= %6zu", kLifetimeBucketBounds[i], h[i]);
   }
   out.printf("\n");
 }
@@ -1313,10 +1320,10 @@ void HugePageFiller<TrackerType>::PrintLifetimeHistoInPbtxt(
   for (size_t i = 0; i < kLifetimeBuckets; ++i) {
     if (h[i] == 0) continue;
     auto hist = hpaa.CreateSubRegion(key);
-    hist.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
+    hist.PrintI64("lower_bound", kLifetimeBucketBounds[i]);
     hist.PrintI64("upper_bound",
-                  (i == kLifetimeBuckets - 1 ? lifetime_bucket_bounds_[i]
-                                             : lifetime_bucket_bounds_[i + 1]));
+                  (i == kLifetimeBuckets - 1 ? kLifetimeBucketBounds[i]
+                                             : kLifetimeBucketBounds[i + 1]));
     hist.PrintI64("value", h[i]);
   }
 }
