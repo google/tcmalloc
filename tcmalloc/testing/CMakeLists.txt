@@ -818,7 +818,6 @@ tcmalloc_cc_test(
     "GTest::gmock_main"
     "GTest::gmock"
     "absl::core_headers"
-    "absl::leak_check"
     "absl::str_format"
     "absl::string_view"
     "benchmark::benchmark"

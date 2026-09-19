@@ -27,7 +27,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
-#include "absl/debugging/leak_check.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
@@ -152,19 +151,24 @@ TEST(Basic, RetryFailTest) {
 // Verify the usage hint is kMetadata for metadata
 TEST(UsageHint, VerifyUsageHintkMetadataTest) {
   f.usage_hint_ = std::nullopt;
+  // SetRegionFactory discards the cached metadata region, so the next time the
+  // Arena grows it must obtain a fresh region from f.
   MallocExtension::SetRegionFactory(&f);
-  // Need a large enough size to trigger the system allocator,
-  //  2.0 is an arbitrary number. Else it would continue to use the previous
-  //  hugepage region and a new usage hint wouldn't be assigned
-  void* ptr = ::operator new(kMinMmapAlloc * 2.0);
+
+  // Force the Arena to grow now by requesting more than it currently holds in
+  // reserve.  Allocating user memory (and relying on the pagemap metadata that
+  // it needs) is not sufficient: a large aligned metadata allocation, such as
+  // a per-CPU slab, leaves its alignment slop (several MiB) in the Arena, which
+  // then satisfies the pagemap growth without going back to the system
+  // allocator.
+  const size_t bytes = tc_globals.arena().stats().bytes_unallocated + 1;
+  void* ptr = tc_globals.arena().Alloc(ArenaAlloc::kTest, bytes);
+  ASSERT_NE(ptr, nullptr);
 
   ASSERT_TRUE(f.usage_hint_.has_value());
   EXPECT_EQ(*f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
       << "Usage hint is " << hintToString(*f.usage_hint_);
-
-  // Deliberately leak memory so it isn't reused by other tests exercising this
-  // code path.
-  absl::IgnoreLeak(ptr);
+  // Arena memory is never returned, so ptr is intentionally not freed.
 }
 
 }  // namespace
