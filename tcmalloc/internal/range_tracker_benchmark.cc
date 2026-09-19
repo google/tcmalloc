@@ -123,7 +123,7 @@ static void BM_FillOnes(benchmark::State& state) {
     }
   }
 
-  state.SetItemsProcessed(N * state.iterations());
+  state.SetItemsProcessed(state.iterations());
 }
 
 BENCHMARK_TEMPLATE(BM_FillOnes, 256);
@@ -142,7 +142,7 @@ static void BM_EmptyOnes(benchmark::State& state) {
     }
   }
 
-  state.SetItemsProcessed(N * state.iterations());
+  state.SetItemsProcessed(state.iterations());
 }
 
 BENCHMARK_TEMPLATE(BM_EmptyOnes, 256);
