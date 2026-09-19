@@ -195,7 +195,11 @@ class SampledTrackerTreatment final : public HugePageTreatment {
  public:
   explicit SampledTrackerTreatment(Clock clock, MemoryTag tag,
                                    MemoryTagFunction& set_anon_vma_name)
-      : clock_(clock), tag_(tag), set_anon_vma_name_(set_anon_vma_name) {}
+      : tag_(tag),
+        set_anon_vma_name_(set_anon_vma_name),
+        clock_now_(clock.now()),
+        record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
+                                clock.freq()) {}
   ~SampledTrackerTreatment() override = default;
 
   static void operator delete(void*) { __builtin_trap(); }
@@ -208,23 +212,22 @@ class SampledTrackerTreatment final : public HugePageTreatment {
   //   b. The trackers that were last scanned more than kRecordInterval ago.
   // 2. Apply the treatment using Treat. It encodes tracker features, such as
   //    the longest free range, number of allocations, etc. into a string and
-  //    uses it to name the memory tracked by the tracker. This is done outside
-  //    of the pageheap lock.
-  // 3. Acquire the pageheap lock and restore the recorded state using Restore
-  //    (e.g. reset the dont_free_tracker bit).
+  //    passes them to the caller-supplied set_anon_vma_name callback.
+  // 3. Unset the tracking bits using Restore, which is called under
+  //    pageheap_lock.
 
   void SelectEligibleTrackers(PageTracker& pt) override {
     if (num_valid_trackers_ >= kTotalTrackersToScan) return;
 
     // Collect all the addresses under pageheap lock that are to be sampled for
     // tagging, and that were last scanned more than kRecordInterval ago.
-    const absl::Duration kRecordInterval = absl::Minutes(5);
     PageTracker::TagState tagged_state = pt.GetTagState();
     if (!tagged_state.sampled_for_tagging) return;
-    double clock_now = clock_.now();
-    double clock_freq = clock_.freq();
-    double elapsed = std::max<double>(clock_now - tagged_state.record_time, 0);
-    if (elapsed > absl::ToDoubleSeconds(kRecordInterval) * clock_freq) {
+
+    // Evaluate against the cached clock to avoid repeatedly reading the
+    // hardware clock under lock.
+    double elapsed = std::max<double>(clock_now_ - tagged_state.record_time, 0);
+    if (elapsed > record_interval_cycles_) {
       selected_trackers_[num_valid_trackers_] = {
           &pt,
           pt.longest_free_range().raw_num(),
@@ -232,7 +235,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
           pt.nobjects(),
           pt.HasDenseSpans(),
           pt.released()};
-      pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now});
+      pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now_});
       ++num_valid_trackers_;
       // Setting this bit makes sure that the tracker is not freed under us
       // when the pageheap lock is unlocked and we are in the middle of
@@ -279,9 +282,10 @@ class SampledTrackerTreatment final : public HugePageTreatment {
 
  private:
   static constexpr size_t kTotalTrackersToScan = 64;
-  Clock clock_;
   MemoryTag tag_;
   MemoryTagFunction& set_anon_vma_name_;
+  double clock_now_;
+  double record_interval_cycles_;
 
   struct TrackerState {
     PageTracker* tracker;
