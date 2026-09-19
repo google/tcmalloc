@@ -69,7 +69,6 @@ TEST_P(SystemAllocatorMlockallTest, Mlockall) {
   // TCMALLOC_MLOCKALL_UNLOCK_FUTURE=1.
 
   NumaTopology<2> topology;
-  topology.Init();
   SystemAllocator<NumaTopology<2>, 1> allocator(topology, 4 << 20);
 
   PageFlags page_flags;

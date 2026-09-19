@@ -106,12 +106,12 @@ TCMALLOC_ATTRIBUTE_NO_DESTROY TC_ENSURE_BSS
 TC_ENSURE_BSS MetadataObjectAllocator<StackTraceTable::LinkedSample,
                                       ArenaAlloc::kStackTraceTable>
     Static::linked_sample_allocator_;
-TC_ENSURE_BSS std::atomic<bool> Static::inited_{false};
-TC_ENSURE_BSS std::atomic<bool> Static::cpu_cache_active_{false};
-TC_ENSURE_BSS Static::PageAllocatorStorage Static::page_allocator_;
-TC_ENSURE_BSS ProdPageMap Static::pagemap_;
-TC_ENSURE_BSS GuardedPageAllocator Static::guardedpage_allocator_;
-TC_ENSURE_BSS NumaTopology<kNumaPartitions, kNumBaseClasses>
+ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
+ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
+ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
+ABSL_CONST_INIT ProdPageMap Static::pagemap_;
+ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
+ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
 ABSL_CONST_INIT GwpAsanState Static::gwp_asan_state_;
 ABSL_CONST_INIT Static::PerSizeClassCounts Static::per_size_class_counts_;
