@@ -65,7 +65,6 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_NUMA_AWARE");
 
   partition_to_nodes[NodeToPartition(0, num_partitions)] |= 1 << 0;
-  *bind_mode = NumaBindMode::kAdvisory;
   *num_nodes = 1;
 
   // We rely on rseq to quickly obtain a CPU ID & lookup the appropriate
@@ -121,10 +120,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
       // We expect to encounter ENOENT once node surpasses the actual number of
       // nodes present in the system. Any other error is a problem.
       TC_CHECK_EQ(errno, ENOENT);
-      // Even the first open may fail in sandboxes, don't set num_nodes to 0.
-      if (node != 0) {
-        *num_nodes = node;
-      }
+      *num_nodes = node;
       break;
     }
 
