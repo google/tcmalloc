@@ -22,6 +22,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -43,11 +44,10 @@ namespace tcmalloc_internal {
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
 PageAllocator::PageAllocator() {
-  has_cold_impl_ = ColdFeatureActive();
   sampled_partition_active_ =
       Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
-  size_t part = 0;
 
+  size_t part = 0;
   normal_impl_[0] = new (&choices_[part++].hpaa)
       HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
   if (tc_globals.active_partitions() > 1) {
@@ -56,22 +56,27 @@ PageAllocator::PageAllocator() {
         HugePageAwareAllocator(
             HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
-  sampled_impl_[0] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-      HugePageAwareAllocatorOptions{MemoryTag::kSampled});
+  sampled_or_cold_impl_[0] =
+      new (&choices_[part++].hpaa) HugePageAwareAllocator(
+          HugePageAwareAllocatorOptions{MemoryTag::kSampledOrCold});
   if (sampled_partition_active_) {
     // this is not the case for NUMA partitions, hence, we can't use the
     // active_partitions() check.
-    sampled_impl_[1] = new (tc_globals.arena().Alloc(
+    sampled_or_cold_impl_[1] = new (tc_globals.arena().Alloc(
         ArenaAlloc::kPageAllocator, sizeof(HugePageAwareAllocator)))
         HugePageAwareAllocator(
-            HugePageAwareAllocatorOptions{MemoryTag::kSampledP1});
+            HugePageAwareAllocatorOptions{MemoryTag::kSampledOrColdP1});
   }
-  if (has_cold_impl_) {
-    cold_impl_ = new (&choices_[part++].hpaa)
-        HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kCold});
-  } else {
-    cold_impl_ = normal_impl_[0];
+
+  size_t total_heaps = 0;
+  all_heaps_[total_heaps++] = sampled_or_cold_impl_[0];
+  if (sampled_partition_active_) {
+    all_heaps_[total_heaps++] = sampled_or_cold_impl_[1];
   }
+  for (size_t partition = 0; partition < active_partitions(); ++partition) {
+    all_heaps_[total_heaps++] = normal_impl_[partition];
+  }
+  heaps_ = absl::MakeConstSpan(all_heaps_.data(), total_heaps);
   alg_ = HPAA;
   TC_CHECK_LE(part, std::size(choices_));
 }
@@ -183,26 +188,8 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
           limit);
       warned_hugepages = true;
     }
-    if (has_cold_impl_) {
-      ret += static_cast<HugePageAwareAllocator*>(cold_impl_)
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
-                                                         release_reason);
-      if (ret >= pages) {
-        return true;
-      }
-    }
-    for (int partition = 0; partition < active_partitions(); partition++) {
-      ret += static_cast<HugePageAwareAllocator*>(normal_impl_[partition])
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
-                                                         release_reason);
-      if (ret >= pages) {
-        return true;
-      }
-    }
-    for (int partition = 0;
-         partition < (sampled_partition_active_ ? kSecurityPartitions : 1);
-         partition++) {
-      ret += static_cast<HugePageAwareAllocator*>(sampled_impl_[partition])
+    for (auto* heap : heaps_) {
+      ret += static_cast<HugePageAwareAllocator*>(heap)
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
                                                          release_reason);
       if (ret >= pages) {

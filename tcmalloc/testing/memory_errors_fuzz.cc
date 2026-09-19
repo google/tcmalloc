@@ -131,8 +131,7 @@ void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
   // size class from `size` without consulting the pagemap, so a wild pointer is
   // not detected.
   if (auto tag = GetMemoryTag(p);
-      (tag == MemoryTag::kNormal || tag == MemoryTag::kNormalP1 ||
-       tag == MemoryTag::kCold) &&
+      (tag == MemoryTag::kNormal || tag == MemoryTag::kNormalP1) &&
       size <= kMaxSize) {
     return;
   }
@@ -168,7 +167,7 @@ void MismatchedSizedDelete(size_t allocated, size_t deallocated) {
   }
 
   // The pointer needs to be sampled or large for us to detect the error.
-  if (!IsSampledMemory(ptr) && deallocated <= kMaxSize) {
+  if (!IsSampledOrColdMemory(ptr) && deallocated <= kMaxSize) {
     TCMallocInternalDeleteSized(ptr, allocated);
     return;
   }

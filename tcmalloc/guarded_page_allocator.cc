@@ -460,27 +460,20 @@ void GuardedPageAllocator::MapPages() {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   guard_pages_supported_ = ProbeGuardPagesSupported();
 #endif
-  void* base;
-  if (guard_pages_supported_) {
-    // Guard regions make individual pages of an otherwise accessible mapping
-    // inaccessible, so start from readable and writable memory and install
-    // them over the whole pool below.
-    const AddressRange range = tc_globals.system_allocator().Allocate(
-        len, page_size_, MemoryTag::kSampled);
-    TC_ASSERT(!range.ptr || range.bytes >= len);
-    base = range.ptr;
-    // Allocate() may return more than requested (the default region factory
-    // rounds up to kHugePageSize).  Own the whole range so that no accessible
-    // slack is left beyond the last guard page.
-    len = range.bytes;
-  } else {
-    // Without guard regions the pool is reserved PROT_NONE and slots are made
-    // accessible with mprotect().
-    base = tc_globals.system_allocator().MmapAligned(len, page_size_,
-                                                     MemoryTag::kSampled);
-  }
+  // The pool must come from the guarded sub-region (memory_tag.h), never from
+  // a page heap region, so map it directly rather than with Allocate().
+  void* base = tc_globals.system_allocator().MmapAligned(
+      len, page_size_, MemoryTag::kSampledOrCold, SubRegion::kGuarded);
   TC_ASSERT(base);
   if (!base) return;
+  // The mapping is reserved PROT_NONE.  Without guard regions, slots are made
+  // accessible with mprotect().  Guard regions make individual pages of an
+  // otherwise accessible mapping inaccessible, so make the pool readable and
+  // writable first and install them over the whole pool below.
+  if (guard_pages_supported_ &&
+      mprotect(base, len, PROT_READ | PROT_WRITE) != 0) {
+    guard_pages_supported_ = false;
+  }
   auto base_addr = reinterpret_cast<uintptr_t>(base);
 
   // Quarantine the pool before anything can be handed out.

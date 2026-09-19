@@ -183,7 +183,8 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
                                        AccessDensityPrediction::kSparse};
   Span* normal = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
-  Span* sampled = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+  Span* sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
 
   BackingStats stats;
   {
@@ -205,7 +206,7 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
       0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, kSpanInfo, MemoryTag::kNormal);
-  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
@@ -217,7 +218,8 @@ TEST_F(PageAllocatorTest, b270916852) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
                                        AccessDensityPrediction::kSparse};
   Span* normal = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
-  Span* sampled = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+  Span* sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
 
   BackingStats stats;
   {
@@ -248,7 +250,7 @@ TEST_F(PageAllocatorTest, b270916852) {
       1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, kSpanInfo, MemoryTag::kNormal);
-  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
@@ -261,7 +263,8 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
                                        AccessDensityPrediction::kSparse};
   Span* normal1 = New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
   Span* normal2 = New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
-  Span* sampled = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+  Span* sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
 
   BackingStats stats;
   {
@@ -308,7 +311,7 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
       1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal2, kSpanInfo, MemoryTag::kNormal);
-  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
