@@ -1499,6 +1499,56 @@ TEST(ProfileConverterTest, CompressedSizeDoesNotExceedAnalyzedSize) {
   EXPECT_LE(sizes[1], kAllocatedSize);
 }
 
+// A heap profile whose samples were never analyzed must not advertise the
+// compressibility columns at all.  Emitting a zero in every sample is
+// indistinguishable downstream from a fully compressible heap.
+TEST(ProfileConverterTest, NoCompressibilityColumnsWithoutMeasurements) {
+  std::vector<char> buf(128);
+
+  Profile::Sample sample = {};
+  sample.sum = buf.size();
+  sample.count = 1;
+  sample.requested_size = buf.size();
+  sample.requested_alignment = std::nullopt;
+  sample.requested_size_returning = false;
+  sample.allocated_size = buf.size();
+  sample.span_start_address = buf.data();
+  sample.depth = 1;
+  sample.stack[0] = reinterpret_cast<void*>(&RealPath);
+  sample.access_hint = hot_cold_t{0};
+  sample.access_allocated = Profile::Sample::Access::Hot;
+  sample.token_id = TokenId{0};
+  sample.guarded_status = Profile::Sample::GuardedStatus::NotAttempted;
+  sample.type = AllocationType::Malloc;
+
+  StubPageFlags pageflags;
+  // Residency has nothing for this address, so compressibility is never
+  // computed even though collection is enabled.
+  StubResidency residency;
+
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kHeap);
+  fake_profile->SetDuration(absl::Milliseconds(100));
+  fake_profile->SetSamples({sample});
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+
+  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
+  ASSERT_TRUE(converted_or.ok());
+  const auto& converted = **converted_or;
+
+  std::vector<std::string> types;
+  for (const auto& s : converted.sample_type()) {
+    types.push_back(converted.string_table(s.type()));
+  }
+  EXPECT_THAT(types, Not(Contains("space_compressed")));
+  EXPECT_THAT(types, Not(Contains("zero_space")));
+
+  // Every sample must still agree with the advertised sample types.
+  for (const auto& s : converted.sample()) {
+    EXPECT_EQ(s.value_size(), types.size());
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

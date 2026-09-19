@@ -145,10 +145,19 @@ using SampleMergedMap =
     absl::flat_hash_map<tcmalloc::Profile::Sample, SampleMergedData,
                         SampleHashWithSubFields, SampleEqWithSubFields>;
 
-SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
+struct SampleMergeResult {
+  SampleMergedMap samples;
+  // Whether CompressionAnalyzer produced a result for at least one sample.
+  // Collection being enabled does not imply this: analysis is skipped for any
+  // sample lacking residency information, a span address, or a requested size.
+  bool measured_compressibility = false;
+};
+
+SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
     const tcmalloc::Profile& profile, PageFlagsBase* pageflags,
-    Residency* residency, bool exporting_compressibility) {
-  SampleMergedMap map;
+    Residency* residency, bool collecting_compressibility) {
+  SampleMergeResult result;
+  SampleMergedMap& map = result.samples;
   CompressionAnalyzer compression_analyzer;
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
@@ -206,18 +215,19 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
       }
     }
 
-    if (exporting_compressibility && residency_info.has_value() &&
+    if (collecting_compressibility && residency_info.has_value() &&
         entry.span_start_address != nullptr && entry.requested_size > 0) {
       absl::Span<const char> sample_mem(
           reinterpret_cast<const char*>(entry.span_start_address), size);
       absl::StatusOr<CompressionAnalyzer::Results> res =
           compression_analyzer.Analyze(sample_mem, *residency_info);
       if (res.ok()) {
+        result.measured_compressibility = true;
         data.zero_size += entry.count * res->zero_bytes;
       }
     }
   });
-  return map;
+  return result;
 }
 
 }  // namespace
@@ -926,7 +936,16 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     sample_type->set_unit(bytes_id);
   }
 
-  bool exporting_compressibility = false;
+  bool collecting_compressibility = false;
+
+  // Only advertise space_compressed/zero_space when at least one sample was
+  // actually analyzed.  Emitting the columns with a zero in every sample is
+  // indistinguishable downstream from a genuinely incompressible heap, so a
+  // profile that never ran the analyzer would otherwise be reported as 100%
+  // compressible rather than as having no data.
+  const SampleMergeResult merged = MergeProfileSamplesAndMaybeGetResidencyInfo(
+      profile, pageflags, residency, collecting_compressibility);
+  const bool exporting_compressibility = merged.measured_compressibility;
   if (exporting_compressibility) {
     perftools::profiles::ValueType* sample_type = nullptr;
 
@@ -950,9 +969,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   converted.set_default_sample_type(default_sample_type_id);
 
-  SampleMergedMap samples = MergeProfileSamplesAndMaybeGetResidencyInfo(
-      profile, pageflags, residency, exporting_compressibility);
-  for (const auto& [entry, data] : samples) {
+  for (const auto& [entry, data] : merged.samples) {
     perftools::profiles::Profile& profile = builder.profile();
     perftools::profiles::Sample& sample = *profile.add_sample();
 
