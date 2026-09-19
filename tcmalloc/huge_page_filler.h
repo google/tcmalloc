@@ -994,7 +994,7 @@ class HugePageFiller {
   // concurrent operation still holds a pointer to it.  May drop and reacquire
   // pageheap_lock.
   [[nodiscard]] TrackerType* absl_nullable HandleFullyFreedTracker(
-      TrackerType* absl_nonnull pt, int64_t now)
+      TrackerType* absl_nonnull pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Like AddToFillerList(), but for use when donating from the tail of a
   // multi-hugepage allocation.
@@ -1007,7 +1007,7 @@ class HugePageFiller {
   static constexpr size_t kLifetimeBuckets =
       huge_page_filler_internal::UsageInfo::kLifetimeBuckets;
   using LifetimeHisto = huge_page_filler_internal::UsageInfo::LifetimeHisto;
-  void RecordLifetime(const TrackerType* pt, int64_t now);
+  void RecordLifetime(const TrackerType* pt);
   void PrintLifetimeHisto(Printer& out, const LifetimeHisto& h,
                           AccessDensityPrediction type,
                           absl::string_view blurb) const;
@@ -1067,7 +1067,7 @@ class HugePageFiller {
   Length unmapping_unaccounted_;
 
   // Functionality related to time series tracking.
-  void UpdateFillerStatsTracker(int64_t now);
+  void UpdateFillerStatsTracker();
   using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
 
@@ -1240,8 +1240,13 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   TC_ASSERT(type == AccessDensityPrediction::kSparse || pt->HasDenseSpans());
 
   // Log previous features before modifying the page tracker.
-  const int64_t now = clock_.now();
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  const auto now = clock_.now();
+#endif
   if (ABSL_PREDICT_FALSE(pt->GetTagState().sampled_for_tagging)) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    const auto now = clock_.now();
+#endif
     pt->RecordFeatures();
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     pt->SetLastAllocationTime(now);
@@ -1267,16 +1272,13 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   // We're being used for an allocation, so we are no longer considered
   // donated by this point.
   TC_ASSERT(!pt->donated());
-  UpdateFillerStatsTracker(now);
+  UpdateFillerStatsTracker();
   return {pt, page_allocation.page, was_released};
 }
 
 template <class TrackerType>
-void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt,
-                                                 int64_t now) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  now = clock_.now();
-#endif
+void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt) {
+  const double now = clock_.now();
   const double frequency = clock_.freq();
   const double elapsed = std::max<double>(now - pt->alloctime(), 0);
   const absl::Duration lifetime =
@@ -1329,11 +1331,6 @@ void HugePageFiller<TrackerType>::PrintLifetimeHistoInPbtxt(
 template <class TrackerType>
 inline TrackerType* HugePageFiller<TrackerType>::Put(
     TrackerType* pt, Range r, SpanAllocInfo span_alloc_info) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  const int64_t now = clock_.now();
-#else
-  const int64_t now = 0;
-#endif
   RemoveFromFillerList(pt);
   pt->Put(r, span_alloc_info);
   if (pt->HasDenseSpans()) {
@@ -1345,17 +1342,16 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
   }
 
   if (ABSL_PREDICT_FALSE(pt->fully_freed())) {
-    return HandleFullyFreedTracker(pt, now);
+    return HandleFullyFreedTracker(pt);
   }
   AddToFillerList(pt);
-  UpdateFillerStatsTracker(now);
+  UpdateFillerStatsTracker();
   return nullptr;
 }
 
 template <class TrackerType>
 inline TrackerType* absl_nullable
-HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
-                                                     int64_t now) {
+HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt) {
   TC_ASSERT_EQ(pt->nallocs(), 0);
   --size_;
   if (pt->released()) {
@@ -1398,11 +1394,11 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     // A concurrent operation that dropped pageheap_lock still holds a pointer
     // to pt.  Park it until the last pin is cleared (FetchFullyFreedTracker).
     AddToFillerList(pt);
-    UpdateFillerStatsTracker(now);
+    UpdateFillerStatsTracker();
     return nullptr;
   }
-  RecordLifetime(pt, now);
-  UpdateFillerStatsTracker(now);
+  RecordLifetime(pt);
+  UpdateFillerStatsTracker();
   if (pt->GetTagState().sampled_for_tagging) {
     // Set the default region name if the tracked was sampled.
     pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
@@ -1435,7 +1431,7 @@ inline void HugePageFiller<TrackerType>::Contribute(
   }
 
   ++size_;
-  UpdateFillerStatsTracker(clock_.now());
+  UpdateFillerStatsTracker();
 }
 
 template <class TrackerType>
@@ -1569,7 +1565,7 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
   if (!intervals.SkipSubreleaseEnabled()) {
     return desired;
   }
-  UpdateFillerStatsTracker(clock_.now());
+  UpdateFillerStatsTracker();
   Length required_pages;
   // As mentioned above, there are two ways to calculate the demand
   // requirement. We give priority to using the peak if peak_interval is set.
@@ -2429,18 +2425,13 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker(
-    [[maybe_unused]] int64_t now) {
+inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
   StatsTrackerType::SubreleaseStats stats;
   stats.num_pages = pages_allocated();
   stats.free_pages = free_pages();
   stats.unmapped_pages = unmapped_pages();
   stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  fillerstats_tracker_.Report(stats, clock_.now());
-#else
-  fillerstats_tracker_.Report(stats, now);
-#endif
+  fillerstats_tracker_.Report(stats);
   subrelease_stats_.reset();
 }
 
