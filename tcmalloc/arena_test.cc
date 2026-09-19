@@ -20,12 +20,18 @@
 #include <new>
 
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
-#include "tcmalloc/common.h"
+#include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
+
+// Ensure Static is zero-initialized. See the comment on top of tc_globals.
+// If zero-initialization fails, you will see:
+//   error: BSS section '.bss' cannot have non-zero bytes
+ABSL_CONST_INIT ABSL_ATTRIBUTE_SECTION_VARIABLE(.bss) Static globals;
 
 std::align_val_t Align(int align) {
   return static_cast<std::align_val_t>(align);

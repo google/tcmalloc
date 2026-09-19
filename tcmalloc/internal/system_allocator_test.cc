@@ -73,6 +73,7 @@ std::string MappingName(void* mmap_start, size_t mmap_size) {
 class MmapAlignedTest : public testing::TestWithParam<size_t> {
  protected:
   void MmapAndCheck(size_t size, size_t alignment) {
+    topology_.Init();
     SCOPED_TRACE(absl::StrFormat("size = %u, alignment = %u", size, alignment));
 
     for (MemoryTag tag :
@@ -124,6 +125,7 @@ TEST_F(MmapAlignedTest, LargeSizeSmallAlignment) {
 TEST(SystemAllocatorTest, ReleaseLockedMemory) {
   constexpr size_t kMinMmapAlloc = 1 << 30;
   NumaTopology<2> topology;
+  topology.Init();
   SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
 
   const size_t kPageSize = GetPageSize();
