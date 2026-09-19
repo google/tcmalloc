@@ -72,6 +72,8 @@ static void BM_new_delete_fixed(benchmark::State& state) {
 BENCHMARK_TEMPLATE(BM_new_delete_fixed, 8);
 BENCHMARK_TEMPLATE(BM_new_delete_fixed, 16);
 BENCHMARK_TEMPLATE(BM_new_delete_fixed, 32);
+BENCHMARK_TEMPLATE(BM_new_delete_fixed, 128);
+BENCHMARK_TEMPLATE(BM_new_delete_fixed, 256);
 BENCHMARK_TEMPLATE(BM_new_delete_fixed, 512);
 BENCHMARK_TEMPLATE(BM_new_delete_fixed, 4096);
 
