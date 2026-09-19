@@ -84,6 +84,30 @@ Length StaticForwarder::class_to_pages(int size_class) {
 
 void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                                         int expected_size_class) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  PageId prev_p{0};
+  Span* prev_span = nullptr;
+  for (size_t i = 0; i < batch.size(); ++i) {
+    void* ptr = batch[i];
+    const PageId p = PageIdContaining(ptr);
+    if (ABSL_PREDICT_TRUE(p == prev_p && prev_span != nullptr)) {
+      spans[i] = prev_span;
+      continue;
+    }
+    auto [span, page_size_class] =
+        tc_globals.pagemap().GetDescriptorAndSizeClass(p);
+    // If we have a missing span/invalid span, we expect to retrieve
+    // page_size_class=0 causing us to take this overloaded branch since
+    // expected_size_class>0.
+    if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
+      HandleDetectedUB(ptr, span, page_size_class, expected_size_class);
+    }
+    span->Prefetch();
+    spans[i] = span;
+    prev_p = p;
+    prev_span = span;
+  }
+#else
   // Prefetch Span objects to reduce cache misses.
   for (int i = 0; i < batch.size(); ++i) {
     void* ptr = batch[i];
@@ -99,6 +123,7 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
     span->Prefetch();
     spans[i] = span;
   }
+#endif
 }
 
 Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
