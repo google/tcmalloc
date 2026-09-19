@@ -44,15 +44,24 @@ void BM_mincore(benchmark::State& state) {
   const size_t kHardwarePageSize = tcmalloc_internal::GetPageSize();
   // We want to scan the same amount of memory in all cases
   const size_t regionSize = 1 * 1024 * 1024 * 1024;
+  void* region = mmap(nullptr, regionSize, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  TC_CHECK_NE(region, MAP_FAILED);
+
   for (auto s : state) {
-    uintptr_t memory = 0;
+    size_t memory = 0;
     while (memory < regionSize) {
       // Call mincore for the next section
-      int length = std::min(size * kHardwarePageSize, (regionSize - memory));
-      ::mincore(reinterpret_cast<void*>(memory), length, resident.get());
-      memory += length * kHardwarePageSize;
+      size_t length =
+          std::min<size_t>(size * kHardwarePageSize, regionSize - memory);
+      int ret = ::mincore(static_cast<char*>(region) + memory, length,
+                          resident.get());
+      benchmark::DoNotOptimize(ret);
+      memory += length;
     }
   }
+
+  munmap(region, regionSize);
 }
 BENCHMARK(BM_mincore)->Range(1, 16 * 1024);
 

@@ -33,6 +33,8 @@ class MockSpan : public MockSpanList::Elem {
     return ret;
   }
 
+  static void Delete(MockSpan* s) { ::operator delete(s, sizeof(MockSpan)); }
+
   int index_;
 };
 
