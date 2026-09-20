@@ -56,6 +56,7 @@ class PageAllocatorTest : public testing::Test {
     // If this test is not linked against TCMalloc, the global arena used for
     // metadata will not be initialized.
     tc_globals.InitIfNecessary();
+    allocator_.emplace();
 
     before_ = MallocExtension::GetRegionFactory();
     if (before_ != nullptr) {
@@ -72,17 +73,17 @@ class PageAllocatorTest : public testing::Test {
 
   Span* New(Length n, SpanAllocInfo span_alloc_info,
             MemoryTag tag = MemoryTag::kNormal) {
-    return allocator_.New(n, span_alloc_info, tag);
+    return allocator_->New(n, span_alloc_info, tag);
   }
   Span* NewAligned(Length n, Length align, SpanAllocInfo span_alloc_info,
                    MemoryTag tag = MemoryTag::kNormal) {
-    return allocator_.NewAligned(n, align, span_alloc_info, tag);
+    return allocator_->NewAligned(n, align, span_alloc_info, tag);
   }
   void Delete(Span* s, SpanAllocInfo span_alloc_info,
               MemoryTag tag = MemoryTag::kNormal) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
-    allocator_.Delete(s, tag, span_alloc_info);
+    allocator_->Delete(s, tag, span_alloc_info);
 #else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
@@ -90,23 +91,23 @@ class PageAllocatorTest : public testing::Test {
     };
     Span::Delete(s);
     PageHeapSpinLockHolder l;
-    allocator_.Delete(a, tag, span_alloc_info);
+    allocator_->Delete(a, tag, span_alloc_info);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   Length Release(Length n, PageReleaseReason reason) {
     PageHeapSpinLockHolder l;
-    return allocator_.ReleaseAtLeastNPages(n, reason);
+    return allocator_->ReleaseAtLeastNPages(n, reason);
   }
 
   std::string Print() {
     return PrintToString(1024 * 1024, [&](Printer& out) {
       PageFlags pageflags;
-      allocator_.Print(out, MemoryTag::kNormal, pageflags);
+      allocator_->Print(out, MemoryTag::kNormal, pageflags);
     });
   }
 
-  PageAllocator allocator_;
+  std::optional<PageAllocator> allocator_;
   std::optional<ExtraRegionFactory> extra_;
   AddressRegionFactory* absl_nullable before_;
 };
@@ -138,7 +139,7 @@ TEST_F(PageAllocatorTest, Record) {
   {
     PageHeapSpinLockHolder l;
     for (auto tag : tags) {
-      auto info = allocator_.info(tag);
+      auto info = allocator_->info(tag);
 
       ASSERT_EQ(15, info.counts_for(Length(1)).nalloc);
       ASSERT_EQ(15, info.counts_for(Length(1)).nfree);
@@ -187,21 +188,21 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
   BackingStats stats;
   {
     PageHeapSpinLockHolder l;
-    stats = allocator_.stats();
+    stats = allocator_->stats();
   }
   EXPECT_EQ(stats.system_bytes, 2 * kHugePageSize);
   EXPECT_EQ(stats.free_bytes, kHugePageSize);
   EXPECT_EQ(stats.unmapped_bytes, 0);
 
   // Choose a limit so that we hit and we are not able to satisfy it.
-  allocator_.set_limit(kPagesPerHugePage.in_bytes(), PageAllocator::kSoft);
+  allocator_->set_limit(kPagesPerHugePage.in_bytes(), PageAllocator::kSoft);
   {
     PageHeapSpinLockHolder l;
-    allocator_.ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
+    allocator_->ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
   }
-  EXPECT_LE(1, allocator_.limit_hits(PageAllocator::kSoft));
+  EXPECT_LE(1, allocator_->limit_hits(PageAllocator::kSoft));
   EXPECT_LE(
-      0, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+      0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, kSpanInfo, MemoryTag::kNormal);
   Delete(sampled, kSpanInfo, MemoryTag::kSampled);
@@ -221,7 +222,7 @@ TEST_F(PageAllocatorTest, b270916852) {
   BackingStats stats;
   {
     PageHeapSpinLockHolder l;
-    stats = allocator_.stats();
+    stats = allocator_->stats();
   }
   EXPECT_EQ(stats.system_bytes, 2 * kHugePageSize);
   EXPECT_EQ(stats.free_bytes, kHugePageSize);
@@ -235,16 +236,16 @@ TEST_F(PageAllocatorTest, b270916852) {
     PageHeapSpinLockHolder l;
     return tc_globals.metadata_bytes();
   }();
-  allocator_.set_limit(
+  allocator_->set_limit(
       metadata_bytes + (3 * kPagesPerHugePage / 2).in_bytes() + kPageSize,
       PageAllocator::kSoft);
   {
     PageHeapSpinLockHolder l;
-    allocator_.ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
+    allocator_->ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
   }
-  EXPECT_LE(1, allocator_.limit_hits(PageAllocator::kSoft));
+  EXPECT_LE(1, allocator_->limit_hits(PageAllocator::kSoft));
   EXPECT_LE(
-      1, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+      1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, kSpanInfo, MemoryTag::kNormal);
   Delete(sampled, kSpanInfo, MemoryTag::kSampled);
@@ -265,7 +266,7 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
   BackingStats stats;
   {
     PageHeapSpinLockHolder l;
-    stats = allocator_.stats();
+    stats = allocator_->stats();
   }
   EXPECT_EQ(stats.system_bytes, 2 * kHugePageSize);
   EXPECT_EQ(stats.free_bytes, kHugePageSize);
@@ -276,11 +277,11 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
     PageHeapSpinLockHolder l;
     return tc_globals.metadata_bytes();
   }();
-  allocator_.set_limit(metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes(),
-                       PageAllocator::kSoft);
-  EXPECT_EQ(1, allocator_.limit_hits(PageAllocator::kSoft));
+  allocator_->set_limit(metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes(),
+                        PageAllocator::kSoft);
+  EXPECT_EQ(1, allocator_->limit_hits(PageAllocator::kSoft));
   EXPECT_EQ(
-      0, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+      0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
   // Now delete normal1 so that memory can be released to get under limit.
   // normal2 is still alive on that hugepage, so HugePageFiller::Put does
   // not unback the hugepage automatically.
@@ -290,21 +291,21 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
   // shrink until below the limit.
   {
     PageHeapSpinLockHolder l;
-    allocator_.ShrinkToUsageLimit(Length(0), /*may_have_grown=*/false);
+    allocator_->ShrinkToUsageLimit(Length(0), /*may_have_grown=*/false);
   }
-  EXPECT_EQ(2, allocator_.limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(2, allocator_->limit_hits(PageAllocator::kSoft));
   EXPECT_EQ(
-      1, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+      1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   // Now that we are below the limit, a subsequent call with may_have_grown ==
   // false should not attempt to shrink.
   {
     PageHeapSpinLockHolder l;
-    allocator_.ShrinkToUsageLimit(Length(0), /*may_have_grown=*/false);
+    allocator_->ShrinkToUsageLimit(Length(0), /*may_have_grown=*/false);
   }
-  EXPECT_EQ(2, allocator_.limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(2, allocator_->limit_hits(PageAllocator::kSoft));
   EXPECT_EQ(
-      1, allocator_.successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+      1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal2, kSpanInfo, MemoryTag::kNormal);
   Delete(sampled, kSpanInfo, MemoryTag::kSampled);

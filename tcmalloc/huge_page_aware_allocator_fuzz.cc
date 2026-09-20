@@ -46,11 +46,19 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc::tcmalloc_internal {
 
 namespace {
+
+__attribute__((constructor)) void InitTcmalloc() {
+  // If this test is not linked against TCMalloc, the global arena used for
+  // metadata will not be initialized.
+  tc_globals.InitIfNecessary();
+}
+
 using huge_page_allocator_internal::FakeStaticForwarder;
 using huge_page_allocator_internal::HugePageAwareAllocator;
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
