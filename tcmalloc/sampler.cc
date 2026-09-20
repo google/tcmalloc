@@ -144,9 +144,18 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
   // total samples. Multiplying by T, the mean number of bytes between samples,
   // gives us a weight of T + k - f.
   //
+  // bytes_until_sample_ is normally negative here.  A request of 2^63 bytes
+  // or more, however, wraps the unsigned subtraction in
+  // TryRecordAllocationFast to a positive value as large as SSIZE_MAX, so the
+  // kIntervalOffset adjustment must be overflow-checked as well.  In every
+  // overflowing case the true weight exceeds SSIZE_MAX, so saturate.
   ssize_t weight;
-  if (ABSL_PREDICT_FALSE(__builtin_ssubl_overflow(
-          sample_interval_, bytes_until_sample_ + kIntervalOffset, &weight))) {
+  ssize_t offset_bytes_until_sample;
+  if (ABSL_PREDICT_FALSE(
+          __builtin_saddl_overflow(bytes_until_sample_, kIntervalOffset,
+                                   &offset_bytes_until_sample) ||
+          __builtin_ssubl_overflow(sample_interval_, offset_bytes_until_sample,
+                                   &weight))) {
     weight = std::numeric_limits<ssize_t>::max();
   }
   bytes_until_sample_ = PickNextSamplingPoint();

@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -34,6 +35,9 @@ namespace tcmalloc_internal {
 class SamplerTest {
  public:
   static void Init(Sampler* s, uint64_t seed) { s->Init(seed); }
+  static ssize_t BytesUntilSample(const Sampler& s) {
+    return s.bytes_until_sample_;
+  }
 };
 
 namespace {
@@ -195,6 +199,39 @@ TEST(Sampler, bytes_until_sample_Overflow_Underflow) {
         1 + static_cast<uint64_t>((std::log2(q) - 26) * sample_scaling);
     ASSERT_LE(largest_sample_step, one << 63);
     ASSERT_GE(largest_sample_step, smallest_sample_step);
+  }
+}
+
+// A request of 2^63 + bytes_until_sample_ bytes makes the unsigned subtraction
+// in TryRecordAllocationFast wrap bytes_until_sample_ to SSIZE_MAX, so
+// RecordAllocationSlow sees a *positive* counter.  It must saturate the weight
+// rather than compute SSIZE_MAX + kIntervalOffset (b/562655808).
+TEST(Sampler, bytes_until_sample_WrapsToMax) {
+  {
+    Sampler sampler;
+    // Initialize through the slow path, as production does, so that a later
+    // slow-path call computes a weight instead of lazily initializing.
+    sampler.RecordAllocation(0);
+    const ssize_t bytes_until_sample = SamplerTest::BytesUntilSample(sampler);
+    ASSERT_GE(bytes_until_sample, 0);
+    const size_t size = (size_t{1} << 63) + bytes_until_sample;
+    EXPECT_EQ(sampler.RecordAllocation(size),
+              static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
+    EXPECT_GE(SamplerTest::BytesUntilSample(sampler), 0);
+  }
+
+  {
+    // With sampling disabled, PickNextSamplingPoint returns a fixed 128 MiB
+    // interval; this is the configuration the fuzzer found.
+    ScopedProfileSamplingInterval interval(0);
+    Sampler sampler;
+    sampler.RecordAllocation(0);
+    const ssize_t bytes_until_sample = SamplerTest::BytesUntilSample(sampler);
+    ASSERT_GE(bytes_until_sample, 0);
+    ASSERT_LE(bytes_until_sample, 128 << 20);
+    const size_t size = (size_t{1} << 63) + bytes_until_sample;
+    EXPECT_EQ(sampler.RecordAllocation(size), size_t{0});
+    EXPECT_EQ(SamplerTest::BytesUntilSample(sampler), 128 << 20);
   }
 }
 

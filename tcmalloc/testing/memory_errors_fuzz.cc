@@ -110,6 +110,20 @@ TEST(MemoryErrorsFuzzTest, WildPointerReallocRegression) {
   WildPointerRealloc(4406726867650173363ull, 1);
 }
 
+TEST(MemoryErrorsFuzzTest, WildPointerReallocRegression2) {
+  // With sampling disabled, Sampler::PickNextSamplingPoint deterministically
+  // sets bytes_until_sample_ to 128 MiB.  Take the slow path once (via
+  // TCMalloc, not ::operator new, which is the system allocator in this test)
+  // so that the per-thread sampler picks it up.
+  ScopedProfileSamplingInterval interval(0);
+  TCMallocInternalDelete(TCMallocInternalNew(256 << 20));
+
+  // 2^63 + 128 MiB:  Sampler::TryRecordAllocationFast's unsigned subtraction
+  // wraps bytes_until_sample_ to SSIZE_MAX, and RecordAllocationSlow then
+  // computed SSIZE_MAX + kIntervalOffset (b/562655808).
+  WildPointerRealloc(0, 9223372036988993536ull);
+}
+
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerRealloc);
 
 void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
