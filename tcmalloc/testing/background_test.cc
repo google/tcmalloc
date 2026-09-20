@@ -64,6 +64,29 @@ TEST(BackgroundTest, Stress) {
   background.join();
 }
 
+TEST(BackgroundTest, DisableInterruptsSleep) {
+  // Use a long sleep interval so that without early wakeup, the thread would
+  // block for a significant duration.
+  ScopedBackgroundProcessSleepInterval sleep_time(absl::Hours(1));
+
+  std::thread background([]() { MallocExtension::ProcessBackgroundActions(); });
+
+  // Give the background thread time to start and enter sleep.
+  absl::SleepFor(absl::Milliseconds(100));
+
+  const absl::Time start = absl::Now();
+  {
+    ScopedBackgroundProcessActionsEnabled background_process_enabled(
+        /*value=*/false);
+    background.join();
+  }
+  const absl::Duration elapsed = absl::Now() - start;
+
+  // The background thread should wake up and exit promptly rather than waiting
+  // for the 1-hour sleep interval.
+  EXPECT_LT(elapsed, absl::Seconds(10));
+}
+
 }  // namespace
 }  // namespace tcmalloc
 
