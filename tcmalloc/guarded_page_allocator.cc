@@ -16,6 +16,13 @@
 
 #include <sys/mman.h>
 
+#ifndef MADV_GUARD_INSTALL
+#define MADV_GUARD_INSTALL 102
+#endif
+#ifndef MADV_GUARD_REMOVE
+#define MADV_GUARD_REMOVE 103
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -80,6 +87,7 @@ void GuardedPageAllocator::Destroy() {
     TC_ASSERT_NE(err, -1);
     (void)err;
     initialized_ = false;
+    guard_pages_supported_ = false;
   }
 }
 
@@ -175,6 +183,20 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
   return Allocate(size, alignment, stack_trace);
 }
 
+int GuardedPageAllocator::ProtectPage(void* addr, size_t size) {
+  if (guard_pages_supported_) {
+    return madvise(addr, size, MADV_GUARD_INSTALL);
+  }
+  return mprotect(addr, size, PROT_NONE);
+}
+
+int GuardedPageAllocator::UnprotectPage(void* addr, size_t size) {
+  if (guard_pages_supported_) {
+    return madvise(addr, size, MADV_GUARD_REMOVE);
+  }
+  return mprotect(addr, size, PROT_READ | PROT_WRITE);
+}
+
 GuardedAllocWithStatus GuardedPageAllocator::Allocate(
     size_t size, std::align_val_t alignment, const StackTrace& stack_trace) {
   const ssize_t free_slot = ReserveFreeSlot();
@@ -191,8 +213,8 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
 
   // For size == 0, the page remains protected.
   if (size > 0) {
-    if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
-      TC_ASSERT(false, "mprotect(.., PROT_READ|PROT_WRITE) failed");
+    if (UnprotectPage(result, page_size_) == -1) {
+      TC_ASSERT(false, "madvise/mprotect failed");
       AllocationGuardSpinLockHolder h(guarded_page_lock_);
       failed_allocations_.LossyAdd(1);
       successful_allocations_.LossyAdd(-1);
@@ -268,10 +290,10 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
       d.write_overflow_detected = true;
     }
 
-    // Calling mprotect() should also be done outside the guarded_page_lock_
-    // critical section, since mprotect() can have relatively large latency.
-    TC_CHECK_EQ(
-        0, mprotect(reinterpret_cast<void*>(page_addr), page_size_, PROT_NONE));
+    // Calling madvise/mprotect should also be done outside the
+    // guarded_page_lock_ critical section, since it can have relatively large
+    // latency.
+    TC_CHECK_EQ(0, ProtectPage(reinterpret_cast<void*>(page_addr), page_size_));
 
     if (d.write_overflow_detected) {
       ForceTouchPage(ptr);
@@ -390,6 +412,18 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) const {
   gwp_asan.PrintI64("tcmalloc_guarded_sample_parameter", GetChainedInterval());
 }
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+static bool ProbeGuardPagesSupported() {
+  const size_t page_size = GetPageSize();
+  void* page = mmap(nullptr, page_size, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (page == MAP_FAILED) return false;
+  bool supported = (madvise(page, page_size, MADV_GUARD_INSTALL) == 0);
+  munmap(page, page_size);
+  return supported;
+}
+#endif
+
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages
 // we can return from Allocate with guard pages before and after them.
 void GuardedPageAllocator::MapPages() {
@@ -397,9 +431,14 @@ void GuardedPageAllocator::MapPages() {
   TC_ASSERT(!first_page_addr_);
   TC_ASSERT_EQ(page_size_ % GetPageSize(), 0);
   size_t len = (2 * total_pages_ + 1) * page_size_;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  guard_pages_supported_ = ProbeGuardPagesSupported();
+#endif
+  const int prot =
+      guard_pages_supported_ ? (PROT_READ | PROT_WRITE) : PROT_NONE;
   auto base_addr =
       reinterpret_cast<uintptr_t>(tc_globals.system_allocator().MmapAligned(
-          len, page_size_, MemoryTag::kSampled));
+          len, page_size_, MemoryTag::kSampled, prot));
   TC_ASSERT(base_addr);
   if (!base_addr) return;
 
@@ -423,6 +462,11 @@ void GuardedPageAllocator::MapPages() {
 
   // Align first page to page_size_.
   first_page_addr_ = GetPageAddr(pages_base_addr_ + page_size_);
+
+  if (guard_pages_supported_) {
+    TC_CHECK_EQ(0, madvise(reinterpret_cast<void*>(pages_base_addr_), len,
+                           MADV_GUARD_INSTALL));
+  }
 
   initialized_ = true;
 }

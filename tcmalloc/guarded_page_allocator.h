@@ -204,6 +204,7 @@ class GuardedPageAllocator {
   size_t successful_allocations() const {
     return successful_allocations_.value();
   }
+  bool guard_pages_supported() const { return guard_pages_supported_; }
 
  private:
   // Structure for storing data about a slot.
@@ -270,6 +271,9 @@ class GuardedPageAllocator {
   uintptr_t SlotToAddr(size_t slot) const;
   size_t AddrToSlot(uintptr_t addr) const;
 
+  int ProtectPage(void* addr, size_t size);
+  int UnprotectPage(void* addr, size_t size);
+
   size_t allocated_pages() const {
     return allocated_pages_.load(std::memory_order_relaxed);
   }
@@ -326,6 +330,8 @@ class GuardedPageAllocator {
 
   // Flag to control whether we can return allocations or not.
   bool allow_allocations_ ABSL_GUARDED_BY(guarded_page_lock_);
+  // True if MADV_GUARD_INSTALL/MADV_GUARD_REMOVE are supported and used.
+  bool guard_pages_supported_{false};
 };
 
 }  // namespace tcmalloc_internal

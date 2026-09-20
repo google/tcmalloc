@@ -194,8 +194,8 @@ class SystemAllocator {
   //
   // REQUIRES: pagesize <= alignment <= kTagMask
   // REQUIRES: size <= kTagMask
-  [[nodiscard]] void* MmapAligned(size_t size, size_t alignment, MemoryTag tag)
-      ABSL_LOCKS_EXCLUDED(spinlock_);
+  [[nodiscard]] void* MmapAligned(size_t size, size_t alignment, MemoryTag tag,
+                                  int prot) ABSL_LOCKS_EXCLUDED(spinlock_);
 
  private:
   const Topology* topology_ = nullptr;
@@ -288,7 +288,7 @@ class SystemAllocator {
   uintptr_t RandomMmapHint(size_t size, size_t alignment, MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
   [[nodiscard]] void* MmapAlignedLocked(size_t size, size_t alignment,
-                                        MemoryTag tag)
+                                        MemoryTag tag, int prot)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
 
   enum class ReleaseStatus {
@@ -491,7 +491,7 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
     size_t size = RoundUp(request_size, kHugePageSize);
     if (size < request_size) return {nullptr, 0};
     alignment = std::max(alignment, kHugePageSize);
-    void* ptr = MmapAlignedLocked(size, alignment, tag);
+    void* ptr = MmapAlignedLocked(size, alignment, tag, PROT_NONE);
     if (!ptr) return {nullptr, 0};
 
     const auto region_type = TagToHint(tag);
@@ -539,7 +539,7 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
 
   // Allocation failed so we need to reserve more memory.
   // Reserve new region and try allocation again.
-  void* ptr = MmapAlignedLocked(min_mmap_size_, min_mmap_size_, tag);
+  void* ptr = MmapAlignedLocked(min_mmap_size_, min_mmap_size_, tag, PROT_NONE);
   if (!ptr) return {nullptr, 0};
 
   const auto region_type = TagToHint(tag);
@@ -553,14 +553,14 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
 
 template <typename Topology, size_t NormalPartitions>
 void* SystemAllocator<Topology, NormalPartitions>::MmapAligned(
-    size_t size, size_t alignment, const MemoryTag tag) {
+    size_t size, size_t alignment, const MemoryTag tag, const int prot) {
   AllocationGuardSpinLockHolder l(spinlock_);
-  return MmapAlignedLocked(size, alignment, tag);
+  return MmapAlignedLocked(size, alignment, tag, prot);
 }
 
 template <typename Topology, size_t NormalPartitions>
 void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
-    size_t size, size_t alignment, const MemoryTag tag) {
+    size_t size, size_t alignment, const MemoryTag tag, const int prot) {
   using system_allocator_internal::MapFixedNoReplaceFlagAvailable;
 
   TC_ASSERT_LE(size, kTagMask);
@@ -607,7 +607,7 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
     TC_ASSERT_EQ(GetMemoryTag(hint), tag);
     int flags = MAP_PRIVATE | MAP_ANONYMOUS | map_fixed_noreplace_flag;
 
-    void* result = mmap(hint, size, PROT_NONE, flags, -1, 0);
+    void* result = mmap(hint, size, prot, flags, -1, 0);
     if (result == hint) {
       if (unlock_vmas_) {
         int ret;

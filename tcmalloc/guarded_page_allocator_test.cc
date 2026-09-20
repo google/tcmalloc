@@ -103,6 +103,12 @@ TEST_F(GuardedPageAllocatorTest, SingleAllocDealloc) {
   EXPECT_DEATH(buf[PageSize() - 1] = 'B', "");
 }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+TEST_F(GuardedPageAllocatorTest, GuardPagesSupported) {
+  EXPECT_FALSE(gpa_.guard_pages_supported());
+}
+#endif
+
 TEST_F(GuardedPageAllocatorTest, NoAlignmentProvided) {
   constexpr size_t kLargeObjectAlignment =
       std::max(static_cast<size_t>(kAlignment),
