@@ -98,7 +98,6 @@ class TransferCache {
         low_water_mark_(0),
         slot_info_(SizeInfo({0, capacity.capacity})),
         slots_(nullptr),
-        freelist_do_not_access_directly_(),
         owner_(owner),
         max_capacity_(capacity.max_capacity) {
     freelist().Init(size_class, Parameters::cfl_subbucket_prioritization());
@@ -353,6 +352,8 @@ class TransferCache {
   int32_t max_capacity() const { return max_capacity_; }
 
  private:
+  friend class TransferCacheTestPeer;
+
   // Returns first object of the i-th slot.
   void** GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     return slots_ + i;
@@ -372,8 +373,7 @@ class TransferCache {
   absl::base_internal::SpinLock lock_;
 
   // All the following fields are accessed when holding lock_, so they should
-  // be collocated with lock_ on the same cacheline. Align insert_hits_ to
-  // ensure the following fields are on a separate cacheline.
+  // be collocated with lock_ on the same cacheline.
 
   // Lowest value of "slot_info_.used" since last call to TryPlunder. All
   // elements not used for a full cycle (2 seconds) are unlikely to get used
@@ -396,23 +396,31 @@ class TransferCache {
   // entries.
   void** slots_ ABSL_GUARDED_BY(lock_);
 
-  FreeList freelist_do_not_access_directly_;
-
+  // owner_ and max_capacity_ are immutable, so they may share lock_'s line.
   Manager* const owner_;
 
   // Maximum size of the cache.
   const int32_t max_capacity_;
 
-  // The following 4 *_misses_ counters
-  // are frequently updated, so they should reside in a separate cacheline from
-  // lock_.
-
-  // For these we are deliberately fast-and-loose. Some increments may be lost.
-  StatsCounter insert_misses_;
+  // The following 4 *_misses_ counters are written by every core that misses,
+  // so they get a cacheline of their own, apart from both lock_ and the
+  // freelist's lock.
+  //
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  alignas(ABSL_CACHELINE_SIZE)
+#endif
+      StatsCounter insert_misses_;
   StatsCounter remove_misses_;
 
   MissCounts insert_object_misses_;
   MissCounts remove_object_misses_;
+
+  // CentralFreeList carries its own lock at offset 0, so start it on a fresh
+  // cacheline to keep it from false sharing with lock_ or the miss counters.
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  alignas(ABSL_CACHELINE_SIZE)
+#endif
+      FreeList freelist_do_not_access_directly_;
 } ABSL_CACHELINE_ALIGNED;
 
 template <typename Manager>

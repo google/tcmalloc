@@ -933,6 +933,7 @@ cc_test(
         "//tcmalloc/internal:percpu",
         "//tcmalloc/testing:testutil",
         "//tcmalloc/testing:thread_manager",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",

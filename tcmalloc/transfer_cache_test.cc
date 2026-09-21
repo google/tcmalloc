@@ -18,12 +18,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstring>
 #include <thread>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/optimization.h"
 #include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -42,9 +44,48 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+namespace internal_transfer_cache {
+
+class TransferCacheTestPeer {
+ public:
+  template <typename TC>
+  static void VerifyLayout() {
+    // lock_ and the state touched on the hit path share the first cacheline.
+    static_assert(offsetof(TC, lock_) == 0);
+    static_assert(offsetof(TC, slots_) + sizeof(void*) <= ABSL_CACHELINE_SIZE);
+    // The miss counters are written by every core that falls through to the
+    // freelist; they get a cacheline of their own, apart from lock_.
+    static_assert(offsetof(TC, insert_misses_) % ABSL_CACHELINE_SIZE == 0);
+    static_assert(offsetof(TC, remove_object_misses_) + sizeof(MissCounts) <=
+                  offsetof(TC, insert_misses_) + ABSL_CACHELINE_SIZE);
+    // The freelist starts on its own cacheline, apart from lock_ and the miss
+    // counters.
+    constexpr size_t kFreeListOffset =
+        offsetof(TC, freelist_do_not_access_directly_);
+    static_assert(kFreeListOffset % ABSL_CACHELINE_SIZE == 0);
+    static_assert(kFreeListOffset >=
+                  offsetof(TC, insert_misses_) + ABSL_CACHELINE_SIZE);
+  }
+};
+
+}  // namespace internal_transfer_cache
+
 namespace {
 
 using ::testing::Return;
+
+TEST(TransferCacheLayoutTest, HotFieldsDoNotShareCachelines) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  GTEST_SKIP() << "Test does not apply under TCMALLOC_INTERNAL_LEGACY_LOCKING";
+#else
+  internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
+      internal_transfer_cache::TransferCache<CentralFreeList,
+                                             TransferCacheManager>>();
+  internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
+      internal_transfer_cache::TransferCache<BackingTransferCache,
+                                             ShardedStaticForwarder>>();
+#endif
+}
 
 template <typename Env>
 using TransferCacheTest = ::testing::Test;
