@@ -1185,7 +1185,9 @@ cc_test(
     srcs = ["guarded_page_allocator_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = ["nohwasan"],
+    tags = [
+        "nohwasan",
+    ],
     deps = [
         ":common_8k_pages",
         ":malloc_extension",
