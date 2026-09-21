@@ -166,6 +166,14 @@ void RecordCrash(absl::string_view detector, absl::string_view error) {
     if (!crashed) {
       crashed = true;
       first_crash = true;
+#if !defined(NDEBUG)
+      // Reset reentrancy count to allow calls to malloc/free under any signal
+      // handlers that we may trigger from abort().
+      //
+      // We only reset this, rather than permit an unlimited amount of
+      // reentrancy while crashing, in order to maintain modest stack depths.
+      tcmalloc_reentrancy_count = 0;
+#endif
     }
   }
 
@@ -285,6 +293,10 @@ PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
   PbtxtRegion sub(*out_, kNested);
   return sub;
 }
+
+#if !defined(NDEBUG)
+ABSL_CONST_INIT thread_local int tcmalloc_reentrancy_count = 0;
+#endif
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -512,7 +512,6 @@ create_tcmalloc_testsuite(
     srcs = ["limit_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    shard_count = 11,
     tags = [
         "noasan",
         "nomsan",
@@ -1281,6 +1280,19 @@ create_tcmalloc_testsuite(
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "reentrancy_test",
+    srcs = ["reentrancy_test.cc"],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_googletest//:gtest_main",
     ],
 )
