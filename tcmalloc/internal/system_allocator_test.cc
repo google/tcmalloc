@@ -80,7 +80,7 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
          {MemoryTag::kNormal, MemoryTag::kSampled, MemoryTag::kCold}) {
       SCOPED_TRACE(static_cast<unsigned int>(tag));
 
-      void* p = allocator_.MmapAligned(size, alignment, tag, PROT_NONE);
+      void* p = allocator_.MmapAligned(size, alignment, tag);
       EXPECT_NE(p, nullptr);
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % alignment, 0);
       EXPECT_EQ(IsNormalMemory(p), tag == MemoryTag::kNormal);

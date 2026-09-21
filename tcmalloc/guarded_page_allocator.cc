@@ -50,6 +50,7 @@
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/system_allocator.h"
+#include "tcmalloc/internal/util.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
@@ -414,6 +415,9 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) const {
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
 static bool ProbeGuardPagesSupported() {
+  // madvise() fails with EINVAL on kernels without MADV_GUARD_INSTALL; do not
+  // leak that into the caller's errno.
+  ErrnoRestorer errno_restorer;
   const size_t page_size = GetPageSize();
   void* page = mmap(nullptr, page_size, PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -434,16 +438,31 @@ void GuardedPageAllocator::MapPages() {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   guard_pages_supported_ = ProbeGuardPagesSupported();
 #endif
-  const int prot =
-      guard_pages_supported_ ? (PROT_READ | PROT_WRITE) : PROT_NONE;
-  auto base_addr =
-      reinterpret_cast<uintptr_t>(tc_globals.system_allocator().MmapAligned(
-          len, page_size_, MemoryTag::kSampled, prot));
-  TC_ASSERT(base_addr);
-  if (!base_addr) return;
+  void* base;
+  if (guard_pages_supported_) {
+    // Guard regions make individual pages of an otherwise accessible mapping
+    // inaccessible, so start from readable and writable memory and install
+    // them over the whole pool below.
+    const AddressRange range = tc_globals.system_allocator().Allocate(
+        len, page_size_, MemoryTag::kSampled);
+    TC_ASSERT(!range.ptr || range.bytes >= len);
+    base = range.ptr;
+    // Allocate() may return more than requested (the default region factory
+    // rounds up to kHugePageSize).  Own the whole range so that no accessible
+    // slack is left beyond the last guard page.
+    len = range.bytes;
+  } else {
+    // Without guard regions the pool is reserved PROT_NONE and slots are made
+    // accessible with mprotect().
+    base = tc_globals.system_allocator().MmapAligned(len, page_size_,
+                                                     MemoryTag::kSampled);
+  }
+  TC_ASSERT(base);
+  if (!base) return;
+  auto base_addr = reinterpret_cast<uintptr_t>(base);
 
   // Tell TCMalloc's PageMap about the memory we own.
-  const PageId page = PageIdContaining(reinterpret_cast<void*>(base_addr));
+  const PageId page = PageIdContaining(base);
   const Length page_len = BytesToLengthFloor(len);
   if (!tc_globals.pagemap().Ensure(Range(page, page_len))) {
     TC_ASSERT(false, "Failed to notify page map of page-guarded memory.");
@@ -464,8 +483,7 @@ void GuardedPageAllocator::MapPages() {
   first_page_addr_ = GetPageAddr(pages_base_addr_ + page_size_);
 
   if (guard_pages_supported_) {
-    TC_CHECK_EQ(0, madvise(reinterpret_cast<void*>(pages_base_addr_), len,
-                           MADV_GUARD_INSTALL));
+    TC_CHECK_EQ(0, madvise(base, len, MADV_GUARD_INSTALL));
   }
 
   initialized_ = true;
