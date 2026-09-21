@@ -14,9 +14,13 @@
 
 #include "tcmalloc/guarded_page_allocator.h"
 
+#include <sys/mman.h>
+
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <new>
@@ -101,6 +105,45 @@ TEST_F(GuardedPageAllocatorTest, SingleAllocDealloc) {
   EXPECT_DEATH(buf[0] = 'B', "");
   EXPECT_DEATH(buf[PageSize() / 2] = 'B', "");
   EXPECT_DEATH(buf[PageSize() - 1] = 'B', "");
+}
+
+// Applications may lock pages that we have already handed out, either by
+// calling mlock() on them directly or via mlockall(MCL_CURRENT).  Locking
+// constrains what the kernel lets us do to the VMA, so check that quarantining
+// a locked page works and that the remainder of the pool stays usable.
+TEST_F(GuardedPageAllocatorTest, MlockedRegion) {
+  auto alloc_with_status =
+      gpa_.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace());
+  ASSERT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  char* buf = static_cast<char*>(alloc_with_status.alloc);
+  ASSERT_NE(buf, nullptr);
+  memset(buf, 'A', PageSize());
+
+  const int mlock_err = mlock(buf, PageSize()) == 0 ? 0 : errno;
+  if (mlock_err != 0) {
+    gpa_.Deallocate(buf);
+    GTEST_SKIP() << "mlock failed: " << strerror(mlock_err);
+  }
+
+  gpa_.Deallocate(buf);
+  EXPECT_DEATH(buf[0] = 'B', "");
+  EXPECT_EQ(munlock(buf, PageSize()), 0);
+
+  // Hold every slot simultaneously.  Allocating and freeing one at a time can
+  // recycle a single page, leaving the rest of the pool untouched.
+  char* bufs[kMaxGpaPages];
+  for (size_t i = 0; i < kMaxGpaPages; ++i) {
+    auto realloc_with_status =
+        gpa_.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace());
+    ASSERT_EQ(realloc_with_status.status,
+              Profile::Sample::GuardedStatus::Guarded);
+    bufs[i] = static_cast<char*>(realloc_with_status.alloc);
+    ASSERT_NE(bufs[i], nullptr);
+    memset(bufs[i], 'C', PageSize());
+  }
+  for (size_t i = 0; i < kMaxGpaPages; ++i) {
+    gpa_.Deallocate(bufs[i]);
+  }
 }
 
 TEST_F(GuardedPageAllocatorTest, NoAlignmentProvided) {
