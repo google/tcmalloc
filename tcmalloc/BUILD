@@ -835,6 +835,25 @@ cc_test(
 )
 
 cc_test(
+    name = "guarded_page_allocator_fuzz",
+    srcs = ["guarded_page_allocator_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    malloc = "//tcmalloc",
+    tags = ["nohwasan"],
+    deps = [
+        ":common_8k_pages",
+        ":malloc_extension",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:page_size",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_test(
     name = "span_fuzz",
     srcs = ["span_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,

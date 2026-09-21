@@ -996,6 +996,25 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
+    tcmalloc_guarded_page_allocator_fuzz
+  SRCS
+    "guarded_page_allocator_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::bits"
+    "absl::str_format"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test(
+  NAME
     tcmalloc_span_fuzz
   SRCS
     "span_fuzz.cc"
