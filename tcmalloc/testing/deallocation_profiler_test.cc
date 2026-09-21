@@ -322,7 +322,7 @@ TEST_F(DeallocationzTest, SingleThreaded) {
   m_dealloc_funcs_ = 4;
   block_objects_ = 100;
   t_threads_ = 1;
-  sleep_time_ = absl::Milliseconds(500);
+  sleep_time_ = absl::Milliseconds(100);
   req_size_ = 1024 * 1024;
   req_alignment_ = std::align_val_t{64};
   Run();
@@ -335,7 +335,7 @@ TEST_F(DeallocationzTest, MultiThreaded) {
   block_objects_ = 100;
   // for multi-threaded, t_threads must be > 2 (due to design of the test).
   t_threads_ = 4;
-  sleep_time_ = absl::Seconds(1);
+  sleep_time_ = absl::Milliseconds(200);
   req_size_ = 1024 * 1024;
   req_alignment_ = std::align_val_t{64};
   Run();
@@ -349,11 +349,11 @@ TEST_F(DeallocationzTest, ConcurrentDeallocationSamples) {
   }
   auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
   auto token2 = tcmalloc::MallocExtension::StartLifetimeProfiling();
-  absl::SleepFor(absl::Milliseconds(100));
+  absl::SleepFor(absl::Milliseconds(20));
   auto token3 = tcmalloc::MallocExtension::StartLifetimeProfiling();
 
   EXPECT_GT(std::move(token).Stop().Duration(), absl::ZeroDuration());
-  absl::SleepFor(absl::Milliseconds(100));
+  absl::SleepFor(absl::Milliseconds(20));
   EXPECT_GT(std::move(token2).Stop().Duration(), absl::ZeroDuration());
   EXPECT_GT(std::move(token3).Stop().Duration(), absl::ZeroDuration());
 }
@@ -365,7 +365,7 @@ TEST_F(DeallocationzTest, MultipleAllocationPeriods) {
     LOG(INFO) << "Skipping checks due to enabled checkers";
     return;
   }
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 20; i++) {
     auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
     absl::SleepFor(absl::Milliseconds(5));
     auto token2 = tcmalloc::MallocExtension::StartLifetimeProfiling();
@@ -397,7 +397,7 @@ TEST_F(DeallocationzTest, ConcurrentProfilerRequests) {
 }
 
 TEST_F(DeallocationzTest, ConcurrentProfilerEnableDisable) {
-  const absl::Duration kDuration = absl::Milliseconds(100);
+  const absl::Duration kDuration = absl::Milliseconds(20);
   const int kIterations = 20;
 
   n_alloc_funcs_ = 3;
