@@ -465,7 +465,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Returns hugepages that the filler emptied while it did not hold
-  // pageheap_lock (during TreatHugepageTrackers) to the cache.
+  // pageheap_lock (during ReleasePages or TreatHugepageTrackers) to the cache.
   void DrainFreedTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
   void DeleteFromHugepage(FillerType::Tracker* pt, Range r, bool might_abandon,
@@ -1054,6 +1054,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
                   forwarder_.filler_skip_subrelease_long_interval()},
           forwarder_.release_partial_alloc_pages(),
           /*hit_limit*/ false);
+      DrainFreedTrackers();
     }
   }
 
@@ -1258,6 +1259,7 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
                                    /*release_partial_alloc_pages=*/false,
                                    /*hit_limit=*/true);
+  DrainFreedTrackers();
 
   info_.RecordRelease(n, released, reason);
   return released;

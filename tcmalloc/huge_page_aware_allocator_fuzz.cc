@@ -735,7 +735,13 @@ void GatherAndCheckStats::Perform(State& state) const {
   }
   uint64_t used_bytes =
       stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
-  TC_CHECK_EQ(used_bytes,
+  // We only get here with pending_release_ != 0 from a reentrant subprogram.
+  // HugeCache takes a range out of its free stats while it is being released
+  // (used == allocated + pending), whereas HugePageFiller accounts pages in
+  // flight as unmapped (used == allocated), so used_bytes can land anywhere in
+  // between.
+  TC_CHECK_GE(used_bytes, state.allocated.in_bytes());
+  TC_CHECK_LE(used_bytes,
               state.allocated.in_bytes() +
                   state.allocator.forwarder().pending_release_.in_bytes());
 }
