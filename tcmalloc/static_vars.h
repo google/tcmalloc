@@ -35,7 +35,6 @@
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/gwp_asan_state.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
@@ -66,7 +65,7 @@ using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
     MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>>;
 
 class Static;
-ABSL_CONST_INIT extern Static tc_globals;
+extern Static tc_globals;
 
 class Static final {
  public:
@@ -79,33 +78,31 @@ class Static final {
   Static& operator=(Static&&) = delete;
 
   // True if InitIfNecessary() has run to completion.
-  static bool IsInited();
+  bool IsInited() const;
   // Must be called before calling any of the accessors below.
   // Safe to call multiple times.
-  static void InitIfNecessary();
+  void InitIfNecessary();
 
   // Central cache.
-  static CentralFreeList& central_freelist(int size_class) {
+  CentralFreeList& central_freelist(int size_class) {
     return transfer_cache().central_freelist(size_class);
   }
   // Central cache -- an array of free-lists, one per size-class.
   // We have a separate lock per free-list to reduce contention.
-  static TransferCacheManager& transfer_cache() { return transfer_cache_; }
+  TransferCacheManager& transfer_cache() { return transfer_cache_; }
 
   // A per-cache domain TransferCache.
-  static ShardedTransferCacheManager& sharded_transfer_cache() {
+  ShardedTransferCacheManager& sharded_transfer_cache() {
     return sharded_transfer_cache_;
   }
 
-  static SizeMap& sizemap() { return sizemap_; }
+  SizeMap& sizemap() { return sizemap_; }
 
   auto& cpu_cache() { return cpu_cache_; }
 
-  static PeakHeapTracker& peak_heap_tracker() {
-    return peak_heap_tracker_.value;
-  }
+  PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
 
-  static NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
+  NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
     return numa_topology_;
   }
 
@@ -113,84 +110,79 @@ class Static final {
     return Parameters::heap_partitioning_mode() != HeapPartitioningMode::kOff;
   }
 
-  static size_t active_partitions() {
+  size_t active_partitions() {
     return multiple_non_numa_partitions() ? kNormalPartitions
                                           : numa_topology().active_partitions();
   }
 
-  static SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
-                         kNormalPartitions>&
+  SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
+                  kNormalPartitions>&
   system_allocator() {
-    return system_allocator_.value;
+    return system_allocator_;
   }
 
-  static Arena& arena() { return arena_; }
+  Arena& arena() { return arena_; }
 
   // Page-level allocator.
-  static PageAllocator& page_allocator() {
+  PageAllocator& page_allocator() {
     return *reinterpret_cast<PageAllocator*>(page_allocator_.memory);
   }
 
-  static ProdPageMap& pagemap() { return pagemap_; }
+  ProdPageMap& pagemap() { return pagemap_; }
 
-  static GuardedPageAllocator& guardedpage_allocator() {
+  GuardedPageAllocator& guardedpage_allocator() {
     return guardedpage_allocator_;
   }
 
-  static MetadataObjectAllocator<SampledAllocation,
-                                 ArenaAlloc::kSampledAllocation>&
+  MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>&
   sampledallocation_allocator() {
     return sampledallocation_allocator_;
   }
 
-  static MetadataObjectAllocator<Span, ArenaAlloc::kSpan>& span_allocator() {
+  MetadataObjectAllocator<Span, ArenaAlloc::kSpan>& span_allocator() {
     return span_allocator_;
   }
 
-  static MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
+  MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
   threadcache_allocator() {
     return threadcache_allocator_;
   }
 
-  static SampledAllocationRecorder& sampled_allocation_recorder() {
-    return sampled_allocation_recorder_.value;
+  SampledAllocationRecorder& sampled_allocation_recorder() {
+    return sampled_allocation_recorder_;
   }
 
   // State kept for sampled allocations (/heapz support).
-  ABSL_CONST_INIT static tcmalloc_internal::StatsCounter sampled_objects_size_;
+  tcmalloc_internal::StatsCounter sampled_objects_size_;
   // sampled_internal_fragmentation estimates the amount of memory overhead from
   // allocation sizes being rounded up to size class/page boundaries.
-  ABSL_CONST_INIT static tcmalloc_internal::StatsCounter
-      sampled_internal_fragmentation_;
+  tcmalloc_internal::StatsCounter sampled_internal_fragmentation_;
   // total_sampled_count_ tracks the total number of allocations that are
   // sampled.
-  ABSL_CONST_INIT static tcmalloc_internal::StatsCounter total_sampled_count_;
+  tcmalloc_internal::StatsCounter total_sampled_count_;
 
   using PerSizeClassCounts = StatsCounters<kNumClasses>;
 
-  static PerSizeClassCounts& per_size_class_counts() {
-    return per_size_class_counts_;
-  }
+  PerSizeClassCounts& per_size_class_counts() { return per_size_class_counts_; }
 
-  ABSL_CONST_INIT static AllocationSampleList allocation_samples;
+  AllocationSampleList allocation_samples;
 
-  ABSL_CONST_INIT static deallocationz::DeallocationProfilerList
-      deallocation_samples;
+  deallocationz::DeallocationProfilerList deallocation_samples;
 
   // MallocHook::AllocHandle is a simple 64-bit int, and is not dependent on
   // other data.
-  ABSL_CONST_INIT static std::atomic<int64_t> sampled_alloc_handle_generator;
+  std::atomic<int64_t> sampled_alloc_handle_generator = 0;
 
-  static MetadataObjectAllocator<StackTraceTable::LinkedSample,
-                                 ArenaAlloc::kStackTraceTable>&
+  MetadataObjectAllocator<StackTraceTable::LinkedSample,
+                          ArenaAlloc::kStackTraceTable>&
   linked_sample_allocator() {
     return linked_sample_allocator_;
   }
 
-  static bool ABSL_ATTRIBUTE_ALWAYS_INLINE CpuCacheActive() {
+  bool ABSL_ATTRIBUTE_ALWAYS_INLINE CpuCacheActive() const {
     return cpu_cache_active_.load(std::memory_order_acquire);
   }
-  static void ActivateCpuCache() {
+  void ActivateCpuCache() {
     cpu_cache_active_.store(true, std::memory_order_release);
   }
 
@@ -204,13 +196,13 @@ class Static final {
         static_cast<int>(!delete_hooks_.empty());
   }
 
-  static size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // The root of the pagemap is potentially a large poorly utilized
   // structure, so figure out how much of it is actually resident.
-  static size_t pagemap_residence();
+  size_t pagemap_residence();
 
-  static GwpAsanState& gwp_asan_state() { return gwp_asan_state_; }
+  GwpAsanState& gwp_asan_state() { return gwp_asan_state_; }
 
   static SizeClassConfiguration size_class_configuration();
 
@@ -220,56 +212,7 @@ class Static final {
 #if defined(__clang__)
   __attribute__((preserve_most))
 #endif
-  static void SlowInitIfNecessary();
-
-  // These static variables require explicit initialization.  We cannot
-  // count on their constructors to do any initialization because other
-  // static variables may try to allocate memory before these variables
-  // can run their constructors.
-
-  ABSL_CONST_INIT static Arena arena_;
-  static SizeMap sizemap_;
-  TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT static TransferCacheManager
-      transfer_cache_;
-  ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
-  using CpuCacheType = CpuCache<CpuCacheForwarder<Static, tc_globals>>;
-  ABSL_CONST_INIT static CpuCacheType cpu_cache_;
-  ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
-  static MetadataObjectAllocator<SampledAllocation,
-                                 ArenaAlloc::kSampledAllocation>
-      sampledallocation_allocator_;
-  static MetadataObjectAllocator<Span, ArenaAlloc::kSpan> span_allocator_;
-  static MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
-      threadcache_allocator_;
-  static MetadataObjectAllocator<StackTraceTable::LinkedSample,
-                                 ArenaAlloc::kStackTraceTable>
-      linked_sample_allocator_;
-  ABSL_CONST_INIT static std::atomic<bool> inited_;
-  ABSL_CONST_INIT static std::atomic<bool> cpu_cache_active_;
-
-  // Avoid destruction of static variables in a way that works with constinit
-  // and C++17. Once C++17 support is dropped this can be replaced with
-  // absl::NoDestructor. absl::NoDestructor uses a placement new, which doesn't
-  // work with constinit in C++17. Destruction is especially dangerous here
-  // because it can lead to race conditions and crashes on shutdown.
-  template <typename T>
-  union NoDestructorStorage {
-    template <typename... Args>
-    constexpr explicit NoDestructorStorage(Args&&... args)
-        : value(std::forward<Args>(args)...) {}
-
-    ~NoDestructorStorage() {}
-
-    T value;
-  };
-
-  TCMALLOC_ATTRIBUTE_NO_DESTROY
-  ABSL_CONST_INIT static NoDestructorStorage<PeakHeapTracker>
-      peak_heap_tracker_;
-  ABSL_CONST_INIT static NumaTopology<kNumaPartitions, kNumBaseClasses>
-      numa_topology_;
-  ABSL_CONST_INIT static GwpAsanState gwp_asan_state_;
-  ABSL_CONST_INIT static PerSizeClassCounts per_size_class_counts_;
+  void SlowInitIfNecessary();
 
   // PageHeap uses a constructor for initialization.  Like the members above,
   // we can't depend on initialization order, so pageheap is new'd
@@ -281,24 +224,40 @@ class Static final {
     uintptr_t extra;  // To force alignment
   };
 
-  static PageAllocatorStorage page_allocator_;
-  static ProdPageMap pagemap_;
-
-  TCMALLOC_ATTRIBUTE_NO_DESTROY
-  ABSL_CONST_INIT static NoDestructorStorage<SystemAllocator<
-      NumaTopology<kNumaPartitions, kNumBaseClasses>, kNormalPartitions>>
+  // Cacheline-align our SizeMap and CpuCache.  They both have very hot arrays
+  // as their first member variables, and aligning them reduces the number of
+  // cache lines these arrays use.
+  Arena arena_;
+  ABSL_CACHELINE_ALIGNED SizeMap sizemap_;
+  ABSL_CACHELINE_ALIGNED CpuCache<CpuCacheForwarder<Static, tc_globals>>
+      cpu_cache_;
+  TransferCacheManager transfer_cache_;
+  ShardedTransferCacheManager sharded_transfer_cache_{nullptr, nullptr};
+  GuardedPageAllocator guardedpage_allocator_;
+  MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
+      sampledallocation_allocator_;
+  MetadataObjectAllocator<Span, ArenaAlloc::kSpan> span_allocator_;
+  MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
+      threadcache_allocator_;
+  MetadataObjectAllocator<StackTraceTable::LinkedSample,
+                          ArenaAlloc::kStackTraceTable>
+      linked_sample_allocator_;
+  std::atomic<bool> inited_ = false;
+  std::atomic<bool> cpu_cache_active_ = false;
+  PeakHeapTracker peak_heap_tracker_;
+  NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
+  GwpAsanState gwp_asan_state_;
+  PerSizeClassCounts per_size_class_counts_;
+  PageAllocatorStorage page_allocator_;
+  ProdPageMap pagemap_;
+  SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
+                  kNormalPartitions>
       system_allocator_;
-
   static ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro) const Span kInvalidSpan;
-
-  // Manages sampled allocations and allows iteration over samples free from the
-  // global pageheap_lock.
-  TCMALLOC_ATTRIBUTE_NO_DESTROY
-  ABSL_CONST_INIT static NoDestructorStorage<SampledAllocationRecorder>
-      sampled_allocation_recorder_;
+  SampledAllocationRecorder sampled_allocation_recorder_;
 };
 
-inline bool Static::IsInited() {
+inline bool Static::IsInited() const {
   return inited_.load(std::memory_order_acquire);
 }
 

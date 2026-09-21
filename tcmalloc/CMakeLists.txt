@@ -1080,6 +1080,8 @@ tcmalloc_cc_test_variants(
     "GTest::gmock_main"
     "GTest::gmock"
     "absl::base"
+    "absl::core_headers"
+    "tcmalloc::internal_config"
 )
 
 tcmalloc_cc_test(
