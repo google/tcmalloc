@@ -356,6 +356,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
   void SelectEligibleTrackers(PageTracker& pt) override {
+    if (pt.DontFreeTracker() || pt.BeingCollapsed()) return;
 
     auto PushCandidate = [&](PageTracker& pt) GOOGLE_MALLOC_SECTION {
       if (num_valid_trackers_ < kTotalTrackersToScan) {
@@ -488,8 +489,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     for (int i = 0; i < num_valid_trackers_; ++i) {
       PageTracker* tracker = residency_states_[i].tracker;
       TC_ASSERT_NE(tracker, nullptr);
-      tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
       if (tracker->fully_freed()) {
+        tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
       }
       tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
@@ -497,6 +498,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
           page_filler_.OnCollapseSuccess(tracker);
         }
+        tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
       }
 
@@ -520,7 +522,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         }
       }
 
-      if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
+      if (!tracker->fully_freed() &&
+          subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
         Length released_length = page_filler_.HandleUnbackedHugePage(
             tracker, residency_states_[i].tracker_state.unbacked);
         if (released_length > Length(0)) {
@@ -528,6 +531,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
               released_length.raw_num();
         }
       }
+      tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
     }
   }
 

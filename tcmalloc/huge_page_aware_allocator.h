@@ -1054,6 +1054,9 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
                   forwarder_.filler_skip_subrelease_long_interval()},
           forwarder_.release_partial_alloc_pages(),
           /*hit_limit*/ false);
+      while (PageTracker* pt = filler_.FetchFullyFreedTracker()) {
+        ReleaseHugepage(pt);
+      }
     }
   }
 
@@ -1258,6 +1261,9 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
                                    /*release_partial_alloc_pages=*/false,
                                    /*hit_limit=*/true);
+  while (PageTracker* pt = filler_.FetchFullyFreedTracker()) {
+    ReleaseHugepage(pt);
+  }
 
   info_.RecordRelease(n, released, reason);
   return released;

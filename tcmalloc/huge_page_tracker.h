@@ -490,10 +490,20 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       TC_ASSERT_EQ(released_by_page_.CountBits(free_index, length), 0);
       PageId p = location_.first_page() + Length(free_index);
 
-      if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
-        // Mark pages as released.  Amortize the update to release_count_.
+      // Mark [free_index, free_index + length) as allocated while unbacking so
+      // concurrent allocations do not allocate from this range and concurrent
+      // deallocations do not observe longest_free_range() == kPagesPerHugePage.
+      tracker_.Mark(free_index, length);
+      const bool released = ReleasePages(Range(p, Length(length)), unback);
+      tracker_.Unmark(free_index, length);
+      if (ABSL_PREDICT_TRUE(released)) {
+        // Mark pages as released.
         released_by_page_.SetRange(free_index, length);
+        released_count_ += length;
         count += length;
+      }
+      if (empty()) {
+        break;
       }
 
       index = end;
@@ -504,7 +514,6 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
     }
   }
 
-  released_count_ += count;
   if (count > 0) {
     hugepage_residency_state_.maybe_hugepage_backed = false;
   }
