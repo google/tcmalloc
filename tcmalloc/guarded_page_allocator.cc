@@ -41,6 +41,7 @@
 #include "absl/base/optimization.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/numeric/bits.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/guarded_allocations.h"
