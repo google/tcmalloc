@@ -153,26 +153,24 @@ class FakeTransferCacheEnvironment {
   bool Grow() { return cache_.IncreaseCacheCapacity(kSizeClass); }
 
   void Insert(int n, int batch = kBatchSize) {
-    std::vector<void*> bufs;
+    void* bufs[kMaxObjectsToMove];
     while (n > 0) {
-      int b = std::min(n, batch);
-      bufs.resize(b);
-      central_freelist().AllocateBatch(absl::MakeSpan(bufs));
-      cache_.InsertRange(kSizeClass, absl::MakeSpan(bufs));
+      int b = std::min({n, batch, static_cast<int>(kMaxObjectsToMove)});
+      central_freelist().AllocateBatch(absl::MakeSpan(bufs, b));
+      cache_.InsertRange(kSizeClass, absl::MakeSpan(bufs, b));
       n -= b;
     }
   }
 
   void Remove(int n, int batch = kBatchSize) {
-    std::vector<void*> bufs;
+    void* bufs[kMaxObjectsToMove];
     while (n > 0) {
-      int b = std::min(n, batch);
-      bufs.resize(b);
-      int removed = cache_.RemoveRange(kSizeClass, absl::MakeSpan(bufs));
+      int b = std::min({n, batch, static_cast<int>(kMaxObjectsToMove)});
+      int removed = cache_.RemoveRange(kSizeClass, absl::MakeSpan(bufs, b));
       // Ensure we make progress.
-      ASSERT_GT(removed, 0);
-      ASSERT_LE(removed, b);
-      central_freelist().FreeBatch({&bufs[0], static_cast<size_t>(removed)});
+      TC_ASSERT_GT(removed, 0);
+      TC_ASSERT_LE(removed, b);
+      central_freelist().FreeBatch({bufs, static_cast<size_t>(removed)});
       n -= removed;
     }
   }

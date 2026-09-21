@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <array>
 #include <cstddef>
 #include <optional>
+#include <vector>
 
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
@@ -98,20 +100,26 @@ template <typename Env>
 void BM_InsertRange(benchmark::State& state) {
   const int kBatchSize = Env::kBatchSize;
   const int kMaxObjectsToMove = Env::kMaxObjectsToMove;
+  constexpr int kBatches = 16;
 
-  // optional to have more precise control of when the destruction occurs, as
-  // we want to avoid polluting the timing with the dtor.
-  std::optional<Env> e;
-  void* batch[kMaxObjectsToMove];
-  for (auto iter : state) {
+  Env e;
+  void* batches[kBatches][kMaxObjectsToMove];
+  for (int i = 0; i < kBatches; ++i) {
+    e.central_freelist().AllocateBatch(
+        {batches[i], static_cast<size_t>(kBatchSize)});
+  }
+
+  while (state.KeepRunningBatch(kBatches)) {
+    for (int i = 0; i < kBatches; ++i) {
+      e.transfer_cache().InsertRange(
+          kSizeClass, {batches[i], static_cast<size_t>(kBatchSize)});
+    }
     state.PauseTiming();
-    e.emplace();
-    e->central_freelist().AllocateBatch({batch, kBatchSize});
-    benchmark::DoNotOptimize(e);
-    benchmark::DoNotOptimize(batch);
+    for (int i = 0; i < kBatches; ++i) {
+      (void)e.transfer_cache().RemoveRange(
+          kSizeClass, {batches[i], static_cast<size_t>(kBatchSize)});
+    }
     state.ResumeTiming();
-
-    e->transfer_cache().InsertRange(kSizeClass, {batch, kBatchSize});
   }
 }
 
@@ -119,20 +127,27 @@ template <typename Env>
 void BM_RemoveRange(benchmark::State& state) {
   const int kBatchSize = Env::kBatchSize;
   const int kMaxObjectsToMove = Env::kMaxObjectsToMove;
+  constexpr int kBatches = 16;
 
-  // optional to have more precise control of when the destruction occurs, as
-  // we want to avoid polluting the timing with the dtor.
-  std::optional<Env> e;
-  void* batch[kMaxObjectsToMove];
-  for (auto iter : state) {
+  Env e;
+  void* batches[kBatches][kMaxObjectsToMove];
+  for (int i = 0; i < kBatches; ++i) {
+    e.central_freelist().AllocateBatch(
+        {batches[i], static_cast<size_t>(kBatchSize)});
+  }
+
+  while (state.KeepRunningBatch(kBatches)) {
     state.PauseTiming();
-    e.emplace();
-    e->Insert(kBatchSize);
-    benchmark::DoNotOptimize(e);
+    for (int i = 0; i < kBatches; ++i) {
+      e.transfer_cache().InsertRange(
+          kSizeClass, {batches[i], static_cast<size_t>(kBatchSize)});
+    }
     state.ResumeTiming();
-
-    (void)e->transfer_cache().RemoveRange(kSizeClass, {batch, kBatchSize});
-    benchmark::DoNotOptimize(batch);
+    for (int i = 0; i < kBatches; ++i) {
+      (void)e.transfer_cache().RemoveRange(
+          kSizeClass, {batches[i], static_cast<size_t>(kBatchSize)});
+      benchmark::DoNotOptimize(batches[i]);
+    }
   }
 }
 
@@ -142,11 +157,15 @@ void BM_RealisticBatchNonBatchMutations(benchmark::State& state) {
 
   Env e;
   absl::BitGen gen;
+  constexpr size_t kNumChoices = 4096;
+  std::array<double, kNumChoices> choices;
+  for (double& choice : choices) {
+    choice = absl::Uniform(gen, 0.0, 1.0);
+  }
 
+  size_t idx = 0;
   for (auto iter : state) {
-    state.PauseTiming();
-    const double choice = absl::Uniform(gen, 0.0, 1.0);
-    state.ResumeTiming();
+    const double choice = choices[idx++ % kNumChoices];
 
     // These numbers have been determined by looking at production data.
     if (choice < 0.424) {
@@ -182,34 +201,33 @@ void BM_RealisticHitRate(benchmark::State& state) {
   // resulting insert and remove miss rate matches that of the production.
   constexpr int kInterval = 5000;
   constexpr double kBias = 0.85;
-  bool insert_heavy = true;
-  unsigned int iterations = 0;
-  for (auto iter : state) {
-    state.PauseTiming();
-    const double partial = absl::Uniform(gen, 0.0, 1.0);
-    // We perform insert (or remove) operations with a probability specified by
-    // kBias during the insert-heavy (or remove-heavy) phase of this benchmark.
-    const bool insert = absl::Bernoulli(gen, kBias) == insert_heavy;
-    state.ResumeTiming();
 
-    if (insert) {
-      // These numbers have been determined by looking at production data.
-      if (partial < 0.65) {
-        e.Insert(kBatchSize);
+  struct Op {
+    bool insert;
+    int count;
+  };
+  constexpr size_t kNumOps = 2 * kInterval;
+  std::vector<Op> ops;
+  ops.reserve(kNumOps);
+  for (bool insert_heavy : {true, false}) {
+    for (int i = 0; i < kInterval; ++i) {
+      const double partial = absl::Uniform(gen, 0.0, 1.0);
+      const bool insert = absl::Bernoulli(gen, kBias) == insert_heavy;
+      if (insert) {
+        ops.push_back({true, partial < 0.65 ? kBatchSize : 1});
       } else {
-        e.Insert(1);
-      }
-    } else {
-      // These numbers have been determined by looking at production data.
-      if (partial < 0.99) {
-        e.Remove(kBatchSize);
-      } else {
-        e.Remove(1);
+        ops.push_back({false, partial < 0.99 ? kBatchSize : 1});
       }
     }
-    ++iterations;
-    if (iterations % kInterval == 0) {
-      insert_heavy = !insert_heavy;
+  }
+
+  size_t idx = 0;
+  for (auto iter : state) {
+    const Op& op = ops[idx++ % kNumOps];
+    if (op.insert) {
+      e.Insert(op.count);
+    } else {
+      e.Remove(op.count);
     }
   }
 
