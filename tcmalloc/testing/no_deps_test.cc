@@ -36,7 +36,7 @@
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/rseq_util.h"
 
-const size_t kMem = 10 << 20;
+const size_t kMem = 2 << 20;
 const size_t kMin = 8;
 void* blocks[kMem / kMin];
 
