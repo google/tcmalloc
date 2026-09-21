@@ -90,7 +90,7 @@ inline constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
     case ArenaAlloc::kNumTypes:
       break;
   }
-  return {"", ""};
+  TC_BUG("Invalid ArenaAlloc type: %zu", static_cast<size_t>(type));
 }
 
 constexpr bool CheckArenaAllocInfo() {

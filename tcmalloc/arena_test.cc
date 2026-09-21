@@ -429,9 +429,8 @@ TEST(Arena, ArenaAllocInfo) {
       EXPECT_NE(info.proto_field, other.proto_field);
     }
   }
-  ArenaAllocInfo invalid = GetArenaAllocInfo(ArenaAlloc::kNumTypes);
-  EXPECT_TRUE(invalid.label.empty());
-  EXPECT_TRUE(invalid.proto_field.empty());
+  EXPECT_DEATH(GetArenaAllocInfo(ArenaAlloc::kNumTypes),
+               "Invalid ArenaAlloc type");
 }
 
 }  // namespace
