@@ -13,14 +13,11 @@
 // limitations under the License.
 
 #include <algorithm>
-#include <atomic>
 #include <cstddef>
 #include <limits>
 
 #include "absl/base/attributes.h"
-#include "absl/base/call_once.h"
 #include "absl/base/const_init.h"
-#include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -34,30 +31,6 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
-
-namespace tcmalloc {
-namespace tcmalloc_internal {
-namespace {
-
-ABSL_CONST_INIT absl::Mutex background_mutex(absl::kConstInit);
-
-bool BackgroundProcessActionsDisabled(void*) {
-  return !Parameters::background_process_actions_enabled();
-}
-
-}  // namespace
-}  // namespace tcmalloc_internal
-}  // namespace tcmalloc
-
-extern "C" {
-
-void MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value) {
-  absl::MutexLock l(tcmalloc::tcmalloc_internal::background_mutex);
-  tcmalloc::tcmalloc_internal::Parameters::
-      set_background_process_actions_enabled(value);
-}
-
-}  // extern "C"
 
 // Release memory to the system at a constant rate.
 void MallocExtension_Internal_ProcessBackgroundActions() {
@@ -85,13 +58,6 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   // want to separately account for pages released by ProcessBackgroundActions.
   tcmalloc::tcmalloc_internal::ConstantRatePageAllocatorReleaser releaser;
 
-  // We guard actions under background_mutex to ensure concurrent invocations
-  // are serialized and SetBackgroundProcessActionsEnabled(false) waits for any
-  // in-flight iteration to complete.
-  absl::MutexLock l(tcmalloc::tcmalloc_internal::background_mutex);
-  // TODO(b/527641380): ScopedBackgroundProcessActionsEnabled does not work as
-  // intended if actions are temporarily disabled and re-enabled, as the
-  // background thread exits this loop and terminates permanently.
   while (tcmalloc::MallocExtension::GetBackgroundProcessActionsEnabled()) {
     const absl::Duration sleep_time =
         tcmalloc::MallocExtension::GetBackgroundProcessSleepInterval();
@@ -132,51 +98,57 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 
     absl::Time now = absl::Now();
 
-    // We follow the cache hierarchy in TCMalloc from outermost (per-CPU) to
-    // innermost (the page heap).  Freeing up objects at one layer can help
-    // aid memory coalescing for inner caches.
+    // TODO(b/278618299):  We guard various actions under a single lock, since
+    // individual operations may not be amenable to concurrent operations.
+    {
+      ABSL_CONST_INIT static absl::Mutex mu(absl::kConstInit);
+      absl::MutexLock l(mu);
 
-    if (tcmalloc::MallocExtension::PerCpuCachesActive()) {
-      // Accelerate fences as part of this operation by registering this
-      // thread with rseq.  While this is not strictly required to succeed, we
-      // do not expect an inconsistent state for rseq (some threads registered
-      // and some threads unable to).
-      TC_CHECK(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
+      // We follow the cache hierarchy in TCMalloc from outermost (per-CPU) to
+      // innermost (the page heap).  Freeing up objects at one layer can help
+      // aid memory coalescing for inner caches.
 
-      // Try to drain per-cpu caches once every cpu_cache_drain_period
-      // when enabled.
-      if (now - last_drain >= cpu_cache_drain_period) {
-        tc_globals.cpu_cache().TryDrainingCaches();
-        last_drain = now;
+      if (tcmalloc::MallocExtension::PerCpuCachesActive()) {
+        // Accelerate fences as part of this operation by registering this
+        // thread with rseq.  While this is not strictly required to succeed, we
+        // do not expect an inconsistent state for rseq (some threads registered
+        // and some threads unable to).
+        TC_CHECK(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
+
+        // Try to drain per-cpu caches once every cpu_cache_drain_period
+        // when enabled.
+        if (now - last_drain >= cpu_cache_drain_period) {
+          tc_globals.cpu_cache().TryDrainingCaches();
+          last_drain = now;
+        }
+
+        if (now - last_shuffle >= cpu_cache_shuffle_period) {
+          tc_globals.cpu_cache().ShuffleCpuCaches();
+          last_shuffle = now;
+        }
+
+        if (now - last_size_class_resize >= size_class_resize_period) {
+          tc_globals.cpu_cache().ResizeSizeClasses();
+          last_size_class_resize = now;
+        }
+
+        if (Parameters::resize_size_class_max_capacity() &&
+            now - last_size_class_max_capacity_resize >=
+                size_class_max_capacity_resize_period) {
+          tc_globals.cpu_cache().ResizeSizeClassMaxCapacities();
+          last_size_class_max_capacity_resize = now;
+        }
+
+        // See if we need to grow the slab once every kCpuCacheSlabResizePeriod
+        // when enabled.
+        if (Parameters::per_cpu_caches_dynamic_slab_enabled() &&
+            now - last_slab_resize_check >= cpu_cache_slab_resize_period) {
+          tc_globals.cpu_cache().ResizeSlabIfNeeded();
+          last_slab_resize_check = now;
+        }
+
+        tc_globals.cpu_cache().ClearTouchedCpus();
       }
-
-      if (now - last_shuffle >= cpu_cache_shuffle_period) {
-        tc_globals.cpu_cache().ShuffleCpuCaches();
-        last_shuffle = now;
-      }
-
-      if (now - last_size_class_resize >= size_class_resize_period) {
-        tc_globals.cpu_cache().ResizeSizeClasses();
-        last_size_class_resize = now;
-      }
-
-      if (Parameters::resize_size_class_max_capacity() &&
-          now - last_size_class_max_capacity_resize >=
-              size_class_max_capacity_resize_period) {
-        tc_globals.cpu_cache().ResizeSizeClassMaxCapacities();
-        last_size_class_max_capacity_resize = now;
-      }
-
-      // See if we need to grow the slab once every kCpuCacheSlabResizePeriod
-      // when enabled.
-      if (Parameters::per_cpu_caches_dynamic_slab_enabled() &&
-          now - last_slab_resize_check >= cpu_cache_slab_resize_period) {
-        tc_globals.cpu_cache().ResizeSlabIfNeeded();
-        last_slab_resize_check = now;
-      }
-
-      tc_globals.cpu_cache().ClearTouchedCpus();
-    }
 
       tc_globals.sharded_transfer_cache().Plunder();
 
@@ -230,11 +202,8 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       }
 
       prev_time = now;
+    }
 
-      tcmalloc::tcmalloc_internal::background_mutex.AwaitWithTimeout(
-          absl::Condition(
-              &tcmalloc::tcmalloc_internal::BackgroundProcessActionsDisabled,
-              nullptr),
-          sleep_time);
+    absl::SleepFor(sleep_time);
   }
 }

@@ -64,24 +64,6 @@ TEST(BackgroundTest, Stress) {
   background.join();
 }
 
-TEST(BackgroundTest, DisableInterruptsSleep) {
-  ScopedBackgroundProcessSleepInterval sleep_time(absl::Hours(1));
-
-  std::thread background([]() { MallocExtension::ProcessBackgroundActions(); });
-
-  absl::SleepFor(absl::Milliseconds(100));
-
-  const absl::Time start = absl::Now();
-  {
-    ScopedBackgroundProcessActionsEnabled background_process_enabled(
-        /*value=*/false);
-    background.join();
-  }
-  const absl::Duration elapsed = absl::Now() - start;
-
-  EXPECT_LT(elapsed, absl::Seconds(10));
-}
-
 }  // namespace
 }  // namespace tcmalloc
 
