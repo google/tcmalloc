@@ -33,11 +33,27 @@
 #define TCMALLOC_CACHED_SLABS_BIT 63
 #define TCMALLOC_CACHED_SLABS_MASK (1ul << TCMALLOC_CACHED_SLABS_BIT)
 
+// TCMALLOC_INTERNAL_PERCPU_HWASAN is derived from compiler predefined macros
+// rather than ABSL_HAVE_HWADDRESS_SANITIZER, since this header must evaluate
+// identically in every translation unit (including the RSEQ assembly sources)
+// regardless of whether absl/base/config.h has already been included.
+#if defined(__has_feature)
+#if __has_feature(hwaddress_sanitizer)
+#define TCMALLOC_INTERNAL_PERCPU_HWASAN 1
+#endif
+#endif
+#if defined(__SANITIZE_HWADDRESS__)
+#define TCMALLOC_INTERNAL_PERCPU_HWASAN 1
+#endif
+#if !defined(TCMALLOC_INTERNAL_PERCPU_HWASAN)
+#define TCMALLOC_INTERNAL_PERCPU_HWASAN 0
+#endif
+
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
 // TODO(b/478927694): re-enable for HWASan
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__)) && \
-    !defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+    !TCMALLOC_INTERNAL_PERCPU_HWASAN
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 1
 #else
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 0
@@ -71,6 +87,15 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
+
+// The RSEQ gate above is evaluated before any absl header is included; verify
+// that it agrees with absl's detection now that absl/base/config.h is visible.
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER) && !TCMALLOC_INTERNAL_PERCPU_HWASAN
+#error "HWASan detected by absl but not by the TCMalloc per-CPU RSEQ gate"
+#endif
+#if !defined(ABSL_HAVE_HWADDRESS_SANITIZER) && TCMALLOC_INTERNAL_PERCPU_HWASAN
+#error "HWASan detected by the TCMalloc per-CPU RSEQ gate but not by absl"
+#endif
 
 // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ defines whether TCMalloc support for RSEQ
 // on the target architecture exists. We currently only provide RSEQ for 64-bit
