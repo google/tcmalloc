@@ -206,15 +206,15 @@ void PageAllocInfo::Print(Printer& out) const {
              label_, released_.release_memory_to_system.raw_num(),
              released_.release_memory_to_system.in_mib());
   out.printf(
-      "%s: %zu pages (%6.1f MiB) MiB released from ProcessBackgroundActions\n",
+      "%s: %zu pages (%6.1f MiB) released from ProcessBackgroundActions\n",
       label_, released_.process_background_actions.raw_num(),
       released_.process_background_actions.in_mib());
   out.printf(
-      "%s: %zu pages (%6.1f MiB) MiB released from soft malloc limit hits\n",
+      "%s: %zu pages (%6.1f MiB) released from soft malloc limit hits\n",
       label_, released_.soft_limit_exceeded.raw_num(),
       released_.soft_limit_exceeded.in_mib());
   out.printf(
-      "%s: %zu pages (%6.1f MiB) MiB released from hard malloc limit hits\n",
+      "%s: %zu pages (%6.1f MiB) released from hard malloc limit hits\n",
       label_, released_.hard_limit_exceeded.raw_num(),
       released_.hard_limit_exceeded.in_mib());
 }
