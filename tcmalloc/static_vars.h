@@ -232,7 +232,7 @@ class Static final {
   ABSL_CACHELINE_ALIGNED CpuCache<CpuCacheForwarder<Static, tc_globals>>
       cpu_cache_;
   TransferCacheManager transfer_cache_;
-  ShardedTransferCacheManager sharded_transfer_cache_{nullptr, nullptr};
+  ShardedTransferCacheManager sharded_transfer_cache_{nullptr};
   GuardedPageAllocator guardedpage_allocator_;
   MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
       sampledallocation_allocator_;

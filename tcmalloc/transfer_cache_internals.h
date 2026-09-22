@@ -79,29 +79,29 @@ class MissCounts {
 // TransferCache is used to cache transfers of
 // sizemap.num_objects_to_move(size_class) back and forth between
 // thread caches and the central cache for a given size class.
-template <typename CentralFreeList, typename TransferCacheManager>
+template <typename CentralFreeList, typename ForwarderT>
 class TransferCache {
  public:
-  using Manager = TransferCacheManager;
+  using Forwarder = ForwarderT;
   using FreeList = CentralFreeList;
 
-  TransferCache(Manager* owner, int size_class)
-      : TransferCache(owner, size_class, CapacityNeeded(size_class)) {}
+  explicit TransferCache(int size_class)
+      : TransferCache(size_class, CapacityNeeded(size_class)) {}
 
   struct Capacity {
     int capacity;
     int max_capacity;
   };
 
-  TransferCache(Manager* owner, int size_class, Capacity capacity)
+  TransferCache(int size_class, Capacity capacity)
       : lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
         low_water_mark_(0),
         slot_info_(SizeInfo({0, capacity.capacity})),
         slots_(nullptr),
-        owner_(owner),
+        forwarder_(),
         max_capacity_(capacity.max_capacity) {
     freelist().Init(size_class, Parameters::cfl_subbucket_prioritization());
-    slots_ = max_capacity_ != 0 ? reinterpret_cast<void**>(owner_->Alloc(
+    slots_ = max_capacity_ != 0 ? reinterpret_cast<void**>(forwarder_.Alloc(
                                       max_capacity_ * sizeof(void*)))
                                 : nullptr;
   }
@@ -114,13 +114,13 @@ class TransferCache {
     // We need at least 2 slots to store list head and tail.
     static_assert(kMinObjectsToMove >= 2);
 
-    const size_t bytes = Manager::class_to_size(size_class);
+    const size_t bytes = Forwarder::class_to_size(size_class);
     if (size_class <= 0 || bytes <= 0) return {0, 0};
 
     // Limit the maximum size of the cache based on the size class.  If this
     // is not done, large size class objects will consume a lot of memory if
     // they just sit in the transfer cache.
-    const size_t objs_to_move = Manager::num_objects_to_move(size_class);
+    const size_t objs_to_move = Forwarder::num_objects_to_move(size_class);
     TC_ASSERT_GT(objs_to_move, 0);
 
     // Starting point for the maximum number of entries in the transfer cache.
@@ -223,7 +223,7 @@ class TransferCache {
     low_water_mark_ = info.used;
     while (true) {
       info = GetSlotInfo();
-      const int B = Manager::num_objects_to_move(size_class);
+      const int B = forwarder_.num_objects_to_move(size_class);
       const size_t num_to_move = std::min({B, info.used, to_return});
       if (num_to_move == 0) break;
 
@@ -278,7 +278,7 @@ class TransferCache {
   // Increases capacity of the cache by a batch size. Returns true if it
   // succeeded at growing the cache by a batch size. Else, returns false.
   bool IncreaseCacheCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
-    int n = Manager::num_objects_to_move(size_class);
+    int n = forwarder_.num_objects_to_move(size_class);
 
     AllocationGuardSpinLockHolder h(lock_);
     auto info = slot_info_.load(std::memory_order_relaxed);
@@ -292,7 +292,7 @@ class TransferCache {
 
   // Checks if the cache capacity may be increased by a batch size.
   bool CanIncreaseCapacity(int size_class) const ABSL_LOCKS_EXCLUDED(lock_) {
-    int n = Manager::num_objects_to_move(size_class);
+    int n = forwarder_.num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return max_capacity_ - info.capacity >= n;
   }
@@ -300,7 +300,7 @@ class TransferCache {
   // Checks if the cache has at least batch size number of free slots. Returns
   // false if (capacity - used) slots is less than the batch size.
   bool HasSpareCapacity(int size_class) const {
-    int n = Manager::num_objects_to_move(size_class);
+    int n = forwarder_.num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return info.capacity - info.used >= n;
   }
@@ -309,7 +309,7 @@ class TransferCache {
   // Tries to shrink the Cache.  Return false if it failed to shrink the cache.
   // Decreases cache_slots_ on success.
   bool ShrinkCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
-    int N = Manager::num_objects_to_move(size_class);
+    int N = forwarder_.num_objects_to_move(size_class);
 
     void* to_free[kMaxObjectsToMove];
     int num_to_free;
@@ -397,7 +397,7 @@ class TransferCache {
   void** slots_ ABSL_GUARDED_BY(lock_);
 
   // owner_ and max_capacity_ are immutable, so they may share lock_'s line.
-  Manager* const owner_;
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
   // Maximum size of the cache.
   const int32_t max_capacity_;

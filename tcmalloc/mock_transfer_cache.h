@@ -93,14 +93,14 @@ class ArenaBasedFakeTransferCacheManager {
     used_ += size;
     return ::operator new(size, alignment);
   }
-  size_t used() const { return used_; }
+  static size_t used() { return used_; }
 
   static void SetPartialLegacyTransferCache(bool value) {
     partial_legacy_transfer_cache_ = value;
   }
 
  private:
-  size_t used_ = 0;
+  static size_t used_;
   static bool partial_legacy_transfer_cache_;
 };
 
@@ -138,14 +138,14 @@ template <typename TransferCacheT>
 class FakeTransferCacheEnvironment {
  public:
   using TransferCache = TransferCacheT;
-  using Manager = typename TransferCache::Manager;
+  using Forwarder = typename TransferCache::Forwarder;
   using FreeList = typename TransferCache::FreeList;
 
   static constexpr int kMaxObjectsToMove =
       ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
-  static constexpr int kBatchSize = Manager::num_objects_to_move(1);
+  static constexpr int kBatchSize = Forwarder::num_objects_to_move(1);
 
-  FakeTransferCacheEnvironment() : manager_(), cache_(&manager_, 1) { Init(); }
+  FakeTransferCacheEnvironment() : cache_(1) { Init(); }
 
   ~FakeTransferCacheEnvironment() { Drain(); }
 
@@ -211,20 +211,14 @@ class FakeTransferCacheEnvironment {
  private:
   void Init() {};
 
-  Manager manager_;
   TransferCache cache_;
 };
 
 // A fake transfer cache manager class which supports two size classes instead
 // of just the one. To make this work, we have to store the transfer caches
 // inside the cache manager, like in production code.
-template <typename FreeListT,
-          template <typename FreeList, typename Manager> class TransferCacheT>
-class ThreeSizeClassManager : public FakeTransferCacheManager {
+class ThreeSizeClassForwarder : public FakeTransferCacheManager {
  public:
-  using FreeList = FreeListT;
-  using TransferCache = TransferCacheT<FreeList, ThreeSizeClassManager>;
-
   // This is 3 instead of 2 because we hard code size_class == 0 to be invalid
   // in many places. We only use size_class 1 and 2 here.
   static constexpr size_t kClassSize1 = 8;
@@ -234,15 +228,6 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
   static constexpr size_t kNumToMove2 = 2;
   static constexpr size_t kNumToMove3 = 2;
   static constexpr size_t kColdSizeClass = kColdClassesStart + 1;
-
-  ThreeSizeClassManager() {
-    for (int i = 0; i < 3; ++i) {
-      caches_[i] = std::make_unique<TransferCache>(
-          this, i);
-    }
-    caches_[kColdSizeClass] = std::make_unique<TransferCache>(
-        this, kColdSizeClass);
-  }
 
   constexpr static size_t class_to_size(int size_class) {
     switch (size_class) {
@@ -267,6 +252,31 @@ class ThreeSizeClassManager : public FakeTransferCacheManager {
       default:
         return 0;
     }
+  }
+};
+
+template <typename FreeListT,
+          template <typename FreeList, typename Forwarder> class TransferCacheT>
+class ThreeSizeClassManager {
+ public:
+  using FreeList = FreeListT;
+  using Forwarder = ThreeSizeClassForwarder;
+  using TransferCache = TransferCacheT<FreeList, Forwarder>;
+
+  static constexpr size_t kColdSizeClass = Forwarder::kColdSizeClass;
+
+  ThreeSizeClassManager() {
+    for (int i = 0; i < 3; ++i) {
+      caches_[i] = std::make_unique<TransferCache>(i);
+    }
+    caches_[kColdSizeClass] = std::make_unique<TransferCache>(kColdSizeClass);
+  }
+
+  constexpr static size_t class_to_size(int size_class) {
+    return Forwarder::class_to_size(size_class);
+  }
+  constexpr static size_t num_objects_to_move(int size_class) {
+    return Forwarder::num_objects_to_move(size_class);
   }
 
   void InsertRange(int size_class, absl::Span<void*> batch) {
@@ -323,19 +333,18 @@ class FakeCpuLayout {
 // and deallocations out of transfer cache for multiple size classes. It can
 // also be wired with the real transfer cache manager and be used to test
 // implementations in a real transfer cache, unlike TwoSizeClassEnv.
-template <typename TransferCacheT>
+template <typename ManagerT>
 class MultiSizeClassTransferCacheEnvironment {
  public:
   static constexpr int kSizeClasses = 4;
-  using TransferCache = TransferCacheT;
-  using Manager = typename TransferCache::Manager;
-  using FreeList = typename TransferCache::FreeList;
+  using Manager = ManagerT;
   MultiSizeClassTransferCacheEnvironment() { manager_.Init(); }
 
   ~MultiSizeClassTransferCacheEnvironment() { Drain(); }
 
   void Insert(int size_class, int n) {
-    const size_t batch_size = Manager::num_objects_to_move(size_class);
+    const size_t batch_size =
+        manager_.forwarder().num_objects_to_move(size_class);
     std::vector<void*> bufs;
     while (n > 0) {
       int b = std::min<int>(n, batch_size);
@@ -350,7 +359,8 @@ class MultiSizeClassTransferCacheEnvironment {
   }
 
   void Remove(int size_class, int n) {
-    const size_t batch_size = manager_.num_objects_to_move(size_class);
+    const size_t batch_size =
+        manager_.forwarder().num_objects_to_move(size_class);
     std::vector<void*> bufs;
     while (n > 0) {
       const int b = std::min<int>(n, batch_size);
@@ -377,7 +387,8 @@ class MultiSizeClassTransferCacheEnvironment {
     // Insert or remove from the transfer cache with equal probability.
     const double choice = absl::Uniform(gen, 0.0, 1.0);
     const size_t size_class = absl::Uniform<size_t>(gen, 1, kSizeClasses);
-    const size_t batch_size = manager_.num_objects_to_move(size_class);
+    const size_t batch_size =
+        manager_.forwarder().num_objects_to_move(size_class);
     if (choice < 0.5) {
       Insert(size_class, batch_size);
     } else {
@@ -387,7 +398,7 @@ class MultiSizeClassTransferCacheEnvironment {
 
   Manager& transfer_cache_manager() { return manager_; }
 
-  FreeList& central_freelist(int size_class) {
+  auto& central_freelist(int size_class) {
     return manager_.central_freelist(size_class);
   }
 
@@ -404,9 +415,9 @@ class FakeShardedTransferCacheEnvironment {
 
   explicit FakeShardedTransferCacheEnvironment(int num_shards,
                                                bool use_generic_cache)
-      : sharded_manager_(&owner_, &cpu_layout_) {
-    owner_.SetGenericCache(use_generic_cache);
-    owner_.SetCacheForLargeClassesOnly(!use_generic_cache);
+      : sharded_manager_(&cpu_layout_) {
+    Manager::SetGenericCache(use_generic_cache);
+    Manager::SetCacheForLargeClassesOnly(!use_generic_cache);
 
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
@@ -414,8 +425,8 @@ class FakeShardedTransferCacheEnvironment {
 
   ~FakeShardedTransferCacheEnvironment() {
     Drain();
-    owner_.SetGenericCache(false);
-    owner_.SetCacheForLargeClassesOnly(false);
+    Manager::SetGenericCache(false);
+    Manager::SetCacheForLargeClassesOnly(false);
   }
 
   void Remove(int cpu, int n) {
@@ -436,14 +447,13 @@ class FakeShardedTransferCacheEnvironment {
   }
 
   ShardedManager& sharded_manager() { return sharded_manager_; }
-  Manager& transfer_cache_manager() { return owner_; }
+  Manager& transfer_cache_manager() { return sharded_manager_.forwarder(); }
   MinimalFakeCentralFreeList& central_freelist() { return freelist_; }
   void SetCurrentCpu(int cpu) { cpu_layout_.SetCurrentCpu(cpu); }
-  size_t MetadataAllocated() const { return owner_.used(); }
+  size_t MetadataAllocated() const { return Manager::used(); }
 
  private:
   MinimalFakeCentralFreeList freelist_;
-  FakeShardedTransferCacheManager owner_;
   FakeCpuLayout cpu_layout_;
   ShardedManager sharded_manager_;
 };
