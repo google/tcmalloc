@@ -158,7 +158,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If release is true, unback any hugepage that becomes empty.
   void Dec(Range r, bool release);
 
-  HugeLength UnbackHugepages(bool maybe_unback[kNumHugePages]);
+  HugeLength UnbackHugepages(const Bitmap<kNumHugePages>& maybe_unback);
 
   // How many pages are used in each hugepage?
   Length pages_used_[kNumHugePages];
@@ -312,7 +312,8 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback,
   set_anon_vma_name(Range(r), name);
 }
 
-inline bool HugeRegion::MaybeGet(Length n, PageId* p, bool* from_released) {
+inline bool HugeRegion::MaybeGet(Length n, PageId* absl_nonnull p,
+                                 bool* absl_nonnull from_released) {
   if (n > longest_free()) return false;
   TC_ASSERT_GT(n, Length(0));
   auto index = Length(tracker_.FindAndMark(n.raw_num()));
@@ -343,7 +344,7 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
   const Length to_release = std::min(desired, free_yet_backed);
   if (to_release == Length(0)) return NHugePages(0);
 
-  bool should_unback[kNumHugePages] = {};
+  Bitmap<kNumHugePages> should_unback;
   HugeLength release_target = NHugePages(0);
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const int start = adaptive_release ? kNumHugePages - 1 : 0;
@@ -352,7 +353,7 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
 
   for (int i = start; i != end; i += step) {
     if (CanUnback(i)) {
-      should_unback[i] = true;
+      should_unback.SetBit(i);
       ++release_target;
     }
 
@@ -374,11 +375,13 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
     const HugeLength count = std::min(NHugePages(n), needed - release_target);
     const size_t start =
         adaptive_release ? (index + n - count.raw_num()) : index;
+    should_unback.SetRange(start, count.raw_num());
+#ifndef NDEBUG
     for (size_t i = 0; i < count.raw_num(); ++i) {
       TC_ASSERT(backed_[start + i]);
       TC_ASSERT_EQ(pages_used_[start + i], Length(0));
-      should_unback[start + i] = true;
     }
+#endif  // NDEBUG
     release_target += count;
     if (release_target == needed) break;
   }
@@ -514,7 +517,7 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
 }
 
 inline void HugeRegion::Dec(Range r, bool release) {
-  bool should_unback[kNumHugePages] = {};
+  Bitmap<kNumHugePages> should_unback;
   while (r.n > Length(0)) {
     const HugePage hp = HugePageContaining(r.p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
@@ -525,7 +528,7 @@ inline void HugeRegion::Dec(Range r, bool release) {
     TC_ASSERT(backed_[i]);
     pages_used_[i] -= here;
     if (pages_used_[i] == Length(0)) {
-      should_unback[i] = true;
+      should_unback.SetBit(i);
       ++free_backed_count_;
       unreleasable_hugepages_.ClearBit(i);
     }
@@ -538,16 +541,20 @@ inline void HugeRegion::Dec(Range r, bool release) {
 }
 
 inline HugeLength HugeRegion::UnbackHugepages(
-    bool maybe_unback[kNumHugePages]) {
+    const Bitmap<kNumHugePages>& maybe_unback) {
   HugeLength released = NHugePages(0);
   size_t i = 0;
   while (i < kNumHugePages) {
-    if (!maybe_unback[i] || !CanUnback(i)) {
+    i = maybe_unback.FindSet(i);
+    if (i == kNumHugePages) {
+      break;
+    }
+    if (!CanUnback(i)) {
       i++;
       continue;
     }
-    size_t j = i;
-    while (j < kNumHugePages && maybe_unback[j] && CanUnback(j)) {
+    size_t j = i + 1;
+    while (j < kNumHugePages && maybe_unback.GetBit(j) && CanUnback(j)) {
       j++;
     }
 
@@ -578,7 +585,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
       total_unbacked_ += hl;
 
       for (size_t k = i; k < j; k++) {
-        TC_ASSERT(maybe_unback[k]);
+        TC_ASSERT(maybe_unback.GetBit(k));
         backed_[k] = false;
       }
 
@@ -610,8 +617,8 @@ inline HugeLength HugeRegion::UnbackHugepages(
 // true iff the returned range is currently unbacked.
 // Returns false if no range available.
 template <typename Region>
-inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* page,
-                                            bool* from_released) {
+inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* absl_nonnull page,
+                                            bool* absl_nonnull from_released) {
   for (Region* region : list_) {
     HugeLength before = region->free_backed();
     if (region->MaybeGet(n, page, from_released)) {
