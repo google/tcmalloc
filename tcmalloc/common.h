@@ -141,7 +141,11 @@ inline constexpr size_t kDefaultOverallThreadCacheSize =
 inline constexpr size_t kStealAmount = 1 << 16;
 #elif TCMALLOC_PAGE_SHIFT == 18
 inline constexpr size_t kPageShift = 18;
+#if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
 inline constexpr size_t kNumBaseClasses = 51;
+#else
+inline constexpr size_t kNumBaseClasses = 50;
+#endif
 inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
