@@ -23,6 +23,7 @@
 #include "absl/base/attributes.h"
 #include "absl/debugging/stacktrace.h"
 #include "tcmalloc/error_reporting.h"
+#include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
@@ -256,6 +257,12 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   // can access it. It is visible after we return from this allocation path.
   span->Sample(sampled_allocation);
 
+  // The cast to value matches MaybeUnsampleAllocation.
+  StatsCounter::Value allocated_bytes = static_cast<StatsCounter::Value>(
+      AllocatedBytes(sampled_allocation->sampled_stack));
+  state.sampled_objects_size_.Add(allocated_bytes);
+  state.total_sampled_count_.Add(1);
+
   state.peak_heap_tracker().MaybeSaveSample();
 
   TC_ASSERT_EQ(state.pagemap().sizeclass(span->first_page()), 0);
@@ -329,6 +336,12 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   }
 
   TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContainingTagged(ptr)), 0);
+
+  // The cast to Value ensures no funny business happens during the negation if
+  // sizeof(size_t) != sizeof(Value).
+  StatsCounter::Value neg_allocated_bytes = -static_cast<StatsCounter::Value>(
+      AllocatedBytes(sampled_allocation->sampled_stack));
+  state.sampled_objects_size_.Add(neg_allocated_bytes);
 
   const size_t weight = sampled_allocation->sampled_stack.weight;
   const size_t requested_size =
