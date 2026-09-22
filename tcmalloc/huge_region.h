@@ -167,6 +167,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   HugeLength nbacked_;
   HugeLength total_unbacked_{NHugePages(0)};
   HugeLength free_backed_count_;
+  Bitmap<kNumHugePages> unreleasable_hugepages_;
 
   MemoryModifyFunction& unback_;
 };
@@ -294,12 +295,14 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback,
       pages_used_{},
       backed_{},
       nbacked_(NHugePages(0)),
+      unreleasable_hugepages_{},
       unback_(unback) {
   for (int i = 0; i < kNumHugePages; ++i) {
     // These are already 0 but for clarity...
     pages_used_[i] = Length(0);
     backed_[i] = false;
   }
+  unreleasable_hugepages_.SetRange(0, kNumHugePages);
   free_backed_count_ = NHugePages(0);
 
   char name[256];
@@ -336,18 +339,17 @@ inline void HugeRegion::Put(Range r, bool release) {
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
 inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
-  if (desired == Length(0)) return NHugePages(0);
-
   const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
+  if (to_release == Length(0)) return NHugePages(0);
 
-  HugeLength release_target = NHugePages(0);
   bool should_unback[kNumHugePages] = {};
+  HugeLength release_target = NHugePages(0);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const int start = adaptive_release ? kNumHugePages - 1 : 0;
   const int end = adaptive_release ? -1 : kNumHugePages;
   const int step = adaptive_release ? -1 : 1;
 
-  // TODO(b/73749855): Consider optimizing this search by consulting tracker_.
   for (int i = start; i != end; i += step) {
     if (CanUnback(i)) {
       should_unback[i] = true;
@@ -356,6 +358,31 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
 
     if (release_target.in_pages() >= to_release) break;
   }
+#else
+  const HugeLength needed = HLFromPages(to_release);
+  size_t index = adaptive_release ? kNumHugePages : 0, n = 0;
+
+  const auto next_free_range = [adaptive_release, this](
+                                   size_t* index,
+                                   size_t* n) GOOGLE_MALLOC_SECTION {
+    return adaptive_release
+               ? unreleasable_hugepages_.PrevFreeRange(*index, index, n)
+               : unreleasable_hugepages_.NextFreeRange(*index + *n, index, n);
+  };
+
+  while (next_free_range(&index, &n)) {
+    const HugeLength count = std::min(NHugePages(n), needed - release_target);
+    const size_t start =
+        adaptive_release ? (index + n - count.raw_num()) : index;
+    for (size_t i = 0; i < count.raw_num(); ++i) {
+      TC_ASSERT(backed_[start + i]);
+      TC_ASSERT_EQ(pages_used_[start + i], Length(0));
+      should_unback[start + i] = true;
+    }
+    release_target += count;
+    if (release_target == needed) break;
+  }
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   return UnbackHugepages(should_unback);
 }
 
@@ -471,6 +498,7 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
       if (backed_[i]) {
         TC_ASSERT_GT(free_backed_count_, NHugePages(0));
         --free_backed_count_;
+        unreleasable_hugepages_.SetBit(i);
       } else {
         backed_[i] = true;
         should_back = true;
@@ -499,6 +527,7 @@ inline void HugeRegion::Dec(Range r, bool release) {
     if (pages_used_[i] == Length(0)) {
       should_unback[i] = true;
       ++free_backed_count_;
+      unreleasable_hugepages_.ClearBit(i);
     }
     r.p += here;
     r.n -= here;
@@ -542,6 +571,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
     // middle of being unbacked and are not eligible for allocation/release.
     TC_ASSERT_GE(free_backed_count_, hl);
     free_backed_count_ -= hl;
+    unreleasable_hugepages_.SetRange(i, j - i);
 
     if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)).success)) {
       nbacked_ -= hl;
@@ -556,6 +586,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
     } else {
       // Restore the count if unback failed.
       free_backed_count_ += hl;
+      unreleasable_hugepages_.ClearRange(i, j - i);
     }
 
     used = Length(0);
@@ -570,6 +601,8 @@ inline HugeLength HugeRegion::UnbackHugepages(
     i = j;
   }
 
+  TC_ASSERT_EQ(unreleasable_hugepages_.CountBits(),
+               kNumHugePages - free_backed_count_.raw_num());
   return released;
 }
 
