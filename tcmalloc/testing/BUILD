@@ -519,7 +519,6 @@ create_tcmalloc_testsuite(
         "notsan",
     ],
     deps = [
-        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
@@ -528,7 +527,6 @@ create_tcmalloc_testsuite(
         "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
     ],
 )
