@@ -154,6 +154,8 @@ class CentralFreeList {
 
   constexpr CentralFreeList()
       : lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
+        use_all_buckets_for_few_object_spans_(false),
+        cfl_subbucket_prioritization_(CflSubbucketPrioritization::kDisabled),
         size_class_(0),
         object_size_(0),
         objects_per_span_(0),
@@ -161,9 +163,7 @@ class CentralFreeList {
         first_nonempty_index_(0),
 #endif
         pages_per_span_(0),
-        nonempty_(),
-        use_all_buckets_for_few_object_spans_(false),
-        cfl_subbucket_prioritization_(CflSubbucketPrioritization::kDisabled) {
+        nonempty_() {
   }
 
   CentralFreeList(const CentralFreeList&) = delete;
@@ -276,13 +276,15 @@ class CentralFreeList {
     objects_to_spans_[bitwidth - 1].LossyAdd(increase ? 1 : -1);
   }
 
-  // This lock protects all the mutable data members.
   absl::base_internal::SpinLock lock_;
 
-  size_t size_class_;  // My size class (immutable after Init())
-  size_t object_size_;
+  bool use_all_buckets_for_few_object_spans_;
+  CflSubbucketPrioritization cfl_subbucket_prioritization_;
+
+  uint32_t size_class_;  // My size class (immutable after Init())
+  uint32_t object_size_;
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  size_t
+  uint32_t
 #else
   uint32_t
 #endif
@@ -294,7 +296,7 @@ class CentralFreeList {
   // Hint used for parsing through the nonempty_ lists. This prevents us from
   // parsing the lists with an index starting zero, if the lowest possible index
   // is higher than that.
-  size_t first_nonempty_index_;
+  uint8_t first_nonempty_index_;
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   Length pages_per_span_;
 
@@ -403,10 +405,6 @@ class CentralFreeList {
   // If span prioritization is disabled, we add spans to the
   // nonempty_[kNumLists-1] list, leaving other lists unused.
   HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
-
-  bool use_all_buckets_for_few_object_spans_;
-
-  CflSubbucketPrioritization cfl_subbucket_prioritization_;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
