@@ -91,6 +91,18 @@ class MockUnback final : public MemoryModifyFunction {
   State& state_;
 };
 
+// Models HugePageAwareAllocator::UnbackWithoutLock, which releases
+// pageheap_lock around the system call and reacquires it afterwards.
+class MockUnbackWithoutLock final : public MemoryModifyFunction {
+ public:
+  explicit MockUnbackWithoutLock(State& state) : state_(state) {}
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override
+      ABSL_NO_THREAD_SAFETY_ANALYSIS;
+
+ private:
+  State& state_;
+};
+
 class MockSetAnonVmaName final : public MemoryTagFunction {
  public:
   explicit MockSetAnonVmaName(State& state) : state_(state) {}
@@ -375,10 +387,11 @@ struct State {
                  size_t num_instructions)
       : subrelease_unbacked_mode(subrelease_unbacked_mode),
         unback(*this),
+        unback_without_lock(*this),
         collapse(*this),
         set_anon_vma_name(*this),
         filler(Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal,
-               unback, unback, collapse, set_anon_vma_name,
+               unback, unback_without_lock, collapse, set_anon_vma_name,
                subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
@@ -416,7 +429,10 @@ struct State {
   }
 
   ~State() {
-    // Shut down, confirm filler is empty.
+    // Shut down, confirm filler is empty.  Putting a partially released
+    // tracker drops the lock, so stop running subprograms that would mutate
+    // allocs while we iterate it.
+    reentrant_stack.clear();
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     for (auto& [pt, v] : allocs) {
       for (size_t i = 0, n = v.size(); i < n; ++i) {
@@ -495,6 +511,7 @@ struct State {
   absl::flat_hash_set<PageId> released_set;
 
   MockUnback unback;
+  MockUnbackWithoutLock unback_without_lock;
   MockCollapse collapse;
   MockSetAnonVmaName set_anon_vma_name;
   HugePageFiller<PageTracker> filler;
@@ -527,6 +544,17 @@ MemoryModifyStatus MockUnback::operator()(Range r) {
   }
 
   return {.success = true, .error_number = state_.error_number};
+}
+
+MemoryModifyStatus MockUnbackWithoutLock::operator()(Range r) {
+  pageheap_lock.AssertHeld();
+  pageheap_lock.unlock();
+  // MockUnback::operator() calls State::OnLockDropped, which only runs queued
+  // reentrant subprograms when pageheap_lock is not held, so the unlock above
+  // is what lets them interleave here.
+  MemoryModifyStatus ret = state_.unback(r);
+  pageheap_lock.lock();
+  return ret;
 }
 
 void MockSetAnonVmaName::operator()(Range r,
@@ -1322,6 +1350,18 @@ TEST(HugePageFillerTest, ReentrantDeallocateDuringResidencyQuery) {
               TreatTrackers{.enable_collapse = false,
                             .enable_unfiltered_collapse = false,
                             .enable_release_stale_pages = false}},
+             SubreleaseUnbackedMode::kDisabled);
+}
+
+// Freeing the last allocation on a partially released hugepage unbacks the
+// remainder with pageheap_lock dropped, while the tracker is already off the
+// filler's lists.  Another allocation must be able to proceed meanwhile.
+TEST(HugePageFillerTest, ReentrantAllocateDuringUnbackWithoutLock) {
+  FuzzFiller({Allocate{.length = 1, .num_objects = 1},
+              MemoryLimitHitRelease{.desired = 65535},
+              ReentrantSubprogram{
+                  .subprogram = {Allocate{.length = 1, .num_objects = 1}}},
+              Deallocate{.tracker_index = 0, .alloc_index = 0}},
              SubreleaseUnbackedMode::kDisabled);
 }
 
