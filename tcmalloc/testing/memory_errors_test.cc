@@ -1242,7 +1242,7 @@ TEST_F(TcMallocTest, MismatchedDeleteExactRange) {
 
   constexpr hot_cold_t kCold{0};
 
-#if !defined(NDEBUG) || defined(TCMALLOC_INTERNAL_WITH_ASSERTIONS)
+#if !defined(NDEBUG)
   auto [min, max] = tc_globals.sizemap().class_to_size_range(sc);
 
   EXPECT_DEATH(
