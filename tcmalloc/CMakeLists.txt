@@ -915,6 +915,7 @@ tcmalloc_cc_test(
     "absl::core_headers"
     "absl::flat_hash_set"
     "absl::str_format"
+    "absl::string_view"
     "absl::strings"
     "absl::time"
     "fuzztest::fuzztest"

@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -30,6 +31,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -95,6 +97,7 @@ struct FuzzHugePageAwareAllocatorOptions {
 class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
  public:
   AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
+    release_callback_();
     if (!allocate_succeeds_) {
       return AddressRange{nullptr, 0};
     }
@@ -109,15 +112,47 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     return FakeStaticForwarder::ReleasePages(r);
   }
 
+  // Both run with pageheap_lock dropped from TreatHugepageTrackers.
+  // SetAnonVmaName is also called under the lock (HandleFullyFreedTracker,
+  // HugeRegion's constructor), which the callback's IsHeld guard ignores.
+  // CollapsePages is effectively unreachable today: the real PageFlags cannot
+  // classify the fake addresses (nullopt, value_or(true) = hugepage backed), so
+  // no collapse is attempted; the hook is here for when that changes.
+  [[nodiscard]] MemoryModifyStatus CollapsePages(Range r) {
+    release_callback_();
+    return FakeStaticForwarder::CollapsePages(r);
+  }
+  void SetAnonVmaName(Range r, std::optional<absl::string_view> name) {
+    release_callback_();
+    FakeStaticForwarder::SetAnonVmaName(r, name);
+  }
+
+  // Production's ShrinkToUsageLimit releases memory (breaking hugepages) when
+  // over the limit, from inside RefillFiller and Finalize with pageheap_lock
+  // held and, in the former, with a hugepage taken from HugeCache but not yet
+  // contributed to the filler.  shrink_callback_ lets the fuzzer do the same.
+  void ShrinkToUsageLimit(Length n, bool may_have_grown)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    FakeStaticForwarder::ShrinkToUsageLimit(n, may_have_grown);
+    if (shrink_callback_) {
+      shrink_callback_(n);
+    }
+  }
+
   void Back(Range r) {
     ASSERT_TRUE(BackAllocations());
     TC_CHECK_LE(r.in_bytes(), BackSizeThresholdBytes());
+    pending_alloc_ += r.n;
+    release_callback_();
+    pending_alloc_ -= r.n;
     return FakeStaticForwarder::Back(r);
   }
 
   bool allocate_succeeds_ = true;
   Length pending_release_;
+  Length pending_alloc_;
   std::function<void()> release_callback_;
+  std::function<void(Length)> shrink_callback_;
 };
 
 struct State;
@@ -423,11 +458,28 @@ struct SetMadvNoHugepageHugeRegions {
   }
 };
 
+// While pages > 0, every allocation's ShrinkToUsageLimit releases at least
+// that many pages (breaking hugepages) from inside the allocation, as
+// production does when over the memory limit.
+struct SetUsageLimitPressure {
+  uint16_t pages;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetUsageLimitPressure& s) {
+    absl::Format(&sink, "SetUsageLimitPressure{.pages=%v}", s.pages);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i);
 
+// Runs when the allocator next drops pageheap_lock, nested inside the
+// operation that dropped it.  The subprogram always finishes before that
+// operation resumes.
 struct ReentrantSubprogram {
   std::vector<Instruction> subprogram;
 
@@ -442,7 +494,7 @@ using ParamOp = std::variant<
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
     SetReleaseMaxFillerPages, SetEnableReleaseStalePages,
-    SetMadvNoHugepageHugeRegions>;
+    SetMadvNoHugepageHugeRegions, SetUsageLimitPressure>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -526,14 +578,47 @@ struct State {
       reentrant_stack.pop_back();
 
       depth++;
+      interleavings++;
       RunInstructions(ops);
       depth--;
     };
+
+    allocator.forwarder().shrink_callback_ = [this](Length n) {
+      pageheap_lock.AssertHeld();
+      // The nested release may drop pageheap_lock and run further
+      // allocations; those must not nest another release.
+      if (usage_limit_pressure == Length(0) || in_usage_limit_release) {
+        return;
+      }
+      in_usage_limit_release = true;
+      // The allocation in progress is not yet in `allocated`: either a whole
+      // hugepage taken from HugeCache but not yet contributed to the filler
+      // (RefillFiller) or a range already carved out but not yet returned
+      // (Finalize).  Bound it for GatherAndCheckStats.
+      pending_alloc = std::max(n, kPagesPerHugePage);
+      const Length released = allocator.ReleaseAtLeastNPagesBreakingHugepages(
+          usage_limit_pressure, PageReleaseReason::kSoftLimitExceeded);
+      pending_alloc = Length(0);
+      // Account for it the way ReleasePagesBreakingHugepages::Perform does.
+      expected_stats.total += released;
+      expected_stats.soft_limit_exceeded += released;
+      in_usage_limit_release = false;
+    };
   }
+
+  // True if instructions other than the current one may run before it
+  // completes, so postconditions that assume otherwise must be relaxed.
+  bool interleaving_possible() const { return !reentrant_stack.empty(); }
 
   void RunInstructions(absl::Span<const Instruction> instrs) {
     for (const auto& instruction_wrapper : instrs) {
       instruction_wrapper.Perform(*this);
+      if (depth == 0) {
+        // Whichever operation cleared the last pin drained the trackers
+        // parked on fully_freed_trackers_.
+        deallocs_in_flight = 0;
+        GatherAndCheckStats{}.Perform(*this);
+      }
     }
   }
 
@@ -543,7 +628,34 @@ struct State {
   PageReleaseStats expected_stats;
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
+  // Number of reentrant subprograms run and helper steps taken so far.
+  // Postconditions that assume no other instruction ran during an operation
+  // are skipped when this changes during it.
+  size_t interleavings = 0;
   std::string output;
+
+  // Usage-limit release nested in allocations (see SetUsageLimitPressure and
+  // FakeStaticForwarderWithUnback::ShrinkToUsageLimit).  pending_alloc bounds
+  // the memory an in-progress allocation holds that `allocated` does not yet
+  // count: a whole hugepage out of HugeCache but not yet in the filler
+  // (RefillFiller), or a range already carved out but not yet returned
+  // (Finalize; for AllocRawHugepages with slack the tail is already
+  // contributed, so the filler counts exactly n as used).
+  Length usage_limit_pressure;
+  bool in_usage_limit_release = false;
+  Length pending_alloc;
+
+  // Set while TreatHugepageTrackers runs on either thread; a nested or
+  // concurrent TreatTrackers is a no-op (see TreatTrackers::Perform).
+  bool treating_trackers = false;
+
+  // Deallocations performed while an operation on either thread had dropped
+  // pageheap_lock, or while one could start during this Delete.  Each may
+  // empty a tracker that operation has pinned; the filler parks such a tracker
+  // on fully_freed_trackers_ and drops it from its stats, so until the pin is
+  // cleared that hugepage is neither allocated nor free.  Bounds the slack
+  // GatherAndCheckStats allows.
+  size_t deallocs_in_flight = 0;
 };
 
 void ChangeParam::Perform(State& state) const {
@@ -594,6 +706,9 @@ void Alloc::Perform(State& state) const {
   }
   const size_t before_backed =
       before_stats.system_bytes - before_stats.unmapped_bytes;
+  // A usage-limit release nested in this allocation may run other
+  // instructions, which can grow the heap and overwrite last_may_have_grown.
+  const size_t interleavings = state.interleavings;
 
   Span* s = use_aligned ? state.allocator.NewAligned(len, align, alloc_info)
                         : state.allocator.New(len, alloc_info);
@@ -602,7 +717,8 @@ void Alloc::Perform(State& state) const {
   }
   TC_CHECK_GE(s->num_pages().raw_num(), len.raw_num());
 
-  if (!state.allocator.forwarder().last_may_have_grown()) {
+  if (!state.allocator.forwarder().last_may_have_grown() &&
+      state.interleavings == interleavings) {
     BackingStats after_stats;
     {
       PageHeapSpinLockHolder l;
@@ -628,6 +744,12 @@ void Dealloc::Perform(State& state) const {
   SpanInfo span_info = state.allocs.back();
   state.allocs.pop_back();
   state.allocated -= span_info.span->num_pages();
+  if (state.depth > 0 || state.interleaving_possible()) {
+    // An in-flight operation may have pinned this span's tracker, or Delete
+    // itself may drop pageheap_lock (HugeCache::Release shrinking the cache)
+    // and start a queued program that pins the tail before Put reaches it.
+    state.deallocs_in_flight++;
+  }
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   PageHeapSpinLockHolder l;
@@ -678,8 +800,11 @@ void ReleasePagesBreakingHugepages::Perform(State& state) const {
   size_t releasable_bytes;
   PageReleaseStats actual_stats;
   // If we might run other operations when we simulate the lock being
-  // released, we might not get the results we expected.
-  const bool reentrant_was_pending = !state.reentrant_stack.empty();
+  // released, we might not get the results we expected.  Nested in another
+  // operation (depth > 0), releasable_bytes also counts trackers that
+  // operation has pinned and this release cannot select.
+  const bool reentrant_was_pending =
+      state.depth > 0 || state.interleaving_possible();
   {
     PageHeapSpinLockHolder l;
     releasable_bytes = state.allocator.FillerStats().free_bytes +
@@ -735,9 +860,22 @@ void GatherAndCheckStats::Perform(State& state) const {
   }
   uint64_t used_bytes =
       stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
-  TC_CHECK_EQ(used_bytes,
+  // We only get here with pending_release_ != 0 from a reentrant subprogram or
+  // while a concurrent subprogram is parked inside a release.
+  // HugeCache takes a range out of its free stats while it is being released
+  // (used == allocated + pending), whereas HugePageFiller accounts pages in
+  // flight as unmapped (used == allocated), so used_bytes can land anywhere in
+  // between.  pending_alloc is likewise nonzero only while an allocation's
+  // nested usage-limit release is in progress, and deallocs_in_flight only
+  // while a tracker emptied under an in-flight operation may still be parked
+  // (a whole hugepage the filler no longer reports as free).
+  TC_CHECK_GE(used_bytes, state.allocated.in_bytes());
+  TC_CHECK_LE(used_bytes,
               state.allocated.in_bytes() +
-                  state.allocator.forwarder().pending_release_.in_bytes());
+                  state.allocator.forwarder().pending_release_.in_bytes() +
+                  state.allocator.forwarder().pending_alloc_.in_bytes() +
+                  state.pending_alloc.in_bytes() +
+                  state.deallocs_in_flight * kHugePageSize);
 }
 
 void GatherSpanStats::Perform(State& state) const {
@@ -749,7 +887,18 @@ void GatherSpanStats::Perform(State& state) const {
 }
 
 void TreatTrackers::Perform(State& state) const {
+  // TreatHugepageTrackers drops pageheap_lock (SetAnonVmaName, page flags,
+  // collapse), so it is reachable again from the callback.  Production only
+  // ever runs it from the single background thread; a nested run would re-pin
+  // the same trackers and its Restore would clear the outer run's pins, letting
+  // a subsequent Dealloc free a tracker the outer run still references.  Make
+  // the nested or concurrent run a no-op, as the filler fuzzer does.
+  if (state.treating_trackers) {
+    return;
+  }
+  state.treating_trackers = true;
   state.allocator.TreatHugepageTrackers(enable_collapse);
+  state.treating_trackers = false;
 }
 
 void ResetSubreleaseIntervals::Perform(State& state) const {
@@ -833,8 +982,14 @@ void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
             : MadviseRegionsNoHugepage::kDisabled);
 }
 
-void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
-              const std::vector<Instruction>& instructions) {
+void SetUsageLimitPressure::Perform(State& state) const {
+  state.usage_limit_pressure = Length(pages);
+}
+
+// Runs `instructions`, cleans up and returns the allocator's final release
+// stats (which equal the fuzzer's expected_stats).
+PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
+                         const std::vector<Instruction>& instructions) {
   HugePageAwareAllocatorOptions options =
       static_cast<HugePageAwareAllocatorOptions>(fuzz_options);
   // Use kNormalP1 memory tag only if we have more than one partitions.
@@ -877,6 +1032,27 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
 
   TC_CHECK_EQ(state.allocated.in_bytes(), 0);
   TC_CHECK_EQ(final_stats, state.expected_stats);
+
+  // With every span returned, nothing may be left in the filler: every
+  // tracker (including any parked on fully_freed_trackers_ by an operation
+  // that dropped pageheap_lock) must have gone back to HugeCache, unwinding
+  // the donation and abandonment telemetry with it.  A parked tracker is
+  // already outside FillerStats() but shows up as used in stats(), which
+  // GatherAndCheckStats now requires to be exactly zero.
+  state.deallocs_in_flight = 0;
+  GatherAndCheckStats{}.Perform(state);
+  {
+    PageHeapSpinLockHolder l;
+    TC_CHECK_EQ(state.allocator.FillerStats().system_bytes, 0);
+    TC_CHECK_EQ(state.allocator.DonatedHugePages().raw_num(), 0);
+    TC_CHECK_EQ(state.allocator.AbandonedPages().raw_num(), 0);
+  }
+  return final_stats;
+}
+
+void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
+              const std::vector<Instruction>& instructions) {
+  RunHPAA(fuzz_options, instructions);
 }
 
 auto AnyDuration() { return fuzztest::NonNegative<int64_t>(); }
@@ -896,6 +1072,9 @@ auto GetHPAADomain() {
 }
 
 fuzztest::Domain<Instruction> GetInstructionDomain(int depth);
+
+// Maximum nesting of subprograms in generated instruction lists.
+constexpr int kMaxSubprogramDepth = 5;
 
 fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
   auto base_domain = fuzztest::OneOf(
@@ -943,7 +1122,18 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
       fuzztest::Map(
           [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
-          fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()));
+          fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()),
+      // Nonzero pressure makes every allocation release; keep it off half the
+      // time and otherwise at most a hugepage so programs stay allocation
+      // heavy.
+      fuzztest::Map(
+          [](uint16_t pages) {
+            return ChangeParam{SetUsageLimitPressure{.pages = pages}};
+          },
+          fuzztest::OneOf(
+              fuzztest::Just(uint16_t{0}),
+              fuzztest::InRange<uint16_t>(
+                  1, static_cast<uint16_t>(kPagesPerHugePage.raw_num())))));
 
   if (depth <= 0) {
     return fuzztest::OneOf(
@@ -991,7 +1181,7 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
 
 FUZZ_TEST(HugePageAwareAllocatorTest, FuzzHPAA)
     .WithDomains(GetHPAADomain(),
-                 fuzztest::VectorOf(GetInstructionDomain(/*depth=*/5)));
+                 fuzztest::VectorOf(GetInstructionDomain(kMaxSubprogramDepth)));
 
 TEST(HugePageAwareAllocatorTest, FuzzHPAARegression) {
   FuzzHugePageAwareAllocatorOptions options;
@@ -1315,6 +1505,128 @@ TEST(HugePageAwareAllocatorTest, b552964557) {
        Instruction{PrintStats{.everything = true}}});
 }
 
+// A release nested inside an allocation.  Unaligned 64 page allocations pack
+// four to a hugepage through AllocSmall.  With usage-limit pressure set, a 100
+// page allocation that does not fit the first hugepage's 64 page free run makes
+// RefillFiller take a fresh hugepage from HugeCache, and ShrinkToUsageLimit
+// then releases from the filler with that hugepage in limbo.  The release
+// unbacks the first hugepage's free run with pageheap_lock dropped, at which
+// point the reentrant program allocates (needing yet another hugepage, whose
+// own ShrinkToUsageLimit must not nest a second release), checks the stats and
+// frees everything else, emptying the in-flight hugepage.
+TEST(HugePageAwareAllocatorTest, ReleaseNestedInAllocation) {
+  const Alloc quarter{.length = 64,
+                      .num_objects = 1,
+                      .alignment = 1,
+                      .use_aligned = false,
+                      .dense = false};
+  const Alloc refill{.length = 100,
+                     .num_objects = 1,
+                     .alignment = 1,
+                     .use_aligned = false,
+                     .dense = false};
+  const PageReleaseStats stats = RunHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{quarter}, Instruction{quarter}, Instruction{quarter},
+       Instruction{quarter}, Instruction{Dealloc{.index = 0}},
+       Instruction{ChangeParam{SetUsageLimitPressure{.pages = 1}}},
+       Instruction{ChangeParam{ReentrantSubprogram{
+           {Instruction{quarter}, Instruction{GatherAndCheckStats{}},
+            Instruction{Dealloc{.index = 0}}, Instruction{Dealloc{.index = 0}},
+            Instruction{Dealloc{.index = 0}}, Instruction{Dealloc{.index = 0}},
+            Instruction{GatherAndCheckStats{}}}}}},
+       Instruction{refill},
+       Instruction{ChangeParam{SetUsageLimitPressure{.pages = 0}}}});
+  // Only the nested releases use kSoftLimitExceeded; the first of them must
+  // at least have broken up the first hugepage's free run.
+  EXPECT_GE(stats.soft_limit_exceeded.raw_num(), 64);
+}
+
+// An outer release has four donated slack tails in flight when a reentrant
+// subprogram runs a nested ReleasePagesBreakingHugepages that breaks up four
+// partially-allocated filler hugepages.
+TEST(HugePageAwareAllocatorTest, NestedReleasesOverlap) {
+  const Alloc quarter{.length = 64,
+                      .num_objects = 1,
+                      .alignment = 1,
+                      .use_aligned = false,
+                      .dense = false};
+  const Alloc large{.length = 200,
+                    .num_objects = 1,
+                    .alignment = 1,
+                    .use_aligned = false,
+                    .dense = false};
+  const ReleasePagesBreakingHugepages release{.desired = 1024,
+                                              .soft_limit_exceeded = true};
+
+  std::vector<Instruction> instructions;
+  for (int i = 0; i < 4 * 4; ++i) {
+    instructions.push_back(Instruction{quarter});
+  }
+  for (size_t i = 0; i < 4; ++i) {
+    instructions.push_back(Instruction{Dealloc{.index = 4 * i}});
+  }
+  for (int i = 0; i < 4; ++i) {
+    instructions.push_back(Instruction{large});
+  }
+  instructions.push_back(
+      Instruction{ChangeParam{ReentrantSubprogram{{Instruction{release}}}}});
+  instructions.push_back(Instruction{release});
+
+  const PageReleaseStats stats = RunHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      instructions);
+  EXPECT_GE(stats.soft_limit_exceeded.raw_num(), 4 * 64 + 4 * 56);
+}
+
+// TreatHugepageTrackers drops pageheap_lock while naming sampled trackers, so
+// the reentrant program runs from inside it.  HugePageFiller samples every
+// hundredth tracker contributed to it from a fixed seed (the 48th, 68th and
+// 80th here) and the sampled treatment only scans regular (non-donated)
+// trackers, so use 128 page allocations: AllocSmall packs two per hugepage and
+// the k-th hugepage holds allocations 2k-1 and 2k.  The reentrant program,
+// running while the first sampled tracker is being named, frees all three
+// sampled hugepages while the treatment still references them (Dealloc swaps
+// the last allocation into the freed slot, which the index sequence accounts
+// for: after the first four Deallocs the 80th hugepage's allocations sit at
+// indices 94 and 95).  The nested TreatTrackers must be a no-op: it would
+// otherwise re-pin and then, in its Restore, unpin the outer treatment's
+// trackers, so the Deallocs would free them under it.  Trackers come from an
+// arena freelist, so that corrupts state silently rather than tripping ASan;
+// the oracles after the treatment are the signal.
+TEST(HugePageAwareAllocatorTest, ReentrantTreatTrackers) {
+  const Alloc half{.length = 128,
+                   .num_objects = 1,
+                   .alignment = 1,
+                   .use_aligned = false,
+                   .dense = false};
+  std::vector<Instruction> instructions;
+  for (int i = 0; i < 160; ++i) {
+    instructions.push_back(Instruction{half});
+  }
+  instructions.push_back(Instruction{ChangeParam{ReentrantSubprogram{
+      {Instruction{TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}},
+       Instruction{Dealloc{.index = 94}}, Instruction{Dealloc{.index = 95}},
+       Instruction{Dealloc{.index = 134}}, Instruction{Dealloc{.index = 135}},
+       Instruction{Dealloc{.index = 94}}, Instruction{Dealloc{.index = 95}},
+       Instruction{GatherAndCheckStats{}}, Instruction{half}}}}});
+  instructions.push_back(
+      Instruction{TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}});
+  instructions.push_back(Instruction{GatherAndCheckStats{}});
+  instructions.push_back(
+      Instruction{TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}});
+
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      instructions);
+}
+
 TEST(HugePageAwareAllocatorTest, PrinterTest) {
   Alloc a{.length = 15576967129319913528ULL,
           .num_objects = 1,
@@ -1353,6 +1665,8 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
             "SetCollapseSucceeds{.value=true}");
   EXPECT_EQ(absl::StrCat(SetSubreleaseUnbackedHugepages{.value = false}),
             "SetSubreleaseUnbackedHugepages{.value=false}");
+  EXPECT_EQ(absl::StrCat(SetUsageLimitPressure{.pages = 3}),
+            "SetUsageLimitPressure{.pages=3}");
 }
 
 }  // namespace
