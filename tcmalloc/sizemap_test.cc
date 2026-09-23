@@ -85,6 +85,9 @@ TEST(ColdSizeClassTest, ColdFeatureActivation) {
 
 const SizeClasses* const kAllSizeClassesConfigs[] = {
     &kSizeClasses,
+    &kSizeClassesRd00,
+    &kSizeClassesRd01,
+    &kSizeClassesRd02,
     &kExperimentalPow2SizeClasses,
 };
 
@@ -273,7 +276,6 @@ TEST(SizeMapTest, SpecificClassRanges) {
     EXPECT_THAT(size_map.class_to_size_range(5), Pair(49, 64));
 #endif
   }
-
 }
 
 }  // namespace tcmalloc::tcmalloc_internal
