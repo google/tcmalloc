@@ -83,6 +83,7 @@ class ArenaBasedFakeTransferCacheManager {
     if (size_class == kSizeClass) return kNumToMove;
     return 0;
   }
+  constexpr static size_t active_partitions() { return kNormalPartitions; }
   void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
     {
       // Bounce pageheap_lock to verify we can take it.
@@ -109,7 +110,17 @@ class ArenaBasedFakeTransferCacheManager {
 class FakeShardedTransferCacheManager
     : public ArenaBasedFakeTransferCacheManager {
  public:
+  // Deliberately smaller than the base fake's batch size: with a 4096 byte
+  // object and a batch of 8, kMaxCapacityInBatches batches stay under the 1MiB
+  // per-size-class limit, so CapacityNeeded() reports a max capacity that
+  // differs from the initial capacity and the sizing policy is observable.
+  static constexpr size_t kShardedNumToMove = 8;
+
   static void Init() {}
+  constexpr static size_t num_objects_to_move(int size_class) {
+    if (size_class == kSizeClass) return kShardedNumToMove;
+    return 0;
+  }
   static bool UseGenericCache() { return enable_generic_cache_; }
   static void SetGenericCache(bool value) { enable_generic_cache_ = value; }
   static bool EnableCacheForLargeClassesOnly() {

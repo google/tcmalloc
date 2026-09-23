@@ -36,6 +36,9 @@ size_t StaticForwarder::class_to_size(int size_class) {
 size_t StaticForwarder::num_objects_to_move(int size_class) {
   return tc_globals.sizemap().num_objects_to_move(size_class);
 }
+size_t StaticForwarder::active_partitions() {
+  return tc_globals.active_partitions();
+}
 void* StaticForwarder::Alloc(size_t size, std::align_val_t alignment) {
   return tc_globals.arena().Alloc(ArenaAlloc::kTransferCache, size, alignment);
 }
