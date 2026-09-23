@@ -405,11 +405,7 @@ class TransferCache {
   // The following 4 *_misses_ counters are written by every core that misses,
   // so they get a cacheline of their own, apart from both lock_ and the
   // freelist's lock.
-  //
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  alignas(ABSL_CACHELINE_SIZE)
-#endif
-      StatsCounter insert_misses_;
+  alignas(ABSL_CACHELINE_SIZE) StatsCounter insert_misses_;
   StatsCounter remove_misses_;
 
   MissCounts insert_object_misses_;
@@ -417,9 +413,7 @@ class TransferCache {
 
   // CentralFreeList carries its own lock at offset 0, so start it on a fresh
   // cacheline to keep it from false sharing with lock_ or the miss counters.
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   alignas(ABSL_CACHELINE_SIZE)
-#endif
       FreeList freelist_do_not_access_directly_;
 } ABSL_CACHELINE_ALIGNED;
 

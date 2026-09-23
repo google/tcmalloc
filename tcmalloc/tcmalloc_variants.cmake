@@ -82,15 +82,6 @@ function(tcmalloc_cc_library_variants)
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS}
   )
-  tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_legacy_locking
-    ALIAS ${TCMALLOC_ALIAS}_legacy_locking
-    ${EXTRA_ARGS}
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LEGACY_LOCKING
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS}
-  )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_latency_injection
     ALIAS ${TCMALLOC_ALIAS}_latency_injection
     ${EXTRA_ARGS}
@@ -271,14 +262,6 @@ function(tcmalloc_cc_test_variants)
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_MM_VCPU" "GLIBC_TUNABLES=glibc.pthread.rseq=0"
-  )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_legacy_locking
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LEGACY_LOCKING
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_legacy_locking,tcmalloc::common_legacy_locking>
-    ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_latency_injection
     SRCS ${TCMALLOC_SRCS}
