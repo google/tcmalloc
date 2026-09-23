@@ -733,7 +733,9 @@ class HugePageFiller {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks r as usable by new allocations into *pt; returns pt if that hugepage
-  // is now empty (nullptr otherwise.)
+  // is now empty and the caller now owns it (nullptr otherwise).  An empty
+  // hugepage that a concurrent ReleasePages or TreatHugepageTrackers still
+  // refers to is retained and surfaced later by FetchFullyFreedTracker.
   //
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, Range{p, n}} was the result of a previous TryGet.
@@ -772,11 +774,21 @@ class HugePageFiller {
     return n_used_released_[AccessDensityPrediction::kDense] +
            n_used_released_[AccessDensityPrediction::kSparse];
   }
+  // Hugepages accounted as partially released: those on
+  // regular_alloc_partial_released_ plus those whose release is in flight.
+  HugeLength PartialReleasedHugePages(AccessDensityPrediction type) const {
+    return (type == AccessDensityPrediction::kSparse
+                ? regular_alloc_partial_released_.sparse.size()
+                : regular_alloc_partial_released_.dense.size()) +
+           n_in_flight_release_[type];
+  }
   Length used_pages_in_partial_released() const {
-    TC_ASSERT_LE(n_used_partial_released_[AccessDensityPrediction::kSparse],
-                 regular_alloc_partial_released_.sparse.size().in_pages());
-    TC_ASSERT_LE(n_used_partial_released_[AccessDensityPrediction::kDense],
-                 regular_alloc_partial_released_.dense.size().in_pages());
+    TC_ASSERT_LE(
+        n_used_partial_released_[AccessDensityPrediction::kSparse],
+        PartialReleasedHugePages(AccessDensityPrediction::kSparse).in_pages());
+    TC_ASSERT_LE(
+        n_used_partial_released_[AccessDensityPrediction::kDense],
+        PartialReleasedHugePages(AccessDensityPrediction::kDense).in_pages());
     return n_used_partial_released_[AccessDensityPrediction::kDense] +
            n_used_partial_released_[AccessDensityPrediction::kSparse];
   }
@@ -812,6 +824,9 @@ class HugePageFiller {
   // be greater than the desired number of pages.
   // Returns the number of pages actually released. The releasing target can be
   // reduced by skip subrelease which is disabled if all intervals are zero.
+  //
+  // Drops and reacquires pageheap_lock while unbacking memory.  Callers must
+  // drain FetchFullyFreedTracker afterwards.
   static constexpr double kPartialAllocPagesRelease = 0.1;
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals,
                       bool release_partial_alloc_pages, bool hit_limit)
@@ -969,6 +984,15 @@ class HugePageFiller {
   // deleted, once the collapse operation completes.
   TList<TrackerType> fully_freed_trackers_;
 
+  // Number of trackers whose free pages ReleasePages is releasing to the OS
+  // with pageheap_lock dropped (see ReleaseCandidates).  Such trackers are off
+  // every list above so that nothing else can allocate from or otherwise
+  // touch them, and are invisible to per-list stats (like
+  // fully_freed_trackers_) until the release completes.  They are accounted as
+  // partially released hugepages (n_partial_released and
+  // n_used_partial_released_).
+  HugeLength n_in_flight_release_[AccessDensityPrediction::kPredictionCounts];
+
   HugePageTreatmentStats treatment_stats_ ABSL_GUARDED_BY(pageheap_lock);
 
   // n_used_released_ contains the number of pages in huge pages that are not
@@ -978,7 +1002,8 @@ class HugePageFiller {
 
   HugeLength n_was_released_[AccessDensityPrediction::kPredictionCounts];
   // n_used_partial_released_ is the number of pages which have been allocated
-  // from the hugepages in the set regular_alloc_partial_released.
+  // from the hugepages in the set regular_alloc_partial_released and from the
+  // hugepages whose release is in flight.
   Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
@@ -1053,7 +1078,9 @@ class HugePageFiller {
                               size_t tracker_start);
 
   // Release desired pages from the page trackers in candidates.  Returns the
-  // number of pages released.
+  // number of pages released.  Drops and reacquires pageheap_lock while
+  // unbacking; every candidate must be pinned with
+  // HugePageTreatmentType::kRelease and is unpinned on return.
   Length ReleaseCandidates(absl::Span<TrackerType* absl_nonnull> candidates,
                            Length target)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -1351,7 +1378,10 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     pages_allocated_[AccessDensityPrediction::kSparse] -= r.n;
   }
 
-  if (ABSL_PREDICT_FALSE(pt->fully_freed())) {
+  // If ReleasePages is unbacking pt's free pages with pageheap_lock dropped,
+  // pt stays in flight even if it is now empty.  ReleaseCandidates retires it
+  // once the unback completes.
+  if (ABSL_PREDICT_FALSE(pt->fully_freed() && !pt->BeingReleased())) {
     return HandleFullyFreedTracker(pt, now);
   }
   AddToFillerList(pt);
@@ -1364,6 +1394,7 @@ inline TrackerType* absl_nullable
 HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
                                                      int64_t now) {
   TC_ASSERT_EQ(pt->nallocs(), 0);
+  TC_ASSERT(!pt->BeingReleased());
   --size_;
   if (pt->released()) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -1401,6 +1432,11 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     }
   }
 
+  RecordLifetime(pt, now);
+  if (pt->GetTagState().sampled_for_tagging) {
+    // Set the default region name if the tracked was sampled.
+    pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
+  }
   if (ABSL_PREDICT_FALSE(pt->DontFreeTracker())) {
     // A concurrent operation that dropped pageheap_lock still holds a pointer
     // to pt.  Park it until the last pin is cleared (FetchFullyFreedTracker).
@@ -1408,12 +1444,7 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     UpdateFillerStatsTracker(now);
     return nullptr;
   }
-  RecordLifetime(pt, now);
   UpdateFillerStatsTracker(now);
-  if (pt->GetTagState().sampled_for_tagging) {
-    // Set the default region name if the tracked was sampled.
-    pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
-  }
   return pt;
 }
 
@@ -1458,13 +1489,21 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
     // with the release, and we might collapse the pages that have been recently
     // released.
     if (pt.BeingCollapsed()) return;
+    // If the tracker is already a candidate of another ReleasePages call (which
+    // dropped pageheap_lock), leave it to that call.
+    if (pt.DontFreeTracker(HugePageTreatmentType::kRelease)) return;
 
+    // Candidates are pinned so that a concurrent Put that empties them cannot
+    // free them while ReleaseCandidates has pageheap_lock dropped.
+    // ReleaseCandidates unpins them.
+    //
     // If we have few candidates, we can avoid creating a heap.
     //
     // In ReleaseCandidates(), we unconditionally sort the list and linearly
     // iterate through it--rather than pop_heap repeatedly--so we only need the
     // heap for creating a bounded-size priority queue.
     if (current_candidates < candidates.size()) {
+      pt.SetDontFreeTracker(HugePageTreatmentType::kRelease);
       candidates[current_candidates] = &pt;
       current_candidates++;
 
@@ -1483,6 +1522,9 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
 
     std::pop_heap(candidates.begin(), candidates.begin() + current_candidates,
                   CompareForSubrelease);
+    candidates[current_candidates - 1]->ClearDontFreeTracker(
+        HugePageTreatmentType::kRelease);
+    pt.SetDontFreeTracker(HugePageTreatmentType::kRelease);
     candidates[current_candidates - 1] = &pt;
     std::push_heap(candidates.begin(), candidates.begin() + current_candidates,
                    CompareForSubrelease);
@@ -1498,48 +1540,74 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     absl::Span<TrackerType*> candidates, Length target) {
   absl::c_sort(candidates, CompareForSubrelease);
 
+  // Snapshot before dropping pageheap_lock; a concurrent ReleasePages may
+  // change it.
+  const bool limit_hit = subrelease_stats_.limit_hit();
   Length total_released;
   HugeLength total_broken = NHugePages(0);
-#ifndef NDEBUG
-  Length last;
-#endif
-  for (int i = 0; i < candidates.size() && total_released < target; i++) {
-    TrackerType* best = candidates[i];
+  for (TrackerType* best : candidates) {
     TC_ASSERT_NE(best, nullptr);
+    TC_ASSERT(best->DontFreeTracker(HugePageTreatmentType::kRelease));
 
-    // Verify that we have pages that we can release.
-    TC_ASSERT_NE(best->free_pages(), Length(0));
-    // TODO(b/73749855):  This assertion may need to be relaxed if we release
-    // the pageheap_lock here.  A candidate could change state with another
-    // thread while we have the lock released for another candidate.
-    TC_ASSERT_GT(best->free_pages(), best->released_pages());
-
-#ifndef NDEBUG
-    // Double check that our sorting criteria were applied correctly.
-    TC_ASSERT_LE(last, best->used_pages());
-    last = best->used_pages();
-#endif
+    // We drop pageheap_lock while unbacking, so a candidate may have changed
+    // state (or been emptied and parked on fully_freed_trackers_) while an
+    // earlier candidate was processed.  Re-validate it; candidates we do not
+    // need are just unpinned.
+    if (total_released >= target || best->fully_freed() ||
+        best->BeingCollapsed() ||
+        best->free_pages() <= best->released_pages()) {
+      best->ClearDontFreeTracker(HugePageTreatmentType::kRelease);
+      continue;
+    }
 
     if (best->unbroken()) {
       ++total_broken;
     }
+    // Take best off the filler lists so that no other thread can allocate from
+    // it (or collapse it, or move it between lists) while we unback its free
+    // pages with pageheap_lock dropped.  Account for the pages we are about to
+    // unback up front, as HugeCache does, so that free_pages() does not report
+    // memory the kernel has already reclaimed; correct for runs that failed to
+    // unback (or pages freed and picked up meanwhile) afterwards.
     RemoveFromFillerList(best);
-    Length ret = best->ReleaseFree(unback_);
+    best->SetBeingReleased(true);
+    AddToFillerList(best);
+    const Length to_release = best->free_pages() - best->released_pages();
+    unmapped_ += to_release;
+
+    Length ret = best->ReleaseFree(unback_without_lock_);
+
+    RemoveFromFillerList(best);
+    best->SetBeingReleased(false);
     unmapped_ += ret;
+    unmapped_ -= to_release;
     TC_ASSERT_GE(unmapped_, best->released_pages());
     total_released += ret;
-    AddToFillerList(best);
-    // If the candidate we just released from previously had was_released set,
-    // clear it. was_released is tracked only for pages that aren't in
-    // released state.
-    if (best->was_released() && best->released()) {
-      best->set_was_released(/*status=*/false);
-      if (best->HasDenseSpans()) {
-        --n_was_released_[AccessDensityPrediction::kDense];
-      } else {
-        --n_was_released_[AccessDensityPrediction::kSparse];
+
+    if (best->fully_freed()) {
+      // A concurrent Put returned the last allocation while we were unbacking
+      // and deferred retiring best to us.  This may drop pageheap_lock again
+      // to unback the remainder; best is off every list, so nothing else can
+      // reach it.  best is still pinned, so it is parked on
+      // fully_freed_trackers_ for the caller to drain.
+      [[maybe_unused]] TrackerType* freed =
+          HandleFullyFreedTracker(best, clock_.now());
+      TC_ASSERT_EQ(freed, nullptr);
+    } else {
+      AddToFillerList(best);
+      // If the candidate we just released from previously had was_released
+      // set, clear it. was_released is tracked only for pages that aren't in
+      // released state.
+      if (best->was_released() && best->released()) {
+        best->set_was_released(/*status=*/false);
+        if (best->HasDenseSpans()) {
+          --n_was_released_[AccessDensityPrediction::kDense];
+        } else {
+          --n_was_released_[AccessDensityPrediction::kSparse];
+        }
       }
     }
+    best->ClearDontFreeTracker(HugePageTreatmentType::kRelease);
   }
 
   subrelease_stats_.num_pages_subreleased += total_released;
@@ -1547,7 +1615,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 
   // Keep separate stats if the on going release is triggered by reaching
   // tcmalloc limit
-  if (subrelease_stats_.limit_hit()) {
+  if (limit_hit) {
     subrelease_stats_.total_pages_subreleased_due_to_limit += total_released;
     subrelease_stats_.total_hugepages_broken_due_to_limit += total_broken;
   }
@@ -1556,8 +1624,8 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::FreePagesInPartialAllocs() const {
-  return regular_alloc_partial_released_.sparse.size().in_pages() +
-         regular_alloc_partial_released_.dense.size().in_pages() +
+  return PartialReleasedHugePages(AccessDensityPrediction::kSparse).in_pages() +
+         PartialReleasedHugePages(AccessDensityPrediction::kDense).in_pages() +
          regular_alloc_released_.sparse.size().in_pages() +
          regular_alloc_released_.dense.size().in_pages() -
          used_pages_in_any_subreleased() - unmapped_pages();
@@ -1788,9 +1856,9 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
       regular_alloc_released_.dense.size();
 
   stats.n_partial_released[AccessDensityPrediction::kSparse] =
-      regular_alloc_partial_released_.sparse.size();
+      PartialReleasedHugePages(AccessDensityPrediction::kSparse);
   stats.n_partial_released[AccessDensityPrediction::kDense] =
-      regular_alloc_partial_released_.dense.size();
+      PartialReleasedHugePages(AccessDensityPrediction::kDense);
 
   stats.n_released[AccessDensityPrediction::kSparse] =
       stats.n_fully_released[AccessDensityPrediction::kSparse] +
@@ -1961,6 +2029,10 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
     PageTracker* tracker) {
+  // Trackers that are empty or claimed by an in-flight ReleasePages are off
+  // the filler lists; the caller must skip them.
+  TC_ASSERT(!tracker->fully_freed());
+  TC_ASSERT(!tracker->BeingReleased());
   RemoveFromFillerList(tracker);
   Length released_length = tracker->ReleaseFree(unback_);
   subrelease_stats_.total_pages_subreleased += released_length;
@@ -1972,6 +2044,8 @@ inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
+  TC_ASSERT(!pt->fully_freed());
+  TC_ASSERT(!pt->BeingReleased());
   if (pt->unbroken()) return;
   RemoveFromFillerList(pt);
   pt->set_unbroken(/*status=*/true);
@@ -1981,6 +2055,8 @@ inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::HandleUnbackedHugePage(
     PageTracker* tracker, const PageBitmap& unbacked) {
+  TC_ASSERT(!tracker->fully_freed());
+  TC_ASSERT(!tracker->BeingReleased());
   RemoveFromFillerList(tracker);
   Length unmapped_length = tracker->MarkSubreleased(unbacked);
   subrelease_stats_.total_pages_subreleased += unmapped_length;
@@ -2502,6 +2578,17 @@ inline size_t HugePageFiller<TrackerType>::ListFor(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
+  if (pt->BeingReleased()) {
+    const AccessDensityPrediction type = pt->HasDenseSpans()
+                                             ? AccessDensityPrediction::kDense
+                                             : AccessDensityPrediction::kSparse;
+    TC_ASSERT_GT(n_in_flight_release_[type], NHugePages(0));
+    --n_in_flight_release_[type];
+    TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
+    n_used_partial_released_[type] -= pt->used_pages();
+    return;
+  }
+
   if (pt->donated()) {
     Length longest = pt->longest_free_range();
     TC_ASSERT_LT(longest, kPagesPerHugePage);
@@ -2532,19 +2619,31 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
 template <class TrackerType>
 inline TrackerType* absl_nullable
 HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
-  if (fully_freed_trackers_.empty()) {
-    return nullptr;
+  // A tracker stays pinned while a treatment or release that dropped
+  // pageheap_lock still holds a pointer to it; whoever clears the last pin
+  // will drain it.
+  for (TrackerType* pt : fully_freed_trackers_) {
+    if (!pt->DontFreeTracker()) {
+      fully_freed_trackers_.remove(pt);
+      return pt;
+    }
   }
-
-  TrackerType* pt = fully_freed_trackers_.first();
-  fully_freed_trackers_.remove(pt);
-  return pt;
+  return nullptr;
 }
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
   TC_ASSERT_LE(longest, kPagesPerHugePage);
+
+  if (pt->BeingReleased()) {
+    const AccessDensityPrediction type = pt->HasDenseSpans()
+                                             ? AccessDensityPrediction::kDense
+                                             : AccessDensityPrediction::kSparse;
+    ++n_in_flight_release_[type];
+    n_used_partial_released_[type] += pt->used_pages();
+    return;
+  }
 
   if (longest == kPagesPerHugePage) {
     TC_ASSERT(pt->empty());

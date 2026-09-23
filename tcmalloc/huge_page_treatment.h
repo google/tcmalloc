@@ -489,7 +489,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       PageTracker* tracker = residency_states_[i].tracker;
       TC_ASSERT_NE(tracker, nullptr);
       tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
-      if (tracker->fully_freed()) {
+      // The tracker may have been emptied, or claimed by a concurrent
+      // ReleasePages that dropped pageheap_lock, while we did not hold the
+      // lock.  Either way it is off the filler lists; leave it alone.
+      if (tracker->fully_freed() || tracker->BeingReleased()) {
         continue;
       }
       tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
