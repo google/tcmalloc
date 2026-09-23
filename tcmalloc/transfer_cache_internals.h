@@ -53,27 +53,27 @@ static constexpr int kInitialCapacityInBatches = 16;
 // Records counters for different types of misses.
 class MissCounts {
  public:
-  void Inc(size_t value) {
+  void Inc(uint32_t value) {
     total_.store(total_.load(std::memory_order_relaxed) + value,
                  std::memory_order_relaxed);
   }
 
-  size_t Total() const { return total_.load(std::memory_order_relaxed); }
+  uint32_t Total() const { return total_.load(std::memory_order_relaxed); }
 
   // Returns the number of misses since the last commit call.
-  size_t Commit() {
-    size_t t = total_.load(std::memory_order_relaxed);
-    size_t c = total_committed_.exchange(t, std::memory_order_relaxed);
+  uint32_t Commit() {
+    uint32_t t = total_.load(std::memory_order_relaxed);
+    uint32_t c = total_committed_.exchange(t, std::memory_order_relaxed);
     if (ABSL_PREDICT_TRUE(t > c)) {
       return t - c;
     }
-    // In case of a size_t overflow, we wrap around to 0.
+    // In case of a uint32_t overflow, we wrap around to 0.
     return 0;
   }
 
  private:
-  std::atomic<size_t> total_ = {0};
-  std::atomic<size_t> total_committed_ = {0};
+  std::atomic<uint32_t> total_ = {0};
+  std::atomic<uint32_t> total_committed_ = {0};
 };
 
 // TransferCache is used to cache transfers of
