@@ -100,10 +100,9 @@ class PageTracker : public TList<PageTracker>::Elem {
                       2 * ABSL_CACHELINE_SIZE,
                   "location_ should fall within the first two cachelines of "
                   "PageTracker.");
-    static_assert(
-        offsetof(PageTracker, donated_) + sizeof(donated_) <=
-            2 * ABSL_CACHELINE_SIZE,
-        "donated_ should fall within the first two cachelines of PageTracker.");
+    static_assert(offsetof(PageTracker, alloctime_) <= 2 * ABSL_CACHELINE_SIZE,
+                  "alloctime_ should fall within the first two cachelines of "
+                  "PageTracker.");
     static_assert(
         offsetof(PageTracker, tracker_) + sizeof(tracker_) <=
             2 * ABSL_CACHELINE_SIZE,
@@ -341,23 +340,13 @@ class PageTracker : public TList<PageTracker>::Elem {
   // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
   uint16_t released_count_;
   uint16_t abandoned_count_;
-  bool donated_;
-  bool was_donated_;
-  bool was_released_;
-  // Tracks whether we accounted for the abandoned state of the page. When a
-  // large allocation is deallocated but the huge page can not be reassembled,
-  // we measure the number of pages abandoned to the filler. To make sure that
-  // we do not double-count any future deallocations, we maintain a state and
-  // reset it once we measure those pages in abandoned_count_.
-  bool abandoned_;
-  bool unbroken_;
-  bool has_dense_spans_ = false;
-  // This field is used to avoid freeing this tracker prematurely. When this
-  // is set, any maintenance operation (e.g. collapse) that drops
-  // pageheap_lock might manipulate the tracker state without holding the
-  // lock. When all the pages on the tracked hugepage are freed, this field
-  // is checked to ensure that the tracker is not freed right away.
   uint8_t dont_free_tracker_mask_ = 0;
+  bool donated_ : 1;
+  bool was_donated_ : 1;
+  bool was_released_ : 1;
+  bool abandoned_ : 1;
+  bool unbroken_ : 1;
+  bool has_dense_spans_ : 1;
   double alloctime_;
   double last_page_allocation_time_ = 0;
 
