@@ -79,6 +79,7 @@ namespace {
 
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 using testing::HasSubstr;
+using AllocationState = PageAllocatorInterface::AllocationState;
 
 class HugePageAwareAllocatorTest
     : public ::testing::TestWithParam<std::tuple<HugeRegionUsageOption, bool>> {
@@ -195,51 +196,40 @@ class HugePageAwareAllocatorTest
     return stats.free_bytes;
   }
 
-  Span* AllocatorNew(Length n, SpanAllocInfo span_alloc_info) {
-    Span* s = allocator_->New(n, span_alloc_info);
-    uintptr_t start = reinterpret_cast<uintptr_t>(s->start_address());
+  AllocationState AllocatorNew(Length n, SpanAllocInfo span_alloc_info) {
+    AllocationState s = allocator_->New(n, span_alloc_info);
+    uintptr_t start = reinterpret_cast<uintptr_t>(s.r.start_addr());
     allocator_->forwarder().RecordAllocation(
         reinterpret_cast<uintptr_t>(start));
     return s;
   }
 
-  void AllocatorDelete(Span* s, size_t objects_per_span) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  void AllocatorDelete(AllocationState s, size_t objects_per_span) {
+    uintptr_t start = reinterpret_cast<uintptr_t>(s.r.start_addr());
+    allocator_->forwarder().RecordDeallocation(start);
     PageHeapSpinLockHolder l;
     allocator_->Delete(s, {.objects_per_span = objects_per_span,
                            .density = AccessDensityPrediction::kSparse});
-#else
-    uintptr_t start = reinterpret_cast<uintptr_t>(s->start_address());
-    allocator_->forwarder().RecordDeallocation(start);
-    PageAllocatorInterface::AllocationState a{
-        Range(s->first_page(), s->num_pages()),
-        s->donated(),
-    };
-    allocator_->forwarder().DeleteSpan(s);
-    PageHeapSpinLockHolder l;
-    allocator_->Delete(a, {.objects_per_span = objects_per_span,
-                           .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
-  Span* New(Length n, SpanAllocInfo span_alloc_info) {
+  AllocationState New(Length n, SpanAllocInfo span_alloc_info) {
     absl::base_internal::SpinLockHolder h(lock_);
-    Span* span = AllocatorNew(n, span_alloc_info);
-    TC_CHECK_NE(span, nullptr);
-    EXPECT_GE(span->num_pages(), n);
+    AllocationState span = AllocatorNew(n, span_alloc_info);
+    TC_CHECK(span);
+    EXPECT_GE(span.r.n, n);
     const size_t id = next_id_++;
     total_ += n;
     CheckStats();
     // and distinct spans...
-    TC_CHECK(ids_.insert({span, id}).second);
+    TC_CHECK(ids_.insert({span.r.start_addr(), id}).second);
     return span;
   }
 
-  void Delete(Span* span, size_t objects_per_span) {
-    Length n = span->num_pages();
+  void Delete(AllocationState span, size_t objects_per_span) {
+    Length n = span.r.n;
     {
       absl::base_internal::SpinLockHolder h(lock_);
-      auto i = ids_.find(span);
+      auto i = ids_.find(span.r.start_addr());
       TC_CHECK(i != ids_.end());
       const size_t id = i->second;
       ids_.erase(i);
@@ -311,13 +301,13 @@ class HugePageAwareAllocatorTest
   ExtraRegionFactory* extra_ = nullptr;
   AddressRegionFactory* before_ = nullptr;
   absl::base_internal::SpinLock lock_;
-  absl::flat_hash_map<Span*, size_t> ids_;
+  absl::flat_hash_map<void*, size_t> ids_;
   size_t next_id_{0};
   Length total_;
 };
 
 struct SpanInfo {
-  Span* span;
+  AllocationState span;
   SpanAllocInfo span_alloc_info;
 };
 
@@ -325,7 +315,7 @@ struct SpanInfo {
 // b/63301358, reproduced in CL/161345659 and (partially) fixed in CL/161305971.
 TEST_P(HugePageAwareAllocatorTest, JustUnderMultipleOfHugepages) {
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  std::vector<Span*> big_allocs, small_allocs;
+  std::vector<AllocationState> big_allocs, small_allocs;
   // Trigger creation of a hugepage with more than one allocation and plenty of
   // free space.
   small_allocs.push_back(New(Length(1), kSpanInfo));
@@ -340,14 +330,14 @@ TEST_P(HugePageAwareAllocatorTest, JustUnderMultipleOfHugepages) {
     big_allocs.push_back(New(n, kSpanInfo));
     small_allocs.push_back(New(Length(1), kSpanInfo));
   }
-  for (auto* span : big_allocs) {
+  for (auto span : big_allocs) {
     Delete(span, kSpanInfo.objects_per_span);
   }
   // We should have one hugepage that's full of small allocations and a bunch
   // of empty hugepages. The HugeCache will keep some of the empty hugepages
   // backed so free space should drop to a small multiple of the huge page size.
   EXPECT_LE(GetFreeBytes(), 20 * kHugePageSize);
-  for (auto* span : small_allocs) {
+  for (auto span : small_allocs) {
     Delete(span, kSpanInfo.objects_per_span);
   }
 }
@@ -401,11 +391,11 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
   allocator_->forwarder().set_filler_skip_subrelease_long_interval(
       absl::ZeroDuration());
 
-  std::vector<Span*> live, dead;
+  std::vector<AllocationState> live, dead;
   static const size_t N = kPagesPerHugePage.raw_num() * 32;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   for (int i = 0; i < N; ++i) {
-    Span* span = New(Length(1), kSpanInfo);
+    AllocationState span = New(Length(1), kSpanInfo);
     ((i % 2 == 0) ? live : dead).push_back(span);
   }
 
@@ -429,11 +419,11 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
 }
 
 TEST_P(HugePageAwareAllocatorTest, HardReleaseSmall) {
-  std::vector<Span*> live, dead;
+  std::vector<AllocationState> live, dead;
   static const size_t N = kPagesPerHugePage.raw_num() * 32;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   for (int i = 0; i < N; ++i) {
-    Span* span = New(Length(1), kSpanInfo);
+    AllocationState span = New(Length(1), kSpanInfo);
     ((i % 2 == 0) ? live : dead).push_back(span);
   }
 
@@ -482,8 +472,8 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
     region_stats = allocator_->region().stats();
   };
 
-  std::vector<Span*> small_spans;
-  std::vector<Span*> large_spans;
+  std::vector<AllocationState> small_spans;
+  std::vector<AllocationState> large_spans;
   const Length small_binary_size = HLFromBytes(64 * 1024 * 1024).in_pages();
   Length expected_abandoned;
   Length expected_slack;
@@ -493,8 +483,8 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
   // deallocate those large objects) exceed the 64MB threshold. We place small
   // allocations on the donated pages so that the hugepages aren't released.
   while (true) {
-    Span* large = New(kLargeSize, kSpanInfo);
-    Span* small = New(kSmallSize, kSpanInfo);
+    AllocationState large = New(kLargeSize, kSpanInfo);
+    AllocationState small = New(kSmallSize, kSpanInfo);
     large_spans.emplace_back(large);
     small_spans.emplace_back(small);
     ++huge_pages;
@@ -542,8 +532,8 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
   static constexpr Length kLargeSize2 = kLargeSize + Length(1);
 
   for (int i = 0; i < 100; ++i) {
-    Span* large = New(kLargeSize2, kSpanInfo);
-    Span* small = New(kSmallSize2, kSpanInfo);
+    AllocationState large = New(kLargeSize2, kSpanInfo);
+    AllocationState small = New(kSmallSize2, kSpanInfo);
     large_spans.emplace_back(large);
     small_spans.emplace_back(small);
     RefreshStats();
@@ -649,8 +639,8 @@ TEST_P(HugePageAwareAllocatorTest, ReleaseFromHugeRegionWhenCacheSatisfies) {
     region_stats = allocator_->region().stats();
   };
 
-  std::vector<Span*> small_spans;
-  std::vector<Span*> large_spans;
+  std::vector<AllocationState> small_spans;
+  std::vector<AllocationState> large_spans;
   const Length small_binary_size = HLFromBytes(64 * 1024 * 1024).in_pages();
   Length expected_abandoned;
   Length expected_slack;
@@ -658,8 +648,8 @@ TEST_P(HugePageAwareAllocatorTest, ReleaseFromHugeRegionWhenCacheSatisfies) {
   // 1. Accumulate abandoned pages to exceed the 64MB threshold to trigger
   // HugeRegion.
   while (true) {
-    Span* large = New(kLargeSize, kSpanInfo);
-    Span* small = New(kSmallSize, kSpanInfo);
+    AllocationState large = New(kLargeSize, kSpanInfo);
+    AllocationState small = New(kSmallSize, kSpanInfo);
     large_spans.emplace_back(large);
     small_spans.emplace_back(small);
     expected_abandoned += kLargeSize;
@@ -680,8 +670,8 @@ TEST_P(HugePageAwareAllocatorTest, ReleaseFromHugeRegionWhenCacheSatisfies) {
   static constexpr Length kLargeSize2 = kLargeSize + Length(1);
 
   for (int i = 0; i < 100; ++i) {
-    Span* large = New(kLargeSize2, kSpanInfo);
-    Span* small = New(kSmallSize2, kSpanInfo);
+    AllocationState large = New(kLargeSize2, kSpanInfo);
+    AllocationState small = New(kSmallSize2, kSpanInfo);
     large_spans.emplace_back(large);
     small_spans.emplace_back(small);
   }
@@ -697,7 +687,7 @@ TEST_P(HugePageAwareAllocatorTest, ReleaseFromHugeRegionWhenCacheSatisfies) {
   ASSERT_GT(backed_bytes, 0);
 
   // 3. Populate HugeCache with 1 hugepage.
-  Span* cache_span = New(kPagesPerHugePage, kSpanInfo);
+  AllocationState cache_span = New(kPagesPerHugePage, kSpanInfo);
   Delete(cache_span, kSpanInfo.objects_per_span);
 
   {
@@ -739,7 +729,7 @@ TEST_P(HugePageAwareAllocatorTest, DonatedHugePages) {
   static constexpr Length kSmallSize = Length(1);
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
 
-  Span* large1 = New(kLargeSize, kSpanInfo);
+  AllocationState large1 = New(kLargeSize, kSpanInfo);
   Length slack;
   HugeLength donated_huge_pages;
   Length abandoned_pages;
@@ -761,7 +751,7 @@ TEST_P(HugePageAwareAllocatorTest, DonatedHugePages) {
 
   // Make a small allocation and then free the large allocation.  Slack should
   // fall, but we've kept alive our donation to the filler.
-  Span* small = New(kSmallSize, kSpanInfo);
+  AllocationState small = New(kSmallSize, kSpanInfo);
   Delete(large1, kSpanInfo.objects_per_span);
 
   RefreshStats();
@@ -778,7 +768,7 @@ TEST_P(HugePageAwareAllocatorTest, DonatedHugePages) {
 
   // Make another large allocation.  The number of donated huge pages should
   // continue to increase.
-  Span* large2 = New(kLargeSize, kSpanInfo);
+  AllocationState large2 = New(kLargeSize, kSpanInfo);
 
   RefreshStats();
 
@@ -830,8 +820,8 @@ TEST_P(HugePageAwareAllocatorTest, SmallDonations) {
   static constexpr Length kSmallSize2 = kSlack;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
 
-  Span* large1 = New(kLargeSize, kSpanInfo);
-  Span* large2 = New(kLargeSize, kSpanInfo);
+  AllocationState large1 = New(kLargeSize, kSpanInfo);
+  AllocationState large2 = New(kLargeSize, kSpanInfo);
 
   Length slack;
   HugeLength donated_huge_pages;
@@ -848,34 +838,31 @@ TEST_P(HugePageAwareAllocatorTest, SmallDonations) {
   EXPECT_EQ(slack, 2 * kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_TRUE(large1->donated());
-  EXPECT_TRUE(large2->donated());
+  EXPECT_TRUE(large1.donated);
+  EXPECT_TRUE(large2.donated);
   // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works correctly
   // for these stats.
 
   // Create two small allocations.  They will be placed on different huge pages
   // since kSmallSize+kSmallSize2 > kSlack for any single huge page.
-  Span* small1 = New(kSmallSize, kSpanInfo);
-  Span* small2 = New(kSmallSize2, kSpanInfo);
+  AllocationState small1 = New(kSmallSize, kSpanInfo);
+  AllocationState small2 = New(kSmallSize2, kSpanInfo);
 
   RefreshStats();
   EXPECT_EQ(slack, 2 * kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_FALSE(small1->donated());
-  EXPECT_FALSE(small2->donated());
+  EXPECT_FALSE(small1.donated);
+  EXPECT_FALSE(small2.donated);
 
   // To simplify the rest of the test, swap small1/small2 as required such that
   // small1 is on the same huge page as large1, etc.  This allows us to release
   // 2 allocations from the same huge page.
-  if (HugePageContaining(large1->first_page()) !=
-      HugePageContaining(small1->first_page())) {
+  if (HugePageContaining(large1.r.p) != HugePageContaining(small1.r.p)) {
     std::swap(small1, small2);
   }
-  EXPECT_EQ(HugePageContaining(large1->first_page()),
-            HugePageContaining(small1->first_page()));
-  EXPECT_EQ(HugePageContaining(large2->first_page()),
-            HugePageContaining(small2->first_page()));
+  EXPECT_EQ(HugePageContaining(large1.r.p), HugePageContaining(small1.r.p));
+  EXPECT_EQ(HugePageContaining(large2.r.p), HugePageContaining(small2.r.p));
 
   // Release both allocations from one huge page.  Donations should tick down
   // and no pages should be considered abandoned.
@@ -929,7 +916,7 @@ TEST_P(HugePageAwareAllocatorTest, LargeDonations) {
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
 
   // large1 donates kSmallSize bytes to the filler.
-  Span* large = New(kLargeSize, kSpanInfo);
+  AllocationState large = New(kLargeSize, kSpanInfo);
   Length slack;
   HugeLength donated_huge_pages;
   Length abandoned_pages;
@@ -945,11 +932,11 @@ TEST_P(HugePageAwareAllocatorTest, LargeDonations) {
   EXPECT_EQ(slack, kSmallSize);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_TRUE(large->donated());
+  EXPECT_TRUE(large.donated);
   // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works correctly
   // for these stats.
 
-  Span* small = New(kSmallSize, kSpanInfo);
+  AllocationState small = New(kSmallSize, kSpanInfo);
   RefreshStats();
 
   // TODO(b/199203282): Current slack computation is unaware that this
@@ -959,7 +946,7 @@ TEST_P(HugePageAwareAllocatorTest, LargeDonations) {
   EXPECT_EQ(slack, kSmallSize + Length(1));
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_FALSE(small->donated());
+  EXPECT_FALSE(small.donated);
 
   // small is on a donated hugepage.  None of the stats should change when it is
   // deallocated.
@@ -986,7 +973,7 @@ TEST_P(HugePageAwareAllocatorTest, TailDonation) {
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
 
   // large donates kSlack to the filler.
-  Span* large = New(kLargeSize, kSpanInfo);
+  AllocationState large = New(kLargeSize, kSpanInfo);
   Length slack;
   HugeLength donated_huge_pages;
   Length abandoned_pages;
@@ -1002,15 +989,15 @@ TEST_P(HugePageAwareAllocatorTest, TailDonation) {
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_TRUE(large->donated());
+  EXPECT_TRUE(large.donated);
 
   // We should allocate small on the donated page.
-  Span* small = New(kSmallSize, kSpanInfo);
+  AllocationState small = New(kSmallSize, kSpanInfo);
   RefreshStats();
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_FALSE(small->donated());
+  EXPECT_FALSE(small.donated);
 
   // When we deallocate large, abandoned count should only account for the
   // abandoned pages from the tail huge page.
@@ -1033,7 +1020,7 @@ TEST_P(HugePageAwareAllocatorTest, TailDonation) {
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_TRUE(large->donated());
+  EXPECT_TRUE(large.donated);
 
   // We should allocate small on the donated page.
   small = New(kSmallSize, kSpanInfo);
@@ -1061,10 +1048,10 @@ TEST_P(HugePageAwareAllocatorTest, DISABLED_UnbackFailureOnPutClearsReleased) {
   // Setup: Pack two sparse allocations onto a single hugepage and partially
   // subrelease it.
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  Span* s1 = New(Length(10), kSpanInfo);
-  Span* s2 = New(Length(10), kSpanInfo);
-  ASSERT_EQ(HugePageContaining(s1->start_address()),
-            HugePageContaining(s2->start_address()));
+  AllocationState s1 = New(Length(10), kSpanInfo);
+  AllocationState s2 = New(Length(10), kSpanInfo);
+  ASSERT_EQ(HugePageContaining(s1.r.start_addr()),
+            HugePageContaining(s2.r.start_addr()));
 
   auto GetStats = [&]() {
     PageHeapSpinLockHolder l;
@@ -1112,7 +1099,7 @@ TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   static constexpr Length kLargeSize = kPagesPerHugePage - kSmallSize;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
 
-  Span* small = New(kSmallSize, kSpanInfo);
+  AllocationState small = New(kSmallSize, kSpanInfo);
 
   Length slack;
   HugeLength donated_huge_pages;
@@ -1129,17 +1116,17 @@ TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   EXPECT_EQ(slack, Length(0));
   EXPECT_EQ(donated_huge_pages, NHugePages(0));
   EXPECT_EQ(abandoned_pages, Length(0));
-  EXPECT_FALSE(small->donated());
+  EXPECT_FALSE(small.donated);
 
   // We should allocate large on the free huge page. That is, this allocation
   // should not cause any donations to filler.
-  Span* large = New(kLargeSize, kSpanInfo);
+  AllocationState large = New(kLargeSize, kSpanInfo);
 
   RefreshStats();
   // large contributes slack, but isn't donated.
   EXPECT_EQ(slack, kSmallSize);
   EXPECT_EQ(donated_huge_pages, NHugePages(0));
-  EXPECT_FALSE(large->donated());
+  EXPECT_FALSE(large.donated);
   EXPECT_EQ(abandoned_pages, Length(0));
 
   Delete(large, kSpanInfo.objects_per_span);
@@ -1167,8 +1154,8 @@ TEST_P(HugePageAwareAllocatorTest, ReassembleCoalescedDonation) {
     return allocator_->stats();
   };
 
-  Span* span1 = New(kOneAndHalfHugePages, kSpanInfo);
-  ASSERT_NE(span1, nullptr);
+  AllocationState span1 = New(kOneAndHalfHugePages, kSpanInfo);
+  ASSERT_TRUE(span1);
   EXPECT_EQ(GetStats().system_bytes, 2 * kHugePageSize);
 
   Delete(span1, kSpanInfo.objects_per_span);
@@ -1177,8 +1164,8 @@ TEST_P(HugePageAwareAllocatorTest, ReassembleCoalescedDonation) {
   // donated run coalesced back into a contiguous 2-hugepage range in HugeCache,
   // this allocation should be satisfied from HugeCache without expanding
   // system_bytes.
-  Span* span2 = New(kTwoHugePages, kSpanInfo);
-  ASSERT_NE(span2, nullptr);
+  AllocationState span2 = New(kTwoHugePages, kSpanInfo);
+  ASSERT_TRUE(span2);
   EXPECT_EQ(GetStats().system_bytes, 2 * kHugePageSize);
 
   Delete(span2, kSpanInfo.objects_per_span);
@@ -1192,14 +1179,14 @@ TEST_P(HugePageAwareAllocatorTest, PageMapInterference) {
   // If this test begins failing, the two are likely conflicting by violating
   // invariants in the PageMap.
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  std::vector<Span*> allocs;
+  std::vector<AllocationState> allocs;
 
   for (int i : {10, 20, 30}) {
     auto n = Length(i << 7);
     allocs.push_back(New(n, kSpanInfo));
   }
 
-  for (auto* a : allocs) {
+  for (auto a : allocs) {
     Delete(a, kSpanInfo.objects_per_span);
   }
 
@@ -1213,7 +1200,7 @@ TEST_P(HugePageAwareAllocatorTest, PageMapInterference) {
     ::operator delete(::operator new(1 << 20));
   }
 
-  for (auto* a : allocs) {
+  for (auto a : allocs) {
     Delete(a, kSpanInfo.objects_per_span);
   }
 }
@@ -1224,7 +1211,7 @@ TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
   // Large block must be larger than 1 huge page.
   const Length kLargePages = 2 * kPagesPerHugePage - kSmallPages;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  std::vector<Span*> small_allocs;
+  std::vector<AllocationState> small_allocs;
 
   // Repeatedly allocate large and small allocations that fit into a multiple of
   // huge pages.  The large allocations are short lived and the small
@@ -1232,10 +1219,10 @@ TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
   // without bound, keeping many huge pages alive because of the small
   // allocations.
   for (int i = 0; i < kIters; i++) {
-    Span* large = New(kLargePages, kSpanInfo);
-    ASSERT_NE(large, nullptr);
-    Span* small = New(kSmallPages, kSpanInfo);
-    ASSERT_NE(small, nullptr);
+    AllocationState large = New(kLargePages, kSpanInfo);
+    ASSERT_TRUE(large);
+    AllocationState small = New(kSmallPages, kSpanInfo);
+    ASSERT_TRUE(small);
 
     small_allocs.push_back(small);
     Delete(large, kSpanInfo.objects_per_span);
@@ -1258,7 +1245,7 @@ TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
             kSmallPages.in_bytes() * kIters)
       << buffer;
 
-  for (Span* small : small_allocs) {
+  for (AllocationState small : small_allocs) {
     Delete(small, kSpanInfo.objects_per_span);
   }
 }
@@ -1270,20 +1257,20 @@ TEST_P(HugePageAwareAllocatorTest, DonatedPageLists) {
   const Length kLargePages = 2 * kPagesPerHugePage - 2 * kSmallPages;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
 
-  Span* large = New(kLargePages, kSpanInfo);
-  ASSERT_NE(large, nullptr);
+  AllocationState large = New(kLargePages, kSpanInfo);
+  ASSERT_TRUE(large);
 
   // Allocating small1 moves the backing huge page off of the donated pages
   // list.
-  Span* small1 = New(kSmallPages, kSpanInfo);
-  ASSERT_NE(small1, nullptr);
+  AllocationState small1 = New(kSmallPages, kSpanInfo);
+  ASSERT_TRUE(small1);
   // This delete needs to have put the origin PageTracker back onto the right
   // free list.
   Delete(small1, kSpanInfo.objects_per_span);
 
   // This otherwise fails.
-  Span* small2 = New(kSmallPages, kSpanInfo);
-  ASSERT_NE(small2, nullptr);
+  AllocationState small2 = New(kSmallPages, kSpanInfo);
+  ASSERT_TRUE(small2);
   Delete(small2, kSpanInfo.objects_per_span);
 
   // Clean up.
@@ -1298,25 +1285,25 @@ TEST_P(HugePageAwareAllocatorTest, DonationAccounting) {
 
   // Each of these allocations should count as one donation, but only if they
   // are actually being reused.
-  Span* large = New(kOneHugePageDonation, kSpanInfo);
-  ASSERT_NE(large, nullptr);
+  AllocationState large = New(kOneHugePageDonation, kSpanInfo);
+  ASSERT_TRUE(large);
 
   // This allocation ensures that the donation is not counted.
-  Span* small = New(kSmallPages, kSpanInfo);
-  ASSERT_NE(small, nullptr);
+  AllocationState small = New(kSmallPages, kSpanInfo);
+  ASSERT_TRUE(small);
 
-  Span* large2 = New(kMultipleHugePagesDonation, kSpanInfo);
-  ASSERT_NE(large2, nullptr);
+  AllocationState large2 = New(kMultipleHugePagesDonation, kSpanInfo);
+  ASSERT_TRUE(large2);
 
   // This allocation ensures that the donation is not counted.
-  Span* small2 = New(kSmallPages, kSpanInfo);
-  ASSERT_NE(small2, nullptr);
+  AllocationState small2 = New(kSmallPages, kSpanInfo);
+  ASSERT_TRUE(small2);
 
-  Span* large3 = New(kOneHugePageDonation, kSpanInfo);
-  ASSERT_NE(large3, nullptr);
+  AllocationState large3 = New(kOneHugePageDonation, kSpanInfo);
+  ASSERT_TRUE(large3);
 
-  Span* large4 = New(kMultipleHugePagesDonation, kSpanInfo);
-  ASSERT_NE(large4, nullptr);
+  AllocationState large4 = New(kMultipleHugePagesDonation, kSpanInfo);
+  ASSERT_TRUE(large4);
 
   HugeLength donated;
   // Check donation count.
@@ -1345,11 +1332,11 @@ TEST_P(HugePageAwareAllocatorTest, DonationAccounting) {
 // We'd like to test OOM behavior but this, err, OOMs. :)
 // (Usable manually in controlled environments.
 TEST_P(HugePageAwareAllocatorTest, DISABLED_OOM) {
-  std::vector<Span*> objs;
+  std::vector<AllocationState> objs;
   auto n = Length(1);
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   while (true) {
-    Span* s = New(n, kSpanInfo);
+    AllocationState s = New(n, kSpanInfo);
     if (!s) break;
     objs.push_back(s);
     n *= 2;
@@ -1414,9 +1401,9 @@ void Touch(HugePage hp) {
 }
 
 // Fault in memory across a span (SystemBack doesn't always do this.)
-void TouchTHP(Span* s) {
-  PageId p = s->first_page();
-  PageId lim = s->last_page();
+void TouchTHP(AllocationState s) {
+  PageId p = s.r.p;
+  PageId lim = s.r.p + s.r.n - Length(1);
   HugePage last = HugePageContaining(nullptr);
   while (p <= lim) {
     HugePage hp = HugePageContaining(p);
@@ -1519,32 +1506,22 @@ class StatTest : public testing::Test {
     return Length(1 + absl::LogUniform<int32_t>(rng, 0, (1 << 10) - 1));
   }
 
-  Span* Alloc(Length n, SpanAllocInfo span_info) {
-    Span* span = alloc_->New(n, span_info);
+  AllocationState Alloc(Length n, SpanAllocInfo span_info) {
+    AllocationState span = alloc_->New(n, span_info);
     TouchTHP(span);
-    TC_CHECK_LE(n, span->num_pages());
-    n = span->num_pages();
+    TC_CHECK_LE(n, span.r.n);
+    n = span.r.n;
     if (n > longest_) longest_ = n;
     total_ += n;
     if (total_ > peak_) peak_ = total_;
     return span;
   }
 
-  void Free(Span* s, SpanAllocInfo span_info) {
-    Length n = s->num_pages();
+  void Free(AllocationState s, SpanAllocInfo span_info) {
+    Length n = s.r.n;
     total_ -= n;
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
     alloc_->Delete(s, span_info);
-#else
-    PageAllocatorInterface::AllocationState a{
-        Range(s->first_page(), s->num_pages()),
-        s->donated(),
-    };
-    alloc_->forwarder().DeleteSpan(s);
-    PageHeapSpinLockHolder l;
-    alloc_->Delete(a, span_info);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   void CheckStats() {
@@ -1591,7 +1568,7 @@ TEST_F(StatTest, Basic) {
   static const size_t kNumAllocs = 500;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   absl::BitGen rng;
-  Span* allocs[kNumAllocs];
+  AllocationState allocs[kNumAllocs];
 
   PrepTest();
   // DO NOT MALLOC ANYTHING BELOW THIS LINE!  WE'RE TRYING TO CAREFULLY COUNT
@@ -1651,7 +1628,7 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
 
   struct ABSL_CACHELINE_ALIGNED Metadata {
     absl::BitGen rng;
-    std::vector<Span*> spans;
+    std::vector<AllocationState> spans;
   };
 
   std::vector<Metadata> metadata;
@@ -1673,15 +1650,15 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
     }
 
     if (absl::Bernoulli(m.rng, 0.6) || m.spans.empty()) {
-      Span* s =
+      AllocationState s =
           AllocatorNew(Length(absl::LogUniform(m.rng, 1, 1 << 10)), kSpanInfo);
-      TC_CHECK_NE(s, nullptr);
+      TC_CHECK(s);
       m.spans.push_back(s);
     } else {
       size_t index = absl::Uniform<size_t>(m.rng, 0, m.spans.size());
 
-      Span* back = m.spans.back();
-      Span* s = m.spans[index];
+      AllocationState back = m.spans.back();
+      AllocationState s = m.spans[index];
       m.spans[index] = back;
       m.spans.pop_back();
 
@@ -1694,7 +1671,7 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
   threads.Stop();
 
   for (auto& m : metadata) {
-    for (Span* s : m.spans) {
+    for (AllocationState s : m.spans) {
       AllocatorDelete(s, kSpanInfo.objects_per_span);
     }
   }
@@ -1706,7 +1683,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
 
   struct ABSL_CACHELINE_ALIGNED Metadata {
     absl::BitGen rng;
-    std::vector<Span*> spans;
+    std::vector<AllocationState> spans;
   };
 
   std::vector<Metadata> metadata;
@@ -1751,15 +1728,15 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
 
     while (!done.load(std::memory_order_acquire)) {
       if (absl::Bernoulli(m.rng, 0.6) || m.spans.empty()) {
-        Span* s = AllocatorNew(Length(absl::LogUniform(m.rng, 1, 1 << 10)),
-                               kSpanInfo);
-        TC_CHECK_NE(s, nullptr);
+        AllocationState s = AllocatorNew(
+            Length(absl::LogUniform(m.rng, 1, 1 << 10)), kSpanInfo);
+        TC_CHECK(s);
         m.spans.push_back(s);
       } else {
         size_t index = absl::Uniform<size_t>(m.rng, 0, m.spans.size());
 
-        Span* back = m.spans.back();
-        Span* s = m.spans[index];
+        AllocationState back = m.spans.back();
+        AllocationState s = m.spans[index];
         m.spans[index] = back;
         m.spans.pop_back();
 
@@ -1794,7 +1771,7 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
   }
 
   for (auto& m : metadata) {
-    for (Span* s : m.spans) {
+    for (AllocationState s : m.spans) {
       AllocatorDelete(s, kSpanInfo.objects_per_span);
     }
   }
@@ -1823,27 +1800,60 @@ struct SpanDeleter {
   explicit SpanDeleter(FakeHugePageAwareAllocator* absl_nonnull allocator)
       : allocator(*allocator) {}
 
-  void operator()(Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  void operator()(AllocationState s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     PageHeapSpinLockHolder l;
     allocator.Delete(s, {.objects_per_span = 1,
                          .density = AccessDensityPrediction::kSparse});
-#else
-    PageAllocatorInterface::AllocationState a{
-        Range(s->first_page(), s->num_pages()),
-        s->donated(),
-    };
-    allocator.forwarder().DeleteSpan(s);
-    PageHeapSpinLockHolder l;
-    allocator.Delete(a, {.objects_per_span = 1,
-                         .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   FakeHugePageAwareAllocator& allocator;
 };
 
-using SpanUniquePtr = std::unique_ptr<Span, SpanDeleter>;
+class SpanHandle {
+ public:
+  SpanHandle() = default;
+  SpanHandle(AllocationState res, FakeHugePageAwareAllocator* alloc)
+      : res_(res), alloc_(alloc) {}
+  ~SpanHandle() { reset(); }
+
+  SpanHandle(const SpanHandle&) = delete;
+  SpanHandle& operator=(const SpanHandle&) = delete;
+
+  SpanHandle(SpanHandle&& o) noexcept : res_(o.res_), alloc_(o.alloc_) {
+    o.res_ = {};
+    o.alloc_ = nullptr;
+  }
+  SpanHandle& operator=(SpanHandle&& o) noexcept {
+    if (this != &o) {
+      reset();
+      res_ = o.res_;
+      alloc_ = o.alloc_;
+      o.res_ = {};
+      o.alloc_ = nullptr;
+    }
+    return *this;
+  }
+
+  void reset() {
+    if (res_ && alloc_) {
+      SpanDeleter deleter(alloc_);
+      deleter(res_);
+      res_ = {};
+      alloc_ = nullptr;
+    }
+  }
+
+  explicit operator bool() const { return static_cast<bool>(res_); }
+  friend bool operator!=(const SpanHandle& h, std::nullptr_t) {
+    return static_cast<bool>(h.res_);
+  }
+
+  AllocationState result() const { return res_; }
+
+ private:
+  AllocationState res_;
+  FakeHugePageAwareAllocator* alloc_ = nullptr;
+};
 
 class GetReleaseStatsTest : public testing::Test {
  public:
@@ -1887,11 +1897,12 @@ class GetReleaseStatsTest : public testing::Test {
     return allocator().GetReleaseStats();
   }
 
-  SpanUniquePtr New(Length n, AccessDensityPrediction density =
-                                  AccessDensityPrediction::kDense)
+  SpanHandle New(Length n, AccessDensityPrediction density =
+                               AccessDensityPrediction::kDense)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    return {allocator().New(n, {.objects_per_span = 1, .density = density}),
-            SpanDeleter(&allocator())};
+    return SpanHandle(
+        allocator().New(n, {.objects_per_span = 1, .density = density}),
+        &allocator());
   }
 
   Length ReleaseAtLeastNPages(Length n, PageReleaseReason reason)
@@ -1919,7 +1930,7 @@ class GetReleaseStatsTest : public testing::Test {
 };
 
 TEST_F(GetReleaseStatsTest, GetReleaseStats) {
-  SpanUniquePtr huge_page = New(kPagesPerHugePage);
+  SpanHandle huge_page = New(kPagesPerHugePage);
   ASSERT_TRUE(huge_page != nullptr);
   EXPECT_EQ(GetReleaseStats(), PageReleaseStats{});
 
@@ -1944,16 +1955,16 @@ TEST_F(GetReleaseStatsTest, GetReleaseStats) {
 }
 
 TEST_F(GetReleaseStatsTest, ReasonsTrackedSeparately) {
-  SpanUniquePtr release_memory_to_system = New(kPagesPerHugePage);
+  SpanHandle release_memory_to_system = New(kPagesPerHugePage);
   ASSERT_TRUE(release_memory_to_system != nullptr);
 
-  SpanUniquePtr process_background_actions = New(kPagesPerHugePage);
+  SpanHandle process_background_actions = New(kPagesPerHugePage);
   ASSERT_TRUE(process_background_actions != nullptr);
 
-  SpanUniquePtr soft_limit_exceeded = New(kPagesPerHugePage);
+  SpanHandle soft_limit_exceeded = New(kPagesPerHugePage);
   ASSERT_TRUE(soft_limit_exceeded != nullptr);
 
-  SpanUniquePtr hard_limit_exceeded = New(kPagesPerHugePage);
+  SpanHandle hard_limit_exceeded = New(kPagesPerHugePage);
   ASSERT_TRUE(hard_limit_exceeded != nullptr);
 
   EXPECT_EQ(
@@ -2012,7 +2023,7 @@ TEST_F(GetReleaseStatsTest, ReasonsTrackedSeparately) {
 
 TEST_F(GetReleaseStatsTest,
        ReleaseSinglePageAfterBreakingHugepagesRequiresBreakingAgain) {
-  SpanUniquePtr page = New(Length(1));
+  SpanHandle page = New(Length(1));
   ASSERT_TRUE(page != nullptr);
   EXPECT_EQ(GetReleaseStats(), PageReleaseStats{});
 
@@ -2058,7 +2069,7 @@ TEST_F(GetReleaseStatsTest,
 
 TEST_F(GetReleaseStatsTest,
        ReleaseAfterNewDeleteSinglePageDoesNotRequireBreakingHugepages) {
-  SpanUniquePtr page = New(Length(1));
+  SpanHandle page = New(Length(1));
   ASSERT_TRUE(page != nullptr);
   page.reset();
 
@@ -2074,7 +2085,7 @@ TEST_F(GetReleaseStatsTest,
 }
 
 TEST_F(GetReleaseStatsTest, ReleaseAfterPartialReleaseContinuesTrackingStats) {
-  SpanUniquePtr two_hugepages = New(kPagesPerHugePage * 2);
+  SpanHandle two_hugepages = New(kPagesPerHugePage * 2);
   ASSERT_TRUE(two_hugepages != nullptr);
   two_hugepages.reset();
 
@@ -2101,7 +2112,7 @@ TEST_F(GetReleaseStatsTest, ReleaseAfterPartialReleaseContinuesTrackingStats) {
 }
 
 TEST_F(GetReleaseStatsTest, b339535705) {
-  std::vector<SpanUniquePtr> v;
+  std::vector<SpanHandle> v;
   size_t system_bytes;
   do {
     // Allocate until we trigger the huge regions.
@@ -2157,10 +2168,10 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
     cold_allocator.forwarder().set_release_max_cold_pages(
         release_max_cold_pages);
 
-    Span* s1 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s2 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s3 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s4 = cold_allocator.New(kAllocPages, kAllocInfo);
+    AllocationState s1 = cold_allocator.New(kAllocPages, kAllocInfo);
+    AllocationState s2 = cold_allocator.New(kAllocPages, kAllocInfo);
+    AllocationState s3 = cold_allocator.New(kAllocPages, kAllocInfo);
+    AllocationState s4 = cold_allocator.New(kAllocPages, kAllocInfo);
 
     SpanDeleter deleter(&cold_allocator);
     deleter(s1);
@@ -2233,9 +2244,9 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
     allocator.forwarder().set_release_max_filler_pages(
         test_case.release_max_filler_pages);
 
-    Span* s1 = allocator.New(kAllocPages, kAllocInfo);
-    Span* s2 = allocator.New(kAllocPages, kAllocInfo);
-    Span* s3 = allocator.New(kAllocPages, kAllocInfo);
+    AllocationState s1 = allocator.New(kAllocPages, kAllocInfo);
+    AllocationState s2 = allocator.New(kAllocPages, kAllocInfo);
+    AllocationState s3 = allocator.New(kAllocPages, kAllocInfo);
 
     SpanDeleter deleter(&allocator);
     deleter(s1);
@@ -2259,30 +2270,28 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
   PageBitmap pages;
 
   // 1. Small allocation in PageTracker (filler).
-  Span* small1 = New(Length(1), kSpanInfo);
-  ASSERT_NE(small1, nullptr);
-  HugePage small_hp = HugePageContaining(small1->first_page());
+  AllocationState small1 = New(Length(1), kSpanInfo);
+  ASSERT_TRUE(small1);
+  HugePage small_hp = HugePageContaining(small1.r.p);
 
   {
     PageHeapSpinLockHolder l;
     EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
   }
-  const size_t page_idx1 =
-      (small1->first_page() - small_hp.first_page()).raw_num();
+  const size_t page_idx1 = (small1.r.p - small_hp.first_page()).raw_num();
 
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 1);
   EXPECT_TRUE(pages.GetBit(page_idx1));
 
   // Allocate another small span and verify combined exact bitmask.
-  Span* small2 = New(Length(2), kSpanInfo);
-  ASSERT_NE(small2, nullptr);
-  ASSERT_EQ(HugePageContaining(small2->first_page()), small_hp);
+  AllocationState small2 = New(Length(2), kSpanInfo);
+  ASSERT_TRUE(small2);
+  ASSERT_EQ(HugePageContaining(small2.r.p), small_hp);
   {
     PageHeapSpinLockHolder l;
     EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
   }
-  const size_t page_idx2 =
-      (small2->first_page() - small_hp.first_page()).raw_num();
+  const size_t page_idx2 = (small2.r.p - small_hp.first_page()).raw_num();
 
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 3);
   EXPECT_TRUE(pages.GetBit(page_idx1));
@@ -2308,9 +2317,9 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
 
   // 2. Raw huge page allocation straight from HugeCache.
-  Span* large = New(kPagesPerHugePage * 2, kSpanInfo);
-  ASSERT_NE(large, nullptr);
-  HugePage hp0 = HugePageContaining(large->first_page());
+  AllocationState large = New(kPagesPerHugePage * 2, kSpanInfo);
+  ASSERT_TRUE(large);
+  HugePage hp0 = HugePageContaining(large.r.p);
   HugePage hp1 = hp0 + NHugePages(1);
 
   {

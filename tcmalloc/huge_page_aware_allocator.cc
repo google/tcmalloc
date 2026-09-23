@@ -118,14 +118,6 @@ void* StaticForwarder::GetHugepage(HugePage p) {
 
 bool StaticForwarder::Ensure(Range r) { return tc_globals.pagemap().Ensure(r); }
 
-void StaticForwarder::ClearSpan(PageId page) {
-  tc_globals.pagemap().Set(page, const_cast<Span*>(&tc_globals.invalid_span()));
-}
-
-void StaticForwarder::SetSpan(PageId page, Span* absl_nonnull span) {
-  tc_globals.pagemap().Set(page, span);
-}
-
 void StaticForwarder::SetHugepage(HugePage p, void* pt) {
   tc_globals.pagemap().SetHugepage(p.first_page(), pt);
 }
@@ -133,13 +125,6 @@ void StaticForwarder::SetHugepage(HugePage p, void* pt) {
 void StaticForwarder::ShrinkToUsageLimit(Length n, bool may_have_grown) {
   tc_globals.page_allocator().ShrinkToUsageLimit(n, may_have_grown);
 }
-
-Span* StaticForwarder::NewSpan(Range r) {
-  // TODO(b/134687001):  Delete this when span_allocator moves.
-  return Span::New(r);
-}
-
-void StaticForwarder::DeleteSpan(Span* span) { Span::Delete(span); }
 
 AddressRange StaticForwarder::AllocatePages(size_t bytes, size_t align,
                                             MemoryTag tag) {

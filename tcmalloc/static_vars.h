@@ -143,6 +143,13 @@ class Static final {
     return span_allocator_;
   }
 
+  Span* AllocAndSetSpan(Range r, bool donated) {
+    Span* span = span_allocator().New(r);
+    span->set_donated(donated);
+    pagemap().Set(r.p, span);
+    return span;
+  }
+
   MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
   threadcache_allocator() {
     return threadcache_allocator_;

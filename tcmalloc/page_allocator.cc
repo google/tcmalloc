@@ -219,10 +219,10 @@ size_t PageAllocator::active_partitions() const {
 }
 
 ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeNewHookSlow(
-    Span* span, Length n, Length align, SpanAllocInfo span_alloc_info,
+    AllocationState res, Length n, Length align, SpanAllocInfo span_alloc_info,
     MemoryTag tag) {
   AllocationGuard g;
-  size_t start_page_index = span ? span->first_page().index() : 0;
+  size_t start_page_index = res ? res.r.p.index() : 0;
   page_allocator_new_hooks.Invoke(
       start_page_index, n.raw_num(), align.raw_num(),
       span_alloc_info.objects_per_span,
