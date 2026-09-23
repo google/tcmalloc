@@ -24,7 +24,6 @@ enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
   TCMALLOC_DEMAND_CYCLE_120S,  // TODO: b/540987155 - Complete experiment.
-  TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE,  // TODO: b/535197873 - Complete experiment.
   TCMALLOC_PAGE_HEAP_GARDENING,  // TODO: b/525422238 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_RELEASE_FREE_STALE,  // TODO: b/527473378 - Complete experiment.
@@ -57,7 +56,6 @@ struct ExperimentConfig {
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::TCMALLOC_DEMAND_CYCLE_120S, "TCMALLOC_DEMAND_CYCLE_120S"},
-    {Experiment::TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE, "TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE"},
     {Experiment::TCMALLOC_PAGE_HEAP_GARDENING, "TCMALLOC_PAGE_HEAP_GARDENING"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_RELEASE_FREE_STALE, "TCMALLOC_RELEASE_FREE_STALE"},

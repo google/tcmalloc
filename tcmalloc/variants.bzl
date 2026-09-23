@@ -255,12 +255,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "tcmalloc_huge_region_adaptive_release",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE"},
-    },
-    {
         "name": "tcmalloc_release_stale_pages",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

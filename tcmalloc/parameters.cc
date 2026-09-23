@@ -248,6 +248,8 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
     16 << 20);
 ABSL_CONST_INIT
 std::atomic<bool> Parameters::release_drained_slab_metadata_(false);
+ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
+    false);
 
 static std::atomic<MadviseRegionsNoHugepage>&
 madvise_cold_regions_nohugepage_enabled() {
@@ -258,17 +260,6 @@ madvise_cold_regions_nohugepage_enabled() {
     if (IsExperimentActive(
             Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
       v.store(MadviseRegionsNoHugepage::kEnabled, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
-
-static std::atomic<bool>& huge_region_adaptive_release_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TCMALLOC_HUGE_REGION_ADAPTIVE_RELEASE)) {
-      v.store(true, std::memory_order_relaxed);
     }
   });
   return v;
@@ -339,10 +330,6 @@ EnableCollapse Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed)
              ? EnableCollapse::kEnabled
              : EnableCollapse::kDisabled;
-}
-
-bool Parameters::huge_region_adaptive_release() {
-  return huge_region_adaptive_release_enabled().load(std::memory_order_relaxed);
 }
 
 MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
@@ -672,8 +659,7 @@ bool TCMalloc_Internal_GetHugeRegionAdaptiveReleaseEnabled() {
 }
 
 void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v) {
-  tcmalloc::tcmalloc_internal::huge_region_adaptive_release_enabled().store(
-      v, std::memory_order_relaxed);
+  Parameters::huge_region_adaptive_release_.store(v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetReleaseMaxColdPages() {
