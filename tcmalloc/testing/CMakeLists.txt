@@ -97,7 +97,7 @@ tcmalloc_cc_binary_variants(
     "benchmark::benchmark"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(

@@ -1138,7 +1138,7 @@ tcmalloc_cc_binary(
     "tcmalloc::mock_central_freelist"
     "tcmalloc::mock_transfer_cache"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1383,7 +1383,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_page_size"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1602,7 +1602,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1851,7 +1851,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_library(
