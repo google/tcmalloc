@@ -55,9 +55,22 @@ class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
+  // Number of size class partitions that can actually be handed out by
+  // SizeMap.  See Static::active_partitions().
+  static size_t active_partitions();
   static void* absl_nonnull Alloc(size_t size,
                                   std::align_val_t alignment = kAlignment);
 };
+
+// Returns whether `size_class` can ever be returned by SizeMap.  Size classes
+// in the inactive partitions - the security partition when heap partitioning
+// is off, or the second NUMA partition when NUMA awareness is off - are never
+// handed out, so nothing can ever be inserted into their caches and reserving
+// slots for them only wastes metadata.
+inline bool IsReachableSizeClass(int size_class, size_t active_partitions) {
+  return IsColdSizeClass(size_class) ||
+         size_class < kNumBaseClasses * active_partitions;
+}
 
 class ShardedStaticForwarder : public StaticForwarder {
  public:
@@ -134,6 +147,7 @@ class ShardedTransferCacheManagerBase {
     for (int shard = 0; shard < num_shards_; ++shard) {
       new (&shards_[shard]) Shard;
     }
+    const size_t active_partitions = forwarder_.active_partitions();
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
       const int size_per_object = forwarder_.class_to_size(size_class);
       // We enable sharded transfer cache for all the size classes when a
@@ -149,7 +163,8 @@ class ShardedTransferCacheManagerBase {
           UseCacheForLargeClassesOnly() ||
           (UseGenericCache() && (num_shards_ >= kMinShardsAllowed));
       active_for_class_[size_class] =
-          use_sharded_cache && size_per_object >= min_size;
+          use_sharded_cache && size_per_object >= min_size &&
+          IsReachableSizeClass(size_class, active_partitions);
     }
   }
 
@@ -361,8 +376,13 @@ class ShardedTransferCacheManagerBase {
 
   Capacity ScaledCacheCapacity(size_t size_class) const {
     if (!should_use(size_class)) return {0, 0};
-    auto [capacity, max_capacity] = TransferCache::CapacityNeeded(size_class);
-    return {capacity, max_capacity};
+    // Sharded caches are never resized: ResizeCaches() only runs over the
+    // non-sharded TransferCacheManager.  Capacity can therefore never exceed
+    // the initial capacity, and reserving slots up to
+    // kMaxCapacityInBatches would leave most of the slot array permanently
+    // unreachable.
+    const int capacity = TransferCache::CapacityNeeded(size_class).capacity;
+    return {capacity, capacity};
   }
 
   // Initializes all transfer caches in the given shard.
@@ -434,8 +454,17 @@ class TransferCacheManager {
   TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
   void Init() {
+    const size_t active_partitions = forwarder_.active_partitions();
     for (int i = 0; i < kNumClasses; ++i) {
-      new (&cache_[i].tc) TransferCache(i);
+      // Size classes in inactive partitions are never handed out, so their
+      // caches can never hold an object.  Construct them with no capacity so
+      // that we do not allocate a slot array that can never be used; the cache
+      // then simply forwards everything to its CentralFreeList.
+      const TransferCache::Capacity capacity =
+          IsReachableSizeClass(i, active_partitions)
+              ? TransferCache::CapacityNeeded(i)
+              : TransferCache::Capacity{0, 0};
+      new (&cache_[i].tc) TransferCache(i, capacity);
     }
   }
 

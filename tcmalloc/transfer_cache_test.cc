@@ -37,8 +37,11 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
+#include "tcmalloc/sizemap.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
+#include "tcmalloc/transfer_cache.h"
 #include "tcmalloc/transfer_cache_internals.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
@@ -782,6 +785,60 @@ TEST(ShardedTransferCacheManagerTest, PrintTelemetry) {
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("remove_hits: 1"));
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("used: 1"));
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("frontend_allocations: 10"));
+}
+
+// Sharded caches are never resized, so their capacity can never grow beyond
+// the initial capacity.  Reserving slots beyond it is pure waste.
+TEST(ShardedTransferCacheManagerTest, MaxCapacityIsReachable) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  using ShardedManager = FakeShardedTransferCacheEnvironment::ShardedManager;
+  FakeShardedTransferCacheEnvironment env(ShardedManager::kMinShardsAllowed,
+                                          /*use_generic_cache=*/true);
+  ShardedManager& manager = env.sharded_manager();
+  env.transfer_cache_manager().SetPartialLegacyTransferCache(true);
+  ASSERT_TRUE(manager.should_use(kSizeClass));
+
+  // Initialize shard 0 so that it reports its capacities.
+  void* ptr;
+  env.central_freelist().AllocateBatch(absl::MakeSpan(&ptr, 1));
+  env.SetCurrentCpu(0);
+  manager.Push(kSizeClass, ptr);
+  ASSERT_TRUE(manager.shard_initialized(0));
+
+  const TransferCacheStats stats = manager.GetStats(kSizeClass);
+  EXPECT_GT(stats.capacity, 0);
+  EXPECT_EQ(stats.capacity, stats.max_capacity);
+
+  void* popped = manager.Pop(kSizeClass);
+  ASSERT_NE(popped, nullptr);
+  env.central_freelist().FreeBatch({&popped, 1});
+}
+
+// Size classes in inactive partitions are never handed out by SizeMap, so the
+// live TransferCacheManager must not reserve any slots for them.
+TEST(TransferCacheManagerTest, NoCapacityForUnreachableSizeClasses) {
+  const size_t active_partitions = tc_globals.active_partitions();
+  ASSERT_GE(active_partitions, 1);
+
+  int checked = 0;
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    const TransferCacheStats stats =
+        tc_globals.transfer_cache().GetStats(size_class);
+    if (IsReachableSizeClass(size_class, active_partitions)) {
+      if (tc_globals.sizemap().class_to_size(size_class) == 0) continue;
+      EXPECT_GT(stats.max_capacity, 0) << "size class " << size_class;
+    } else {
+      EXPECT_EQ(stats.max_capacity, 0) << "size class " << size_class;
+      EXPECT_EQ(stats.capacity, 0) << "size class " << size_class;
+      ++checked;
+    }
+  }
+  if (active_partitions < kNormalPartitions) {
+    EXPECT_GT(checked, 0);
+  }
 }
 
 namespace unit_tests {
