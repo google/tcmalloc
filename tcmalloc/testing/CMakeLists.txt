@@ -266,6 +266,7 @@ tcmalloc_cc_library(
     tcmalloc_testing_rseq_util
   ALIAS
     tcmalloc::testing_rseq_util
+  ALWAYSLINK
   HDRS
     "rseq_util.h"
   SRCS
@@ -658,6 +659,7 @@ tcmalloc_cc_library(
     tcmalloc_testing_benchmark_main
   ALIAS
     tcmalloc::testing_benchmark_main
+  ALWAYSLINK
   SRCS
     "benchmark_main.cc"
   DEPS

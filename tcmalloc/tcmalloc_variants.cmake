@@ -14,9 +14,14 @@
 
 # CMake variant helper for TCMalloc
 function(tcmalloc_cc_library_variants)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "ALWAYSLINK" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
+  set(EXTRA_ARGS)
+  if(TCMALLOC_ALWAYSLINK)
+    set(EXTRA_ARGS ALWAYSLINK)
+  endif()
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_8k_pages
     ALIAS ${TCMALLOC_ALIAS}_8k_pages
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES
@@ -25,6 +30,7 @@ function(tcmalloc_cc_library_variants)
   )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_deprecated_perthread
     ALIAS ${TCMALLOC_ALIAS}_deprecated_perthread
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_DEPRECATED_PERTHREAD
@@ -33,6 +39,7 @@ function(tcmalloc_cc_library_variants)
   )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_large_pages
     ALIAS ${TCMALLOC_ALIAS}_large_pages
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_32K_PAGES
@@ -41,6 +48,7 @@ function(tcmalloc_cc_library_variants)
   )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_256k_pages
     ALIAS ${TCMALLOC_ALIAS}_256k_pages
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
@@ -49,6 +57,7 @@ function(tcmalloc_cc_library_variants)
   )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_small_but_slow
     ALIAS ${TCMALLOC_ALIAS}_small_but_slow
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_SMALL_BUT_SLOW
@@ -57,6 +66,7 @@ function(tcmalloc_cc_library_variants)
   )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_numa_aware
     ALIAS ${TCMALLOC_ALIAS}_numa_aware
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_NUMA_AWARE
@@ -65,6 +75,7 @@ function(tcmalloc_cc_library_variants)
   )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_256k_pages_numa_aware
     ALIAS ${TCMALLOC_ALIAS}_256k_pages_numa_aware
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES -DTCMALLOC_INTERNAL_NUMA_AWARE
@@ -73,6 +84,7 @@ function(tcmalloc_cc_library_variants)
   )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_legacy_locking
     ALIAS ${TCMALLOC_ALIAS}_legacy_locking
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -81,6 +93,7 @@ function(tcmalloc_cc_library_variants)
   )
   tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_latency_injection
     ALIAS ${TCMALLOC_ALIAS}_latency_injection
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LATENCY_INJECTION

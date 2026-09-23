@@ -13,9 +13,9 @@
 # limitations under the License.
 
 function(tcmalloc_cc_library)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "ALWAYSLINK" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
   if(TCMALLOC_SRCS)
-    if(TCMALLOC_NAME MATCHES ".*_main$")
+    if(TCMALLOC_ALWAYSLINK)
       add_library(${TCMALLOC_NAME} OBJECT "")
     else()
       add_library(${TCMALLOC_NAME} STATIC "")
