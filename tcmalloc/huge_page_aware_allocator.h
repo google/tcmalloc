@@ -102,17 +102,8 @@ class StaticForwarder : private Parameters {
 
   // SpanAllocator state.
   static Span* NewSpan(Range r)
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-#else
-      ABSL_LOCKS_EXCLUDED(pageheap_lock)
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-          ABSL_ATTRIBUTE_RETURNS_NONNULL;
-  static void DeleteSpan(Span* span)
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-          ABSL_ATTRIBUTE_NONNULL();
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) ABSL_ATTRIBUTE_RETURNS_NONNULL;
+  static void DeleteSpan(Span* span) ABSL_ATTRIBUTE_NONNULL();
 
   // Error reporting
   [[noreturn]] static void ReportDoubleFree(void* ptr);
@@ -170,11 +161,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  void Delete(Span* span, SpanAllocInfo span_alloc_info)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-
   void Delete(AllocationState s, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
@@ -437,11 +423,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Helpers for New().
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  using FinalizeType = Span*;
-#else   // !TCMALLOC_INTERNAL_LEGACY_LOCKING
   using FinalizeType = AllocationState;
-#endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   FinalizeType LockAndAlloc(Length n, SpanAllocInfo span_alloc_info,
                             bool* from_released);
@@ -564,15 +546,7 @@ HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown)
   TC_ASSERT_NE(r.p, PageId{0});
   info_.RecordAlloc(r);
   forwarder_.ShrinkToUsageLimit(r.n, may_have_grown);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  // TODO(b/175334169): Lift Span creation out of LockAndAlloc.
-  Span* ret = forwarder_.NewSpan(r);
-  forwarder_.SetSpan(r.p, ret);
-  TC_ASSERT(!ret->sampled());
-  return ret;
-#else
   return {r, false};
-#endif
 }
 
 // For anything <= half a huge page, we will unconditionally use the filler
@@ -698,13 +672,8 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   TC_ASSERT_GT(here, Length(0));
   AllocAndContribute(last, here, span_alloc_info, /*donated=*/true);
   auto span = Finalize(Range(r.start().first_page(), n), *from_released);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  span->set_donated(/*value=*/true);
-  return span;
-#else
   span.donated = true;
   return span;
-#endif
 }
 
 // public
@@ -782,9 +751,6 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
 
 template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  return f;
-#else
   if (ABSL_PREDICT_FALSE(f.r.p == PageId{0})) {
     return nullptr;
   }
@@ -794,17 +760,11 @@ inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
   TC_ASSERT(!s->sampled());
   s->set_donated(f.donated);
   return s;
-#endif
 }
 
 template <class Forwarder>
 inline Range HugePageAwareAllocator<Forwarder>::Unspanify(FinalizeType f) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  TC_ASSERT(f);
-  return Range(f->first_page(), f->num_pages());
-#else
   return f.r;
-#endif
 }
 
 template <class Forwarder>
@@ -852,20 +812,6 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
   return true;
 }
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::Delete(
-    Span* span, SpanAllocInfo span_alloc_info) {
-  TC_ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
-  PageId p = span->first_page();
-  Length n = span->num_pages();
-
-  bool donated = span->donated();
-  forwarder_.DeleteSpan(span);
-
-  Delete(AllocationState{Range{p, n}, donated}, span_alloc_info);
-}
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::Delete(

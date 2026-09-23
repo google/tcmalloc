@@ -53,12 +53,6 @@ class PageAllocatorInterface {
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-  //
-  // TODO(b/175334169): Prefer the AllocationState-ful API.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  virtual void Delete(Span* absl_nonnull span, SpanAllocInfo span_alloc_info)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   struct AllocationState {
     Range r;
