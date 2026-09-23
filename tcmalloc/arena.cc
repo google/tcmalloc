@@ -21,13 +21,13 @@
 
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -41,14 +41,20 @@ inline size_t AlignmentBytes(char* area, size_t align) {
 }
 }  // namespace
 
+void* SampleRecorderArrayAlloc::operator()(size_t bytes,
+                                           std::align_val_t alignment) {
+  return tc_globals.arena().Alloc(ArenaAlloc::kSampleRecorderArray, bytes,
+                                  alignment);
+}
+
 void Arena::StashRemainingFreeArea() {
   size_t block_align_bytes = AlignmentBytes(free_area_, alignof(Block));
   // If the remaining free area is large enough to hold a block AND allocate a
-  // span (smallest allocation served via arena), add it to the freelist.
-  // Otherwise, mark it as unavailable and drop it.
+  // HugeAddressMap::Node (a small allocation served via arena), add it to the
+  // freelist. Otherwise, mark it as unavailable and drop it.
   if (freelist_blocks_ < kMaxFreelistBlocks &&
-      free_avail_ >=
-          block_align_bytes + std::max(sizeof(Span), sizeof(Block))) {
+      free_avail_ >= block_align_bytes + std::max(sizeof(HugeAddressMap::Node),
+                                                  sizeof(Block))) {
     bytes_unavailable_ += block_align_bytes;
     Block* b = reinterpret_cast<Block*>(free_area_ + block_align_bytes);
     b->next = freelist_;

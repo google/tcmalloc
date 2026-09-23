@@ -346,20 +346,6 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
 
   Bitmap<kNumHugePages> should_unback;
   HugeLength release_target = NHugePages(0);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  const int start = adaptive_release ? kNumHugePages - 1 : 0;
-  const int end = adaptive_release ? -1 : kNumHugePages;
-  const int step = adaptive_release ? -1 : 1;
-
-  for (int i = start; i != end; i += step) {
-    if (CanUnback(i)) {
-      should_unback.SetBit(i);
-      ++release_target;
-    }
-
-    if (release_target.in_pages() >= to_release) break;
-  }
-#else
   const HugeLength needed = HLFromPages(to_release);
   size_t index = adaptive_release ? kNumHugePages : 0, n = 0;
 
@@ -385,7 +371,6 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
     release_target += count;
     if (release_target == needed) break;
   }
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   return UnbackHugepages(should_unback);
 }
 

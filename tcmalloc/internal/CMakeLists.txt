@@ -344,6 +344,34 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_heap
+  ALIAS
+    tcmalloc::internal_heap
+  HDRS
+    "heap.h"
+  DEPS
+    "absl::core_headers"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_heap_test
+  SRCS
+    "heap_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::random_random"
+    "tcmalloc::internal_heap"
+    "tcmalloc::internal_two_level_array"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_hook_list
   ALIAS
     tcmalloc::internal_hook_list
@@ -1304,6 +1332,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
+    "tcmalloc::internal_two_level_array"
 )
 
 tcmalloc_cc_test(
@@ -1319,6 +1348,7 @@ tcmalloc_cc_test(
     "absl::synchronization"
     "absl::time"
     "tcmalloc::internal_sampled_allocation_recorder"
+    "tcmalloc::internal_scoped_allow_allocation"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_thread_manager"
 )
@@ -1559,6 +1589,33 @@ tcmalloc_cc_test(
     "absl::time"
     "tcmalloc::internal_clock"
     "tcmalloc::internal_timeseries_tracker"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_internal_two_level_array
+  ALIAS
+    tcmalloc::internal_two_level_array
+  HDRS
+    "two_level_array.h"
+  DEPS
+    "absl::bits"
+    "absl::core_headers"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_two_level_array_test
+  SRCS
+    "two_level_array_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_two_level_array"
     "tcmalloc::tcmalloc"
 )
 

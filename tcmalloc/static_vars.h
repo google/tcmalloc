@@ -62,7 +62,8 @@ class ThreadCache;
 
 using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
     SampledAllocation,
-    MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>>;
+    MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>,
+    SampleRecorderArrayAlloc>;
 
 class Static;
 extern Static tc_globals;
@@ -141,6 +142,13 @@ class Static final {
 
   MetadataObjectAllocator<Span, ArenaAlloc::kSpan>& span_allocator() {
     return span_allocator_;
+  }
+
+  Span* AllocAndSetSpan(Range r, bool donated) {
+    Span* span = span_allocator().New(r);
+    span->set_donated(donated);
+    pagemap().Set(r.p, span);
+    return span;
   }
 
   MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
