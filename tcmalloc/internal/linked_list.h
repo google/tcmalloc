@@ -61,7 +61,7 @@ inline void* SLL_Pop(void** list) {
 class LinkedList {
  private:
   void* list_ = nullptr;  // Linked list.
-  uint32_t length_ = 0;   // Current length.
+  uint16_t length_ = 0;   // Current length.
 
  public:
   constexpr LinkedList() = default;
