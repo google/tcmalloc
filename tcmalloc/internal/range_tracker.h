@@ -647,11 +647,7 @@ inline size_t Bitmap<N>::FindValue(size_t index) const {
   ASSUME(here != 0);
   size_t ret = absl::countr_zero(here) + word;
   if constexpr (kDeadBits > 0) {
-    if constexpr (Goal
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-                  && false
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    ) {
+    if constexpr (Goal) {
       // We did not early return above, so a set bit was found.  Dead bits are
       // never set.
       ASSUME(ret < N);

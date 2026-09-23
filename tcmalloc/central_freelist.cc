@@ -111,30 +111,18 @@ Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
   TC_ASSERT(density == AccessDensityPrediction::kSparse ||
             (density == AccessDensityPrediction::kDense &&
              pages_per_span == Length(1)));
-  Span* span =
+  auto res =
       tc_globals.page_allocator().New(pages_per_span, span_alloc_info, tag);
-  if (ABSL_PREDICT_FALSE(span == nullptr)) {
+  if (ABSL_PREDICT_FALSE(!res)) {
     return nullptr;
   }
-  TC_ASSERT_EQ(tag, GetMemoryTag(span->start_address()));
-  TC_ASSERT_EQ(span->num_pages(), pages_per_span);
+  Span* span = tc_globals.AllocAndSetSpan(res.r, res.donated);
+  TC_ASSERT_EQ(tag, GetMemoryTag(res.r.start_addr()));
+  TC_ASSERT_EQ(res.r.n, pages_per_span);
 
   tc_globals.pagemap().RegisterSizeClass(span, size_class);
   return span;
 }
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
-                                  size_t objects_per_span)
-    ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-  PageHeapSpinLockHolder l;
-  for (Span* const free_span : free_spans) {
-    TC_ASSERT_EQ(tag, GetMemoryTag(free_span->start_address()));
-    tc_globals.page_allocator().Delete(free_span, tag,
-                                       {.objects_per_span = objects_per_span});
-  }
-}
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
 static void ReturnAllocsToPageHeap(
     MemoryTag tag,
@@ -171,15 +159,14 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
                                       ABSL_CACHELINE_SIZE));
   }
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  ReturnSpansToPageHeap(tag, free_spans, objects_per_span);
-#else
   PageAllocatorInterface::AllocationState allocs[kMaxObjectsToMove];
   for (int i = 0, n = free_spans.size(); i < n; ++i) {
     Span* s = free_spans[i];
     TC_ASSERT_EQ(tag, GetMemoryTag(s->start_address()));
     allocs[i].r = Range(s->first_page(), s->num_pages());
     allocs[i].donated = s->donated();
+    tc_globals.pagemap().Set(s->first_page(),
+                             const_cast<Span*>(&tc_globals.invalid_span()));
     Span::Delete(s);
   }
   const AccessDensityPrediction density = AccessDensity(objects_per_span);
@@ -187,7 +174,6 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
                                    .density = density};
   ReturnAllocsToPageHeap(tag, absl::MakeSpan(allocs, free_spans.size()),
                          span_alloc_info);
-#endif
 }
 
 ABSL_ATTRIBUTE_NOINLINE void StaticForwarder::InvokeInsertRangeHookSlow(

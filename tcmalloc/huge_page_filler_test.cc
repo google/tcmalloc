@@ -714,11 +714,7 @@ TEST_F(FillerTest, ClockCalls) {
     page2 = res.page;
   }
   EXPECT_EQ(alloc_pt, pt);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  EXPECT_EQ(FakeClock::now_calls(), 2);
-#else
   EXPECT_EQ(FakeClock::now_calls(), 1);
-#endif
   EXPECT_EQ(FakeClock::freq_calls(), 0);
 
   // 3. Put (partially freed hugepage).
@@ -742,15 +738,8 @@ TEST_F(FillerTest, ClockCalls) {
     put_res2 = filler_.Put(pt, Range(page1, Length(1)), info);
   }
   EXPECT_EQ(put_res2, pt);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  EXPECT_EQ(FakeClock::now_calls(), 2);
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  EXPECT_EQ(FakeClock::freq_calls(), 0);
-#else
   EXPECT_EQ(FakeClock::now_calls(), 1);
-#endif
-  EXPECT_EQ(FakeClock::freq_calls(), 1);
-#endif
+  EXPECT_EQ(FakeClock::freq_calls(), 0);
 
   // 5. Contribute and wait for pt to be sampled.
   while (true) {
@@ -773,11 +762,7 @@ TEST_F(FillerTest, ClockCalls) {
   }
 
   EXPECT_EQ(alloc_pt, pt);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  EXPECT_EQ(FakeClock::now_calls(), 2);
-#else
   EXPECT_EQ(FakeClock::now_calls(), 1);
-#endif
   EXPECT_EQ(FakeClock::freq_calls(), 0);
 
   FakeClock::ResetCalls();
@@ -790,15 +775,8 @@ TEST_F(FillerTest, ClockCalls) {
 
   EXPECT_EQ(put_res1, nullptr);
   EXPECT_EQ(put_res2, pt);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  EXPECT_EQ(FakeClock::now_calls(), 3);
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  EXPECT_EQ(FakeClock::freq_calls(), 0);
-#else
   EXPECT_EQ(FakeClock::now_calls(), 2);
-#endif
-  EXPECT_EQ(FakeClock::freq_calls(), 1);
-#endif
+  EXPECT_EQ(FakeClock::freq_calls(), 0);
 
   delete pt;
 }
