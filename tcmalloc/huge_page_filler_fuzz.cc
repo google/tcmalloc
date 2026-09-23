@@ -363,6 +363,10 @@ void AbslStringify(Sink& sink, const Instruction& i) {
   std::visit([&](const auto& arg) { absl::Format(&sink, "%v", arg); }, i);
 }
 
+// Cap on the number of trackers CheckMidFlightInvariants will walk at each
+// lock-drop point so that deep fuzz inputs stay fast.
+constexpr size_t kMaxTrackersForMidFlightCheck = 64;
+
 struct State {
   explicit State(SubreleaseUnbackedMode subrelease_unbacked_mode,
                  size_t num_instructions)
@@ -386,21 +390,17 @@ struct State {
       if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
         return;
       }
-      if (reentrant_stack.empty()) {
-        return;
-      }
-      if (depth >= 5) {
-        return;
-      }
+      if (!reentrant_stack.empty() && depth < 5) {
+        auto ops = reentrant_stack.back();
+        reentrant_stack.pop_back();
 
-      auto ops = reentrant_stack.back();
-      reentrant_stack.pop_back();
-
-      depth++;
-      reentrant_runs++;
-      ScopedAllocationAllow allow;
-      RunInstructions(ops);
-      depth--;
+        depth++;
+        reentrant_runs++;
+        ScopedAllocationAllow allow;
+        RunInstructions(ops);
+        depth--;
+      }
+      CheckMidFlightInvariants();
     };
 
     unback.release_callback_ = release_callback;
@@ -409,10 +409,18 @@ struct State {
 
   ~State() {
     // Shut down, confirm filler is empty.
+    reentrant_stack.clear();
+    CHECK(pending_freed.empty());
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     for (auto& [pt, v] : allocs) {
       for (size_t i = 0, n = v.size(); i < n; ++i) {
         auto [alloc, alloc_info] = v[i];
+        live_pages[alloc_info.density] -= alloc.n;
+        if (i + 1 == n) {
+          auto it = std::find(trackers.begin(), trackers.end(), pt);
+          CHECK(it != trackers.end());
+          trackers.erase(it);
+        }
         PageTracker* ret;
         {
           PageHeapSpinLockHolder l;
@@ -422,6 +430,7 @@ struct State {
       }
       delete pt;
     }
+    CHECK(trackers.empty());
     CHECK(filler.size() == NHugePages(0));
   }
 
@@ -445,22 +454,136 @@ struct State {
     return n;
   }
 
+  Length AllocatedPages() const {
+    return live_pages[AccessDensityPrediction::kSparse] +
+           live_pages[AccessDensityPrediction::kDense];
+  }
+
   void CheckInvariants() {
     PageHeapSpinLockHolder l;
+    TC_CHECK(pending_freed.empty());
     TC_CHECK_EQ(filler.size().raw_num(), trackers.size());
     TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
-    // Sparse and dense allocations live on disjoint sets of hugepages, so the
-    // per-density counters track our live allocations exactly.
-    for (int d = 0; d < AccessDensityPrediction::kPredictionCounts; ++d) {
-      TC_CHECK_EQ(
-          filler.pages_allocated(static_cast<AccessDensityPrediction>(d)),
-          live_pages[d]);
+    Length released_pages;
+    for (PageTracker* pt : trackers) {
+      TC_CHECK(!pt->empty());
+      TC_CHECK_LE(pt->released_pages(), pt->free_pages());
+      released_pages += pt->released_pages();
     }
+    TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_pages.raw_num());
     TC_CHECK_LE(filler.used_pages_in_any_subreleased(), filler.used_pages());
     TC_CHECK_LE(filler.FreePagesInPartialAllocs(), filler.free_pages());
     TC_CHECK_EQ(
         filler.used_pages() + filler.free_pages() + filler.unmapped_pages(),
         filler.size().in_pages());
+    CheckPlacement();
+  }
+
+  // The subset of CheckInvariants that holds whenever pageheap_lock is not
+  // held, including while an operation has dropped it.  Runs from the release
+  // callback; the walk is skipped for large filler populations to keep the
+  // fuzzer fast.
+  void CheckMidFlightInvariants() {
+    PageHeapSpinLockHolder l;
+    TC_CHECK_EQ(filler.used_pages().raw_num(), AllocatedPages().raw_num());
+    if (trackers.size() + pending_freed.size() >
+        kMaxTrackersForMidFlightCheck) {
+      return;
+    }
+    CheckPlacement();
+  }
+
+  // Classifies every tracker the filler still holds the way
+  // HugePageFiller::AddToFillerList places it and compares the totals with the
+  // filler's list sizes and per-list usage counters.  An emptied tracker
+  // parked on fully_freed_trackers_ is on no list and already excluded from
+  // size().
+  void CheckPlacement() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    constexpr size_t kTypes = AccessDensityPrediction::kPredictionCounts;
+    Length used[kTypes], used_released[kTypes], used_partial_released[kTypes];
+    HugeLength n_regular[kTypes], n_released[kTypes],
+        n_partial_released[kTypes];
+    HugeLength n_donated;
+    auto classify = [&](PageTracker* pt) {
+      const AccessDensityPrediction type =
+          pt->HasDenseSpans() ? AccessDensityPrediction::kDense
+                              : AccessDensityPrediction::kSparse;
+      used[type] += pt->used_pages();
+      if (pt->fully_freed()) {
+        return;
+      }
+      // Mirror HugePageFiller::AddToFillerList's placement.
+      if (pt->donated()) {
+        TC_CHECK(!pt->released());
+        ++n_donated;
+      } else if (!pt->released() &&
+                 (pt->unbroken() || subrelease_unbacked_mode ==
+                                        SubreleaseUnbackedMode::kDisabled)) {
+        ++n_regular[type];
+      } else if (pt->free_pages() <= pt->released_pages()) {
+        ++n_released[type];
+        used_released[type] += pt->used_pages();
+      } else {
+        ++n_partial_released[type];
+        used_partial_released[type] += pt->used_pages();
+      }
+    };
+    for (PageTracker* pt : trackers) {
+      classify(pt);
+    }
+    for (PageTracker* pt : pending_freed) {
+      TC_CHECK(pt->fully_freed());
+      classify(pt);
+    }
+
+    TC_CHECK_EQ(filler.used_pages().raw_num(), AllocatedPages().raw_num());
+    TC_CHECK_EQ(filler.used_pages_in_released().raw_num(),
+                (used_released[AccessDensityPrediction::kSparse] +
+                 used_released[AccessDensityPrediction::kDense])
+                    .raw_num());
+    TC_CHECK_EQ(filler.used_pages_in_partial_released().raw_num(),
+                (used_partial_released[AccessDensityPrediction::kSparse] +
+                 used_partial_released[AccessDensityPrediction::kDense])
+                    .raw_num());
+
+    const HugePageFillerStats stats = filler.GetStats();
+    for (size_t t = 0; t < kTypes; ++t) {
+      const auto type = static_cast<AccessDensityPrediction>(t);
+      TC_CHECK_EQ(filler.pages_allocated(type).raw_num(), used[t].raw_num(),
+                  "type=%d", t);
+      TC_CHECK_EQ(stats.n_fully_released[t].raw_num(), n_released[t].raw_num(),
+                  "type=%d", t);
+      TC_CHECK_EQ(stats.n_partial_released[t].raw_num(),
+                  n_partial_released[t].raw_num(), "type=%d", t);
+      HugeLength n_total = n_regular[t] + n_released[t] + n_partial_released[t];
+      if (type == AccessDensityPrediction::kSparse) {
+        n_total += n_donated;
+      }
+      TC_CHECK_EQ(stats.n_total[t].raw_num(), n_total.raw_num(), "type=%d", t);
+    }
+  }
+
+  void DrainFreedTrackers() {
+    while (true) {
+      PageTracker* pt;
+      {
+        PageHeapSpinLockHolder l;
+        pt = filler.FetchFullyFreedTracker();
+      }
+      if (pt == nullptr) {
+        return;
+      }
+      auto it = std::find(pending_freed.begin(), pending_freed.end(), pt);
+      TC_CHECK(it != pending_freed.end());
+      pending_freed.erase(it);
+      HugePage hp = pt->location();
+      for (PageId p = hp.first_page(),
+                  end = hp.first_page() + kPagesPerHugePage;
+           p != end; ++p) {
+        released_set.erase(p);
+      }
+      delete pt;
+    }
   }
 
   // ReleasePages may claim credit for pages unmapped earlier and left
@@ -492,6 +615,7 @@ struct State {
   HugePageFiller<PageTracker> filler;
 
   std::vector<PageTracker*> trackers;
+  std::vector<PageTracker*> pending_freed;
   absl::flat_hash_map<PageTracker*,
                       std::vector<std::pair<Range, SpanAllocInfo>>>
       allocs;
@@ -651,8 +775,9 @@ void Deallocate::Perform(State& state) const {
       TC_CHECK_EQ(pt->used_pages(), state.LivePagesOn(pt));
     }
   }
-  if (ret) {
+  if (ret != nullptr) {
     // Only the hugepage we emptied is handed back.
+    TC_CHECK(last_alloc);
     TC_CHECK_EQ(ret, pt);
     HugePage hp = ret->location();
     for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
@@ -660,6 +785,8 @@ void Deallocate::Perform(State& state) const {
       state.released_set.erase(p);
     }
     delete ret;
+  } else if (last_alloc) {
+    state.pending_freed.push_back(pt);
   }
 
   if (state.depth == 0) {
@@ -810,23 +937,19 @@ void TreatTrackers::Perform(State& state) const {
   state.treating_trackers = true;
   FakePageFlags pageflags(state);
   FakeResidency residency(state);
-  PageHeapSpinLockHolder l;
-  state.filler.TreatHugepageTrackers(
-      enable_collapse ? EnableCollapse::kEnabled : EnableCollapse::kDisabled,
-      enable_unfiltered_collapse ? EnableUnfilteredCollapse::kEnabled
-                                 : EnableUnfilteredCollapse::kDisabled,
-      enable_release_stale_pages ? ReleaseStalePages::kEnabled
-                                 : ReleaseStalePages::kDisabled,
-      &pageflags, &residency);
-  state.treating_trackers = false;
-  while (PageTracker* pt = state.filler.FetchFullyFreedTracker()) {
-    HugePage hp = pt->location();
-    for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
-         p != end; ++p) {
-      state.released_set.erase(p);
-    }
-    delete pt;
+  {
+    PageHeapSpinLockHolder l;
+    state.filler.TreatHugepageTrackers(
+        enable_collapse ? EnableCollapse::kEnabled : EnableCollapse::kDisabled,
+        enable_unfiltered_collapse ? EnableUnfilteredCollapse::kEnabled
+                                   : EnableUnfilteredCollapse::kDisabled,
+        enable_release_stale_pages ? ReleaseStalePages::kEnabled
+                                   : ReleaseStalePages::kDisabled,
+        &pageflags, &residency);
   }
+  state.treating_trackers = false;
+  state.DrainFreedTrackers();
+  PageHeapSpinLockHolder l;
   for (PageTracker* pt : state.trackers) {
     HugePage hp = pt->location();
     const PageBitmap& rel = pt->released_by_page();
