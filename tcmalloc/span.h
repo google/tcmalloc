@@ -319,15 +319,15 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 #endif
       allocated_;  // Number of non-free objects
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  uint8_t cache_size_ : kMaxCacheBits;
-  uint8_t nonempty_index_ : kNonemptyIndexBits;  // The nonempty_ list index for
-                                                 // this span.
+  uint64_t cache_size_ : kMaxCacheBits;
+  uint64_t nonempty_index_ : kNonemptyIndexBits;  // The nonempty_ list index
+                                                  // for this span.
   // Has this span allocation resulted in a donation to the filler in the page
   // heap? This is used by page heap to compute abandoned pages.
-  uint8_t is_donated_ : 1 = 0;
+  uint64_t is_donated_ : 1 = 0;
 #else
-  uint8_t cache_size_;
-  uint8_t nonempty_index_;  // The nonempty_ list index for this span.
+  uint64_t cache_size_ : 8;
+  uint64_t nonempty_index_ : 8;  // The nonempty_ list index for this span.
 #endif
 
   // The number of bits of the cache space that may be used for bitmap.
@@ -336,15 +336,15 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   uint64_t first_page_ : kMaxPageIdBits;  // Starting page number.
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  uint32_t reserved_ : kReservedBits = 0;
+  uint64_t reserved_ : kReservedBits = 0;
 #endif
   // Determines if the span consists of > kLargeSpanLength number of pages.
-  uint8_t is_large_span_ : 1;
-  uint8_t sampled_ : 1;  // Sampled object?
+  uint64_t is_large_span_ : 1;
+  uint64_t sampled_ : 1;  // Sampled object?
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Has this span allocation resulted in a donation to the filler in the page
   // heap? This is used by page heap to compute abandoned pages.
-  uint8_t is_donated_ : 1 = 0;
+  uint64_t is_donated_ : 1 = 0;
 #endif
 
   struct LargeOrSampledState {
