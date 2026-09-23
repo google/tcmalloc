@@ -261,19 +261,19 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     if (kSecurityPartitions > 1) {
       // Point all lookups in Cold New R1 to either Hot New R1 or Cold New R0.
       SetClassArrayRegion(kColdRegionsStart + 1, heap_partitioning_full
-                                                     ? +kNumBaseClasses
+                                                     ? +kSecondaryPartitionStart
                                                      : +kColdClassesStart);
     }
   }
 
   if (kSecurityPartitions > 1 && tc_globals.multiple_non_numa_partitions()) {
     // Route Hot Malloc R1 to security partition P1.
-    SetClassArrayRegion(kSecurityPartitions + 1, +kNumBaseClasses);
+    SetClassArrayRegion(kSecurityPartitions + 1, +kSecondaryPartitionStart);
     // Route Hot New R1 to security partition P1.
-    SetClassArrayRegion(1, +kNumBaseClasses);
+    SetClassArrayRegion(1, +kSecondaryPartitionStart);
     if (!heap_partitioning_full) {
       // In kLight mode, route Hot New R0 to P1.
-      SetClassArrayRegion(0, +kNumBaseClasses);
+      SetClassArrayRegion(0, +kSecondaryPartitionStart);
     }
   }
 

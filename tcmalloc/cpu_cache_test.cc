@@ -239,6 +239,7 @@ TEST(CpuCacheTest, ResizeInfoNoFalseSharing) {
   EXPECT_EQ(resize_info_size % ABSL_CACHELINE_SIZE, 0) << resize_info_size;
 }
 
+
 TEST(CpuCacheTest, Metadata) {
   if (!subtle::percpu::IsFast()) {
     return;
