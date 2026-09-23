@@ -477,6 +477,29 @@ TEST(CpuCacheTest, ResizeInfoNoFalseSharing) {
   EXPECT_EQ(resize_info_size % ABSL_CACHELINE_SIZE, 0) << resize_info_size;
 }
 
+TEST(CpuCacheTest, DenseIdInBounds) {
+  CpuCache cache;
+  const size_t num_ids = cache.NumDenseIds();
+  const size_t dummy_id = num_ids - 1;
+  const size_t active_base =
+      cache.forwarder().active_partitions() * kNumBaseClasses;
+
+  std::vector<bool> seen(num_ids, false);
+  for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
+    SCOPED_TRACE(absl::StrCat("size_class=", size_class));
+    const size_t id = cache.DenseId(size_class);
+    ASSERT_LT(id, num_ids);
+    const bool live = size_class < active_base || IsColdSizeClass(size_class);
+    if (live) {
+      EXPECT_NE(id, dummy_id);
+      EXPECT_FALSE(seen[id]) << "dense id " << id << " reused";
+      seen[id] = true;
+    } else {
+      EXPECT_EQ(id, dummy_id);
+    }
+  }
+}
+
 TEST(CpuCacheTest, Metadata) {
   if (!subtle::percpu::IsFast()) {
     return;
