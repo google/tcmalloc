@@ -49,10 +49,6 @@ build_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
     {
-        "name": "legacy_locking",
-        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING"],
-    },
-    {
         "name": "latency_injection",
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LATENCY_INJECTION"],
     },
@@ -239,13 +235,6 @@ test_variants = [
             "BORG_EXPERIMENTS": "TEST_ONLY_MM_VCPU",
             "GLIBC_TUNABLES": "glibc.pthread.rseq=0",
         },
-    },
-    {
-        "name": "legacy_locking",
-        "malloc": "//tcmalloc:tcmalloc_legacy_locking",
-        "deps": ["//tcmalloc:common_legacy_locking"],
-        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING"],
-        "tags": ["noubsan"],
     },
     {
         "name": "latency_injection",

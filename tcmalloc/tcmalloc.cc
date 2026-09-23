@@ -729,21 +729,12 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
 
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
     gwp_asan.Deallocate(ptr);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     Span::Delete(span);
   } else {
     if (ABSL_PREDICT_FALSE(ptr != span->start_address())) {
       ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
                           ptr);
     }
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(
-        span, GetMemoryTag(ptr),
-        {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
-#else
     PageAllocatorInterface::AllocationState a{
         Range(p, span->num_pages()),
         span->donated(),
@@ -753,7 +744,6 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     tc_globals.page_allocator().Delete(
         a, GetMemoryTag(ptr),
         {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
   // We expect to crash in GuardedPageAllocator::Delete or in
   // ReportCorruptedFree if the pointer was invalid.  We shouldn't make it here.

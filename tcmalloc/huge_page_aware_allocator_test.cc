@@ -204,11 +204,6 @@ class HugePageAwareAllocatorTest
   }
 
   void AllocatorDelete(Span* s, size_t objects_per_span) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-    allocator_->Delete(s, {.objects_per_span = objects_per_span,
-                           .density = AccessDensityPrediction::kSparse});
-#else
     uintptr_t start = reinterpret_cast<uintptr_t>(s->start_address());
     allocator_->forwarder().RecordDeallocation(start);
     PageAllocatorInterface::AllocationState a{
@@ -219,7 +214,6 @@ class HugePageAwareAllocatorTest
     PageHeapSpinLockHolder l;
     allocator_->Delete(a, {.objects_per_span = objects_per_span,
                            .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   Span* New(Length n, SpanAllocInfo span_alloc_info) {
@@ -1533,10 +1527,6 @@ class StatTest : public testing::Test {
   void Free(Span* s, SpanAllocInfo span_info) {
     Length n = s->num_pages();
     total_ -= n;
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-    alloc_->Delete(s, span_info);
-#else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
         s->donated(),
@@ -1544,7 +1534,6 @@ class StatTest : public testing::Test {
     alloc_->forwarder().DeleteSpan(s);
     PageHeapSpinLockHolder l;
     alloc_->Delete(a, span_info);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   void CheckStats() {
@@ -1824,11 +1813,6 @@ struct SpanDeleter {
       : allocator(*allocator) {}
 
   void operator()(Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-    allocator.Delete(s, {.objects_per_span = 1,
-                         .density = AccessDensityPrediction::kSparse});
-#else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
         s->donated(),
@@ -1837,7 +1821,6 @@ struct SpanDeleter {
     PageHeapSpinLockHolder l;
     allocator.Delete(a, {.objects_per_span = 1,
                          .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   FakeHugePageAwareAllocator& allocator;

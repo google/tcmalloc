@@ -81,10 +81,6 @@ class PageAllocatorTest : public testing::Test {
   }
   void Delete(Span* s, SpanAllocInfo span_alloc_info,
               MemoryTag tag = MemoryTag::kNormal) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-    allocator_->Delete(s, tag, span_alloc_info);
-#else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
         s->donated(),
@@ -92,7 +88,6 @@ class PageAllocatorTest : public testing::Test {
     Span::Delete(s);
     PageHeapSpinLockHolder l;
     allocator_->Delete(a, tag, span_alloc_info);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   Length Release(Length n, PageReleaseReason reason) {

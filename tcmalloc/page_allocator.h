@@ -68,12 +68,6 @@ class PageAllocator {
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() with the same value of
   //           "tag" and has not yet been deleted.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  void Delete(Span* absl_nonnull span, MemoryTag tag,
-              SpanAllocInfo span_alloc_info)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-
   void Delete(PageAllocatorInterface::AllocationState s, MemoryTag tag,
               SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -142,7 +136,7 @@ class PageAllocator {
   // allocation.
   void ShrinkToUsageLimit(Length n, bool may_have_grown)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-#if defined(TCMALLOC_INTERNAL_LEGACY_LOCKING) || !defined(NDEBUG)
+#ifndef NDEBUG
     const bool check_stats = true;
 #else
     const bool check_stats = may_have_grown || over_limit_;
@@ -292,16 +286,6 @@ inline Span* PageAllocator::NewAligned(Length n, Length align,
   return span;
 }
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-inline void PageAllocator::Delete(Span* span, MemoryTag tag,
-                                  SpanAllocInfo span_alloc_info) {
-  if (span) {
-    InvokeDeleteHook(span->first_page(), span->num_pages(), span_alloc_info,
-                     tag);
-  }
-  impl(tag)->Delete(span, span_alloc_info);
-}
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
 inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
                                   MemoryTag tag,
