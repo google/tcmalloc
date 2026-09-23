@@ -300,8 +300,13 @@ class SizeMap {
     return GetSizeClass(policy, size).size_class;
   }
 
-  // Get the byte-size for a specified class. REQUIRES: size_class <=
-  // kNumClasses.
+  // Get the byte-size for a specified class.
+  //
+  // Returns 0 for unused size classes (cold classes when cold feature is
+  // disabled, or the second normal partition when NUMA and heap partitioning
+  // are disabled).
+  //
+  // REQUIRES: size_class <= kNumClasses.
   //
   // clang does not correctly optimize out the array bounds check,
   // leading to high overhead. Disable UBSan to avoid the performance
@@ -309,8 +314,7 @@ class SizeMap {
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
   ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
-  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_size(
-      size_t size_class) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE size_t class_to_size(size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return class_to_size_[size_class];
   }

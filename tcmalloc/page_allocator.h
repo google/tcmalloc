@@ -54,26 +54,21 @@ class PageAllocator {
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
   //
-  // Any address in the returned Span is guaranteed to satisfy
+  // Any address in the returned range is guaranteed to satisfy
   // GetMemoryTag(addr) == "tag".
-  Span* absl_nullable New(Length n, SpanAllocInfo span_alloc_info,
-                          MemoryTag tag) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  using AllocationState = PageAllocatorInterface::AllocationState;
+  AllocationState New(Length n, SpanAllocInfo span_alloc_info, MemoryTag tag)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  Span* absl_nullable NewAligned(Length n, Length align,
-                                 SpanAllocInfo span_alloc_info, MemoryTag tag)
+  AllocationState NewAligned(Length n, Length align,
+                             SpanAllocInfo span_alloc_info, MemoryTag tag)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() with the same value of
   //           "tag" and has not yet been deleted.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  void Delete(Span* absl_nonnull span, MemoryTag tag,
-              SpanAllocInfo span_alloc_info)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-
   void Delete(PageAllocatorInterface::AllocationState s, MemoryTag tag,
               SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -142,7 +137,7 @@ class PageAllocator {
   // allocation.
   void ShrinkToUsageLimit(Length n, bool may_have_grown)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-#if defined(TCMALLOC_INTERNAL_LEGACY_LOCKING) || !defined(NDEBUG)
+#ifndef NDEBUG
     const bool check_stats = true;
 #else
     const bool check_stats = may_have_grown || over_limit_;
@@ -161,12 +156,12 @@ class PageAllocator {
   const PageAllocInfo& info(MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  static void InvokeNewHook(Span* span, Length n, Length align,
+  static void InvokeNewHook(AllocationState res, Length n, Length align,
                             SpanAllocInfo span_alloc_info, MemoryTag tag) {
     if (ABSL_PREDICT_TRUE(page_allocator_new_hooks.empty())) {
       return;
     }
-    InvokeNewHookSlow(span, n, align, span_alloc_info, tag);
+    InvokeNewHookSlow(res, n, align, span_alloc_info, tag);
   }
 
   static void InvokeDeleteHook(PageId start_page, Length n,
@@ -200,7 +195,7 @@ class PageAllocator {
   }
 
  private:
-  static void InvokeNewHookSlow(Span* span, Length n, Length align,
+  static void InvokeNewHookSlow(AllocationState res, Length n, Length align,
                                 SpanAllocInfo span_alloc_info, MemoryTag tag);
   static void InvokeDeleteHookSlow(PageId start_page, Length n,
                                    SpanAllocInfo span_alloc_info,
@@ -276,32 +271,20 @@ inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
   }
 }
 
-inline Span* PageAllocator::New(Length n, SpanAllocInfo span_alloc_info,
-                                MemoryTag tag) {
-  Span* span = impl(tag)->New(n, span_alloc_info);
+inline PageAllocatorInterface::AllocationState PageAllocator::New(
+    Length n, SpanAllocInfo span_alloc_info, MemoryTag tag) {
+  AllocationState res = impl(tag)->New(n, span_alloc_info);
   // Unaligned page heap allocations are aligned to a 1-page boundary.
-  InvokeNewHook(span, n, Length(1), span_alloc_info, tag);
-  return span;
+  InvokeNewHook(res, n, Length(1), span_alloc_info, tag);
+  return res;
 }
 
-inline Span* PageAllocator::NewAligned(Length n, Length align,
-                                       SpanAllocInfo span_alloc_info,
-                                       MemoryTag tag) {
-  Span* span = impl(tag)->NewAligned(n, align, span_alloc_info);
-  InvokeNewHook(span, n, align, span_alloc_info, tag);
-  return span;
+inline PageAllocatorInterface::AllocationState PageAllocator::NewAligned(
+    Length n, Length align, SpanAllocInfo span_alloc_info, MemoryTag tag) {
+  AllocationState res = impl(tag)->NewAligned(n, align, span_alloc_info);
+  InvokeNewHook(res, n, align, span_alloc_info, tag);
+  return res;
 }
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-inline void PageAllocator::Delete(Span* span, MemoryTag tag,
-                                  SpanAllocInfo span_alloc_info) {
-  if (span) {
-    InvokeDeleteHook(span->first_page(), span->num_pages(), span_alloc_info,
-                     tag);
-  }
-  impl(tag)->Delete(span, span_alloc_info);
-}
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
 inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
                                   MemoryTag tag,
