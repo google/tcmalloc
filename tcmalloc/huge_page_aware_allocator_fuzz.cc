@@ -62,6 +62,7 @@ __attribute__((constructor)) void InitTcmalloc() {
 using huge_page_allocator_internal::FakeStaticForwarder;
 using huge_page_allocator_internal::HugePageAwareAllocator;
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
+using AllocationState = PageAllocatorInterface::AllocationState;
 
 struct FuzzHugePageAwareAllocatorOptions {
   MemoryTag tag;
@@ -491,7 +492,7 @@ void AbslStringify(Sink& sink, const ReentrantSubprogram& r) {
 }
 
 struct SpanInfo {
-  Span* span;
+  AllocationState span;
   size_t objects_per_span;
 };
 
@@ -595,12 +596,13 @@ void Alloc::Perform(State& state) const {
   const size_t before_backed =
       before_stats.system_bytes - before_stats.unmapped_bytes;
 
-  Span* s = use_aligned ? state.allocator.NewAligned(len, align, alloc_info)
-                        : state.allocator.New(len, alloc_info);
-  if (s == nullptr) {
+  AllocationState s = use_aligned
+                          ? state.allocator.NewAligned(len, align, alloc_info)
+                          : state.allocator.New(len, alloc_info);
+  if (!s) {
     return;
   }
-  TC_CHECK_GE(s->num_pages().raw_num(), len.raw_num());
+  TC_CHECK_GE(s.r.n.raw_num(), len.raw_num());
 
   if (!state.allocator.forwarder().last_may_have_grown()) {
     BackingStats after_stats;
@@ -614,7 +616,7 @@ void Alloc::Perform(State& state) const {
   }
 
   state.allocs.push_back(SpanInfo{s, num_obj});
-  state.allocated += s->num_pages();
+  state.allocated += s.r.n;
 }
 
 void Dealloc::Perform(State& state) const {
@@ -627,23 +629,12 @@ void Dealloc::Perform(State& state) const {
 
   SpanInfo span_info = state.allocs.back();
   state.allocs.pop_back();
-  state.allocated -= span_info.span->num_pages();
+  state.allocated -= span_info.span.r.n;
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   PageHeapSpinLockHolder l;
   state.allocator.Delete(span_info.span,
                          {.objects_per_span = span_info.objects_per_span,
                           .density = AccessDensityPrediction::kSparse});
-#else
-  PageAllocatorInterface::AllocationState a{
-      Range(span_info.span->first_page(), span_info.span->num_pages()),
-      span_info.span->donated(),
-  };
-  state.allocator.forwarder().DeleteSpan(span_info.span);
-  PageHeapSpinLockHolder l;
-  state.allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
-                             .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 }
 
 void ReleasePages::Perform(State& state) const {
@@ -852,23 +843,12 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
   // Clean up.
   const PageReleaseStats final_stats = [&] {
     for (auto span_info : state.allocs) {
-      Span* span = span_info.span;
-      state.allocated -= span->num_pages();
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      AllocationState span = span_info.span;
+      state.allocated -= span.r.n;
       PageHeapSpinLockHolder l;
-      state.allocator.Delete(span_info.span,
+      state.allocator.Delete(span,
                              {.objects_per_span = span_info.objects_per_span,
                               .density = AccessDensityPrediction::kSparse});
-#else
-      PageAllocatorInterface::AllocationState a{
-          Range(span_info.span->first_page(), span_info.span->num_pages()),
-          span_info.span->donated(),
-      };
-      state.allocator.forwarder().DeleteSpan(span_info.span);
-      PageHeapSpinLockHolder l;
-      state.allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
-                                 .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     }
 
     PageHeapSpinLockHolder l;

@@ -39,8 +39,6 @@ namespace tcmalloc_internal {
 
 namespace {
 
-constexpr uint64_t kSpanAllocTime = 1234;
-
 class RawSpan {
  public:
   RawSpan() = default;
@@ -55,8 +53,7 @@ class RawSpan {
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
     span_.emplace(Range(PageIdContaining(mem), npages));
-    TC_CHECK_EQ(
-        span_->BuildFreelist(size, objects_per_span, {}, kSpanAllocTime), 0);
+    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}), 0);
   }
 
   ~RawSpan() {
