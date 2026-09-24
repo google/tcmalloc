@@ -148,6 +148,10 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   // Returns true if any unused pages have been returned-to-system.
   bool released() const { return released_count_ > 0; }
+  void ResetReleased() {
+    released_by_page_.Clear();
+    released_count_ = 0;
+  }
 
   // Was this tracker donated from the tail of a multi-hugepage allocation?
   // Only up-to-date when the tracker is on a TrackerList in the Filler;
