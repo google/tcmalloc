@@ -249,7 +249,7 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
 ABSL_CONST_INIT
 std::atomic<bool> Parameters::release_drained_slab_metadata_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
-    false);
+    true);
 
 static std::atomic<MadviseRegionsNoHugepage>&
 madvise_cold_regions_nohugepage_enabled() {
