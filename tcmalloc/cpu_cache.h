@@ -75,7 +75,7 @@ struct DrainHandler;
 
 // Determine number of bits we should use for allocating per-cpu cache.
 // The amount of per-cpu cache is 2 ^ per-cpu-shift.
-// When dynamic slab size is enabled, we start with kInitialPerCpuShift and
+// When dynamic slab size is enabled, we start with kInitialBasePerCpuShift and
 // grow as needed up to kMaxPerCpuShift. When dynamic slab size is disabled,
 // we always use kMaxPerCpuShift.
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
@@ -153,7 +153,6 @@ class CpuCacheForwarder : private Parameters {
     state.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
 
-
   bool reuse_size_classes() const {
     return state.size_class_configuration() ==
            SizeClassConfiguration::kReuseRelaxedBelow64;
@@ -218,24 +217,29 @@ struct SlabShiftBounds {
   uint8_t max_shift;
 };
 
+// For a given slab size, specifies how GetMaxCapacity() should convert
+// capacities from the imaginary 256/512 kB metadata-free slab (see
+// GetMaxCapacity()) to a real capacity suitable for that size slab.
+struct MaxCapacityShiftSpec {
+  uint8_t relative_shift;
+  unsigned num_pointers_per_size_class_lost_to_metadata;
+  unsigned first_class_with_extra_roundoff_loss;
+};
+
 struct GetShiftMaxCapacity {
   size_t operator()(size_t size_class) const {
-    TC_ASSERT_GE(shift_bounds.max_shift, shift);
-    const uint8_t relative_shift = shift_bounds.max_shift - shift;
-    if (relative_shift == 0)
-      return max_capacities[size_class].load(std::memory_order_relaxed);
     int mc = max_capacities[size_class].load(std::memory_order_relaxed) >>
-             relative_shift;
-    // We decrement by 3 because of (1) cost of per-size-class header, (2) cost
-    // of per-size-class padding pointer, (3) there are a lot of empty size
-    // classes that have headers and whose max capacities can't be decremented.
-    mc = std::max(mc - 3, 0);
-    return mc;
+             shift_spec.relative_shift;
+    mc -= shift_spec.num_pointers_per_size_class_lost_to_metadata;
+    if (size_class >= shift_spec.first_class_with_extra_roundoff_loss) {
+      --mc;
+    }
+    return std::max(mc, 0);
   }
 
   const std::atomic<uint16_t>* max_capacities;
   uint8_t shift;
-  SlabShiftBounds shift_bounds;
+  MaxCapacityShiftSpec shift_spec;
 };
 
 template <typename Forwarder>
@@ -409,6 +413,12 @@ class CpuCache {
 
   // Gets the max capacity for the size class using the current per-cpu shift.
   uint16_t GetMaxCapacity(int size_class, uint8_t shift) const;
+
+  // Calculate MaxCapacityShiftSpec so that when applied to our set of
+  // max capacities, the target slab size gets filled as much as possible
+  // (ideally exactly), but no more.
+  MaxCapacityShiftSpec CalculateOptimalShiftSpec(size_t bytes_available,
+                                                 uint8_t relative_shift);
 
   // Gets the current capacity for the <size_class> in a <cpu> cache.
   size_t GetCapacityOfSizeClass(int cpu, int size_class) const;
@@ -673,9 +683,28 @@ class CpuCache {
     std::atomic<size_t> num_unpopulates;
   };
 
+  // false if the size class can be skipped for sizing purposes
+  // (i.e., it doesn't actually exist).
+  bool IsActive(size_t size_class) const;
+
   // Determines how we distribute memory in the per-cpu cache to the various
-  // class sizes.
+  // class sizes (initial value of max_capacity_[]). Note that the distribution
+  // can be changed after initial activation.
+  //
+  // We always compute MaxCapacity() as if we have a 256 kB slab
+  // (or 512 kB, if wide slabs are in use) without anything lost to
+  // metadata such as guard pointers. GetShiftMaxCapacity() will shift
+  // the classes down to the actual slab size (e.g. 32 kB) for us,
+  // as well as adjust capacities to make room for metadata.
   size_t MaxCapacity(size_t size_class) const;
+
+  // Used internally in MaxCapacity(), to divide a capacity equally among
+  // all size classes where is_relevant() is true, without any overall loss
+  // from rounding.
+  template <class Func>
+  inline size_t DistributeCapacityEquallyAmongSizeClasses(
+      size_t total_capacity, size_t size_class, size_t begin_range_idx,
+      size_t end_range_idx, Func&& is_relevant) const;
 
   // Updates maximum capacity for the <size_class> to <cap>.
   void UpdateMaxCapacity(int size_class, uint16_t cap);
@@ -720,6 +749,10 @@ class CpuCache {
   // Determine if the <size_class> is a good candidate to be shrunk. We use
   // clock-like algorithm to prioritize size classes for shrinking.
   bool IsGoodCandidateForShrinking(int cpu, size_t size_class);
+
+  const MaxCapacityShiftSpec& GetShiftSpec(int shift) const {
+    return shift_spec_[shift - shift_bounds_.initial_shift];
+  }
 
   struct SizeClassMissStat {
     size_t size_class;
@@ -787,7 +820,13 @@ class CpuCache {
   SlabShiftBounds shift_bounds_{};
 
   // The maximum capacity of each size class within the slab.
+  // This is assuming a fixed 256/512 kB slab (see GetMaxCapacity()).
   std::atomic<uint16_t> max_capacity_[kNumClasses] = {0};
+
+  // How do shift the values in max_capacity_ down to smaller slabs,
+  // for all supported slab sizes. Index 0 corresponds to
+  // shift_bounds_.initial_shift (see the GetShiftSpec() helper).
+  MaxCapacityShiftSpec shift_spec_[kNumPossiblePerCpuShifts] = {};
 
   // Provides a hint to StealFromOtherCache() so that we can steal from the
   // caches in a round-robin fashion.
@@ -879,10 +918,45 @@ static CpuSet FillActiveCpuMask() {
 }
 
 template <class Forwarder>
+inline bool CpuCache<Forwarder>::IsActive(size_t size_class) const {
+  return !(size_class == 0 || size_class >= kNumClasses ||
+           BypassCpuCache(size_class) ||
+           forwarder_.class_to_size(size_class) == 0 ||
+           (IsColdSizeClass(size_class) && !ColdFeatureActive()));
+}
+
+template <class Forwarder>
+template <class Func>
+inline size_t CpuCache<Forwarder>::DistributeCapacityEquallyAmongSizeClasses(
+    size_t total_capacity, size_t size_class, size_t begin_range_idx,
+    size_t end_range_idx, Func&& is_relevant) const {
+  unsigned num_candidates = 0;
+  for (int i = begin_range_idx; i < end_range_idx; ++i) {
+    if (is_relevant(i)) {
+      num_candidates++;
+    }
+  }
+  size_t this_class_depth = total_capacity / num_candidates;
+
+  // Distribute the rounding onto the first classes.
+  size_t leftover_rounding = total_capacity % num_candidates;
+  for (int i = begin_range_idx; i < size_class && leftover_rounding > 0; ++i) {
+    if (is_relevant(i)) {
+      --leftover_rounding;
+    }
+  }
+  if (leftover_rounding > 0) {
+    // This class is one of those that gets an extra element from rounding.
+    ++this_class_depth;
+  }
+  return this_class_depth;
+}
+
+template <class Forwarder>
 inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
-  // The number of size classes that are commonly used and thus should be
-  // allocated more slots in the per-cpu cache.
-  static constexpr size_t kNumSmall = 10;
+  if (!IsActive(size_class)) {
+    return 0;
+  }
 
   // When we use wider slabs, we also want to double the maximum capacities for
   // size classes to use that slab.
@@ -893,70 +967,49 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   //   sizeof(void*) * (kSmallObjectDepth + 1) * kNumSmall
   //   sizeof(void*) * (kLargeObjectDepth + 1) * kNumLarge
   //
-  // Class size 0 has MaxCapacity() == 0, which is the reason for using
-  // kNumClasses - 1 above instead of kNumClasses.
-  //
   // Each Size class region in the slab is preceded by one padding pointer that
   // points to itself, because prefetch instructions of invalid pointers are
   // slow. That is accounted for by the +1 for object depths.
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  // With SMALL_BUT_SLOW we have 4KiB of per-cpu slab and 46 class sizes we
-  // allocate:
-  //   == 8 * 46 + 8 * ((16 + 1) * 10 + (6 + 1) * 35) = 4038 bytes of 4096
-  static const uint16_t kSmallObjectDepth = 16;
-  static const uint16_t kLargeObjectDepth = 6;
-#else
-  // We allocate 256KiB per-cpu for pointers to cached per-cpu memory.
-  // Max(kNumClasses) is 89, so the maximum footprint per CPU for a 256KiB
-  // slab is:
-  //   89 * 8 + 8 * ((2000 + 1) * 10 + (144 + 1) * 78) = 245 KiB
-  // For 512KiB slab, with a multiplier of 2, maximum footprint is:
-  //   89 * 8 + 8 * ((4000 + 1) * 10 + (288 + 1) * 78) = 489 KiB
   //
-  // Note that this computes slab capacity for normal size classes alone.
-  // Additionally, we reserve capacity for cold size classes below.
+  // Small object sizes are very heavily used and need very deep caches for
+  // good performance (well over 90% of malloc calls are for size_class
+  // <= 10). Thus, we give them a fixed, larger capacity than the rest.
+  static constexpr size_t kNumSmall = 10;
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+  const uint16_t kSmallObjectDepth = 16;
+#else
   const uint16_t kSmallObjectDepth = 2000 * kWiderSlabMultiplier;
-  const uint16_t kLargeObjectDepth = 144 * kWiderSlabMultiplier;
 #endif
-  if (size_class == 0 || size_class >= kNumClasses) {
-    return 0;
-  }
-
-  if (BypassCpuCache(size_class)) {
-    return 0;
-  }
-
-  if (forwarder_.class_to_size(size_class) == 0) {
-    return 0;
-  }
-
-  if (IsColdSizeClass(size_class) && !ColdFeatureActive()) {
-    return 0;
-  }
-
   if (!IsColdSizeClass(size_class) &&
       (size_class % kNumBaseClasses) <= kNumSmall) {
-    // Small object sizes are very heavily used and need very deep caches for
-    // good performance (well over 90% of malloc calls are for size_class
-    // <= 10.)
     return kSmallObjectDepth;
   }
 
-  if (!ColdFeatureActive()) {
-    return kLargeObjectDepth;
-  }
+  // We allocate the remaining space in the slab equally among the remaining
+  // large classes. If there's support for cold objects, we allocate 20%
+  // of the space for them (including small cold objects); otherwise,
+  // everything goes to the remaining large hot objects.
+  size_t pointers_left_in_slab =
+      (1 << kMaxBasePerCpuShift) * kWiderSlabMultiplier / sizeof(void*);
+  pointers_left_in_slab -= kSmallObjectDepth * kNumSmall;
 
-  // We reduce the number of cached objects for some sizes to fit into the slab.
-  //
-  // We use fewer number of size classes when using reuse size classes. So,
-  // we may use larger capacity for some sizes.
-  const uint16_t kLargeHotObjectDepth = forwarder_.reuse_size_classes()
-                                            ? 246 * kWiderSlabMultiplier
-                                            : 123 * kWiderSlabMultiplier;
-  const uint16_t kColdObjectDepth = forwarder_.reuse_size_classes()
-                                        ? 52 * kWiderSlabMultiplier
-                                        : 36 * kWiderSlabMultiplier;
-  return IsColdSizeClass(size_class) ? kColdObjectDepth : kLargeHotObjectDepth;
+  size_t pointers_for_cold_objects =
+      ColdFeatureActive() ? pointers_left_in_slab / 5 : 0;
+  size_t pointers_for_large_hot_objects =
+      pointers_left_in_slab - pointers_for_cold_objects;
+  if (IsColdSizeClass(size_class)) {
+    return DistributeCapacityEquallyAmongSizeClasses(
+        pointers_for_cold_objects, size_class, kColdClassesStart, kNumClasses,
+        [&](size_t other_size_class) { return IsActive(other_size_class); });
+  } else {
+    return DistributeCapacityEquallyAmongSizeClasses(
+        pointers_for_large_hot_objects, size_class, 0,
+        forwarder_.active_partitions() * kNumBaseClasses,
+        [&](size_t other_size_class) {
+          return (other_size_class % kNumBaseClasses) > kNumSmall &&
+                 IsActive(other_size_class);
+        });
+  }
 }
 
 // Returns estimated bytes required and the bytes available.
@@ -977,6 +1030,69 @@ inline std::pair<size_t, size_t> EstimateSlabBytes(
   return {bytes_required, bytes_available};
 }
 
+// For a given shift, figure out how much (and where) to subtract for additional
+// metadata so that we have valid max capacities. This somewhat mirrors the
+// calculations in EstimateSlabBytes().
+//
+// There are some edge cases we don't handle. In particular, if shifting causes
+// a size class to become some small but nonzero value, it will be clamped to
+// zero by GetShiftMaxCapacity(), but we won't take that into account here and
+// we'll use too many bytes (causing a CHECK-fail). Similarly, we do not take
+// into account that a size class needs to contain at least as many elements as
+// to_move for that class. If either of these become a real problem, we could
+// introduce a more complicated multi-pass algorithm that would zero out
+// problematic classes and try again.
+template <class Forwarder>
+inline MaxCapacityShiftSpec CpuCache<Forwarder>::CalculateOptimalShiftSpec(
+    size_t bytes_available, uint8_t relative_shift) {
+  MaxCapacityShiftSpec shift_spec;
+  shift_spec.relative_shift = relative_shift;
+
+  // Count how many pointers we need to hold all the capacities
+  // (after shift), plus metadata. This mirrors EstimateSlabBytes().
+  size_t bytes_required = sizeof(std::atomic<int64_t>) * kNumClasses;
+  for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
+    size_t num_pointers = max_capacity_[size_class] >> relative_shift;
+    if (num_pointers > 0) ++num_pointers;
+    bytes_required += sizeof(void*) * num_pointers;
+  }
+
+  // Find out how many pointers of metadata that we need to account for
+  // by subtracting capacities from each class.
+  int num_excess_pointers =
+      (bytes_required - bytes_available + sizeof(void*) - 1) / sizeof(void*);
+  if (num_excess_pointers <= 0) {
+    // This could happen if we have capacities with many trailing
+    // one bits, so that the shifting roundoff takes us below the
+    // total capacity. We don't attempt to compensate for it.
+    shift_spec.num_pointers_per_size_class_lost_to_metadata = 0;
+    shift_spec.first_class_with_extra_roundoff_loss = kNumClasses + 1;
+  } else {
+    unsigned num_reducible_classes = 0;
+    for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
+      if ((max_capacity_[size_class] >> relative_shift) > 0) {
+        ++num_reducible_classes;
+      }
+    }
+
+    // Due to rounding, there may still be some classes that need
+    // to lose one more pointer of capacity. Figure out which one
+    // is the latest that needs this treatment (just like in GetMaxCapacity(),
+    // we prioritize the earlier classes, since they are more common).
+    shift_spec.num_pointers_per_size_class_lost_to_metadata =
+        num_excess_pointers / num_reducible_classes;
+    num_excess_pointers %= num_reducible_classes;
+    for (int size_class = kNumClasses - 1;
+         size_class >= 0 && num_excess_pointers > 0; --size_class) {
+      if ((max_capacity_[size_class] >> relative_shift) > 0) {
+        shift_spec.first_class_with_extra_roundoff_loss = size_class;
+        --num_excess_pointers;
+      }
+    }
+  }
+  return shift_spec;
+}
+
 template <class Forwarder>
 inline uint16_t CpuCache<Forwarder>::GetMaxCapacity(int size_class,
                                                     uint8_t shift) const {
@@ -992,7 +1108,8 @@ inline size_t CpuCache<Forwarder>::GetCapacityOfSizeClass(
 template <class Forwarder>
 inline GetShiftMaxCapacity CpuCache<Forwarder>::GetMaxCapacityFunctor(
     uint8_t shift) const {
-  return {max_capacity_, shift, shift_bounds_};
+  TC_CHECK_GE(shift, kInitialBasePerCpuShift);
+  return {max_capacity_, shift, GetShiftSpec(shift)};
 }
 
 template <class Forwarder>
@@ -1073,11 +1190,20 @@ inline void CpuCache<Forwarder>::Activate() {
     max_capacity_[size_class].store(capacity, std::memory_order_relaxed);
   }
 
+  // For each supported shift, figure out how much (and where) to subtract
+  // for additional metadata so that we have valid max capacities.
+  for (uint8_t shift = shift_bounds_.initial_shift;
+       shift <= shift_bounds_.max_shift; ++shift) {
+    int relative_shift = shift_bounds_.max_shift - shift;
+    shift_spec_[shift - shift_bounds_.initial_shift] =
+        CalculateOptimalShiftSpec(1 << shift, relative_shift);
+  }
+
   // Verify that all the possible shifts will have valid max capacities.
   for (uint8_t shift = shift_bounds_.initial_shift;
        shift <= shift_bounds_.max_shift; ++shift) {
     const auto [bytes_required, bytes_available] =
-        EstimateSlabBytes({max_capacity_, shift, shift_bounds_});
+        EstimateSlabBytes(GetMaxCapacityFunctor(shift));
     // We may make certain size classes no-ops by selecting "0" at runtime, so
     // using a compile-time calculation overestimates worst-case memory usage.
     if (ABSL_PREDICT_FALSE(bytes_required > bytes_available)) {
@@ -1110,10 +1236,8 @@ inline void CpuCache<Forwarder>::Activate() {
                     ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
                     /*resize_offset=*/0)
                     .first;
-  freelist_.Init(
-      Alloc, slabs,
-      GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
-      subtle::percpu::ToShiftType(per_cpu_shift));
+  freelist_.Init(Alloc, slabs, GetMaxCapacityFunctor(per_cpu_shift),
+                 subtle::percpu::ToShiftType(per_cpu_shift));
 }
 
 template <class Forwarder>
@@ -1696,7 +1820,7 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
     info = freelist_.UpdateMaxCapacities(
         new_slabs,
         GetShiftMaxCapacity{updated_max_capacities, per_cpu_shift,
-                            shift_bounds_},
+                            GetShiftSpec(per_cpu_shift)},
         [this](int size_class, uint16_t cap) {
           UpdateMaxCapacity(size_class, cap);
         },
@@ -2546,8 +2670,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
         new_shift, num_cpus,
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift), resize_offset);
     info = freelist_.ResizeSlabs(
-        new_shift, new_slabs,
-        GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
+        new_shift, new_slabs, GetMaxCapacityFunctor(per_cpu_shift),
         [this](int cpu) { return HasPopulated(cpu); },
         DrainHandler<CpuCache>{*this, nullptr});
   }
