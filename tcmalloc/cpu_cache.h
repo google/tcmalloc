@@ -241,6 +241,36 @@ struct GetShiftMaxCapacity {
 template <typename Forwarder>
 class CpuCache {
  public:
+  // Number of entries in the per-CPU ResizeInfo::per_class and
+  // ResizeInfo::last_miss arrays: the size classes of active partitions, the
+  // cold size classes (if any), and one trailing dummy entry shared by every
+  // size class in an inactive partition.
+  size_t NumDenseIds() const {
+    return forwarder_.active_partitions() * kNumBaseClasses +
+           (kHasColdClasses ? kNumBaseClasses : 0) + 1;
+  }
+
+  // Maps sparse size_class indices to dense indices to skip dead partitions
+  size_t DenseId(size_t size_class) const {
+    static_assert(kNumClasses - kColdClassesStart ==
+                      (kHasColdClasses ? kNumBaseClasses : 0),
+                  "cold size classes must fit in their dense range");
+    TC_ASSERT_LT(size_class, kNumClasses);
+    const size_t active_base = forwarder_.active_partitions() * kNumBaseClasses;
+    // Active normal partitions must not overlap the cold range, or a cold
+    // size class would alias a normal one.
+    TC_ASSERT_LE(active_base, kColdClassesStart);
+    size_t id;
+    if (size_class < active_base) {
+      id = size_class;
+    } else if (kHasColdClasses && IsColdSizeClass(size_class)) {
+      id = size_class - kColdClassesStart + active_base;
+    } else {
+      id = active_base + (kHasColdClasses ? kNumBaseClasses : 0);
+    }
+    TC_ASSERT_LT(id, NumDenseIds());
+    return id;
+  }
   struct CpuCacheMissStats {
     size_t underflows = 0;
     size_t overflows = 0;
@@ -649,7 +679,7 @@ class CpuCache {
     // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock){
         absl::base_internal::SCHEDULE_KERNEL_ONLY};
-    PerClassResizeInfo per_class[kNumClasses];
+    PerClassResizeInfo* per_class = nullptr;
     std::atomic<size_t> num_size_class_resizes;
     // Tracks number of underflows on allocate.
     MissCounts underflows;
@@ -660,7 +690,7 @@ class CpuCache {
       Cycles32 last_overflow_cycles;
       Cycles32 last_underflow_cycles;
     };
-    LastMiss last_miss[kNumClasses];
+    LastMiss* last_miss = nullptr;
     // Total cache space available on this CPU (see above).
     // This tracks the total allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
@@ -1091,12 +1121,35 @@ inline void CpuCache<Forwarder>::Activate() {
 
   const uint64_t max_cache_size = CacheLimit();
 
+  const size_t num_active_classes = NumDenseIds();
+
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     new (&resize_[cpu]) ResizeInfo();
 
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      resize_[cpu].per_class[size_class].Init();
+    resize_[cpu].per_class = reinterpret_cast<PerClassResizeInfo*>(
+        forwarder_.Alloc(sizeof(PerClassResizeInfo) * num_active_classes,
+                         std::align_val_t{alignof(PerClassResizeInfo)}));
+    resize_[cpu].last_miss =
+        reinterpret_cast<typename ResizeInfo::LastMiss*>(forwarder_.Alloc(
+            sizeof(typename ResizeInfo::LastMiss) * num_active_classes,
+            std::align_val_t{alignof(typename ResizeInfo::LastMiss)}));
+    for (size_t i = 0; i < num_active_classes; ++i) {
+      new (&resize_[cpu].per_class[i]) PerClassResizeInfo();
+      new (&resize_[cpu].last_miss[i]) typename ResizeInfo::LastMiss();
     }
+
+    for (int size_class = 1;
+         size_class < kNumBaseClasses * forwarder_.active_partitions();
+         ++size_class) {
+      resize_[cpu].per_class[DenseId(size_class)].Init();
+    }
+    if (kHasColdClasses) {
+      for (int size_class = kColdClassesStart; size_class < kNumClasses;
+           ++size_class) {
+        resize_[cpu].per_class[DenseId(size_class)].Init();
+      }
+    }
+
     resize_[cpu].available.store(max_cache_size, std::memory_order_relaxed);
     resize_[cpu].capacity.store(max_cache_size, std::memory_order_relaxed);
   }
@@ -1126,6 +1179,22 @@ inline void CpuCache<Forwarder>::Deactivate() {
   freelist_.Destroy(&forwarder_.Dealloc);
   static_assert(std::is_trivially_destructible_v<decltype(*resize_)>,
                 "ResizeInfo is expected to be trivially destructible");
+  static_assert(std::is_trivially_destructible_v<PerClassResizeInfo>,
+                "PerClassResizeInfo is expected to be trivially destructible");
+  static_assert(std::is_trivially_destructible_v<typename ResizeInfo::LastMiss>,
+                "LastMiss is expected to be trivially destructible");
+  const size_t num_dense_ids = NumDenseIds();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    forwarder_.Dealloc(resize_[cpu].per_class,
+                       sizeof(PerClassResizeInfo) * num_dense_ids,
+                       std::align_val_t{alignof(PerClassResizeInfo)});
+    forwarder_.Dealloc(
+        resize_[cpu].last_miss,
+        sizeof(typename ResizeInfo::LastMiss) * num_dense_ids,
+        std::align_val_t{alignof(typename ResizeInfo::LastMiss)});
+    resize_[cpu].per_class = nullptr;
+    resize_[cpu].last_miss = nullptr;
+  }
   forwarder_.Dealloc(resize_, sizeof(*resize_) * num_cpus,
                      std::align_val_t{alignof(decltype(*resize_))});
 }
@@ -1315,12 +1384,12 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   ResizeInfo& resize = resize_[cpu];
   // TODO(ckennelly): Use a strongly typed enum.
   if (overflow) {
-    resize.last_miss[size_class].last_overflow_cycles.Update();
+    resize.last_miss[DenseId(size_class)].last_overflow_cycles.Update();
   } else {
-    resize.last_miss[size_class].last_underflow_cycles.Update();
+    resize.last_miss[DenseId(size_class)].last_underflow_cycles.Update();
   }
-  bool grow_by_batch =
-      resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
+  bool grow_by_batch = resize.per_class[DenseId(size_class)].Update(
+      overflow, grow_by_one, &successive);
   if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
     size_t increase = 1;
     if (grow_by_batch) {
@@ -1337,7 +1406,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // its maximum allowed capacity. Record a miss due to that so that we can
   // potentially grow the max capacity for this size class later.
   if (capacity == max_capacity) {
-    resize_[cpu].per_class[size_class].RecordMiss(
+    resize_[cpu].per_class[DenseId(size_class)].RecordMiss(
         PerClassMissType::kMaxCapacityTotal);
   }
   return TargetOverflowRefillCount(capacity, batch_length, successive);
@@ -1392,7 +1461,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
   size_t acquired_bytes =
       subtract_at_least(&resize_[cpu].available, size, desired_bytes);
   if (acquired_bytes < desired_bytes) {
-    resize_[cpu].per_class[size_class].RecordMiss(
+    resize_[cpu].per_class[DenseId(size_class)].RecordMiss(
         PerClassMissType::kCapacityTotal);
   }
   if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
@@ -1485,9 +1554,10 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
     if (!HasPopulated(cpu)) continue;
     for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
       total_misses[index] +=
-          resize_[cpu].per_class[size_class].GetAndUpdateIntervalMisses(
-              PerClassMissType::kMaxCapacityTotal,
-              PerClassMissType::kMaxCapacityResize);
+          resize_[cpu]
+              .per_class[DenseId(size_class)]
+              .GetAndUpdateIntervalMisses(PerClassMissType::kMaxCapacityTotal,
+                                          PerClassMissType::kMaxCapacityResize);
 
       ++index;
     }
@@ -1742,7 +1812,7 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
     // Record full stats in previous full stat counters so that we can collect
     // stats per interval.
     for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
-      resize_[cpu].per_class[size_class].UpdateIntervalMisses(
+      resize_[cpu].per_class[DenseId(size_class)].UpdateIntervalMisses(
           PerClassMissType::kCapacityTotal, PerClassMissType::kCapacityResize);
     }
 
@@ -1766,7 +1836,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
     miss_stats[size_class - 1] = SizeClassMissStat{
         .size_class = size_class,
-        .misses = resize_[cpu].per_class[size_class].GetIntervalMisses(
+        .misses = resize_[cpu].per_class[DenseId(size_class)].GetIntervalMisses(
             PerClassMissType::kCapacityTotal,
             PerClassMissType::kCapacityResize)};
   }
@@ -2063,7 +2133,7 @@ size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
   } else if (size <= (64 << 10)) {
     score = (length >= capacity);
   }
-  if (resize_[cpu].per_class[size_class].Tick() < score) {
+  if (resize_[cpu].per_class[DenseId(size_class)].Tick() < score) {
     return 0;
   }
 
@@ -2285,8 +2355,8 @@ inline uint64_t CpuCache<Forwarder>::Drain(int cpu) {
   // CPUs; it prevents 32-bit cycle counter epoch exhaustion if no longer
   // updated when idle.
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    resize_[cpu].last_miss[size_class].last_overflow_cycles.Reset();
-    resize_[cpu].last_miss[size_class].last_underflow_cycles.Reset();
+    resize_[cpu].last_miss[DenseId(size_class)].last_overflow_cycles.Reset();
+    resize_[cpu].last_miss[DenseId(size_class)].last_underflow_cycles.Reset();
   }
 
   return bytes;
@@ -2636,8 +2706,8 @@ template <class Forwarder>
 size_t CpuCache<Forwarder>::GetIntervalSizeClassMisses(
     int cpu, size_t size_class, PerClassMissType total_type,
     PerClassMissType interval_type) {
-  return resize_[cpu].per_class[size_class].GetIntervalMisses(total_type,
-                                                              interval_type);
+  return resize_[cpu].per_class[DenseId(size_class)].GetIntervalMisses(
+      total_type, interval_type);
 }
 
 template <class Forwarder>
@@ -2662,7 +2732,7 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
     ++num_populated;
 
     const typename ResizeInfo::LastMiss& last_miss =
-        resize_[cpu].last_miss[size_class];
+        resize_[cpu].last_miss[DenseId(size_class)];
 
     size_t cap = freelist_.Capacity(cpu, size_class);
     stats.max_capacity = std::max(stats.max_capacity, cap);
@@ -2703,7 +2773,7 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
       stats.max_last_underflow_cpu_id = cpu;
     }
     stats.max_capacity_misses +=
-        resize_[cpu].per_class[size_class].GetIntervalMisses(
+        resize_[cpu].per_class[DenseId(size_class)].GetIntervalMisses(
             PerClassMissType::kMaxCapacityTotal,
             PerClassMissType::kMaxCapacityResize);
   }
