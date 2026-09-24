@@ -232,12 +232,13 @@ class TransferCache {
       memcpy(buf, entry, sizeof(void*) * num_to_move);
       info.used -= num_to_move;
       to_return -= num_to_move;
-      low_water_mark_ = info.used;
+      low_water_mark_ = std::min(low_water_mark_, info.used);
       SetSlotInfo(info);
       lock_.unlock();
 
       freelist().InsertRange({buf, num_to_move});
       if (!lock_.try_lock()) return;
+      to_return = std::min(to_return, low_water_mark_);
     }
     lock_.unlock();
   }
