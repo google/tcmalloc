@@ -19,6 +19,7 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -33,6 +34,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -105,12 +107,25 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     return FakeStaticForwarder::AllocatePages(bytes, align, tag);
   }
 
+  // The allocator drops pageheap_lock around the system calls below.  Each
+  // invokes lock_dropped_callback_ so the fuzzer can interleave other
+  // operations, as another thread would while the lock is free.
   MemoryModifyStatus ReleasePages(Range r) {
     pending_release_ += r.n;
-    release_callback_();
+    lock_dropped_callback_();
     pending_release_ -= r.n;
 
     return FakeStaticForwarder::ReleasePages(r);
+  }
+
+  MemoryModifyStatus CollapsePages(Range r) {
+    lock_dropped_callback_();
+    return FakeStaticForwarder::CollapsePages(r);
+  }
+
+  void SetAnonVmaName(Range r, std::optional<absl::string_view> name) {
+    lock_dropped_callback_();
+    FakeStaticForwarder::SetAnonVmaName(r, name);
   }
 
   void Back(Range r) {
@@ -121,7 +136,7 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
 
   bool allocate_succeeds_ = true;
   Length pending_release_;
-  std::function<void()> release_callback_;
+  std::function<void()> lock_dropped_callback_;
 };
 
 struct State;
@@ -499,7 +514,7 @@ struct State {
     reentrant_stack.reserve(1000);
     output.resize(1 << 20);
 
-    allocator.forwarder().release_callback_ = [this]() {
+    allocator.forwarder().lock_dropped_callback_ = [this]() {
       if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
         // This permits a slight degree of nondeterminism when linked against
         // TCMalloc for the real memory allocator, as a background thread could
@@ -551,9 +566,20 @@ struct State {
     // Everything not free or unmapped is held by a live span, except for
     // pages whose release is in flight.
     TC_CHECK_GE(stats.system_bytes, stats.free_bytes + stats.unmapped_bytes);
-    TC_CHECK_EQ(stats.system_bytes - stats.free_bytes - stats.unmapped_bytes,
-                allocated.in_bytes() +
-                    allocator.forwarder().pending_release_.in_bytes());
+    const size_t used =
+        stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
+    const size_t expected_used =
+        allocated.in_bytes() +
+        allocator.forwarder().pending_release_.in_bytes();
+    if (treating_trackers) {
+      // A tracker emptied by a reentrant free while a treatment still pins it
+      // is parked off every list until the treatment finishes, so its
+      // hugepage is neither free nor unmapped in stats until then.
+      TC_CHECK_GE(used, expected_used);
+      TC_CHECK_EQ((used - expected_used) % kHugePageSize, 0);
+    } else {
+      TC_CHECK_EQ(used, expected_used);
+    }
     TC_CHECK_EQ(release_stats, expected_stats);
     TC_CHECK_EQ(live_ranges.size(), allocs.size());
   }
@@ -567,6 +593,7 @@ struct State {
   PageReleaseStats expected_stats;
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
+  bool treating_trackers = false;
   std::string output;
 };
 
@@ -779,7 +806,18 @@ void GatherSpanStats::Perform(State& state) const {
 }
 
 void TreatTrackers::Perform(State& state) const {
+  // Treatment drops pageheap_lock around collapse and VMA naming, so a
+  // reentrant subprogram could start a second treatment.  Production runs
+  // treatment from a single background thread, and nested treatments would
+  // clear each other's DontFreeTracker bits, so never nest them.
+  // TODO(b/565392619): Fuzz concurrent treatments once tracker state survives
+  // multiple treatment threads.
+  if (state.treating_trackers) {
+    return;
+  }
+  state.treating_trackers = true;
   state.allocator.TreatHugepageTrackers(enable_collapse);
+  state.treating_trackers = false;
 }
 
 void ResetSubreleaseIntervals::Perform(State& state) const {
@@ -1084,6 +1122,31 @@ TEST(HugePageAwareAllocatorTest, ReentrantAllocDuringRelease) {
                                                            .dense = false}}}}}},
        Instruction{.instr = ReleasePages{.desired = 65535,
                                          .release_memory_to_system = true}}});
+}
+
+// Frees the tracker under treatment while collapse has dropped pageheap_lock.
+// The tracker must be parked and drained after treatment rather than freed
+// under the treatment's feet.
+TEST(HugePageAwareAllocatorTest, ReentrantDeallocDuringCollapse) {
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{
+           .instr =
+               ChangeParam{.op = SetEnableUnfilteredCollapse{.value = true}}},
+       Instruction{.instr = Alloc{.length = 1,
+                                  .num_objects = 1,
+                                  .alignment = 1,
+                                  .use_aligned = false,
+                                  .dense = false}},
+       Instruction{
+           .instr = ChangeParam{.op =
+                                    ReentrantSubprogram{
+                                        .subprogram = {Instruction{
+                                            .instr = Dealloc{.index = 0}}}}}},
+       Instruction{.instr = TreatTrackers{.enable_collapse =
+                                              EnableCollapse::kEnabled}}});
 }
 
 TEST(HugePageAwareAllocatorTest, b471822138) {
