@@ -229,6 +229,8 @@ inline constexpr int kMaxOverages = 3;
 // scavenging code will shrink it down when its contents are not in use.
 inline constexpr size_t kMaxDynamicFreeListLength = 8192;
 
+// TODO: b/529739215 - After merging cold and sampled heaps, this can be
+// removed.
 constexpr bool ColdFeatureActive() { return kHasColdClasses; }
 
 constexpr bool IsColdSizeClass(unsigned size_class) {

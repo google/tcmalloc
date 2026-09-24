@@ -31,6 +31,7 @@
 
 #include "benchmark/benchmark.h"
 #include "absl/random/random.h"
+#include "absl/time/time.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
@@ -57,6 +58,15 @@ int64_t UnmappedBytes() {
 int main() {
   // Avoid perturbing RSS as a result of sampling.
   tcmalloc::ScopedNeverSample never;
+  // Flush any filler pages in the sampled partition allocated during startup.
+  // Demand smoothing (skip-subrelease) would otherwise protect these pages,
+  // since the process' entire demand history is the startup burst.
+  tcmalloc::MallocExtension::SetSkipSubreleaseShortInterval(
+      absl::ZeroDuration());
+  tcmalloc::MallocExtension::SetSkipSubreleaseLongInterval(
+      absl::ZeroDuration());
+  tcmalloc::MallocExtension::ReleaseMemoryToSystem(
+      std::numeric_limits<size_t>::max());
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   if (ret != 0) {

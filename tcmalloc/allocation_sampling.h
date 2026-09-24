@@ -120,8 +120,8 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
   const MemoryTag tag =
       Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull &&
               policy.partition() == 1
-          ? MemoryTag::kSampledP1
-          : MemoryTag::kSampled;
+          ? MemoryTag::kSampledOrColdP1
+          : MemoryTag::kSampledOrCold;
   size_t capacity = 0;
   if (size_class != 0) {
     state.per_size_class_counts()[size_class].Add(allocation_estimate);
@@ -165,7 +165,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     // for gwp-asan.
     stack_trace.allocated_size = span->bytes_in_span();
     stack_trace.cold_allocated =
-        GetMemoryTag(span->start_address()) == MemoryTag::kCold;
+        GetMemoryTag(span->start_address()) == MemoryTag::kSampledOrCold;
     capacity = stack_trace.allocated_size;
   }
 
@@ -179,9 +179,8 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
           MadviseSampledAllocations::kEnabled &&
       alloc_with_status.status != Profile::Sample::GuardedStatus::Guarded) {
     switch (GetMemoryTag(span->start_address())) {
-      case MemoryTag::kSampled:
-      case MemoryTag::kSampledP1:
-      case MemoryTag::kCold: {
+      case MemoryTag::kSampledOrCold:
+      case MemoryTag::kSampledOrColdP1: {
         const uintptr_t hardware_page_size = GetPageSize();
         const size_t allocated_size_rounded =
             (stack_trace.allocated_size + hardware_page_size - 1) &

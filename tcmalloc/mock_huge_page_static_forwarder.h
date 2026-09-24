@@ -89,9 +89,11 @@ class FakeStaticForwarder : private Parameters {
   void set_huge_region_adaptive_release(bool value) {
     huge_region_adaptive_release_ = value;
   }
-  bool release_max_cold_pages() const { return release_max_cold_pages_; }
-  void set_release_max_cold_pages(bool value) {
-    release_max_cold_pages_ = value;
+  bool release_max_sampled_or_cold_pages() const {
+    return release_max_sampled_or_cold_pages_;
+  }
+  void set_release_max_sampled_or_cold_pages(bool value) {
+    release_max_sampled_or_cold_pages_ = value;
   }
   bool release_max_filler_pages() const { return release_max_filler_pages_; }
   void set_release_max_filler_pages(bool value) {
@@ -252,7 +254,8 @@ class FakeStaticForwarder : private Parameters {
   int error_number_ = 0;
   bool huge_region_adaptive_release_ =
       Parameters::huge_region_adaptive_release();
-  bool release_max_cold_pages_ = Parameters::release_max_cold_pages();
+  bool release_max_sampled_or_cold_pages_ =
+      Parameters::release_max_sampled_or_cold_pages();
   bool release_max_filler_pages_ = Parameters::release_max_filler_pages();
 
   bool back_allocations_ = Parameters::back_small_allocations();

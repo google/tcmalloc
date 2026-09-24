@@ -899,7 +899,7 @@ TEST_F(TcMallocTest, CorruptedPointerEdgeCases) {
         ScopedProfileSamplingInterval sampling(0);
 
         for (size_t i = 0; i < 10000; ++i) {
-          char* ptr = static_cast<char*>(::operator new(8, hot_cold_t{0}));
+          char* ptr = static_cast<char*>(::operator new(8, hot_cold_t{255}));
           ::operator delete(ptr + 1);
         }
       },

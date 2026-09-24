@@ -69,8 +69,8 @@ class StaticForwarder : private Parameters {
   using Parameters::hpaa_subrelease;
   using Parameters::huge_region_adaptive_release;
   using Parameters::madvise_cold_regions_nohugepage;
-  using Parameters::release_max_cold_pages;
   using Parameters::release_max_filler_pages;
+  using Parameters::release_max_sampled_or_cold_pages;
   using Parameters::release_partial_alloc_pages;
   using Parameters::release_stale_pages;
   using Parameters::subrelease_unbacked_hugepages;
@@ -1040,9 +1040,9 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // THP coverage. It is however very useful to have the ability to turn this on
   // for testing.
   if (hpaa_subrelease()) {
-    const bool release_max =
-        (tag_ == MemoryTag::kCold && forwarder_.release_max_cold_pages()) ||
-        forwarder_.release_max_filler_pages();
+    const bool release_max = (IsSampledOrColdMemory(tag_) &&
+                              forwarder_.release_max_sampled_or_cold_pages()) ||
+                             forwarder_.release_max_filler_pages();
     if (released < num_pages || release_max) {
       Length desired = release_max ? Length::max() : num_pages - released;
       released += filler_.ReleasePages(
@@ -1283,7 +1283,7 @@ bool HugePageAwareAllocator<Forwarder>::IsValidSizeClass(size_t size,
 
 template <class Forwarder>
 inline bool HugePageAwareAllocator<Forwarder>::hpaa_subrelease() const {
-  if (tag_ == MemoryTag::kCold) {
+  if (IsSampledOrColdMemory(tag_)) {
     return true;
   } else {
     return forwarder_.hpaa_subrelease();
