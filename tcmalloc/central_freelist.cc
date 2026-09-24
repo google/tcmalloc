@@ -155,7 +155,8 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
   for (Span* const free_span : free_spans) {
     TC_ASSERT_EQ(GetMemoryTag(free_span->start_address()), tag);
     TC_ASSERT(!IsSampledMemory(free_span->start_address()));
-    tc_globals.pagemap().UnregisterSizeClass(free_span);
+    tc_globals.pagemap().UnregisterSizeClass(
+        free_span, const_cast<Span*>(&tc_globals.invalid_span()));
 
     // Before taking pageheap_lock, prefetch the PageTrackers these spans are
     // on.

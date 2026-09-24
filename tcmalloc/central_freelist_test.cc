@@ -175,6 +175,64 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
                "Possible double free detected|Mismatched-size-class");
 }
 
+// Verifies that DeallocateSpans marks every page of a multi-page span (not just
+// the first) as invalid, so that a double free of an object on a tail page is
+// detected rather than resolving to the deleted Span.
+TEST(StaticForwarderDeathTest, MultiPageSpanPagesInvalidatedOnDeallocate) {
+  size_t size_class = 0;
+  for (size_t sc = 1; sc < kNumClasses; ++sc) {
+    const Length pages = tc_globals.sizemap().class_to_pages(sc);
+    const size_t object_size = tc_globals.sizemap().class_to_size(sc);
+    if (pages <= Length(1) || object_size == 0) continue;
+    if (pages.in_bytes() / object_size > kFewObjectsAllocMaxLimit) continue;
+    size_class = sc;
+    break;
+  }
+  if (size_class == 0) {
+    GTEST_SKIP() << "No multi-page size class available.";
+  }
+
+  const size_t object_size = tc_globals.sizemap().class_to_size(size_class);
+  const Length pages_per_span = tc_globals.sizemap().class_to_pages(size_class);
+  const size_t objects_per_span = pages_per_span.in_bytes() / object_size;
+  const size_t size_reciprocal = Span::CalcReciprocal(object_size);
+
+  Span* span = StaticForwarder::AllocateSpan(size_class, objects_per_span,
+                                             pages_per_span);
+  ASSERT_NE(span, nullptr);
+  const PageId first_page = span->first_page();
+  const PageId last_page = span->last_page();
+
+  absl::FixedArray<void*> batch(objects_per_span);
+  ASSERT_EQ(
+      span->BuildFreelist(object_size, objects_per_span, absl::MakeSpan(batch),
+                          StaticForwarder::clock_now()),
+      objects_per_span);
+  void* tail_ptr = nullptr;
+  for (void* p : batch) {
+    if (PageIdContaining(p) == last_page) {
+      tail_ptr = p;
+    }
+    (void)span->FreelistPushBatch(absl::MakeSpan(&p, 1), object_size,
+                                  size_reciprocal);
+  }
+  ASSERT_NE(tail_ptr, nullptr);
+
+  StaticForwarder::DeallocateSpans(objects_per_span, absl::MakeSpan(&span, 1));
+
+  Span* const invalid_span = const_cast<Span*>(&tc_globals.invalid_span());
+  for (PageId p = first_page; p <= last_page; ++p) {
+    EXPECT_EQ(tc_globals.pagemap().sizeclass(p), 0);
+    EXPECT_EQ(tc_globals.pagemap().GetDescriptorAndSizeClass(p),
+              (std::pair<Span*, CompactSizeClass>(invalid_span, 0)));
+  }
+
+  Span* got = nullptr;
+  EXPECT_DEATH(
+      StaticForwarder::MapObjectsToSpans({&tail_ptr, 1}, &got, size_class),
+      "Possible double free detected|Mismatched-size-class");
+}
+
 class StaticForwarderEnvironment {
   struct SpanData {
     Span* span;
