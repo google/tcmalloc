@@ -1222,6 +1222,14 @@ TEST_F(FillerTest, ReleaseFreePagesWhenAnyPageIsSwapped) {
   EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased, 0);
 
+  // Draining unmapping_unaccounted_ via ReleasePages and resetting stats via
+  // TryGet/Put must not double-count the 2 pages subreleased by
+  // HandleReleaseFree.
+  EXPECT_EQ(ReleasePages(Length(2)), Length(2));
+  PAlloc tmp = Allocate(Length(1));
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(2));
+  Delete(tmp);
+
   DeleteVector(p1);
 }
 
@@ -2140,6 +2148,10 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedPages) {
   EXPECT_THAT(buffer, testing::HasSubstr(
                           "HugePageFiller: In the previous treatment "
                           "interval, marked 1 unbacked pages as subreleased."));
+  EXPECT_EQ(ReleasePages(Length(1)), Length(1));
+  PAlloc tmp = Allocate(Length(1));
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(1));
+  Delete(tmp);
   DeleteVector(p1);
 }
 

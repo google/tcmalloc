@@ -220,6 +220,7 @@ struct SubreleaseStats {
   Length total_pages_subreleased;                // cumulative since startup
   Length total_partial_alloc_pages_subreleased;  // cumulative since startup
   Length num_pages_subreleased;
+  Length num_already_counted_pages_subreleased;
   Length num_partial_alloc_pages_subreleased;
   HugeLength total_hugepages_broken{NHugePages(0)};  // cumulative since startup
   HugeLength num_hugepages_broken{NHugePages(0)};
@@ -230,11 +231,14 @@ struct SubreleaseStats {
   HugeLength total_hugepages_broken_due_to_limit{NHugePages(0)};
 
   void reset() {
-    total_pages_subreleased += num_pages_subreleased;
+    TC_ASSERT_GE(num_pages_subreleased, num_already_counted_pages_subreleased);
+    total_pages_subreleased +=
+        num_pages_subreleased - num_already_counted_pages_subreleased;
     total_partial_alloc_pages_subreleased +=
         num_partial_alloc_pages_subreleased;
     total_hugepages_broken += num_hugepages_broken;
     num_pages_subreleased = Length(0);
+    num_already_counted_pages_subreleased = Length(0);
     num_partial_alloc_pages_subreleased = Length(0);
     num_hugepages_broken = NHugePages(0);
   }
