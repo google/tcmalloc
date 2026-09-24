@@ -179,6 +179,10 @@ void RecordCrash(absl::string_view detector, absl::string_view error) {
 #endif  // __APPLE__
   }
 
+#ifdef __x86_64__
+  asm volatile("nop");
+#endif
+
   abort();
 }
 
