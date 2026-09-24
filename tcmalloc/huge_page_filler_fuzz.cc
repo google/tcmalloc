@@ -601,6 +601,7 @@ void Allocate::Perform(State& state) const {
   if (density == AccessDensityPrediction::kDense) {
     n = Length(1);
   }
+  num_objects = std::min<size_t>(num_objects, 300000);
   SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
                               .density = density};
 

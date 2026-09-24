@@ -576,6 +576,7 @@ void Instruction::Perform(State& state) const {
 void Alloc::Perform(State& state) const {
   Length len(std::clamp<size_t>(length, 1, 4 * kPagesPerHugePage.raw_num()));
   size_t num_obj = std::max<size_t>(num_objects, 1);
+  num_obj = std::min<size_t>(num_obj, 3000000);
   size_t object_size = len.in_bytes() / num_obj;
   const Length align(
       use_aligned
