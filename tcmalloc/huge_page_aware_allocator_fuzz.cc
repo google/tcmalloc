@@ -128,14 +128,21 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     FakeStaticForwarder::SetAnonVmaName(r, name);
   }
 
+  // New and NewAligned back the span after LockAndAlloc has released
+  // pageheap_lock, so the span is already accounted as used by the allocator
+  // but not yet recorded by the fuzzer.
   void Back(Range r) {
     ASSERT_TRUE(BackAllocations());
     TC_CHECK_LE(r.in_bytes(), BackSizeThresholdBytes());
+    pending_back_ += r.n;
+    lock_dropped_callback_();
+    pending_back_ -= r.n;
     return FakeStaticForwarder::Back(r);
   }
 
   bool allocate_succeeds_ = true;
   Length pending_release_;
+  Length pending_back_;
   std::function<void()> lock_dropped_callback_;
 };
 
@@ -539,6 +546,7 @@ struct State {
       reentrant_stack.pop_back();
 
       depth++;
+      reentrant_runs++;
       // The instruction that dropped the lock may still be inside a
       // PageHeapSpinLockHolder, whose AllocationGuard would otherwise abort
       // the fuzzer's own bookkeeping (live_ranges) in the subprogram.
@@ -570,7 +578,8 @@ struct State {
         stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
     const size_t expected_used =
         allocated.in_bytes() +
-        allocator.forwarder().pending_release_.in_bytes();
+        allocator.forwarder().pending_release_.in_bytes() +
+        allocator.forwarder().pending_back_.in_bytes();
     if (treating_trackers) {
       // A tracker emptied by a reentrant free while a treatment still pins it
       // is parked off every list until the treatment finishes, so its
@@ -593,6 +602,9 @@ struct State {
   PageReleaseStats expected_stats;
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
+  // Bumped whenever a reentrant subprogram runs, so an operation can tell
+  // whether other instructions interleaved with it.
+  size_t reentrant_runs = 0;
   bool treating_trackers = false;
   std::string output;
 };
@@ -645,6 +657,7 @@ void Alloc::Perform(State& state) const {
   }
   const size_t before_backed =
       before_stats.system_bytes - before_stats.unmapped_bytes;
+  const size_t runs_before = state.reentrant_runs;
 
   Span* s = use_aligned ? state.allocator.NewAligned(len, align, alloc_info)
                         : state.allocator.New(len, alloc_info);
@@ -671,7 +684,9 @@ void Alloc::Perform(State& state) const {
   }
   state.live_ranges.emplace(first, s->num_pages());
 
-  if (!state.allocator.forwarder().last_may_have_grown()) {
+  // A subprogram run while backing the span may have grown the heap itself.
+  if (runs_before == state.reentrant_runs &&
+      !state.allocator.forwarder().last_may_have_grown()) {
     BackingStats after_stats;
     {
       PageHeapSpinLockHolder l;
@@ -1147,6 +1162,43 @@ TEST(HugePageAwareAllocatorTest, ReentrantDeallocDuringCollapse) {
                                             .instr = Dealloc{.index = 0}}}}}},
        Instruction{.instr = TreatTrackers{.enable_collapse =
                                               EnableCollapse::kEnabled}}});
+}
+
+// Allocating from released pages backs the span outside pageheap_lock, after
+// the allocator counts it as used but before the fuzzer records it.  Stats
+// checks and further allocations interleaved there must still balance.
+TEST(HugePageAwareAllocatorTest, ReentrantAllocDuringBack) {
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{.instr =
+                       ChangeParam{.op = SetBackAllocations{.value = true}}},
+       Instruction{
+           .instr =
+               ChangeParam{.op = SetBackSizeThresholdBytes{.value = 1 << 20}}},
+       Instruction{.instr = Alloc{.length = 1,
+                                  .num_objects = 1,
+                                  .alignment = 1,
+                                  .use_aligned = false,
+                                  .dense = false}},
+       Instruction{.instr =
+                       ReleasePagesBreakingHugepages{
+                           .desired = 255, .soft_limit_exceeded = true}},
+       Instruction{
+           .instr = ChangeParam{.op =
+                                    ReentrantSubprogram{
+                                        .subprogram = {Instruction{
+                                            .instr = Alloc{.length = 1,
+                                                           .num_objects = 1,
+                                                           .alignment = 1,
+                                                           .use_aligned = false,
+                                                           .dense = false}}}}}},
+       Instruction{.instr = Alloc{.length = 1,
+                                  .num_objects = 1,
+                                  .alignment = 1,
+                                  .use_aligned = false,
+                                  .dense = false}}});
 }
 
 TEST(HugePageAwareAllocatorTest, b471822138) {
