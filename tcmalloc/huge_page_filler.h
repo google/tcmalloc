@@ -1972,6 +1972,7 @@ inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
+  TC_ASSERT(!pt->released());
   if (pt->unbroken()) return;
   RemoveFromFillerList(pt);
   pt->set_unbroken(/*status=*/true);
