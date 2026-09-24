@@ -1416,6 +1416,45 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
+
+TEST_P(CentralFreeListTest, ConcurrentInsertRangeLengthDoesNotUnderflow) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  const size_t objects_per_span = e.objects_per_span();
+  std::atomic<bool> done{false};
+  std::thread reader([&]() {
+    while (!done.load(std::memory_order_acquire)) {
+      EXPECT_LE(e.central_freelist().length(), objects_per_span * 16);
+      std::this_thread::yield();
+    }
+  });
+
+  std::vector<void*> objects(objects_per_span);
+  for (int iter = 0; iter < 10; ++iter) {
+    size_t fetched = 0;
+    while (fetched < objects_per_span) {
+      const size_t n = std::min(objects_per_span - fetched, e.batch_size());
+      fetched += e.central_freelist().RemoveRange(
+          absl::MakeSpan(&objects[fetched], n));
+    }
+    size_t returned = 0;
+    while (returned < fetched) {
+      const size_t n = std::min(fetched - returned, e.batch_size());
+      e.central_freelist().InsertRange(absl::MakeSpan(&objects[returned], n));
+      returned += n;
+    }
+  }
+
+  done.store(true, std::memory_order_release);
+  reader.join();
+  EXPECT_EQ(e.central_freelist().length(), 0);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
     testing::Combine(
