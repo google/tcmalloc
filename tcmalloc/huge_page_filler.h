@@ -1388,6 +1388,8 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
 
       if (ABSL_PREDICT_TRUE(success)) {
         unmapping_unaccounted_ += free_pages - released_pages;
+      } else {
+        pt->ResetReleased();
       }
     }
   }

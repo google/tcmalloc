@@ -1057,7 +1057,7 @@ TEST_P(HugePageAwareAllocatorTest, TailDonation) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
-TEST_P(HugePageAwareAllocatorTest, DISABLED_UnbackFailureOnPutClearsReleased) {
+TEST_P(HugePageAwareAllocatorTest, UnbackFailureOnPutClearsReleased) {
   // Setup: Pack two sparse allocations onto a single hugepage and partially
   // subrelease it.
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
@@ -1083,7 +1083,8 @@ TEST_P(HugePageAwareAllocatorTest, DISABLED_UnbackFailureOnPutClearsReleased) {
       ReleasePages(Length(10), PageReleaseReason::kProcessBackgroundActions);
   ASSERT_GT(released, Length(0));
   ASSERT_EQ(GetStats().system_bytes, kHugePageSize);
-  ASSERT_EQ(GetStats().free_bytes, released.in_bytes());
+  ASSERT_EQ(GetStats().free_bytes,
+            (kPagesPerHugePage - Length(10) - released).in_bytes());
   ASSERT_EQ(GetStats().unmapped_bytes, released.in_bytes());
 
   // Simulate system-level unback/page-release failures.
@@ -1092,7 +1093,6 @@ TEST_P(HugePageAwareAllocatorTest, DISABLED_UnbackFailureOnPutClearsReleased) {
   // Deallocate the last active chunk. This triggers a full unback of the
   // remaining pages.
   //
-  // TODO(b/517968354): Enable this test once the fallback logic is active.
   // We expect to have no unmapped memory as unbacking failed and we would
   // rather err high on RSS usage than err low.
   Delete(s2, 1);
