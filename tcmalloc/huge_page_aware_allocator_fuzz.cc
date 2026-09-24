@@ -43,6 +43,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/scoped_allow_allocation.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -523,6 +524,10 @@ struct State {
       reentrant_stack.pop_back();
 
       depth++;
+      // The instruction that dropped the lock may still be inside a
+      // PageHeapSpinLockHolder, whose AllocationGuard would otherwise abort
+      // the fuzzer's own bookkeeping (live_ranges) in the subprogram.
+      ScopedAllocationAllow allow;
       RunInstructions(ops);
       depth--;
     };
@@ -1051,6 +1056,34 @@ TEST(HugePageAwareAllocatorTest, FuzzHPAARegression2) {
   }});
 
   FuzzHPAA(options, instructions);
+}
+
+// ReleaseAtLeastNPages runs under PageHeapSpinLockHolder, whose
+// AllocationGuard outlives the lock drop in UnbackWithoutLock.  A subprogram
+// interleaved there must still be able to allocate, both in the allocator under
+// test and in the fuzzer's own bookkeeping.
+TEST(HugePageAwareAllocatorTest, ReentrantAllocDuringRelease) {
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{.instr = Alloc{.length = 1,
+                                  .num_objects = 1,
+                                  .alignment = 1,
+                                  .use_aligned = false,
+                                  .dense = false}},
+       Instruction{.instr = Dealloc{.index = 0}},
+       Instruction{
+           .instr = ChangeParam{.op =
+                                    ReentrantSubprogram{
+                                        .subprogram = {Instruction{
+                                            .instr = Alloc{.length = 1,
+                                                           .num_objects = 1,
+                                                           .alignment = 1,
+                                                           .use_aligned = false,
+                                                           .dense = false}}}}}},
+       Instruction{.instr = ReleasePages{.desired = 65535,
+                                         .release_memory_to_system = true}}});
 }
 
 TEST(HugePageAwareAllocatorTest, b471822138) {

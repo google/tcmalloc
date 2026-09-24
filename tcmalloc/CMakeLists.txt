@@ -923,6 +923,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"
     "tcmalloc::internal_pageflags"
+    "tcmalloc::internal_scoped_allow_allocation"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::mock_huge_page_static_forwarder"
     "tcmalloc::tcmalloc"
