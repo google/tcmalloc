@@ -2461,6 +2461,32 @@ TEST(CpuCacheTest, NamedVma) {
   cache.Deactivate();
 }
 
+TEST(CpuCacheTest, ShuffleAndDrain) {
+  if (!subtle::percpu::IsFast() || NumCPUs() < 2) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  const int cold_cpu_id = 0;
+  const int hot_cpu_id = 1;
+  const size_t size_class = 2;
+
+  for (int i = 0; i < 50; ++i) {
+    ColdCacheOperations(cache, cold_cpu_id, size_class);
+    HotCacheOperations(cache, hot_cpu_id, /*drain=*/true);
+    cache.ShuffleCpuCaches();
+    cache.TryDrainingCaches();
+    EXPECT_EQ(cache.Allocated(cold_cpu_id) + cache.Unallocated(cold_cpu_id),
+              cache.Capacity(cold_cpu_id));
+    EXPECT_EQ(cache.Allocated(hot_cpu_id) + cache.Unallocated(hot_cpu_id),
+              cache.Capacity(hot_cpu_id));
+  }
+
+  cache.Deactivate();
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
