@@ -43,6 +43,7 @@
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/prefetch.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -203,7 +204,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  void TreatHugepageTrackers(EnableCollapse enable_collapse)
+  void TreatHugepageTrackers(EnableCollapse enable_collapse,
+                             PageFlagsBase* pageflags, Residency* residency)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Prints stats about the page heap to *out.
@@ -1071,14 +1073,15 @@ inline void HugePageAwareAllocator<Forwarder>::DrainFreedTrackers() {
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
-    EnableCollapse enable_collapse) {
+    EnableCollapse enable_collapse, PageFlagsBase* pageflags,
+    Residency* residency) {
   const EnableUnfilteredCollapse enable_unfiltered_collapse =
       forwarder_.enable_unfiltered_collapse();
   const ReleaseStalePages release_stale_pages =
       forwarder_.release_stale_pages();
   PageHeapSpinLockHolder l;
   filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                release_stale_pages);
+                                release_stale_pages, pageflags, residency);
   DrainFreedTrackers();
 }
 

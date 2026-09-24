@@ -197,7 +197,8 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 
       if (now - last_hpaa_hugepage_check >= hpaa_hugepage_check_period) {
         tc_globals.page_allocator().TreatHugepageTrackers(
-            Parameters::usermode_hugepage_collapse());
+            Parameters::usermode_hugepage_collapse(), /*pageflags=*/nullptr,
+            /*residency=*/nullptr);
         last_hpaa_hugepage_check = now;
       }
 

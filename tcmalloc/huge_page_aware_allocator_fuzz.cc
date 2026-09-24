@@ -31,6 +31,7 @@
 #include "absl/base/attributes.h"
 #include "absl/log/check.h"
 #include "absl/numeric/bits.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
@@ -45,6 +46,8 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/range_tracker.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/scoped_allow_allocation.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
@@ -140,6 +143,51 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
 };
 
 struct State;
+
+// Treatment queries hugepage backing and residency with pageheap_lock dropped.
+// The forwarder hands out fake addresses, so the real PageFlags and
+// ResidencyPageMap either cannot read them or report them as hugepage backed,
+// and collapse never runs.  These fakes answer from State, so the fuzzer picks
+// the outcome and can interleave other operations at each query.
+class FakePageFlags final : public PageFlagsBase {
+ public:
+  explicit FakePageFlags(State& state) : state_(state) {}
+  std::optional<PageStats> Get(const void* addr, size_t size) override {
+    return PageStats{};
+  }
+
+  PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override;
+  std::optional<bool> IsHugepageBacked(const void* addr) override;
+
+ private:
+  State& state_;
+};
+
+class FakeResidency final : public Residency {
+ public:
+  explicit FakeResidency(State& state) : state_(state) {}
+  std::optional<Info> Get(const void* addr, size_t size) override {
+    return std::nullopt;
+  }
+
+  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override;
+
+  size_t GetHardwarePagesInHugePage() const override {
+    return kHugePageSize / kPageSize;
+  }
+
+ private:
+  State& state_;
+};
+
+Bitmap<kMaxResidencyBits> GetBitmap(int value) {
+  int v = value % kMaxResidencyBits;
+  Bitmap<kMaxResidencyBits> bitmap;
+  if (v > 0) {
+    bitmap.SetRange(/*index=*/0, v);
+  }
+  return bitmap;
+}
 
 struct Alloc {
   size_t length;
@@ -434,6 +482,29 @@ struct SetMadvNoHugepageHugeRegions {
   }
 };
 
+// Sets what FakePageFlags and FakeResidency report for every tracker that the
+// next treatments scan.
+struct UpdateBitmaps {
+  bool hugepage_backed_set;
+  bool hugepage_backed_val;
+  uint16_t unbacked_bitmap_val;
+  uint16_t swapped_bitmap_val;
+  uint16_t stale_bitmap_val;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const UpdateBitmaps& u) {
+    absl::Format(&sink,
+                 "UpdateBitmaps{.hugepage_backed_set=%v, "
+                 ".hugepage_backed_val=%v, .unbacked_bitmap_val=%d, "
+                 ".swapped_bitmap_val=%d, .stale_bitmap_val=%d}",
+                 u.hugepage_backed_set, u.hugepage_backed_val,
+                 u.unbacked_bitmap_val, u.swapped_bitmap_val,
+                 u.stale_bitmap_val);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -453,7 +524,7 @@ using ParamOp = std::variant<
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
     SetReleaseMaxFillerPages, SetEnableReleaseStalePages,
-    SetMadvNoHugepageHugeRegions>;
+    SetMadvNoHugepageHugeRegions, UpdateBitmaps>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -515,38 +586,45 @@ struct State {
     output.resize(1 << 20);
 
     allocator.forwarder().lock_dropped_callback_ = [this]() {
-      if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
-        // This permits a slight degree of nondeterminism when linked against
-        // TCMalloc for the real memory allocator, as a background thread could
-        // also be holding the lock.  Nevertheless, HPAA doesn't make it clear
-        // when we are releasing with/without the pageheap_lock.
-        //
-        // TODO(b/73749855): When all release paths unconditionally release the
-        // lock, remove this check and take the lock for an instant to ensure it
-        // can be taken.
-        return;
-      }
-
-      if (reentrant_stack.empty()) {
-        return;
-      }
-
-      if (depth >= 5) {
-        return;
-      }
-
-      absl::Span<const Instruction> ops = reentrant_stack.back();
-      reentrant_stack.pop_back();
-
-      depth++;
-      reentrant_runs++;
-      // The instruction that dropped the lock may still be inside a
-      // PageHeapSpinLockHolder, whose AllocationGuard would otherwise abort
-      // the fuzzer's own bookkeeping (live_ranges) in the subprogram.
-      ScopedAllocationAllow allow;
-      RunInstructions(ops);
-      depth--;
+      OnLockDropped();
     };
+  }
+
+  // Runs the next queued reentrant subprogram, if any.  Invoked by the
+  // forwarder and the residency fakes wherever the allocator has dropped
+  // pageheap_lock around a system call.
+  void OnLockDropped() {
+    if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
+      // This permits a slight degree of nondeterminism when linked against
+      // TCMalloc for the real memory allocator, as a background thread could
+      // also be holding the lock.  Nevertheless, HPAA doesn't make it clear
+      // when we are releasing with/without the pageheap_lock.
+      //
+      // TODO(b/73749855): When all release paths unconditionally release the
+      // lock, remove this check and take the lock for an instant to ensure it
+      // can be taken.
+      return;
+    }
+
+    if (reentrant_stack.empty()) {
+      return;
+    }
+
+    if (depth >= 5) {
+      return;
+    }
+
+    absl::Span<const Instruction> ops = reentrant_stack.back();
+    reentrant_stack.pop_back();
+
+    depth++;
+    reentrant_runs++;
+    // The instruction that dropped the lock may still be inside a
+    // PageHeapSpinLockHolder, whose AllocationGuard would otherwise abort
+    // the fuzzer's own bookkeeping (live_ranges) in the subprogram.
+    ScopedAllocationAllow allow;
+    RunInstructions(ops);
+    depth--;
   }
 
   void RunInstructions(absl::Span<const Instruction> instrs) {
@@ -588,6 +666,12 @@ struct State {
 
   HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator;
   const MemoryTag tag;
+  FakePageFlags pageflags{*this};
+  FakeResidency residency{*this};
+  std::optional<bool> is_hugepage_backed = true;
+  Bitmap<kMaxResidencyBits> unbacked_bitmap;
+  Bitmap<kMaxResidencyBits> swapped_bitmap;
+  Bitmap<kMaxResidencyBits> stale_bitmap;
   std::vector<SpanInfo> allocs;
   // Live spans keyed by first page index, for overlap checks.
   std::map<PageId, Length> live_ranges;
@@ -601,6 +685,23 @@ struct State {
   bool treating_trackers = false;
   std::string output;
 };
+
+PageFlagsBase::PageFlagsBitmaps FakePageFlags::GetSinglePageBitmaps(
+    const void* addr) {
+  state_.OnLockDropped();
+  return {state_.stale_bitmap, absl::StatusCode::kOk};
+}
+
+std::optional<bool> FakePageFlags::IsHugepageBacked(const void* addr) {
+  state_.OnLockDropped();
+  return state_.is_hugepage_backed;
+}
+
+Residency::SinglePageBitmaps FakeResidency::GetUnbackedAndSwappedBitmaps(
+    const void* addr) {
+  state_.OnLockDropped();
+  return {state_.unbacked_bitmap, state_.swapped_bitmap, absl::StatusCode::kOk};
+}
 
 void ChangeParam::Perform(State& state) const {
   std::visit([&](const auto& o) { o.Perform(state); }, op);
@@ -791,18 +892,16 @@ void ReleasePagesBreakingHugepages::Perform(State& state) const {
 
 void GatherStatsPbtxt::Perform(State& state) const {
   Printer p(&state.output[0], state.output.size());
-  PageFlags pageflags;
   {
     PbtxtRegion region(p, kTop);
-    state.allocator.PrintInPbtxt(region, pageflags);
+    state.allocator.PrintInPbtxt(region, state.pageflags);
   }
   CHECK_LE(p.SpaceRequired(), state.output.size());
 }
 
 void PrintStats::Perform(State& state) const {
-  PageFlags pageflags;
   Printer p(&state.output[0], state.output.size());
-  state.allocator.Print(p, everything, pageflags);
+  state.allocator.Print(p, everything, state.pageflags);
 }
 
 void GatherSpanStats::Perform(State& state) const {
@@ -824,7 +923,8 @@ void TreatTrackers::Perform(State& state) const {
     return;
   }
   state.treating_trackers = true;
-  state.allocator.TreatHugepageTrackers(enable_collapse);
+  state.allocator.TreatHugepageTrackers(enable_collapse, &state.pageflags,
+                                        &state.residency);
   state.treating_trackers = false;
 }
 
@@ -907,6 +1007,23 @@ void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
   state.allocator.forwarder().set_madvise_cold_regions_nohugepage(
       value ? MadviseRegionsNoHugepage::kEnabled
             : MadviseRegionsNoHugepage::kDisabled);
+}
+
+void UpdateBitmaps::Perform(State& state) const {
+  if (hugepage_backed_set) {
+    state.is_hugepage_backed = hugepage_backed_val;
+  } else {
+    state.is_hugepage_backed = std::nullopt;
+  }
+  if (state.is_hugepage_backed.value_or(false)) {
+    state.unbacked_bitmap.Clear();
+    state.swapped_bitmap.Clear();
+    state.stale_bitmap.Clear();
+    return;
+  }
+  state.unbacked_bitmap = GetBitmap(unbacked_bitmap_val);
+  state.swapped_bitmap = GetBitmap(swapped_bitmap_val);
+  state.stale_bitmap = GetBitmap(stale_bitmap_val);
 }
 
 void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
@@ -1020,7 +1137,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
       fuzztest::Map(
           [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
-          fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()));
+          fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()),
+      fuzztest::Map([](UpdateBitmaps u) { return ChangeParam{u}; },
+                    fuzztest::Arbitrary<UpdateBitmaps>()));
 
   if (depth <= 0) {
     return fuzztest::OneOf(
@@ -1143,6 +1262,13 @@ TEST(HugePageAwareAllocatorTest, ReentrantDeallocDuringCollapse) {
       {Instruction{
            .instr =
                ChangeParam{.op = SetEnableUnfilteredCollapse{.value = true}}},
+       Instruction{
+           .instr =
+               ChangeParam{.op = UpdateBitmaps{.hugepage_backed_set = true,
+                                               .hugepage_backed_val = false,
+                                               .unbacked_bitmap_val = 0,
+                                               .swapped_bitmap_val = 0,
+                                               .stale_bitmap_val = 0}}},
        Instruction{.instr = Alloc{.length = 1,
                                   .num_objects = 1,
                                   .alignment = 1,

@@ -24,6 +24,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -94,7 +95,13 @@ class PageAllocatorInterface {
   virtual PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
-  virtual void TreatHugepageTrackers(EnableCollapse enable_collapse)
+  // Applies periodic treatments (collapse, sampled-tracker naming, release of
+  // stale or swapped pages) to hugepage trackers.  Hugepage-backing and
+  // residency queries go through pageflags and residency; when either is
+  // null, the /proc-backed implementation is used.  Tests inject fakes.
+  virtual void TreatHugepageTrackers(EnableCollapse enable_collapse,
+                                     PageFlagsBase* pageflags,
+                                     Residency* residency)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.

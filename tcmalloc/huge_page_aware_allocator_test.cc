@@ -277,7 +277,8 @@ class HugePageAwareAllocatorTest
   }
 
   void TreatHugepageTrackers(EnableCollapse enable_collapse) {
-    allocator_->TreatHugepageTrackers(enable_collapse);
+    allocator_->TreatHugepageTrackers(enable_collapse, /*pageflags=*/nullptr,
+                                      /*residency=*/nullptr);
   }
 
   Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
