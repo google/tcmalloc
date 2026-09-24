@@ -26,7 +26,9 @@
 #include "fuzztest/fuzztest.h"
 #include "absl/base/attributes.h"
 #include "absl/log/check.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/huge_allocator.h"
@@ -50,21 +52,23 @@ int64_t FakeClockNow() { return fake_clock_ticks; }
 
 double FakeClockFreq() { return absl::ToDoubleNanoseconds(absl::Seconds(1)); }
 
+struct State;
+
+// HugeCache::ShrinkCache calls this with pageheap_lock dropped in production
+// (HugePageAwareAllocator::UnbackWithoutLock), so other threads can operate on
+// the cache in the middle of a shrink.  Run a queued reentrant subprogram here
+// to model them.
 class MockUnback final : public MemoryModifyFunction {
  public:
-  [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
-    if (!unback_success_) {
-      has_failed_ = true;
-      return {.success = false, .error_number = ENOMEM};
-    }
-    return {.success = true, .error_number = 0};
-  }
+  explicit MockUnback(State& state) : state_(state) {}
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override;
 
   bool unback_success_ = true;
   mutable bool has_failed_ = false;
-};
 
-struct State;
+ private:
+  State& state_;
+};
 
 struct Get {
   size_t count;
@@ -151,14 +155,32 @@ struct SetUnbackSuccess {
   void Perform(State& state) const;
 };
 
-using Instruction =
-    std::variant<Get, Release, ReleaseUnbacked, ReleaseCachedPages,
-                 AdvanceClock, AddSpanStats, PrintStats, SetUnbackSuccess>;
+struct Reentrant;
+
+using Instruction = std::variant<Get, Release, ReleaseUnbacked,
+                                 ReleaseCachedPages, AdvanceClock, AddSpanStats,
+                                 PrintStats, SetUnbackSuccess, Reentrant>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {
   std::visit([&](auto&& arg) { absl::Format(&sink, "%v", arg); }, i);
 }
+
+// Queues a subprogram to run the next time the cache unbacks memory.
+struct Reentrant {
+  std::vector<Instruction> subprogram;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Reentrant& r) {
+    absl::Format(&sink, "Reentrant{.subprogram={%s}}",
+                 absl::StrJoin(r.subprogram, ", ",
+                               [](std::string* out, const Instruction& i) {
+                                 absl::StrAppend(out, i);
+                               }));
+  }
+
+  void Perform(State& state) const;
+};
 
 struct State {
   FakeVirtualAllocator vm_allocator;
@@ -170,12 +192,17 @@ struct State {
   std::vector<HugeRange> live_ranges;
   HugeLength outstanding_usage = NHugePages(0);
   std::string output_buffer;
+  std::vector<absl::Span<const Instruction>> reentrant_stack;
+  int depth = 0;
+  // Bumped whenever a reentrant subprogram runs, so an operation can tell
+  // whether other instructions interleaved with it.
+  size_t reentrant_runs = 0;
 
   explicit State(absl::Duration cache_time)
       : vm_allocator(),
         metadata_allocator(),
         alloc(vm_allocator, metadata_allocator),
-        unback(),
+        unback(*this),
         cache(alloc, metadata_allocator, unback,
               std::clamp(cache_time, absl::Milliseconds(10), absl::Minutes(10)),
               Clock{.now = FakeClockNow, .freq = FakeClockFreq}) {
@@ -184,6 +211,9 @@ struct State {
   }
 
   ~State() {
+    // Releasing below unbacks; do not run subprograms that would add to
+    // live_ranges while we drain it.
+    reentrant_stack.clear();
     unback.unback_success_ = true;
     // Release all outstanding ranges so memory is reclaimed cleanly.
     for (HugeRange r : live_ranges) {
@@ -202,8 +232,29 @@ struct State {
   void RunInstructions(absl::Span<const Instruction> instrs) {
     for (const auto& inst : instrs) {
       std::visit([&](auto&& arg) { arg.Perform(*this); }, inst);
-      CheckInvariants();
+      // A shrink in progress has already taken the range being unbacked out
+      // of size(), so only check between top-level instructions.
+      if (depth == 0) {
+        CheckInvariants();
+      }
     }
+  }
+
+  void OnLockDropped() {
+    if (reentrant_stack.empty()) {
+      return;
+    }
+    if (depth >= 5) {
+      return;
+    }
+
+    absl::Span<const Instruction> ops = reentrant_stack.back();
+    reentrant_stack.pop_back();
+
+    depth++;
+    reentrant_runs++;
+    RunInstructions(ops);
+    depth--;
   }
 
   void CheckInvariants() const {
@@ -219,6 +270,15 @@ struct State {
     TC_CHECK_EQ(stats.unmapped_bytes, 0);
   }
 };
+
+MemoryModifyStatus MockUnback::operator()(Range r) {
+  state_.OnLockDropped();
+  if (!unback_success_) {
+    has_failed_ = true;
+    return {.success = false, .error_number = ENOMEM};
+  }
+  return {.success = true, .error_number = 0};
+}
 
 void Get::Perform(State& state) const {
   const HugeLength n = NHugePages(std::max<size_t>(1, count % 1024));
@@ -263,7 +323,13 @@ void Release::Perform(State& state) const {
   const HugeLength size_before = state.cache.size();
   const HugeLength limit_before = state.cache.limit();
   const bool unback_success = state.unback.unback_success_;
+  const size_t runs_before = state.reentrant_runs;
   state.cache.Release(r);
+  if (runs_before != state.reentrant_runs) {
+    // Other operations interleaved with the shrink; State::CheckInvariants
+    // still holds, but the exact size and limit are no longer predictable.
+    return;
+  }
   // Releasing can only shrink the limit.  Everything above the resulting
   // limit is unbacked, exactly, unless unbacking fails part way.
   TC_CHECK_LE(state.cache.limit(), limit_before);
@@ -298,7 +364,12 @@ void ReleaseCachedPages::Perform(State& state) const {
   const HugeLength previous_size = state.cache.size();
   const HugeLength limit_before = state.cache.limit();
   const bool unback_success = state.unback.unback_success_;
+  const size_t runs_before = state.reentrant_runs;
   const HugeLength released = state.cache.ReleaseCachedPages(n);
+  if (runs_before != state.reentrant_runs) {
+    // Interleaved operations can add to or take from the cache mid-shrink.
+    return;
+  }
   EXPECT_LE(released, previous_size);
   // Every released hugepage left the cache; failed unbacks stay cached.
   TC_CHECK_EQ(released, previous_size - state.cache.size());
@@ -336,6 +407,13 @@ void SetUnbackSuccess::Perform(State& state) const {
   state.unback.unback_success_ = success;
 }
 
+void Reentrant::Perform(State& state) const {
+  if (state.depth != 0 || subprogram.empty()) {
+    return;
+  }
+  state.reentrant_stack.push_back(subprogram);
+}
+
 void FuzzHugeCache(const std::vector<Instruction>& instructions,
                    absl::Duration cache_time) {
   fake_clock_ticks = 1234;
@@ -354,7 +432,7 @@ auto CacheTimeDomain() {
                        fuzztest::InRange<int64_t>(10, 60000));
 }
 
-fuzztest::Domain<Instruction> GetInstructionDomain() {
+auto GetFlatInstructionDomain() {
   return fuzztest::OneOf(
       fuzztest::Map([](Get g) -> Instruction { return Instruction{g}; },
                     fuzztest::Arbitrary<Get>()),
@@ -379,8 +457,36 @@ fuzztest::Domain<Instruction> GetInstructionDomain() {
           fuzztest::Arbitrary<SetUnbackSuccess>()));
 }
 
+fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
+  if (depth <= 0) {
+    return GetFlatInstructionDomain();
+  }
+  return fuzztest::OneOf(
+      GetFlatInstructionDomain(),
+      fuzztest::Map(
+          [](std::vector<Instruction> sub) -> Instruction {
+            return Instruction{Reentrant{std::move(sub)}};
+          },
+          fuzztest::VectorOf(GetInstructionDomain(depth - 1))));
+}
+
 FUZZ_TEST(HugeCacheTest, FuzzHugeCache)
-    .WithDomains(fuzztest::VectorOf(GetInstructionDomain()), CacheTimeDomain());
+    .WithDomains(fuzztest::VectorOf(GetInstructionDomain(/*depth=*/5)),
+                 CacheTimeDomain());
+
+// ShrinkCache removes a range from the cache, unbacks it with the lock
+// dropped, and then keeps shrinking towards its original target.  A Get and
+// Release interleaved at the unback must leave the cache consistent.
+TEST(HugeCacheTest, ReentrantGetAndReleaseDuringShrink) {
+  FuzzHugeCache(
+      {
+          Get{.count = 4},
+          Release{.index = 0},
+          Reentrant{.subprogram = {Get{.count = 2}, Release{.index = 0}}},
+          ReleaseCachedPages{.count = 4},
+      },
+      absl::Seconds(1));
+}
 
 TEST(HugeCacheTest, Regression) {
   FuzzHugeCache(

@@ -941,6 +941,7 @@ tcmalloc_cc_test(
     "absl::core_headers"
     "absl::span"
     "absl::str_format"
+    "absl::strings"
     "absl::time"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
