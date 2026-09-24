@@ -183,7 +183,7 @@ class ABSL_CACHELINE_ALIGNED Arena {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(arena_lock_);
 
   // How much to allocate from system at a time
-  static constexpr int kAllocIncrement = 128 << 10;
+  static constexpr int kAllocIncrement = 96 << 10;
   // Maximum number of blocks to keep on freelist_.
   static constexpr int kMaxFreelistBlocks = 100;
 
