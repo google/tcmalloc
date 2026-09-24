@@ -635,12 +635,18 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
-  if (policy.is_cold() &&
+  if (ColdFeatureActive() && policy.is_cold() &&
       (Parameters::heap_partitioning_mode() != HeapPartitioningMode::kFull ||
        policy.security_partition() == 0)) {
     tag = MemoryTag::kCold;
   } else if (tc_globals.active_partitions() > 1) {
-    tag = MultiNormalTag(policy.partition());
+    if (kSecurityPartitions > 1 &&
+        policy.allocation_type() == AllocationType::New &&
+        Parameters::heap_partitioning_mode() == HeapPartitioningMode::kLight) {
+      tag = MemoryTag::kNormalP1;
+    } else {
+      tag = MultiNormalTag(policy.partition());
+    }
   }
   Span* span = tc_globals.page_allocator().NewAligned(
       num_pages, BytesToLengthCeil(policy.align()),
