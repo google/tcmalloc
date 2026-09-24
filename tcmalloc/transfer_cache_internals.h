@@ -50,18 +50,31 @@ struct alignas(8) SizeInfo {
 static constexpr int kMaxCapacityInBatches = 64;
 static constexpr int kInitialCapacityInBatches = 16;
 
+class CacheStatsCounter {
+ public:
+  constexpr CacheStatsCounter() : value_(0) {}
+  void LossyAdd(uint32_t increment) {
+    value_.store(value_.load(std::memory_order_relaxed) + increment,
+                 std::memory_order_relaxed);
+  }
+  uint32_t value() const { return value_.load(std::memory_order_relaxed); }
+
+ private:
+  std::atomic<uint32_t> value_;
+};
+
 // Records counters for different types of misses.
 class MissCounts {
  public:
-  void Inc(size_t value) {
+  void Inc(uint32_t value) {
     total_.store(total_.load(std::memory_order_relaxed) + value,
                  std::memory_order_relaxed);
   }
 
-  size_t Total() const { return total_.load(std::memory_order_relaxed); }
+  uint32_t Total() const { return total_.load(std::memory_order_relaxed); }
 
   // Returns the number of misses since the last commit call.
-  size_t Commit() {
+  uint32_t Commit() {
     size_t t = total_.load(std::memory_order_relaxed);
     size_t c = total_committed_.exchange(t, std::memory_order_relaxed);
     if (ABSL_PREDICT_TRUE(t > c)) {
@@ -72,8 +85,8 @@ class MissCounts {
   }
 
  private:
-  std::atomic<size_t> total_ = {0};
-  std::atomic<size_t> total_committed_ = {0};
+  std::atomic<uint32_t> total_ = {0};
+  std::atomic<uint32_t> total_committed_ = {0};
 };
 
 // TransferCache is used to cache transfers of
@@ -96,10 +109,10 @@ class TransferCache {
   TransferCache(int size_class, Capacity capacity)
       : lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
         low_water_mark_(0),
+        max_capacity_(capacity.max_capacity),
         slot_info_(SizeInfo({0, capacity.capacity})),
         slots_(nullptr),
-        forwarder_(),
-        max_capacity_(capacity.max_capacity) {
+        forwarder_() {
     freelist().Init(size_class, Parameters::cfl_subbucket_prioritization());
     slots_ = max_capacity_ != 0 ? reinterpret_cast<void**>(forwarder_.Alloc(
                                       max_capacity_ * sizeof(void*)))
@@ -383,9 +396,11 @@ class TransferCache {
   // insert_hits_ and remove_hits_ are logically guarded by lock_ for mutations
   // and use LossyAdd, but the thread annotations cannot indicate that we do not
   // need a lock for reads.
-  StatsCounter insert_hits_;
-  StatsCounter remove_hits_;
-  StatsCounter remove_object_hits_;
+  CacheStatsCounter insert_hits_;
+  CacheStatsCounter remove_hits_;
+  CacheStatsCounter remove_object_hits_;
+
+  const int32_t max_capacity_;
 
   // Number of currently used and available cached entries in slots_. This
   // variable is updated under a lock but can be read without one.
@@ -399,18 +414,13 @@ class TransferCache {
   // owner_ and max_capacity_ are immutable, so they may share lock_'s line.
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
-  // Maximum size of the cache.
-  const int32_t max_capacity_;
 
   // The following 4 *_misses_ counters are written by every core that misses,
   // so they get a cacheline of their own, apart from both lock_ and the
   // freelist's lock.
   //
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  alignas(ABSL_CACHELINE_SIZE)
-#endif
-      StatsCounter insert_misses_;
-  StatsCounter remove_misses_;
+  CacheStatsCounter insert_misses_;
+  CacheStatsCounter remove_misses_;
 
   MissCounts insert_object_misses_;
   MissCounts remove_object_misses_;
