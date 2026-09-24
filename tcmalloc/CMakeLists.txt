@@ -939,6 +939,7 @@ tcmalloc_cc_test(
     "GTest::gmock"
     "absl::check"
     "absl::core_headers"
+    "absl::span"
     "absl::str_format"
     "absl::time"
     "fuzztest::fuzztest"
