@@ -44,7 +44,7 @@ static void VerifyColdSizeClassRelations(const SizeMap& size_map,
     size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
     if (mode == HeapPartitioningMode::kLight) {
       // In kLight mode, all C++ allocations are routed to Hot P1 or Cold P0.
-      EXPECT_EQ(cold, hot - kNumBaseClasses + kColdClassesStart)
+      EXPECT_EQ(cold, hot - kSecurityClassesStart + kColdClassesStart)
           << request_size;
     } else {
       EXPECT_EQ(cold, hot + kColdClassesStart) << request_size;
@@ -57,7 +57,7 @@ static void VerifyColdSizeClassRelations(const SizeMap& size_map,
     size_t cold = size_map.SizeClass(policy.AccessAsCold(), request_size);
     size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
     if (mode == HeapPartitioningMode::kLight) {
-      EXPECT_EQ(cold, hot - kNumBaseClasses + kColdClassesStart)
+      EXPECT_EQ(cold, hot - kSecurityClassesStart + kColdClassesStart)
           << request_size;
     } else if (mode == HeapPartitioningMode::kFull) {
       // In kFull mode, alloc-token 1 Cold allocations map to Hot P1.
@@ -71,7 +71,8 @@ static void VerifyColdSizeClassRelations(const SizeMap& size_map,
     auto policy = CppPolicy().InPartition(1).WithSecurityToken<TokenId{0}>();
     size_t cold = size_map.SizeClass(policy.AccessAsCold(), request_size);
     size_t hot = size_map.SizeClass(policy.AccessAsHot(), request_size);
-    EXPECT_EQ(cold, hot - kNumBaseClasses + kColdClassesStart) << request_size;
+    EXPECT_EQ(cold, hot - kSecurityClassesStart + kColdClassesStart)
+        << request_size;
   }
 }
 
@@ -251,7 +252,7 @@ TEST(SizeMapTest, HeapPartitioningSizeZero) {
     EXPECT_EQ(part1_c, base_c + (Parameters::heap_partitioning_mode() ==
                                          HeapPartitioningMode::kLight
                                      ? 0
-                                     : kNumBaseClasses));
+                                     : kSecurityClassesStart));
   }
 }
 

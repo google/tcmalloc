@@ -277,7 +277,8 @@ TEST_F(RunTimeSizeClassesTest, ColdSizeClasses) {
   // Verify that none of the default size classes are considered cold size
   // classes.
   for (int i = 0; i < kNumClasses; i++) {
-    EXPECT_EQ(i < (kNumBaseClasses * kNormalPartitions), !IsColdSizeClass(i))
+    EXPECT_EQ(i < kColdClassesStart || i >= kSecurityClassesStart,
+              !IsColdSizeClass(i))
         << i;
   }
 }
