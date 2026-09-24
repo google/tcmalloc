@@ -2461,6 +2461,32 @@ TEST(CpuCacheTest, NamedVma) {
   cache.Deactivate();
 }
 
+TEST(CpuCacheTest, UpdateCapacityAfterMaxCapacityShrink) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  const size_t kSizeClass = 1;
+  std::vector<void*> objects;
+  constexpr size_t kNumObjects = 256;
+  for (size_t i = 0; i < kNumObjects; ++i) {
+    objects.push_back(cache.Allocate(kSizeClass));
+  }
+  for (void* ptr : objects) {
+    cache.Deallocate(ptr, kSizeClass);
+  }
+  cache.ResizeSlabIfNeeded();
+  for (int cpu = 0; cpu < NumCPUs(); ++cpu) {
+    EXPECT_LE(cache.Allocated(cpu) + cache.Unallocated(cpu),
+              cache.Capacity(cpu));
+  }
+
+  cache.Deactivate();
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
