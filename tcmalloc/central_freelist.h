@@ -157,13 +157,13 @@ class CentralFreeList {
         size_class_(0),
         object_size_(0),
         objects_per_span_(0),
+        use_all_buckets_for_few_object_spans_(false),
+        cfl_subbucket_prioritization_(CflSubbucketPrioritization::kDisabled),
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
         first_nonempty_index_(0),
 #endif
         pages_per_span_(0),
-        nonempty_(),
-        use_all_buckets_for_few_object_spans_(false),
-        cfl_subbucket_prioritization_(CflSubbucketPrioritization::kDisabled) {
+        nonempty_() {
   }
 
   CentralFreeList(const CentralFreeList&) = delete;
@@ -279,8 +279,8 @@ class CentralFreeList {
   // This lock protects all the mutable data members.
   absl::base_internal::SpinLock lock_;
 
-  size_t size_class_;  // My size class (immutable after Init())
-  size_t object_size_;
+  uint32_t size_class_;  // My size class (immutable after Init())
+  uint32_t object_size_;
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   size_t
 #else
@@ -290,6 +290,8 @@ class CentralFreeList {
   // Size reciprocal is used to replace division with multiplication when
   // computing object indices in the Span bitmap.
   uint32_t size_reciprocal_ = 0;
+  bool use_all_buckets_for_few_object_spans_;
+  CflSubbucketPrioritization cfl_subbucket_prioritization_;
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // Hint used for parsing through the nonempty_ lists. This prevents us from
   // parsing the lists with an index starting zero, if the lowest possible index
@@ -355,15 +357,6 @@ class CentralFreeList {
   // guarantees accuracy.
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  // Records histogram of how many consecutive objects fell on the same span for
-  // batches.
-  //
-  // Index in this array corresponds to absl::bit_width(same_span), yielding
-  // 8 buckets total because same_span has range [0, 127] (assuming
-  // kMaxObjectsToMove is 128).
-  //
-  // TODO(b/527641380): Delete this after wrapping up optimizations.
-  StatsCounter num_same_spans_[kSameSpanBucketCapacity];
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 
   // Num free objects in cache entry
@@ -403,10 +396,6 @@ class CentralFreeList {
   // If span prioritization is disabled, we add spans to the
   // nonempty_[kNumLists-1] list, leaving other lists unused.
   HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
-
-  bool use_all_buckets_for_few_object_spans_;
-
-  CflSubbucketPrioritization cfl_subbucket_prioritization_;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
@@ -665,8 +654,6 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     const int same_span = batch.size() - runs;
     TC_ASSERT_GE(same_span, 0);
-    num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
-        .LossyAdd(1);
 #endif
 
     RecordMultiSpansDeallocated(free_count);
@@ -921,32 +908,11 @@ inline size_t CentralFreeList<Forwarder>::NumSpansWith(
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSameSpanStats(Printer& out) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  out.printf("class %3d [ %8zu bytes ] :", size_class_, object_size_);
-  for (int i = 0; i < kSameSpanBucketCapacity; ++i) {
-    out.printf(" %6zu", num_same_spans_[i].value());
-  }
-  out.printf("\n");
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 }
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSameSpanStatsInPbtxt(
     PbtxtRegion& region) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  for (int i = 0; i < kSameSpanBucketCapacity; ++i) {
-    auto value = num_same_spans_[i].value();
-    if (value == 0) {
-      continue;
-    }
-    PbtxtRegion histogram = region.CreateSubRegion("same_span_stats");
-    int lower_bound = i == 0 ? 0 : (1 << (i - 1));
-    int upper_bound = i == 0 ? 0 : ((1 << i) - 1);
-    histogram.PrintI64("lower_bound", lower_bound);
-    histogram.PrintI64("upper_bound", upper_bound);
-    histogram.PrintI64("value", value);
-  }
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 }
 
 template <class Forwarder>

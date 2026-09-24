@@ -381,48 +381,9 @@ class CentralFreeListTestPeer {
   template <typename Forwarder>
   static size_t num_same_spans(const CentralFreeList<Forwarder>& cfl,
                                size_t index) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    return cfl.num_same_spans_[absl::bit_width(index)].value();
-#else
     return 0;
-#endif
-  }
-
-  static void VerifyLegacyLayout() {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    using CFLType = CFL<StaticForwarder>;
-    EXPECT_EQ(offsetof(CFLType, lock_), 0);
-    EXPECT_EQ(offsetof(CFLType, size_class_), 8);
-    EXPECT_EQ(offsetof(CFLType, object_size_), 16);
-    EXPECT_EQ(offsetof(CFLType, objects_per_span_), 24);
-    EXPECT_EQ(offsetof(CFLType, size_reciprocal_), 32);
-    EXPECT_EQ(offsetof(CFLType, first_nonempty_index_), 40);
-    EXPECT_EQ(offsetof(CFLType, pages_per_span_), 48);
-    EXPECT_EQ(offsetof(CFLType, completed_spans_), 56);
-    EXPECT_EQ(offsetof(CFLType, span_allocations_tracker_), 120);
-    EXPECT_EQ(offsetof(CFLType, counter_), 184);
-    EXPECT_EQ(offsetof(CFLType, num_spans_requested_), 192);
-    EXPECT_EQ(offsetof(CFLType, num_spans_returned_), 200);
-    EXPECT_EQ(offsetof(CFLType, objects_to_spans_), 208);
-    EXPECT_EQ(offsetof(CFLType, nonempty_), 336);
-#ifdef NDEBUG
-    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 144);
-    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 480);
-#else
-    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 208);
-    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 544);
-#endif
-#endif
   }
 };
-
-TEST(CentralFreeListLayoutTest, LegacyOffsets) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  CentralFreeListTestPeer::VerifyLegacyLayout();
-#else
-  GTEST_SKIP() << "Test only applies under TCMALLOC_INTERNAL_LEGACY_LOCKING";
-#endif
-}
 
 INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
                          testing::Range(size_t(1), kNumClasses));
@@ -495,37 +456,7 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
   }
 }
 
-TEST_P(CentralFreeListTest, SameSpanTracking) {
-#if ABSL_HAVE_HWADDRESS_SANITIZER
-  GTEST_SKIP()
-      << "Skipping under HWASan, which uses the top bits of the pointer.";
-#endif
 
-  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
-  if (e.objects_per_span() <= 1) {
-    GTEST_SKIP() << "Single-object spans skip CentralFreeList InsertRange";
-  }
-
-  EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
-
-  absl::FixedArray<void*> batch(e.batch_size());
-  int allocated = e.central_freelist().RemoveRange(
-      absl::MakeSpan(&batch[0], e.batch_size()));
-  ASSERT_GT(allocated, 0);
-
-  EXPECT_CALL(e.forwarder(), MapObjectsToSpans).Times(1);
-  EXPECT_CALL(e.forwarder(), DeallocateSpans).Times(testing::AtLeast(0));
-
-  e.central_freelist().InsertRange(absl::MakeSpan(&batch[0], allocated));
-
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  const int expected_same_span = allocated - 1;
-  EXPECT_GE(central_freelist_internal::CentralFreeListTestPeer::num_same_spans(
-                e.central_freelist(), expected_same_span),
-            1);
-#endif
-}
 
 TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
@@ -1237,68 +1168,6 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
                                  single_spans))));
 }
 
-TEST_P(CentralFreeListTest, SameSpans) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  GTEST_SKIP() << "Stats are non-functional when optimization is not enabled.";
-#endif
-  const int num_to_move = std::get<0>(GetParam()).num_to_move;
-  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              num_to_move, std::get<1>(GetParam()));
-
-  // Roundtrip a batch.
-  void* batch[kMaxObjectsToMove];
-  const int got =
-      e.central_freelist().RemoveRange(absl::MakeSpan(batch, num_to_move));
-  ASSERT_GT(got, 0);
-
-  Span* spans[kMaxObjectsToMove];
-  e.forwarder().MapObjectsToSpans(absl::MakeSpan(batch, got), spans,
-                                  e.kSizeClass);
-  absl::flat_hash_set<Span*> pseudo_spans;
-  for (int i = 0; i < got; ++i) {
-    pseudo_spans.insert(spans[i]);
-  }
-
-  e.central_freelist().InsertRange(absl::MakeSpan(batch, got));
-
-  // Check the stats after the first insertion.
-  {
-    std::string expected_stats =
-        absl::StrFormat("class %3d [ %8zu bytes ] :", e.kSizeClass,
-                        std::get<0>(GetParam()).size);
-    for (int i = 0; i < CentralFreeList::kSameSpanBucketCapacity; ++i) {
-      const bool first_batch = e.objects_per_span() > 1 &&
-                               i == absl::bit_width(static_cast<unsigned int>(
-                                        got - pseudo_spans.size()));
-      const int count = first_batch ? 1 : 0;
-      absl::StrAppendFormat(&expected_stats, " %6d", count);
-    }
-    absl::StrAppend(&expected_stats, "\n");
-
-    std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
-      e.central_freelist().PrintSameSpanStats(printer);
-    });
-    EXPECT_EQ(buffer, expected_stats) << got;
-  }
-  {
-    std::string expected_pbtxt = "";
-    if (e.objects_per_span() > 1) {
-      int same_span_val = got - pseudo_spans.size();
-      int bucket = absl::bit_width(static_cast<unsigned int>(same_span_val));
-      int lower_bound = bucket == 0 ? 0 : (1 << (bucket - 1));
-      int upper_bound = bucket == 0 ? 0 : ((1 << bucket) - 1);
-      expected_pbtxt = absl::StrFormat(
-          " same_span_stats { lower_bound: %d upper_bound: %d value: 1}",
-          lower_bound, upper_bound);
-    }
-
-    std::string buffer_pbtxt =
-        PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
-          e.central_freelist().PrintSameSpanStatsInPbtxt(region);
-        });
-    EXPECT_EQ(buffer_pbtxt, expected_pbtxt) << got;
-  }
-}
 
 TEST_P(CentralFreeListTest, MultipleSpans) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
