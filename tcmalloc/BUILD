@@ -713,6 +713,7 @@ cc_library(
     hdrs = ["mock_huge_page_static_forwarder.h"],
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_tag",
@@ -736,6 +737,7 @@ cc_test(
     deps = [
         ":common_8k_pages",
         ":mock_huge_page_static_forwarder",
+        "//tcmalloc/internal:clock",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:pageflags",

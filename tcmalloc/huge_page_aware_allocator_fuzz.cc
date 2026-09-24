@@ -43,6 +43,7 @@
 #include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
@@ -94,8 +95,17 @@ struct FuzzHugePageAwareAllocatorOptions {
   }
 };
 
+// Fake clock in nanoseconds, advanced only by the AdvanceClock instruction so
+// the filler's time-based treatments (sampled-tracker naming after
+// kRecordInterval, skip-subrelease windows) are reachable and deterministic.
+int64_t fake_clock = 0;
+int64_t mock_clock() { return fake_clock; }
+double freq() { return 1e9; }
+
 class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
  public:
+  Clock clock() const { return Clock{.now = mock_clock, .freq = freq}; }
+
   AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
     if (!allocate_succeeds_) {
       return AddressRange{nullptr, 0};
@@ -275,6 +285,18 @@ struct GatherSpanStats {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const GatherSpanStats&) {
     sink.Append("GatherSpanStats{}");
+  }
+};
+
+struct AdvanceClock {
+  absl::Duration amount;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const AdvanceClock& a) {
+    absl::Format(&sink, "AdvanceClock{.amount=absl::Nanoseconds(%v)}",
+                 absl::ToInt64Nanoseconds(a.amount));
   }
 };
 
@@ -545,7 +567,7 @@ struct ChangeParam {
 using InstructionVariant =
     std::variant<Alloc, Dealloc, ReleasePages, ReleasePagesBreakingHugepages,
                  GatherStatsPbtxt, PrintStats, GatherSpanStats, TreatTrackers,
-                 ChangeParam>;
+                 AdvanceClock, ChangeParam>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const InstructionVariant& v) {
@@ -912,6 +934,11 @@ void GatherSpanStats::Perform(State& state) const {
   state.allocator.GetLargeSpanStats(&large);
 }
 
+void AdvanceClock::Perform(State& state) const {
+  fake_clock += absl::ToInt64Nanoseconds(
+      std::clamp(amount, absl::ZeroDuration(), absl::Hours(1)));
+}
+
 void TreatTrackers::Perform(State& state) const {
   // Treatment drops pageheap_lock around collapse and VMA naming, so a
   // reentrant subprogram could start a second treatment.  Production runs
@@ -1035,6 +1062,7 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
     options.tag = MemoryTag::kNormalP0;
   }
 
+  fake_clock = 0;
   State state(options);
   state.CheckInvariants();
   state.RunInstructions(instructions);
@@ -1179,6 +1207,12 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
                     fuzztest::Arbitrary<GatherSpanStats>()),
       fuzztest::Map([](TreatTrackers t) { return Instruction{t}; },
                     fuzztest::Arbitrary<TreatTrackers>()),
+      fuzztest::Map(
+          [](int64_t ns) {
+            return Instruction{AdvanceClock{absl::Nanoseconds(ns)}};
+          },
+          fuzztest::InRange<int64_t>(
+              0, absl::ToInt64Nanoseconds(absl::Minutes(10)))),
       fuzztest::Map([](ChangeParam c) { return Instruction{c}; },
                     GetChangeParamDomain(depth)));
 }
@@ -1281,6 +1315,40 @@ TEST(HugePageAwareAllocatorTest, ReentrantDeallocDuringCollapse) {
                                             .instr = Dealloc{.index = 0}}}}}},
        Instruction{.instr = TreatTrackers{.enable_collapse =
                                               EnableCollapse::kEnabled}}});
+}
+
+// Sampled trackers are renamed once kRecordInterval has elapsed, with
+// pageheap_lock dropped around each SetAnonVmaName.  Free every span while the
+// treatment is naming, so the sampled tracker empties under it and must be
+// parked, un-named, and drained rather than freed.  The filler samples 1% of
+// trackers from a fixed-seed generator, so a few hundred trackers reliably
+// include one.
+TEST(HugePageAwareAllocatorTest, ReentrantDeallocDuringSampledNaming) {
+  constexpr int kAllocs = 400;
+  std::vector<Instruction> instructions;
+  std::vector<Instruction> free_all;
+  for (int i = 0; i < kAllocs; ++i) {
+    instructions.push_back(
+        Instruction{.instr = Alloc{.length = kPagesPerHugePage.raw_num() / 2,
+                                   .num_objects = 1,
+                                   .alignment = 1,
+                                   .use_aligned = false,
+                                   .dense = false}});
+    free_all.push_back(Instruction{.instr = Dealloc{.index = 0}});
+  }
+  instructions.push_back(
+      Instruction{.instr = AdvanceClock{.amount = absl::Minutes(6)}});
+  instructions.push_back(Instruction{
+      .instr = ChangeParam{
+          .op = ReentrantSubprogram{.subprogram = std::move(free_all)}}});
+  instructions.push_back(Instruction{
+      .instr = TreatTrackers{.enable_collapse = EnableCollapse::kDisabled}});
+
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      instructions);
 }
 
 // Allocating from released pages backs the span outside pageheap_lock, after

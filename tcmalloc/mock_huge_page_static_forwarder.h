@@ -35,6 +35,7 @@
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
@@ -117,6 +118,10 @@ class FakeStaticForwarder : private Parameters {
   void set_madvise_cold_regions_nohugepage(MadviseRegionsNoHugepage value) {
     madvise_cold_regions_nohugepage_ = value;
   }
+
+  // Real time by default; forwarders derived for fuzzing shadow this with a
+  // clock they control.
+  Clock clock() const { return Clock{}; }
 
   bool BackAllocations() const { return back_allocations_; }
   void SetBackAllocations(bool value) { back_allocations_ = value; }
