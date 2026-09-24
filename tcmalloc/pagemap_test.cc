@@ -143,6 +143,34 @@ TEST_P(PageMapTest, RandomAccess) {
   }
 }
 
+TEST_P(PageMapTest, RegisterUnregisterMultiPageSpan) {
+  constexpr PageId kFirst(10);
+  constexpr Length kNumPages(4);
+  const Range r(kFirst, kNumPages);
+  ASSERT_TRUE(map->Ensure(r));
+
+  Span s(r);
+  map->Set(kFirst, &s);
+  map->RegisterSizeClass(&s, /*sc=*/7);
+
+  for (PageId p = s.first_page(); p <= s.last_page(); ++p) {
+    EXPECT_EQ(map->sizeclass(p), 7);
+    EXPECT_EQ(map->GetDescriptorAndSizeClass(p),
+              (std::pair<Span*, CompactSizeClass>(&s, 7)));
+  }
+
+  map->UnregisterSizeClass(&s);
+  EXPECT_EQ(map->sizeclass(kFirst), 0);
+  EXPECT_EQ(map->GetDescriptorAndSizeClass(kFirst),
+            (std::pair<Span*, CompactSizeClass>(&s, 0)));
+  for (PageId p = kFirst + Length(1); p <= s.last_page(); ++p) {
+    EXPECT_EQ(map->sizeclass(p), 0);
+    EXPECT_EQ(map->GetDescriptor(p), nullptr);
+    EXPECT_EQ(map->GetDescriptorAndSizeClass(p),
+              (std::pair<Span*, CompactSizeClass>(nullptr, 0)));
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(Limits, PageMapTest, ::testing::Values(100, 1 << 16));
 
 // Surround pagemap with unused memory. This isolates it so that it does not
