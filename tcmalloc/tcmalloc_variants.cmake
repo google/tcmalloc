@@ -103,8 +103,16 @@ function(tcmalloc_cc_library_variants)
 endfunction()
 
 function(tcmalloc_cc_test_variants)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS;TIMEOUT" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV;ARGS" ${ARGN})
+  set(EXTRA_ARGS)
+  if(TCMALLOC_TIMEOUT)
+    set(EXTRA_ARGS TIMEOUT ${TCMALLOC_TIMEOUT})
+  endif()
+  if(TCMALLOC_ARGS)
+    list(APPEND EXTRA_ARGS ARGS ${TCMALLOC_ARGS})
+  endif()
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_8k_pages
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -113,6 +121,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_32k_pages
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_32K_PAGES
@@ -121,6 +130,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
@@ -129,6 +139,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_small_but_slow
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_SMALL_BUT_SLOW
@@ -137,6 +148,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_pow2
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
@@ -145,6 +157,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_POW2_SIZECLASS"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_sharded_transfer_cache
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
@@ -153,6 +166,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_sharded_tc_ablation
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -161,6 +175,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SHARDED_TC_ABLATION"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_NUMA_AWARE
@@ -169,6 +184,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware_enabled_runtime
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_NUMA_AWARE
@@ -177,6 +193,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "TCMALLOC_NUMA_AWARE=1"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_partitioned_enabled_runtime
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -185,6 +202,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "TCMALLOC_HEAP_PARTITIONING=true"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_partitioned_light_runtime
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -193,6 +211,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "TCMALLOC_HEAP_PARTITIONING=light"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware_disabled
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_NUMA_AWARE
@@ -201,6 +220,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "TCMALLOC_NUMA_AWARE=0"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_numa_aware
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES -DTCMALLOC_INTERNAL_NUMA_AWARE
@@ -209,6 +229,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_pow2_sharded_transfer_cache
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
@@ -217,6 +238,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_POW2_SIZECLASS,TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_hpaa
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -225,6 +247,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_deprecated_perthread
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_DEPRECATED_PERTHREAD
@@ -233,6 +256,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_pgho_experiment
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -241,6 +265,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_PGHO_EXPERIMENT"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_flat_cpu_caches
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -249,6 +274,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "PERCPU_VCPU_MODE=flat"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_real_cpu_caches
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -257,6 +283,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "PERCPU_VCPU_MODE=none"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_no_glibc_rseq
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -265,6 +292,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "GLIBC_TUNABLES=glibc.pthread.rseq=0"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_mm_vcpu_cpu_caches
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -273,6 +301,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_MM_VCPU" "GLIBC_TUNABLES=glibc.pthread.rseq=0"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_legacy_locking
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LEGACY_LOCKING
@@ -281,6 +310,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_latency_injection
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LATENCY_INJECTION
@@ -289,6 +319,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_stale_pages
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -297,6 +328,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_free_stale
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -305,6 +337,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_RELEASE_FREE_STALE"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_madv_nohugepage_regions
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -313,6 +346,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_subbucket_prioritization
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
@@ -321,6 +355,7 @@ function(tcmalloc_cc_test_variants)
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_page_heap_gardening
+    ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}

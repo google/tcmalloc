@@ -1363,6 +1363,8 @@ tcmalloc_cc_test(
     "absl::span"
     "tcmalloc::internal_stacktrace_filter"
     "tcmalloc::tcmalloc"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_library(

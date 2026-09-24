@@ -927,6 +927,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::mock_huge_page_static_forwarder"
     "tcmalloc::tcmalloc"
+  ARGS
+    "--fuzztest_stack_limit_kb=2048"
 )
 
 tcmalloc_cc_test(
@@ -975,6 +977,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
+  ARGS
+    "--fuzztest_stack_limit_kb=2048"
 )
 
 tcmalloc_cc_test(
@@ -1010,6 +1014,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_scoped_allow_allocation"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
+  ARGS
+    "--fuzztest_stack_limit_kb=2048"
 )
 
 tcmalloc_cc_test(
@@ -1100,6 +1106,8 @@ tcmalloc_cc_test_variants(
     "absl::base"
     "absl::core_headers"
     "tcmalloc::internal_config"
+  TIMEOUT
+    300
 )
 
 tcmalloc_cc_test(
@@ -1124,6 +1132,8 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
     "tcmalloc::testing_thread_manager"
+  TIMEOUT
+    300
 )
 
 tcmalloc_cc_binary(
@@ -1238,6 +1248,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(
@@ -1275,6 +1287,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(
@@ -1311,6 +1325,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(
@@ -1589,6 +1605,8 @@ tcmalloc_cc_test_variants(
     "absl::span"
     "benchmark::benchmark"
     "tcmalloc::internal_logging"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_binary(
@@ -1776,6 +1794,8 @@ tcmalloc_cc_test(
     "tcmalloc::testing_thread_manager"
   ENV
     "BORG_EXPERIMENTS="
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(

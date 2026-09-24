@@ -81,6 +81,8 @@ tcmalloc_cc_test_variants(
     "tcmalloc::testing_test_allocator_harness"
     "tcmalloc::testing_testutil"
     "tcmalloc::testing_thread_manager"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_binary_variants(
@@ -329,6 +331,8 @@ tcmalloc_cc_test(
     "tcmalloc::testing_testutil"
   ENV
     "BORG_EXPERIMENTS="
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test_variants(
@@ -346,6 +350,8 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_logging"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test_variants(
@@ -360,6 +366,8 @@ tcmalloc_cc_test_variants(
     "benchmark::benchmark"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(
@@ -492,6 +500,8 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_is_aligned_to"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test_variants(
@@ -528,6 +538,8 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_logging"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_binary(
@@ -727,6 +739,8 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_linked_list"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test_variants(
@@ -857,6 +871,8 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::malloc_extension"
+  TIMEOUT
+    300
 )
 
 tcmalloc_cc_test(
