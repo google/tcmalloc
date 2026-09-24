@@ -1034,12 +1034,12 @@ void CheckLifetimeStats(TypeParam& e, SpanLifetimes span_lifetimes) {
 
   // Check txt stats
   std::string live_spans_txt = absl::StrFormat(
-      R"(live spans:   0 ms <      %d,  1 ms <      %d, 10 ms <      %d,100 ms <      %d,1000 ms <      %d,10000 ms <      %d,100000 ms <      %d,1000000 ms <      %d)",
+      R"(live spans:   0 ms < %6d,  1 ms < %6d, 10 ms < %6d,100 ms < %6d,1000 ms < %6d,10000 ms < %6d,100000 ms < %6d,1000000 ms < %6d)",
       live[0], live[1], live[10], live[100], live[1000], live[10000],
       live[100000], live[1000000]);
 
   std::string completed_spans_txt = absl::StrFormat(
-      R"(completed spans:   0 ms <      %d,  1 ms <      %d, 10 ms <      %d,100 ms <      %d,1000 ms <      %d,10000 ms <      %d,100000 ms <      %d,1000000 ms <      %d)",
+      R"(completed spans:   0 ms < %6d,  1 ms < %6d, 10 ms < %6d,100 ms < %6d,1000 ms < %6d,10000 ms < %6d,100000 ms < %6d,1000000 ms < %6d)",
       completed[0], completed[1], completed[10], completed[100],
       completed[1000], completed[10000], completed[100000], completed[1000000]);
 
@@ -1158,6 +1158,47 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
   e.forwarder().AdvanceClock(absl::Seconds(-500));
   e.central_freelist().InsertRange({batch, 1});
   CheckLifetimeStats(e, {.completed = {{0, 1}, {100000, 1}}});
+
+  // Concurrently deallocate spans across multiple threads and verify that
+  // completed_spans_ does not lose updates when DeallocateSpans executes
+  // outside CentralFreeList::lock_.
+  constexpr int kThreads = 4;
+  constexpr int kSpansPerThread = 4;
+  std::vector<void*> thread_objs(kThreads * kSpansPerThread *
+                                 e.objects_per_span());
+  for (int i = 0; i < kThreads * kSpansPerThread; ++i) {
+    size_t fetched = 0;
+    while (fetched < e.objects_per_span()) {
+      const size_t n = std::min(e.objects_per_span() - fetched, e.batch_size());
+      fetched += e.central_freelist().RemoveRange(
+          absl::MakeSpan(&thread_objs[i * e.objects_per_span() + fetched], n));
+    }
+  }
+  for (int i = 0; i < kThreads * kSpansPerThread; ++i) {
+    size_t returned = 1;
+    while (returned < e.objects_per_span()) {
+      const size_t n =
+          std::min(e.objects_per_span() - returned, e.batch_size());
+      e.central_freelist().InsertRange(
+          absl::MakeSpan(&thread_objs[i * e.objects_per_span() + returned], n));
+      returned += n;
+    }
+  }
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t]() {
+      for (int s = 0; s < kSpansPerThread; ++s) {
+        void* p = thread_objs[(t * kSpansPerThread + s) * e.objects_per_span()];
+        e.central_freelist().InsertRange(absl::MakeSpan(&p, 1));
+      }
+    });
+  }
+  for (auto& th : threads) {
+    th.join();
+  }
+  CheckLifetimeStats(
+      e, {.completed = {{0, 1 + kThreads * kSpansPerThread}, {100000, 1}}});
 }
 
 TEST_P(CentralFreeListTest, SpanAllocationTracker) {
