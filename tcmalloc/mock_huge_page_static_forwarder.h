@@ -42,6 +42,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -50,6 +51,13 @@ namespace huge_page_allocator_internal {
 
 class FakeStaticForwarder : private Parameters {
  public:
+  FakeStaticForwarder() {
+    // Arena allocates its blocks from tc_globals.system_allocator(), which is
+    // only initialized by Static::SlowInitIfNecessary().  If this test is not
+    // linked against TCMalloc as its malloc, nothing else triggers that.
+    tc_globals.InitIfNecessary();
+  }
+
   // Runtime parameters.  This can change between calls.
   absl::Duration filler_skip_subrelease_short_interval() const {
     return short_interval_;
