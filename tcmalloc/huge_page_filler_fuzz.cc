@@ -434,18 +434,29 @@ struct State {
     // allocs while we iterate it.
     reentrant_stack.clear();
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
-    for (auto& [pt, v] : allocs) {
-      for (size_t i = 0, n = v.size(); i < n; ++i) {
-        auto [alloc, alloc_info] = v[i];
+    while (!trackers.empty()) {
+      // Retire the tracker and its allocations before Put, as Deallocate does:
+      // the final Put may unback the hugepage, and CheckNotLive must see
+      // neither a stale allocation nor a tracker deleted on an earlier
+      // iteration.
+      PageTracker* pt = trackers.back();
+      trackers.pop_back();
+      auto node = allocs.extract(pt->location());
+      CHECK(!node.empty());
+      std::vector<std::pair<Range, SpanAllocInfo>>& v = node.mapped();
+      while (!v.empty()) {
+        auto [alloc, alloc_info] = v.back();
+        v.pop_back();
         PageTracker* ret;
         {
           PageHeapSpinLockHolder l;
           ret = filler.Put(pt, alloc, alloc_info);
         }
-        CHECK_EQ(ret != nullptr, i + 1 == n);
+        CHECK_EQ(ret != nullptr, v.empty());
       }
       delete pt;
     }
+    CHECK(allocs.empty());
     CHECK(filler.size() == NHugePages(0));
   }
 
@@ -461,7 +472,7 @@ struct State {
   // Pages held by live allocations on pt.
   Length LivePagesOn(PageTracker* pt) const {
     Length n;
-    auto it = allocs.find(pt);
+    auto it = allocs.find(pt->location());
     if (it == allocs.end()) return n;
     for (const auto& [alloc, alloc_info] : it->second) {
       n += alloc.n;
@@ -485,6 +496,25 @@ struct State {
     TC_CHECK_EQ(
         filler.used_pages() + filler.free_pages() + filler.unmapped_pages(),
         filler.size().in_pages());
+  }
+
+  // Every range the filler unbacks lies within one hugepage it has been given
+  // and overlaps no live allocation.  Checked after any interleaved subprogram
+  // has run, which is when the kernel would act on it: a page handed to
+  // another thread in the meantime would have its contents discarded.
+  void CheckNotLive(Range r) const {
+    TC_CHECK_GT(r.n, Length(0));
+    const HugePage hp = HugePageContaining(r.p);
+    TC_CHECK_LE(r.p + r.n, hp.first_page() + kPagesPerHugePage);
+    TC_CHECK_GE(hp.pn, 1);
+    TC_CHECK_LT(hp.pn, next_hugepage);
+    auto it = allocs.find(hp);
+    if (it == allocs.end()) return;
+    for (const auto& [live, live_info] : it->second) {
+      TC_CHECK(!(r.p < live.p + live.n && live.p < r.p + r.n),
+               "unbacking [%v, %v) overlaps live [%v, %v)", r.p, r.p + r.n,
+               live.p, live.p + live.n);
+    }
   }
 
   // ReleasePages may claim credit for pages unmapped earlier and left
@@ -517,8 +547,8 @@ struct State {
   HugePageFiller<PageTracker> filler;
 
   std::vector<PageTracker*> trackers;
-  absl::flat_hash_map<PageTracker*,
-                      std::vector<std::pair<Range, SpanAllocInfo>>>
+  // Live allocations by hugepage; each hugepage has exactly one tracker.
+  absl::flat_hash_map<HugePage, std::vector<std::pair<Range, SpanAllocInfo>>>
       allocs;
   size_t next_hugepage = 1;
   // Pages held by live allocations, by predicted access density.
@@ -534,6 +564,7 @@ struct State {
 
 MemoryModifyStatus MockUnback::operator()(Range r) {
   state_.OnLockDropped();
+  state_.CheckNotLive(r);
   if (!state_.unback_success) {
     return {.success = false, .error_number = 0};
   }
@@ -631,7 +662,7 @@ void Allocate::Perform(State& state) const {
     state.trackers.push_back(result.pt);
   } else {
     // The filler only hands out hugepages it still owns.
-    TC_CHECK(state.allocs.contains(result.pt));
+    TC_CHECK(state.allocs.contains(result.pt->location()));
   }
 
   // The range lies within the tracker's hugepage and is disjoint from every
@@ -639,7 +670,7 @@ void Allocate::Perform(State& state) const {
   const HugePage hp = result.pt->location();
   TC_CHECK(HugePageContaining(result.page) == hp);
   TC_CHECK(result.page + n <= hp.first_page() + kPagesPerHugePage);
-  for (const auto& [live, live_info] : state.allocs[result.pt]) {
+  for (const auto& [live, live_info] : state.allocs[hp]) {
     TC_CHECK(!(result.page < live.p + live.n && live.p < result.page + n));
   }
 
@@ -649,7 +680,7 @@ void Allocate::Perform(State& state) const {
     state.released_set.erase(p);
   }
 
-  state.allocs[result.pt].push_back({{result.page, n}, alloc_info});
+  state.allocs[hp].push_back({{result.page, n}, alloc_info});
   state.live_pages[alloc_info.density] += n;
 
   if (state.depth == 0) {
@@ -666,15 +697,17 @@ void Deallocate::Perform(State& state) const {
   }
   const size_t lo = tracker_index % state.trackers.size();
   PageTracker* pt = state.trackers[lo];
-  TC_CHECK(!state.allocs[pt].empty());
-  const size_t hi = alloc_index % state.allocs[pt].size();
-  auto [alloc, alloc_info] = state.allocs[pt][hi];
+  std::vector<std::pair<Range, SpanAllocInfo>>& live =
+      state.allocs.at(pt->location());
+  TC_CHECK(!live.empty());
+  const size_t hi = alloc_index % live.size();
+  auto [alloc, alloc_info] = live[hi];
 
-  std::swap(state.allocs[pt][hi], state.allocs[pt].back());
-  state.allocs[pt].resize(state.allocs[pt].size() - 1);
-  bool last_alloc = state.allocs[pt].empty();
+  std::swap(live[hi], live.back());
+  live.pop_back();
+  bool last_alloc = live.empty();
   if (last_alloc) {
-    state.allocs.erase(pt);
+    state.allocs.erase(pt->location());
     std::swap(state.trackers[lo], state.trackers.back());
     state.trackers.resize(state.trackers.size() - 1);
   }
@@ -790,7 +823,7 @@ void ModelTail::Perform(State& state) const {
     state.released_set.erase(p);
   }
 
-  state.allocs[pt].push_back(
+  state.allocs[pt->location()].push_back(
       {{start, n}, {1, AccessDensityPrediction::kSparse}});
   state.live_pages[AccessDensityPrediction::kSparse] += n;
 
@@ -1363,6 +1396,16 @@ TEST(HugePageFillerTest, ReentrantAllocateDuringUnbackWithoutLock) {
                   .subprogram = {Allocate{.length = 1, .num_objects = 1}}},
               Deallocate{.tracker_index = 0, .alloc_index = 0}},
              SubreleaseUnbackedMode::kDisabled);
+}
+
+// Teardown with two trackers, one partially released.  Putting the released
+// one unbacks the hugepage, and the live-page check must not visit a tracker
+// the teardown already deleted.
+TEST(HugePageFillerTest, TeardownAfterPartialRelease) {
+  FuzzFiller(
+      {Allocate{.length = 1, .num_objects = 1, .density_dense = true},
+       MemoryLimitHitRelease{.desired = 65535}, ModelTail{.length = 32767}},
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest, SubreleaseUnbackedRegression) {
