@@ -392,7 +392,7 @@ struct State {
         collapse(*this),
         set_anon_vma_name(*this),
         filler(Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal,
-               unback, unback_without_lock, collapse, set_anon_vma_name,
+               unback_without_lock, collapse, set_anon_vma_name,
                subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
@@ -405,13 +405,19 @@ struct State {
     released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
   }
 
-  // Called by every mock the filler invokes with pageheap_lock dropped.  Runs
-  // the most recently queued reentrant subprogram, if any, as another thread
-  // would while the lock is free.  A no-op while the lock is held.
+  // Called by every mock the filler invokes with pageheap_lock dropped.  Checks
+  // the filler's accounting, then runs the most recently queued reentrant
+  // subprogram, if any, as another thread would while the lock is free.  A
+  // no-op while the lock is held.
   void OnLockDropped() {
     if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
       return;
     }
+    // Another thread could take the lock here whether or not a subprogram
+    // does, so the accounting must be consistent at every drop.
+    ++lock_drops;
+    CheckInvariants();
+    --lock_drops;
     if (reentrant_stack.empty()) {
       return;
     }
@@ -438,9 +444,9 @@ struct State {
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     while (!trackers.empty()) {
       // Retire the tracker and its allocations before Put, as Deallocate does:
-      // the final Put may unback the hugepage, and CheckNotLive must see
-      // neither a stale allocation nor a tracker deleted on an earlier
-      // iteration.
+      // the final Put may unback the hugepage, and CheckNotLive and
+      // CheckInvariants must see neither a stale allocation nor a tracker
+      // deleted on an earlier iteration.
       PageTracker* pt = trackers.back();
       trackers.pop_back();
       auto node = allocs.extract(pt->location());
@@ -449,6 +455,7 @@ struct State {
       while (!v.empty()) {
         auto [alloc, alloc_info] = v.back();
         v.pop_back();
+        live_pages[alloc_info.density] -= alloc.n;
         PageTracker* ret;
         {
           PageHeapSpinLockHolder l;
@@ -480,12 +487,18 @@ struct State {
     return n;
   }
 
-  // Checked at every depth: the filler updates its counters before it drops
-  // pageheap_lock, so a subprogram interleaved with a Put or a treatment sees
-  // the same accounting another thread would.
+  // Checked at every depth and at every lock drop: the filler updates its
+  // counters before it drops pageheap_lock, so a subprogram interleaved with a
+  // Put or a treatment sees the same accounting another thread would.
   void CheckInvariants() {
     PageHeapSpinLockHolder l;
-    TC_CHECK_EQ(filler.size().raw_num(), trackers.size());
+    // A tracker emptied while ReleaseFreeFromTracker was unbacking it with the
+    // lock dropped leaves size() only once that unback returns.
+    size_t in_flight = 0;
+    for (const PageTracker* pt : parked) {
+      in_flight += pt->BeingReleased();
+    }
+    TC_CHECK_EQ(filler.size().raw_num(), trackers.size() + in_flight);
     // Sparse and dense allocations live on disjoint sets of hugepages, so the
     // per-density counters track our live allocations exactly.
     for (int d = 0; d < AccessDensityPrediction::kPredictionCounts; ++d) {
@@ -498,10 +511,12 @@ struct State {
     TC_CHECK_EQ(
         filler.used_pages() + filler.free_pages() + filler.unmapped_pages(),
         filler.size().in_pages());
-    if (depth != 0) {
-      // A Put that empties a partially released hugepage subtracts its
-      // released pages from unmapped_pages() before unbacking the rest with
-      // the lock dropped; released_set catches up once Put returns.
+    if (depth != 0 || lock_drops != 0) {
+      // unmapped_pages() runs ahead of released_set while the lock is
+      // dropped: a Put that empties a partially released hugepage subtracts
+      // its released pages before unbacking the rest, and
+      // ReleaseFreeFromTracker adds the pages it is about to unback before
+      // unbacking them.  released_set catches up once the operation returns.
       return;
     }
     TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
@@ -611,6 +626,9 @@ struct State {
   Length live_pages[AccessDensityPrediction::kPredictionCounts];
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
+  // Nonzero while CheckInvariants runs from a mock the filler called with
+  // pageheap_lock dropped, before any subprogram.
+  int lock_drops = 0;
   // Bumped whenever a reentrant subprogram runs, so an operation can tell
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;
@@ -780,8 +798,9 @@ void Deallocate::Perform(State& state) const {
       TC_CHECK_EQ(pt->used_pages(), state.LivePagesOn(pt));
     }
   } else if (ret == nullptr) {
-    // Emptied while a treatment that dropped the lock held it pinned, so the
-    // filler parked it rather than hand it back.
+    // Emptied while a treatment or release that dropped the lock held it
+    // pinned, so the filler parked it (or, if its own free pages are being
+    // unbacked, will park it) rather than hand it back.
     TC_CHECK_GT(state.depth, 0);
     TC_CHECK(pt->DontFreeTracker());
     TC_CHECK(state.parked.insert(pt).second);
@@ -836,9 +855,13 @@ void Release::Perform(State& state) const {
     state.CheckReleased(released, unmapped_before);
   }
 
+  // A subprogram run while the release dropped pageheap_lock may have
+  // allocated from, freed, or itself released the candidates, so the lower
+  // bound only holds when none ran.
   if (!release_partial_allocs || hit_limit ||
       skip_subrelease_intervals.SkipSubreleaseEnabled() ||
-      !state.unback_success || state.depth != 0) {
+      !state.unback_success || state.depth != 0 ||
+      runs_before != state.reentrant_runs) {
     return;
   }
   TC_CHECK_GE(released.raw_num(), to_release_from_partial_allocs);
@@ -910,15 +933,15 @@ void MemoryLimitHitRelease::Perform(State& state) const {
                                          /*hit_limit=*/true);
     state.DrainFullyFreedTrackers();
   }
-  if (state.depth != 0) {
+  // As in Release::Perform, the bounds hold only when no subprogram ran while
+  // the release dropped pageheap_lock.
+  if (state.depth != 0 || runs_before != state.reentrant_runs) {
     return;
   }
-  if (runs_before == state.reentrant_runs) {
-    state.CheckReleased(released, unmapped_before);
-  }
+  state.CheckReleased(released, unmapped_before);
   const Length expected =
       state.unback_success ? std::min(free, desired_len) : Length(0);
-  TC_CHECK_GE(released.raw_num(), expected.raw_num());
+  TC_CHECK_GE(released, expected);
 }
 
 void GatherStatsPbtxt::Perform(State& state) const {

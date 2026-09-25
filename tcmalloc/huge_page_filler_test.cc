@@ -453,9 +453,8 @@ class FillerTest : public testing::Test {
       SubreleaseUnbackedMode mode = SubreleaseUnbackedMode::kDisabled)
       : mode_(mode),
         filler_(Clock{.now = FakeClock::now, .freq = FakeClock::freq},
-                MemoryTag::kNormal, blocking_unback_,
-                blocking_unback_without_lock_, collapse_, set_anon_vma_name_,
-                mode) {
+                MemoryTag::kNormal, blocking_unback_without_lock_, collapse_,
+                set_anon_vma_name_, mode) {
     // Reset success state
     blocking_unback_.success_ = true;
     blocking_unback_.backing_ = &backing_;
@@ -911,7 +910,7 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      1
               return std::numeric_limits<int64_t>::max();
             },
             .freq = []() -> double { return 100.0; }},
-      MemoryTag::kNormal, blocking_unback_, blocking_unback_, collapse_,
+      MemoryTag::kNormal, blocking_unback_without_lock_, collapse_,
       set_anon_vma_name_, mode_);
   PageTracker pt_overflow(GetBacking(), /*was_donated=*/false, 0);
   PageId page_overflow;
@@ -1515,6 +1514,544 @@ TEST_F(FillerTest, AllocateDuringRetirementUnback) {
   EXPECT_TRUE(Delete(b));
 }
 
+// The pages of a hugepage being released count as unmapped as soon as the
+// release is in flight, so anything inspecting the filler while pageheap_lock
+// is dropped (a concurrent ShrinkToUsageLimit in particular) does not see them
+// as backed free memory it must release again.
+TEST_F(FillerTest, ReleaseDropsLockDuringUnback) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    EXPECT_EQ(r.n, kPagesPerHugePage - Length(1));
+
+    // Taking pageheap_lock here shows the release dropped it: this thread
+    // would otherwise deadlock.  (IsHeld() cannot be asserted false, as a
+    // background thread of the real allocator may hold the lock.)
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(a.pt->BeingReleased());
+    // The tracker being released is off the filler lists, so it is not
+    // eligible for allocation.
+    EXPECT_EQ(filler_.TryGet(Length(1), a.span_alloc_info).pt, nullptr);
+    // The pages being unbacked are already accounted as unmapped.
+    EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(1));
+    EXPECT_EQ(filler_.free_pages(), Length(0));
+    EXPECT_EQ(filler_.used_pages(), Length(1));
+    // The in-flight tracker counts as a partially released hugepage with no
+    // free backed pages left.
+    EXPECT_EQ(filler_.FreePagesInPartialAllocs(), Length(0));
+    const HugePageFillerStats stats = filler_.GetStats();
+    EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kSparse],
+              NHugePages(1));
+    EXPECT_EQ(stats.n_released[AccessDensityPrediction::kSparse],
+              NHugePages(1));
+    EXPECT_EQ(stats.n_total[AccessDensityPrediction::kSparse], NHugePages(1));
+    EXPECT_EQ(stats.n_full[AccessDensityPrediction::kSparse], NHugePages(0));
+  };
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 1);
+
+  EXPECT_FALSE(a.pt->BeingReleased());
+  EXPECT_FALSE(a.pt->DontFreeTracker());
+  EXPECT_TRUE(a.pt->released());
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(1));
+  EXPECT_EQ(filler_.FreePagesInPartialAllocs(), Length(0));
+  CheckStats();
+  EXPECT_TRUE(Delete(a));
+}
+
+TEST_F(FillerTest, PutDuringReleaseDefersFreeingTracker) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      // The rest of the hugepage is unbacked once the tracker is retired.  By
+      // then the tracker has left the filler's accounting entirely.
+      EXPECT_EQ(r.n, kPagesPerHugePage);
+      PageHeapSpinLockHolder l;
+      EXPECT_EQ(filler_.size(), NHugePages(0));
+      EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+      EXPECT_EQ(filler_.free_pages(), Length(0));
+      return;
+    }
+    PageHeapSpinLockHolder l;
+    // The tracker is being released, so Put must not hand it back to us even
+    // though it is now empty.
+    EXPECT_EQ(filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info), nullptr);
+    EXPECT_TRUE(a.pt->empty());
+    EXPECT_TRUE(a.pt->BeingReleased());
+    EXPECT_EQ(filler_.size(), NHugePages(1));
+    EXPECT_EQ(filler_.used_pages(), Length(0));
+  };
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 2);
+  // a was returned with Put directly rather than Delete.
+  total_allocated_ -= a.n;
+
+  // The release retired the tracker and parked it for us.
+  EXPECT_EQ(filler_.size(), NHugePages(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_FALSE(a.pt->BeingReleased());
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  CheckStats();
+}
+
+TEST_F(FillerTest, CandidateFreedDuringRelease) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  // Both trackers are candidates.  While the first is being released, return
+  // the allocation on the second.  It is pinned as a candidate, so it must be
+  // parked rather than handed back, and skipped when its turn comes.
+  PageTracker* parked = nullptr;
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      return;
+    }
+    PageHeapSpinLockHolder l;
+    const PAlloc& other = a.pt->BeingReleased() ? b : a;
+    EXPECT_FALSE(other.pt->BeingReleased());
+    EXPECT_TRUE(other.pt->PinnedForRelease());
+    parked = other.pt;
+    EXPECT_EQ(
+        filler_.Put(other.pt, Range(other.p, other.n), other.span_alloc_info),
+        nullptr);
+    EXPECT_TRUE(other.pt->empty());
+    // Parked, but not yet available: the release still pins it.
+    EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
+  };
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  // The parked tracker had nothing released, so it was not unbacked.
+  EXPECT_EQ(calls, 1);
+  ASSERT_NE(parked, nullptr);
+  // The parked allocation was returned with Put directly rather than Delete.
+  total_allocated_ -= Length(1);
+
+  EXPECT_FALSE(parked->DontFreeTracker());
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  const PAlloc& released = (parked == a.pt) ? b : a;
+  EXPECT_TRUE(released.pt->released());
+  EXPECT_FALSE(released.pt->BeingReleased());
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(1));
+  CheckStats();
+  EXPECT_TRUE(Delete(released));
+}
+
+TEST_F(FillerTest, NestedReleaseDuringRelease) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  // Both trackers are candidates of the outer release.  A release that runs
+  // while the first is in flight (a hard-limit shrink on another thread, say)
+  // may take the pending candidate itself: the candidate pin is shared, and
+  // the outer release finds nothing left on it when its turn comes.
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      return;
+    }
+    EXPECT_EQ(HardReleasePages(kPagesPerHugePage),
+              kPagesPerHugePage - Length(1));
+  };
+  EXPECT_EQ(ReleasePages(2 * kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 2);
+
+  EXPECT_TRUE(a.pt->released());
+  EXPECT_TRUE(b.pt->released());
+  EXPECT_FALSE(a.pt->DontFreeTracker());
+  EXPECT_FALSE(b.pt->DontFreeTracker());
+  EXPECT_EQ(filler_.unmapped_pages(), 2 * (kPagesPerHugePage - Length(1)));
+  // Only the nested release hit the limit; the outer release snapshotted the
+  // limit state before dropping pageheap_lock and is not attributed to it.
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased_due_to_limit,
+            kPagesPerHugePage - Length(1));
+  CheckStats();
+  EXPECT_TRUE(Delete(a));
+  EXPECT_TRUE(Delete(b));
+}
+
+TEST_F(FillerTest, PutDuringReleaseKeepsAccounting) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(Length(1));
+  ASSERT_EQ(a.pt, b.pt);
+
+  // Return b while a's hugepage is being released.  b's page was allocated
+  // when the release scanned the hugepage, so it is not part of the in-flight
+  // run:  it stays backed and free.
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      return;
+    }
+    EXPECT_EQ(r.n, kPagesPerHugePage - Length(2));
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(b.pt->BeingReleased());
+    EXPECT_EQ(filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info), nullptr);
+    EXPECT_FALSE(b.pt->fully_freed());
+    EXPECT_TRUE(b.pt->BeingReleased());
+    EXPECT_EQ(filler_.used_pages(), Length(1));
+    EXPECT_EQ(filler_.free_pages(), Length(1));
+    EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
+    EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(1));
+  };
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(2));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 1);
+  // b was returned with Put directly rather than Delete.
+  total_allocated_ -= b.n;
+
+  EXPECT_FALSE(a.pt->BeingReleased());
+  EXPECT_EQ(a.pt->released_pages(), kPagesPerHugePage - Length(2));
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
+  EXPECT_EQ(filler_.free_pages(), Length(1));
+  CheckStats();
+
+  // The page freed mid-release is picked up by the next release.
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), Length(1));
+  EXPECT_EQ(a.pt->released_pages(), kPagesPerHugePage - Length(1));
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(1));
+  CheckStats();
+
+  EXPECT_TRUE(Delete(a));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+}
+
+TEST_F(FillerTest, AllCandidatesFreedDuringRelease) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  // Return both allocations while the first candidate is being released:  the
+  // in-flight tracker is retired by the release once its unback completes, the
+  // pending one is parked immediately and skipped when its turn comes.  Both
+  // are handed to us afterwards.
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      // The remainder of the in-flight hugepage.
+      EXPECT_EQ(r.n, kPagesPerHugePage);
+      return;
+    }
+    EXPECT_EQ(r.n, kPagesPerHugePage - Length(1));
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info), nullptr);
+    EXPECT_EQ(filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info), nullptr);
+    EXPECT_TRUE(a.pt->fully_freed());
+    EXPECT_TRUE(b.pt->fully_freed());
+    EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
+  };
+  EXPECT_EQ(ReleasePages(2 * kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 2);
+  total_allocated_ -= a.n + b.n;
+
+  EXPECT_FALSE(a.pt->BeingReleased());
+  EXPECT_FALSE(b.pt->BeingReleased());
+  EXPECT_FALSE(a.pt->DontFreeTracker());
+  EXPECT_FALSE(b.pt->DontFreeTracker());
+  EXPECT_EQ(filler_.size(), NHugePages(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(DrainFreedTrackers(), 2);
+  CheckStats();
+}
+
+TEST_F(FillerTest, ReleaseTargetMetLeavesCandidatesInPlace) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(2));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  // Both hugepages are candidates; b's (less used) is released first and
+  // satisfies the target by itself.  While it is in flight, a's hugepage is
+  // pinned as a pending candidate but must remain available to allocations.
+  int calls = 0;
+  HugePageFiller<PageTracker>::TryGetResult got;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      return;
+    }
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(b.pt->BeingReleased());
+    EXPECT_FALSE(a.pt->BeingReleased());
+    EXPECT_TRUE(a.pt->PinnedForRelease());
+    got = filler_.TryGet(Length(1), a.span_alloc_info);
+    EXPECT_EQ(got.pt, a.pt);
+  };
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage - Length(1)),
+            kPagesPerHugePage - Length(1));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 1);
+  ASSERT_EQ(got.pt, a.pt);
+  const PAlloc c = {.pt = got.pt,
+                    .p = got.page,
+                    .n = Length(1),
+                    .mark = 0,
+                    .span_alloc_info = a.span_alloc_info,
+                    .from_released = got.from_released};
+  total_allocated_ += c.n;
+
+  // The pending candidate was unpinned without being released and is still
+  // where allocations find it first.
+  EXPECT_FALSE(a.pt->DontFreeTracker());
+  EXPECT_FALSE(a.pt->released());
+  EXPECT_TRUE(b.pt->released());
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(1));
+  CheckStats();
+  PAlloc d = Allocate(Length(1));
+  EXPECT_EQ(d.pt, a.pt);
+
+  EXPECT_FALSE(Delete(d));
+  EXPECT_FALSE(DeleteRaw(c));
+  EXPECT_TRUE(Delete(a));
+  EXPECT_TRUE(Delete(b));
+}
+
+TEST_F(FillerTest, TreatmentReleasesPendingCandidateDuringRelease) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(2));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  // A treatment pass runs while b's hugepage is in flight and a's is a pending
+  // candidate.  a's hugepage has a swapped page, so the pass releases its free
+  // pages.  The release must then find nothing left to do on a's hugepage.
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const PAlloc& p : {a, b}) {
+    pageflags.MarkHugePageBacked(p.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    pageflags.SetStaleBitmap(p.p.start_addr(), {});
+  }
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  swapped.SetRange(/*index=*/1, /*n=*/1);
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), unbacked, swapped);
+  residency.SetUnbackedAndSwappedBitmaps(b.p.start_addr(), {}, {});
+
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      return;
+    }
+    EXPECT_EQ(HugePageContaining(r.p), b.pt->location());
+    EXPECT_TRUE(b.pt->BeingReleased());
+    EXPECT_TRUE(a.pt->PinnedForRelease());
+    TreatHugepageTrackers(EnableCollapse::kDisabled,
+                          EnableUnfilteredCollapse::kDisabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
+    EXPECT_TRUE(a.pt->released());
+    EXPECT_EQ(a.pt->released_pages(), kPagesPerHugePage - Length(2));
+    // Still pinned by the release in progress.
+    EXPECT_TRUE(a.pt->PinnedForRelease());
+    EXPECT_FALSE(a.pt->DontFreeTracker(HugePageTreatmentType::kCollapse));
+  };
+  EXPECT_EQ(ReleasePages(2 * kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 2);
+
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased,
+            (kPagesPerHugePage - Length(2)).raw_num());
+  EXPECT_FALSE(a.pt->DontFreeTracker());
+  EXPECT_FALSE(b.pt->DontFreeTracker());
+  EXPECT_EQ(filler_.unmapped_pages(), 2 * kPagesPerHugePage - Length(3));
+  CheckStats();
+
+  EXPECT_TRUE(Delete(a));
+  EXPECT_TRUE(Delete(b));
+}
+
+TEST_F(FillerTest, CollapseDuringRelease) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(2));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  // A treatment pass with collapse enabled runs while b's hugepage is in
+  // flight and a's is a pending candidate.  The in-flight hugepage is off the
+  // filler lists and cannot be selected; the pending one may be collapsed, and
+  // is then released like any other candidate once the collapse has finished.
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const PAlloc& p : {a, b}) {
+    pageflags.MarkHugePageBacked(p.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    pageflags.SetStaleBitmap(p.p.start_addr(), {});
+    residency.SetUnbackedAndSwappedBitmaps(p.p.start_addr(), {}, {});
+  }
+
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      return;
+    }
+    EXPECT_EQ(HugePageContaining(r.p), b.pt->location());
+    EXPECT_TRUE(b.pt->BeingReleased());
+    TreatHugepageTrackers(EnableCollapse::kEnabled,
+                          EnableUnfilteredCollapse::kDisabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
+    EXPECT_FALSE(collapse_.TriedCollapse(b.p.start_addr()));
+    EXPECT_TRUE(collapse_.TriedCollapse(a.p.start_addr()));
+    EXPECT_FALSE(a.pt->BeingCollapsed());
+  };
+  // MockCollapse allocates, so pageheap_lock is taken manually rather than
+  // through PageHeapSpinLockHolder here.
+  pageheap_lock.lock();
+  const Length released = filler_.ReleasePages(
+      2 * kPagesPerHugePage, SkipSubreleaseIntervals{},
+      /*release_partial_alloc_pages=*/false, /*hit_limit=*/false);
+  pageheap_lock.unlock();
+  EXPECT_EQ(released, 2 * kPagesPerHugePage - Length(3));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 2);
+
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_eligible, 1);
+  EXPECT_TRUE(a.pt->released());
+  EXPECT_TRUE(b.pt->released());
+  CheckStats();
+
+  EXPECT_TRUE(Delete(a));
+  EXPECT_TRUE(Delete(b));
+}
+
+TEST_F(FillerTest, ReentrantPutDuringTreatmentRelease) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a.p.start_addr(), /*is_hugepage_backed=*/false);
+  pageflags.SetStaleBitmap(a.p.start_addr(), {});
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  swapped.SetRange(/*index=*/0, kMaxResidencyBits);
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), unbacked, swapped);
+
+  // The treatment's HandleReleaseFree drops pageheap_lock too.  Returning the
+  // last allocation meanwhile parks the tracker, pinned by the treatment.
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    if (calls++ > 0) {
+      EXPECT_EQ(r.n, kPagesPerHugePage);
+      return;
+    }
+    EXPECT_EQ(r.n, kPagesPerHugePage - Length(1));
+    EXPECT_TRUE(a.pt->BeingReleased());
+    EXPECT_FALSE(DeleteRaw(a));
+    EXPECT_TRUE(a.pt->fully_freed());
+  };
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 2);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased,
+            (kPagesPerHugePage - Length(1)).raw_num());
+  EXPECT_FALSE(a.pt->BeingReleased());
+  EXPECT_FALSE(a.pt->DontFreeTracker());
+  EXPECT_EQ(filler_.size(), NHugePages(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  CheckStats();
+}
+
+TEST_F(FillerTest, ReentrantAllocateDuringRelease) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(10));
+  PAlloc b = Allocate(Length(20));
+  PAlloc c = Allocate(Length(10));
+  ASSERT_EQ(a.pt, b.pt);
+  ASSERT_EQ(b.pt, c.pt);
+  EXPECT_FALSE(Delete(b));
+
+  // While a.pt is being released it is off the filler lists, so an allocation
+  // that would otherwise fit in the hole b left must miss.
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(filler_.TryGet(Length(5), a.span_alloc_info).pt, nullptr);
+  };
+  EXPECT_EQ(ReleasePartialPages(kPagesPerHugePage),
+            kPagesPerHugePage - Length(20));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 2);
+  CheckStats();
+
+  PAlloc d = Allocate(Length(5));
+  EXPECT_EQ(d.pt, a.pt);
+  EXPECT_TRUE(d.from_released);
+  EXPECT_FALSE(Delete(d));
+  EXPECT_FALSE(Delete(a));
+  EXPECT_TRUE(Delete(c));
+}
+
+TEST_F(FillerTest, UnbackFailureRestoresAccounting) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+
+  // The pages are accounted as unmapped while the unback is in flight; when
+  // it fails they are backed and free again.
+  blocking_unback_.success_ = false;
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(1));
+    EXPECT_EQ(filler_.free_pages(), Length(0));
+  };
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), Length(0));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  blocking_unback_.success_ = true;
+  EXPECT_EQ(calls, 1);
+
+  EXPECT_FALSE(a.pt->released());
+  EXPECT_FALSE(a.pt->BeingReleased());
+  EXPECT_FALSE(a.pt->DontFreeTracker());
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.free_pages(), kPagesPerHugePage - Length(1));
+  CheckStats();
+  EXPECT_TRUE(Delete(a));
+}
+
+TEST_F(FillerTest, UnbackFailureWithPutDuringRelease) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(kPagesPerHugePage - Length(1));
+  ASSERT_EQ(a.pt, b.pt);
+  EXPECT_FALSE(Delete(b));
+
+  // The unback fails and the last allocation is returned meanwhile: nothing is
+  // released, and the emptied tracker is retired without a second unback.
+  blocking_unback_.success_ = false;
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    EXPECT_FALSE(DeleteRaw(a));
+  };
+  EXPECT_EQ(ReleasePartialPages(kPagesPerHugePage), Length(0));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  blocking_unback_.success_ = true;
+  EXPECT_EQ(calls, 1);
+
+  EXPECT_FALSE(a.pt->released());
+  EXPECT_EQ(filler_.size(), NHugePages(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  CheckStats();
+}
+
 // A release that runs while a hugepage is being collapsed leaves it alone:
 // collapsing requires that none of its pages are released.
 TEST_F(FillerTest, ReleaseDuringCollapse) {
@@ -1650,6 +2187,182 @@ TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
 
   DrainFreedTrackers();
   CheckStats();
+}
+
+// HandleFullyFreedTracker drops pageheap_lock to unback the remainder of a
+// partially released hugepage.  Another thread can report filler stats at a
+// later time in that window, so the retirement must not then report with the
+// time it read before dropping the lock: the time series tracker treats a
+// regressing clock as a snapshot restore and discards the demand history that
+// skip-subrelease consults.
+TEST_F(FillerTest, RetirementUnbackKeepsSubreleaseHistory) {
+  randomize_density_ = false;
+  const Length kHalf = kPagesPerHugePage / 2;
+  // hp1 holds a and b; hp2 holds c, d, and e.  Peak demand is two hugepages.
+  PAlloc a = Allocate(kHalf);
+  PAlloc b = Allocate(kHalf);
+  PAlloc c = Allocate(kHalf);
+  PAlloc d = Allocate(kHalf - Length(1));
+  PAlloc e = Allocate(Length(1));
+  ASSERT_EQ(a.pt, b.pt);
+  ASSERT_EQ(c.pt, d.pt);
+  ASSERT_EQ(c.pt, e.pt);
+
+  // Partially release hp1 (hp2 is full, so it contributes nothing).
+  ASSERT_FALSE(Delete(b));
+  EXPECT_EQ(ReleasePages(kHalf), kHalf);
+  EXPECT_TRUE(a.pt->released());
+  // Leave free pages in hp2 for the subrelease decision below.
+  ASSERT_FALSE(Delete(d));
+
+  // Freeing a retires hp1.  Model another thread freeing e two minutes later
+  // while the retirement unbacks with pageheap_lock dropped.
+  int hook_calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    ++hook_calls;
+    EXPECT_EQ(r.n, kPagesPerHugePage);
+    FakeClock::Advance(absl::Minutes(2));
+    EXPECT_FALSE(DeleteRaw(e));
+  };
+  EXPECT_TRUE(Delete(a));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(hook_calls, 1);
+
+  // Flush the pages the retirement unbacked, which ReleasePages counts first.
+  EXPECT_EQ(ReleasePages(Length(0)), kHalf);
+
+  // The two-hugepage demand peak lies within peak_interval, so skip-subrelease
+  // must keep hp2's free pages mapped.  A retirement that reported with a
+  // stale time reset the time series, leaving only the current demand.
+  EXPECT_EQ(
+      ReleasePages(kPagesPerHugePage,
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(10)}),
+      Length(0));
+  EXPECT_FALSE(c.pt->released());
+
+  ASSERT_TRUE(Delete(c));
+}
+
+// A hugepage can be released between its collapse succeeding and Restore
+// running: the treatment continues with other trackers while pageheap_lock is
+// dropped, and only trackers whose collapse is in flight are exempt from
+// release.  The release breaks the hugepage again, so the recorded collapse
+// result is stale and must not be written back over the tracker.
+TEST_F(FillerTestWithSubreleaseUnbacked, ReleaseAfterCollapseBeforeRestore) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const PAlloc& p : {a, b}) {
+    pageflags.MarkHugePageBacked(p.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    pageflags.SetStaleBitmap(p.p.start_addr(), {});
+    residency.SetUnbackedAndSwappedBitmaps(p.p.start_addr(), {}, {});
+  }
+
+  // The second collapse runs after the first has succeeded.  Release from it:
+  // the tracker being collapsed is exempt, so the first tracker is released.
+  int calls = 0;
+  PageTracker* first = nullptr;
+  collapse_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    if (calls == 1) {
+      first = HugePageContaining(r.p) == a.pt->location() ? a.pt : b.pt;
+      return;
+    }
+    EXPECT_NE(HugePageContaining(r.p), first->location());
+    EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+    EXPECT_TRUE(first->released());
+  };
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  collapse_.unlocked_hook_ = nullptr;
+  ASSERT_EQ(calls, 2);
+  ASSERT_NE(first, nullptr);
+  PageTracker* second = first == a.pt ? b.pt : a.pt;
+
+  HugePageTreatmentStats stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats.collapse_attempted, 2);
+  EXPECT_EQ(stats.collapse_succeeded, 2);
+
+  // The first hugepage is broken again and must be eligible for another
+  // collapse; the second one stays collapsed.
+  EXPECT_TRUE(first->released());
+  EXPECT_FALSE(first->unbroken());
+  EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
+  EXPECT_FALSE(second->released());
+  EXPECT_TRUE(second->unbroken());
+  EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  CheckStats();
+
+  EXPECT_TRUE(Delete(a));
+  EXPECT_TRUE(Delete(b));
+}
+
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       ReleaseAndRefillAfterCollapseBeforeRestore) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const PAlloc& p : {a, b}) {
+    pageflags.MarkHugePageBacked(p.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    pageflags.SetStaleBitmap(p.p.start_addr(), {});
+    residency.SetUnbackedAndSwappedBitmaps(p.p.start_addr(), {}, {});
+  }
+
+  // As in ReleaseAfterCollapseBeforeRestore, release the first tracker from
+  // the second collapse, then reallocate every released page:  the first
+  // hugepage is broken but no longer released() when the pass restores its
+  // findings.
+  int calls = 0;
+  PageTracker* first = nullptr;
+  std::vector<PAlloc> refill;
+  collapse_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    if (calls == 1) {
+      first = HugePageContaining(r.p) == a.pt->location() ? a.pt : b.pt;
+      return;
+    }
+    EXPECT_NE(HugePageContaining(r.p), first->location());
+    EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+    EXPECT_TRUE(first->released());
+    // The filler prefers the unreleased hugepage; the second allocation fills
+    // the released one.
+    refill.push_back(Allocate(kPagesPerHugePage - Length(1)));
+    refill.push_back(Allocate(kPagesPerHugePage - Length(1)));
+    EXPECT_FALSE(first->released());
+  };
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  collapse_.unlocked_hook_ = nullptr;
+  ASSERT_EQ(calls, 2);
+  ASSERT_NE(first, nullptr);
+  PageTracker* second = first == a.pt ? b.pt : a.pt;
+
+  HugePageTreatmentStats stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats.collapse_attempted, 2);
+  EXPECT_EQ(stats.collapse_succeeded, 2);
+
+  EXPECT_FALSE(first->released());
+  EXPECT_FALSE(first->unbroken());
+  EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
+  EXPECT_TRUE(second->unbroken());
+  EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  CheckStats();
+
+  DeleteVector(refill);
+  EXPECT_TRUE(Delete(a));
+  EXPECT_TRUE(Delete(b));
 }
 
 // Makes sure that we do not collapse the pages that are already hugepage
