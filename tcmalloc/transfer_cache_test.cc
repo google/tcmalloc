@@ -362,6 +362,39 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
   // empty the entire cache.
   env.transfer_cache().TryPlunder(kSizeClass);
   EXPECT_EQ(env.transfer_cache().tc_length(), 0);
+
+  // If a concurrent thread drains and refills the transfer cache while lock_
+  // is dropped inside TryPlunder's loop, TryPlunder must clamp to_return to
+  // low_water_mark_ and not overwrite a lower low_water_mark_ with info.used.
+  env.Insert(TypeParam::kBatchSize);
+  env.Insert(TypeParam::kBatchSize);
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  // Set low_water_mark_ to 2 * TypeParam::kBatchSize.
+  env.transfer_cache().TryPlunder(kSizeClass);
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+
+  EXPECT_CALL(env.central_freelist(), InsertRange)
+      .WillOnce([&](absl::Span<void*> batch) {
+        env.central_freelist().FakeCentralFreeList::InsertRange(batch);
+        // While TryPlunder has dropped lock_ after removing the first batch,
+        // drain the remaining batch (setting low_water_mark_ to 0) and
+        // insert a fresh batch of hot objects.
+        void* concurrent_buf[TypeParam::kBatchSize];
+        EXPECT_EQ(env.transfer_cache().RemoveRange(
+                      kSizeClass, {concurrent_buf, TypeParam::kBatchSize}),
+                  TypeParam::kBatchSize);
+        EXPECT_EQ(env.transfer_cache().tc_length(), 0);
+        env.transfer_cache().InsertRange(
+            kSizeClass, {concurrent_buf, TypeParam::kBatchSize});
+        EXPECT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
+      });
+  env.transfer_cache().TryPlunder(kSizeClass);
+  // The freshly inserted batch must not be plundered in the second iteration,
+  // and low_water_mark_ must remain 0.
+  EXPECT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
+  env.transfer_cache().TryPlunder(kSizeClass);
+  EXPECT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
+  env.Remove(TypeParam::kBatchSize);
 }
 
 // PickCoprimeBatchSize picks a batch size in [2, max_batch_size) that is
