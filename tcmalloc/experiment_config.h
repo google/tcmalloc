@@ -30,7 +30,6 @@ enum class Experiment : int {
   TCMALLOC_SHARDED_TC_ABLATION,  // TODO: b/543102173 - Complete experiment.
   TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS,  // TODO: b/527907199 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
-  TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION,  // TODO: b/557224124 - Complete experiment.
   TEST_ONLY_TCMALLOC_HEAP_PARTITIONING,  // TODO: b/446814339 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
   TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES,  // TODO: b/527473378 - Complete experiment.
@@ -62,7 +61,6 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_SHARDED_TC_ABLATION, "TCMALLOC_SHARDED_TC_ABLATION"},
     {Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS, "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"", /*rollout_inverted=*/true},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
-    {Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION, "TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION"},
     {Experiment::TEST_ONLY_TCMALLOC_HEAP_PARTITIONING, "TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"},
     {Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS, "TEST_ONLY_TCMALLOC_POW2_SIZECLASS", /*brittle=*/true},
     {Experiment::TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES, "TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES"},

@@ -273,12 +273,6 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"},
     },
     {
-        "name": "tcmalloc_cfl_subbucket_prioritization",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION"},
-    },
-    {
         "name": "tcmalloc_page_heap_gardening",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

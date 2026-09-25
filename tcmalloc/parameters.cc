@@ -375,9 +375,7 @@ want_cfl_subbucket_prioritization() {
         TC_BUG("bad env var '%s'", e);
     }
   }
-  return central_freelist_internal::CflSubbucketPrioritization{
-      IsExperimentActive(
-          Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION)};
+  return central_freelist_internal::CflSubbucketPrioritization::kDisabled;
 }
 
 central_freelist_internal::CflSubbucketPrioritization
