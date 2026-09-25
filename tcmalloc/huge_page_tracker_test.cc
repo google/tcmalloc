@@ -480,6 +480,64 @@ TEST_F(PageTrackerTest, ReleasingReturn) {
   Put(a3);
 }
 
+// released_pages() is exact between unback calls.  Once unback runs with
+// pageheap_lock dropped, other threads read the count while later ranges are
+// still in flight, so each range must be counted as soon as it succeeds rather
+// than once at the end.
+TEST_F(PageTrackerTest, ReleasingCountsEachRange) {
+  class CountingUnback final : public MemoryModifyFunction {
+   public:
+    explicit CountingUnback(const PageTracker& tracker) : tracker_(tracker) {}
+
+    [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+      TC_CHECK_LT(calls_, kMaxCalls);
+      // Ranges already released are counted; r is still in flight.
+      expected_[calls_] = released_so_far_;
+      observed_[calls_] = tracker_.released_pages();
+      ++calls_;
+      released_so_far_ += r.n;
+      return {.success = true, .error_number = 0};
+    }
+
+    void Verify(Length total) const {
+      EXPECT_EQ(released_so_far_, total);
+      for (size_t i = 0; i < calls_; ++i) {
+        EXPECT_EQ(observed_[i], expected_[i]) << "call " << i;
+      }
+    }
+
+   private:
+    // A local class cannot have a static data member.
+    enum : size_t { kMaxCalls = 10 };
+    const PageTracker& tracker_;
+    Length released_so_far_;
+    Length expected_[kMaxCalls];
+    Length observed_[kMaxCalls];
+    size_t calls_ = 0;
+  };
+
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a1 = Get(kAllocSize - Length(3), info);
+  PAlloc a2 = Get(kAllocSize, info);
+  PAlloc a3 = Get(kAllocSize + Length(1), info);
+  PAlloc a4 = Get(kAllocSize + Length(2), info);
+
+  Put(a2);
+  Put(a4);
+  // [alloced] [free] [alloced] [free]: two ranges are unbacked in turn.
+  CountingUnback unback(tracker_);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(tracker_.ReleaseFree(unback), a2.n + a4.n);
+  }
+  unback.Verify(a2.n + a4.n);
+  EXPECT_EQ(tracker_.released_pages(), a2.n + a4.n);
+
+  Put(a1);
+  Put(a3);
+}
+
 TEST_F(PageTrackerTest, ReleasingRetain) {
   static const Length kAllocSize = kPagesPerHugePage / 4;
   SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};

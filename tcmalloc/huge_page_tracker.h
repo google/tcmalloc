@@ -491,8 +491,15 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       PageId p = location_.first_page() + Length(free_index);
 
       if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
-        // Mark pages as released.  Amortize the update to release_count_.
+        // Mark pages as released.  Updating the count per range rather than
+        // once after the loop is intentionally the less efficient choice:
+        //
+        // TODO(b/73749855): once unback runs with pageheap_lock dropped, other
+        // threads observe this tracker between ranges and need the count to
+        // match the bitmap.
         released_by_page_.SetRange(free_index, length);
+        released_count_ += length;
+        hugepage_residency_state_.maybe_hugepage_backed = false;
         count += length;
       }
 
@@ -504,10 +511,6 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
     }
   }
 
-  released_count_ += count;
-  if (count > 0) {
-    hugepage_residency_state_.maybe_hugepage_backed = false;
-  }
   TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
   return Length(count);
