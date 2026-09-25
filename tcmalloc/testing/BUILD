@@ -728,17 +728,6 @@ cc_binary(
     ],
 )
 
-cc_library(
-    name = "benchmark_main",
-    srcs = ["benchmark_main.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
-    deps = ["@com_github_google_benchmark//:benchmark"],
-    alwayslink = 1,
-)
-
 cc_test(
     name = "numa_locality_test",
     srcs = ["numa_locality_test.cc"],

@@ -97,9 +97,9 @@ tcmalloc_cc_binary_variants(
     "absl::synchronization"
     "absl::time"
     "benchmark::benchmark"
+    "benchmark::benchmark_main"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
-    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -664,18 +664,6 @@ tcmalloc_cc_binary(
     "absl::strings"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
-)
-
-tcmalloc_cc_library(
-  NAME
-    tcmalloc_testing_benchmark_main
-  ALIAS
-    tcmalloc::testing_benchmark_main
-  ALWAYSLINK
-  SRCS
-    "benchmark_main.cc"
-  DEPS
-    "benchmark::benchmark"
 )
 
 tcmalloc_cc_test(

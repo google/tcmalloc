@@ -378,12 +378,12 @@ tcmalloc_cc_binary(
   DEPS
     "absl::random_random"
     "benchmark::benchmark"
+    "benchmark::benchmark_main"
     "tcmalloc::internal_config"
     "tcmalloc::internal_linked_list"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_mock_span"
     "tcmalloc::tcmalloc"
-    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -626,11 +626,11 @@ tcmalloc_cc_binary(
     "mincore_benchmark.cc"
   DEPS
     "benchmark::benchmark"
+    "benchmark::benchmark_main"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_page_size"
     "tcmalloc::tcmalloc"
-    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1226,10 +1226,10 @@ tcmalloc_cc_binary(
     "absl::random_distributions"
     "absl::random_random"
     "benchmark::benchmark"
+    "benchmark::benchmark_main"
     "tcmalloc::internal_config"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::tcmalloc"
-    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(

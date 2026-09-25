@@ -443,7 +443,7 @@ def create_tcmalloc_benchmark(name, srcs, **kwargs):
         malloc = malloc,
         testonly = 1,
         linkstatic = 1,
-        deps = deps + ["//tcmalloc/testing:benchmark_main"],
+        deps = deps + ["@com_github_google_benchmark//:benchmark_main"],
         **kwargs
     )
 
