@@ -18,6 +18,7 @@
 # Tests for tcmalloc, including a performance test.
 
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_import.bzl", "cc_import")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
@@ -1282,5 +1283,24 @@ create_tcmalloc_testsuite(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_import(
+    name = "standalone_import",
+    static_library = "//tcmalloc:tcmalloc_standalone",
+    alwayslink = True,
+)
+
+cc_test(
+    name = "standalone_test",
+    srcs = ["standalone_test.cc"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":standalone_import",
     ],
 )
