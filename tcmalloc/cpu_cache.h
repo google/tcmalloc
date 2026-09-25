@@ -1321,7 +1321,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   }
   bool grow_by_batch =
       resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
-  if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
+  if ((grow_by_one || grow_by_batch) && capacity < max_capacity) {
     size_t increase = 1;
     if (grow_by_batch) {
       increase = std::min(batch_length, max_capacity - capacity);
@@ -1336,7 +1336,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // We hit the maximum capacity limit when the size class capacity is equal to
   // its maximum allowed capacity. Record a miss due to that so that we can
   // potentially grow the max capacity for this size class later.
-  if (capacity == max_capacity) {
+  if (capacity >= max_capacity) {
     resize_[cpu].per_class[size_class].RecordMiss(
         PerClassMissType::kMaxCapacityTotal);
   }
