@@ -173,6 +173,47 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
   // Double free (after deallocation, span descriptor is invalid)
   EXPECT_DEATH(StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class),
                "Possible double free detected|Mismatched-size-class");
+
+  // Also verify multi-page span tail pages are unregistered on DeallocateSpans.
+  for (size_t sc = 1; sc < kNumClasses; ++sc) {
+    const Length sc_pages = tc_globals.sizemap().class_to_pages(sc);
+    if (sc_pages <= Length(1)) continue;
+    const size_t sc_obj_size = tc_globals.sizemap().class_to_size(sc);
+    const size_t sc_objs_per_span = sc_pages.in_bytes() / sc_obj_size;
+    if (sc_objs_per_span > kFewObjectsAllocMaxLimit) continue;
+    const size_t sc_recip = Span::CalcReciprocal(sc_obj_size);
+
+    Span* mp_span =
+        StaticForwarder::AllocateSpan(sc, sc_objs_per_span, sc_pages);
+    ASSERT_NE(mp_span, nullptr);
+    const PageId tail_page = mp_span->last_page();
+
+    absl::FixedArray<void*> mp_batch(sc_objs_per_span);
+    ASSERT_EQ(mp_span->BuildFreelist(sc_obj_size, sc_objs_per_span,
+                                     absl::MakeSpan(mp_batch),
+                                     StaticForwarder::clock_now()),
+              sc_objs_per_span);
+    void* tail_ptr = nullptr;
+    for (void* p : mp_batch) {
+      if (PageIdContaining(p) == tail_page) {
+        tail_ptr = p;
+      }
+      (void)mp_span->FreelistPushBatch(absl::MakeSpan(&p, 1), sc_obj_size,
+                                       sc_recip);
+    }
+    ASSERT_NE(tail_ptr, nullptr);
+
+    StaticForwarder::DeallocateSpans(sc_objs_per_span,
+                                     absl::MakeSpan(&mp_span, 1));
+    EXPECT_EQ(tc_globals.pagemap().sizeclass(tail_page), 0);
+    EXPECT_EQ(tc_globals.pagemap().GetDescriptorAndSizeClass(tail_page),
+              (std::pair<Span*, CompactSizeClass>(nullptr, 0)));
+    EXPECT_DEATH(
+        StaticForwarder::MapObjectsToSpans({&tail_ptr, 1}, &got, sc),
+        "Possible double free detected|Mismatched-size-class|Attempted to free "
+        "corrupted pointer");
+    break;
+  }
 }
 
 class StaticForwarderEnvironment {

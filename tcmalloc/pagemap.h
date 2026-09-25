@@ -335,9 +335,9 @@ class PageMap {
     const PageId first = span->first_page();
     const PageId last = span->last_page();
     TC_ASSERT_EQ(GetDescriptor(first), span);
-    for (PageId p = first; p <= last; ++p) {
-      auto [leaf, i3] = MustIndex(p);
-      leaf->sizeclass[i3] = 0;
+    Set(first, span, 0);
+    for (PageId p = first + Length(1); p <= last; ++p) {
+      Set(p, nullptr, 0);
     }
   }
 
