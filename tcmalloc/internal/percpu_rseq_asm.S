@@ -57,7 +57,8 @@ __rseq_abi:
 .long 0xffffffff  // cpu_id (kCpuIdUninitialized)
 .quad 0           // rseq_cs
 .long 0           // flags
-.quad 0           // padding
+.long 0           // node_id
+.long 0xffffffff  // mm_cid (kCpuIdUninitialized)
 .short 0xffff     // numa_node_id (kCpuIdUninitialized)
 .short 0xffff     // vcpu_id (kCpuIdUninitialized)
 .size __rseq_abi, 32
