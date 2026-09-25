@@ -59,7 +59,7 @@ struct ArenaAllocInfo {
   absl::string_view proto_field;
 };
 
-inline constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
+constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
   switch (type) {
     case ArenaAlloc::kSpan:
       return {"Span", "span"};
