@@ -414,6 +414,20 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_want_disable_cfl_subbucket_prioritization
+  ALIAS
+    tcmalloc::want_disable_cfl_subbucket_prioritization
+  ALWAYSLINK
+  SRCS
+    "want_disable_cfl_subbucket_prioritization.cc"
+  COPTS
+    "-g0"
+  DEPS
+    "absl::core_headers"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_want_numa_aware
   ALIAS
     tcmalloc::want_numa_aware

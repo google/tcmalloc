@@ -356,6 +356,30 @@ ReleaseStalePages Parameters::release_stale_pages() {
   return v.load(std::memory_order_relaxed);
 }
 
+extern "C" ABSL_ATTRIBUTE_WEAK bool
+default_want_disable_cfl_subbucket_prioritization();
+static central_freelist_internal::CflSubbucketPrioritization
+want_cfl_subbucket_prioritization() {
+  if (default_want_disable_cfl_subbucket_prioritization != nullptr) {
+    return central_freelist_internal::CflSubbucketPrioritization::kDisabled;
+  }
+  const char* e =
+      thread_safe_getenv("TCMALLOC_DISABLE_CFL_SUBBUCKET_PRIORITIZATION");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        break;
+      case '1':
+        return central_freelist_internal::CflSubbucketPrioritization::kDisabled;
+      default:
+        TC_BUG("bad env var '%s'", e);
+    }
+  }
+  return central_freelist_internal::CflSubbucketPrioritization{
+      IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION)};
+}
+
 central_freelist_internal::CflSubbucketPrioritization
 Parameters::cfl_subbucket_prioritization() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -363,11 +387,7 @@ Parameters::cfl_subbucket_prioritization() {
       central_freelist_internal::CflSubbucketPrioritization>
       v{central_freelist_internal::CflSubbucketPrioritization::kDisabled};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(
-        central_freelist_internal::CflSubbucketPrioritization{
-            IsExperimentActive(
-                Experiment::TEST_ONLY_TCMALLOC_CFL_SUBBUCKET_PRIORITIZATION)},
-        std::memory_order_relaxed);
+    v.store(want_cfl_subbucket_prioritization(), std::memory_order_relaxed);
   });
   return v.load(std::memory_order_relaxed);
 }
