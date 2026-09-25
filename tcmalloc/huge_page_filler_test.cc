@@ -6647,6 +6647,56 @@ TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   EXPECT_FALSE(SkipSubreleaseIntervals{}.SkipSubreleaseEnabled());
 }
 
+TEST_F(FillerTest, ConcurrentCollapseAndSubreleaseDoesNotClobberUnbroken) {
+  FakePageFlags pageflags;
+  FakeResidency residency;
+
+  // Allocate from 8 hugepages so TreatHugepageTrackers processes multiple
+  // trackers in a batch while pageheap_lock is dropped.
+  std::vector<PAlloc> allocs;
+  for (int i = 0; i < 8; ++i) {
+    PAlloc p = AllocateWithSpanAllocInfo(
+        kPagesPerHugePage / 2 + Length(1),
+        {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
+    pageflags.MarkHugePageBacked(p.pt->location().start_addr(), false);
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    residency.SetUnbackedAndSwappedBitmaps(p.p.start_addr(), unbacked, swapped);
+    pageflags.SetStaleBitmap(p.p.start_addr(), {});
+    allocs.push_back(p);
+  }
+
+  std::atomic<bool> done{false};
+  std::thread collapse_thread([&]() {
+    while (!done.load(std::memory_order_acquire)) {
+      FakeClock::Advance(absl::Minutes(10));
+      TreatHugepageTrackers(
+          EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
+          ReleaseStalePages::kDisabled, &pageflags, &residency);
+      std::this_thread::yield();
+    }
+  });
+
+  for (int iter = 0; iter < 50; ++iter) {
+    ReleasePages(kPagesPerHugePage);
+    {
+      PageHeapSpinLockHolder l;
+      for (const auto& p : allocs) {
+        if (p.pt->released()) {
+          EXPECT_FALSE(p.pt->unbroken());
+          EXPECT_FALSE(p.pt->GetHugePageResidencyState().maybe_hugepage_backed);
+        }
+      }
+    }
+  }
+
+  done.store(true, std::memory_order_release);
+  collapse_thread.join();
+
+  for (const auto& p : allocs) {
+    Delete(p);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

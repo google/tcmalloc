@@ -492,6 +492,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       if (tracker->fully_freed()) {
         continue;
       }
+      if (tracker->released()) {
+        residency_states_[i].tracker_state.maybe_hugepage_backed = false;
+      }
       tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
       if (residency_states_[i].tracker_state.maybe_hugepage_backed) {
         if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
