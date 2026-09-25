@@ -24,7 +24,6 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
-#include "absl/base/const_init.h"
 #include "absl/base/internal/low_level_alloc.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
@@ -351,7 +350,7 @@ class FakeStaticForwarder : private Parameters {
   // pageheap_lock during unback introduces.  If injected bugs show that it
   // does, replace the map with a structure that needs no lock.
   absl::base_internal::SpinLock live_spans_lock_{
-      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
   std::map<PageId, Length, std::less<PageId>,
            AllocAdaptor<std::pair<const PageId, Length>>>
       live_spans_ ABSL_GUARDED_BY(live_spans_lock_);
