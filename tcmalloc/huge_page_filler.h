@@ -747,6 +747,9 @@ class HugePageFiller {
   void Contribute(TrackerType* absl_nonnull pt TCMALLOC_CAPTURED_BY_THIS,
                   bool donated, SpanAllocInfo span_alloc_info);
 
+  // Returns a tracker that became empty while pinned by an operation that had
+  // dropped pageheap_lock and whose pins have since all been cleared, or
+  // nullptr if there is none.  The caller owns the returned tracker.
   TrackerType* absl_nullable FetchFullyFreedTracker()
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -2535,13 +2538,16 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
 template <class TrackerType>
 inline TrackerType* absl_nullable
 HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
-  if (fully_freed_trackers_.empty()) {
-    return nullptr;
+  // A parked tracker stays parked while an operation that dropped
+  // pageheap_lock still holds a pointer to it (HandleFullyFreedTracker).
+  for (TrackerType* pt : fully_freed_trackers_) {
+    if (pt->DontFreeTracker()) {
+      continue;
+    }
+    fully_freed_trackers_.remove(pt);
+    return pt;
   }
-
-  TrackerType* pt = fully_freed_trackers_.first();
-  fully_freed_trackers_.remove(pt);
-  return pt;
+  return nullptr;
 }
 
 template <class TrackerType>
