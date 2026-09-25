@@ -196,7 +196,6 @@ class Parameters {
   }
 
   static bool background_process_actions_enabled();
-  static void set_background_process_actions_enabled(bool value);
   static absl::Duration background_process_sleep_interval();
 
   static void set_filler_skip_subrelease_short_interval(absl::Duration value) {
