@@ -922,6 +922,10 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     return 0;
   }
 
+  if (size_class >= kSecurityClassesStart) {
+    return 0;
+  }
+
   if (BypassCpuCache(size_class)) {
     return 0;
   }

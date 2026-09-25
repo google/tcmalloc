@@ -198,7 +198,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   // This class is laid out with the most frequently used fields
   // first so that hot elements are placed on the same cache line.
 
-  FreeList list_[kNumClasses];  // Array indexed by size-class
+  FreeList list_[kNumClassesForTransferCache];  // Array indexed by size-class
 
   size_t size_;      // Combined size of data
   size_t max_size_;  // size_ > max_size_ --> Scavenge()
@@ -224,6 +224,11 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
     size_t size_class) {
+  if (size_class >= kNumClassesForTransferCache) {
+    void* result = nullptr;
+    (void)tc_globals.transfer_cache().RemoveRange(size_class, {&result, 1});
+    return result;
+  }
   const size_t allocated_size = tc_globals.sizemap().class_to_size(size_class);
 
   FreeList* list = &list_[size_class];
@@ -238,6 +243,11 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
 
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
 ThreadCache::Deallocate(void* ptr, size_t size_class) {
+  if (size_class >= kNumClassesForTransferCache) {
+    tc_globals.transfer_cache().InsertRange(size_class,
+                                            absl::Span<void*>(&ptr, 1));
+    return;
+  }
   FreeList* list = &list_[size_class];
   size_ += tc_globals.sizemap().class_to_size(size_class);
   ssize_t size_headroom = max_size_ - size_ - 1;

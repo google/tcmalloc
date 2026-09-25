@@ -72,14 +72,16 @@ ThreadCache::ThreadCache(pthread_t tid) {
   prev_ = nullptr;
   tid_ = tid;
   in_setspecific_ = false;
-  for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (size_t size_class = 0; size_class < kNumClassesForTransferCache;
+       ++size_class) {
     list_[size_class].Init();
   }
 }
 
 void ThreadCache::Cleanup() {
   // Put unused memory back into transfer cache
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 0; size_class < kNumClassesForTransferCache;
+       ++size_class) {
     if (!list_[size_class].empty()) {
       ReleaseToTransferCache(&list_[size_class], size_class,
                              list_[size_class].length());
@@ -186,7 +188,8 @@ void ThreadCache::Scavenge() {
   // that situation by dropping L/2 nodes from the free list.  This
   // may not release much memory, but if so we will call scavenge again
   // pretty soon and the low-water marks will be high on that call.
-  for (int size_class = 0; size_class < kNumClasses; size_class++) {
+  for (int size_class = 0; size_class < kNumClassesForTransferCache;
+       size_class++) {
     FreeList* list = &list_[size_class];
     const int lowmark = list->lowwatermark();
     if (lowmark > 0) {
@@ -415,7 +418,8 @@ AllocatorStats ThreadCache::GetStats(uint64_t* total_bytes,
   for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
     *total_bytes += h->size_;
     if (class_count) {
-      for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      for (int size_class = 0; size_class < kNumClassesForTransferCache;
+           ++size_class) {
         class_count[size_class] += h->list_[size_class].length();
       }
     }

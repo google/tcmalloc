@@ -134,7 +134,8 @@ class ShardedTransferCacheManagerBase {
     for (int shard = 0; shard < num_shards_; ++shard) {
       new (&shards_[shard]) Shard;
     }
-    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    for (int size_class = 0; size_class < kNumClassesForTransferCache;
+         ++size_class) {
       const int size_per_object = forwarder_.class_to_size(size_class);
       // We enable sharded transfer cache for all the size classes when a
       // generic sharded transfer cache is enabled. Otherwise, we enable it for
@@ -162,7 +163,8 @@ class ShardedTransferCacheManagerBase {
     size_t out = 0;
     for (int shard = 0; shard < num_shards_; ++shard) {
       if (!shard_initialized(shard)) continue;
-      for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      for (int size_class = 0; size_class < kNumClassesForTransferCache;
+           ++size_class) {
         const int bytes_per_entry = forwarder_.class_to_size(size_class);
         if (bytes_per_entry <= 0) continue;
         out += shards_[shard].transfer_caches[size_class].tc_length() *
@@ -210,7 +212,8 @@ class ShardedTransferCacheManagerBase {
     out.printf("------------------------------------------------\n");
     uint64_t sharded_cumulative_bytes = 0;
     static constexpr double MiB = 1048576.0;
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+    for (int size_class = 1; size_class < kNumClassesForTransferCache;
+         ++size_class) {
       const TransferCacheStats stats = GetStats(size_class);
       const uint64_t class_bytes =
           stats.used * forwarder_.class_to_size(size_class);
@@ -241,7 +244,8 @@ class ShardedTransferCacheManagerBase {
 
   void PrintInPbtxt(const StatsCounters<kNumClasses>& counts,
                     PbtxtRegion& region) const {
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+    for (int size_class = 1; size_class < kNumClassesForTransferCache;
+         ++size_class) {
       const TransferCacheStats stats = GetStats(size_class);
       PbtxtRegion entry = region.CreateSubRegion("sharded_transfer_cache");
       entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));
@@ -294,7 +298,8 @@ class ShardedTransferCacheManagerBase {
     if (shards_ == nullptr || num_shards_ == 0) return;
     for (int shard = 0; shard < num_shards_; ++shard) {
       if (!shard_initialized(shard)) continue;
-      for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      for (int size_class = 0; size_class < kNumClassesForTransferCache;
+           ++size_class) {
         TransferCache& cache = shards_[shard].transfer_caches[size_class];
         cache.TryPlunder(cache.freelist().size_class());
       }
@@ -368,10 +373,11 @@ class ShardedTransferCacheManagerBase {
   // Initializes all transfer caches in the given shard.
   void InitShard(Shard& shard) {
     TransferCache* new_caches = reinterpret_cast<TransferCache*>(
-        forwarder_.Alloc(sizeof(TransferCache) * kNumClasses,
+        forwarder_.Alloc(sizeof(TransferCache) * kNumClassesForTransferCache,
                          std::align_val_t{ABSL_CACHELINE_SIZE}));
     TC_ASSERT_NE(new_caches, nullptr);
-    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    for (int size_class = 0; size_class < kNumClassesForTransferCache;
+         ++size_class) {
       Capacity capacity = UseGenericCache() ? ScaledCacheCapacity(size_class)
                                             : LargeCacheCapacity(size_class);
       new (&new_caches[size_class])
@@ -434,34 +440,51 @@ class TransferCacheManager {
   TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
   void Init() {
-    for (int i = 0; i < kNumClasses; ++i) {
+    for (int i = 0; i < kNumClassesForTransferCache; ++i) {
       new (&cache_[i].tc) TransferCache(i);
+    }
+    for (int i = kNumClassesForTransferCache; i < kNumClasses; ++i) {
+      fallback_cfl_[i - kNumClassesForTransferCache].Init(
+          i, Parameters::cfl_subbucket_prioritization());
     }
   }
 
   void InsertRange(int size_class, absl::Span<void*> batch) {
+    if (size_class >= kNumClassesForTransferCache) {
+      central_freelist(size_class).InsertRange(batch);
+      return;
+    }
     cache_[size_class].tc.InsertRange(size_class, batch);
   }
 
   [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
+    if (size_class >= kNumClassesForTransferCache) {
+      return central_freelist(size_class).RemoveRange(batch);
+    }
     return cache_[size_class].tc.RemoveRange(size_class, batch);
   }
 
   // This is not const because the underlying ring-buffer transfer cache
   // function requires acquiring a lock.
   size_t tc_length(int size_class) const {
+    if (size_class >= kNumClassesForTransferCache) return 0;
     return cache_[size_class].tc.tc_length();
   }
 
   TransferCacheStats GetStats(int size_class) const {
+    if (size_class >= kNumClassesForTransferCache) return {};
     return cache_[size_class].tc.GetStats();
   }
 
   CentralFreeList& central_freelist(int size_class) {
+    if (size_class >= kNumClassesForTransferCache) {
+      return fallback_cfl_[size_class - kNumClassesForTransferCache];
+    }
     return cache_[size_class].tc.freelist();
   }
 
   bool CanIncreaseCapacity(int size_class) const {
+    if (size_class >= kNumClassesForTransferCache) return false;
     return cache_[size_class].tc.CanIncreaseCapacity(size_class);
   }
 
@@ -481,12 +504,14 @@ class TransferCacheManager {
   // unused objects in low_water_mark_ that measures objects untouched since
   // the previous plunder.
   void TryPlunder() {
-    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    for (int size_class = 0; size_class < kNumClassesForTransferCache;
+         ++size_class) {
       cache_[size_class].tc.TryPlunder(size_class);
     }
   }
 
   bool ShrinkCache(int size_class) {
+    if (size_class >= kNumClassesForTransferCache) return false;
     return cache_[size_class].tc.ShrinkCache(size_class);
   }
 
@@ -494,10 +519,12 @@ class TransferCacheManager {
   const StaticForwarder& forwarder() const { return forwarder_; }
 
   bool IncreaseCacheCapacity(int size_class) {
+    if (size_class >= kNumClassesForTransferCache) return false;
     return cache_[size_class].tc.IncreaseCacheCapacity(size_class);
   }
 
   size_t FetchCommitIntervalMisses(int size_class) {
+    if (size_class >= kNumClassesForTransferCache) return 0;
     return cache_[size_class].tc.FetchCommitIntervalMisses();
   }
 
@@ -509,7 +536,8 @@ class TransferCacheManager {
     out.printf("------------------------------------------------\n");
     uint64_t cumulative_bytes = 0;
     static constexpr double MiB = 1048576.0;
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+    for (int size_class = 1; size_class < kNumClassesForTransferCache;
+         ++size_class) {
       const TransferCacheStats tc_stats = GetStats(size_class);
       const uint64_t class_bytes =
           tc_stats.used * forwarder_.class_to_size(size_class);
@@ -541,7 +569,8 @@ class TransferCacheManager {
 
   void PrintInPbtxt(const StatsCounters<kNumClasses>& counts,
                     PbtxtRegion& region) const {
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+    for (int size_class = 1; size_class < kNumClassesForTransferCache;
+         ++size_class) {
       PbtxtRegion entry = region.CreateSubRegion("transfer_cache");
       const TransferCacheStats tc_stats = GetStats(size_class);
       entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));
@@ -569,7 +598,8 @@ class TransferCacheManager {
   };
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS StaticForwarder forwarder_;
-  Cache cache_[kNumClasses];
+  Cache cache_[kNumClassesForTransferCache];
+  CentralFreeList fallback_cfl_[kNumClasses - kNumClassesForTransferCache];
 } ABSL_CACHELINE_ALIGNED;
 
 #else
@@ -582,18 +612,22 @@ class TransferCacheManager {
   TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
   void Init() {
-    for (int i = 0; i < kNumClasses; ++i) {
+    for (int i = 0; i < kNumClassesForTransferCache; ++i) {
       new (&cache_[i].freelist) CentralFreeList();
       cache_[i].freelist.Init(i, Parameters::cfl_subbucket_prioritization());
+    }
+    for (int i = kNumClassesForTransferCache; i < kNumClasses; ++i) {
+      fallback_cfl_[i - kNumClassesForTransferCache].Init(
+          i, Parameters::cfl_subbucket_prioritization());
     }
   }
 
   void InsertRange(int size_class, absl::Span<void*> batch) {
-    cache_[size_class].freelist.InsertRange(batch);
+    central_freelist(size_class).InsertRange(batch);
   }
 
   [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
-    return cache_[size_class].freelist.RemoveRange(batch);
+    return central_freelist(size_class).RemoveRange(batch);
   }
 
   static constexpr size_t tc_length(int size_class) { return 0; }
@@ -601,10 +635,16 @@ class TransferCacheManager {
   static constexpr TransferCacheStats GetStats(int size_class) { return {}; }
 
   const CentralFreeList& central_freelist(int size_class) const {
+    if (size_class >= kNumClassesForTransferCache) {
+      return fallback_cfl_[size_class - kNumClassesForTransferCache];
+    }
     return cache_[size_class].freelist;
   }
 
   CentralFreeList& central_freelist(int size_class) {
+    if (size_class >= kNumClassesForTransferCache) {
+      return fallback_cfl_[size_class - kNumClassesForTransferCache];
+    }
     return cache_[size_class].freelist;
   }
 
@@ -620,7 +660,8 @@ class TransferCacheManager {
     CentralFreeList freelist;
     bool dummy;
   };
-  Cache cache_[kNumClasses];
+  Cache cache_[kNumClassesForTransferCache];
+  CentralFreeList fallback_cfl_[kNumClasses - kNumClassesForTransferCache];
 } ABSL_CACHELINE_ALIGNED;
 
 // A trivial no-op implementation.
