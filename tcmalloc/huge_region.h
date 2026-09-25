@@ -726,14 +726,14 @@ inline void HugeRegionSet<Region>::Print(Printer& out) const {
   }
 
   out.printf(
-      "HugeRegionSet: %zu hugepages backed, %zu backed and free, "
-      "%zu low water mark free backed, out of %zu total\n",
-      total_backed.raw_num(), total_free_backed.raw_num(),
-      lowater_free_backed_.raw_num(), Region::size().raw_num() * n_);
+      "HugeRegionSet: %v hugepages backed, %v backed and free, "
+      "%v low water mark free backed, out of %v total\n",
+      total_backed, total_free_backed, lowater_free_backed_,
+      Region::size() * n_);
 
   const Length in_pages = total_backed.in_pages();
-  out.printf("HugeRegionSet: %zu pages free in backed region, %.4f free\n",
-             total_free.raw_num(),
+  out.printf("HugeRegionSet: %v pages free in backed region, %.4f free\n",
+             total_free,
              in_pages > Length(0) ? static_cast<double>(total_free.raw_num()) /
                                         static_cast<double>(in_pages.raw_num())
                                   : 0.0);

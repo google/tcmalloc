@@ -342,8 +342,7 @@ TEST_P(HugeCacheTest, Growth) {
       const HugeLength cached = cache_.size();
       // Allow us 10% slop, but don't get out of bed for tiny caches anyway.
       const double ratio = Frac(cached, hot);
-      SCOPED_TRACE(
-          absl::StrCat(cached.raw_num(), "hps ", Frac(r.first, r.second)));
+      SCOPED_TRACE(absl::StrCat(cached, "hps ", Frac(r.first, r.second)));
       if (ratio > 1 && cached > NHugePages(16)) {
         EXPECT_LE(ratio, 1.1);
       }
