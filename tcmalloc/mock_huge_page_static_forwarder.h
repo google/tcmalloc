@@ -19,11 +19,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/const_init.h"
 #include "absl/base/internal/low_level_alloc.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
@@ -170,8 +173,16 @@ class FakeStaticForwarder : private Parameters {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return true;
   }
-  void ClearSpan(PageId page) {}
-  void SetSpan(PageId page, Span* span) {}
+  void ClearSpan(PageId page) {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    TC_CHECK_EQ(live_spans_.erase(page), 1, "no live span starts at %v", page);
+  }
+  void SetSpan(PageId page, Span* span) {
+    TC_CHECK_EQ(span->first_page(), page);
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    TC_CHECK(live_spans_.emplace(page, span->num_pages()).second,
+             "a live span already starts at %v", page);
+  }
   void SetHugepage(HugePage p, void* pt) { trackers_[p] = pt; }
 
   // SpanAllocator state.
@@ -229,6 +240,7 @@ class FakeStaticForwarder : private Parameters {
         reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
     const uintptr_t end = start + r.n.in_bytes();
     TC_CHECK_LE(end, fake_allocation_);
+    CheckNotLive(r);
 
     return {.success = release_succeeds_, .error_number = 0};
   }
@@ -243,6 +255,27 @@ class FakeStaticForwarder : private Parameters {
       Range, std::optional<absl::string_view> name) { /* unimplemented */ }
 
  private:
+  // A released range overlaps no live span.  This is the property at risk once
+  // unback runs with pageheap_lock dropped: a page handed to another thread in
+  // the meantime would have its contents discarded.  Derived forwarders that
+  // run interleaved work before deferring to this ReleasePages are checked
+  // after that work, as the kernel would act on the range then.
+  void CheckNotLive(Range r) {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    auto it = live_spans_.lower_bound(r.p);
+    if (it != live_spans_.end()) {
+      TC_CHECK_LE(r.p + r.n, it->first,
+                  "releasing [%v, %v) overlaps live span [%v, %v)", r.p,
+                  r.p + r.n, it->first, it->first + it->second);
+    }
+    if (it != live_spans_.begin()) {
+      --it;
+      TC_CHECK_LE(it->first + it->second, r.p,
+                  "releasing [%v, %v) overlaps live span [%v, %v)", r.p,
+                  r.p + r.n, it->first, it->first + it->second);
+    }
+  }
+
   static absl::base_internal::LowLevelAlloc::Arena* ll_arena() {
     ABSL_CONST_INIT static absl::base_internal::LowLevelAlloc::Arena* a;
     ABSL_CONST_INIT static absl::once_flag flag;
@@ -279,8 +312,9 @@ class FakeStaticForwarder : private Parameters {
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;
 
+  // Not final: libstdc++'s std::map derives from its allocator.
   template <typename T>
-  class AllocAdaptor final {
+  class AllocAdaptor {
    public:
     using value_type = T;
 
@@ -308,6 +342,19 @@ class FakeStaticForwarder : private Parameters {
                       std::equal_to<HugePage>,
                       AllocAdaptor<std::pair<HugePage, void*>>>
       trackers_;
+  // Live spans by first page, with their length.  SetSpan runs outside
+  // pageheap_lock when TCMALLOC_INTERNAL_LEGACY_LOCKING is off and
+  // ReleasePages runs with or without it, so the map has its own lock.
+  //
+  // TODO(b/73749855): This lock serializes allocation, deallocation and
+  // release across threads and may hide the interleavings that dropping
+  // pageheap_lock during unback introduces.  If injected bugs show that it
+  // does, replace the map with a structure that needs no lock.
+  absl::base_internal::SpinLock live_spans_lock_{
+      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+  std::map<PageId, Length, std::less<PageId>,
+           AllocAdaptor<std::pair<const PageId, Length>>>
+      live_spans_ ABSL_GUARDED_BY(live_spans_lock_);
   bool last_may_have_grown_{false};
 };
 
