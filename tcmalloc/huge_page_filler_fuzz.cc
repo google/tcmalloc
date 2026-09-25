@@ -35,6 +35,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_filler.h"
@@ -957,16 +958,30 @@ void SetCollapseLatency::Perform(State& state) const {
       std::clamp(latency, absl::ZeroDuration(), absl::Seconds(1)));
 }
 
+// Queued at any depth: a subprogram running while the lock is dropped may
+// itself queue one for a later lock drop, as a third thread would.
+// State::OnLockDropped bounds the nesting.
 void ReentrantSubprogram::Perform(State& state) const {
-  if (state.depth != 0 || subprogram.empty()) {
+  if (subprogram.empty()) {
     return;
   }
   state.reentrant_stack.push_back(subprogram);
 }
 
+// Instructions at every nesting level, since each may allocate.
+size_t CountInstructions(absl::Span<const Instruction> instructions) {
+  size_t count = instructions.size();
+  for (const Instruction& instruction : instructions) {
+    if (const auto* r = std::get_if<ReentrantSubprogram>(&instruction)) {
+      count += CountInstructions(r->subprogram);
+    }
+  }
+  return count;
+}
+
 void FuzzFiller(const std::vector<Instruction>& instructions,
                 SubreleaseUnbackedMode subrelease_unbacked_mode) {
-  State state(subrelease_unbacked_mode, instructions.size());
+  State state(subrelease_unbacked_mode, CountInstructions(instructions));
   state.RunInstructions(instructions);
 }
 
@@ -1275,6 +1290,23 @@ TEST(HugePageFillerTest, DepthDependentDeallocate) {
        GatherSpanStats{},
        TreatTrackers{.enable_collapse = true,
                      .enable_unfiltered_collapse = true}},
+      SubreleaseUnbackedMode::kDisabled);
+}
+
+// A subprogram run while the lock is dropped queues another, which runs on
+// the next lock drop.
+TEST(HugePageFillerTest, NestedReentrantSubprogram) {
+  FuzzFiller(
+      {Allocate{.length = 1, .num_objects = 1},
+       MemoryLimitHitRelease{.desired = 65535},
+       ReentrantSubprogram{
+           .subprogram = {Allocate{.length = 1, .num_objects = 1},
+                          MemoryLimitHitRelease{.desired = 65535},
+                          ReentrantSubprogram{
+                              .subprogram = {Allocate{.length = 1,
+                                                      .num_objects = 1}}},
+                          Deallocate{.tracker_index = 0, .alloc_index = 0}}},
+       Deallocate{.tracker_index = 0, .alloc_index = 0}},
       SubreleaseUnbackedMode::kDisabled);
 }
 
