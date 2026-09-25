@@ -48,14 +48,13 @@ TEST(InternalLogging, MessageFormatting) {
 
   TC_LOG("Hello int=%d str=%s", 42, "bar");
   EXPECT_THAT(*log_buffer,
-              testing::MatchesRegex(
-                  "[0-9]+ .*tcmalloc/internal/logging_test\\.cc:[0-9]+\\] "
-                  "Hello int=42 str=bar\\n"));
+              testing::MatchesRegex("[0-9]+ .*logging_test\\.cc:[0-9]+\\] "
+                                    "Hello int=42 str=bar\\n"));
 
   TC_LOG("Long string: %s", long_string.c_str());
   EXPECT_THAT(*log_buffer,
               testing::MatchesRegex(
-                  "[0-9]+ .*tcmalloc/internal/logging_test\\.cc:[0-9]+\\] "
+                  "[0-9]+ .*logging_test\\.cc:[0-9]+\\] "
                   "Long string: the quick brown fox jumped over the lazy "
                   "dogthe quick brown fox jumped over the lazy dog.*"));
 
@@ -193,18 +192,18 @@ TEST(Check, DebugAssert) {
 TEST(Check, Message) {
   bool my_false = false;
   EXPECT_DEATH(TC_CHECK(my_false, "ptr=%p foo=%d str=%s", &my_false, 42, "bar"),
-               "[0-9]+ .*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] CHECK "
+               "[0-9]+ .*logging_test\\.cc:[0-9]+\\] CHECK "
                "in TestBody: my_false "
                "\\(false\\) ptr=0x[0-9a-f]+ foo=42 str=bar");
 
   int x = -1, y = 1;
   EXPECT_DEATH(TC_CHECK_GE(x, y),
-               "[0-9]+ .*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] CHECK "
+               "[0-9]+ .*logging_test\\.cc:[0-9]+\\] CHECK "
                "in TestBody: x >= y \\(-1 >= 1\\)");
 
   int64_t a = -1, b = 1;
   EXPECT_DEATH(TC_CHECK_EQ(a, b, "ptr=%p foo=%d str=%s", &my_false, 42, "bar"),
-               "[0-9]+ .*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] CHECK "
+               "[0-9]+ .*logging_test\\.cc:[0-9]+\\] CHECK "
                "in TestBody: a == b \\(-1 "
                "== 1\\) ptr=0x[0-9a-f]+ foo=42 str=bar");
 
@@ -217,7 +216,7 @@ TEST(Check, Message) {
                "bar\\(\\) == Something::kFoo \\(2 == 1\\)");
 
   EXPECT_DEATH(TC_BUG("bad: foo=%d bar=%s", 42, "str"),
-               "[0-9]+ .*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] CHECK "
+               "[0-9]+ .*logging_test\\.cc:[0-9]+\\] CHECK "
                "in TestBody: bad: foo=42 bar=str");
 
   int s = 1;

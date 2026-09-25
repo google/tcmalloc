@@ -75,13 +75,6 @@ class SampleRecorder {
   // Unregisters the sample.
   void Unregister(T* sample);
 
-  // The dispose callback will be called on all samples the moment they are
-  // being unregistered. Only affects samples that are unregistered after the
-  // callback has been set.
-  // Returns the previous callback.
-  using DisposeCallback = void (*)(const T&);
-  DisposeCallback SetDisposeCallback(DisposeCallback f);
-
   // Unregisters any live samples starting from `all_`. Note that if there are
   // any samples added in front of `all_` in other threads after this function
   // reads `all_`, they won't be cleaned up. External synchronization is
@@ -128,15 +121,8 @@ class SampleRecorder {
   std::atomic<T*> all_ = nullptr;
   T graveyard_;
 
-  std::atomic<DisposeCallback> dispose_ = nullptr;
   Allocator* allocator_ = nullptr;
 };
-
-template <typename T, typename Allocator>
-typename SampleRecorder<T, Allocator>::DisposeCallback
-SampleRecorder<T, Allocator>::SetDisposeCallback(DisposeCallback f) {
-  return dispose_.exchange(f, std::memory_order_relaxed);
-}
 
 template <typename T, typename Allocator>
 constexpr SampleRecorder<T, Allocator>::SampleRecorder(Allocator& allocator) {
@@ -172,11 +158,6 @@ void SampleRecorder<T, Allocator>::PushNew(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::PushDead(T* sample) {
-  if (auto* dispose = dispose_.load(std::memory_order_relaxed);
-      ABSL_PREDICT_FALSE(dispose != nullptr)) {
-    dispose(*sample);
-  }
-
   AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   AllocationGuardSpinLockHolder sample_lock(sample->lock);
   sample->dead = graveyard_.dead;
@@ -229,12 +210,10 @@ template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::UnregisterAll() {
   AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   T* sample = all_.load(std::memory_order_acquire);
-  auto* dispose = dispose_.load(std::memory_order_relaxed);
   while (sample != nullptr) {
     {
       AllocationGuardSpinLockHolder sample_lock(sample->lock);
       if (sample->dead == nullptr) {
-        if (dispose) dispose(*sample);
         sample->dead = graveyard_.dead;
         graveyard_.dead = sample;
       }

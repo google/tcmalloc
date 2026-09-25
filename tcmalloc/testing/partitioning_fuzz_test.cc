@@ -568,7 +568,8 @@ auto AllocTypeDomain() {
 
 auto SizeDomain() {
   return OneOf(InRange<size_t>(1, 1024),
-               ElementOf<size_t>({2048, 4096, 8192, 16384, 32768}));
+               ElementOf<size_t>({2048, 4096, 8192, 16384, 32768,
+                                  2 * tcmalloc::tcmalloc_internal::kMaxSize}));
 }
 
 auto AlignmentDomain() { return ElementOf<size_t>({8, 16, 32, 64, 128}); }

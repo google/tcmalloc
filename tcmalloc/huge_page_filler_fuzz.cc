@@ -17,7 +17,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <functional>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -77,11 +76,28 @@ Bitmap<kMaxResidencyBits> GetBitmap(int value) {
   return bitmap;
 }
 
+// The filler drops pageheap_lock around the system calls it delegates to
+// these hooks (unback, collapse, naming a VMA, and querying pageflags and
+// residency).  Each hook calls State::OnLockDropped(), which runs a queued
+// reentrant subprogram when, and only when, the lock is not held, so that the
+// fuzzer interleaves other filler operations at every point where another
+// thread could take the lock.
 class MockUnback final : public MemoryModifyFunction {
  public:
   explicit MockUnback(State& state) : state_(state) {}
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override;
-  std::function<void()> release_callback_;
+
+ private:
+  State& state_;
+};
+
+// Models HugePageAwareAllocator::UnbackWithoutLock, which releases
+// pageheap_lock around the system call and reacquires it afterwards.
+class MockUnbackWithoutLock final : public MemoryModifyFunction {
+ public:
+  explicit MockUnbackWithoutLock(State& state) : state_(state) {}
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override
+      ABSL_NO_THREAD_SAFETY_ANALYSIS;
 
  private:
   State& state_;
@@ -89,12 +105,16 @@ class MockUnback final : public MemoryModifyFunction {
 
 class MockSetAnonVmaName final : public MemoryTagFunction {
  public:
-  void operator()(Range r, std::optional<absl::string_view> name) override {}
+  explicit MockSetAnonVmaName(State& state) : state_(state) {}
+  void operator()(Range r, std::optional<absl::string_view> name) override;
+
+ private:
+  State& state_;
 };
 
 class FakePageFlags : public PageFlagsBase {
  public:
-  explicit FakePageFlags(const State& state) : state_(state) {}
+  explicit FakePageFlags(State& state) : state_(state) {}
   std::optional<PageStats> Get(const void* addr, size_t size) override {
     return PageStats{};
   }
@@ -103,12 +123,12 @@ class FakePageFlags : public PageFlagsBase {
   std::optional<bool> IsHugepageBacked(const void* addr) override;
 
  private:
-  const State& state_;
+  State& state_;
 };
 
 class FakeResidency : public Residency {
  public:
-  explicit FakeResidency(const State& state) : state_(state) {}
+  explicit FakeResidency(State& state) : state_(state) {}
   std::optional<Info> Get(const void* addr, size_t size) override {
     return std::nullopt;
   }
@@ -121,14 +141,13 @@ class FakeResidency : public Residency {
   }
 
  private:
-  const State& state_;
+  State& state_;
 };
 
 class MockCollapse final : public MemoryModifyFunction {
  public:
   explicit MockCollapse(State& state) : state_(state) {}
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override;
-  std::function<void()> release_callback_;
 
  private:
   State& state_;
@@ -368,9 +387,11 @@ struct State {
                  size_t num_instructions)
       : subrelease_unbacked_mode(subrelease_unbacked_mode),
         unback(*this),
+        unback_without_lock(*this),
         collapse(*this),
+        set_anon_vma_name(*this),
         filler(Clock{.now = mock_clock, .freq = freq}, MemoryTag::kNormal,
-               unback, unback, collapse, set_anon_vma_name,
+               unback, unback_without_lock, collapse, set_anon_vma_name,
                subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
@@ -381,34 +402,37 @@ struct State {
     // TODO(b/73749855): Releasing the pageheap_lock during ReleaseFree will
     // eliminate the need for this.
     released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
+  }
 
-    auto release_callback = [this]() {
-      if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
-        return;
-      }
-      if (reentrant_stack.empty()) {
-        return;
-      }
-      if (depth >= 5) {
-        return;
-      }
+  // Called by every mock the filler invokes with pageheap_lock dropped.  Runs
+  // the most recently queued reentrant subprogram, if any, as another thread
+  // would while the lock is free.  A no-op while the lock is held.
+  void OnLockDropped() {
+    if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
+      return;
+    }
+    if (reentrant_stack.empty()) {
+      return;
+    }
+    if (depth >= 5) {
+      return;
+    }
 
-      auto ops = reentrant_stack.back();
-      reentrant_stack.pop_back();
+    auto ops = reentrant_stack.back();
+    reentrant_stack.pop_back();
 
-      depth++;
-      reentrant_runs++;
-      ScopedAllocationAllow allow;
-      RunInstructions(ops);
-      depth--;
-    };
-
-    unback.release_callback_ = release_callback;
-    collapse.release_callback_ = release_callback;
+    depth++;
+    reentrant_runs++;
+    ScopedAllocationAllow allow;
+    RunInstructions(ops);
+    depth--;
   }
 
   ~State() {
-    // Shut down, confirm filler is empty.
+    // Shut down, confirm filler is empty.  Putting a partially released
+    // tracker drops the lock, so stop running subprograms that would mutate
+    // allocs while we iterate it.
+    reentrant_stack.clear();
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     for (auto& [pt, v] : allocs) {
       for (size_t i = 0, n = v.size(); i < n; ++i) {
@@ -487,6 +511,7 @@ struct State {
   absl::flat_hash_set<PageId> released_set;
 
   MockUnback unback;
+  MockUnbackWithoutLock unback_without_lock;
   MockCollapse collapse;
   MockSetAnonVmaName set_anon_vma_name;
   HugePageFiller<PageTracker> filler;
@@ -508,9 +533,7 @@ struct State {
 };
 
 MemoryModifyStatus MockUnback::operator()(Range r) {
-  if (release_callback_) {
-    release_callback_();
-  }
+  state_.OnLockDropped();
   if (!state_.unback_success) {
     return {.success = false, .error_number = 0};
   }
@@ -523,24 +546,41 @@ MemoryModifyStatus MockUnback::operator()(Range r) {
   return {.success = true, .error_number = state_.error_number};
 }
 
+MemoryModifyStatus MockUnbackWithoutLock::operator()(Range r) {
+  pageheap_lock.AssertHeld();
+  pageheap_lock.unlock();
+  // MockUnback::operator() calls State::OnLockDropped, which only runs queued
+  // reentrant subprograms when pageheap_lock is not held, so the unlock above
+  // is what lets them interleave here.
+  MemoryModifyStatus ret = state_.unback(r);
+  pageheap_lock.lock();
+  return ret;
+}
+
+void MockSetAnonVmaName::operator()(Range r,
+                                    std::optional<absl::string_view> name) {
+  state_.OnLockDropped();
+}
+
 PageFlagsBase::PageFlagsBitmaps FakePageFlags::GetSinglePageBitmaps(
     const void* addr) {
+  state_.OnLockDropped();
   return {state_.stale_bitmap, absl::StatusCode::kOk};
 }
 
 std::optional<bool> FakePageFlags::IsHugepageBacked(const void* addr) {
+  state_.OnLockDropped();
   return state_.is_hugepage_backed;
 }
 
 Residency::SinglePageBitmaps FakeResidency::GetUnbackedAndSwappedBitmaps(
     const void* addr) {
+  state_.OnLockDropped();
   return {state_.unbacked_bitmap, state_.swapped_bitmap, absl::StatusCode::kOk};
 }
 
 MemoryModifyStatus MockCollapse::operator()(Range r) {
-  if (release_callback_) {
-    release_callback_();
-  }
+  state_.OnLockDropped();
   fake_clock += state_.collapse_latency;
   return {.success = state_.collapse_success,
           .error_number = state_.error_number};
@@ -1273,8 +1313,10 @@ TEST(HugePageFillerTest, ConcurrentTreatmentInterferenceStress) {
       .amount = absl::Minutes(10),
   });
 
-  // Queue reentrant deallocation of X (index 47) during collapse.
-  // X has 2 allocations, so we must deallocate both to free it.
+  // Queue reentrant deallocation of X (index 47).  It runs at the first hook
+  // the treatment reaches with pageheap_lock dropped: naming X's VMA as a
+  // sampled tracker, or the residency and collapse hooks that follow.  X has
+  // 2 allocations, so we must deallocate both to free it.
   instructions.push_back(
       ReentrantSubprogram{.subprogram = {Deallocate{
                                              .tracker_index = 47,
@@ -1291,6 +1333,36 @@ TEST(HugePageFillerTest, ConcurrentTreatmentInterferenceStress) {
   });
 
   FuzzFiller(instructions, SubreleaseUnbackedMode::kDisabled);
+}
+
+// With collapse disabled, only the pageflags and residency queries drop the
+// lock during treatment.  Freeing the tracker under scan from a reentrant
+// Deallocate must not leave the treatment holding a dangling tracker.
+TEST(HugePageFillerTest, ReentrantDeallocateDuringResidencyQuery) {
+  FuzzFiller({UpdateBitmaps{.hugepage_backed_set = true,
+                            .hugepage_backed_val = false,
+                            .unbacked_bitmap_val = 0,
+                            .swapped_bitmap_val = 0},
+              Allocate{.length = 1, .num_objects = 1},
+              AdvanceClock{.amount = absl::Minutes(10)},
+              ReentrantSubprogram{.subprogram = {Deallocate{.tracker_index = 0,
+                                                            .alloc_index = 0}}},
+              TreatTrackers{.enable_collapse = false,
+                            .enable_unfiltered_collapse = false,
+                            .enable_release_stale_pages = false}},
+             SubreleaseUnbackedMode::kDisabled);
+}
+
+// Freeing the last allocation on a partially released hugepage unbacks the
+// remainder with pageheap_lock dropped, while the tracker is already off the
+// filler's lists.  Another allocation must be able to proceed meanwhile.
+TEST(HugePageFillerTest, ReentrantAllocateDuringUnbackWithoutLock) {
+  FuzzFiller({Allocate{.length = 1, .num_objects = 1},
+              MemoryLimitHitRelease{.desired = 65535},
+              ReentrantSubprogram{
+                  .subprogram = {Allocate{.length = 1, .num_objects = 1}}},
+              Deallocate{.tracker_index = 0, .alloc_index = 0}},
+             SubreleaseUnbackedMode::kDisabled);
 }
 
 TEST(HugePageFillerTest, SubreleaseUnbackedRegression) {

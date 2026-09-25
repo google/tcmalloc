@@ -132,7 +132,9 @@ class Parameters {
                : EnableUnfilteredCollapse::kDisabled;
   }
 
-  static bool huge_region_adaptive_release();
+  static bool huge_region_adaptive_release() {
+    return huge_region_adaptive_release_.load(std::memory_order_relaxed);
+  }
 
   static bool release_max_cold_pages() {
     return release_max_cold_pages_.load(std::memory_order_relaxed);
@@ -306,6 +308,7 @@ class Parameters {
   static std::atomic<MadviseSampledAllocations> madvise_sampled_allocations_;
   static std::atomic<int64_t> event_trace_memory_limit_;
   static std::atomic<bool> release_drained_slab_metadata_;
+  static std::atomic<bool> huge_region_adaptive_release_;
 };
 
 }  // namespace tcmalloc_internal

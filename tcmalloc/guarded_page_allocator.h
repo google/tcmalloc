@@ -204,6 +204,9 @@ class GuardedPageAllocator {
   size_t successful_allocations() const {
     return successful_allocations_.value();
   }
+  [[nodiscard]] bool guard_pages_supported() const {
+    return guard_pages_supported_;
+  }
 
  private:
   // Structure for storing data about a slot.
@@ -215,6 +218,10 @@ class GuardedPageAllocator {
     uintptr_t allocation_start = 0;        // allocation start address
     std::atomic<int> dealloc_count = 0;    // deallocation counter
     bool write_overflow_detected = false;  // write overflow detected
+    // True when the page is quarantined with mprotect() rather than with a
+    // guard region.  Set by ProtectPage and consumed by UnprotectPage;
+    // initialized to match how MapPages quarantined the pool.
+    bool mprotect_quarantined = false;
   };
 
   // Max number of magic bytes we use to detect write-overflows at deallocation.
@@ -270,6 +277,18 @@ class GuardedPageAllocator {
   uintptr_t SlotToAddr(size_t slot) const;
   size_t AddrToSlot(uintptr_t addr) const;
 
+  struct ProtectResult {
+    int error;
+    bool mprotect_quarantined;
+  };
+
+  // Quarantines the page at addr, returning an error code (0 on success) and
+  // whether mprotect was used. UnprotectPage must be handed that value to undo
+  // it.
+  [[nodiscard]] ProtectResult ProtectPage(void* addr, size_t size);
+  [[nodiscard]] int UnprotectPage(void* addr, size_t size,
+                                  bool mprotect_quarantined);
+
   size_t allocated_pages() const {
     return allocated_pages_.load(std::memory_order_relaxed);
   }
@@ -307,6 +326,9 @@ class GuardedPageAllocator {
   tcmalloc_internal::StatsCounter skipped_allocations_toolarge_;
   // Number of pages allocated at least once from page pool.
   tcmalloc_internal::StatsCounter pages_touched_;
+  // Number of times a page was quarantined with mprotect() because the kernel
+  // refused to install a guard region.
+  tcmalloc_internal::StatsCounter mprotect_fallbacks_;
 
   // A dynamically-allocated array of stack trace data captured when each page
   // is allocated/deallocated.  Printed by the SEGV handler when a memory error
@@ -326,6 +348,8 @@ class GuardedPageAllocator {
 
   // Flag to control whether we can return allocations or not.
   bool allow_allocations_ ABSL_GUARDED_BY(guarded_page_lock_);
+  // True if MADV_GUARD_INSTALL/MADV_GUARD_REMOVE are supported and used.
+  bool guard_pages_supported_{false};
 };
 
 }  // namespace tcmalloc_internal

@@ -383,7 +383,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_mock_span"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -630,7 +630,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_page_size"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1229,7 +1229,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_config"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1363,6 +1363,8 @@ tcmalloc_cc_test(
     "absl::span"
     "tcmalloc::internal_stacktrace_filter"
     "tcmalloc::tcmalloc"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_library(

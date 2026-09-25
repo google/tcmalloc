@@ -13,9 +13,9 @@
 # limitations under the License.
 
 function(tcmalloc_cc_library)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "ALWAYSLINK" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS" ${ARGN})
   if(TCMALLOC_SRCS)
-    if(TCMALLOC_NAME MATCHES ".*_main$")
+    if(TCMALLOC_ALWAYSLINK)
       add_library(${TCMALLOC_NAME} OBJECT "")
     else()
       add_library(${TCMALLOC_NAME} STATIC "")
@@ -57,7 +57,7 @@ function(tcmalloc_cc_library)
 endfunction()
 
 function(tcmalloc_cc_test)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS;TIMEOUT" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV;ARGS" ${ARGN})
   add_executable(${TCMALLOC_NAME} "")
   if(TCMALLOC_SRCS)
     target_sources(${TCMALLOC_NAME} PRIVATE ${TCMALLOC_SRCS})
@@ -75,7 +75,7 @@ function(tcmalloc_cc_test)
     target_link_libraries(${TCMALLOC_NAME} PUBLIC ${TCMALLOC_DEPS})
   endif()
   target_include_directories(${TCMALLOC_NAME} PUBLIC ${CMAKE_SOURCE_DIR})
-  add_test(NAME ${TCMALLOC_NAME} COMMAND ${TCMALLOC_NAME})
+  add_test(NAME ${TCMALLOC_NAME} COMMAND ${TCMALLOC_NAME} ${TCMALLOC_ARGS})
   # Entries later in the list win, so rule- and variant-provided values override
   # these defaults.
   set(TCMALLOC_TEST_ENV
@@ -84,6 +84,9 @@ function(tcmalloc_cc_test)
     ${TCMALLOC_ENV}
   )
   set_tests_properties(${TCMALLOC_NAME} PROPERTIES ENVIRONMENT "${TCMALLOC_TEST_ENV}")
+  if(TCMALLOC_TIMEOUT)
+    set_tests_properties(${TCMALLOC_NAME} PROPERTIES TIMEOUT ${TCMALLOC_TIMEOUT})
+  endif()
 endfunction()
 
 function(tcmalloc_cc_binary)
@@ -91,7 +94,7 @@ function(tcmalloc_cc_binary)
 endfunction()
 
 function(create_percpu_tcmalloc_testsuite)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS;TIMEOUT" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV;ARGS" ${ARGN})
   string(REGEX REPLACE "_test$" "" BASE_NAME ${TCMALLOC_NAME})
 
   set(COMMON_ARGS)
@@ -109,6 +112,12 @@ function(create_percpu_tcmalloc_testsuite)
   endif()
   if(TCMALLOC_DEPS)
     list(APPEND COMMON_ARGS DEPS ${TCMALLOC_DEPS})
+  endif()
+  if(TCMALLOC_TIMEOUT)
+    list(APPEND COMMON_ARGS TIMEOUT ${TCMALLOC_TIMEOUT})
+  endif()
+  if(TCMALLOC_ARGS)
+    list(APPEND COMMON_ARGS ARGS ${TCMALLOC_ARGS})
   endif()
 
   set(DEFAULT_ENV)

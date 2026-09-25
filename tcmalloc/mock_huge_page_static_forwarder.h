@@ -35,6 +35,7 @@
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
@@ -42,6 +43,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -50,6 +52,13 @@ namespace huge_page_allocator_internal {
 
 class FakeStaticForwarder : private Parameters {
  public:
+  FakeStaticForwarder() {
+    // Arena allocates its blocks from tc_globals.system_allocator(), which is
+    // only initialized by Static::SlowInitIfNecessary().  If this test is not
+    // linked against TCMalloc as its malloc, nothing else triggers that.
+    tc_globals.InitIfNecessary();
+  }
+
   // Runtime parameters.  This can change between calls.
   absl::Duration filler_skip_subrelease_short_interval() const {
     return short_interval_;
@@ -109,6 +118,10 @@ class FakeStaticForwarder : private Parameters {
   void set_madvise_cold_regions_nohugepage(MadviseRegionsNoHugepage value) {
     madvise_cold_regions_nohugepage_ = value;
   }
+
+  // Real time by default; forwarders derived for fuzzing shadow this with a
+  // clock they control.
+  Clock clock() const { return Clock{}; }
 
   bool BackAllocations() const { return back_allocations_; }
   void SetBackAllocations(bool value) { back_allocations_ = value; }

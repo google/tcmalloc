@@ -36,6 +36,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/page_allocator_hooks.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
@@ -155,7 +156,8 @@ class PageAllocator {
     ShrinkToUsageLimitSlow(n);
   }
 
-  void TreatHugepageTrackers(EnableCollapse enable_collapse)
+  void TreatHugepageTrackers(EnableCollapse enable_collapse,
+                             PageFlagsBase* pageflags, Residency* residency)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   const PageAllocInfo& info(MemoryTag tag) const
@@ -369,13 +371,16 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) const {
   }
 }
 
-inline void PageAllocator::TreatHugepageTrackers(
-    EnableCollapse enable_collapse) {
+inline void PageAllocator::TreatHugepageTrackers(EnableCollapse enable_collapse,
+                                                 PageFlagsBase* pageflags,
+                                                 Residency* residency) {
   if (has_cold_impl_) {
-    cold_impl_->TreatHugepageTrackers(EnableCollapse::kDisabled);
+    cold_impl_->TreatHugepageTrackers(EnableCollapse::kDisabled, pageflags,
+                                      residency);
   }
   for (int partition = 0; partition < active_partitions(); partition++) {
-    normal_impl_[partition]->TreatHugepageTrackers(enable_collapse);
+    normal_impl_[partition]->TreatHugepageTrackers(enable_collapse, pageflags,
+                                                   residency);
   }
 }
 

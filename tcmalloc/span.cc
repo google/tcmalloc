@@ -50,13 +50,6 @@ void Span::Sample(SampledAllocation* sampled_allocation) {
   sampled_ = 1;
   large_or_sampled_state_.num_pages = pages_per_span.raw_num();
   large_or_sampled_state_.sampled_allocation = sampled_allocation;
-
-  // The cast to value matches Unsample.
-  tcmalloc_internal::StatsCounter::Value allocated_bytes =
-      static_cast<tcmalloc_internal::StatsCounter::Value>(
-          AllocatedBytes(sampled_allocation->sampled_stack));
-  tc_globals.sampled_objects_size_.Add(allocated_bytes);
-  tc_globals.total_sampled_count_.Add(1);
 }
 
 SampledAllocation* Span::UnsampleSlow() {
@@ -69,13 +62,6 @@ SampledAllocation* Span::UnsampleSlow() {
   SampledAllocation* sampled_allocation =
       large_or_sampled_state_.sampled_allocation;
   large_or_sampled_state_.sampled_allocation = nullptr;
-
-  // The cast to Value ensures no funny business happens during the negation if
-  // sizeof(size_t) != sizeof(Value).
-  tcmalloc_internal::StatsCounter::Value neg_allocated_bytes =
-      -static_cast<tcmalloc_internal::StatsCounter::Value>(
-          AllocatedBytes(sampled_allocation->sampled_stack));
-  tc_globals.sampled_objects_size_.Add(neg_allocated_bytes);
   return sampled_allocation;
 }
 

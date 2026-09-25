@@ -37,12 +37,14 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/metadata_allocator.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/prefetch.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -74,6 +76,10 @@ class StaticForwarder : private Parameters {
   using Parameters::release_partial_alloc_pages;
   using Parameters::release_stale_pages;
   using Parameters::subrelease_unbacked_hugepages;
+
+  // Clock consumed by the filler and huge cache.  Tests substitute a fake so
+  // they can advance time deterministically.
+  static Clock clock() { return Clock{}; }
 
   // Arena state.
   static Arena& arena();
@@ -203,7 +209,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  void TreatHugepageTrackers(EnableCollapse enable_collapse)
+  void TreatHugepageTrackers(EnableCollapse enable_collapse,
+                             PageFlagsBase* pageflags, Residency* residency)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Prints stats about the page heap to *out.
@@ -493,8 +500,9 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_without_lock_(*this),
       collapse_(*this),
       set_anon_vma_name_(*this),
-      filler_(tag_, unback_, unback_without_lock_, collapse_,
-              set_anon_vma_name_, forwarder_.subrelease_unbacked_hugepages()),
+      filler_(forwarder_.clock(), tag_, unback_, unback_without_lock_,
+              collapse_, set_anon_vma_name_,
+              forwarder_.subrelease_unbacked_hugepages()),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),
@@ -502,7 +510,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       metadata_allocator_(*this),
       alloc_(vm_allocator_, metadata_allocator_),
       cache_(HugeCache{alloc_, metadata_allocator_, unback_without_lock_,
-                       absl::Seconds(1)}) {}
+                       absl::Seconds(1), forwarder_.clock()}) {}
 
 template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
@@ -523,8 +531,8 @@ template <class Forwarder>
 inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
     HugePage p, Length n, SpanAllocInfo span_alloc_info, bool donated) {
   TC_CHECK_NE(p.start_addr(), nullptr);
-  FillerType::Tracker* pt = tracker_allocator_.New(
-      p, donated, absl::base_internal::CycleClock::Now());
+  FillerType::Tracker* pt =
+      tracker_allocator_.New(p, donated, forwarder_.clock().now());
   TC_ASSERT_GE(pt->longest_free_range(), n);
   TC_ASSERT_EQ(pt->was_donated(), donated);
   // if the page was donated, we track its size so that we can potentially
@@ -1071,14 +1079,15 @@ inline void HugePageAwareAllocator<Forwarder>::DrainFreedTrackers() {
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
-    EnableCollapse enable_collapse) {
+    EnableCollapse enable_collapse, PageFlagsBase* pageflags,
+    Residency* residency) {
   const EnableUnfilteredCollapse enable_unfiltered_collapse =
       forwarder_.enable_unfiltered_collapse();
   const ReleaseStalePages release_stale_pages =
       forwarder_.release_stale_pages();
   PageHeapSpinLockHolder l;
   filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                release_stale_pages);
+                                release_stale_pages, pageflags, residency);
   DrainFreedTrackers();
 }
 

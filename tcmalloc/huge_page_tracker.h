@@ -125,14 +125,14 @@ class PageTracker : public TList<PageTracker>::Elem {
   };
 
   struct TrackerFeatures {
+    uint32_t allocations = 0;
+    uint32_t objects = 0;
+    Length longest_free_range = kPagesPerHugePage;
+    double allocation_time = 0.0;
+    double reallocation_time = 0.0;
     bool is_valid = false;
     bool is_hugepage_backed = false;
     bool density = false;
-    size_t allocations = 0;
-    size_t objects = 0;
-    double allocation_time = 0.0;
-    double reallocation_time = 0.0;
-    Length longest_free_range = kPagesPerHugePage;
   };
 
   // REQUIRES: there's a free range of at least n pages

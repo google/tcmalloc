@@ -1387,7 +1387,9 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
               .success;
 
       if (ABSL_PREDICT_TRUE(success)) {
-        unmapping_unaccounted_ += free_pages - released_pages;
+        const Length unmapped = free_pages - released_pages;
+        unmapping_unaccounted_ += unmapped;
+        subrelease_stats_.total_pages_subreleased += unmapped;
       }
     }
   }
@@ -1658,6 +1660,7 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     Length n = unmapping_unaccounted_;
     unmapping_unaccounted_ = Length(0);
     subrelease_stats_.num_pages_subreleased += n;
+    subrelease_stats_.num_already_counted_pages_subreleased += n;
     total_released += n;
   }
 

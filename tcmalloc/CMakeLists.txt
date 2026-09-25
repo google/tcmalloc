@@ -41,6 +41,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc
   ALIAS
     tcmalloc::tcmalloc
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -91,6 +92,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_internal_methods_only
   ALIAS
     tcmalloc::tcmalloc_internal_methods_only
+  ALWAYSLINK
   HDRS
     "tcmalloc.h"
   SRCS
@@ -141,6 +143,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_deprecated_perthread
   ALIAS
     tcmalloc::tcmalloc_deprecated_perthread
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -191,6 +194,7 @@ tcmalloc_cc_library_variants(
     tcmalloc_common
   ALIAS
     tcmalloc::common
+  ALWAYSLINK
   HDRS
     "allocation_sample.h"
     "allocation_sampling.h"
@@ -372,6 +376,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_enable_heap_partitioning_default_on
   ALIAS
     tcmalloc::tcmalloc_enable_heap_partitioning_default_on
+  ALWAYSLINK
   SRCS
     "enable_heap_partitioning_default_on.cc"
   DEPS
@@ -383,6 +388,7 @@ tcmalloc_cc_library(
     tcmalloc_want_hpaa
   ALIAS
     tcmalloc::want_hpaa
+  ALWAYSLINK
   SRCS
     "want_hpaa.cc"
   COPTS
@@ -397,6 +403,7 @@ tcmalloc_cc_library(
     tcmalloc_want_disable_huge_region_more_often
   ALIAS
     tcmalloc::want_disable_huge_region_more_often
+  ALWAYSLINK
   SRCS
     "want_disable_huge_region_more_often.cc"
   COPTS
@@ -410,6 +417,7 @@ tcmalloc_cc_library(
     tcmalloc_want_numa_aware
   ALIAS
     tcmalloc::want_numa_aware
+  ALWAYSLINK
   SRCS
     "want_numa_aware.cc"
   COPTS
@@ -424,6 +432,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_large_pages
   ALIAS
     tcmalloc::tcmalloc_large_pages
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -474,6 +483,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_256k_pages
   ALIAS
     tcmalloc::tcmalloc_256k_pages
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -524,6 +534,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_256k_pages_numa_aware
   ALIAS
     tcmalloc::tcmalloc_256k_pages_numa_aware
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -575,6 +586,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_small_but_slow
   ALIAS
     tcmalloc::tcmalloc_small_but_slow
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -625,6 +637,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_numa_aware
   ALIAS
     tcmalloc::tcmalloc_numa_aware
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -675,6 +688,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_legacy_locking
   ALIAS
     tcmalloc::tcmalloc_legacy_locking
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -726,6 +740,7 @@ tcmalloc_cc_library(
     tcmalloc_tcmalloc_latency_injection
   ALIAS
     tcmalloc::tcmalloc_latency_injection
+  ALWAYSLINK
   SRCS
     "libc_override.h"
     "tcmalloc.cc"
@@ -882,6 +897,7 @@ tcmalloc_cc_library(
     "absl::string_view"
     "absl::time"
     "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_clock"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"
@@ -896,21 +912,28 @@ tcmalloc_cc_test(
   DEPS
     "GTest::gtest"
     "GTest::gmock"
+    "absl::bits"
     "absl::check"
     "absl::core_headers"
-    "absl::flat_hash_set"
+    "absl::status"
     "absl::str_format"
     "absl::strings"
     "absl::time"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_clock"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"
     "tcmalloc::internal_pageflags"
+    "tcmalloc::internal_range_tracker"
+    "tcmalloc::internal_residency"
+    "tcmalloc::internal_scoped_allow_allocation"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::mock_huge_page_static_forwarder"
     "tcmalloc::tcmalloc"
+  ARGS
+    "--fuzztest_stack_limit_kb=2048"
 )
 
 tcmalloc_cc_test(
@@ -923,7 +946,9 @@ tcmalloc_cc_test(
     "GTest::gmock"
     "absl::check"
     "absl::core_headers"
+    "absl::span"
     "absl::str_format"
+    "absl::strings"
     "absl::time"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
@@ -957,6 +982,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
+  ARGS
+    "--fuzztest_stack_limit_kb=2048"
 )
 
 tcmalloc_cc_test(
@@ -992,6 +1019,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_scoped_allow_allocation"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
+  ARGS
+    "--fuzztest_stack_limit_kb=2048"
 )
 
 tcmalloc_cc_test(
@@ -1082,6 +1111,8 @@ tcmalloc_cc_test_variants(
     "absl::base"
     "absl::core_headers"
     "tcmalloc::internal_config"
+  TIMEOUT
+    300
 )
 
 tcmalloc_cc_test(
@@ -1106,6 +1137,8 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
     "tcmalloc::testing_thread_manager"
+  TIMEOUT
+    300
 )
 
 tcmalloc_cc_binary(
@@ -1123,7 +1156,7 @@ tcmalloc_cc_binary(
     "tcmalloc::mock_central_freelist"
     "tcmalloc::mock_transfer_cache"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1220,6 +1253,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(
@@ -1257,6 +1292,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(
@@ -1293,6 +1330,8 @@ tcmalloc_cc_test(
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(
@@ -1368,7 +1407,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_page_size"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1571,6 +1610,8 @@ tcmalloc_cc_test_variants(
     "absl::span"
     "benchmark::benchmark"
     "tcmalloc::internal_logging"
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_binary(
@@ -1587,7 +1628,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1758,6 +1799,8 @@ tcmalloc_cc_test(
     "tcmalloc::testing_thread_manager"
   ENV
     "BORG_EXPERIMENTS="
+  TIMEOUT
+    900
 )
 
 tcmalloc_cc_test(
@@ -1836,7 +1879,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::tcmalloc"
-    "tcmalloc_testing_benchmark_main"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_library(
@@ -1882,6 +1925,7 @@ tcmalloc_cc_library(
     tcmalloc_want_legacy_size_classes
   ALIAS
     tcmalloc::want_legacy_size_classes
+  ALWAYSLINK
   SRCS
     "want_legacy_size_classes.cc"
   COPTS
