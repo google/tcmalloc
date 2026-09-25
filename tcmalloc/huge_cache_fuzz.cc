@@ -407,8 +407,9 @@ void SetUnbackSuccess::Perform(State& state) const {
   state.unback.unback_success_ = success;
 }
 
+// Queued at any depth; State::OnLockDropped bounds the nesting.
 void Reentrant::Perform(State& state) const {
-  if (state.depth != 0 || subprogram.empty()) {
+  if (subprogram.empty()) {
     return;
   }
   state.reentrant_stack.push_back(subprogram);

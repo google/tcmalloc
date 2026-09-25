@@ -1014,6 +1014,7 @@ tcmalloc_cc_test(
     "absl::check"
     "absl::flat_hash_map"
     "absl::flat_hash_set"
+    "absl::span"
     "absl::status"
     "absl::str_format"
     "absl::string_view"
