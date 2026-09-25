@@ -35,6 +35,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_filler.h"
@@ -433,6 +434,7 @@ struct State {
     // tracker drops the lock, so stop running subprograms that would mutate
     // allocs while we iterate it.
     reentrant_stack.clear();
+    CHECK(parked.empty());
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     while (!trackers.empty()) {
       // Retire the tracker and its allocations before Put, as Deallocate does:
@@ -463,9 +465,7 @@ struct State {
   void RunInstructions(absl::Span<const Instruction> instrs) {
     for (const auto& instruction : instrs) {
       std::visit([&](const auto& instr) { instr.Perform(*this); }, instruction);
-      if (depth == 0) {
-        CheckInvariants();
-      }
+      CheckInvariants();
     }
   }
 
@@ -480,10 +480,12 @@ struct State {
     return n;
   }
 
+  // Checked at every depth: the filler updates its counters before it drops
+  // pageheap_lock, so a subprogram interleaved with a Put or a treatment sees
+  // the same accounting another thread would.
   void CheckInvariants() {
     PageHeapSpinLockHolder l;
     TC_CHECK_EQ(filler.size().raw_num(), trackers.size());
-    TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
     // Sparse and dense allocations live on disjoint sets of hugepages, so the
     // per-density counters track our live allocations exactly.
     for (int d = 0; d < AccessDensityPrediction::kPredictionCounts; ++d) {
@@ -496,6 +498,56 @@ struct State {
     TC_CHECK_EQ(
         filler.used_pages() + filler.free_pages() + filler.unmapped_pages(),
         filler.size().in_pages());
+    if (depth != 0) {
+      // A Put that empties a partially released hugepage subtracts its
+      // released pages from unmapped_pages() before unbacking the rest with
+      // the lock dropped; released_set catches up once Put returns.
+      return;
+    }
+    TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
+    CheckTrackerBitmaps();
+    // Every operation that pins trackers drains the ones it parked before it
+    // returns to the top level.
+    TC_CHECK(parked.empty());
+    TC_CHECK(filler.FetchFullyFreedTracker() == nullptr);
+  }
+
+  // Retires the trackers the filler parked because a Put emptied them while
+  // a treatment held them pinned.  Each one must be a tracker we saw parked,
+  // and the filler hands it back only once its pins are cleared.
+  void DrainFullyFreedTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    while (PageTracker* pt = filler.FetchFullyFreedTracker()) {
+      TC_CHECK_EQ(parked.erase(pt), 1);
+      TC_CHECK(pt->empty());
+      TC_CHECK(!pt->DontFreeTracker());
+      const HugePage hp = pt->location();
+      for (PageId p = hp.first_page(),
+                  end = hp.first_page() + kPagesPerHugePage;
+           p != end; ++p) {
+        released_set.erase(p);
+      }
+      delete pt;
+    }
+  }
+
+  // Each tracker's released bitmap agrees with its released count, marks no
+  // page a live allocation holds, and, summed over the trackers, is exactly
+  // released_set.
+  void CheckTrackerBitmaps() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    size_t released = 0;
+    for (const PageTracker* pt : trackers) {
+      const PageBitmap& rel = pt->released_by_page();
+      TC_CHECK_EQ(pt->released_pages().raw_num(), rel.CountBits());
+      TC_CHECK_EQ((rel & pt->allocated_pages_bitmap()).CountBits(), 0);
+      const PageId first = pt->location().first_page();
+      rel.ForEachSet(0, [&](size_t i) {
+        TC_CHECK(released_set.contains(first + Length(i)), "%v",
+                 first + Length(i));
+        ++released;
+      });
+    }
+    TC_CHECK_EQ(released, released_set.size());
   }
 
   // Every range the filler unbacks lies within one hugepage it has been given
@@ -547,6 +599,10 @@ struct State {
   HugePageFiller<PageTracker> filler;
 
   std::vector<PageTracker*> trackers;
+  // Trackers a Put emptied while a treatment held them pinned.  The filler
+  // parks them and hands them back from FetchFullyFreedTracker once the
+  // treatment clears its pins; DrainFullyFreedTrackers retires them.
+  absl::flat_hash_set<PageTracker*> parked;
   // Live allocations by hugepage; each hugepage has exactly one tracker.
   absl::flat_hash_map<HugePage, std::vector<std::pair<Range, SpanAllocInfo>>>
       allocs;
@@ -718,11 +774,17 @@ void Deallocate::Perform(State& state) const {
     PageHeapSpinLockHolder l;
     ret = state.filler.Put(pt, alloc, alloc_info);
   }
-  if (state.depth == 0) {
-    TC_CHECK_EQ(ret != nullptr, last_alloc);
-    if (ret == nullptr) {
+  if (!last_alloc) {
+    TC_CHECK_EQ(ret, nullptr);
+    if (state.depth == 0) {
       TC_CHECK_EQ(pt->used_pages(), state.LivePagesOn(pt));
     }
+  } else if (ret == nullptr) {
+    // Emptied while a treatment that dropped the lock held it pinned, so the
+    // filler parked it rather than hand it back.
+    TC_CHECK_GT(state.depth, 0);
+    TC_CHECK(pt->DontFreeTracker());
+    TC_CHECK(state.parked.insert(pt).second);
   }
   if (ret) {
     // Only the hugepage we emptied is handed back.
@@ -768,6 +830,7 @@ void Release::Perform(State& state) const {
         state.filler.FreePagesInPartialAllocs().raw_num();
     released = state.filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
+    state.DrainFullyFreedTrackers();
   }
   if (state.depth == 0 && runs_before == state.reentrant_runs) {
     state.CheckReleased(released, unmapped_before);
@@ -845,6 +908,7 @@ void MemoryLimitHitRelease::Perform(State& state) const {
     released = state.filler.ReleasePages(desired_len, SkipSubreleaseIntervals{},
                                          /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
+    state.DrainFullyFreedTrackers();
   }
   if (state.depth != 0) {
     return;
@@ -892,14 +956,7 @@ void TreatTrackers::Perform(State& state) const {
                                  : ReleaseStalePages::kDisabled,
       &pageflags, &residency);
   state.treating_trackers = false;
-  while (PageTracker* pt = state.filler.FetchFullyFreedTracker()) {
-    HugePage hp = pt->location();
-    for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
-         p != end; ++p) {
-      state.released_set.erase(p);
-    }
-    delete pt;
-  }
+  state.DrainFullyFreedTrackers();
   for (PageTracker* pt : state.trackers) {
     HugePage hp = pt->location();
     const PageBitmap& rel = pt->released_by_page();
@@ -957,16 +1014,30 @@ void SetCollapseLatency::Perform(State& state) const {
       std::clamp(latency, absl::ZeroDuration(), absl::Seconds(1)));
 }
 
+// Queued at any depth: a subprogram running while the lock is dropped may
+// itself queue one for a later lock drop, as a third thread would.
+// State::OnLockDropped bounds the nesting.
 void ReentrantSubprogram::Perform(State& state) const {
-  if (state.depth != 0 || subprogram.empty()) {
+  if (subprogram.empty()) {
     return;
   }
   state.reentrant_stack.push_back(subprogram);
 }
 
+// Instructions at every nesting level, since each may allocate.
+size_t CountInstructions(absl::Span<const Instruction> instructions) {
+  size_t count = instructions.size();
+  for (const Instruction& instruction : instructions) {
+    if (const auto* r = std::get_if<ReentrantSubprogram>(&instruction)) {
+      count += CountInstructions(r->subprogram);
+    }
+  }
+  return count;
+}
+
 void FuzzFiller(const std::vector<Instruction>& instructions,
                 SubreleaseUnbackedMode subrelease_unbacked_mode) {
-  State state(subrelease_unbacked_mode, instructions.size());
+  State state(subrelease_unbacked_mode, CountInstructions(instructions));
   state.RunInstructions(instructions);
 }
 
@@ -1275,6 +1346,23 @@ TEST(HugePageFillerTest, DepthDependentDeallocate) {
        GatherSpanStats{},
        TreatTrackers{.enable_collapse = true,
                      .enable_unfiltered_collapse = true}},
+      SubreleaseUnbackedMode::kDisabled);
+}
+
+// A subprogram run while the lock is dropped queues another, which runs on
+// the next lock drop.
+TEST(HugePageFillerTest, NestedReentrantSubprogram) {
+  FuzzFiller(
+      {Allocate{.length = 1, .num_objects = 1},
+       MemoryLimitHitRelease{.desired = 65535},
+       ReentrantSubprogram{
+           .subprogram = {Allocate{.length = 1, .num_objects = 1},
+                          MemoryLimitHitRelease{.desired = 65535},
+                          ReentrantSubprogram{
+                              .subprogram = {Allocate{.length = 1,
+                                                      .num_objects = 1}}},
+                          Deallocate{.tracker_index = 0, .alloc_index = 0}}},
+       Deallocate{.tracker_index = 0, .alloc_index = 0}},
       SubreleaseUnbackedMode::kDisabled);
 }
 
