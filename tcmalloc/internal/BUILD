@@ -1186,7 +1186,9 @@ cc_library(
         ":config",
         ":logging",
         ":util",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 
