@@ -343,21 +343,33 @@ class BlockingUnback final : public MemoryModifyFunction {
   constexpr BlockingUnback() = default;
 
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
-    if (!mu_) {
-      return {.success = success_, .error_number = 0};
+    if (mu_) {
+      if (counter_) {
+        counter_->DecrementCount();
+      }
+
+      mu_->lock();
+      mu_->unlock();
     }
 
-    if (counter_) {
-      counter_->DecrementCount();
+    if (!success_) {
+      return {.success = false, .error_number = 0};
     }
-
-    mu_->lock();
-    mu_->unlock();
-    return {.success = success_, .error_number = 0};
+    if (backing_ != nullptr) {
+      // Model MADV_DONTNEED: the pages' contents are gone.  Live allocations
+      // carry a nonzero mark that FillerTest::Check verifies, so unbacking a
+      // page an allocation still holds fails the test.
+      for (PageId p = r.p; p < r.p + r.n; ++p) {
+        TC_CHECK_LT(p.index(), backing_->size());
+        (*backing_)[p.index()] = 0;
+      }
+    }
+    return {.success = true, .error_number = 0};
   }
 
   absl::BlockingCounter* counter_ = nullptr;
   bool success_ = true;
+  std::vector<size_t>* backing_ = nullptr;
 
  private:
   static thread_local absl::Mutex* mu_;
@@ -421,6 +433,7 @@ class FillerTest : public testing::Test {
                 collapse_, set_anon_vma_name_, mode) {
     // Reset success state
     blocking_unback_.success_ = true;
+    blocking_unback_.backing_ = &backing_;
   }
 
   ~FillerTest() override { EXPECT_EQ(filler_.size(), NHugePages(0)); }
