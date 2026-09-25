@@ -561,7 +561,7 @@ class UsageInfo {
             "Objects: %d, Is Hugepage Backed?: %d, Density: %d, "
             "Reallocation Time: %f",
             records.sampled_trackers[i].allocations,
-            records.sampled_trackers[i].longest_free_range.raw_num(),
+            records.sampled_trackers[i].longest_free_range,
             records.sampled_trackers[i].objects,
             records.sampled_trackers[i].is_hugepage_backed,
             records.sampled_trackers[i].density,
@@ -608,7 +608,7 @@ class UsageInfo {
                                  records.sampled_trackers[i].allocations);
         sampled_tracker.PrintI64(
             "longest_free_range",
-            records.sampled_trackers[i].longest_free_range.raw_num());
+            records.sampled_trackers[i].longest_free_range);
         sampled_tracker.PrintI64("objects",
                                  records.sampled_trackers[i].objects);
         sampled_tracker.PrintBool(

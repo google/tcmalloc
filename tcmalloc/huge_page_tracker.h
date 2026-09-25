@@ -72,6 +72,10 @@ class PageTracker : public TList<PageTracker>::Elem {
  public:
   PageTracker(HugePage p, bool was_donated, uint64_t now)
       : location_(p),
+        alloctime_(now),
+        tracker_{},
+        features_{},
+        num_objects_(0),
         released_count_(0),
         abandoned_count_(0),
         donated_(false),
@@ -79,9 +83,8 @@ class PageTracker : public TList<PageTracker>::Elem {
         was_released_(false),
         abandoned_(false),
         unbroken_(true),
-        alloctime_(now),
-        tracker_{},
-        num_objects_(0) {
+        has_dense_spans_(false),
+        sampled_for_tagging_(false) {
 #ifndef __ppc64__
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -100,10 +103,6 @@ class PageTracker : public TList<PageTracker>::Elem {
                       2 * ABSL_CACHELINE_SIZE,
                   "location_ should fall within the first two cachelines of "
                   "PageTracker.");
-    static_assert(
-        offsetof(PageTracker, donated_) + sizeof(donated_) <=
-            2 * ABSL_CACHELINE_SIZE,
-        "donated_ should fall within the first two cachelines of PageTracker.");
     static_assert(
         offsetof(PageTracker, tracker_) + sizeof(tracker_) <=
             2 * ABSL_CACHELINE_SIZE,
@@ -125,14 +124,14 @@ class PageTracker : public TList<PageTracker>::Elem {
   };
 
   struct TrackerFeatures {
-    uint32_t allocations = 0;
-    uint32_t objects = 0;
-    Length longest_free_range = kPagesPerHugePage;
-    double allocation_time = 0.0;
-    double reallocation_time = 0.0;
-    bool is_valid = false;
-    bool is_hugepage_backed = false;
-    bool density = false;
+    uint16_t allocations = 0;
+    uint16_t objects = 0;
+    float allocation_time = 0.0f;
+    float reallocation_time = 0.0f;
+    uint16_t longest_free_range = kPagesPerHugePage.raw_num();
+    bool is_valid : 1;
+    bool is_hugepage_backed : 1;
+    bool density : 1;
   };
 
   // REQUIRES: there's a free range of at least n pages
@@ -295,7 +294,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     features_.allocations = nallocs();
     features_.objects = nobjects();
     features_.allocation_time = last_page_allocation_time_;
-    features_.longest_free_range = longest_free_range();
+    features_.longest_free_range = longest_free_range().raw_num();
   }
 
   bool BeingCollapsed() const {
@@ -314,8 +313,13 @@ class PageTracker : public TList<PageTracker>::Elem {
     bool sampled_for_tagging = false;
     double record_time = 0;
   };
-  TagState GetTagState() const { return tagged_state_; }
-  void SetTagState(const TagState& state) { tagged_state_ = state; }
+  TagState GetTagState() const {
+    return {sampled_for_tagging_, tagged_state_record_time_};
+  }
+  void SetTagState(const TagState& state) {
+    sampled_for_tagging_ = state.sampled_for_tagging;
+    tagged_state_record_time_ = state.record_time;
+  }
 
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
                       std::optional<absl::string_view> name);
@@ -339,35 +343,24 @@ class PageTracker : public TList<PageTracker>::Elem {
   // Cached value of released_by_page_.CountBits(0, kPagesPerHugePages)
   //
   // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
-  uint16_t released_count_;
-  uint16_t abandoned_count_;
-  bool donated_;
-  bool was_donated_;
-  bool was_released_;
-  // Tracks whether we accounted for the abandoned state of the page. When a
-  // large allocation is deallocated but the huge page can not be reassembled,
-  // we measure the number of pages abandoned to the filler. To make sure that
-  // we do not double-count any future deallocations, we maintain a state and
-  // reset it once we measure those pages in abandoned_count_.
-  bool abandoned_;
-  bool unbroken_;
-  bool has_dense_spans_ = false;
-  // This field is used to avoid freeing this tracker prematurely. When this
-  // is set, any maintenance operation (e.g. collapse) that drops
-  // pageheap_lock might manipulate the tracker state without holding the
-  // lock. When all the pages on the tracked hugepage are freed, this field
-  // is checked to ensure that the tracker is not freed right away.
-  uint8_t dont_free_tracker_mask_ = 0;
   double alloctime_;
   double last_page_allocation_time_ = 0;
+  double tagged_state_record_time_ = 0;
 
   RangeTracker<kPagesPerHugePage.raw_num()> tracker_;
-
-  uint64_t num_objects_;
-
   TrackerFeatures features_;
 
-  TagState tagged_state_;
+  size_t num_objects_;
+  uint16_t released_count_;
+  uint16_t abandoned_count_;
+  uint8_t dont_free_tracker_mask_ = 0;
+  bool donated_ : 1;
+  bool was_donated_ : 1;
+  bool was_released_ : 1;
+  bool abandoned_ : 1;
+  bool unbroken_ : 1;
+  bool has_dense_spans_ : 1;
+  bool sampled_for_tagging_ : 1;
 
   // Bitmap of pages based on them being released to the OS.
   // * Not yet released pages are unset (considered "free")

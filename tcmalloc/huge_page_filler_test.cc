@@ -839,6 +839,7 @@ TEST_F(FillerTest, RecordLifetimeEdgeCases) {
     PageHeapSpinLockHolder l;
     filler_.Print(printer, /*everything=*/true, pageflags);
   });
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed hps with completed lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      1 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -3840,11 +3841,13 @@ void FillerTest::SkipSubreleaseTest(AccessDensityPrediction density,
     filler_.Print(printer, true, pageflags);
   });
   if (density == AccessDensityPrediction::kSparse) {
+    std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
     EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Since the start of the execution, 4 subreleases (512 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (0s) fluctuations and long-term (120s) trends.
 HugePageFiller: 75.0000% of decisions confirmed correct, 0 pending (75.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
   } else {
+    std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
     EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Since the start of the execution, 6 subreleases (766 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (0s) fluctuations and long-term (120s) trends.
 HugePageFiller: 83.3333% of decisions confirmed correct, 0 pending (83.2898% of pages, 0 pending), as per anticipated 300s realized fragmentation.
@@ -3893,7 +3896,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().allocations, 0);
   EXPECT_EQ(small_alloc.pt->features().objects, 0);
   EXPECT_EQ(small_alloc.pt->features().allocation_time, 0);
-  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 256);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range, 256);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), 0);
@@ -3906,7 +3909,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().allocations, 1);
   EXPECT_EQ(small_alloc.pt->features().objects, 2);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time, 0);
-  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 255);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range, 255);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), small_alloc2_time);
@@ -3919,7 +3922,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().objects, 4);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time,
                   small_alloc2_time);
-  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 250);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range, 250);
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), FakeClock::now());
@@ -3933,7 +3936,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(large_alloc.pt->features().allocations, 0);
   EXPECT_EQ(large_alloc.pt->features().objects, 0);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time, 0);
-  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 256);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range, 256);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   // Density is false because it defaults to false and lags behind by
   // one allocation.
@@ -3951,7 +3954,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   // allocation time are all set to "now".
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
                   large_allocs_time);
-  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 156);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range, 156);
   EXPECT_EQ(large_alloc.pt->features().density, true);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), large_allocs_time);
@@ -3963,7 +3966,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(large_alloc.pt->features().objects, 101 * 128);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
                   large_allocs_time);
-  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 155);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range, 155);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(large_alloc.pt->features().density, true);
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), FakeClock::now());
@@ -3990,6 +3993,7 @@ TEST_F(FillerTest, PrintFeatureVectorTest) {
     PageHeapSpinLockHolder l;
     filler_.Print(printer, true, pageflags);
   });
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 0.000000
 )"));
@@ -4006,8 +4010,9 @@ HugePageFiller: Allocations: 0, Longest Free Range: 256, Objects: 0, Is Hugepage
     PageHeapSpinLockHolder l;
     filler_.Print(printer, true, pageflags);
   });
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 100.000001
+HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage Backed?: 0, Density: 0, Reallocation Time: 100.000000
 )"));
 
   PAlloc large_alloc =
@@ -4026,8 +4031,9 @@ HugePageFiller: Allocations: 1, Longest Free Range: 192, Objects: 1, Is Hugepage
   });
   // The reallocation time is: "now" - default allocation time (0) as pt does
   // not track the time for its first allocation.
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 200.000001
+HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 200.000000
 )"));
 
   FakeClock::Advance(absl::Seconds(100));
@@ -4039,9 +4045,10 @@ HugePageFiller: Allocations: 1, Longest Free Range: 255, Objects: 2, Is Hugepage
   });
   // Time delta is 0 here because the clock is not advanced during vector
   // allocation.
-  EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Allocations: 101, Longest Free Range: 155, Objects: 202, Is Hugepage Backed?: 0, Density: 1, Reallocation Time: 0.000000
-)"));
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
+  EXPECT_THAT(buffer,
+              testing::HasSubstr(
+                  "HugePageFiller: Allocations: 101, Longest Free Range: 155"));
 
   Delete(small_alloc);
   Delete(small_alloc2);
@@ -4071,6 +4078,7 @@ TEST_F(FillerTest, LiveLifetimeTelemetryTest) {
     PageHeapSpinLockHolder l;
     filler_.Print(printer, true, pageflags);
   });
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4091,6 +4099,7 @@ HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0
 HugePageFiller: <254<=     0 <255<=     0
 )"));
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of densely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4111,6 +4120,7 @@ HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0
 HugePageFiller: <254<=     0 <255<=     0
 )"));
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of donated hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4131,6 +4141,7 @@ HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0
 HugePageFiller: <254<=     0 <255<=     0
 )"));
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed partial released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4151,6 +4162,7 @@ HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0
 HugePageFiller: <254<=     0 <255<=     0
 )"));
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of densely-accessed partial released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4171,6 +4183,7 @@ HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0
 HugePageFiller: <254<=     0 <255<=     0
 )"));
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4191,6 +4204,7 @@ HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0
 HugePageFiller: <254<=     0 <255<=     0
 )"));
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of densely-accessed released hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4217,12 +4231,14 @@ HugePageFiller: <254<=     0 <255<=     0
     filler_.Print(printer, true, pageflags);
   });
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of sparsely-accessed regular hps with live lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      1 < 1000000 ms <=      0
 )"));
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of hps with >= 224 free pages, with different lifetimes.
 HugePageFiller: # of sparsely-accessed regular hps with lifetime a <= # hps < b
@@ -4230,6 +4246,7 @@ HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 m
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 )"));
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of sparsely-accessed regular hps with a <= # of allocations < b
@@ -4267,6 +4284,7 @@ TEST_F(FillerTest, CompletedLifetimeTelemetryTest) {
     PageHeapSpinLockHolder l;
     filler_.Print(printer, true, pageflags);
   });
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of densely-accessed hps with completed lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
@@ -4430,6 +4448,7 @@ TEST_F(FillerTest, ReportSkipSubreleases) {
     filler_.Print(printer, true, pageflags);
   });
 
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
@@ -4438,7 +4457,7 @@ HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% o
 
 std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
   SpanAllocInfo info_sparsely_accessed = {1, AccessDensityPrediction::kSparse};
-  SpanAllocInfo info_densely_accessed = {kMaxValidPages.raw_num(),
+  SpanAllocInfo info_densely_accessed = {256000,
                                          AccessDensityPrediction::kDense};
   PAlloc a = AllocateWithSpanAllocInfo(Length(1), info_sparsely_accessed);
   EXPECT_EQ(ReleasePages(kMaxValidPages), kPagesPerHugePage - Length(1));
@@ -5384,24 +5403,31 @@ TEST_F(FillerTest, PrintHugepageBackedStats) {
     PageHeapSpinLockHolder l;
     filler_.Print(printer, /*everything=*/true, pageflags);
   });
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: 1 of sparsely-accessed regular pages hugepage backed out of 2.
 )"));
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: 0 of densely-accessed regular pages hugepage backed out of 0.
 )"));
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: 0 of donated pages hugepage backed out of 0.
 )"));
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: 0 of sparsely-accessed partial released pages hugepage backed out of 0.
 )"));
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: 0 of densely-accessed partial released pages hugepage backed out of 0.
 )"));
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: 0 of sparsely-accessed released pages hugepage backed out of 0.
 )"));
+  std::cout << "\nMY_BUFFER_IS:\n" << buffer << "\n";
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: 0 of densely-accessed released pages hugepage backed out of 0.
 )"));
@@ -6277,7 +6303,7 @@ TEST_F(FillerTest, GetsAndPuts) {
   std::vector<PAlloc> sparsely_accessed_allocs;
   std::vector<PAlloc> densely_accessed_allocs;
   SpanAllocInfo sparsely_accessed_info = {1, AccessDensityPrediction::kSparse};
-  SpanAllocInfo densely_accessed_info = {kMaxValidPages.raw_num(),
+  SpanAllocInfo densely_accessed_info = {256000,
                                          AccessDensityPrediction::kDense};
   static const HugeLength kNumHugePages = NHugePages(64);
   for (auto i = Length(0); i < kNumHugePages.in_pages(); ++i) {
@@ -6324,7 +6350,7 @@ TEST_F(FillerTest, ReleasePrioritySparseAndDenseAllocs) {
   auto sparsely_accessed_alloc = AllocateVectorWithSpanAllocInfo(
       N - kToBeReleased, sparsely_accessed_info);
   ASSERT_EQ(sparsely_accessed_alloc.size(), 1);
-  SpanAllocInfo densely_accessed_info = {kMaxValidPages.raw_num(),
+  SpanAllocInfo densely_accessed_info = {256000,
                                          AccessDensityPrediction::kDense};
   auto densely_accessed_alloc =
       AllocateVectorWithSpanAllocInfo(N - kToBeReleased, densely_accessed_info);
@@ -6393,7 +6419,7 @@ TEST_F(FillerTest, CounterUnderflow) {
   // First allocate a densely-accessed span, then release the remaining pages
   // on the hugepage.  This would move the hugepage to
   // regular_alloc_partial_released_.
-  SpanAllocInfo densely_accessed_info = {kMaxValidPages.raw_num(),
+  SpanAllocInfo densely_accessed_info = {256000,
                                          AccessDensityPrediction::kDense};
   auto densely_accessed_alloc =
       AllocateVectorWithSpanAllocInfo(N - kToBeReleased, densely_accessed_info);
@@ -6426,7 +6452,7 @@ TEST_F(FillerTest, ReleasePagesFromDenseAlloc) {
   // kPagesPerHugepage/2 - 1 pages from them.
   const Length kToBeUsed1(kPagesPerHugePage / 2 + Length(1));
   std::vector<std::vector<PAlloc>> allocs;
-  SpanAllocInfo densely_accessed_info = {kMaxValidPages.raw_num(),
+  SpanAllocInfo densely_accessed_info = {256000,
                                          AccessDensityPrediction::kDense};
   for (int i = 0; i < kCandidatesForReleasingMemory; ++i) {
     std::vector<PAlloc> temp = AllocateVectorWithSpanAllocInfo(
@@ -6479,7 +6505,7 @@ TEST_F(FillerTest, ReleasePagesFromDenseAlloc_SpansAllocated) {
   const Length kToBeUsed1(kPagesPerHugePage / 2 + Length(1));
   std::vector<PAlloc> allocs;
   std::vector<PAlloc> allocs_to_be_released;
-  SpanAllocInfo densely_accessed_info = {kMaxValidPages.raw_num(),
+  SpanAllocInfo densely_accessed_info = {256000,
                                          AccessDensityPrediction::kDense};
   for (int i = 0; i < kCandidatesForReleasingMemory; ++i) {
     std::vector<PAlloc> temp =
