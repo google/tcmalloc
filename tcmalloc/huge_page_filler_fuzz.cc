@@ -405,13 +405,19 @@ struct State {
     released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
   }
 
-  // Called by every mock the filler invokes with pageheap_lock dropped.  Runs
-  // the most recently queued reentrant subprogram, if any, as another thread
-  // would while the lock is free.  A no-op while the lock is held.
+  // Called by every mock the filler invokes with pageheap_lock dropped.  Checks
+  // the filler's accounting, then runs the most recently queued reentrant
+  // subprogram, if any, as another thread would while the lock is free.  A
+  // no-op while the lock is held.
   void OnLockDropped() {
     if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
       return;
     }
+    // Another thread could take the lock here whether or not a subprogram
+    // does, so the accounting must be consistent at every drop.
+    ++lock_drops;
+    CheckInvariants();
+    --lock_drops;
     if (reentrant_stack.empty()) {
       return;
     }
@@ -438,9 +444,9 @@ struct State {
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     while (!trackers.empty()) {
       // Retire the tracker and its allocations before Put, as Deallocate does:
-      // the final Put may unback the hugepage, and CheckNotLive must see
-      // neither a stale allocation nor a tracker deleted on an earlier
-      // iteration.
+      // the final Put may unback the hugepage, and CheckNotLive and
+      // CheckInvariants must see neither a stale allocation nor a tracker
+      // deleted on an earlier iteration.
       PageTracker* pt = trackers.back();
       trackers.pop_back();
       auto node = allocs.extract(pt->location());
@@ -449,6 +455,7 @@ struct State {
       while (!v.empty()) {
         auto [alloc, alloc_info] = v.back();
         v.pop_back();
+        live_pages[alloc_info.density] -= alloc.n;
         PageTracker* ret;
         {
           PageHeapSpinLockHolder l;
@@ -480,9 +487,9 @@ struct State {
     return n;
   }
 
-  // Checked at every depth: the filler updates its counters before it drops
-  // pageheap_lock, so a subprogram interleaved with a Put or a treatment sees
-  // the same accounting another thread would.
+  // Checked at every depth and at every lock drop: the filler updates its
+  // counters before it drops pageheap_lock, so a subprogram interleaved with a
+  // Put or a treatment sees the same accounting another thread would.
   void CheckInvariants() {
     PageHeapSpinLockHolder l;
     TC_CHECK_EQ(filler.size().raw_num(), trackers.size());
@@ -498,7 +505,7 @@ struct State {
     TC_CHECK_EQ(
         filler.used_pages() + filler.free_pages() + filler.unmapped_pages(),
         filler.size().in_pages());
-    if (depth != 0) {
+    if (depth != 0 || lock_drops != 0) {
       // A Put that empties a partially released hugepage subtracts its
       // released pages from unmapped_pages() before unbacking the rest with
       // the lock dropped; released_set catches up once Put returns.
@@ -611,6 +618,9 @@ struct State {
   Length live_pages[AccessDensityPrediction::kPredictionCounts];
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
+  // Nonzero while CheckInvariants runs from a mock the filler called with
+  // pageheap_lock dropped, before any subprogram.
+  int lock_drops = 0;
   // Bumped whenever a reentrant subprogram runs, so an operation can tell
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;

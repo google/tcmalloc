@@ -362,6 +362,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         selected_trackers_[num_valid_trackers_] = &pt;
         ++num_valid_trackers_;
         pt.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+        pt.ClearReleasedSinceSelected();
         if (num_valid_trackers_ == kTotalTrackersToScan) {
           std::make_heap(selected_trackers_.begin(),
                          selected_trackers_.begin() + num_valid_trackers_,
@@ -379,6 +380,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       PageTracker* last = selected_trackers_[num_valid_trackers_ - 1];
       TC_ASSERT_NE(last, nullptr);
       pt.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+      pt.ClearReleasedSinceSelected();
       last->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
       selected_trackers_[num_valid_trackers_ - 1] = &pt;
       std::push_heap(selected_trackers_.begin(),
@@ -491,6 +493,16 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
       if (tracker->fully_freed()) {
         continue;
+      }
+      if (residency_states_[i].tracker_state.maybe_hugepage_backed &&
+          tracker->GetHugePageResidencyState().released_since_selected) {
+        // The hugepage was observed (or collapsed) as hugepage backed, but
+        // another thread released pages from it while pageheap_lock was
+        // dropped, breaking it again (the pages may since have been
+        // reallocated, so released() alone would not show it).  Record it as
+        // broken so that a later pass reexamines it instead of skipping it as
+        // hugepage backed, and do not report the stale collapse to the filler.
+        residency_states_[i].tracker_state.maybe_hugepage_backed = false;
       }
       tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
       if (residency_states_[i].tracker_state.maybe_hugepage_backed) {
