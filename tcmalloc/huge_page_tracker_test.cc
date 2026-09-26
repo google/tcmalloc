@@ -646,8 +646,7 @@ TEST_F(PageTrackerTest, Defrag) {
                       : 1;
 
     if (i % (kReps / 25) == 0) {
-      printf("free = %zu longest = %zu frag = %f\n", free.raw_num(),
-             longest.raw_num(), frag);
+      absl::PrintF("free = %v longest = %v frag = %f\n", free, longest, frag);
     }
     frag_samples.push_back(frag);
     longest_free_samples.push_back(longest);
@@ -694,8 +693,8 @@ TEST_F(PageTrackerTest, Defrag) {
     const Length p75 = longest_free_samples[kReps * 75 / 100];
     const Length p90 = longest_free_samples[kReps * 90 / 100];
     printf("Longest free quantiles:\n");
-    printf("p10: %zu p25: %zu p50: %zu p75: %zu p90: %zu\n", p10.raw_num(),
-           p25.raw_num(), p50.raw_num(), p75.raw_num(), p90.raw_num());
+    absl::PrintF("p10: %v p25: %v p50: %v p75: %v p90: %v\n", p10, p25, p50,
+                 p75, p90);
     // Similarly, we'd really like for there usually (p50) to be a space
     // for a large allocation (N - note that we've cooked the books so that
     // the page tracker is going to be something like half empty (ish) and N

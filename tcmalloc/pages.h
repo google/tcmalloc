@@ -99,7 +99,7 @@ class Length {
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Length& v) {
-    absl::Format(&sink, "%zu", v.in_bytes());
+    absl::Format(&sink, "%zu", v.raw_num());
   }
 
  private:
@@ -116,9 +116,7 @@ inline bool AbslParseFlag(absl::string_view text, Length* l,
   return true;
 }
 
-inline std::string AbslUnparseFlag(Length l) {
-  return absl::StrCat(l.raw_num());
-}
+inline std::string AbslUnparseFlag(Length l) { return absl::StrCat(l); }
 
 // A single aligned page.
 class PageId {
