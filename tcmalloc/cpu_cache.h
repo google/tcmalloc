@@ -92,119 +92,6 @@ constexpr inline uint8_t kResizeSlabCopies = 2;
 constexpr inline uint8_t kTotalPossibleSlabs =
     kNumPossiblePerCpuShifts * kResizeSlabCopies;
 
-// CpuCacheForwarder provides access to the SizeMap and transfer caches.
-//
-// This is a class, rather than namespaced globals, so that it can be mocked for
-// testing.
-template <typename State, State& state>
-class CpuCacheForwarder : private Parameters {
- public:
-  using Parameters::per_cpu_caches_dynamic_slab_enabled;
-  using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
-  using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
-  using Parameters::release_drained_slab_metadata;
-
-  constexpr CpuCacheForwarder() = default;
-
-  [[nodiscard]] void* absl_nonnull Alloc(size_t size,
-                                         std::align_val_t alignment)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(state.IsInited());
-    // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
-    // present a consistent view of memory usage.
-    PageHeapSpinLockHolder l;
-    return state.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
-  }
-  [[nodiscard]] void* absl_nonnull AllocReportedImpending(
-      size_t size, std::align_val_t alignment)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(state.IsInited());
-    // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
-    // present a consistent view of memory usage.
-    PageHeapSpinLockHolder l;
-    // Negate previous update to allocated that accounted for this allocation.
-    state.arena().UpdateAllocatedAndNonresident(-static_cast<int64_t>(size), 0);
-    return state.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
-  }
-
-  void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
-    TC_ASSERT(false);
-  }
-
-  void SetAnonVmaName(void* ptr, size_t size,
-                      std::optional<absl::string_view> name) {
-    TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) % kHugePageSize, 0);
-    TC_ASSERT_EQ(size % kHugePageSize, 0);
-    state.system_allocator().SetAnonVmaName(ptr, size, name);
-  }
-
-  void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
-                                          int64_t nonresident)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(state.IsInited());
-    // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
-    // present a consistent view of memory usage.
-    PageHeapSpinLockHolder l;
-    if (allocated > 0) {
-      state.page_allocator().ShrinkToUsageLimit(
-          BytesToLengthCeil(allocated),
-          /*may_have_grown=*/allocated > nonresident);
-    }
-    state.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
-  }
-
-
-  bool reuse_size_classes() const {
-    return state.size_class_configuration() ==
-           SizeClassConfiguration::kReuseRelaxedBelow64;
-  }
-
-  size_t class_to_size(int size_class) const {
-    return state.sizemap().class_to_size(size_class);
-  }
-
-  size_t num_objects_to_move(int size_class) const {
-    return state.sizemap().num_objects_to_move(size_class);
-  }
-
-  const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
-    return state.numa_topology();
-  }
-
-  ShardedTransferCacheManager& sharded_transfer_cache() {
-    return state.sharded_transfer_cache();
-  }
-
-  const ShardedTransferCacheManager& sharded_transfer_cache() const {
-    return state.sharded_transfer_cache();
-  }
-
-  TransferCacheManager& transfer_cache() { return state.transfer_cache(); }
-
-  bool UseGenericShardedCache() const {
-    return state.sharded_transfer_cache().UseGenericCache();
-  }
-
-  bool UseShardedCacheForLargeClassesOnly() const {
-    return state.sharded_transfer_cache().UseCacheForLargeClassesOnly();
-  }
-
-  bool UseWiderSlabs() const {
-    // We use wider 512KiB slab only when partitioning is not enabled. NUMA
-    // and security partitions increase shift by 1 by itself, so we can not
-    // increase it further.
-    return state.active_partitions() == 1;
-  }
-
-  bool HaveHooks() const { return state.HaveHooks(); }
-
-  auto active_partitions() const { return state.active_partitions(); }
-
-  bool multiple_non_numa_partitions() const {
-    return state.multiple_non_numa_partitions();
-  }
-};
-
 // Translates from a shift value to the offset of that shift in arrays of
 // possible shift values.
 inline uint8_t ShiftOffset(uint8_t shift, uint8_t initial_shift) {
@@ -1086,7 +973,14 @@ inline void CpuCache<Forwarder>::Activate() {
     }
   }
 
-  resize_ = reinterpret_cast<ResizeInfo*>(forwarder_.Alloc(
+  auto Alloc = [&](size_t size, std::align_val_t alignment) {
+    // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
+    // present a consistent view of memory usage.
+    PageHeapSpinLockHolder l;
+    return forwarder_.Alloc(ArenaAlloc::kCpuCache, size, alignment);
+  };
+
+  resize_ = reinterpret_cast<ResizeInfo*>(Alloc(
       sizeof(ResizeInfo) * num_cpus, std::align_val_t{alignof(ResizeInfo)}));
 
   const uint64_t max_cache_size = CacheLimit();
@@ -1100,10 +994,6 @@ inline void CpuCache<Forwarder>::Activate() {
     resize_[cpu].available.store(max_cache_size, std::memory_order_relaxed);
     resize_[cpu].capacity.store(max_cache_size, std::memory_order_relaxed);
   }
-
-  auto Alloc = [&](size_t size, std::align_val_t alignment) {
-    return forwarder_.Alloc(size, alignment);
-  };
 
   void* slabs = AllocOrReuseSlabs(
                     Alloc, subtle::percpu::ToShiftType(per_cpu_shift), num_cpus,
