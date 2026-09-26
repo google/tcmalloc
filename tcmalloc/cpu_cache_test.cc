@@ -145,7 +145,7 @@ class TestStaticForwarder : private Parameters {
     sharded_manager_.Init();
   }
 
-  static void* Alloc(size_t size, std::align_val_t alignment) {
+  static void* AllocCpuCache(size_t size, std::align_val_t alignment) {
     const size_t align = static_cast<size_t>(alignment);
     TC_ASSERT(absl::has_single_bit(align));
 
