@@ -145,7 +145,8 @@ class TestStaticForwarder : private Parameters {
     sharded_manager_.Init();
   }
 
-  static void* Alloc(size_t size, std::align_val_t alignment) {
+  static void* Alloc(ArenaAlloc tag, size_t size, std::align_val_t alignment) {
+    TC_CHECK(tag == ArenaAlloc::kCpuCache);
     const size_t align = static_cast<size_t>(alignment);
     TC_ASSERT(absl::has_single_bit(align));
 
@@ -298,7 +299,7 @@ class TestStaticForwarder : private Parameters {
   bool UseWiderSlabs() const { return true; }
 
   using ShardedManager =
-      ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
+      ShardedTransferCacheManagerBase<FakeShardedTransferCacheForwarder,
                                       FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
 
@@ -314,17 +315,11 @@ class TestStaticForwarder : private Parameters {
     return transfer_cache_;
   }
 
-  bool UseGenericShardedCache() const {
-    return sharded_manager_.forwarder().UseGenericCache();
-  }
   void SetGenericShardedCache(bool value) {
-    sharded_manager_.forwarder().SetGenericCache(value);
-  }
-  bool UseShardedCacheForLargeClassesOnly() const {
-    return sharded_manager_.forwarder().EnableCacheForLargeClassesOnly();
+    sharded_manager_.forwarder().SetGenericShardedCache(value);
   }
   void SetShardedCacheForLargeClassesOnly(bool value) {
-    sharded_manager_.forwarder().SetCacheForLargeClassesOnly(value);
+    sharded_manager_.forwarder().SetShardedCacheForLargeClassesOnly(value);
   }
 
   bool HaveHooks() const {

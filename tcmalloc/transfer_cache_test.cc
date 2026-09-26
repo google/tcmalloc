@@ -37,6 +37,8 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
+#include "tcmalloc/static_forwarder.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 #include "tcmalloc/transfer_cache_internals.h"
@@ -79,11 +81,11 @@ TEST(TransferCacheLayoutTest, HotFieldsDoNotShareCachelines) {
   GTEST_SKIP() << "Test does not apply under TCMALLOC_INTERNAL_LEGACY_LOCKING";
 #else
   internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
-      internal_transfer_cache::TransferCache<CentralFreeList,
-                                             TransferCacheManager>>();
+      internal_transfer_cache::TransferCache<
+          CentralFreeList, StaticForwarder<Static, tc_globals>>>();
   internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
-      internal_transfer_cache::TransferCache<BackingTransferCache,
-                                             ShardedStaticForwarder>>();
+      internal_transfer_cache::TransferCache<
+          BackingTransferCache, StaticForwarder<Static, tc_globals>>>();
 #endif
 }
 
@@ -559,9 +561,6 @@ TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
                                           /*use_generic_cache=*/true);
   ShardedManager& manager = env.sharded_manager();
 
-  // Sharded cache manager uses a flexible transfer cache.
-  env.transfer_cache_manager().SetPartialLegacyTransferCache(true);
-
   EXPECT_FALSE(manager.shard_initialized(0));
   EXPECT_FALSE(manager.shard_initialized(1));
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
@@ -656,9 +655,6 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
     FakeShardedTransferCacheEnvironment env(kNumShards, generic_cache_enabled);
     ShardedManager& manager = env.sharded_manager();
 
-    // Sharded cache manager uses a flexible transfer cache.
-    env.transfer_cache_manager().SetPartialLegacyTransferCache(true);
-
     EXPECT_FALSE(manager.shard_initialized(0));
     EXPECT_FALSE(manager.shard_initialized(1));
     EXPECT_FALSE(manager.shard_initialized(2));
@@ -733,9 +729,6 @@ TEST(ShardedTransferCacheManagerTest, PrintTelemetry) {
                                           /*use_generic_cache=*/true);
   ShardedManager& manager = env.sharded_manager();
 
-  // Sharded cache manager uses a flexible transfer cache.
-  env.transfer_cache_manager().SetPartialLegacyTransferCache(true);
-
   EXPECT_TRUE(manager.should_use(kSizeClass));
 
   // 1. Push elements to Shard 0 (CPU 0) and Shard 1 (CPU 2).
@@ -775,7 +768,7 @@ TEST(ShardedTransferCacheManagerTest, PrintTelemetry) {
       1024 * 1024,
       [&](PbtxtRegion& region) { manager.PrintInPbtxt(counts, region); });
   size_t class_size =
-      FakeShardedTransferCacheManager::class_to_size(kSizeClass);
+      FakeShardedTransferCacheForwarder::class_to_size(kSizeClass);
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr(
                                 absl::StrFormat("sizeclass: %d", class_size)));
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("insert_hits: 2"));
@@ -786,7 +779,7 @@ TEST(ShardedTransferCacheManagerTest, PrintTelemetry) {
 
 namespace unit_tests {
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-    MockCentralFreeList, FakeTransferCacheManager>>;
+    MockCentralFreeList, FakeTransferCacheForwarder>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TransferCacheTest,
                                ::testing::Types<Env>);
 
@@ -797,7 +790,7 @@ namespace fuzz_tests {
 // as it avoids the overheads of mocks and allows more iterations of the fuzzing
 // itself.
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-    MockCentralFreeList, FakeTransferCacheManager>>;
+    MockCentralFreeList, FakeTransferCacheForwarder>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, FuzzTest, ::testing::Types<Env>);
 
 }  // namespace fuzz_tests
