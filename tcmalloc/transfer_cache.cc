@@ -30,20 +30,6 @@ namespace tcmalloc_internal {
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 
-size_t StaticForwarder::class_to_size(int size_class) {
-  return tc_globals.sizemap().class_to_size(size_class);
-}
-size_t StaticForwarder::num_objects_to_move(int size_class) {
-  return tc_globals.sizemap().num_objects_to_move(size_class);
-}
-void* StaticForwarder::Alloc(size_t size, std::align_val_t alignment) {
-  return tc_globals.arena().Alloc(ArenaAlloc::kTransferCache, size, alignment);
-}
-
-ABSL_CONST_INIT bool ShardedStaticForwarder::use_generic_cache_(false);
-ABSL_CONST_INIT bool
-    ShardedStaticForwarder::enable_cache_for_large_classes_only_(false);
-
 void BackingTransferCache::InsertRange(absl::Span<void*> batch) const {
   tc_globals.transfer_cache().InsertRange(size_class_, batch);
 }
