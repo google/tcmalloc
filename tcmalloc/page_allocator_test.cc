@@ -362,6 +362,98 @@ static void TestReleaseHook(size_t num_pages, size_t released,
   }
 }
 
+// State for ReleaseDuringHardLimitShrinkHook.
+static PageAllocator* shrink_hook_allocator = nullptr;
+static std::optional<PageAllocatorInterface::AllocationState> shrink_hook_alloc;
+static SpanAllocInfo shrink_hook_alloc_info;
+static int shrink_hook_calls = 0;
+
+// Stands in for another thread that frees and releases memory while a
+// hard-limit shrink has pageheap_lock dropped for an unback: it runs from the
+// release hook, under pageheap_lock, once the shrink's own release has come up
+// short.
+static void ReleaseDuringHardLimitShrinkHook(size_t num_pages, size_t released,
+                                             PageReleaseReason reason)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  if (reason != PageReleaseReason::kHardLimitExceeded || !shrink_hook_alloc) {
+    return;
+  }
+  ++shrink_hook_calls;
+  const PageAllocatorInterface::AllocationState a = *shrink_hook_alloc;
+  shrink_hook_alloc.reset();
+  shrink_hook_allocator->Delete(a, MemoryTag::kNormal, shrink_hook_alloc_info);
+  shrink_hook_allocator->ReleaseAtLeastNPages(
+      kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem);
+}
+
+// A hard-limit shrink whose own release comes up short must consult the heap
+// before aborting: another thread may have brought it under the limit while
+// the shrink had pageheap_lock dropped, possibly by releasing the very
+// candidates the shrink had selected.
+TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  GTEST_SKIP() << "Delete requires an AllocationState";
+#else
+  // Turn off subrelease so that the hard-limit shrink cannot break hugepages
+  // and takes the failure path.
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  Span* normal = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
+  Span* sampled = New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+
+  BackingStats stats;
+  {
+    PageHeapSpinLockHolder l;
+    stats = allocator_->stats();
+  }
+  ASSERT_EQ(stats.system_bytes, 2 * kHugePageSize);
+  ASSERT_EQ(stats.free_bytes, kHugePageSize);
+  ASSERT_EQ(stats.unmapped_bytes, 0);
+
+  // The hook returns normal's pages.  Free the Span now: the hook runs under
+  // pageheap_lock.
+  shrink_hook_allocator = &*allocator_;
+  shrink_hook_alloc.emplace(PageAllocatorInterface::AllocationState{
+      Range(normal->first_page(), normal->num_pages()), normal->donated()});
+  shrink_hook_alloc_info = kSpanInfo;
+  shrink_hook_calls = 0;
+  Span::Delete(normal);
+  ASSERT_TRUE(
+      page_allocator_release_hooks.Add(&ReleaseDuringHardLimitShrinkHook));
+
+  // A limit the soft shrink cannot reach by breaking hugepages (it releases
+  // the free half of each hugepage, one hugepage in total), that the hard
+  // shrink cannot reach by itself (nothing releasable remains), and that the
+  // hook's release of normal's hugepage does reach.
+  const size_t metadata_bytes = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.metadata_bytes();
+  }();
+  allocator_->set_limit(metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes(),
+                        PageAllocator::kHard);
+
+  EXPECT_EQ(shrink_hook_calls, 1);
+  EXPECT_EQ(allocator_->limit_hits(PageAllocator::kHard), 1);
+  EXPECT_EQ(
+      allocator_->successful_shrinks_after_limit_hit(PageAllocator::kHard), 1);
+  {
+    PageHeapSpinLockHolder l;
+    stats = allocator_->stats();
+  }
+  EXPECT_LE(stats.system_bytes - stats.unmapped_bytes + metadata_bytes,
+            metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes());
+
+  ASSERT_TRUE(
+      page_allocator_release_hooks.Remove(&ReleaseDuringHardLimitShrinkHook));
+  shrink_hook_allocator = nullptr;
+  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+}
+
 TEST_F(PageAllocatorTest, Hooks) {
   new_record_count = 0;
   delete_record_count = 0;
