@@ -248,6 +248,11 @@ class PageTracker : public TList<PageTracker>::Elem {
     double record_time;
     // Records whether the page is hugepage backed.
     bool maybe_hugepage_backed = false;
+    // Set when pages are released from this hugepage after a treatment pass
+    // selected it.  Tells the pass that a collapse result or hugepage-backed
+    // observation it made with pageheap_lock dropped is stale, even if the
+    // released pages have since been reallocated.
+    bool released_since_selected = false;
     // Records whether metrics are valid. It is set the first time the
     // residency state is queried.
     bool entry_valid = false;
@@ -278,6 +283,12 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   HugePageResidencyState GetHugePageResidencyState() const {
     return hugepage_residency_state_;
+  }
+  // Called by a treatment pass when it selects this tracker under
+  // pageheap_lock; ReleaseFree sets the flag again if it releases pages from
+  // the hugepage before the pass restores its findings.
+  void ClearReleasedSinceSelected() {
+    hugepage_residency_state_.released_since_selected = false;
   }
 
   void SetBeingCollapsed(bool value) {
@@ -500,6 +511,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
         released_by_page_.SetRange(free_index, length);
         released_count_ += length;
         hugepage_residency_state_.maybe_hugepage_backed = false;
+        hugepage_residency_state_.released_since_selected = true;
         count += length;
       }
 

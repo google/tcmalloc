@@ -1388,6 +1388,13 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
       bool success =
           unback_without_lock_(HugeRange(pt->location(), NHugePages(1)))
               .success;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      // pageheap_lock was dropped for the unback.  Another thread may have
+      // reported filler stats at a later time meanwhile, and reporting with the
+      // earlier time below would read as a clock regression to the time series
+      // tracker, which discards its demand history in response.
+      now = clock_.now();
+#endif
 
       if (ABSL_PREDICT_TRUE(success)) {
         const Length unmapped = free_pages - released_pages;
