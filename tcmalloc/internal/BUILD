@@ -162,6 +162,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         ":parameter_accessors",
         ":range_tracker",
     ],

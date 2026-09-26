@@ -75,7 +75,6 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"
     "tcmalloc::internal_page_allocation_status"
-    "tcmalloc::internal_page_size"
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_test_allocator_harness"
