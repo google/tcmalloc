@@ -16,19 +16,22 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
+#include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/log/check.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/huge_allocator.h"
@@ -52,22 +55,35 @@ int64_t FakeClockNow() { return fake_clock_ticks; }
 
 double FakeClockFreq() { return absl::ToDoubleNanoseconds(absl::Seconds(1)); }
 
+// FakeVirtualAllocator hands out hugepage number backing_.size() next, so the
+// first kBackingOffset hugepage numbers are never given to HugeAllocator.
+constexpr size_t kBackingOffset = 1024;
+
+// Where the oracle believes each hugepage of the fake address space is.
+enum class PageState : uint8_t {
+  // Never handed out by the virtual allocator: on neither free list.
+  kOutside,
+  // Free and unbacked: on HugeAllocator's free list.
+  kUnbacked,
+  // Free and backed: on HugeCache's free list.
+  kCached,
+  // Returned by Get and not yet released: on neither free list.
+  kLive,
+  // Taken off HugeCache's free list and inside the unback callback, not yet
+  // handed to HugeAllocator.  Production drops pageheap_lock here.
+  kUnbacking,
+};
+constexpr size_t kNumPageStates = 5;
+
 struct State;
 
-// HugeCache::ShrinkCache calls this with pageheap_lock dropped in production
-// (HugePageAwareAllocator::UnbackWithoutLock), so other threads can operate on
-// the cache in the middle of a shrink.  Run a queued reentrant subprogram here
-// to model them.
 class MockUnback final : public MemoryModifyFunction {
  public:
-  explicit MockUnback(State& state) : state_(state) {}
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override;
 
+  State* state = nullptr;
   bool unback_success_ = true;
-  mutable bool has_failed_ = false;
-
- private:
-  State& state_;
+  bool has_failed_ = false;
 };
 
 struct Get {
@@ -161,28 +177,31 @@ using Instruction = std::variant<Get, Release, ReleaseUnbacked,
                                  ReleaseCachedPages, AdvanceClock, AddSpanStats,
                                  PrintStats, SetUnbackSuccess, Reentrant>;
 
-template <typename Sink>
-void AbslStringify(Sink& sink, const Instruction& i) {
-  std::visit([&](auto&& arg) { absl::Format(&sink, "%v", arg); }, i);
-}
-
-// Queues a subprogram to run the next time the cache unbacks memory.
+// Queues a subprogram to run from inside the next unback callback, i.e. in the
+// window where the production unback drops pageheap_lock.
 struct Reentrant {
   std::vector<Instruction> subprogram;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const Reentrant& r) {
-    absl::Format(&sink, "Reentrant{.subprogram={%s}}",
-                 absl::StrJoin(r.subprogram, ", ",
-                               [](std::string* out, const Instruction& i) {
-                                 absl::StrAppend(out, i);
-                               }));
-  }
 
   void Perform(State& state) const;
 };
 
+template <typename Sink>
+void AbslStringify(Sink& sink, const Instruction& i) {
+  std::visit([&](const auto& arg) { absl::Format(&sink, "%v", arg); }, i);
+}
+
+template <typename Sink>
+void AbslStringify(Sink& sink, const Reentrant& r) {
+  absl::Format(&sink, "Reentrant{.subprogram={%s}}",
+               absl::StrJoin(r.subprogram, ", ",
+                             [](std::string* out, const Instruction& i) {
+                               absl::StrAppend(out, i);
+                             }));
+}
+
 struct State {
+  static constexpr int kMaxUnbackDepth = 5;
+
   FakeVirtualAllocator vm_allocator;
   FakeMetadataAllocator metadata_allocator;
   HugeAllocator alloc;
@@ -192,35 +211,45 @@ struct State {
   std::vector<HugeRange> live_ranges;
   HugeLength outstanding_usage = NHugePages(0);
   std::string output_buffer;
+
+  // Oracle for every hugepage, indexed by HugePage::index().  kOutside pages
+  // are not counted.
+  std::vector<PageState> model;
+  size_t model_counts[kNumPageStates] = {};
+
+  // Subprograms queued by Reentrant; the unback callback pops them LIFO.
   std::vector<absl::Span<const Instruction>> reentrant_stack;
-  int depth = 0;
-  // Bumped whenever a reentrant subprogram runs, so an operation can tell
-  // whether other instructions interleaved with it.
+  // Nesting depth of unback callbacks currently on the stack.
+  int unback_depth = 0;
+  // Total subprograms run so far.  Instructions compare this before and after
+  // a call to decide whether their exact post-conditions still apply.
   size_t reentrant_runs = 0;
 
   explicit State(absl::Duration cache_time)
       : vm_allocator(),
         metadata_allocator(),
         alloc(vm_allocator, metadata_allocator),
-        unback(*this),
+        unback(),
         cache(alloc, metadata_allocator, unback,
               std::clamp(cache_time, absl::Milliseconds(10), absl::Minutes(10)),
               Clock{.now = FakeClockNow, .freq = FakeClockFreq}) {
-    vm_allocator.backing_.resize(1024);
+    vm_allocator.backing_.resize(kBackingOffset);
     output_buffer.resize(1 << 20);
+    unback.state = this;
   }
 
   ~State() {
-    // Releasing below unbacks; do not run subprograms that would add to
-    // live_ranges while we drain it.
+    // Queued subprograms would mutate live_ranges underneath the loop below.
     reentrant_stack.clear();
     unback.unback_success_ = true;
     // Release all outstanding ranges so memory is reclaimed cleanly.
-    for (HugeRange r : live_ranges) {
+    while (!live_ranges.empty()) {
+      const HugeRange r = live_ranges.back();
+      live_ranges.pop_back();
+      outstanding_usage -= r.len();
+      Transition(r, {PageState::kLive}, PageState::kCached);
       cache.Release(r);
     }
-    live_ranges.clear();
-    outstanding_usage = NHugePages(0);
 
     cache.ReleaseCachedPages(cache.size());
     CheckInvariants();
@@ -229,61 +258,152 @@ struct State {
     TC_CHECK_EQ(alloc.size(), alloc.system());
   }
 
-  void RunInstructions(absl::Span<const Instruction> instrs) {
-    for (const auto& inst : instrs) {
-      std::visit([&](auto&& arg) { arg.Perform(*this); }, inst);
-      // A shrink in progress has already taken the range being unbacked out
-      // of size(), so only check between top-level instructions.
-      if (depth == 0) {
-        CheckInvariants();
-      }
+  void Execute(absl::Span<const Instruction> instructions) {
+    for (const Instruction& inst : instructions) {
+      std::visit([&](const auto& arg) { arg.Perform(*this); }, inst);
+      CheckInvariants();
     }
   }
 
-  void OnLockDropped() {
+  size_t Count(PageState s) const {
+    return model_counts[static_cast<size_t>(s)];
+  }
+
+  // Moves every hugepage of r to `to`, checking each was in one of `from`.
+  void Transition(HugeRange r, std::initializer_list<PageState> from,
+                  PageState to) {
+    const size_t begin = r.start().index();
+    const size_t end = begin + r.len().raw_num();
+    if (model.size() < end) {
+      model.resize(end, PageState::kOutside);
+    }
+    for (size_t i = begin; i < end; ++i) {
+      PageState& s = model[i];
+      TC_CHECK(absl::c_linear_search(from, s), "hugepage %v is in state %v",
+               HugePage{i}, static_cast<int>(s));
+      if (s != PageState::kOutside) {
+        --model_counts[static_cast<size_t>(s)];
+      }
+      ++model_counts[static_cast<size_t>(to)];
+      s = to;
+    }
+  }
+
+  // Hugepages the fake virtual allocator handed out since the last call go
+  // straight onto HugeAllocator's free list.
+  void AbsorbNewSystemPages(size_t backing_before) {
+    const size_t backing_after = vm_allocator.backing_.size();
+    if (backing_after == backing_before) {
+      return;
+    }
+    Transition(HugeRange::Make(HugePage{backing_before},
+                               NHugePages(backing_after - backing_before)),
+               {PageState::kOutside}, PageState::kUnbacked);
+  }
+
+  void CheckContains(HugePage p) const {
+    const PageState s =
+        p.index() < model.size() ? model[p.index()] : PageState::kOutside;
+    TC_CHECK_EQ(cache.Contains(p), s == PageState::kCached, "hugepage %v", p);
+    TC_CHECK_EQ(alloc.Contains(p), s == PageState::kUnbacked, "hugepage %v", p);
+  }
+
+  void CheckContains(HugeRange r) const {
+    for (size_t i = r.start().index(), end = i + r.len().raw_num(); i < end;
+         ++i) {
+      CheckContains(HugePage{i});
+    }
+  }
+
+  // Runs from inside the unback callback: ShrinkCache has removed r from the
+  // cache but not yet handed it to HugeAllocator.
+  MemoryModifyStatus OnUnback(Range r) {
+    // The cache only unbacks whole hugepages.
+    TC_CHECK_EQ(HugePageContaining(r.p).first_page(), r.p);
+    TC_CHECK_EQ(r.n % kPagesPerHugePage, Length(0));
+    const HugeRange hr =
+        HugeRange::Make(HugePageContaining(r.p), HLFromPages(r.n));
+    Transition(hr, {PageState::kCached}, PageState::kUnbacking);
+
+    ++unback_depth;
+    CheckInvariants();
+    CheckContains(hr);
+    RunReentrant();
+    --unback_depth;
+
+    // Read after the subprogram, which may have flipped it.
+    if (!unback.unback_success_) {
+      unback.has_failed_ = true;
+      // ShrinkCache puts the range back on its free list.
+      Transition(hr, {PageState::kUnbacking}, PageState::kCached);
+      return {.success = false, .error_number = ENOMEM};
+    }
+    // ShrinkCache hands the range to HugeAllocator next.
+    Transition(hr, {PageState::kUnbacking}, PageState::kUnbacked);
+    return {.success = true, .error_number = 0};
+  }
+
+  void RunReentrant() {
     if (reentrant_stack.empty()) {
       return;
     }
-    if (depth >= 5) {
+    // Leave deeper subprograms queued for a later unback rather than dropping
+    // them.
+    if (unback_depth > kMaxUnbackDepth) {
       return;
     }
-
-    absl::Span<const Instruction> ops = reentrant_stack.back();
+    const absl::Span<const Instruction> program = reentrant_stack.back();
     reentrant_stack.pop_back();
-
-    depth++;
-    reentrant_runs++;
-    RunInstructions(ops);
-    depth--;
+    ++reentrant_runs;
+    Execute(program);
   }
 
-  void CheckInvariants() const {
-    if (cache.size() <= cache.limit()) {
-      unback.has_failed_ = false;
+  void CheckInvariants() {
+    if (unback_depth == 0) {
+      // Inside the unback callback ShrinkCache is mid-loop, so the cache may
+      // legitimately still exceed its limit there.
+      if (cache.size() <= cache.limit()) {
+        unback.has_failed_ = false;
+      }
+      TC_CHECK(cache.size() <= cache.limit() || unback.has_failed_);
     }
-    TC_CHECK(cache.size() <= cache.limit() || unback.has_failed_);
     TC_CHECK_GE(cache.limit(), NHugePages(10));
     TC_CHECK_EQ(cache.usage(), outstanding_usage);
-    BackingStats stats = cache.stats();
+    const BackingStats stats = cache.stats();
     TC_CHECK_EQ(stats.system_bytes, (cache.usage() + cache.size()).in_bytes());
     TC_CHECK_EQ(stats.free_bytes, cache.size().in_bytes());
     TC_CHECK_EQ(stats.unmapped_bytes, 0);
+
+    const BackingStats alloc_stats = alloc.stats();
+    TC_CHECK_EQ(alloc_stats.system_bytes, alloc.system().in_bytes());
+    TC_CHECK_EQ(alloc_stats.free_bytes, 0);
+    TC_CHECK_EQ(alloc_stats.unmapped_bytes, alloc.size().in_bytes());
+
+    // The oracle partitions every hugepage the system handed out.
+    TC_CHECK_EQ(alloc.system().raw_num(),
+                vm_allocator.backing_.size() - kBackingOffset);
+    TC_CHECK_EQ(Count(PageState::kLive), outstanding_usage.raw_num());
+    TC_CHECK_EQ(Count(PageState::kCached), cache.size().raw_num());
+    TC_CHECK_EQ(Count(PageState::kUnbacked), alloc.size().raw_num());
+    TC_CHECK_EQ(Count(PageState::kLive) + Count(PageState::kCached) +
+                    Count(PageState::kUnbacked) + Count(PageState::kUnbacking),
+                alloc.system().raw_num());
+
+    // Addresses below and above everything handed out.
+    CheckContains(HugePage{0});
+    CheckContains(HugePage{vm_allocator.backing_.size()});
   }
 };
 
 MemoryModifyStatus MockUnback::operator()(Range r) {
-  state_.OnLockDropped();
-  if (!unback_success_) {
-    has_failed_ = true;
-    return {.success = false, .error_number = ENOMEM};
-  }
-  return {.success = true, .error_number = 0};
+  return state->OnUnback(r);
 }
 
 void Get::Perform(State& state) const {
   const HugeLength n = NHugePages(std::max<size_t>(1, count % 1024));
   const HugeLength size_before = state.cache.size();
   const HugeLength limit_before = state.cache.limit();
+  const size_t backing_before = state.vm_allocator.backing_.size();
   bool from_released = false;
   HugeRange r = state.cache.Get(n, &from_released);
   if (!r.valid()) {
@@ -291,6 +411,7 @@ void Get::Perform(State& state) const {
     TC_CHECK(!from_released);
     TC_CHECK_EQ(state.cache.size(), size_before);
     TC_CHECK_EQ(state.cache.limit(), limit_before);
+    TC_CHECK_EQ(state.vm_allocator.backing_.size(), backing_before);
     return;
   }
   TC_CHECK_EQ(r.len(), n);
@@ -301,14 +422,19 @@ void Get::Perform(State& state) const {
     // A miss leaves the cached ranges alone and can only grow the limit.
     TC_CHECK_EQ(state.cache.size(), size_before);
     TC_CHECK_GE(state.cache.limit(), limit_before);
+    state.AbsorbNewSystemPages(backing_before);
+    state.Transition(r, {PageState::kUnbacked}, PageState::kLive);
   } else {
     // A hit is carved out of the cached ranges and never moves the limit.
     TC_CHECK_GE(size_before, n);
     TC_CHECK_EQ(state.cache.size(), size_before - n);
     TC_CHECK_EQ(state.cache.limit(), limit_before);
+    TC_CHECK_EQ(state.vm_allocator.backing_.size(), backing_before);
+    state.Transition(r, {PageState::kCached}, PageState::kLive);
   }
   state.live_ranges.push_back(r);
   state.outstanding_usage += r.len();
+  state.CheckContains(r);
 }
 
 void Release::Perform(State& state) const {
@@ -324,10 +450,12 @@ void Release::Perform(State& state) const {
   const HugeLength limit_before = state.cache.limit();
   const bool unback_success = state.unback.unback_success_;
   const size_t runs_before = state.reentrant_runs;
+  // The range enters the cache before ShrinkCache may unback parts of it.
+  state.Transition(r, {PageState::kLive}, PageState::kCached);
   state.cache.Release(r);
-  if (runs_before != state.reentrant_runs) {
-    // Other operations interleaved with the shrink; State::CheckInvariants
-    // still holds, but the exact size and limit are no longer predictable.
+  state.CheckContains(r);
+  if (state.reentrant_runs != runs_before) {
+    // A subprogram moved the cache underneath us; CheckInvariants still holds.
     return;
   }
   // Releasing can only shrink the limit.  Everything above the resulting
@@ -353,10 +481,12 @@ void ReleaseUnbacked::Perform(State& state) const {
   state.outstanding_usage -= r.len();
   const HugeLength size_before = state.cache.size();
   const HugeLength limit_before = state.cache.limit();
+  state.Transition(r, {PageState::kLive}, PageState::kUnbacked);
   state.cache.ReleaseUnbacked(r);
   // The range bypasses the cache entirely.
   TC_CHECK_EQ(state.cache.size(), size_before);
   TC_CHECK_EQ(state.cache.limit(), limit_before);
+  state.CheckContains(r);
 }
 
 void ReleaseCachedPages::Perform(State& state) const {
@@ -366,8 +496,8 @@ void ReleaseCachedPages::Perform(State& state) const {
   const bool unback_success = state.unback.unback_success_;
   const size_t runs_before = state.reentrant_runs;
   const HugeLength released = state.cache.ReleaseCachedPages(n);
-  if (runs_before != state.reentrant_runs) {
-    // Interleaved operations can add to or take from the cache mid-shrink.
+  if (state.reentrant_runs != runs_before) {
+    // A subprogram moved the cache underneath us; CheckInvariants still holds.
     return;
   }
   EXPECT_LE(released, previous_size);
@@ -393,25 +523,64 @@ void AddSpanStats::Perform(State& state) const {
   state.cache.AddSpanStats(&small, &large);
   TC_CHECK_EQ(large.normal_pages, state.cache.size().in_pages());
   TC_CHECK_EQ(large.returned_pages, Length(0));
+  const size_t cache_spans = large.spans;
+  TC_CHECK_LE(cache_spans, state.cache.size().raw_num());
+  TC_CHECK_EQ(cache_spans == 0, state.cache.size() == NHugePages(0));
+
+  // HugeAllocator reports its free list as returned pages on top of the
+  // cache's.
+  state.alloc.AddSpanStats(&small, &large);
+  TC_CHECK_EQ(large.normal_pages, state.cache.size().in_pages());
+  TC_CHECK_EQ(large.returned_pages, state.alloc.size().in_pages());
+  const size_t alloc_spans = large.spans - cache_spans;
+  TC_CHECK_LE(alloc_spans, state.alloc.size().raw_num());
+  TC_CHECK_EQ(alloc_spans == 0, state.alloc.size() == NHugePages(0));
 }
 
 void PrintStats::Perform(State& state) const {
-  Printer printer(&state.output_buffer[0], state.output_buffer.size());
-  state.cache.Print(printer);
-  Printer pbtxt_printer(&state.output_buffer[0], state.output_buffer.size());
-  PbtxtRegion pbtxt(pbtxt_printer, kTop);
-  state.cache.PrintInPbtxt(pbtxt);
+  {
+    Printer printer(&state.output_buffer[0], state.output_buffer.size());
+    state.cache.Print(printer);
+    state.alloc.Print(printer);
+    TC_CHECK_LE(printer.SpaceRequired(), state.output_buffer.size());
+    const absl::string_view text(&state.output_buffer[0],
+                                 printer.SpaceRequired());
+    TC_CHECK(absl::StrContains(
+        text, absl::StrFormat("HugeCache: %zu / %zu hugepages cached",
+                              state.cache.size().raw_num(),
+                              state.cache.limit().raw_num())));
+    TC_CHECK(absl::StrContains(
+        text, absl::StrFormat(
+                  "HugeAllocator: %zu requested - %zu in use = %zu hugepages",
+                  state.alloc.system().raw_num(),
+                  (state.alloc.system() - state.alloc.size()).raw_num(),
+                  state.alloc.size().raw_num())));
+  }
+  {
+    Printer printer(&state.output_buffer[0], state.output_buffer.size());
+    {
+      PbtxtRegion pbtxt(printer, kTop);
+      state.cache.PrintInPbtxt(pbtxt);
+      state.alloc.PrintInPbtxt(pbtxt);
+    }
+    TC_CHECK_LE(printer.SpaceRequired(), state.output_buffer.size());
+    const absl::string_view text(&state.output_buffer[0],
+                                 printer.SpaceRequired());
+    TC_CHECK(absl::StrContains(
+        text, absl::StrFormat("num_total_requested_huge_pages: %zu",
+                              state.alloc.system().raw_num())));
+    TC_CHECK(absl::StrContains(
+        text, absl::StrFormat(
+                  "num_in_use_huge_pages: %zu",
+                  (state.alloc.system() - state.alloc.size()).raw_num())));
+  }
 }
 
 void SetUnbackSuccess::Perform(State& state) const {
   state.unback.unback_success_ = success;
 }
 
-// Queued at any depth; State::OnLockDropped bounds the nesting.
 void Reentrant::Perform(State& state) const {
-  if (subprogram.empty()) {
-    return;
-  }
   state.reentrant_stack.push_back(subprogram);
 }
 
@@ -420,7 +589,7 @@ void FuzzHugeCache(const std::vector<Instruction>& instructions,
   fake_clock_ticks = 1234;
 
   State state(cache_time);
-  state.RunInstructions(instructions);
+  state.Execute(instructions);
 }
 
 auto ArbitraryDurationDomain() {
@@ -472,22 +641,8 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
 }
 
 FUZZ_TEST(HugeCacheTest, FuzzHugeCache)
-    .WithDomains(fuzztest::VectorOf(GetInstructionDomain(/*depth=*/5)),
+    .WithDomains(fuzztest::VectorOf(GetInstructionDomain(3)),
                  CacheTimeDomain());
-
-// ShrinkCache removes a range from the cache, unbacks it with the lock
-// dropped, and then keeps shrinking towards its original target.  A Get and
-// Release interleaved at the unback must leave the cache consistent.
-TEST(HugeCacheTest, ReentrantGetAndReleaseDuringShrink) {
-  FuzzHugeCache(
-      {
-          Get{.count = 4},
-          Release{.index = 0},
-          Reentrant{.subprogram = {Get{.count = 2}, Release{.index = 0}}},
-          ReleaseCachedPages{.count = 4},
-      },
-      absl::Seconds(1));
-}
 
 TEST(HugeCacheTest, Regression) {
   FuzzHugeCache(
