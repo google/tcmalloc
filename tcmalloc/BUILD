@@ -799,9 +799,10 @@ cc_test(
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:memory_tag",
+        "//tcmalloc/internal:range_tracker",
         "//tcmalloc/internal:system_allocator",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
