@@ -144,8 +144,14 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
   // total samples. Multiplying by T, the mean number of bytes between samples,
   // gives us a weight of T + k - f.
   //
+  // A request larger than the largest ssize_t wraps bytes_until_sample_ past
+  // zero and back to a non-negative value in TryRecordAllocationFast, so the
+  // counter no longer encodes f.  Such a request cannot be satisfied anyway;
+  // clamp the weight rather than derive it from the wrapped counter.
   ssize_t weight;
-  if (ABSL_PREDICT_FALSE(__builtin_ssubl_overflow(
+  if (ABSL_PREDICT_FALSE(
+          k > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) ||
+      ABSL_PREDICT_FALSE(__builtin_ssubl_overflow(
           sample_interval_, bytes_until_sample_ + kIntervalOffset, &weight))) {
     weight = std::numeric_limits<ssize_t>::max();
   }
