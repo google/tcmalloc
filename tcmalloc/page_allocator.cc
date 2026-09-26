@@ -137,6 +137,19 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
                    limit_hits_[kHard]);
       return;
     }
+    // ShrinkHardBy counts only the pages this call released.  Releasing drops
+    // pageheap_lock while unbacking, so another thread may have freed or
+    // released memory meanwhile, including candidates this call had selected
+    // and so could not release itself.  Consult the heap before aborting.
+    s = stats();
+    const size_t backed_now =
+        s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+    if (backed_now <= limits_[kHard]) {
+      ++successful_shrinks_after_limit_hit_[kHard];
+      TC_ASSERT_EQ(successful_shrinks_after_limit_hit_[kHard],
+                   limit_hits_[kHard]);
+      return;
+    }
     const size_t hard_limit = limits_[kHard];
     limits_[kHard] = std::numeric_limits<size_t>::max();
     TC_BUG(

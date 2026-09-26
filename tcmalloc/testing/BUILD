@@ -815,6 +815,28 @@ create_tcmalloc_testsuite(
 )
 
 create_tcmalloc_testsuite(
+    name = "concurrent_release_test",
+    timeout = "long",
+    srcs = ["concurrent_release_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    shard_count = 2,
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":testutil",
+        ":thread_manager",
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:bit_gen_ref",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
     name = "drain_test",
     srcs = ["drain_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

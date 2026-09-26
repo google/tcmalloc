@@ -146,10 +146,24 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     return FakeStaticForwarder::Back(r);
   }
 
+  // Production's ShrinkToUsageLimit releases memory, breaking hugepages, when
+  // over the limit.  It runs with pageheap_lock held from RefillFiller, with a
+  // hugepage taken from HugeCache but not yet contributed to the filler, and
+  // from Finalize, with the range carved out but not yet returned.
+  // shrink_callback_ lets the fuzzer do the same.
+  void ShrinkToUsageLimit(Length n, bool may_have_grown)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    FakeStaticForwarder::ShrinkToUsageLimit(n, may_have_grown);
+    if (shrink_callback_) {
+      shrink_callback_(n);
+    }
+  }
+
   bool allocate_succeeds_ = true;
   Length pending_release_;
   Length pending_back_;
   std::function<void()> lock_dropped_callback_;
+  std::function<void(Length)> shrink_callback_;
 };
 
 struct State;
@@ -527,6 +541,20 @@ struct UpdateBitmaps {
   }
 };
 
+// While pages > 0, every allocation's ShrinkToUsageLimit releases at least
+// that many pages, breaking hugepages, from inside the allocation, as
+// production does when over the memory limit.
+struct SetUsageLimitPressure {
+  uint16_t pages;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetUsageLimitPressure& s) {
+    absl::Format(&sink, "SetUsageLimitPressure{.pages=%v}", s.pages);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -546,7 +574,7 @@ using ParamOp = std::variant<
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
     SetReleaseMaxFillerPages, SetEnableReleaseStalePages,
-    SetMadvNoHugepageHugeRegions, UpdateBitmaps>;
+    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -610,11 +638,34 @@ struct State {
     allocator.forwarder().lock_dropped_callback_ = [this]() {
       OnLockDropped();
     };
+    allocator.forwarder().shrink_callback_ = [this](Length n) {
+      OnShrinkToUsageLimit(n);
+    };
   }
 
-  // Runs the next queued reentrant subprogram, if any.  Invoked by the
-  // forwarder and the residency fakes wherever the allocator has dropped
-  // pageheap_lock around a system call.
+  // Releases usage_limit_pressure pages from inside the allocation in
+  // progress, as production's ShrinkToUsageLimit does over the memory limit.
+  void OnShrinkToUsageLimit(Length n) {
+    pageheap_lock.AssertHeld();
+    // The release may drop pageheap_lock and run further allocations; those
+    // must not nest another release.
+    if (usage_limit_pressure == Length(0) || in_usage_limit_release) {
+      return;
+    }
+    in_usage_limit_release = true;
+    pending_alloc = n;
+    const Length released = allocator.ReleaseAtLeastNPagesBreakingHugepages(
+        usage_limit_pressure, PageReleaseReason::kSoftLimitExceeded);
+    pending_alloc = Length(0);
+    // Accounted as ReleasePagesBreakingHugepages::Perform does.
+    expected_stats.total += released;
+    expected_stats.soft_limit_exceeded += released;
+    in_usage_limit_release = false;
+  }
+
+  // Checks the allocator's accounting and runs the next queued reentrant
+  // subprogram, if any.  Invoked by the forwarder and the residency fakes
+  // wherever the allocator has dropped pageheap_lock around a system call.
   void OnLockDropped() {
     if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
       // This permits a slight degree of nondeterminism when linked against
@@ -627,6 +678,12 @@ struct State {
       // can be taken.
       return;
     }
+
+    // Another thread could take the lock here whether or not a subprogram
+    // does, so the accounting must be consistent at every drop.
+    ++lock_drops;
+    CheckInvariants();
+    --lock_drops;
 
     if (reentrant_stack.empty()) {
       return;
@@ -664,6 +721,8 @@ struct State {
       stats = allocator.stats();
       release_stats = allocator.GetReleaseStats();
     }
+    TC_CHECK_EQ(release_stats, expected_stats);
+    TC_CHECK_EQ(live_ranges.size(), allocs.size());
     // Everything not free or unmapped is held by a live span, except for
     // pages whose release is in flight.
     TC_CHECK_GE(stats.system_bytes, stats.free_bytes + stats.unmapped_bytes);
@@ -673,17 +732,26 @@ struct State {
         allocated.in_bytes() +
         allocator.forwarder().pending_release_.in_bytes() +
         allocator.forwarder().pending_back_.in_bytes();
-    if (treating_trackers) {
-      // A tracker emptied by a reentrant free while a treatment still pins it
-      // is parked off every list until the treatment finishes, so its
-      // hugepage is neither free nor unmapped in stats until then.
-      TC_CHECK_GE(used, expected_used);
-      TC_CHECK_EQ((used - expected_used) % kHugePageSize, 0);
-    } else {
-      TC_CHECK_EQ(used, expected_used);
+    TC_CHECK_GE(used, expected_used);
+    // A tracker emptied by a reentrant free while a treatment still pins it
+    // is parked off every list until the treatment finishes, so its hugepage
+    // is neither free nor unmapped in stats until then.
+    auto parked_only = [&](size_t over) {
+      return over == 0 || (treating_trackers && over % kHugePageSize == 0);
+    };
+    size_t over = used - expected_used;
+    if (pending_alloc == Length(0)) {
+      TC_CHECK(parked_only(over), "%v", over);
+      return;
     }
-    TC_CHECK_EQ(release_stats, expected_stats);
-    TC_CHECK_EQ(live_ranges.size(), allocs.size());
+    // An allocation's usage-limit release is running.  The allocation is not
+    // yet in `allocated`, and holds either the range it carved out but has
+    // not yet returned (Finalize) or a whole hugepage taken from HugeCache
+    // but not yet contributed to the filler (RefillFiller).
+    const size_t range = pending_alloc.in_bytes();
+    TC_CHECK((over >= range && parked_only(over - range)) ||
+                 (over >= kHugePageSize && parked_only(over - kHugePageSize)),
+             "%v %v", over, range);
   }
 
   HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator;
@@ -699,8 +767,17 @@ struct State {
   std::map<PageId, Length> live_ranges;
   Length allocated;
   PageReleaseStats expected_stats;
+  // Usage-limit release nested in allocations (SetUsageLimitPressure and
+  // FakeStaticForwarderWithUnback::ShrinkToUsageLimit).  pending_alloc is the
+  // length of the allocation whose release is in progress.
+  Length usage_limit_pressure;
+  bool in_usage_limit_release = false;
+  Length pending_alloc;
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
+  // Nonzero while CheckInvariants runs from a callback the allocator invoked
+  // with pageheap_lock dropped, before any subprogram.
+  int lock_drops = 0;
   // Bumped whenever a reentrant subprogram runs, so an operation can tell
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;
@@ -1039,6 +1116,10 @@ void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
             : MadviseRegionsNoHugepage::kDisabled);
 }
 
+void SetUsageLimitPressure::Perform(State& state) const {
+  state.usage_limit_pressure = Length(pages);
+}
+
 void UpdateBitmaps::Perform(State& state) const {
   if (hugepage_backed_set) {
     state.is_hugepage_backed = hugepage_backed_val;
@@ -1056,8 +1137,10 @@ void UpdateBitmaps::Perform(State& state) const {
   state.stale_bitmap = GetBitmap(stale_bitmap_val);
 }
 
-void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
-              const std::vector<Instruction>& instructions) {
+// Runs instructions, cleans up, and returns the allocator's final release
+// stats, which equal the fuzzer's expected_stats.
+PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
+                         const std::vector<Instruction>& instructions) {
   HugePageAwareAllocatorOptions options =
       static_cast<HugePageAwareAllocatorOptions>(fuzz_options);
   // Use kNormalP1 memory tag only if we have more than one partitions.
@@ -1112,6 +1195,14 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
   TC_CHECK_EQ(state.allocator.FillerStats().system_bytes, 0);
   TC_CHECK_EQ(state.allocator.DonatedHugePages(), NHugePages(0));
   TC_CHECK_EQ(state.allocator.AbandonedPages(), Length(0));
+  return final_stats;
+}
+
+// FUZZ_TEST only accepts a property function returning void, so regression
+// tests that inspect the final release stats call RunHPAA directly.
+void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
+              const std::vector<Instruction>& instructions) {
+  RunHPAA(fuzz_options, instructions);
 }
 
 auto AnyDuration() { return fuzztest::NonNegative<int64_t>(); }
@@ -1180,7 +1271,18 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
           [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()),
       fuzztest::Map([](UpdateBitmaps u) { return ChangeParam{u}; },
-                    fuzztest::Arbitrary<UpdateBitmaps>()));
+                    fuzztest::Arbitrary<UpdateBitmaps>()),
+      // Nonzero pressure makes every allocation release; keep it off half the
+      // time and otherwise at most a hugepage so programs stay allocation
+      // heavy.
+      fuzztest::Map(
+          [](uint16_t pages) {
+            return ChangeParam{SetUsageLimitPressure{.pages = pages}};
+          },
+          fuzztest::OneOf(
+              fuzztest::Just(uint16_t{0}),
+              fuzztest::InRange<uint16_t>(
+                  1, static_cast<uint16_t>(kPagesPerHugePage.raw_num())))));
 
   if (depth <= 0) {
     return fuzztest::OneOf(
@@ -1687,6 +1789,43 @@ TEST(HugePageAwareAllocatorTest, b552964557) {
        Instruction{PrintStats{.everything = true}}});
 }
 
+// A release nested inside an allocation.  Unaligned 64 page allocations pack
+// four to a hugepage through AllocSmall.  With usage-limit pressure set, a 100
+// page allocation that does not fit the first hugepage's 64 page free run
+// makes RefillFiller take a fresh hugepage from HugeCache, and
+// ShrinkToUsageLimit then releases from the filler with that hugepage out of
+// the cache but not yet in the filler.  The queued program runs at the next
+// lock drop, allocates (another hugepage, whose own ShrinkToUsageLimit must
+// not nest a second release) and frees everything else.
+TEST(HugePageAwareAllocatorTest, ReleaseNestedInAllocation) {
+  const Alloc quarter{.length = 64,
+                      .num_objects = 1,
+                      .alignment = 1,
+                      .use_aligned = false,
+                      .dense = false};
+  const Alloc refill{.length = 100,
+                     .num_objects = 1,
+                     .alignment = 1,
+                     .use_aligned = false,
+                     .dense = false};
+  const PageReleaseStats stats = RunHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{quarter}, Instruction{quarter}, Instruction{quarter},
+       Instruction{quarter}, Instruction{Dealloc{.index = 0}},
+       Instruction{ChangeParam{SetUsageLimitPressure{.pages = 1}}},
+       Instruction{ChangeParam{ReentrantSubprogram{
+           {Instruction{quarter}, Instruction{Dealloc{.index = 0}},
+            Instruction{Dealloc{.index = 0}}, Instruction{Dealloc{.index = 0}},
+            Instruction{Dealloc{.index = 0}}}}}},
+       Instruction{refill},
+       Instruction{ChangeParam{SetUsageLimitPressure{.pages = 0}}}});
+  // Only the nested releases use kSoftLimitExceeded; the first of them must
+  // at least have broken up the first hugepage's free run.
+  EXPECT_GE(stats.soft_limit_exceeded, Length(64));
+}
+
 TEST(HugePageAwareAllocatorTest, PrinterTest) {
   Alloc a{.length = 15576967129319913528ULL,
           .num_objects = 1,
@@ -1725,6 +1864,8 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
             "SetCollapseSucceeds{.value=true}");
   EXPECT_EQ(absl::StrCat(SetSubreleaseUnbackedHugepages{.value = false}),
             "SetSubreleaseUnbackedHugepages{.value=false}");
+  EXPECT_EQ(absl::StrCat(SetUsageLimitPressure{.pages = 3}),
+            "SetUsageLimitPressure{.pages=3}");
 }
 
 }  // namespace
