@@ -21,6 +21,8 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
+#include "tcmalloc/static_forwarder.h"
+#include "tcmalloc/static_vars.h"  // IWYU pragma: keep
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
