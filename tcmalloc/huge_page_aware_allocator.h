@@ -1155,9 +1155,9 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
   out.printf("\n");
 
   out.printf(
-      "HugePageAware: filler donations %zu (%zu pages from abandoned "
+      "HugePageAware: filler donations %v (%v pages from abandoned "
       "donations)\n",
-      donated_huge_pages_.raw_num(), abandoned_pages_.raw_num());
+      donated_huge_pages_, abandoned_pages_);
 
   // Component debug output
   // Filler is by far the most important; print (some) of it

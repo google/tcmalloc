@@ -435,7 +435,7 @@ struct State {
     // allocs while we iterate it.
     reentrant_stack.clear();
     CHECK(parked.empty());
-    CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
+    CHECK_EQ(Length(released_set.size()), filler.unmapped_pages());
     while (!trackers.empty()) {
       // Retire the tracker and its allocations before Put, as Deallocate does:
       // the final Put may unback the hugepage, and CheckNotLive must see
@@ -485,7 +485,7 @@ struct State {
   // the same accounting another thread would.
   void CheckInvariants() {
     PageHeapSpinLockHolder l;
-    TC_CHECK_EQ(filler.size().raw_num(), trackers.size());
+    TC_CHECK_EQ(filler.size(), NHugePages(trackers.size()));
     // Sparse and dense allocations live on disjoint sets of hugepages, so the
     // per-density counters track our live allocations exactly.
     for (int d = 0; d < AccessDensityPrediction::kPredictionCounts; ++d) {
@@ -504,7 +504,7 @@ struct State {
       // the lock dropped; released_set catches up once Put returns.
       return;
     }
-    TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
+    TC_CHECK_EQ(filler.unmapped_pages(), Length(released_set.size()));
     CheckTrackerBitmaps();
     // Every operation that pins trackers drains the ones it parked before it
     // returns to the top level.
@@ -538,7 +538,7 @@ struct State {
     size_t released = 0;
     for (const PageTracker* pt : trackers) {
       const PageBitmap& rel = pt->released_by_page();
-      TC_CHECK_EQ(pt->released_pages().raw_num(), rel.CountBits());
+      TC_CHECK_EQ(pt->released_pages(), Length(rel.CountBits()));
       TC_CHECK_EQ((rel & pt->allocated_pages_bitmap()).CountBits(), 0);
       const PageId first = pt->location().first_page();
       rel.ForEachSet(0, [&](size_t i) {
@@ -692,9 +692,9 @@ void Allocate::Perform(State& state) const {
                               .density = density};
 
   if (state.depth == 0) {
-    TC_CHECK_EQ(state.filler.size().raw_num(), state.trackers.size());
-    TC_CHECK_EQ(state.filler.unmapped_pages().raw_num(),
-                state.released_set.size());
+    TC_CHECK_EQ(state.filler.size(), NHugePages(state.trackers.size()));
+    TC_CHECK_EQ(state.filler.unmapped_pages(),
+                Length(state.released_set.size()));
   }
 
   HugePageFiller<PageTracker>::TryGetResult result;
@@ -741,9 +741,9 @@ void Allocate::Perform(State& state) const {
 
   if (state.depth == 0) {
     TC_CHECK_EQ(result.pt->used_pages(), state.LivePagesOn(result.pt));
-    TC_CHECK_EQ(state.filler.size().raw_num(), state.trackers.size());
-    TC_CHECK_EQ(state.filler.unmapped_pages().raw_num(),
-                state.released_set.size());
+    TC_CHECK_EQ(state.filler.size(), NHugePages(state.trackers.size()));
+    TC_CHECK_EQ(state.filler.unmapped_pages(),
+                Length(state.released_set.size()));
   }
 }
 
@@ -798,9 +798,9 @@ void Deallocate::Perform(State& state) const {
   }
 
   if (state.depth == 0) {
-    TC_CHECK_EQ(state.filler.size().raw_num(), state.trackers.size());
-    TC_CHECK_EQ(state.filler.unmapped_pages().raw_num(),
-                state.released_set.size());
+    TC_CHECK_EQ(state.filler.size(), NHugePages(state.trackers.size()));
+    TC_CHECK_EQ(state.filler.unmapped_pages(),
+                Length(state.released_set.size()));
   }
 }
 
@@ -818,7 +818,7 @@ void Release::Perform(State& state) const {
     }
   }
   Length desired(desired_pages);
-  size_t to_release_from_partial_allocs;
+  Length to_release_from_partial_allocs;
 
   const Length unmapped_before = state.filler.unmapped_pages();
   const size_t runs_before = state.reentrant_runs;
@@ -826,8 +826,8 @@ void Release::Perform(State& state) const {
   {
     PageHeapSpinLockHolder l;
     to_release_from_partial_allocs =
-        HugePageFiller<PageTracker>::kPartialAllocPagesRelease *
-        state.filler.FreePagesInPartialAllocs().raw_num();
+        Length(HugePageFiller<PageTracker>::kPartialAllocPagesRelease *
+               state.filler.FreePagesInPartialAllocs().raw_num());
     released = state.filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
     state.DrainFullyFreedTrackers();
@@ -841,7 +841,7 @@ void Release::Perform(State& state) const {
       !state.unback_success || state.depth != 0) {
     return;
   }
-  TC_CHECK_GE(released.raw_num(), to_release_from_partial_allocs);
+  TC_CHECK_GE(released, to_release_from_partial_allocs);
 }
 
 void AdvanceClock::Perform(State& state) const {
@@ -891,9 +891,9 @@ void ModelTail::Perform(State& state) const {
   state.live_pages[AccessDensityPrediction::kSparse] += n;
 
   if (state.depth == 0) {
-    TC_CHECK_EQ(state.filler.size().raw_num(), state.trackers.size());
-    TC_CHECK_EQ(state.filler.unmapped_pages().raw_num(),
-                state.released_set.size());
+    TC_CHECK_EQ(state.filler.size(), NHugePages(state.trackers.size()));
+    TC_CHECK_EQ(state.filler.unmapped_pages(),
+                Length(state.released_set.size()));
   }
 }
 
@@ -918,7 +918,7 @@ void MemoryLimitHitRelease::Perform(State& state) const {
   }
   const Length expected =
       state.unback_success ? std::min(free, desired_len) : Length(0);
-  TC_CHECK_GE(released.raw_num(), expected.raw_num());
+  TC_CHECK_GE(released, expected);
 }
 
 void GatherStatsPbtxt::Perform(State& state) const {
