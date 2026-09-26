@@ -434,6 +434,7 @@ struct State {
     // tracker drops the lock, so stop running subprograms that would mutate
     // allocs while we iterate it.
     reentrant_stack.clear();
+    CHECK(parked.empty());
     CHECK_EQ(released_set.size(), filler.unmapped_pages().raw_num());
     while (!trackers.empty()) {
       // Retire the tracker and its allocations before Put, as Deallocate does:
@@ -505,6 +506,28 @@ struct State {
     }
     TC_CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
     CheckTrackerBitmaps();
+    // Every operation that pins trackers drains the ones it parked before it
+    // returns to the top level.
+    TC_CHECK(parked.empty());
+    TC_CHECK(filler.FetchFullyFreedTracker() == nullptr);
+  }
+
+  // Retires the trackers the filler parked because a Put emptied them while
+  // a treatment held them pinned.  Each one must be a tracker we saw parked,
+  // and the filler hands it back only once its pins are cleared.
+  void DrainFullyFreedTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    while (PageTracker* pt = filler.FetchFullyFreedTracker()) {
+      TC_CHECK_EQ(parked.erase(pt), 1);
+      TC_CHECK(pt->empty());
+      TC_CHECK(!pt->DontFreeTracker());
+      const HugePage hp = pt->location();
+      for (PageId p = hp.first_page(),
+                  end = hp.first_page() + kPagesPerHugePage;
+           p != end; ++p) {
+        released_set.erase(p);
+      }
+      delete pt;
+    }
   }
 
   // Each tracker's released bitmap agrees with its released count, marks no
@@ -576,6 +599,10 @@ struct State {
   HugePageFiller<PageTracker> filler;
 
   std::vector<PageTracker*> trackers;
+  // Trackers a Put emptied while a treatment held them pinned.  The filler
+  // parks them and hands them back from FetchFullyFreedTracker once the
+  // treatment clears its pins; DrainFullyFreedTrackers retires them.
+  absl::flat_hash_set<PageTracker*> parked;
   // Live allocations by hugepage; each hugepage has exactly one tracker.
   absl::flat_hash_map<HugePage, std::vector<std::pair<Range, SpanAllocInfo>>>
       allocs;
@@ -747,11 +774,17 @@ void Deallocate::Perform(State& state) const {
     PageHeapSpinLockHolder l;
     ret = state.filler.Put(pt, alloc, alloc_info);
   }
-  if (state.depth == 0) {
-    TC_CHECK_EQ(ret != nullptr, last_alloc);
-    if (ret == nullptr) {
+  if (!last_alloc) {
+    TC_CHECK_EQ(ret, nullptr);
+    if (state.depth == 0) {
       TC_CHECK_EQ(pt->used_pages(), state.LivePagesOn(pt));
     }
+  } else if (ret == nullptr) {
+    // Emptied while a treatment that dropped the lock held it pinned, so the
+    // filler parked it rather than hand it back.
+    TC_CHECK_GT(state.depth, 0);
+    TC_CHECK(pt->DontFreeTracker());
+    TC_CHECK(state.parked.insert(pt).second);
   }
   if (ret) {
     // Only the hugepage we emptied is handed back.
@@ -797,6 +830,7 @@ void Release::Perform(State& state) const {
         state.filler.FreePagesInPartialAllocs().raw_num();
     released = state.filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
+    state.DrainFullyFreedTrackers();
   }
   if (state.depth == 0 && runs_before == state.reentrant_runs) {
     state.CheckReleased(released, unmapped_before);
@@ -874,6 +908,7 @@ void MemoryLimitHitRelease::Perform(State& state) const {
     released = state.filler.ReleasePages(desired_len, SkipSubreleaseIntervals{},
                                          /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
+    state.DrainFullyFreedTrackers();
   }
   if (state.depth != 0) {
     return;
@@ -921,14 +956,7 @@ void TreatTrackers::Perform(State& state) const {
                                  : ReleaseStalePages::kDisabled,
       &pageflags, &residency);
   state.treating_trackers = false;
-  while (PageTracker* pt = state.filler.FetchFullyFreedTracker()) {
-    HugePage hp = pt->location();
-    for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
-         p != end; ++p) {
-      state.released_set.erase(p);
-    }
-    delete pt;
-  }
+  state.DrainFullyFreedTrackers();
   for (PageTracker* pt : state.trackers) {
     HugePage hp = pt->location();
     const PageBitmap& rel = pt->released_by_page();
