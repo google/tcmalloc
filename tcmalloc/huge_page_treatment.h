@@ -362,6 +362,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         selected_trackers_[num_valid_trackers_] = &pt;
         ++num_valid_trackers_;
         pt.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+        pt.ClearReleasedSinceSelected();
         if (num_valid_trackers_ == kTotalTrackersToScan) {
           std::make_heap(selected_trackers_.begin(),
                          selected_trackers_.begin() + num_valid_trackers_,
@@ -379,6 +380,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       PageTracker* last = selected_trackers_[num_valid_trackers_ - 1];
       TC_ASSERT_NE(last, nullptr);
       pt.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+      pt.ClearReleasedSinceSelected();
       last->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
       selected_trackers_[num_valid_trackers_ - 1] = &pt;
       std::push_heap(selected_trackers_.begin(),
@@ -488,22 +490,36 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     for (int i = 0; i < num_valid_trackers_; ++i) {
       PageTracker* tracker = residency_states_[i].tracker;
       TC_ASSERT_NE(tracker, nullptr);
-      tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
-      if (tracker->fully_freed()) {
+      // While we did not hold pageheap_lock, tracker may have been emptied
+      // (and parked on fully_freed_trackers_) or claimed by a ReleasePages
+      // that is unbacking it.  Either way it is off the filler lists; leave it
+      // alone.
+      if (tracker->fully_freed() || tracker->BeingReleased()) {
+        tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
+      }
+      if (residency_states_[i].tracker_state.maybe_hugepage_backed &&
+          tracker->GetHugePageResidencyState().released_since_selected) {
+        // The hugepage was observed (or collapsed) as hugepage backed, but
+        // another thread released pages from it while pageheap_lock was
+        // dropped, breaking it again (the pages may since have been
+        // reallocated, so released() alone would not show it).  Record it as
+        // broken so that a later pass reexamines it instead of skipping it as
+        // hugepage backed, and do not report the stale collapse to the filler.
+        residency_states_[i].tracker_state.maybe_hugepage_backed = false;
       }
       tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
       if (residency_states_[i].tracker_state.maybe_hugepage_backed) {
         if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
           page_filler_.OnCollapseSuccess(tracker);
         }
+        tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
       }
 
-      // It's possible that all the pages on the hugepage were freed when we had
-      // released the pageheap lock. Check that the longest free range is less
-      // than kPagesPerHugePage to make sure it's valid to release from that
-      // tracker.
+      // HandleReleaseFree drops pageheap_lock, so the kCollapse pin stays set
+      // across it: a concurrent Put that empties tracker then parks it rather
+      // than returning it underneath us.
       if (!residency_states_[i].tracker_state.swapped.IsZero()) {
         // TODO: b/425749361 - Clear swapped bit for pages that were freed.
         Length released_length = page_filler_.HandleReleaseFree(tracker);
@@ -518,6 +534,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           treatment_stats_.treated_pages_stale_subreleased +=
               released_length.raw_num();
         }
+      }
+      tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+      if (tracker->fully_freed()) {
+        continue;
       }
 
       if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {

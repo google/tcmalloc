@@ -455,6 +455,33 @@ TEST_F(PageTrackerTest, CollapseReleasedPage) {
   Put(a4);
 }
 
+// Release pins are counted, so two ReleasePages calls holding the same
+// candidate keep it pinned until both let go.  Treatment pins are independent
+// bits.
+TEST_F(PageTrackerTest, ReleasePinsAreCounted) {
+  EXPECT_FALSE(tracker_.DontFreeTracker());
+  EXPECT_FALSE(tracker_.PinnedForRelease());
+
+  tracker_.PinForRelease();
+  tracker_.PinForRelease();
+  EXPECT_TRUE(tracker_.PinnedForRelease());
+  EXPECT_TRUE(tracker_.DontFreeTracker());
+  EXPECT_FALSE(tracker_.DontFreeTracker(HugePageTreatmentType::kCollapse));
+
+  tracker_.UnpinForRelease();
+  EXPECT_TRUE(tracker_.PinnedForRelease());
+  EXPECT_TRUE(tracker_.DontFreeTracker());
+
+  tracker_.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+  tracker_.UnpinForRelease();
+  EXPECT_FALSE(tracker_.PinnedForRelease());
+  EXPECT_TRUE(tracker_.DontFreeTracker());
+  EXPECT_TRUE(tracker_.DontFreeTracker(HugePageTreatmentType::kCollapse));
+
+  tracker_.ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+  EXPECT_FALSE(tracker_.DontFreeTracker());
+}
+
 TEST_F(PageTrackerTest, ReleasingReturn) {
   static const Length kAllocSize = kPagesPerHugePage / 4;
   SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
