@@ -69,6 +69,8 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_forwarder.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -83,12 +85,12 @@ using testing::HasSubstr;
 class HugePageAwareAllocatorTest
     : public ::testing::TestWithParam<std::tuple<HugeRegionUsageOption, bool>> {
   class FakeStaticForwarderWithReleaseCheck
-      : public huge_page_allocator_internal::FakeStaticForwarder {
+      : public huge_page_allocator_internal::FakeHugePageStaticForwarder {
    public:
     [[nodiscard]] MemoryModifyStatus ReleasePages(Range r) {
       const uintptr_t start = reinterpret_cast<uintptr_t>(r.p.start_addr());
-      MemoryModifyStatus ret =
-          huge_page_allocator_internal::FakeStaticForwarder::ReleasePages(r);
+      MemoryModifyStatus ret = huge_page_allocator_internal::
+          FakeHugePageStaticForwarder::ReleasePages(r);
       // Try to acquire the lock. It is possible that we are holding
       // pageheap_lock while calling ReleasePages, so it might result in a
       // deadlock as RecordAllocation/RecordDeallocation may allocate.
@@ -109,7 +111,7 @@ class HugePageAwareAllocatorTest
     void Back(Range r) {
       ASSERT_TRUE(BackAllocations());
       TC_CHECK_LE(r.in_bytes(), BackSizeThresholdBytes());
-      huge_page_allocator_internal::FakeStaticForwarder::Back(r);
+      huge_page_allocator_internal::FakeHugePageStaticForwarder::Back(r);
     }
 
     void RecordAllocation(uintptr_t start_addr) {
@@ -1445,7 +1447,7 @@ class StatTest : public testing::Test {
  protected:
   StatTest() = default;
 
-  class Forwarder : public huge_page_allocator_internal::StaticForwarder {
+  class Forwarder : public StaticForwarder<Static, tc_globals> {
    public:
     MemoryBytes Memory() {
       MemoryBytes b = {0, 0};
@@ -1819,7 +1821,7 @@ inline constexpr Length kMaxLength =
 
 using FakeHugePageAwareAllocator =
     huge_page_allocator_internal::HugePageAwareAllocator<
-        huge_page_allocator_internal::FakeStaticForwarder>;
+        huge_page_allocator_internal::FakeHugePageStaticForwarder>;
 struct SpanDeleter {
   explicit SpanDeleter(FakeHugePageAwareAllocator* absl_nonnull allocator)
       : allocator(*allocator) {}
