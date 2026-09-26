@@ -269,6 +269,7 @@ class ShardedTransferCacheManagerBase {
           shard.transfer_caches[size_class].GetStats();
       stats.insert_hits += shard_stats.insert_hits;
       stats.insert_misses += shard_stats.insert_misses;
+      stats.insert_object_misses += shard_stats.insert_object_misses;
       stats.remove_hits += shard_stats.remove_hits;
       stats.remove_object_hits += shard_stats.remove_object_hits;
       stats.remove_misses += shard_stats.remove_misses;

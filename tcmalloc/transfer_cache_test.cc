@@ -784,6 +784,47 @@ TEST(ShardedTransferCacheManagerTest, PrintTelemetry) {
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("frontend_allocations: 10"));
 }
 
+TEST(ShardedTransferCacheManagerTest, GetStatsAggregatesInsertObjectMisses) {
+  using ShardedManager = FakeShardedTransferCacheEnvironment::ShardedManager;
+  constexpr int kNumShards = ShardedManager::kMinShardsAllowed;
+  FakeShardedTransferCacheEnvironment env(kNumShards,
+                                          /*use_generic_cache=*/true);
+  ShardedManager& manager = env.sharded_manager();
+  ASSERT_TRUE(manager.should_use(kSizeClass));
+
+  // Fill shard 0 to capacity one object at a time.
+  env.SetCurrentCpu(0);
+  void* ptr;
+  env.central_freelist().AllocateBatch({&ptr, 1});
+  manager.InsertRange(kSizeClass, absl::MakeSpan(&ptr, 1));
+  const int capacity = manager.GetStats(kSizeClass).capacity;
+  ASSERT_GT(capacity, 0);
+  while (manager.GetStats(kSizeClass).used < capacity) {
+    env.central_freelist().AllocateBatch({&ptr, 1});
+    manager.InsertRange(kSizeClass, absl::MakeSpan(&ptr, 1));
+  }
+  ASSERT_EQ(manager.GetStats(kSizeClass).insert_misses, 0);
+  ASSERT_EQ(manager.GetStats(kSizeClass).insert_object_misses, 0);
+
+  // The next batch misses in full and is forwarded to the freelist.
+  constexpr int kBatch = 4;
+  void* batch[kBatch];
+  env.central_freelist().AllocateBatch(batch);
+  manager.InsertRange(kSizeClass, absl::MakeSpan(batch));
+
+  const TransferCacheStats stats = manager.GetStats(kSizeClass);
+  EXPECT_EQ(stats.used, capacity);
+  EXPECT_EQ(stats.insert_misses, 1);
+  EXPECT_EQ(stats.insert_object_misses, kBatch);
+
+  StatsCounters<kNumClasses> counts;
+  std::string output = PrintToString(
+      1024 * 1024, [&](Printer& printer) { manager.Print(counts, printer); });
+  EXPECT_THAT(output, ::testing::HasSubstr(absl::StrFormat(
+                          "%8u insert misses (%10lu object misses)", 1,
+                          static_cast<unsigned long>(kBatch))));
+}
+
 namespace unit_tests {
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
     MockCentralFreeList, FakeTransferCacheManager>>;
