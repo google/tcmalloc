@@ -29,7 +29,9 @@
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/types/span.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/transfer_cache.h"
 #include "tcmalloc/transfer_cache_internals.h"
@@ -51,7 +53,8 @@ class FakeTransferCacheManager {
     // TODO(b/170732338): test with multiple different num_objects_to_move
     return kNumToMove;
   }
-  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+  void* Alloc(ArenaAlloc tag, size_t size, std::align_val_t alignment) {
+    TC_CHECK(tag == ArenaAlloc::kTransferCache);
     memory_.push_back(std::make_unique<AlignedPtr>(
         ::operator new(size, alignment), alignment));
     return memory_.back()->ptr;
@@ -83,7 +86,8 @@ class ArenaBasedFakeTransferCacheManager {
     if (size_class == kSizeClass) return kNumToMove;
     return 0;
   }
-  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+  void* Alloc(ArenaAlloc tag, size_t size, std::align_val_t alignment) {
+    TC_CHECK(tag == ArenaAlloc::kTransferCache);
     {
       // Bounce pageheap_lock to verify we can take it.
       //
@@ -109,13 +113,14 @@ class ArenaBasedFakeTransferCacheManager {
 class FakeShardedTransferCacheManager
     : public ArenaBasedFakeTransferCacheManager {
  public:
-  static void Init() {}
-  static bool UseGenericCache() { return enable_generic_cache_; }
-  static void SetGenericCache(bool value) { enable_generic_cache_ = value; }
-  static bool EnableCacheForLargeClassesOnly() {
+  static bool UseGenericShardedCache() { return enable_generic_cache_; }
+  static void SetGenericShardedCache(bool value) {
+    enable_generic_cache_ = value;
+  }
+  static bool UseShardedCacheForLargeClassesOnly() {
     return enable_cache_for_large_classes_only_;
   }
-  static void SetCacheForLargeClassesOnly(bool value) {
+  static void SetShardedCacheForLargeClassesOnly(bool value) {
     enable_cache_for_large_classes_only_ = value;
   }
 
@@ -416,8 +421,8 @@ class FakeShardedTransferCacheEnvironment {
   explicit FakeShardedTransferCacheEnvironment(int num_shards,
                                                bool use_generic_cache)
       : sharded_manager_(&cpu_layout_) {
-    Manager::SetGenericCache(use_generic_cache);
-    Manager::SetCacheForLargeClassesOnly(!use_generic_cache);
+    Manager::SetGenericShardedCache(use_generic_cache);
+    Manager::SetShardedCacheForLargeClassesOnly(!use_generic_cache);
 
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
@@ -425,8 +430,8 @@ class FakeShardedTransferCacheEnvironment {
 
   ~FakeShardedTransferCacheEnvironment() {
     Drain();
-    Manager::SetGenericCache(false);
-    Manager::SetCacheForLargeClassesOnly(false);
+    Manager::SetGenericShardedCache(false);
+    Manager::SetShardedCacheForLargeClassesOnly(false);
   }
 
   void Remove(int cpu, int n) {

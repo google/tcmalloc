@@ -29,6 +29,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
@@ -39,6 +40,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/static_forwarder.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
@@ -50,38 +52,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-
-class StaticForwarder {
- public:
-  static size_t class_to_size(int size_class);
-  static size_t num_objects_to_move(int size_class);
-  static void* absl_nonnull Alloc(size_t size,
-                                  std::align_val_t alignment = kAlignment);
-};
-
-class ShardedStaticForwarder : public StaticForwarder {
- public:
-  static void Init() {
-    use_generic_cache_ =
-        IsExperimentActive(Experiment::TCMALLOC_SHARDED_TC_ABLATION) &&
-        !IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
-    // Traditionally, we enable sharded transfer cache for large size
-    // classes alone.
-    enable_cache_for_large_classes_only_ = IsExperimentActive(
-        Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
-  }
-
-  static bool UseGenericCache() { return use_generic_cache_; }
-
-  static bool EnableCacheForLargeClassesOnly() {
-    return enable_cache_for_large_classes_only_;
-  }
-
- private:
-  static bool use_generic_cache_;
-  static bool enable_cache_for_large_classes_only_;
-};
 
 class ProdCpuLayout {
  public:
@@ -125,10 +95,13 @@ class ShardedTransferCacheManagerBase {
   static constexpr int kMinShardsAllowed = 3;
 
   void Init() {
-    forwarder_.Init();
+    use_generic_cache_ = forwarder_.UseGenericShardedCache();
+    use_cache_for_large_classes_only_ =
+        forwarder_.UseShardedCacheForLargeClassesOnly();
     num_shards_ = cpu_layout_->NumShards();
     shards_ = reinterpret_cast<Shard*>(forwarder_.Alloc(
-        sizeof(Shard) * num_shards_, std::align_val_t{ABSL_CACHELINE_SIZE}));
+        ArenaAlloc::kTransferCache, sizeof(Shard) * num_shards_,
+        std::align_val_t{ABSL_CACHELINE_SIZE}));
     TC_ASSERT_NE(shards_, nullptr);
 
     for (int shard = 0; shard < num_shards_; ++shard) {
@@ -316,10 +289,10 @@ class ShardedTransferCacheManagerBase {
   }
 
   bool UseCacheForLargeClassesOnly() const {
-    return forwarder_.EnableCacheForLargeClassesOnly();
+    return use_cache_for_large_classes_only_;
   }
 
-  bool UseGenericCache() const { return forwarder_.UseGenericCache(); }
+  bool UseGenericCache() const { return use_generic_cache_; }
 
   Forwarder& forwarder() { return forwarder_; }
   const Forwarder& forwarder() const { return forwarder_; }
@@ -367,9 +340,10 @@ class ShardedTransferCacheManagerBase {
 
   // Initializes all transfer caches in the given shard.
   void InitShard(Shard& shard) {
-    TransferCache* new_caches = reinterpret_cast<TransferCache*>(
-        forwarder_.Alloc(sizeof(TransferCache) * kNumClasses,
-                         std::align_val_t{ABSL_CACHELINE_SIZE}));
+    TransferCache* new_caches =
+        reinterpret_cast<TransferCache*>(forwarder_.Alloc(
+            ArenaAlloc::kTransferCache, sizeof(TransferCache) * kNumClasses,
+            std::align_val_t{ABSL_CACHELINE_SIZE}));
     TC_ASSERT_NE(new_caches, nullptr);
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
       Capacity capacity = UseGenericCache() ? ScaledCacheCapacity(size_class)
@@ -401,18 +375,21 @@ class ShardedTransferCacheManagerBase {
   int num_shards_ = 0;
   std::atomic<int> active_shards_ = 0;
   bool active_for_class_[kNumClasses] = {false};
+  bool use_generic_cache_ = false;
+  bool use_cache_for_large_classes_only_ = false;
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
   CpuLayout* const cpu_layout_;
 };
 
 using ShardedTransferCacheManager =
-    ShardedTransferCacheManagerBase<ShardedStaticForwarder, ProdCpuLayout,
-                                    BackingTransferCache>;
+    ShardedTransferCacheManagerBase<StaticForwarder<Static, tc_globals>,
+                                    ProdCpuLayout, BackingTransferCache>;
 
-class TransferCacheManager {
+template <typename Forwarder>
+class TransferCacheManagerBase {
   using TransferCache =
       internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
-                                             StaticForwarder>;
+                                             Forwarder>;
 
  public:
   static constexpr size_t kNumBaseClasses =
@@ -428,10 +405,10 @@ class TransferCacheManager {
   static constexpr size_t kColdClassesStart =
       tcmalloc::tcmalloc_internal::kColdClassesStart;
 
-  constexpr TransferCacheManager() = default;
+  constexpr TransferCacheManagerBase() = default;
 
-  TransferCacheManager(const TransferCacheManager&) = delete;
-  TransferCacheManager& operator=(const TransferCacheManager&) = delete;
+  TransferCacheManagerBase(const TransferCacheManagerBase&) = delete;
+  TransferCacheManagerBase& operator=(const TransferCacheManagerBase&) = delete;
 
   void Init() {
     for (int i = 0; i < kNumClasses; ++i) {
@@ -490,8 +467,8 @@ class TransferCacheManager {
     return cache_[size_class].tc.ShrinkCache(size_class);
   }
 
-  StaticForwarder& forwarder() { return forwarder_; }
-  const StaticForwarder& forwarder() const { return forwarder_; }
+  Forwarder& forwarder() { return forwarder_; }
+  const Forwarder& forwarder() const { return forwarder_; }
 
   bool IncreaseCacheCapacity(int size_class) {
     return cache_[size_class].tc.IncreaseCacheCapacity(size_class);
@@ -568,22 +545,28 @@ class TransferCacheManager {
     bool dummy;
   };
 
-  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS StaticForwarder forwarder_;
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
   Cache cache_[kNumClasses];
 } ABSL_CACHELINE_ALIGNED;
+
+using TransferCacheManager =
+    TransferCacheManagerBase<StaticForwarder<Static, tc_globals>>;
 
 #else
 
 // For the small memory model, the transfer cache is not used.
-class TransferCacheManager {
+template <typename Forwarder>
+class TransferCacheManagerBase {
+  using FreeList = central_freelist_internal::CentralFreeList<Forwarder>;
+
  public:
-  constexpr TransferCacheManager() = default;
-  TransferCacheManager(const TransferCacheManager&) = delete;
-  TransferCacheManager& operator=(const TransferCacheManager&) = delete;
+  constexpr TransferCacheManagerBase() = default;
+  TransferCacheManagerBase(const TransferCacheManagerBase&) = delete;
+  TransferCacheManagerBase& operator=(const TransferCacheManagerBase&) = delete;
 
   void Init() {
     for (int i = 0; i < kNumClasses; ++i) {
-      new (&cache_[i].freelist) CentralFreeList();
+      new (&cache_[i].freelist) FreeList();
       cache_[i].freelist.Init(i, Parameters::cfl_subbucket_prioritization());
     }
   }
@@ -600,11 +583,11 @@ class TransferCacheManager {
 
   static constexpr TransferCacheStats GetStats(int size_class) { return {}; }
 
-  const CentralFreeList& central_freelist(int size_class) const {
+  const FreeList& central_freelist(int size_class) const {
     return cache_[size_class].freelist;
   }
 
-  CentralFreeList& central_freelist(int size_class) {
+  FreeList& central_freelist(int size_class) {
     return cache_[size_class].freelist;
   }
 
@@ -617,11 +600,14 @@ class TransferCacheManager {
     constexpr Cache() : dummy(false) {}
     ~Cache() {}
 
-    CentralFreeList freelist;
+    FreeList freelist;
     bool dummy;
   };
   Cache cache_[kNumClasses];
 } ABSL_CACHELINE_ALIGNED;
+
+using TransferCacheManager =
+    TransferCacheManagerBase<StaticForwarder<Static, tc_globals>>;
 
 // A trivial no-op implementation.
 struct ShardedTransferCacheManager {
