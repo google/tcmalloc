@@ -32,6 +32,7 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
@@ -101,9 +102,11 @@ class TransferCache {
         forwarder_(),
         max_capacity_(capacity.max_capacity) {
     freelist().Init(size_class, Parameters::cfl_subbucket_prioritization());
-    slots_ = max_capacity_ != 0 ? reinterpret_cast<void**>(forwarder_.Alloc(
-                                      max_capacity_ * sizeof(void*)))
-                                : nullptr;
+    slots_ = max_capacity_ != 0
+                 ? reinterpret_cast<void**>(forwarder_.Alloc(
+                       ArenaAlloc::kTransferCache,
+                       max_capacity_ * sizeof(void*), kAlignment))
+                 : nullptr;
   }
 
   TransferCache(const TransferCache&) = delete;

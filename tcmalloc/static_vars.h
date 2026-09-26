@@ -51,6 +51,7 @@
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
+#include "tcmalloc/static_forwarder.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/transfer_cache.h"
 
@@ -229,7 +230,7 @@ class Static final {
   // cache lines these arrays use.
   Arena arena_;
   ABSL_CACHELINE_ALIGNED SizeMap sizemap_;
-  ABSL_CACHELINE_ALIGNED CpuCache<CpuCacheForwarder<Static, tc_globals>>
+  ABSL_CACHELINE_ALIGNED CpuCache<StaticForwarder<Static, tc_globals>>
       cpu_cache_;
   TransferCacheManager transfer_cache_;
   ShardedTransferCacheManager sharded_transfer_cache_{nullptr};
