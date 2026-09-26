@@ -29,7 +29,9 @@
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/types/span.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/transfer_cache.h"
 #include "tcmalloc/transfer_cache_internals.h"
@@ -41,17 +43,18 @@ inline constexpr size_t kClassSize = 8;
 inline constexpr size_t kNumToMove = 32;
 inline constexpr int kSizeClass = 1;
 
-// TransferCacheManager with basic stubs for everything.
+// TransferCache forwarder with basic stubs for everything.
 //
 // Useful for benchmarks where you want to unrelated expensive operations.
-class FakeTransferCacheManager {
+class FakeTransferCacheForwarder {
  public:
   constexpr static size_t class_to_size(int size_class) { return kClassSize; }
   constexpr static size_t num_objects_to_move(int size_class) {
     // TODO(b/170732338): test with multiple different num_objects_to_move
     return kNumToMove;
   }
-  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+  void* Alloc(ArenaAlloc tag, size_t size, std::align_val_t alignment) {
+    TC_CHECK(tag == ArenaAlloc::kTransferCache);
     memory_.push_back(std::make_unique<AlignedPtr>(
         ::operator new(size, alignment), alignment));
     return memory_.back()->ptr;
@@ -68,12 +71,12 @@ class FakeTransferCacheManager {
   std::vector<std::unique_ptr<AlignedPtr>> memory_;
 };
 
-// A transfer cache manager which wraps malloc.
+// A transfer cache forwarder which wraps malloc.
 //
 // TODO(b/175334169): Remove this once the locks are no longer used.
-class ArenaBasedFakeTransferCacheManager {
+class ArenaBasedFakeTransferCacheForwarder {
  public:
-  ArenaBasedFakeTransferCacheManager() = default;
+  ArenaBasedFakeTransferCacheForwarder() = default;
   constexpr static size_t class_to_size(int size_class) {
     // Chosen >= min size for the sharded transfer cache to kick in.
     if (size_class == kSizeClass) return 4096;
@@ -83,7 +86,8 @@ class ArenaBasedFakeTransferCacheManager {
     if (size_class == kSizeClass) return kNumToMove;
     return 0;
   }
-  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+  void* Alloc(ArenaAlloc tag, size_t size, std::align_val_t alignment) {
+    TC_CHECK(tag == ArenaAlloc::kTransferCache);
     {
       // Bounce pageheap_lock to verify we can take it.
       //
@@ -95,27 +99,23 @@ class ArenaBasedFakeTransferCacheManager {
   }
   static size_t used() { return used_; }
 
-  static void SetPartialLegacyTransferCache(bool value) {
-    partial_legacy_transfer_cache_ = value;
-  }
-
  private:
   static size_t used_;
-  static bool partial_legacy_transfer_cache_;
 };
 
-// A manager that may provide different configurations of sharded transfer
+// A forwarder that may provide different configurations of sharded transfer
 // cache.
-class FakeShardedTransferCacheManager
-    : public ArenaBasedFakeTransferCacheManager {
+class FakeShardedTransferCacheForwarder
+    : public ArenaBasedFakeTransferCacheForwarder {
  public:
-  static void Init() {}
-  static bool UseGenericCache() { return enable_generic_cache_; }
-  static void SetGenericCache(bool value) { enable_generic_cache_ = value; }
-  static bool EnableCacheForLargeClassesOnly() {
+  static bool UseGenericShardedCache() { return enable_generic_cache_; }
+  static void SetGenericShardedCache(bool value) {
+    enable_generic_cache_ = value;
+  }
+  static bool UseShardedCacheForLargeClassesOnly() {
     return enable_cache_for_large_classes_only_;
   }
-  static void SetCacheForLargeClassesOnly(bool value) {
+  static void SetShardedCacheForLargeClassesOnly(bool value) {
     enable_cache_for_large_classes_only_ = value;
   }
 
@@ -217,7 +217,7 @@ class FakeTransferCacheEnvironment {
 // A fake transfer cache manager class which supports two size classes instead
 // of just the one. To make this work, we have to store the transfer caches
 // inside the cache manager, like in production code.
-class ThreeSizeClassForwarder : public FakeTransferCacheManager {
+class ThreeSizeClassForwarder : public FakeTransferCacheForwarder {
  public:
   // This is 3 instead of 2 because we hard code size_class == 0 to be invalid
   // in many places. We only use size_class 1 and 2 here.
@@ -408,16 +408,16 @@ class MultiSizeClassTransferCacheEnvironment {
 
 class FakeShardedTransferCacheEnvironment {
  public:
-  using Manager = FakeShardedTransferCacheManager;
+  using Forwarder = FakeShardedTransferCacheForwarder;
   using ShardedManager =
-      ShardedTransferCacheManagerBase<Manager, FakeCpuLayout,
+      ShardedTransferCacheManagerBase<Forwarder, FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
 
   explicit FakeShardedTransferCacheEnvironment(int num_shards,
                                                bool use_generic_cache)
       : sharded_manager_(&cpu_layout_) {
-    Manager::SetGenericCache(use_generic_cache);
-    Manager::SetCacheForLargeClassesOnly(!use_generic_cache);
+    Forwarder::SetGenericShardedCache(use_generic_cache);
+    Forwarder::SetShardedCacheForLargeClassesOnly(!use_generic_cache);
 
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
@@ -425,8 +425,8 @@ class FakeShardedTransferCacheEnvironment {
 
   ~FakeShardedTransferCacheEnvironment() {
     Drain();
-    Manager::SetGenericCache(false);
-    Manager::SetCacheForLargeClassesOnly(false);
+    Forwarder::SetGenericShardedCache(false);
+    Forwarder::SetShardedCacheForLargeClassesOnly(false);
   }
 
   void Remove(int cpu, int n) {
@@ -447,10 +447,9 @@ class FakeShardedTransferCacheEnvironment {
   }
 
   ShardedManager& sharded_manager() { return sharded_manager_; }
-  Manager& transfer_cache_manager() { return sharded_manager_.forwarder(); }
   MinimalFakeCentralFreeList& central_freelist() { return freelist_; }
   void SetCurrentCpu(int cpu) { cpu_layout_.SetCurrentCpu(cpu); }
-  size_t MetadataAllocated() const { return Manager::used(); }
+  size_t MetadataAllocated() const { return Forwarder::used(); }
 
  private:
   MinimalFakeCentralFreeList freelist_;

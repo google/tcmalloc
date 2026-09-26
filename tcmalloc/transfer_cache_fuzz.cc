@@ -30,7 +30,7 @@ namespace {
 
 using TransferCache =
     internal_transfer_cache::TransferCache<MockCentralFreeList,
-                                           FakeTransferCacheManager>;
+                                           FakeTransferCacheForwarder>;
 using TransferCacheEnv = FakeTransferCacheEnvironment<TransferCache>;
 
 constexpr int kNumObjectsToMove =
