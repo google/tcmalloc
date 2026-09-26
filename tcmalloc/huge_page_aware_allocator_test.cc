@@ -69,6 +69,8 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_forwarder.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -1445,7 +1447,7 @@ class StatTest : public testing::Test {
  protected:
   StatTest() = default;
 
-  class Forwarder : public huge_page_allocator_internal::StaticForwarder {
+  class Forwarder : public StaticForwarder<Static, tc_globals> {
    public:
     MemoryBytes Memory() {
       MemoryBytes b = {0, 0};
