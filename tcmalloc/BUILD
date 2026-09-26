@@ -234,6 +234,7 @@ create_tcmalloc_libraries(
         "span_stats.h",
         "stack_trace_table.cc",
         "stack_trace_table.h",
+        "static_forwarder.h",
         "static_vars.cc",
         "static_vars.h",
         "stats.cc",
@@ -281,6 +282,7 @@ create_tcmalloc_libraries(
         "span.h",
         "span_stats.h",
         "stack_trace_table.h",
+        "static_forwarder.h",
         "static_vars.h",
         "stats.h",
         "tcmalloc_policy.h",
@@ -706,6 +708,7 @@ cc_library(
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
+        "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/random",
@@ -1753,6 +1756,26 @@ create_tcmalloc_testsuite(
         ":malloc_extension",
         "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:size_class_info",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "static_forwarder_test",
+    srcs = ["static_forwarder_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/testing:thread_manager",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )
