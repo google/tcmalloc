@@ -29,9 +29,8 @@ namespace tcmalloc_internal {
 void HugeAllocator::Print(Printer& out) const {
   out.printf("HugeAllocator: contiguous, unbacked hugepage(s)\n");
   free_.Print(out);
-  out.printf("HugeAllocator: %zu requested - %zu in use = %zu hugepages free\n",
-             from_system_.raw_num(), in_use_.raw_num(),
-             (from_system_ - in_use_).raw_num());
+  out.printf("HugeAllocator: %v requested - %v in use = %v hugepages free\n",
+             from_system_, in_use_, from_system_ - in_use_);
 }
 
 void HugeAllocator::PrintInPbtxt(PbtxtRegion& hpaa) const {
