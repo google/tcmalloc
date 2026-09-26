@@ -130,7 +130,6 @@ cc_test(
     # regardless of its own work, so ~20 cases need ~10 shards to stay <5 s.
     shard_count = 10,
     tags = [
-        "noasan",
         "nomsan",
         "notsan",
         "noubsan",
