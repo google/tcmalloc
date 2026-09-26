@@ -1341,6 +1341,42 @@ TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
   DeleteVector(p3);
 }
 
+// A tracker emptied while an operation that dropped pageheap_lock still holds
+// a pointer to it is parked, and FetchFullyFreedTracker returns it only once
+// every pin is cleared, regardless of its position among the parked trackers.
+TEST_F(FillerTest, FetchFullyFreedTrackerSkipsPinned) {
+  randomize_density_ = false;
+  PAlloc p1 = Allocate(Length(2));
+  PAlloc p2 = Allocate(kPagesPerHugePage - Length(1));
+  ASSERT_NE(p1.pt, p2.pt);
+  PageTracker* pt1 = p1.pt;
+  PageTracker* pt2 = p2.pt;
+  pt1->SetDontFreeTracker(HugePageTreatmentType::kSampled);
+  pt1->SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+  pt2->SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+  // Parked rather than returned: pt2, freed last, heads the parked list.
+  EXPECT_FALSE(DeleteRaw(p1));
+  EXPECT_FALSE(DeleteRaw(p2));
+
+  auto fetch = [&]() {
+    PageHeapSpinLockHolder l;
+    return filler_.FetchFullyFreedTracker();
+  };
+  EXPECT_EQ(fetch(), nullptr);
+  pt1->ClearDontFreeTracker(HugePageTreatmentType::kSampled);
+  EXPECT_EQ(fetch(), nullptr);
+  pt1->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+  EXPECT_EQ(fetch(), pt1);
+  EXPECT_EQ(fetch(), nullptr);
+  pt2->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+  EXPECT_EQ(fetch(), pt2);
+  EXPECT_EQ(fetch(), nullptr);
+  delete pt1;
+  delete pt2;
+  hp_contained_ -= NHugePages(2);
+  EXPECT_EQ(filler_.size(), hp_contained_);
+}
+
 // Parallelizes collapse and background swapped-subrelease operation,
 // concurrently with deallocating certain allocations. By deallocating
 // concurrently, some trackers end up in fully freed lists. We want to make sure
