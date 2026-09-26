@@ -62,7 +62,7 @@ namespace tcmalloc::tcmalloc_internal {
 
 namespace {
 
-using huge_page_allocator_internal::FakeStaticForwarder;
+using huge_page_allocator_internal::FakeHugePageStaticForwarder;
 using huge_page_allocator_internal::HugePageAwareAllocator;
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
@@ -102,7 +102,7 @@ int64_t fake_clock = 0;
 int64_t mock_clock() { return fake_clock; }
 double freq() { return 1e9; }
 
-class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
+class FakeStaticForwarderWithUnback : public FakeHugePageStaticForwarder {
  public:
   Clock clock() const { return Clock{.now = mock_clock, .freq = freq}; }
 
@@ -110,7 +110,7 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     if (!allocate_succeeds_) {
       return AddressRange{nullptr, 0};
     }
-    return FakeStaticForwarder::AllocatePages(bytes, align, tag);
+    return FakeHugePageStaticForwarder::AllocatePages(bytes, align, tag);
   }
 
   // The allocator drops pageheap_lock around the system calls below.  Each
@@ -121,17 +121,17 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     lock_dropped_callback_();
     pending_release_ -= r.n;
 
-    return FakeStaticForwarder::ReleasePages(r);
+    return FakeHugePageStaticForwarder::ReleasePages(r);
   }
 
   MemoryModifyStatus CollapsePages(Range r) {
     lock_dropped_callback_();
-    return FakeStaticForwarder::CollapsePages(r);
+    return FakeHugePageStaticForwarder::CollapsePages(r);
   }
 
   void SetAnonVmaName(Range r, std::optional<absl::string_view> name) {
     lock_dropped_callback_();
-    FakeStaticForwarder::SetAnonVmaName(r, name);
+    FakeHugePageStaticForwarder::SetAnonVmaName(r, name);
   }
 
   // New and NewAligned back the span after LockAndAlloc has released
@@ -143,7 +143,7 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     pending_back_ += r.n;
     lock_dropped_callback_();
     pending_back_ -= r.n;
-    return FakeStaticForwarder::Back(r);
+    return FakeHugePageStaticForwarder::Back(r);
   }
 
   bool allocate_succeeds_ = true;
