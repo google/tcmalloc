@@ -29,7 +29,9 @@
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/types/span.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/transfer_cache.h"
 #include "tcmalloc/transfer_cache_internals.h"
@@ -51,7 +53,8 @@ class FakeTransferCacheManager {
     // TODO(b/170732338): test with multiple different num_objects_to_move
     return kNumToMove;
   }
-  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+  void* Alloc(ArenaAlloc tag, size_t size, std::align_val_t alignment) {
+    TC_CHECK(tag == ArenaAlloc::kTransferCache);
     memory_.push_back(std::make_unique<AlignedPtr>(
         ::operator new(size, alignment), alignment));
     return memory_.back()->ptr;
@@ -83,7 +86,8 @@ class ArenaBasedFakeTransferCacheManager {
     if (size_class == kSizeClass) return kNumToMove;
     return 0;
   }
-  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+  void* Alloc(ArenaAlloc tag, size_t size, std::align_val_t alignment) {
+    TC_CHECK(tag == ArenaAlloc::kTransferCache);
     {
       // Bounce pageheap_lock to verify we can take it.
       //
