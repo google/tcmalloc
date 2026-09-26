@@ -879,8 +879,11 @@ void ReleasePagesBreakingHugepages::Perform(State& state) const {
   size_t releasable_bytes;
   PageReleaseStats actual_stats;
   // If we might run other operations when we simulate the lock being
-  // released, we might not get the results we expected.
-  const bool reentrant_was_pending = !state.reentrant_stack.empty();
+  // released, we might not get the results we expected.  Nested in another
+  // operation (depth > 0), releasable_bytes also counts trackers that
+  // operation has pinned or is collapsing, which this release cannot select.
+  const bool reentrant_was_pending =
+      state.depth > 0 || !state.reentrant_stack.empty();
   {
     PageHeapSpinLockHolder l;
     releasable_bytes = state.allocator.FillerStats().free_bytes +
@@ -1099,6 +1102,16 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
 
   TC_CHECK_EQ(state.allocated.in_bytes(), 0);
   TC_CHECK_EQ(final_stats, state.expected_stats);
+
+  // With every span returned, nothing may be left in the filler: every
+  // tracker, including any an operation that dropped pageheap_lock had
+  // pinned, must have gone back to HugeCache, unwinding the donation and
+  // abandonment telemetry with it.
+  state.CheckInvariants();
+  PageHeapSpinLockHolder l;
+  TC_CHECK_EQ(state.allocator.FillerStats().system_bytes, 0);
+  TC_CHECK_EQ(state.allocator.DonatedHugePages(), NHugePages(0));
+  TC_CHECK_EQ(state.allocator.AbandonedPages(), Length(0));
 }
 
 auto AnyDuration() { return fuzztest::NonNegative<int64_t>(); }
