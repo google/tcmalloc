@@ -141,6 +141,32 @@ TEST(SystemAllocatorTest, ReleaseLockedMemory) {
   EXPECT_EQ(allocator.release_errors(), 0);
 }
 
+TEST(SystemAllocatorTest, FlushCache) {
+  // Test null and empty range.
+  system_allocator_internal::FlushCacheRange(nullptr, 0);
+  system_allocator_internal::FlushCacheRange(nullptr, 1024);
+
+  // Test non-empty buffer with various alignments and sizes.
+  alignas(ABSL_CACHELINE_SIZE) char buf[256];
+  memset(buf, 0x5A, sizeof(buf));
+
+  system_allocator_internal::FlushCacheLine(buf);
+  system_allocator_internal::FlushCacheMemoryBarrier();
+
+  // Test FlushCacheRange with exact cache line size.
+  system_allocator_internal::FlushCacheRange(buf, ABSL_CACHELINE_SIZE);
+  system_allocator_internal::FlushCacheMemoryBarrier();
+
+  // Test FlushCacheRange with unaligned pointer and arbitrary size.
+  system_allocator_internal::FlushCacheRange(buf + 1, sizeof(buf) - 2);
+  system_allocator_internal::FlushCacheMemoryBarrier();
+
+  // Verify memory contents were not corrupted by cache flushing.
+  for (size_t i = 0; i < sizeof(buf); ++i) {
+    EXPECT_EQ(buf[i], static_cast<char>(0x5A));
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
