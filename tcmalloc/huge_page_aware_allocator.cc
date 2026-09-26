@@ -14,25 +14,11 @@
 
 #include "tcmalloc/huge_page_aware_allocator.h"
 
-#include <cstddef>
-#include <optional>
-
 #include "absl/base/attributes.h"
-#include "absl/base/nullability.h"
-#include "absl/strings/string_view.h"
-#include "tcmalloc/arena.h"
-#include "tcmalloc/error_reporting.h"
-#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/memory_tag.h"
-#include "tcmalloc/internal/system_allocator.h"
-#include "tcmalloc/pagemap.h"
-#include "tcmalloc/pages.h"
-#include "tcmalloc/span.h"
-#include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -108,64 +94,6 @@ HugeRegionUsageOption huge_region_option() {
   return use_huge_region_more_often()
              ? HugeRegionUsageOption::kUseForAllLargeAllocs
              : HugeRegionUsageOption::kDefault;
-}
-
-Arena& StaticForwarder::arena() { return tc_globals.arena(); }
-
-void* StaticForwarder::GetHugepage(HugePage p) {
-  return tc_globals.pagemap().GetHugepage(p.first_page());
-}
-
-bool StaticForwarder::Ensure(Range r) { return tc_globals.pagemap().Ensure(r); }
-
-void StaticForwarder::ClearSpan(PageId page) {
-  tc_globals.pagemap().Set(page, const_cast<Span*>(&tc_globals.invalid_span()));
-}
-
-void StaticForwarder::SetSpan(PageId page, Span* absl_nonnull span) {
-  tc_globals.pagemap().Set(page, span);
-}
-
-void StaticForwarder::SetHugepage(HugePage p, void* pt) {
-  tc_globals.pagemap().SetHugepage(p.first_page(), pt);
-}
-
-void StaticForwarder::ShrinkToUsageLimit(Length n, bool may_have_grown) {
-  tc_globals.page_allocator().ShrinkToUsageLimit(n, may_have_grown);
-}
-
-Span* StaticForwarder::NewSpan(Range r) {
-  // TODO(b/134687001):  Delete this when span_allocator moves.
-  return Span::New(r);
-}
-
-void StaticForwarder::DeleteSpan(Span* span) { Span::Delete(span); }
-
-AddressRange StaticForwarder::AllocatePages(size_t bytes, size_t align,
-                                            MemoryTag tag) {
-  return tc_globals.system_allocator().Allocate(bytes, align, tag);
-}
-
-void StaticForwarder::Back(Range r) {
-  tc_globals.system_allocator().Back(r.start_addr(), r.in_bytes());
-}
-
-MemoryModifyStatus StaticForwarder::ReleasePages(Range r) {
-  return tc_globals.system_allocator().Release(r.start_addr(), r.in_bytes());
-}
-
-void StaticForwarder::ReportDoubleFree(void* ptr) {
-  ::tcmalloc::tcmalloc_internal::ReportDoubleFree(tc_globals, ptr);
-}
-
-MemoryModifyStatus StaticForwarder::CollapsePages(Range r) {
-  return tc_globals.system_allocator().Collapse(r.start_addr(), r.in_bytes());
-}
-
-void StaticForwarder::SetAnonVmaName(Range r,
-                                     std::optional<absl::string_view> name) {
-  tc_globals.system_allocator().SetAnonVmaName(r.start_addr(), r.in_bytes(),
-                                               name);
 }
 
 }  // namespace huge_page_allocator_internal

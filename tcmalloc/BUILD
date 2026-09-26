@@ -186,8 +186,8 @@ create_tcmalloc_libraries(
         "arena.cc",
         "arena.h",
         "background.cc",
-        "central_freelist.cc",
         "central_freelist.h",
+        "central_freelist_options.h",
         "common.cc",
         "common.h",
         "cpu_cache.cc",
@@ -234,6 +234,7 @@ create_tcmalloc_libraries(
         "span_stats.h",
         "stack_trace_table.cc",
         "stack_trace_table.h",
+        "static_forwarder.h",
         "static_vars.cc",
         "static_vars.h",
         "stats.cc",
@@ -249,6 +250,7 @@ create_tcmalloc_libraries(
         "allocation_sampling.h",
         "arena.h",
         "central_freelist.h",
+        "central_freelist_options.h",
         "common.h",
         "cpu_cache.h",
         "deallocation_profiler.h",
@@ -281,6 +283,7 @@ create_tcmalloc_libraries(
         "span.h",
         "span_stats.h",
         "stack_trace_table.h",
+        "static_forwarder.h",
         "static_vars.h",
         "stats.h",
         "tcmalloc_policy.h",
@@ -655,6 +658,7 @@ create_tcmalloc_libraries(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        "//tcmalloc/internal:central_freelist_hooks",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:hook_list",
         "@com_google_absl//absl/base:core_headers",
@@ -706,6 +710,7 @@ cc_library(
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
+        "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/random",
@@ -1753,6 +1758,27 @@ create_tcmalloc_testsuite(
         ":malloc_extension",
         "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:size_class_info",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "static_forwarder_test",
+    srcs = ["static_forwarder_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":experiment",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/testing:thread_manager",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )
