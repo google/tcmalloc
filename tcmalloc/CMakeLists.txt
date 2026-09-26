@@ -1293,7 +1293,6 @@ tcmalloc_cc_test(
     "absl::status"
     "absl::str_format"
     "absl::strings"
-    "absl::synchronization"
     "absl::time"
     "benchmark::benchmark"
     "tcmalloc::common_8k_pages"

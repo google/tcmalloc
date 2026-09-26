@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <optional>
 #include <random>
@@ -34,6 +35,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/algorithm/container.h"
+#include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
@@ -46,8 +48,6 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
-#include "absl/synchronization/blocking_counter.h"
-#include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
@@ -287,8 +287,14 @@ class MockCollapse final : public MemoryModifyFunction {
     EXPECT_EQ(r.n, kPagesPerHugePage);
     ++collapsed_[r.start_addr()];
     FakeClock::Advance(latency_);
+    if (unlocked_hook_ != nullptr) {
+      unlocked_hook_(r);
+    }
     return {.success = success_, .error_number = error_number_};
   }
+
+  // Runs during the collapse, i.e. while pageheap_lock is dropped.
+  std::function<void(Range)> unlocked_hook_;
 
   bool TriedCollapse(void* addr) const {
     PageId p = PageIdContaining(addr);
@@ -343,16 +349,7 @@ class BlockingUnback final : public MemoryModifyFunction {
   constexpr BlockingUnback() = default;
 
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
-    if (mu_) {
-      if (counter_) {
-        counter_->DecrementCount();
-      }
-
-      mu_->lock();
-      mu_->unlock();
-    }
-
-    if (!success_) {
+    if (!success_.load(std::memory_order_relaxed)) {
       return {.success = false, .error_number = 0};
     }
     if (backing_ != nullptr) {
@@ -367,15 +364,40 @@ class BlockingUnback final : public MemoryModifyFunction {
     return {.success = true, .error_number = 0};
   }
 
-  absl::BlockingCounter* counter_ = nullptr;
-  bool success_ = true;
+  // Read outside pageheap_lock once BlockingUnbackWithoutLock has dropped it.
+  std::atomic<bool> success_{true};
   std::vector<size_t>* backing_ = nullptr;
-
- private:
-  static thread_local absl::Mutex* mu_;
 };
 
-thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
+// Mirrors HugePageAwareAllocator::UnbackWithoutLock: drops pageheap_lock
+// around the unback.  Tests may install a hook that runs while the lock is
+// dropped to interleave other filler operations with the retirement in
+// progress.
+class BlockingUnbackWithoutLock final : public MemoryModifyFunction {
+ public:
+  explicit BlockingUnbackWithoutLock(
+      BlockingUnback& unback ABSL_ATTRIBUTE_LIFETIME_BOUND)
+      : unback_(unback) {}
+
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    pageheap_lock.AssertHeld();
+    pageheap_lock.unlock();
+    if (unlocked_hook_ != nullptr) {
+      unlocked_hook_(r);
+    }
+    MemoryModifyStatus ret = unback_(r);
+    pageheap_lock.lock();
+    return ret;
+  }
+
+  // Runs with pageheap_lock dropped.  The caller may still hold an
+  // AllocationGuard, so the hook must not allocate.
+  std::function<void(Range)> unlocked_hook_;
+
+ private:
+  BlockingUnback& unback_;
+};
 
 class FillerTest : public testing::Test {
  protected:
@@ -422,6 +444,7 @@ class FillerTest : public testing::Test {
   SubreleaseUnbackedMode mode_ = SubreleaseUnbackedMode::kDisabled;
   HugePageFiller<PageTracker> filler_;
   BlockingUnback blocking_unback_;
+  BlockingUnbackWithoutLock blocking_unback_without_lock_{blocking_unback_};
   MockCollapse collapse_;
   MockSetAnonVmaName set_anon_vma_name_;
 
@@ -429,14 +452,36 @@ class FillerTest : public testing::Test {
       SubreleaseUnbackedMode mode = SubreleaseUnbackedMode::kDisabled)
       : mode_(mode),
         filler_(Clock{.now = FakeClock::now, .freq = FakeClock::freq},
-                MemoryTag::kNormal, blocking_unback_, blocking_unback_,
-                collapse_, set_anon_vma_name_, mode) {
+                MemoryTag::kNormal, blocking_unback_,
+                blocking_unback_without_lock_, collapse_, set_anon_vma_name_,
+                mode) {
     // Reset success state
     blocking_unback_.success_ = true;
     blocking_unback_.backing_ = &backing_;
   }
 
   ~FillerTest() override { EXPECT_EQ(filler_.size(), NHugePages(0)); }
+
+  // Deletes every tracker the filler parked because it was emptied while a
+  // treatment held it pinned.  Returns the number of trackers deleted.
+  int DrainFreedTrackers() {
+    int n = 0;
+    while (true) {
+      PageTracker* pt;
+      {
+        PageHeapSpinLockHolder l;
+        pt = filler_.FetchFullyFreedTracker();
+      }
+      if (pt == nullptr) {
+        return n;
+      }
+      EXPECT_EQ(pt->longest_free_range(), kPagesPerHugePage);
+      EXPECT_TRUE(pt->empty());
+      --hp_contained_;
+      delete pt;
+      ++n;
+    }
+  }
 
   struct PAlloc {
     PageTracker* pt;
@@ -1426,21 +1471,82 @@ TEST_F(FillerTest, ParallelCollapseRelease) {
   done = true;
   collapse_thread.join();
 
-  while (true) {
-    PageTracker* pt;
-    {
-      PageHeapSpinLockHolder l;
-      pt = filler_.FetchFullyFreedTracker();
-    }
-    if (pt == nullptr) {
-      break;
-    }
-    EXPECT_EQ(pt->longest_free_range(), kPagesPerHugePage);
-    EXPECT_TRUE(pt->empty());
-    --hp_contained_;
-    delete pt;
-  }
+  DrainFreedTrackers();
   CheckStats();
+}
+
+// Retiring the last allocation on a partially released hugepage unbacks the
+// remainder with pageheap_lock dropped, after the tracker has left the
+// filler's accounting.  Allocations made meanwhile cannot reach the hugepage
+// being retired, even though it is now entirely free.
+TEST_F(FillerTest, AllocateDuringRetirementUnback) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  ASSERT_TRUE(a.pt->released());
+  // b's hugepage keeps exactly one free page, so only the hugepage being
+  // retired could satisfy a two-page request.
+  PAlloc b = Allocate(kPagesPerHugePage - Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  int calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    EXPECT_EQ(HugePageContaining(r.p), a.pt->location());
+    EXPECT_EQ(r.n, kPagesPerHugePage);
+
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(filler_.size(), NHugePages(1));
+    EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+    EXPECT_EQ(filler_.used_pages(), kPagesPerHugePage - Length(1));
+    EXPECT_EQ(filler_.TryGet(Length(2), b.span_alloc_info).pt, nullptr);
+    auto [pt, page, from_released] =
+        filler_.TryGet(Length(1), b.span_alloc_info);
+    EXPECT_EQ(pt, b.pt);
+    EXPECT_FALSE(from_released);
+    EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info),
+              nullptr);
+  };
+  EXPECT_TRUE(Delete(a));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(DrainFreedTrackers(), 0);
+  EXPECT_TRUE(Delete(b));
+}
+
+// A release that runs while a hugepage is being collapsed leaves it alone:
+// collapsing requires that none of its pages are released.
+TEST_F(FillerTest, ReleaseDuringCollapse) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a.p.start_addr(), /*is_hugepage_backed=*/false);
+  pageflags.SetStaleBitmap(a.p.start_addr(), {});
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), {}, {});
+
+  int calls = 0;
+  collapse_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    EXPECT_EQ(HugePageContaining(r.p), a.pt->location());
+    EXPECT_TRUE(a.pt->BeingCollapsed());
+    EXPECT_EQ(ReleasePages(kPagesPerHugePage), Length(0));
+    EXPECT_EQ(HardReleasePages(kPagesPerHugePage), Length(0));
+    EXPECT_FALSE(a.pt->released());
+  };
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  collapse_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(calls, 1);
+  EXPECT_FALSE(a.pt->BeingCollapsed());
+  EXPECT_FALSE(a.pt->released());
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  CheckStats();
+
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  EXPECT_TRUE(Delete(a));
 }
 
 // Makes sure that we do not collapse the pages that are already hugepage
@@ -6673,20 +6779,7 @@ TEST_F(FillerTest, ConcurrentTreatmentInterferenceStress) {
   done = true;
   collapse_thread.join();
 
-  while (true) {
-    PageTracker* pt;
-    {
-      PageHeapSpinLockHolder l;
-      pt = filler_.FetchFullyFreedTracker();
-    }
-    if (pt == nullptr) {
-      break;
-    }
-    EXPECT_EQ(pt->longest_free_range(), kPagesPerHugePage);
-    EXPECT_TRUE(pt->empty());
-    --hp_contained_;
-    delete pt;
-  }
+  DrainFreedTrackers();
   CheckStats();
 }
 
