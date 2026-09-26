@@ -18,6 +18,7 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -146,10 +147,21 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     return FakeStaticForwarder::Back(r);
   }
 
+  // RefillFiller and Finalize call this with pageheap_lock held, in the middle
+  // of an allocation.  Production forwards to PageAllocator, which releases
+  // memory back through this allocator when a usage limit is exceeded; the
+  // fuzzer's State does the same for the allocator under test.
+  void ShrinkToUsageLimit(Length n, bool may_have_grown)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    FakeStaticForwarder::ShrinkToUsageLimit(n, may_have_grown);
+    shrink_to_usage_limit_callback_();
+  }
+
   bool allocate_succeeds_ = true;
   Length pending_release_;
   Length pending_back_;
   std::function<void()> lock_dropped_callback_;
+  std::function<void()> shrink_to_usage_limit_callback_;
 };
 
 struct State;
@@ -527,6 +539,23 @@ struct UpdateBitmaps {
   }
 };
 
+inline constexpr size_t kNoLimit = std::numeric_limits<size_t>::max();
+
+// Sets the soft or hard heap limit that the fuzzer's stand-in for
+// PageAllocator::ShrinkToUsageLimit enforces on the allocator's backed bytes,
+// and, as PageAllocator::set_limit does, sheds memory to meet it immediately.
+struct SetUsageLimit {
+  size_t bytes;
+  bool hard;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetUsageLimit& s) {
+    absl::Format(&sink, "SetUsageLimit{.bytes=%v, .hard=%v}", s.bytes, s.hard);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -546,7 +575,7 @@ using ParamOp = std::variant<
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
     SetReleaseMaxFillerPages, SetEnableReleaseStalePages,
-    SetMadvNoHugepageHugeRegions, UpdateBitmaps>;
+    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimit>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -610,6 +639,10 @@ struct State {
     allocator.forwarder().lock_dropped_callback_ = [this]() {
       OnLockDropped();
     };
+    allocator.forwarder().shrink_to_usage_limit_callback_ = [this]() {
+      pageheap_lock.AssertHeld();
+      ShrinkToUsageLimit();
+    };
   }
 
   // Runs the next queued reentrant subprogram, if any.  Invoked by the
@@ -645,6 +678,12 @@ struct State {
     // PageHeapSpinLockHolder, whose AllocationGuard would otherwise abort
     // the fuzzer's own bookkeeping (live_ranges) in the subprogram.
     ScopedAllocationAllow allow;
+    {
+      // Any region the interrupted operation added was advised under the
+      // parameter value in force now, before the subprogram can change it.
+      PageHeapSpinLockHolder l;
+      AccountRegions();
+    }
     RunInstructions(ops);
     depth--;
   }
@@ -656,13 +695,122 @@ struct State {
     }
   }
 
+  // Stand-in for PageAllocator::ShrinkToUsageLimitSlow and ShrinkHardBy for
+  // the single allocator under test: sheds memory through the allocator's own
+  // release paths, breaking hugepages when plain release falls short.  Unlike
+  // production, an unmet hard limit is counted rather than aborting.
+  void ShrinkToUsageLimit() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    if (soft_limit_bytes == kNoLimit) {
+      return;
+    }
+    const size_t backed = BackedBytes();
+    if (backed <= soft_limit_bytes) {
+      return;
+    }
+    ++soft_limit_hits;
+    if (ShrinkHardBy(BytesToLengthCeil(backed - soft_limit_bytes),
+                     PageReleaseReason::kSoftLimitExceeded)) {
+      return;
+    }
+    if (hard_limit_bytes == kNoLimit) {
+      return;
+    }
+    const size_t still_backed = BackedBytes();
+    if (still_backed <= hard_limit_bytes) {
+      return;
+    }
+    ++hard_limit_hits;
+    if (!ShrinkHardBy(BytesToLengthCeil(still_backed - hard_limit_bytes),
+                      PageReleaseReason::kHardLimitExceeded)) {
+      ++hard_limit_misses;
+    }
+  }
+
+  bool ShrinkHardBy(Length pages, PageReleaseReason reason)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    Length released = allocator.ReleaseAtLeastNPages(pages, reason);
+    RecordLimitRelease(released, reason);
+    if (released >= pages) {
+      return true;
+    }
+    // Production respects a request for no subrelease under a hard limit.
+    if (reason == PageReleaseReason::kHardLimitExceeded &&
+        !allocator.forwarder().hpaa_subrelease()) {
+      return false;
+    }
+    const Length broken = allocator.ReleaseAtLeastNPagesBreakingHugepages(
+        pages - released, reason);
+    RecordLimitRelease(broken, reason);
+    released += broken;
+    return released >= pages;
+  }
+
+  void RecordLimitRelease(Length released, PageReleaseReason reason) {
+    expected_stats.total += released;
+    if (reason == PageReleaseReason::kSoftLimitExceeded) {
+      expected_stats.soft_limit_exceeded += released;
+    } else {
+      expected_stats.hard_limit_exceeded += released;
+    }
+  }
+
+  size_t BackedBytes() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    const BackingStats stats = allocator.stats();
+    return stats.system_bytes - stats.unmapped_bytes;
+  }
+
+  // Regions are only ever added, and AddRegion advises each new one
+  // MADV_NOHUGEPAGE through the forwarder exactly when the parameter is on.
+  void AccountRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    const size_t regions = allocator.region().ActiveRegions();
+    TC_CHECK_GE(regions, regions_seen);
+    if (allocator.forwarder().madvise_cold_regions_nohugepage() ==
+        MadviseRegionsNoHugepage::kEnabled) {
+      expected_hugepages_disabled +=
+          HugeRegion::size().in_pages() * (regions - regions_seen);
+    }
+    regions_seen = regions;
+    TC_CHECK_EQ(allocator.forwarder().hugepages_disabled(),
+                expected_hugepages_disabled);
+  }
+
+  // Every page of every live span is reported allocated by the allocator's
+  // own page-status query, whichever sub-allocator (filler tracker, region,
+  // or raw hugepages) holds it.
+  void CheckPageAllocationStatus() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    PageBitmap pages;
+    for (const auto& [first, n] : live_ranges) {
+      const PageId end = first + n;
+      for (HugePage hp = HugePageContaining(first); hp.first_page() < end;
+           ++hp) {
+        TC_CHECK(allocator.GetPageAllocationStatus(hp, pages));
+        const PageId lo = std::max(first, hp.first_page());
+        const PageId hi = std::min(end, (hp + NHugePages(1)).first_page());
+        for (PageId p = lo; p < hi; ++p) {
+          TC_CHECK(pages.GetBit((p - hp.first_page()).raw_num()),
+                   "page %v of live span [%v, %v) is not allocated", p, first,
+                   end);
+        }
+      }
+    }
+  }
+
   void CheckInvariants() {
     BackingStats stats;
     PageReleaseStats release_stats;
+    BackingStats filler_stats;
+    HugeLength donated;
+    Length abandoned;
     {
       PageHeapSpinLockHolder l;
       stats = allocator.stats();
       release_stats = allocator.GetReleaseStats();
+      filler_stats = allocator.FillerStats();
+      donated = allocator.DonatedHugePages();
+      abandoned = allocator.AbandonedPages();
+      AccountRegions();
+      CheckPageAllocationStatus();
     }
     // Everything not free or unmapped is held by a live span, except for
     // pages whose release is in flight.
@@ -684,6 +832,14 @@ struct State {
     }
     TC_CHECK_EQ(release_stats, expected_stats);
     TC_CHECK_EQ(live_ranges.size(), allocs.size());
+    // Every donated hugepage is a tracker in the filler, and abandoned pages
+    // are the donor's share of a donated hugepage.  Delete() fixes the
+    // donation telemetry in ReleaseHugepage only after filler_.Put returns,
+    // which drops pageheap_lock to unback a tracker it has already removed
+    // from the filler; each interrupted operation may hold one such tracker.
+    TC_CHECK_LE(donated.in_bytes(),
+                filler_stats.system_bytes + depth * kHugePageSize);
+    TC_CHECK_LE(abandoned, donated.in_pages());
   }
 
   HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator;
@@ -705,6 +861,13 @@ struct State {
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;
   bool treating_trackers = false;
+  size_t soft_limit_bytes = kNoLimit;
+  size_t hard_limit_bytes = kNoLimit;
+  size_t soft_limit_hits = 0;
+  size_t hard_limit_hits = 0;
+  size_t hard_limit_misses = 0;
+  size_t regions_seen = 0;
+  Length expected_hugepages_disabled;
   std::string output;
 };
 
@@ -753,8 +916,14 @@ void Alloc::Perform(State& state) const {
   } else if (!SizeMap::IsValidSizeClass(object_size, len, kMinObjectsToMove)) {
     // This is an invalid size class, so skip it.
     return;
-  } else if (density == AccessDensityPrediction::kDense) {
-    len = Length(1);
+  } else {
+    // SizeMap accepted the pair, so HPAA's own predicate must agree.
+    TC_CHECK(
+        HugePageAwareAllocator<FakeStaticForwarderWithUnback>::IsValidSizeClass(
+            object_size, len));
+    if (density == AccessDensityPrediction::kDense) {
+      len = Length(1);
+    }
   }
 
   // Allocation is too big for filler if we try to allocate >
@@ -1056,6 +1225,20 @@ void UpdateBitmaps::Perform(State& state) const {
   state.stale_bitmap = GetBitmap(stale_bitmap_val);
 }
 
+void SetUsageLimit::Perform(State& state) const {
+  if (hard) {
+    state.hard_limit_bytes = bytes;
+  } else {
+    state.soft_limit_bytes = bytes;
+  }
+  // As in PageAllocator::set_limit, the soft limit never exceeds the hard one.
+  if (state.hard_limit_bytes < state.soft_limit_bytes) {
+    state.soft_limit_bytes = state.hard_limit_bytes;
+  }
+  PageHeapSpinLockHolder l;
+  state.ShrinkToUsageLimit();
+}
+
 void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
               const std::vector<Instruction>& instructions) {
   HugePageAwareAllocatorOptions options =
@@ -1095,6 +1278,8 @@ void FuzzHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
                                  .density = span_info.density});
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     }
+    state.allocs.clear();
+    state.live_ranges.clear();
 
     PageHeapSpinLockHolder l;
     return state.allocator.GetReleaseStats();
@@ -1180,7 +1365,14 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
           [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()),
       fuzztest::Map([](UpdateBitmaps u) { return ChangeParam{u}; },
-                    fuzztest::Arbitrary<UpdateBitmaps>()));
+                    fuzztest::Arbitrary<UpdateBitmaps>()),
+      fuzztest::Map(
+          [](size_t bytes, bool hard) {
+            return ChangeParam{SetUsageLimit{.bytes = bytes, .hard = hard}};
+          },
+          fuzztest::OneOf(fuzztest::Just(kNoLimit),
+                          fuzztest::InRange<size_t>(0, size_t{1} << 30)),
+          fuzztest::Arbitrary<bool>()));
 
   if (depth <= 0) {
     return fuzztest::OneOf(
@@ -1725,6 +1917,73 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
             "SetCollapseSucceeds{.value=true}");
   EXPECT_EQ(absl::StrCat(SetSubreleaseUnbackedHugepages{.value = false}),
             "SetSubreleaseUnbackedHugepages{.value=false}");
+  EXPECT_EQ(absl::StrCat(SetUsageLimit{.bytes = 5, .hard = true}),
+            "SetUsageLimit{.bytes=5, .hard=true}");
+}
+
+// Drives the usage-limit release path: with several hugepages live, a soft
+// limit below the backed footprint forces ReleaseAtLeastNPages, further
+// allocations re-trigger ShrinkToUsageLimit through the forwarder, and a hard
+// limit then forces ReleaseAtLeastNPagesBreakingHugepages.
+TEST(HugePageAwareAllocatorTest, UsageLimitRelease) {
+  FuzzHugePageAwareAllocatorOptions options;
+  options.tag = MemoryTag::kNormal;
+  options.use_huge_region_more_often = HugeRegionUsageOption::kDefault;
+
+  const Alloc hugepage{.length = kPagesPerHugePage.raw_num(),
+                       .num_objects = 1,
+                       .alignment = 1,
+                       .use_aligned = false,
+                       .dense = false};
+  std::vector<Instruction> instructions;
+  for (int i = 0; i < 4; ++i) {
+    instructions.push_back(Instruction{hugepage});
+  }
+  instructions.push_back(Instruction{Dealloc{.index = 1}});
+  instructions.push_back(Instruction{Dealloc{.index = 1}});
+  instructions.push_back(Instruction{
+      ChangeParam{SetUsageLimit{.bytes = kHugePageSize, .hard = false}}});
+  instructions.push_back(Instruction{hugepage});
+  instructions.push_back(Instruction{Dealloc{.index = 0}});
+  instructions.push_back(Instruction{
+      ChangeParam{SetUsageLimit{.bytes = kHugePageSize / 2, .hard = true}}});
+  instructions.push_back(Instruction{hugepage});
+  instructions.push_back(Instruction{GatherStatsPbtxt{}});
+  instructions.push_back(
+      Instruction{ChangeParam{SetUsageLimit{.bytes = kNoLimit, .hard = true}}});
+  instructions.push_back(Instruction{
+      ChangeParam{SetUsageLimit{.bytes = kNoLimit, .hard = false}}});
+  instructions.push_back(Instruction{hugepage});
+
+  FuzzHPAA(options, instructions);
+}
+
+// Forces HugeRegion creation with MADV_NOHUGEPAGE advice enabled, so AddRegion
+// routes through the forwarder and the fuzzer's region accounting is checked.
+TEST(HugePageAwareAllocatorTest, RegionNoHugepageAdvice) {
+  FuzzHugePageAwareAllocatorOptions options;
+  options.tag = MemoryTag::kNormal;
+  options.use_huge_region_more_often =
+      HugeRegionUsageOption::kUseForAllLargeAllocs;
+
+  const Alloc large{.length = kPagesPerHugePage.raw_num() * 3 / 2,
+                    .num_objects = 1,
+                    .alignment = 1,
+                    .use_aligned = false,
+                    .dense = false};
+  std::vector<Instruction> instructions;
+  instructions.push_back(
+      Instruction{ChangeParam{SetMadvNoHugepageHugeRegions{.value = true}}});
+  instructions.push_back(Instruction{large});
+  instructions.push_back(Instruction{large});
+  instructions.push_back(Instruction{Dealloc{.index = 0}});
+  instructions.push_back(
+      Instruction{ReleasePages{.desired = kPagesPerHugePage.raw_num(),
+                               .release_memory_to_system = true}});
+  instructions.push_back(Instruction{large});
+  instructions.push_back(Instruction{GatherStatsPbtxt{}});
+
+  FuzzHPAA(options, instructions);
 }
 
 }  // namespace

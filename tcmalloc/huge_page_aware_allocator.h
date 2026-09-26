@@ -15,9 +15,7 @@
 #ifndef TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_H_
 #define TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_H_
 
-#include <errno.h>
 #include <stddef.h>
-#include <sys/mman.h>
 
 #include <cstdint>
 #include <optional>
@@ -134,6 +132,8 @@ class StaticForwarder : private Parameters {
   [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r);
   [[nodiscard]] static MemoryModifyStatus CollapsePages(Range r);
   static void SetAnonVmaName(Range r, std::optional<absl::string_view> name);
+  // Advises the kernel not to back r with hugepages (MADV_NOHUGEPAGE).
+  static void DisableHugepages(Range r);
 };
 
 struct HugePageAwareAllocatorOptions {
@@ -848,11 +848,8 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
 
   if (forwarder_.madvise_cold_regions_nohugepage() ==
       MadviseRegionsNoHugepage::kEnabled) {
-    bool madvise_failed = false;
-    do {
-      madvise_failed =
-          madvise(r.start_addr(), r.len().in_bytes(), MADV_NOHUGEPAGE) != 0;
-    } while (madvise_failed && errno == EAGAIN);
+    forwarder_.DisableHugepages(
+        Range(r.start().first_page(), r.len().in_pages()));
   }
 
   HugeRegion* region = region_allocator_.New(r, unback_, set_anon_vma_name_);

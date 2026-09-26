@@ -14,6 +14,9 @@
 
 #include "tcmalloc/huge_page_aware_allocator.h"
 
+#include <errno.h>
+#include <sys/mman.h>
+
 #include <cstddef>
 #include <optional>
 
@@ -166,6 +169,14 @@ void StaticForwarder::SetAnonVmaName(Range r,
                                      std::optional<absl::string_view> name) {
   tc_globals.system_allocator().SetAnonVmaName(r.start_addr(), r.in_bytes(),
                                                name);
+}
+
+void StaticForwarder::DisableHugepages(Range r) {
+  bool madvise_failed = false;
+  do {
+    madvise_failed =
+        madvise(r.start_addr(), r.in_bytes(), MADV_NOHUGEPAGE) != 0;
+  } while (madvise_failed && errno == EAGAIN);
 }
 
 }  // namespace huge_page_allocator_internal
