@@ -48,6 +48,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/barrier.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
@@ -1547,6 +1548,108 @@ TEST_F(FillerTest, ReleaseDuringCollapse) {
 
   EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
   EXPECT_TRUE(Delete(a));
+}
+
+// Releases and collapses from the background while allocations are returned
+// and made concurrently.  Every operation that drops pageheap_lock must cope
+// with the trackers changing underneath it.
+TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
+  std::atomic<bool> done(false);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  SpanAllocInfo info;
+  info.objects_per_span = 1;
+  info.density = AccessDensityPrediction::kSparse;
+  std::vector<PAlloc> allocated;
+  const Length kAlloc = kPagesPerHugePage / 2 + Length(1);
+  // Some trackers are sampled so that retiring them names their VMA; some
+  // have swapped pages and others stale pages so that treatment releases from
+  // them through both paths.
+  set_anon_vma_name_.SetIgnoreName(true);
+  for (int i = 0; i < 1000; ++i) {
+    PAlloc p1 = AllocateWithSpanAllocInfo(kAlloc, info);
+    allocated.push_back(p1);
+    p1.pt->SetTagState({.sampled_for_tagging = (i % 8 == 0)});
+    pageflags.MarkHugePageBacked(p1.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    Bitmap<kMaxResidencyBits> unbacked, swapped, stale;
+    unbacked.SetRange(/*index=*/0, /*n=*/128);
+    if (i % 2 == 0) {
+      swapped.SetRange(/*index=*/128, /*n=*/128);
+    } else {
+      stale.SetRange(/*index=*/128, /*n=*/128);
+    }
+    residency.SetUnbackedAndSwappedBitmaps(p1.p.start_addr(), unbacked,
+                                           swapped);
+    pageflags.SetStaleBitmap(p1.p.start_addr(), stale);
+  }
+
+  // Widen the window in which the lock is dropped.
+  auto on_drop = [&](Range) { std::this_thread::yield(); };
+  blocking_unback_without_lock_.unlocked_hook_ = on_drop;
+  collapse_.unlocked_hook_ = on_drop;
+  // Both background threads are running before the foreground loop starts.
+  absl::Barrier started(3);
+  std::thread release_thread([&]() {
+    started.Block();
+    while (!done.load(std::memory_order_acquire)) {
+      FakeClock::Advance(absl::Minutes(10));
+      HardReleasePages(kPagesPerHugePage);
+      ReleasePartialPages(kPagesPerHugePage);
+    }
+  });
+  std::thread collapse_thread([&]() {
+    started.Block();
+    while (!done.load(std::memory_order_acquire)) {
+      TreatHugepageTrackers(
+          EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
+          ReleaseStalePages::kEnabled, &pageflags, &residency);
+    }
+  });
+  started.Block();
+
+  // See ParallelCollapseRelease for why DeleteRaw is used here.  Deallocations
+  // are interleaved with small allocations from existing hugepages so that
+  // trackers move between lists while releases and treatments are in flight.
+  for (int i = 0; i < 20000; ++i) {
+    if (absl::Bernoulli(gen_, 0.4)) {
+      PageTracker* pt;
+      PageId page;
+      {
+        PageHeapSpinLockHolder l;
+        auto result = filler_.TryGet(Length(1), info);
+        pt = result.pt;
+        page = result.page;
+      }
+      if (pt != nullptr) {
+        total_allocated_ += Length(1);
+        allocated.push_back(PAlloc{.pt = pt,
+                                   .p = page,
+                                   .n = Length(1),
+                                   .mark = 0,
+                                   .span_alloc_info = info,
+                                   .from_released = false});
+      }
+    } else if (!allocated.empty()) {
+      const size_t idx = absl::Uniform<size_t>(gen_, 0, allocated.size());
+      std::swap(allocated[idx], allocated.back());
+      DeleteRaw(allocated.back());
+      allocated.pop_back();
+    }
+  }
+  for (const PAlloc& p : allocated) {
+    DeleteRaw(p);
+  }
+
+  done = true;
+  release_thread.join();
+  collapse_thread.join();
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  collapse_.unlocked_hook_ = nullptr;
+
+  DrainFreedTrackers();
+  CheckStats();
 }
 
 // Makes sure that we do not collapse the pages that are already hugepage
