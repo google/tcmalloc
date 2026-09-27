@@ -247,6 +247,7 @@ class ShardedTransferCacheManagerBase {
       entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));
       entry.PrintI64("insert_hits", stats.insert_hits);
       entry.PrintI64("insert_misses", stats.insert_misses);
+      entry.PrintI64("insert_object_misses", stats.insert_object_misses);
       entry.PrintI64("remove_hits", stats.remove_hits);
       entry.PrintI64("remove_misses", stats.remove_misses);
       entry.PrintI64("remove_object_hits", stats.remove_object_hits);
@@ -269,6 +270,7 @@ class ShardedTransferCacheManagerBase {
           shard.transfer_caches[size_class].GetStats();
       stats.insert_hits += shard_stats.insert_hits;
       stats.insert_misses += shard_stats.insert_misses;
+      stats.insert_object_misses += shard_stats.insert_object_misses;
       stats.remove_hits += shard_stats.remove_hits;
       stats.remove_object_hits += shard_stats.remove_object_hits;
       stats.remove_misses += shard_stats.remove_misses;
