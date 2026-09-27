@@ -141,6 +141,11 @@ function(create_percpu_tcmalloc_testsuite)
     ENV ${TCMALLOC_ENV} "GLIBC_TUNABLES=glibc.pthread.rseq=0"
   )
   tcmalloc_cc_test(
+    NAME ${BASE_NAME}_mm_vcpu_test
+    ${COMMON_ARGS}
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_MM_VCPU" "GLIBC_TUNABLES=glibc.pthread.rseq=0"
+  )
+  tcmalloc_cc_test(
     NAME ${BASE_NAME}_real_test
     ${COMMON_ARGS}
     ENV ${TCMALLOC_ENV} "PERCPU_VCPU_MODE=none"

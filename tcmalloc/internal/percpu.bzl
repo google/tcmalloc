@@ -30,6 +30,13 @@ percpu_test_variants = [
         "env": {"GLIBC_TUNABLES": "glibc.pthread.rseq=0"},
     },
     {
+        "name": "_mm_vcpu",
+        "env": {
+            "BORG_EXPERIMENTS": "TEST_ONLY_MM_VCPU",
+            "GLIBC_TUNABLES": "glibc.pthread.rseq=0",
+        },
+    },
+    {
         "name": "_real",
         "env": {"PERCPU_VCPU_MODE": "none"},
     },
@@ -42,7 +49,7 @@ def create_percpu_tcmalloc_testsuite(
         deps = [],
         env = {},
         linkstatic = 1,
-        malloc = ":system_malloc",
+        malloc = "//tcmalloc/internal:system_malloc",
         tags = [],
         timeout = "long",
         **kwargs):
@@ -51,8 +58,8 @@ def create_percpu_tcmalloc_testsuite(
     for variant in percpu_test_variants:
         test_name = name + variant["name"]
         targets.append(test_name)
-        variant_env = dict(variant["env"])
-        variant_env.update(env)
+        variant_env = dict(env)
+        variant_env.update(variant["env"])
         cc_test(
             name = test_name,
             srcs = srcs,
