@@ -558,8 +558,8 @@ void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
   // 5-min interval. It is printed for convenience but not included in pbtxt.
   out.printf("%s: realized fragmentation: %.1f MiB\n", field,
              free_pages.free_backed.in_mib());
-  out.printf("%s: minimum free pages: %zu (%zu backed)\n", field,
-             free_pages.free.raw_num(), free_pages.free_backed.raw_num());
+  out.printf("%s: minimum free pages: %v (%v backed)\n", field, free_pages.free,
+             free_pages.free_backed);
 
   SubreleaseStatsEntry at_peak_demand;
 
@@ -575,16 +575,16 @@ void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
       },
       summary_interval_);
 
-  out.printf("%s: at peak demand: %zu pages (and %zu free, %zu unmapped)\n",
-             field, at_peak_demand.stats[kStatsAtMaxDemand].num_pages.raw_num(),
-             at_peak_demand.stats[kStatsAtMaxDemand].free_pages.raw_num(),
-             at_peak_demand.stats[kStatsAtMaxDemand].unmapped_pages.raw_num());
+  out.printf("%s: at peak demand: %v pages (and %v free, %v unmapped)\n", field,
+             at_peak_demand.stats[kStatsAtMaxDemand].num_pages,
+             at_peak_demand.stats[kStatsAtMaxDemand].free_pages,
+             at_peak_demand.stats[kStatsAtMaxDemand].unmapped_pages);
 
   out.printf(
-      "\n%s: Since the start of the execution, %zu subreleases (%zu"
+      "\n%s: Since the start of the execution, %zu subreleases (%v"
       " pages) were skipped due to either recent (%ds) peaks, or the sum of"
       " short-term (%ds) fluctuations and long-term (%ds) trends.\n",
-      field, total_skipped().count, total_skipped().pages.raw_num(),
+      field, total_skipped().count, total_skipped().pages,
       absl::ToInt64Seconds(last_skip_subrelease_intervals_.peak_interval),
       absl::ToInt64Seconds(last_skip_subrelease_intervals_.short_interval),
       absl::ToInt64Seconds(last_skip_subrelease_intervals_.long_interval));
@@ -599,10 +599,10 @@ void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
 
   out.printf(
       "%s: %.4f%% of decisions confirmed correct, %zu "
-      "pending (%.4f%% of pages, %zu pending), as per anticipated %ds realized "
+      "pending (%.4f%% of pages, %v pending), as per anticipated %ds realized "
       "fragmentation.\n",
       field, correctly_skipped_count_percentage, pending_skipped().count,
-      correctly_skipped_pages_percentage, pending_skipped().pages.raw_num(),
+      correctly_skipped_pages_percentage, pending_skipped().pages,
       absl::ToInt64Seconds(summary_interval_));
 
   // Print subrelease stats
@@ -614,9 +614,9 @@ void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
         }
       },
       window_);
-  out.printf("%s: Subrelease stats last %d min: total %zu pages subreleased.\n",
+  out.printf("%s: Subrelease stats last %d min: total %v pages subreleased.\n",
              field, static_cast<int64_t>(absl::ToInt64Minutes(window_)),
-             total_subreleased.raw_num());
+             total_subreleased);
 }
 
 template <size_t kSlots>

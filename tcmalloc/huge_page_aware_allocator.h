@@ -1107,9 +1107,10 @@ inline static void BreakdownStatsInPbtxt(PbtxtRegion& hpaa,
                                          const BackingStats& s,
                                          const char* key) {
   auto usage = hpaa.CreateSubRegion(key);
-  usage.PrintI64("used", s.system_bytes - s.free_bytes - s.unmapped_bytes);
-  usage.PrintI64("free", s.free_bytes);
-  usage.PrintI64("unmapped", s.unmapped_bytes);
+  usage.PrintI64("used_bytes",
+                 s.system_bytes - s.free_bytes - s.unmapped_bytes);
+  usage.PrintI64("free_bytes", s.free_bytes);
+  usage.PrintI64("unmapped_bytes", s.unmapped_bytes);
 }
 
 // public
@@ -1155,9 +1156,9 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
   out.printf("\n");
 
   out.printf(
-      "HugePageAware: filler donations %zu (%zu pages from abandoned "
+      "HugePageAware: filler donations %v (%v pages from abandoned "
       "donations)\n",
-      donated_huge_pages_.raw_num(), abandoned_pages_.raw_num());
+      donated_huge_pages_, abandoned_pages_);
 
   // Component debug output
   // Filler is by far the most important; print (some) of it

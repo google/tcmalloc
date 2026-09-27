@@ -399,27 +399,27 @@ class PageTracker : public TList<PageTracker>::Elem {
 
 inline typename PageTracker::PageAllocation PageTracker::Get(
     Length n, SpanAllocInfo span_alloc_info) {
-  size_t index = tracker_.FindAndMark(n.raw_num());
+  Length index = Length(tracker_.FindAndMark(n.raw_num()));
   num_objects_ += span_alloc_info.objects_per_span;
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
 
-  size_t unbacked = 0;
+  Length unbacked;
   // If release_count_ == 0, CountBits will return 0 and ClearRange will be a
   // no-op (but will touch cachelines) due to the invariants guaranteed by
   // CountBits() == released_count_.
   //
   // This is a performance optimization, not a logical requirement.
   if (ABSL_PREDICT_FALSE(released_count_ > 0)) {
-    unbacked = released_by_page_.CountBits(index, n.raw_num());
-    released_by_page_.ClearRange(index, n.raw_num());
-    TC_ASSERT_GE(released_count_, unbacked);
-    released_count_ -= unbacked;
+    unbacked =
+        Length(released_by_page_.CountBits(index.raw_num(), n.raw_num()));
+    released_by_page_.ClearRange(index.raw_num(), n.raw_num());
+    TC_ASSERT_GE(Length(released_count_), unbacked);
+    released_count_ -= unbacked.raw_num();
   }
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
-  return PageAllocation{location_.first_page() + Length(index),
-                        Length(unbacked)};
+  return PageAllocation{location_.first_page() + index, unbacked};
 }
 
 inline void PageTracker::SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
@@ -463,7 +463,7 @@ inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
 }
 
 inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
-  size_t count = 0;
+  Length count;
   size_t index = 0;
   size_t n;
   // For purposes of tracking, pages which are not yet released are "free" in
@@ -486,19 +486,20 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       size_t end = std::min(free_index + free_n, index + n);
 
       // In debug builds, verify [free_index, end) is backed.
-      size_t length = end - free_index;
-      TC_ASSERT_EQ(released_by_page_.CountBits(free_index, length), 0);
+      Length length = Length(end - free_index);
+      TC_ASSERT_EQ(released_by_page_.CountBits(free_index, length.raw_num()),
+                   0);
       PageId p = location_.first_page() + Length(free_index);
 
-      if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
+      if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, length), unback))) {
         // Mark pages as released.  Updating the count per range rather than
         // once after the loop is intentionally the less efficient choice:
         //
         // TODO(b/73749855): once unback runs with pageheap_lock dropped, other
         // threads observe this tracker between ranges and need the count to
         // match the bitmap.
-        released_by_page_.SetRange(free_index, length);
-        released_count_ += length;
+        released_by_page_.SetRange(free_index, length.raw_num());
+        released_count_ += length.raw_num();
         hugepage_residency_state_.maybe_hugepage_backed = false;
         count += length;
       }
@@ -513,7 +514,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
 
   TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
-  return Length(count);
+  return count;
 }
 
 inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
@@ -529,14 +530,15 @@ inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
   auto to_release = (~used) & (~released_by_page_) & unbacked;
   released_by_page_ = released_by_page_ | to_release;
 
-  released_count_ += to_release.CountBits();
+  const Length count = Length(to_release.CountBits());
+  released_count_ += count.raw_num();
   // Mark this as broken regardless of whether it had any unbacked free
   // TCMalloc pages. Marking this will move this tracker to one of the
   // released lists.
   unbroken_ = false;
   TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
-  return Length(to_release.CountBits());
+  return count;
 }
 
 inline MemoryModifyStatus PageTracker::Collapse(

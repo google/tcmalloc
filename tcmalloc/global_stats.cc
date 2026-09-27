@@ -590,28 +590,28 @@ void DumpStats(Printer& out, int level) {
                tc_globals.page_allocator().successful_shrinks_after_limit_hit(
                    PageAllocator::kHard));
 
-    out.printf("Total number of pages released: %llu (%7.1f MiB)\n",
-               stats.num_released_total.in_pages().raw_num(),
+    out.printf("Total number of pages released: %v (%7.1f MiB)\n",
+               stats.num_released_total.in_pages(),
                stats.num_released_total.in_mib());
     out.printf(
-        "Number of pages released by ReleaseMemoryToSystem: %llu (%7.1f "
+        "Number of pages released by ReleaseMemoryToSystem: %v (%7.1f "
         "MiB)\n",
-        stats.num_released_release_memory_to_system.in_pages().raw_num(),
+        stats.num_released_release_memory_to_system.in_pages(),
         stats.num_released_release_memory_to_system.in_mib());
     out.printf(
-        "Number of pages released by ProcessBackgroundActions: %llu "
+        "Number of pages released by ProcessBackgroundActions: %v "
         "(%7.1f MiB)\n",
-        stats.num_released_process_background_actions.in_pages().raw_num(),
+        stats.num_released_process_background_actions.in_pages(),
         stats.num_released_process_background_actions.in_mib());
     out.printf(
-        "Number of pages released after soft limit hits: %llu (%7.1f "
+        "Number of pages released after soft limit hits: %v (%7.1f "
         "MiB)\n",
-        stats.num_released_soft_limit_exceeded.in_pages().raw_num(),
+        stats.num_released_soft_limit_exceeded.in_pages(),
         stats.num_released_soft_limit_exceeded.in_mib());
     out.printf(
-        "Number of pages released after hard limit hits: %llu (%7.1f "
+        "Number of pages released after hard limit hits: %v (%7.1f "
         "MiB)\n",
-        stats.num_released_hard_limit_exceeded.in_pages().raw_num(),
+        stats.num_released_hard_limit_exceeded.in_pages(),
         stats.num_released_hard_limit_exceeded.in_mib());
     out.printf("Number of active %spartitions: %llu\n",
                tc_globals.active_partitions() > 1

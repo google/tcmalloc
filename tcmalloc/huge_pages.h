@@ -23,7 +23,6 @@
 
 #include <cmath>
 #include <limits>
-#include <ostream>
 #include <utility>
 
 #include "tcmalloc/common.h"
@@ -95,7 +94,7 @@ struct HugeLength {
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const HugeLength& v) {
-    absl::Format(&sink, "%zu", v.in_bytes());
+    absl::Format(&sink, "%zu", v.raw_num());
   }
 
  private:
@@ -293,10 +292,6 @@ inline HugeLength& operator-=(HugeLength& lhs, HugeLength rhs) {
 
 inline bool HugeLength::overflows() const {
   return *this > HLFromBytes(std::numeric_limits<size_t>::max());
-}
-
-inline void PrintTo(const HugeLength& n, ::std::ostream* os) {
-  *os << n.raw_num() << "hps";
 }
 
 TCMALLOC_ATTRIBUTE_CONST
