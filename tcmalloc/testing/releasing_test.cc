@@ -57,6 +57,8 @@ int64_t UnmappedBytes() {
 int main() {
   // Avoid perturbing RSS as a result of sampling.
   tcmalloc::ScopedNeverSample never;
+  // Flush any filler pages in the sampled partition allocated during startup.
+  tcmalloc::MallocExtension::ReleaseMemoryToSystem(0);
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   if (ret != 0) {
