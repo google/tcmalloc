@@ -54,6 +54,8 @@
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_tracker.h"
+#include "tcmalloc/huge_page_treatment.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
@@ -820,6 +822,47 @@ TEST_P(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 0")));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 0"));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_abandoned_pages: 0"));
+}
+
+// Returning a donated hugepage's large allocation while a treatment holds its
+// tracker pinned leaves the hugepage fully free but parked in the filler until
+// the pin is cleared.  Nothing was abandoned to the filler: the hugepage is
+// reassembled as soon as it is drained.
+TEST_P(HugePageAwareAllocatorTest, ParkedDonatedHugepageIsNotAbandoned) {
+  static constexpr Length kSlack = Length(2);
+  static constexpr Length kLargeSize = kPagesPerHugePage - kSlack;
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  Span* large = AllocatorNew(kLargeSize, kSpanInfo);
+  ASSERT_NE(large, nullptr);
+  ASSERT_TRUE(large->donated());
+  const HugePage hp = HugePageContaining(large->first_page());
+  auto* pt = static_cast<PageTracker*>(allocator_->forwarder().GetHugepage(hp));
+  ASSERT_NE(pt, nullptr);
+
+  HugeLength donated_huge_pages;
+  Length abandoned_pages;
+  auto RefreshStats = [&]() {
+    PageHeapSpinLockHolder l;
+    donated_huge_pages = allocator_->DonatedHugePages();
+    abandoned_pages = allocator_->AbandonedPages();
+  };
+  RefreshStats();
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
+
+  pt->SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+  AllocatorDelete(large, kSpanInfo.objects_per_span);
+  RefreshStats();
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
+
+  pt->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+  TreatHugepageTrackers(EnableCollapse::kDisabled);
+  RefreshStats();
+  EXPECT_EQ(donated_huge_pages, NHugePages(0));
+  EXPECT_EQ(abandoned_pages, Length(0));
+  CheckStats();
 }
 
 TEST_P(HugePageAwareAllocatorTest, SmallDonations) {

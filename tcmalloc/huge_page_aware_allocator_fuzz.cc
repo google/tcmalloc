@@ -117,9 +117,19 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
   // invokes lock_dropped_callback_ so the fuzzer can interleave other
   // operations, as another thread would while the lock is free.
   MemoryModifyStatus ReleasePages(Range r) {
-    pending_release_ += r.n;
+    // Whole hugepages (HugeCache, HugeRegion, and the remainder of a hugepage
+    // the filler is retiring) leave the free and unmapped counts before the
+    // unback, so they read as used meanwhile.  The filler's partial releases
+    // are sub-hugepage ranges that it accounts as unmapped before the unback,
+    // so they do not affect the used count.
+    const bool whole_hugepages = r.n >= kPagesPerHugePage;
+    if (whole_hugepages) {
+      pending_release_ += r.n;
+    }
     lock_dropped_callback_();
-    pending_release_ -= r.n;
+    if (whole_hugepages) {
+      pending_release_ -= r.n;
+    }
 
     return FakeStaticForwarder::ReleasePages(r);
   }
@@ -663,9 +673,9 @@ struct State {
     in_usage_limit_release = false;
   }
 
-  // Runs the next queued reentrant subprogram, if any.  Invoked by the
-  // forwarder and the residency fakes wherever the allocator has dropped
-  // pageheap_lock around a system call.
+  // Checks the allocator's accounting and runs the next queued reentrant
+  // subprogram, if any.  Invoked by the forwarder and the residency fakes
+  // wherever the allocator has dropped pageheap_lock around a system call.
   void OnLockDropped() {
     if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
       // This permits a slight degree of nondeterminism when linked against
@@ -678,6 +688,12 @@ struct State {
       // can be taken.
       return;
     }
+
+    // Another thread could take the lock here whether or not a subprogram
+    // does, so the accounting must be consistent at every drop.
+    ++lock_drops;
+    CheckInvariants();
+    --lock_drops;
 
     if (reentrant_stack.empty()) {
       return;
@@ -707,6 +723,40 @@ struct State {
     }
   }
 
+  void Delete(const SpanInfo& span_info) {
+    Span* span = span_info.span;
+    const Range r(span->first_page(), span->num_pages());
+    allocated -= r.n;
+    // A donated span longer than a hugepage came straight from HugeCache, with
+    // its tail on a hugepage the filler tracks.  Delete returns the whole
+    // hugepages to HugeCache, which may unback them with pageheap_lock
+    // dropped, before returning the tail to the filler (see
+    // HugePageAwareAllocator::Delete).
+    const bool tail_tracked = span->donated() && r.n > kPagesPerHugePage;
+    if (tail_tracked) {
+      tails_in_flight.push_back(r.n % kPagesPerHugePage);
+    }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    {
+      PageHeapSpinLockHolder l;
+      allocator.Delete(span, {.objects_per_span = span_info.objects_per_span,
+                              .density = span_info.density});
+    }
+#else
+    PageAllocatorInterface::AllocationState a{r, span->donated()};
+    // DeleteSpan frees span; nothing below may read it.
+    allocator.forwarder().DeleteSpan(span);
+    {
+      PageHeapSpinLockHolder l;
+      allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
+                           .density = span_info.density});
+    }
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+    if (tail_tracked) {
+      tails_in_flight.pop_back();
+    }
+  }
+
   void CheckInvariants() {
     BackingStats stats;
     PageReleaseStats release_stats;
@@ -727,15 +777,43 @@ struct State {
         allocator.forwarder().pending_release_.in_bytes() +
         allocator.forwarder().pending_back_.in_bytes();
     TC_CHECK_GE(used, expected_used);
-    // A tracker emptied by a reentrant free while a treatment still pins it
-    // is parked off every list until the treatment finishes, so its hugepage
-    // is neither free nor unmapped in stats until then.
+    // A tracker emptied by a reentrant free while a treatment or release still
+    // pins it is parked off every list until that operation finishes, so its
+    // hugepage is neither free nor unmapped in stats until then.  Only a
+    // subprogram can free from inside such an operation.  The filler also
+    // takes a hugepage it is retiring off the free and unmapped counts before
+    // it drops the lock to unback the remainder.
+    const bool mid_operation = depth > 0 || lock_drops > 0;
     auto parked_only = [&](size_t over) {
-      return over == 0 || (treating_trackers && over % kHugePageSize == 0);
+      return over == 0 || (mid_operation && over % kHugePageSize == 0);
+    };
+    // `over` is what the allocator counts as used beyond the live spans and
+    // the pending releases and backs.  Besides parked trackers, each Delete
+    // in flight may hold its span's tail: Delete returns the whole hugepages
+    // to HugeCache, which may unback them with pageheap_lock dropped, before
+    // it returns the tail to the filler, so the tail reads as used until then.
+    // A subprogram can interrupt several nested Deletes, and which of them
+    // have reached the filler is not observable from here, so accept any
+    // subset of tails_in_flight, with the remainder explained by parked
+    // trackers.
+    auto explained = [&](size_t over) {
+      const size_t n = tails_in_flight.size();
+      for (size_t mask = 0; mask < (size_t{1} << n); ++mask) {
+        Length held;
+        for (size_t i = 0; i < n; ++i) {
+          if (mask & (size_t{1} << i)) {
+            held += tails_in_flight[i];
+          }
+        }
+        if (over >= held.in_bytes() && parked_only(over - held.in_bytes())) {
+          return true;
+        }
+      }
+      return false;
     };
     size_t over = used - expected_used;
     if (pending_alloc == Length(0)) {
-      TC_CHECK(parked_only(over), "%v", over);
+      TC_CHECK(explained(over), "%v", over);
       return;
     }
     // An allocation's usage-limit release is running.  The allocation is not
@@ -743,8 +821,8 @@ struct State {
     // not yet returned (Finalize) or a whole hugepage taken from HugeCache
     // but not yet contributed to the filler (RefillFiller).
     const size_t range = pending_alloc.in_bytes();
-    TC_CHECK((over >= range && parked_only(over - range)) ||
-                 (over >= kHugePageSize && parked_only(over - kHugePageSize)),
+    TC_CHECK((over >= range && explained(over - range)) ||
+                 (over >= kHugePageSize && explained(over - kHugePageSize)),
              "%v %v", over, range);
   }
 
@@ -769,6 +847,13 @@ struct State {
   Length pending_alloc;
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
+  // Nonzero while CheckInvariants runs from a callback the allocator invoked
+  // with pageheap_lock dropped, before any subprogram.
+  int lock_drops = 0;
+  // Tails of donated spans longer than a hugepage whose Delete is in
+  // progress; outer entries belong to Deletes a reentrant subprogram
+  // interrupted.  Bounded by the subprogram depth.
+  std::vector<Length> tails_in_flight;
   // Bumped whenever a reentrant subprogram runs, so an operation can tell
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;
@@ -895,24 +980,8 @@ void Dealloc::Perform(State& state) const {
 
   SpanInfo span_info = state.allocs.back();
   state.allocs.pop_back();
-  state.allocated -= span_info.span->num_pages();
   TC_CHECK_EQ(state.live_ranges.erase(span_info.span->first_page()), 1);
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  PageHeapSpinLockHolder l;
-  state.allocator.Delete(span_info.span,
-                         {.objects_per_span = span_info.objects_per_span,
-                          .density = span_info.density});
-#else
-  PageAllocatorInterface::AllocationState a{
-      Range(span_info.span->first_page(), span_info.span->num_pages()),
-      span_info.span->donated(),
-  };
-  state.allocator.forwarder().DeleteSpan(span_info.span);
-  PageHeapSpinLockHolder l;
-  state.allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
-                             .density = span_info.density});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+  state.Delete(span_info);
 }
 
 void ReleasePages::Perform(State& state) const {
@@ -1151,23 +1220,7 @@ PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
   // Clean up.
   const PageReleaseStats final_stats = [&] {
     for (auto span_info : state.allocs) {
-      Span* span = span_info.span;
-      state.allocated -= span->num_pages();
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      PageHeapSpinLockHolder l;
-      state.allocator.Delete(span_info.span,
-                             {.objects_per_span = span_info.objects_per_span,
-                              .density = span_info.density});
-#else
-      PageAllocatorInterface::AllocationState a{
-          Range(span_info.span->first_page(), span_info.span->num_pages()),
-          span_info.span->donated(),
-      };
-      state.allocator.forwarder().DeleteSpan(span_info.span);
-      PageHeapSpinLockHolder l;
-      state.allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
-                                 .density = span_info.density});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+      state.Delete(span_info);
     }
 
     PageHeapSpinLockHolder l;
@@ -1389,6 +1442,34 @@ TEST(HugePageAwareAllocatorTest, ReentrantAllocDuringRelease) {
                                                            .dense = false}}}}}},
        Instruction{.instr = ReleasePages{.desired = 65535,
                                          .release_memory_to_system = true}}});
+}
+
+// A span that came straight from HugeCache with slack donated to the filler
+// goes back to HugeCache before its tail goes back to the filler.  Once the
+// cache is over its limit, that release unbacks with pageheap_lock dropped
+// while the donated tracker still counts the tail as used.  Two hugepages
+// return to the cache per free, so freeing six spans overflows the initial
+// ten-hugepage limit.
+TEST(HugePageAwareAllocatorTest, SlackHeldDuringCacheRelease) {
+  constexpr int kSpans = 8;
+  std::vector<Instruction> instructions;
+  instructions.reserve(2 * kSpans);
+  for (int i = 0; i < kSpans; ++i) {
+    instructions.push_back(Instruction{
+        .instr = Alloc{.length = 2 * kPagesPerHugePage.raw_num() - 12,
+                       .num_objects = 1,
+                       .alignment = 1,
+                       .use_aligned = false,
+                       .dense = false}});
+  }
+  for (int i = 0; i < kSpans; ++i) {
+    instructions.push_back(Instruction{.instr = Dealloc{.index = 0}});
+  }
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      instructions);
 }
 
 // Frees the tracker under treatment while collapse has dropped pageheap_lock.
