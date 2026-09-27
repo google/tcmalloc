@@ -71,8 +71,7 @@ void MinMaxTracker<kSlots>::Print(Printer& out) const {
     }
     accumulated_delta_ms +=
         absl::ToInt64Milliseconds(epoch_delta * kEpochLength);
-    out.printf("%zu:%zu:%zu:%zd,", offset, accumulated_delta_ms,
-               e.min.raw_num(), e.max.raw_num());
+    out.printf("%zu:%zu:%v:%v,", offset, accumulated_delta_ms, e.min, e.max);
   });
   out.printf("\n");
 }
@@ -383,9 +382,9 @@ void HugeCache::Print(Printer& out) {
   const double overflow_rate = safe_ratio(overflows_, fills_);
 
   out.printf(
-      "HugeCache: %zu / %zu hugepages cached / cache limit "
+      "HugeCache: %v / %v hugepages cached / cache limit "
       "(%.3f hit rate, %.3f overflow rate)\n",
-      size_.raw_num(), limit().raw_num(), hit_rate, overflow_rate);
+      size_, limit(), hit_rate, overflow_rate);
   out.printf("HugeCache: %zu MiB fast unbacked, %zu MiB periodic\n",
              total_fast_unbacked_.in_bytes() / 1024 / 1024,
              total_periodic_unbacked_.in_bytes() / 1024 / 1024);

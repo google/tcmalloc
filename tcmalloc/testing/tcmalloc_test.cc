@@ -1824,15 +1824,11 @@ TEST(TCMalloc, malloc_info) {
 TEST(Check, CustomTypesDeathTest) {
   Length len1(1), len2(2);
   TC_CHECK_NE(len1, len2);
-  EXPECT_DEATH(
-      TC_CHECK_EQ(len1, len2),
-      absl::StrFormat("len1 == len2 \\(%u == %u\\)", kPageSize, 2 * kPageSize));
+  EXPECT_DEATH(TC_CHECK_EQ(len1, len2), "len1 == len2 \\(1 == 2\\)");
 
   HugeLength hlen1(1.0), hlen2(2.0);
   TC_CHECK_NE(hlen1, hlen2);
-  EXPECT_DEATH(TC_CHECK_EQ(hlen1, hlen2),
-               absl::StrFormat("hlen1 == hlen2 \\(%u == %u\\)", kHugePageSize,
-                               2 * kHugePageSize));
+  EXPECT_DEATH(TC_CHECK_EQ(hlen1, hlen2), "hlen1 == hlen2 \\(1 == 2\\)");
 
   PageId page1{1}, page2{2};
   TC_CHECK_NE(page1, page2);

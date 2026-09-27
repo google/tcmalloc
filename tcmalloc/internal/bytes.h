@@ -116,9 +116,7 @@ inline bool AbslParseFlag(absl::string_view text, Bytes* b,
   return true;
 }
 
-inline std::string AbslUnparseFlag(Bytes b) {
-  return absl::StrCat(b.raw_num());
-}
+inline std::string AbslUnparseFlag(Bytes b) { return absl::StrCat(b); }
 
 inline Bytes& operator++(Bytes& b) { return b += Bytes(1); }
 inline Bytes& operator--(Bytes& b) { return b -= Bytes(1); }

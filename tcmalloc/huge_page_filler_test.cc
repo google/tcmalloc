@@ -963,8 +963,8 @@ TEST_F(FillerTest, Density) {
     }
   }
 
-  EXPECT_GE(allocs.size() / kPagesPerHugePage.raw_num() + 3,
-            filler_.size().raw_num());
+  EXPECT_GE(NHugePages(allocs.size() / kPagesPerHugePage.raw_num() + 3),
+            filler_.size());
 
   // clean up, check for failures
   for (auto a : allocs) {
@@ -990,7 +990,7 @@ TEST_F(FillerTest, ReleaseStaleFree) {
   ASSERT_EQ(a1.pt, a4.pt);
 
   // Assert locations to ensure layout assumptions hold
-  ASSERT_EQ((a1.p - a1.pt->location().first_page()).raw_num(), 0);
+  ASSERT_EQ(a1.p - a1.pt->location().first_page(), Length(0));
 
   Delete(a1);  // Free a1
 
@@ -3268,8 +3268,8 @@ void FillerTest::FragmentationTest() {
 
     max_slack = std::max(slack, max_slack);
     if (i % (kReps / 40) == 0) {
-      printf("%zu events: %zu allocs totalling %zu slack %f\n", i,
-             allocs.size(), total.raw_num(), slack);
+      absl::PrintF("%zu events: %zu allocs totalling %v slack %f\n", i,
+                   allocs.size(), total, slack);
     }
     if (absl::Bernoulli(rng, 1.0 / 2)) {
       size_t index = absl::Uniform<int32_t>(rng, 0, allocs.size());
@@ -4151,7 +4151,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().allocations, 0);
   EXPECT_EQ(small_alloc.pt->features().objects, 0);
   EXPECT_EQ(small_alloc.pt->features().allocation_time, 0);
-  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 256);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range, Length(256));
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), 0);
@@ -4164,7 +4164,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().allocations, 1);
   EXPECT_EQ(small_alloc.pt->features().objects, 2);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time, 0);
-  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 255);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range, Length(255));
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), small_alloc2_time);
@@ -4177,7 +4177,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(small_alloc.pt->features().objects, 4);
   EXPECT_FLOAT_EQ(small_alloc.pt->features().allocation_time,
                   small_alloc2_time);
-  EXPECT_EQ(small_alloc.pt->features().longest_free_range.raw_num(), 250);
+  EXPECT_EQ(small_alloc.pt->features().longest_free_range, Length(250));
   EXPECT_EQ(small_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(small_alloc.pt->features().density, false);
   EXPECT_EQ(small_alloc.pt->last_page_allocation_time(), FakeClock::now());
@@ -4191,7 +4191,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(large_alloc.pt->features().allocations, 0);
   EXPECT_EQ(large_alloc.pt->features().objects, 0);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time, 0);
-  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 256);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range, Length(256));
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   // Density is false because it defaults to false and lags behind by
   // one allocation.
@@ -4209,7 +4209,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   // allocation time are all set to "now".
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
                   large_allocs_time);
-  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 156);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range, Length(156));
   EXPECT_EQ(large_alloc.pt->features().density, true);
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), large_allocs_time);
@@ -4221,7 +4221,7 @@ TEST_F(FillerTest, RecordFeatureVectorTest) {
   EXPECT_EQ(large_alloc.pt->features().objects, 101 * 128);
   EXPECT_FLOAT_EQ(large_alloc.pt->features().allocation_time,
                   large_allocs_time);
-  EXPECT_EQ(large_alloc.pt->features().longest_free_range.raw_num(), 155);
+  EXPECT_EQ(large_alloc.pt->features().longest_free_range, Length(155));
   EXPECT_EQ(large_alloc.pt->features().is_hugepage_backed, false);
   EXPECT_EQ(large_alloc.pt->features().density, true);
   EXPECT_EQ(large_alloc.pt->last_page_allocation_time(), FakeClock::now());
@@ -4777,17 +4777,17 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
   SubreleaseStats subrelease = filler_.subrelease_stats();
   EXPECT_EQ(subrelease.total_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 0);
+  EXPECT_EQ(subrelease.total_hugepages_broken, NHugePages(0));
   if (kDensity == AccessDensityPrediction::kSparse) {
     EXPECT_EQ(subrelease.num_pages_subreleased, Length(19));
-    EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 2);
+    EXPECT_EQ(subrelease.num_hugepages_broken, NHugePages(2));
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
-    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
+    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(2));
   } else {
     EXPECT_EQ(subrelease.num_pages_subreleased, Length(55));
-    EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 1);
+    EXPECT_EQ(subrelease.num_hugepages_broken, NHugePages(1));
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(55));
-    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 1);
+    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(1));
   }
 
   // Do some work so that the timeseries updates its stats
@@ -4797,18 +4797,18 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
   subrelease = filler_.subrelease_stats();
   if (kDensity == AccessDensityPrediction::kSparse) {
     EXPECT_EQ(subrelease.total_pages_subreleased, Length(19));
-    EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 2);
+    EXPECT_EQ(subrelease.total_hugepages_broken, NHugePages(2));
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
-    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
+    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(2));
   } else {
     EXPECT_EQ(subrelease.total_pages_subreleased, Length(55));
-    EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 1);
+    EXPECT_EQ(subrelease.total_hugepages_broken, NHugePages(1));
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(55));
-    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 1);
+    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(1));
   }
   EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
-  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
+  EXPECT_EQ(subrelease.num_hugepages_broken, NHugePages(0));
 
   if (kDensity == AccessDensityPrediction::kSparse) {
     // Breaking up 3 hugepages, releasing 21 pages (background thread)
@@ -4826,11 +4826,11 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
   if (kDensity == AccessDensityPrediction::kSparse) {
     EXPECT_EQ(subrelease.total_pages_subreleased, Length(19));
     EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
-    EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 2);
+    EXPECT_EQ(subrelease.total_hugepages_broken, NHugePages(2));
     EXPECT_EQ(subrelease.num_pages_subreleased, Length(21));
-    EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 3);
+    EXPECT_EQ(subrelease.num_hugepages_broken, NHugePages(3));
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
-    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
+    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(2));
   }
   // The tracker can hold record collected longer than 10 mins.
   FakeClock::Advance(absl::Minutes(10));
@@ -4842,19 +4842,19 @@ TEST_F(FillerTest, CheckSubreleaseStats) {
   if (kDensity == AccessDensityPrediction::kSparse) {
     EXPECT_EQ(subrelease.total_pages_subreleased, Length(40));
     EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
-    EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 5);
+    EXPECT_EQ(subrelease.total_hugepages_broken, NHugePages(5));
     EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
-    EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
+    EXPECT_EQ(subrelease.num_hugepages_broken, NHugePages(0));
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(19));
-    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
+    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(2));
   } else {
     EXPECT_EQ(subrelease.total_pages_subreleased, Length(55));
     EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
-    EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 1);
+    EXPECT_EQ(subrelease.total_hugepages_broken, NHugePages(1));
     EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
-    EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
+    EXPECT_EQ(subrelease.num_hugepages_broken, NHugePages(0));
     EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(55));
-    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 1);
+    EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(1));
   }
 
   std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
@@ -4931,18 +4931,17 @@ TEST_F(FillerTest, ConstantBrokenHugePages) {
       filler_.Print(printer, /*everything=*/false, pageflags);
     });
 
-    ASSERT_THAT(buffer, testing::HasSubstr(absl::StrCat(kHugePages.raw_num(),
-                                                        " hugepages broken")));
+    ASSERT_THAT(buffer, testing::HasSubstr(
+                            absl::StrCat(kHugePages, " hugepages broken")));
     if (i == 1) {
       // Number of pages in alloc_small
       ASSERT_THAT(buffer, testing::HasSubstr(absl::StrCat(
-                              kHugePages.raw_num() + 2,
+                              kHugePages + NHugePages(2),
                               " used pages in subreleased hugepages")));
       // Sum of pages in alloc and dead
       ASSERT_THAT(buffer,
                   testing::HasSubstr(absl::StrCat(
-                      kHugePages.raw_num() * kPagesPerHugePage.raw_num() -
-                          kHugePages.raw_num(),
+                      kHugePages.in_pages() - Length(kHugePages.raw_num()),
                       " pages subreleased")));
     }
 
@@ -5131,44 +5130,42 @@ TEST_F(FillerTest, CheckFillerStats) {
 
   const HugePageFillerStats stats = filler_.GetStats();
   for (int i = 0; i < AccessDensityPrediction::kPredictionCounts; ++i) {
-    EXPECT_GE(stats.n_fully_released[i].raw_num(), 0);
+    EXPECT_GE(stats.n_fully_released[i], NHugePages(0));
   }
   // Check sparsely-accessed filler stats.
-  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kSparse].raw_num(),
-            4);
-  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kSparse].raw_num(), 4);
-  EXPECT_EQ(
-      stats.n_partial_released[AccessDensityPrediction::kSparse].raw_num(), 0);
-  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kSparse].raw_num(), 8);
-  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kSparse].raw_num(), 3);
-  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kSparse].raw_num(), 1);
+  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kSparse],
+            NHugePages(4));
+  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kSparse], NHugePages(4));
+  EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kSparse],
+            NHugePages(0));
+  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kSparse], NHugePages(8));
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kSparse], NHugePages(3));
+  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kSparse], NHugePages(1));
 
   // Check densely-accessed filler stats.
-  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kDense].raw_num(),
-            1);
-  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kDense].raw_num(), 1);
-  EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kDense].raw_num(),
-            0);
-  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kDense].raw_num(), 7);
-  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kDense].raw_num(), 6);
-  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kDense].raw_num(), 0);
+  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kDense],
+            NHugePages(1));
+  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kDense], NHugePages(1));
+  EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kDense],
+            NHugePages(0));
+  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kDense], NHugePages(7));
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kDense], NHugePages(6));
+  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kDense], NHugePages(0));
 
   // Check total filler stats.
-  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kPredictionCounts]
-                .raw_num(),
-            5);
+  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(5));
+  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(5));
   EXPECT_EQ(
-      stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num(),
-      5);
-  EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kPredictionCounts]
-                .raw_num(),
-            0);
-  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kPredictionCounts].raw_num(),
-            15);
-  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kPredictionCounts].raw_num(),
-            9);
-  EXPECT_EQ(
-      stats.n_partial[AccessDensityPrediction::kPredictionCounts].raw_num(), 1);
+      stats.n_partial_released[AccessDensityPrediction::kPredictionCounts],
+      NHugePages(0));
+  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(15));
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(9));
+  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(1));
 
   for (const auto& alloc : allocs) {
     Delete(alloc);
@@ -5189,44 +5186,42 @@ TEST_F(FillerTest, CheckFillerStats_SpansAllocated) {
 
   const HugePageFillerStats stats = filler_.GetStats();
   for (int i = 0; i < AccessDensityPrediction::kPredictionCounts; ++i) {
-    EXPECT_GE(stats.n_fully_released[i].raw_num(), 0);
+    EXPECT_GE(stats.n_fully_released[i], NHugePages(0));
   }
   // Check sparsely-accessed filler stats.
-  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kSparse].raw_num(),
-            4);
-  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kSparse].raw_num(), 4);
-  EXPECT_EQ(
-      stats.n_partial_released[AccessDensityPrediction::kSparse].raw_num(), 0);
-  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kSparse].raw_num(), 8);
-  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kSparse].raw_num(), 3);
-  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kSparse].raw_num(), 1);
+  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kSparse],
+            NHugePages(4));
+  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kSparse], NHugePages(4));
+  EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kSparse],
+            NHugePages(0));
+  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kSparse], NHugePages(8));
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kSparse], NHugePages(3));
+  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kSparse], NHugePages(1));
 
   // Check densely-accessed filler stats.
-  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kDense].raw_num(),
-            1);
-  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kDense].raw_num(), 1);
-  EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kDense].raw_num(),
-            0);
-  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kDense].raw_num(), 7);
-  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kDense].raw_num(), 6);
-  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kDense].raw_num(), 0);
+  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kDense],
+            NHugePages(1));
+  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kDense], NHugePages(1));
+  EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kDense],
+            NHugePages(0));
+  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kDense], NHugePages(7));
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kDense], NHugePages(6));
+  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kDense], NHugePages(0));
 
   // Check total filler stats.
-  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kPredictionCounts]
-                .raw_num(),
-            5);
+  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(5));
+  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(5));
   EXPECT_EQ(
-      stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num(),
-      5);
-  EXPECT_EQ(stats.n_partial_released[AccessDensityPrediction::kPredictionCounts]
-                .raw_num(),
-            0);
-  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kPredictionCounts].raw_num(),
-            15);
-  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kPredictionCounts].raw_num(),
-            9);
-  EXPECT_EQ(
-      stats.n_partial[AccessDensityPrediction::kPredictionCounts].raw_num(), 1);
+      stats.n_partial_released[AccessDensityPrediction::kPredictionCounts],
+      NHugePages(0));
+  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(15));
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(9));
+  EXPECT_EQ(stats.n_partial[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(1));
 
   for (const auto& alloc : allocs) {
     Delete(alloc);
@@ -6545,15 +6540,13 @@ TEST_F(FillerTest, GetsAndPuts) {
     if (absl::Bernoulli(rng, 0.5)) {
       sparsely_accessed_allocs.push_back(
           AllocateWithSpanAllocInfo(Length(1), sparsely_accessed_info));
-      EXPECT_EQ(
-          filler_.pages_allocated(AccessDensityPrediction::kSparse).raw_num(),
-          sparsely_accessed_allocs.size());
+      EXPECT_EQ(filler_.pages_allocated(AccessDensityPrediction::kSparse),
+                Length(sparsely_accessed_allocs.size()));
     } else {
       densely_accessed_allocs.push_back(
           AllocateWithSpanAllocInfo(Length(1), densely_accessed_info));
-      EXPECT_EQ(
-          filler_.pages_allocated(AccessDensityPrediction::kDense).raw_num(),
-          densely_accessed_allocs.size());
+      EXPECT_EQ(filler_.pages_allocated(AccessDensityPrediction::kDense),
+                Length(densely_accessed_allocs.size()));
     }
   }
   EXPECT_GE(filler_.size(), kNumHugePages);
@@ -6616,7 +6609,7 @@ TEST_F(FillerTest, BoundedVSS) {
   while (filler_.used_pages() < baseline) {
     allocs.push_back(Allocate(Length(1)));
   }
-  EXPECT_EQ(filler_.pages_allocated().raw_num(), allocs.size());
+  EXPECT_EQ(filler_.pages_allocated(), Length(allocs.size()));
 
   for (int i = 0; i < 10; ++i) {
     while (filler_.used_pages() < peak) {

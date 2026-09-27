@@ -393,14 +393,14 @@ class UsageInfo {
                records.hugepage_backed, TypeToStr(type), records.total_pages);
     out.printf(
         "\nHugePageFiller: Of the non-hugepage backed pages of type %s, "
-        "%zu tcmalloc pages are free, %zu tcmalloc pages are used.",
-        TypeToStr(type), records.num_free_non_hugepage_backed.raw_num(),
-        records.num_used_non_hugepage_backed.raw_num());
+        "%v tcmalloc pages are free, %v tcmalloc pages are used.",
+        TypeToStr(type), records.num_free_non_hugepage_backed,
+        records.num_used_non_hugepage_backed);
     out.printf(
         "\nHugePageFiller: Of the hugepage backed pages of type %s, "
-        "%zu tcmalloc pages are free, %zu tcmalloc pages are used.",
-        TypeToStr(type), records.num_free_hugepage_backed.raw_num(),
-        records.num_used_hugepage_backed.raw_num());
+        "%v tcmalloc pages are free, %v tcmalloc pages are used.",
+        TypeToStr(type), records.num_free_hugepage_backed,
+        records.num_used_hugepage_backed);
 
     out.printf("\nHugePageFiller: %zu of %s pages treated out of %zu.",
                records.treated_hugepages, TypeToStr(type), records.total_pages);
@@ -557,11 +557,11 @@ class UsageInfo {
     for (size_t i = 0; i < kMaxSampledTrackers; ++i) {
       if (records.sampled_trackers[i].is_valid) {
         out.printf(
-            "\nHugePageFiller: Allocations: %d, Longest Free Range: %d, "
+            "\nHugePageFiller: Allocations: %d, Longest Free Range: %v, "
             "Objects: %d, Is Hugepage Backed?: %d, Density: %d, "
             "Reallocation Time: %f",
             records.sampled_trackers[i].allocations,
-            records.sampled_trackers[i].longest_free_range.raw_num(),
+            records.sampled_trackers[i].longest_free_range,
             records.sampled_trackers[i].objects,
             records.sampled_trackers[i].is_hugepage_backed,
             records.sampled_trackers[i].density,
@@ -1657,7 +1657,7 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
 
   // We also do eager release, once we've called this at least once:
   // claim credit for anything that gets done.
-  if (unmapping_unaccounted_.raw_num() > 0) {
+  if (unmapping_unaccounted_ > Length(0)) {
     // TODO(ckennelly):  This may overshoot in releasing more than desired
     // pages.
     Length n = unmapping_unaccounted_;
@@ -2012,36 +2012,33 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
                                 static_cast<double>(b.raw_num());
   };
   out.printf(
-      "HugePageFiller: Overall, %zu total, %zu full, %zu partial, %zu released "
-      "(%zu partially), 0 quarantined\n",
-      size().raw_num(),
-      stats.n_full[AccessDensityPrediction::kPredictionCounts].raw_num(),
-      stats.n_partial[AccessDensityPrediction::kPredictionCounts].raw_num(),
-      stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num(),
-      stats.n_partial_released[AccessDensityPrediction::kPredictionCounts]
-          .raw_num());
+      "HugePageFiller: Overall, %v total, %v full, %v partial, %v released "
+      "(%v partially), 0 quarantined\n",
+      size(), stats.n_full[AccessDensityPrediction::kPredictionCounts],
+      stats.n_partial[AccessDensityPrediction::kPredictionCounts],
+      stats.n_released[AccessDensityPrediction::kPredictionCounts],
+      stats.n_partial_released[AccessDensityPrediction::kPredictionCounts]);
 
   out.printf(
-      "HugePageFiller: those with sparsely-accessed spans, %zu total, "
-      "%zu full, %zu partial, %zu released (%zu partially), 0 quarantined\n",
-      stats.n_total[AccessDensityPrediction::kSparse].raw_num(),
-      stats.n_full[AccessDensityPrediction::kSparse].raw_num(),
-      stats.n_partial[AccessDensityPrediction::kSparse].raw_num(),
-      stats.n_released[AccessDensityPrediction::kSparse].raw_num(),
-      stats.n_partial_released[AccessDensityPrediction::kSparse].raw_num());
+      "HugePageFiller: those with sparsely-accessed spans, %v total, "
+      "%v full, %v partial, %v released (%v partially), 0 quarantined\n",
+      stats.n_total[AccessDensityPrediction::kSparse],
+      stats.n_full[AccessDensityPrediction::kSparse],
+      stats.n_partial[AccessDensityPrediction::kSparse],
+      stats.n_released[AccessDensityPrediction::kSparse],
+      stats.n_partial_released[AccessDensityPrediction::kSparse]);
 
   out.printf(
-      "HugePageFiller: those with densely-accessed spans, %zu total, "
-      "%zu full, %zu partial, %zu released (%zu partially), 0 quarantined\n",
-      stats.n_total[AccessDensityPrediction::kDense].raw_num(),
-      stats.n_full[AccessDensityPrediction::kDense].raw_num(),
-      stats.n_partial[AccessDensityPrediction::kDense].raw_num(),
-      stats.n_released[AccessDensityPrediction::kDense].raw_num(),
-      stats.n_partial_released[AccessDensityPrediction::kDense].raw_num());
+      "HugePageFiller: those with densely-accessed spans, %v total, "
+      "%v full, %v partial, %v released (%v partially), 0 quarantined\n",
+      stats.n_total[AccessDensityPrediction::kDense],
+      stats.n_full[AccessDensityPrediction::kDense],
+      stats.n_partial[AccessDensityPrediction::kDense],
+      stats.n_released[AccessDensityPrediction::kDense],
+      stats.n_partial_released[AccessDensityPrediction::kDense]);
 
-  out.printf("HugePageFiller: %zu pages free in %zu hugepages, %.4f free\n",
-             free_pages().raw_num(), size().raw_num(),
-             safe_div(free_pages(), size().in_pages()));
+  out.printf("HugePageFiller: %v pages free in %v hugepages, %.4f free\n",
+             free_pages(), size(), safe_div(free_pages(), size().in_pages()));
 
   const HugeLength n_nonfull =
       stats.n_partial[AccessDensityPrediction::kPredictionCounts] +
@@ -2051,14 +2048,13 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
              safe_div(free_pages(), n_nonfull.in_pages()));
 
   out.printf(
-      "HugePageFiller: %zu used pages in subreleased hugepages (%zu of them in "
+      "HugePageFiller: %v used pages in subreleased hugepages (%v of them in "
       "partially released)\n",
-      used_pages_in_any_subreleased().raw_num(),
-      used_pages_in_partial_released().raw_num());
+      used_pages_in_any_subreleased(), used_pages_in_partial_released());
 
   out.printf(
-      "HugePageFiller: %zu hugepages partially released, %.4f released\n",
-      stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num(),
+      "HugePageFiller: %v hugepages partially released, %.4f released\n",
+      stats.n_released[AccessDensityPrediction::kPredictionCounts],
       safe_div(unmapped_pages(),
                stats.n_released[AccessDensityPrediction::kPredictionCounts]
                    .in_pages()));
@@ -2067,12 +2063,12 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
 
   // Subrelease
   out.printf(
-      "HugePageFiller: Since startup, %zu pages subreleased, %zu hugepages "
-      "broken, (%zu pages, %zu hugepages due to reaching tcmalloc limit)\n",
-      subrelease_stats_.total_pages_subreleased.raw_num(),
-      subrelease_stats_.total_hugepages_broken.raw_num(),
-      subrelease_stats_.total_pages_subreleased_due_to_limit.raw_num(),
-      subrelease_stats_.total_hugepages_broken_due_to_limit.raw_num());
+      "HugePageFiller: Since startup, %v pages subreleased, %v hugepages "
+      "broken, (%v pages, %v hugepages due to reaching tcmalloc limit)\n",
+      subrelease_stats_.total_pages_subreleased,
+      subrelease_stats_.total_hugepages_broken,
+      subrelease_stats_.total_pages_subreleased_due_to_limit,
+      subrelease_stats_.total_hugepages_broken_due_to_limit);
 
   if (!everything) return;
 
@@ -2206,10 +2202,10 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
   }
 
   out.printf(
-      "\nHugePageFiller: %zu hugepages became full after being previously "
+      "\nHugePageFiller: %v hugepages became full after being previously "
       "released, "
       "out of which %zu pages are hugepage backed.\n",
-      previously_released_huge_pages().raw_num(),
+      previously_released_huge_pages(),
       usage.HugepageBackedPreviouslyReleased());
 
   PrintLifetimeHisto(out, lifetime_histo_[AccessDensityPrediction::kDense],
