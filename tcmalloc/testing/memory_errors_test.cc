@@ -427,8 +427,7 @@ TEST_F(TcMallocTest, DoubleFree) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
                "Cause: use-after-free"
 #else
-               absl::StrCat(
-                   "(Possible double free detected"
+      absl::StrCat("(Possible double free detected"
                    ")|attempting double-free")
 #endif
   );
@@ -686,8 +685,7 @@ TEST_P(MismatchedDeleteTooLargeTest, MismatchedDeleteTooLarge) {
                 ")"
                 "|(Mismatched-size-delete.*of [0-9]+ bytes \\(expected between "
                 "\\[[0-9]+, [0-9]+\\] bytes\\)"
-                ")"
-                ));
+                ")"));
       }
     }
   }
@@ -963,10 +961,10 @@ TEST_F(TcMallocTest, DeleteWithoutAlignment) {
       { ::operator delete(newed_with_align); },
       absl::StrCat(
           // ASan
-          "(new-delete-type-mismatch on .*\\n(?:.*\\n)*.*alignment of the "
+          "(new-delete-type-mismatch on .*\\n(.*\\n)*.*alignment of the "
           "allocated type:   ",
           align,
-          " bytes;.*\\n(?:.*\\n)*.*alignment of the deallocated type: "
+          " bytes;.*\\n(.*\\n)*.*alignment of the deallocated type: "
           "default-aligned)|"
           // GWP-ASan
           "(Deallocating 0x[0-9a-f]+ with alignment "
@@ -992,9 +990,9 @@ TEST_F(TcMallocTest, DeleteWithAlignment) {
       absl::StrCat(
           // ASan
           "(new-delete-type-mismatch on "
-          ".*\\n(?:.*\\n)*.*alignment of the allocated type:   "
+          ".*\\n(.*\\n)*.*alignment of the allocated type:   "
           "default-aligned;"
-          ".*\\n(?:.*\\n)*.*alignment of the deallocated type: ",
+          ".*\\n(.*\\n)*.*alignment of the deallocated type: ",
           align, " bytes)|",
           // GWP-ASan
           "(Deallocating 0x[0-9a-f]+ with alignment ", align,
@@ -1021,9 +1019,9 @@ TEST_F(TcMallocTest, DeleteWrongAlignment) {
       },
       // ASan
       absl::StrCat(
-          "(new-delete-type-mismatch on .*\\n(?:.*\\n)*.*alignment of the "
+          "(new-delete-type-mismatch on .*\\n(.*\\n)*.*alignment of the "
           "allocated type:   ",
-          align, " bytes;.*\\n(?:.*\\n)*.*alignment of the deallocated type: ",
+          align, " bytes;.*\\n(.*\\n)*.*alignment of the deallocated type: ",
           ABSL_CACHELINE_SIZE / 2,
           " bytes)|"
           // GWP-ASan
