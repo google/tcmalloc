@@ -232,6 +232,7 @@ tcmalloc_cc_library_variants(
     "span.h"
     "span_stats.h"
     "stack_trace_table.h"
+    "static_forwarder.h"
     "static_vars.h"
     "stats.h"
     "tcmalloc_policy.h"
@@ -293,6 +294,7 @@ tcmalloc_cc_library_variants(
     "span_stats.h"
     "stack_trace_table.cc"
     "stack_trace_table.h"
+    "static_forwarder.h"
     "static_vars.cc"
     "static_vars.h"
     "stats.cc"
@@ -889,6 +891,7 @@ tcmalloc_cc_library(
     "absl::random_random"
     "absl::span"
     "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_logging"
     "tcmalloc::mock_central_freelist"
 )
 
@@ -2008,6 +2011,28 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::internal_size_class_info"
     "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_static_forwarder_test
+  SRCS
+    "static_forwarder_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "absl::fixed_array"
+    "absl::flat_hash_map"
+    "absl::flat_hash_set"
+    "absl::inlined_vector"
+    "absl::random_random"
+    "absl::span"
+    "absl::synchronization"
+    "absl::time"
+    "tcmalloc::internal_logging"
+    "tcmalloc::testing_thread_manager"
 )
 
 tcmalloc_cc_library(
