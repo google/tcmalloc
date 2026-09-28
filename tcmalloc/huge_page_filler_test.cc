@@ -1652,6 +1652,60 @@ TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
   CheckStats();
 }
 
+// HandleFullyFreedTracker drops pageheap_lock to unback the remainder of a
+// partially released hugepage.  Another thread can report filler stats at a
+// later time in that window, so the retirement must not then report with the
+// time it read before dropping the lock: the time series tracker treats a
+// regressing clock as a snapshot restore and discards the demand history that
+// skip-subrelease consults.
+TEST_F(FillerTest, RetirementUnbackKeepsSubreleaseHistory) {
+  randomize_density_ = false;
+  const Length kHalf = kPagesPerHugePage / 2;
+  // hp1 holds a and b; hp2 holds c, d, and e.  Peak demand is two hugepages.
+  PAlloc a = Allocate(kHalf);
+  PAlloc b = Allocate(kHalf);
+  PAlloc c = Allocate(kHalf);
+  PAlloc d = Allocate(kHalf - Length(1));
+  PAlloc e = Allocate(Length(1));
+  ASSERT_EQ(a.pt, b.pt);
+  ASSERT_EQ(c.pt, d.pt);
+  ASSERT_EQ(c.pt, e.pt);
+
+  // Partially release hp1 (hp2 is full, so it contributes nothing).
+  ASSERT_FALSE(Delete(b));
+  EXPECT_EQ(ReleasePages(kHalf), kHalf);
+  EXPECT_TRUE(a.pt->released());
+  // Leave free pages in hp2 for the subrelease decision below.
+  ASSERT_FALSE(Delete(d));
+
+  // Freeing a retires hp1.  Model another thread freeing e two minutes later
+  // while the retirement unbacks with pageheap_lock dropped.
+  int hook_calls = 0;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    ++hook_calls;
+    EXPECT_EQ(r.n, kPagesPerHugePage);
+    FakeClock::Advance(absl::Minutes(2));
+    EXPECT_FALSE(DeleteRaw(e));
+  };
+  EXPECT_TRUE(Delete(a));
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(hook_calls, 1);
+
+  // Flush the pages the retirement unbacked, which ReleasePages counts first.
+  EXPECT_EQ(ReleasePages(Length(0)), kHalf);
+
+  // The two-hugepage demand peak lies within peak_interval, so skip-subrelease
+  // must keep hp2's free pages mapped.  A retirement that reported with a
+  // stale time reset the time series, leaving only the current demand.
+  EXPECT_EQ(
+      ReleasePages(kPagesPerHugePage,
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(10)}),
+      Length(0));
+  EXPECT_FALSE(c.pt->released());
+
+  ASSERT_TRUE(Delete(c));
+}
+
 // Makes sure that we do not collapse the pages that are already hugepage
 // backed.
 TEST_F(FillerTest, DontCollapseAlreadyHugepages) {
