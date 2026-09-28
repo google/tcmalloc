@@ -379,12 +379,13 @@ TEST(Arena, PerTypeStats) {
     EXPECT_EQ(stats.bytes_allocated_per_type[i], 0);
   }
 
-  // Allocate 100 bytes of kSpan.
-  void* p1 = arena.Alloc(ArenaAlloc::kSpan, 100, Align(1));
+  // Allocate 100 bytes of kCpuCache.
+  void* p1 = arena.Alloc(ArenaAlloc::kCpuCache, 100, Align(1));
   EXPECT_NE(p1, nullptr);
   stats = arena.stats();
   EXPECT_EQ(
-      stats.bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kSpan)],
+      stats
+          .bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kCpuCache)],
       100);
   EXPECT_EQ(stats.bytes_allocated, 100);
 
@@ -393,7 +394,8 @@ TEST(Arena, PerTypeStats) {
   EXPECT_NE(p2, nullptr);
   stats = arena.stats();
   EXPECT_EQ(
-      stats.bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kSpan)],
+      stats
+          .bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kCpuCache)],
       100);
   EXPECT_EQ(
       stats.bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kPageMap)],

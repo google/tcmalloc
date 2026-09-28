@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <memory>
 #include <new>
 #include <string>
@@ -41,268 +42,45 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-constexpr uint64_t kSpanAllocTime = 1234;
+TEST(SpanMathTest, CalcReciprocalAndOffsetToIdx) {
+  const std::vector<size_t> test_sizes = {
+      8,   16,  24,   32,   48,   64,   80,    96,    128,
+      256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536};
 
-// We bitpack alloc time and do not store the full value.  We are willing to
-// tolerate a small amount of imprecision in the least significant bits
-// because a few nanoseconds should not make or break any decisions we make
-// with it.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-constexpr uint64_t kAllocTimeMask = ~uint64_t{0x0};
-#else
-constexpr uint64_t kAllocTimeMask = ~uint64_t{0xFF};
-#endif
+  for (size_t size : test_sizes) {
+    const uint32_t reciprocal = CalcReciprocal(size);
+    const size_t max_objects = std::min<size_t>(1000, (32 * 8192) / size);
 
-class RawSpan {
- public:
-  void Init(size_t size_class) {
-    size_t size = tc_globals.sizemap().class_to_size(size_class);
-    auto npages = tc_globals.sizemap().class_to_pages(size_class);
-    size_t objects_per_span = npages.in_bytes() / size;
-
-    int res = posix_memalign(&mem_, kPageSize, npages.in_bytes());
-    TC_CHECK_EQ(res, 0);
-
-    // Dynamically allocate so ASan can flag if we run out of bounds.
-    span_ = std::make_unique<Span>(Range(PageIdContaining(mem_), npages));
-    TC_CHECK_EQ(
-        span_->BuildFreelist(size, objects_per_span, {}, kSpanAllocTime), 0);
-  }
-
-  ~RawSpan() {
-    free(mem_);
-  }
-
-  Span& span() { return *span_; }
-
- private:
-  void* mem_ = nullptr;
-  std::unique_ptr<Span> span_;
-};
-
-class SpanTest : public testing::TestWithParam<size_t> {
- protected:
-  size_t size_class_;
-  size_t size_;
-  Length npages_;
-  size_t batch_size_;
-  size_t objects_per_span_;
-  uint32_t reciprocal_;
-  RawSpan raw_span_;
-
- private:
-  void SetUp() override {
-#if ABSL_HAVE_HWADDRESS_SANITIZER
-    GTEST_SKIP()
-        << "Skipping under HWASan, which uses the top bits of the pointer.";
-#endif
-
-    size_class_ = GetParam();
-    size_ = tc_globals.sizemap().class_to_size(size_class_);
-    if (size_ == 0) {
-      GTEST_SKIP() << "Skipping empty size class.";
-    }
-
-    npages_ = tc_globals.sizemap().class_to_pages(size_class_);
-    batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
-    objects_per_span_ = npages_.in_bytes() / size_;
-    reciprocal_ = Span::CalcReciprocal(size_);
-
-    raw_span_.Init(size_class_);
-  }
-
-  void TearDown() override {}
-};
-
-TEST_P(SpanTest, FreelistBasic) {
-  Span& span_ = raw_span_.span();
-
-  EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
-  void* batch[kMaxObjectsToMove];
-  size_t popped = 0;
-  size_t want = 1;
-  char* start = static_cast<char*>(span_.start_address());
-  std::vector<bool> objects(objects_per_span_);
-  for (size_t x = 0; x < 2; ++x) {
-    // Pop all objects in batches of varying size and ensure that we've got
-    // all objects.
-    for (;;) {
-      size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
-      popped += n;
-      EXPECT_EQ(span_.FreelistEmpty(size_, objects_per_span_),
-                popped == objects_per_span_);
-      for (size_t i = 0; i < n; ++i) {
-        void* p = batch[i];
-        uintptr_t off = reinterpret_cast<char*>(p) - start;
-        EXPECT_LT(off, span_.bytes_in_span());
-        EXPECT_EQ(off % size_, 0);
-        size_t idx = off / size_;
-        EXPECT_FALSE(objects[idx]);
-        objects[idx] = true;
-      }
-      if (n < want) {
-        break;
-      }
-      ++want;
-      if (want > batch_size_) {
-        want = 1;
-      }
-    }
-    EXPECT_TRUE(span_.FreelistEmpty(size_, objects_per_span_));
-    EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
-    EXPECT_EQ(popped, objects_per_span_);
-
-    // Push all objects back except the last one (which would not be pushed).
-    for (size_t idx = 0; idx < objects_per_span_ - 1; ++idx) {
-      EXPECT_TRUE(objects[idx]);
-      void* ptr = start + idx * size_;
-      bool ok =
-          span_.FreelistPushBatch(absl::MakeSpan(&ptr, 1), size_, reciprocal_);
-      EXPECT_TRUE(ok);
-      EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
-      objects[idx] = false;
-      --popped;
-    }
-    // On the last iteration we can actually push the last object.
-    if (x == 1) {
-      void* ptr = start + (objects_per_span_ - 1) * size_;
-      bool ok =
-          span_.FreelistPushBatch(absl::MakeSpan(&ptr, 1), size_, reciprocal_);
-      EXPECT_FALSE(ok);
+    for (size_t i = 0; i < max_objects; ++i) {
+      const uintptr_t offset = i * size;
+      const uint32_t calculated_idx = OffsetToIdx(offset, reciprocal);
+      EXPECT_EQ(calculated_idx, i);
     }
   }
 }
 
-TEST_P(SpanTest, FreelistBasicObjIdx) {
-  Span& span_ = raw_span_.span();
+TEST(SpanMetaTest, IsValid) {
+  SpanMeta empty{};
+  EXPECT_FALSE(empty.IsValid());
 
-  EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
-  void* batch[kMaxObjectsToMove];
-  size_t popped = 0;
-  size_t want = 1;
-  char* start = static_cast<char*>(span_.start_address());
-  std::vector<bool> objects(objects_per_span_);
-  for (size_t x = 0; x < 2; ++x) {
-    // Pop all objects in batches of varying size and ensure that we've got
-    // all objects.
-    for (;;) {
-      size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
-      popped += n;
-      EXPECT_EQ(span_.FreelistEmpty(size_, objects_per_span_),
-                popped == objects_per_span_);
-      for (size_t i = 0; i < n; ++i) {
-        void* p = batch[i];
-        uintptr_t off = reinterpret_cast<char*>(p) - start;
-        EXPECT_LT(off, span_.bytes_in_span());
-        EXPECT_EQ(off % size_, 0);
-        size_t idx = off / size_;
-        EXPECT_FALSE(objects[idx]);
-        objects[idx] = true;
-      }
-      if (n < want) {
-        break;
-      }
-      ++want;
-      if (want > batch_size_) {
-        want = 1;
-      }
-    }
-    EXPECT_TRUE(span_.FreelistEmpty(size_, objects_per_span_));
-    EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
-    EXPECT_EQ(popped, objects_per_span_);
+  SpanMeta freed = SpanMeta::Freed();
+  EXPECT_FALSE(freed.IsValid());
+  EXPECT_TRUE(freed.IsFreed());
 
-    // Push all objects back except the last one (which would not be pushed).
-    for (size_t idx = 0; idx < objects_per_span_ - 1; ++idx) {
-      EXPECT_TRUE(objects[idx]);
-      void* ptr = start + idx * size_;
-      Span::ObjIdx objidx;
-      if (Span::UseBitmapForSize(size_)) {
-        objidx = span_.BitmapPtrToIdx(ptr, size_, reciprocal_);
-      } else {
-        objidx = span_.PtrToIdx(ptr, size_);
-      }
-      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
-                                        reciprocal_);
-      EXPECT_TRUE(ok);
-      EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
-      objects[idx] = false;
-      --popped;
-    }
-    // On the last iteration we can actually push the last object.
-    if (x == 1) {
-      void* ptr = start + (objects_per_span_ - 1) * size_;
-      Span::ObjIdx objidx;
-      if (Span::UseBitmapForSize(size_)) {
-        objidx = span_.BitmapPtrToIdx(ptr, size_, reciprocal_);
-      } else {
-        objidx = span_.PtrToIdx(ptr, size_);
-      }
-      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
-                                        reciprocal_);
-      EXPECT_FALSE(ok);
-    }
-  }
+  SpanMeta small{};
+  small.is_small = 1;
+  EXPECT_TRUE(small.IsValid());
+
+  SpanMeta medium{};
+  medium.num_pages_or_sampled_index = 5;
+  EXPECT_TRUE(medium.IsValid());
+
+  SpanMeta sampled{};
+  sampled.is_sampled = 1;
+  sampled.num_pages_or_sampled_index = 0;
+  EXPECT_TRUE(sampled.IsValid());
+  EXPECT_FALSE(sampled.IsFreed());
 }
-
-TEST_P(SpanTest, AllocTime) {
-  Span& span_ = raw_span_.span();
-  EXPECT_EQ(span_.AllocTime() & kAllocTimeMask,
-            kSpanAllocTime & kAllocTimeMask);
-}
-
-INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
-
-TEST(SpanAllocatorTest, Alignment) {
-  Range r(PageId{1}, Length{2});
-
-  constexpr int kNumSpans = 1000;
-  std::vector<Span*> spans;
-  spans.reserve(kNumSpans);
-
-  {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    for (int i = 0; i < kNumSpans; ++i) {
-      spans.push_back(Span::New(r));
-    }
-  }
-
-  absl::flat_hash_map<uintptr_t, int> address_mod_cacheline;
-  for (Span* s : spans) {
-    ++address_mod_cacheline[reinterpret_cast<uintptr_t>(s) %
-                            ABSL_CACHELINE_SIZE];
-  }
-
-  EXPECT_EQ(address_mod_cacheline[0], kNumSpans);
-
-  // Verify alignof is respected.
-  for (auto [alignment, count] : address_mod_cacheline) {
-    EXPECT_EQ(alignment % alignof(Span), 0);
-  }
-
-  {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    for (Span* s : spans) {
-      Span::Delete(s);
-    }
-  }
-}
-
-#ifdef __clang__
-TEST(SpanDeathTest, InvalidSpan) {
-  const Span* invalid_span = &Static::invalid_span();
-  benchmark::DoNotOptimize(invalid_span);
-  Span& span = const_cast<Span&>(*invalid_span);
-
-  void* batch[1];
-  EXPECT_DEATH((void)span.FreelistPushBatch(absl::MakeSpan(batch, 1), 8, 0),
-               "");
-  EXPECT_DEATH((void)span.FreelistPopBatch(absl::MakeSpan(batch, 1), 8), "");
-}
-#endif  // __clang__
 
 }  // namespace
 }  // namespace tcmalloc_internal

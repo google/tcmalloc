@@ -30,7 +30,10 @@
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 
 // Note: we leak memory every time a map is constructed, so do not
 // create too many maps.
@@ -39,11 +42,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-// Pick span pointer to use for page numbered i
-Span* span(intptr_t i) { return reinterpret_cast<Span*>(i + 1); }
-
 // Pick sizeclass to use for page numbered i
-uint8_t sc(intptr_t i) { return i % 16; }
+CompactSizeClass sc(intptr_t i) { return (i % 64) + 1; }
 
 class PageMapTest : public ::testing::TestWithParam<int> {
  public:
@@ -86,23 +86,29 @@ TEST_P(PageMapTest, Sequential) {
 
   for (intptr_t i = 0; i < limit; i++) {
     ASSERT_TRUE(map->Ensure(Range(PageId(i), Length(1))));
-    map->Set(PageId(i), span(i));
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
-    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)), span(i));
-
-    // Test size class handling
     ASSERT_EQ(0, map->sizeclass(PageId(i)));
-    ASSERT_EQ(map->GetDescriptorAndSizeClass(PageId(i)),
-              (std::pair<Span*, CompactSizeClass>(span(i), 0)));
-    map->Set(PageId(i), span(i), sc(i));
-    ASSERT_EQ(sc(i), map->sizeclass(PageId(i)));
+    SpanMeta empty_meta =
+        map->GetSpanMeta(PageId(i))->load(std::memory_order_relaxed);
+    ASSERT_EQ(empty_meta.is_small, 0);
+    ASSERT_EQ(empty_meta.num_pages_or_sampled_index, 0);
+
+    const CompactSizeClass c = sc(i);
+    map->RegisterSmallSpan(PageId(i), Length(1), c, /*donated=*/(i % 2) != 0);
+    ASSERT_EQ(c, map->sizeclass(PageId(i)));
+    SpanMeta meta =
+        map->GetSpanMeta(PageId(i))->load(std::memory_order_relaxed);
+    ASSERT_EQ(meta.is_small, 1);
+    ASSERT_EQ(meta.size_class, c);
+    ASSERT_EQ(meta.is_donated, (i % 2) != 0);
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
-    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)), span(i));
-    ASSERT_EQ(map->sizeclass(PageId(i)), sc(i));
-    ASSERT_EQ(map->GetDescriptorAndSizeClass(PageId(i)),
-              (std::pair<Span*, CompactSizeClass>(span(i), sc(i))));
+    const CompactSizeClass c = sc(i);
+    ASSERT_EQ(map->sizeclass(PageId(i)), c);
+    SpanMeta meta =
+        map->GetSpanMeta(PageId(i))->load(std::memory_order_relaxed);
+    ASSERT_EQ(meta.is_small, 1);
+    ASSERT_EQ(meta.size_class, c);
+    ASSERT_EQ(meta.is_donated, (i % 2) != 0);
   }
 }
 
@@ -111,11 +117,15 @@ TEST_P(PageMapTest, Bulk) {
 
   ASSERT_TRUE(map->Ensure(Range(PageId(0), Length(limit))));
   for (intptr_t i = 0; i < limit; i++) {
-    map->Set(PageId(i), span(i));
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    map->RegisterSmallSpan(PageId(i), Length(1), sc(i), false);
+    ASSERT_EQ(map->sizeclass(PageId(i)), sc(i));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    ASSERT_EQ(map->sizeclass(PageId(i)), sc(i));
+  }
+  for (intptr_t i = 0; i < limit; i++) {
+    map->UnregisterSmallSpan(PageId(i), Length(1));
+    ASSERT_EQ(map->sizeclass(PageId(i)), 0);
   }
 }
 
@@ -135,12 +145,149 @@ TEST_P(PageMapTest, RandomAccess) {
 
   for (intptr_t i = 0; i < limit; i++) {
     ASSERT_TRUE(map->Ensure(Range(PageId(elements[i]), Length(1))));
-    map->Set(PageId(elements[i]), span(elements[i]));
-    ASSERT_EQ(map->GetDescriptor(PageId(elements[i])), span(elements[i]));
+    map->RegisterSmallSpan(PageId(elements[i]), Length(1), sc(elements[i]),
+                           false);
+    ASSERT_EQ(map->sizeclass(PageId(elements[i])), sc(elements[i]));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    ASSERT_EQ(map->sizeclass(PageId(elements[i])), sc(elements[i]));
   }
+}
+
+TEST_P(PageMapTest, LargeSpan) {
+  const intptr_t limit = std::min<intptr_t>(GetParam(), 1000);
+  for (intptr_t i = 0; i < limit; i += 10) {
+    ASSERT_TRUE(map->Ensure(Range(PageId(i), Length(10))));
+    map->RegisterLargeSpan(PageId(i), Length(10), /*donated=*/false,
+                           /*is_sampled=*/true);
+    SpanMeta meta =
+        map->GetSpanMeta(PageId(i))->load(std::memory_order_relaxed);
+    ASSERT_EQ(meta.is_small, 0);
+    ASSERT_EQ(meta.is_sampled, 1);
+    ASSERT_EQ(meta.num_pages_or_sampled_index, 10);
+    ASSERT_EQ(map->sizeclass(PageId(i)), 0);
+
+    map->UnregisterLargeSpan(PageId(i), Length(10));
+    meta = map->GetSpanMeta(PageId(i))->load(std::memory_order_relaxed);
+    ASSERT_EQ(meta.is_sampled, 0);
+    ASSERT_EQ(meta.num_pages_or_sampled_index, 0);
+  }
+}
+
+TEST_P(PageMapTest, HugePage) {
+  const intptr_t limit = std::min<intptr_t>(GetParam(), 1000);
+  for (intptr_t i = 0; i < limit; ++i) {
+    ASSERT_TRUE(map->Ensure(Range(PageId(i), Length(1))));
+    void* val = reinterpret_cast<void*>(static_cast<uintptr_t>(i + 42));
+    map->SetHugepage(PageId(i), val);
+    ASSERT_EQ(map->GetHugepage(PageId(i)), val);
+    map->SetHugepage(PageId(i), nullptr);
+    ASSERT_EQ(map->GetHugepage(PageId(i)), nullptr);
+  }
+}
+
+TEST_P(PageMapTest, MultiPageSmallSpan) {
+  const intptr_t limit = std::min<intptr_t>(GetParam(), 1000);
+  for (intptr_t i = 0; i + 4 <= limit; i += 4) {
+    ASSERT_TRUE(map->Ensure(Range(PageId(i), Length(4))));
+    const CompactSizeClass c = sc(i);
+    map->RegisterSmallSpan(PageId(i), Length(4), c, /*donated=*/true);
+    for (int offset = 0; offset < 4; ++offset) {
+      ASSERT_EQ(map->sizeclass(PageId(i + offset)), c);
+      SpanMeta meta =
+          map->GetSpanMeta(PageId(i + offset))->load(std::memory_order_relaxed);
+      ASSERT_EQ(meta.is_small, 1);
+      ASSERT_EQ(meta.size_class, c);
+      ASSERT_EQ(meta.heap_index_or_page_offset, offset);
+      ASSERT_EQ(meta.is_in_cfl, 0);
+      ASSERT_EQ(meta.is_donated, 1);
+    }
+    map->UnregisterSmallSpan(PageId(i), Length(4));
+    for (int offset = 0; offset < 4; ++offset) {
+      ASSERT_EQ(map->sizeclass(PageId(i + offset)), 0);
+    }
+  }
+}
+
+TEST_P(PageMapTest, GetSpanMetaNullable) {
+  // Unallocated page returns nullopt.
+  EXPECT_EQ(map->GetSpanMetaNullable(PageId(100)), std::nullopt);
+
+  // Allocated but empty/unregistered page returns nullopt.
+  ASSERT_TRUE(map->Ensure(Range(PageId(100), Length(1))));
+  EXPECT_EQ(map->GetSpanMetaNullable(PageId(100)), std::nullopt);
+
+  // Registered small span returns non-nullopt valid meta.
+  map->RegisterSmallSpan(PageId(100), Length(1), 1, false);
+  std::optional<SpanMeta> meta = map->GetSpanMetaNullable(PageId(100));
+  ASSERT_TRUE(meta.has_value());
+  EXPECT_TRUE(meta->IsValid());
+  EXPECT_EQ(meta->is_small, 1);
+
+  // Unregistered (freed) span returns nullopt.
+  map->UnregisterSmallSpan(PageId(100), Length(1));
+  EXPECT_EQ(map->GetSpanMetaNullable(PageId(100)), std::nullopt);
+
+  // Registered large span returns non-nullopt valid meta.
+  map->RegisterLargeSpan(PageId(100), Length(2), false, false);
+  meta = map->GetSpanMetaNullable(PageId(100));
+  ASSERT_TRUE(meta.has_value());
+  EXPECT_TRUE(meta->IsValid());
+  EXPECT_EQ(meta->num_pages_or_sampled_index, 2);
+
+  // Unregistered (freed) large span returns nullopt.
+  map->UnregisterLargeSpan(PageId(100), Length(2));
+  EXPECT_EQ(map->GetSpanMetaNullable(PageId(100)), std::nullopt);
+}
+
+TEST_P(PageMapTest, GetNextSetPage) {
+  // Empty pagemap returns nullopt.
+  EXPECT_EQ(map->get_next_set_page(PageId(0)), std::nullopt);
+
+  // When a leaf is allocated, get_next_set_page returns pages in that leaf.
+  ASSERT_TRUE(map->Ensure(Range(PageId(100), Length(1))));
+  EXPECT_EQ(map->get_next_set_page(PageId(99)), PageId(100));
+  EXPECT_EQ(map->get_next_set_page(PageId(100)), PageId(101));
+}
+
+TEST(PageMapClassTest, BasicSampledOperations) {
+  ProdPageMap pm;
+  PageId p1 = PageId(100);
+  PageId p2 = PageId(101);
+  {
+    PageHeapSpinLockHolder l;
+    ASSERT_TRUE(pm.Ensure(Range(p1, Length(2))));
+  }
+
+  StackTrace st1;
+  StackTrace st2;
+  SampledAllocation* s1 =
+      tc_globals.sampled_allocation_recorder().Register(std::move(st1));
+  SampledAllocation* s2 =
+      tc_globals.sampled_allocation_recorder().Register(std::move(st2));
+  s1->sampled_stack.allocated_size = 12345;
+  s2->sampled_stack.allocated_size = 67890;
+
+  EXPECT_EQ(pm.GetLargeSize(p1), 0);
+  EXPECT_EQ(pm.GetLargeSize(p2), 0);
+
+  pm.RegisterSampledSpan(p1, s1);
+  EXPECT_EQ(pm.GetLargeSize(p1), 12345);
+  EXPECT_EQ(pm.GetLargeSize(p2), 0);
+
+  pm.RegisterSampledSpan(p2, s2);
+  EXPECT_EQ(pm.GetLargeSize(p1), 12345);
+  EXPECT_EQ(pm.GetLargeSize(p2), 67890);
+
+  EXPECT_EQ(pm.UnregisterSampledSpan(p1), s1);
+  EXPECT_EQ(pm.GetLargeSize(p1), 0);
+  EXPECT_EQ(pm.GetLargeSize(p2), 67890);
+
+  EXPECT_EQ(pm.UnregisterSampledSpan(p2), s2);
+  EXPECT_EQ(pm.GetLargeSize(p2), 0);
+
+  tc_globals.sampled_allocation_recorder().Unregister(s1);
+  tc_globals.sampled_allocation_recorder().Unregister(s2);
 }
 
 INSTANTIATE_TEST_SUITE_P(Limits, PageMapTest, ::testing::Values(100, 1 << 16));

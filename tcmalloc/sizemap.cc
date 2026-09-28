@@ -18,7 +18,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
-#include <new>
+#include <limits>
 #include <vector>
 
 #include "absl/base/macros.h"
@@ -34,7 +34,6 @@
 #include "tcmalloc/internal/size_class_info.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -59,13 +58,6 @@ bool SizeMap::CheckAssumptions() {
             a.has_cold_classes, kHasColdClasses);
     failed |= true;
   }
-#ifdef NDEBUG
-  if (a.span_size != sizeof(Span)) {
-    fprintf(stderr, "sizeof(Span): assumed %zu, actual %zu\n", a.span_size,
-            sizeof(Span));
-    failed |= true;
-  }
-#endif  // NDEBUG
   if (a.sampling_interval != kDefaultProfileSamplingInterval) {
     fprintf(stderr,
             "kDefaultProfileSamplingInterval: assumed %zu, actual %zu\n",
@@ -121,9 +113,9 @@ bool SizeMap::IsValidSizeClass(size_t size, Length pages,
     TC_LOG("each span must have at least one object");
     return false;
   }
-  if (!Span::IsValidSizeClass(size, pages)) {
-    TC_LOG("%v span size class assumptions are broken: pages=%v objs=%v", size,
-           pages, objects_per_span);
+  if (objects_per_span >= std::numeric_limits<uint16_t>::max()) {
+    // CentralFreeList::SpanHeader::allocated is uint16_t.
+    TC_LOG("size %v: too many objects per span %v", size, objects_per_span);
     return false;
   }
   if (!HugePageAwareAllocator::IsValidSizeClass(size, pages)) {
@@ -150,10 +142,6 @@ bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
     return false;
   }
 
-  class_to_size_[0] = 0;
-  class_to_pages_[0] = 0;
-  num_objects_to_move_[0] = 0;
-
   int curr = 1;
   for (int c = 1; c < num_classes; c++) {
     class_to_size_[curr] = size_classes[c].size;
@@ -162,15 +150,16 @@ bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
     ++curr;
   }
 
-  // Fill any unspecified size classes with 0.
-  for (int x = curr; x < kNumBaseClasses; x++) {
-    class_to_size_[x] = 0;
-    class_to_pages_[x] = 0;
-    num_objects_to_move_[x] = 0;
-  }
-
   // Copy selected size classes into the upper registers.
   for (int i = 1; i < (kNumClasses / kNumBaseClasses); i++) {
+    // Don't populate info for classes that will never be used.
+    // This helps to catch bugs, and prevents cpu cache, transfer cache
+    // and other components from allocating resources for these classes.
+    const bool is_cold = IsColdSizeClass(i * kNumBaseClasses);
+    if ((is_cold && !kHasColdClasses) ||
+        (!is_cold && i >= tc_globals.active_partitions())) {
+      continue;
+    }
     std::copy(&class_to_size_[0], &class_to_size_[kNumBaseClasses],
               &class_to_size_[kNumBaseClasses * i]);
     std::copy(&class_to_pages_[0], &class_to_pages_[kNumBaseClasses],

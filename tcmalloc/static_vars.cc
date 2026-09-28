@@ -51,14 +51,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
-// Force kInvalidSpan to be read-protected.  Span contains a std::atomic, and
-// libc++'s std::atomic implementation contains a mutable field in one of its
-// implementation details.  This prevents Span from being placed in a read-only
-// section automatically, even though we will never mutate this particular
-// instance.
-ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro)
-constexpr Span Static::kInvalidSpan;
-
 // We expect tc_globals to be in a zero-initialized section (.bss). This is
 // important to keep binary size smaller. But there is no easy way to enforce
 // this during compilation. ABSL_ATTRIBUTE_SECTION_VARIABLE(.bss) does it,
@@ -70,17 +62,12 @@ constexpr Span Static::kInvalidSpan;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT Static tc_globals;
 
 size_t Static::metadata_bytes() {
-  const size_t internal_dependencies_size =
-      sizeof(pageheap_lock) + sizeof(kInvalidSpan) +
-      sizeof(CacheTopology::Instance()) + sizeof(PerCpuState::state());
+  const size_t internal_dependencies_size = sizeof(pageheap_lock) +
+                                            sizeof(CacheTopology::Instance()) +
+                                            sizeof(PerCpuState::state());
 
   const size_t allocated =
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      arena().stats().bytes_allocated
-#else
-      arena().allocated()
-#endif
-      + AddressRegionFactory::InternalBytesAllocated();
+      arena().allocated() + AddressRegionFactory::InternalBytesAllocated();
   return sizeof(*this) + allocated + internal_dependencies_size;
 }
 
@@ -104,14 +91,14 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     return;
   }
 
+  numa_topology_.Init();
   TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
+  system_allocator_.Init(numa_topology_, kMinMmapAlloc);
   sampledallocation_allocator_.Init(arena_);
-  span_allocator_.Init(arena_);
   threadcache_allocator_.Init(arena_);
   linked_sample_allocator_.Init(arena_);
   sampled_allocation_recorder_.Init(sampledallocation_allocator_);
   peak_heap_tracker_.Init(sampledallocation_allocator_);
-  system_allocator_.Init(numa_topology_, kMinMmapAlloc);
 
   // Verify we can determine the number of CPUs now, since we will need it
   // later for per-CPU caches and initializing the cache topology.
@@ -120,7 +107,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   }
   (void)subtle::percpu::IsFast();
   PerCpuState::state().Init();
-  numa_topology_.Init();
   CacheTopology::Instance().Init();
   cpu_cache_.Init();
 

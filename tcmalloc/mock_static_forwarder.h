@@ -20,8 +20,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <new>
 #include <optional>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -82,62 +84,73 @@ class FakeStaticForwarder {
 
   size_t class_to_size(int size_class) const { return class_size_; }
   Length class_to_pages(int size_class) const { return pages_; }
+  static void* ArenaAlloc(size_t bytes, std::align_val_t alignment) {
+    return ::operator new(bytes, alignment);
+  }
 
-  void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
-                         int expected_size_class) {
+  void MapObjectsToMeta(absl::Span<void*> batch,
+                        std::atomic<SpanMeta>** metas) {
     for (size_t i = 0; i < batch.size(); ++i) {
-      spans[i] = MapObjectToSpan(batch[i]);
+      metas[i] = GetSpanMeta(PageIdContaining(batch[i]));
     }
   }
 
-  [[nodiscard]] Span* MapObjectToSpan(const void* object) {
+  std::atomic<SpanMeta>* GetSpanMeta(PageId p) {
+    absl::MutexLock l(mu_);
+    auto it = meta_map_.find(p);
+    if (it == meta_map_.end()) return nullptr;
+    return it->second;
+  }
+
+  [[nodiscard]] void* MapObjectToSpan(const void* object) {
     const PageId page = PageIdContaining(object);
 
     absl::MutexLock l(mu_);
-    auto it = map_.lower_bound(page);
-    if (it->first != page && it != map_.begin()) {
-      --it;
-    }
-
-    if (it->first <= page && page <= it->second.span->last_page()) {
-      return it->second.span;
-    }
-
-    return nullptr;
+    auto it = meta_map_.find(page);
+    if (it == meta_map_.end()) return nullptr;
+    return it->second->load(std::memory_order_relaxed)
+        .SmallSpanStart(page)
+        .start_addr();
   }
 
-  [[nodiscard]] Span* AllocateSpan(int, size_t objects_per_span,
+  [[nodiscard]] void* AllocateSpan(int size_class, size_t objects_per_span,
                                    Length pages_per_span) {
     void* backing = ::operator new(pages_per_span.raw_num() * page_size_,
                                    std::align_val_t(page_size_));
     PageId page = PageIdContaining(backing);
 
-    auto* span = new Span(Range(page, pages_per_span));
-
     absl::MutexLock l(mu_);
-    SpanInfo info;
-    info.span = span;
-    SpanAllocInfo span_alloc_info = {
-        .objects_per_span = objects_per_span,
-        .density = AccessDensityPrediction::kSparse};
-    info.span_alloc_info = span_alloc_info;
-    map_.emplace(page, info);
-    return span;
+    auto metas =
+        std::make_unique<std::atomic<SpanMeta>[]>(pages_per_span.raw_num());
+    for (size_t offset = 0; offset < pages_per_span.raw_num(); ++offset) {
+      SpanMeta meta{};
+      meta.is_small = 1;
+      meta.size_class = size_class;
+      meta.is_in_cfl = 0;
+      meta.heap_index_or_page_offset = offset;
+      metas[offset].store(meta, std::memory_order_relaxed);
+      meta_map_[page + Length(offset)] = &metas[offset];
+    }
+    span_metas_[backing] = std::move(metas);
+    return backing;
   }
 
-  void DeallocateSpans(size_t, absl::Span<Span*> free_spans) {
+  void DeallocateSpans(size_t objects_per_span, Length pages_per_span,
+                       absl::Span<void*> free_spans,
+                       absl::Span<std::atomic<SpanMeta>*> pmetas) {
     {
       absl::MutexLock l(mu_);
-      for (Span* span : free_spans) {
-        auto it = map_.find(span->first_page());
-        EXPECT_NE(it, map_.end());
-        map_.erase(it);
+      for (void* ptr : free_spans) {
+        PageId page = PageIdContaining(ptr);
+        for (size_t offset = 0; offset < pages_per_span.raw_num(); ++offset) {
+          meta_map_.erase(page + Length(offset));
+        }
+        span_metas_.erase(ptr);
       }
     }
 
-    for (Span* span : free_spans) {
-      ::operator delete(span->start_address(), std::align_val_t(page_size_));
-      delete span;
+    for (void* ptr : free_spans) {
+      ::operator delete(ptr, std::align_val_t(page_size_));
     }
   }
 
@@ -148,13 +161,10 @@ class FakeStaticForwarder {
   }
 
  private:
-  struct SpanInfo {
-    Span* span;
-    SpanAllocInfo span_alloc_info;
-  };
-
   absl::Mutex mu_;
-  std::map<PageId, SpanInfo> map_ ABSL_GUARDED_BY(mu_);
+  std::map<PageId, std::atomic<SpanMeta>*> meta_map_ ABSL_GUARDED_BY(mu_);
+  std::map<void*, std::unique_ptr<std::atomic<SpanMeta>[]>> span_metas_
+      ABSL_GUARDED_BY(mu_);
   size_t class_size_;
   Length pages_;
   size_t page_size_;
@@ -179,12 +189,14 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
                                     page_size, clock_frequency);
         });
 
-    ON_CALL(*this, MapObjectsToSpans)
-        .WillByDefault([this](absl::Span<void*> batch, Span** spans,
-                              int expected_size_class) {
-          return FakeStaticForwarder::MapObjectsToSpans(batch, spans,
-                                                        expected_size_class);
-        });
+    ON_CALL(*this, MapObjectsToMeta)
+        .WillByDefault(
+            [this](absl::Span<void*> batch, std::atomic<SpanMeta>** metas) {
+              return FakeStaticForwarder::MapObjectsToMeta(batch, metas);
+            });
+    ON_CALL(*this, GetSpanMeta).WillByDefault([this](PageId p) {
+      return FakeStaticForwarder::GetSpanMeta(p);
+    });
     ON_CALL(*this, AllocateSpan)
         .WillByDefault([this](int size_class, size_t objects_per_span,
                               Length pages_per_span) {
@@ -192,9 +204,11 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
                                                    pages_per_span);
         });
     ON_CALL(*this, DeallocateSpans)
-        .WillByDefault([this](size_t objects_per_span,
-                              absl::Span<Span*> free_spans) {
-          FakeStaticForwarder::DeallocateSpans(objects_per_span, free_spans);
+        .WillByDefault([this](size_t objects_per_span, Length pages_per_span,
+                              absl::Span<void*> free_spans,
+                              absl::Span<std::atomic<SpanMeta>*> pmetas) {
+          FakeStaticForwarder::DeallocateSpans(objects_per_span, pages_per_span,
+                                               free_spans, pmetas);
         });
   }
 
@@ -203,12 +217,15 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(void, Init,
               (size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
                size_t page_size, double clock_frequency));
-  MOCK_METHOD(void, MapObjectsToSpans,
-              (absl::Span<void*> batch, Span** spans, int expected_size_class));
-  MOCK_METHOD(Span*, AllocateSpan,
+  MOCK_METHOD(void, MapObjectsToMeta,
+              (absl::Span<void*> batch, std::atomic<SpanMeta>** metas));
+  MOCK_METHOD(std::atomic<SpanMeta>*, GetSpanMeta, (PageId p));
+  MOCK_METHOD(void*, AllocateSpan,
               (int size_class, size_t objects_per_span, Length pages_per_span));
   MOCK_METHOD(void, DeallocateSpans,
-              (size_t object_per_span, absl::Span<Span*> free_spans));
+              (size_t object_per_span, Length pages_per_span,
+               absl::Span<void*> free_spans,
+               absl::Span<std::atomic<SpanMeta>*> pmetas));
 };
 
 using MockStaticForwarder = testing::NiceMock<RawMockStaticForwarder>;
@@ -227,10 +244,7 @@ class FakeCentralFreeListEnvironment {
   using Forwarder = typename CentralFreeListT::Forwarder;
 
   static constexpr int kSizeClass = 1;
-  size_t objects_per_span() {
-    return forwarder().class_to_pages(kSizeClass).in_bytes() /
-           forwarder().class_to_size(kSizeClass);
-  }
+  size_t objects_per_span() { return cache_.objects_per_span(); }
   size_t batch_size() const { return batch_size_; }
 
   explicit FakeCentralFreeListEnvironment(

@@ -288,7 +288,6 @@ tcmalloc_cc_library_variants(
     "segv_handler.h"
     "size_classes.cc"
     "sizemap.cc"
-    "span.cc"
     "span.h"
     "span_stats.h"
     "stack_trace_table.cc"
@@ -337,6 +336,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_explicitly_constructed"
     "tcmalloc::internal_exponential_biased"
     "tcmalloc::internal_gwp_asan_state"
+    "tcmalloc::internal_heap"
     "tcmalloc::internal_hook_list"
     "tcmalloc::internal_is_aligned_to"
     "tcmalloc::internal_linked_list"
@@ -365,6 +365,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::internal_timeseries_tracker"
+    "tcmalloc::internal_two_level_array"
     "tcmalloc::internal_util"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
@@ -699,58 +700,6 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_legacy_locking
-  ALIAS
-    tcmalloc::tcmalloc_legacy_locking
-  ALWAYSLINK
-  SRCS
-    "libc_override.h"
-    "tcmalloc.cc"
-    "tcmalloc.h"
-  COPTS
-    "-DTCMALLOC_INTERNAL_8K_PAGES"
-    "-DTCMALLOC_INTERNAL_LEGACY_LOCKING"
-  DEPS
-    "absl::base"
-    "absl::bits"
-    "absl::config"
-    "absl::core_headers"
-    "absl::dynamic_annotations"
-    "absl::memory"
-    "absl::span"
-    "absl::stacktrace"
-    "absl::status"
-    "absl::statusor"
-    "absl::str_format"
-    "absl::strings"
-    "absl::symbolize"
-    "absl::time"
-    "tcmalloc::alloc_at_least"
-    "tcmalloc::common_legacy_locking"
-    "tcmalloc::experiment"
-    "tcmalloc::internal_allocation_guard"
-    "tcmalloc::internal_central_freelist_hooks"
-    "tcmalloc::internal_config"
-    "tcmalloc::internal_declarations"
-    "tcmalloc::internal_is_aligned_to"
-    "tcmalloc::internal_linked_list"
-    "tcmalloc::internal_logging"
-    "tcmalloc::internal_memory_tag"
-    "tcmalloc::internal_optimization"
-    "tcmalloc::internal_overflow"
-    "tcmalloc::internal_page_allocation_status"
-    "tcmalloc::internal_page_size"
-    "tcmalloc::internal_percpu"
-    "tcmalloc::internal_range_tracker"
-    "tcmalloc::internal_sampled_allocation"
-    "tcmalloc::internal_system_allocator"
-    "tcmalloc::malloc_extension"
-    "tcmalloc::malloc_hook"
-    "tcmalloc::malloc_tracing_extension"
-)
-
-tcmalloc_cc_library(
-  NAME
     tcmalloc_tcmalloc_latency_injection
   ALIAS
     tcmalloc::tcmalloc_latency_injection
@@ -1036,25 +985,6 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
   ARGS
     "--fuzztest_stack_limit_kb=2048"
-)
-
-tcmalloc_cc_test(
-  NAME
-    tcmalloc_span_fuzz
-  SRCS
-    "span_fuzz.cc"
-  DEPS
-    "GTest::gtest"
-    "GTest::gmock"
-    "absl::span"
-    "fuzztest::fuzztest"
-    "fuzztest::fuzztest_gtest_main"
-    "tcmalloc::common_8k_pages"
-    "tcmalloc::internal_config"
-    "tcmalloc::internal_logging"
-    "tcmalloc::internal_sampled_allocation"
-    "tcmalloc::tcmalloc"
-    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test(
@@ -1476,6 +1406,8 @@ tcmalloc_cc_test_variants(
     "GTest::gmock"
     "absl::random_random"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_sampled_allocation"
 )
 
 tcmalloc_cc_test_variants(
@@ -1627,23 +1559,6 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_logging"
   TIMEOUT
     900
-)
-
-tcmalloc_cc_binary(
-  NAME
-    tcmalloc_span_benchmark
-  SRCS
-    "span_benchmark.cc"
-  DEPS
-    "absl::random_random"
-    "absl::span"
-    "benchmark::benchmark"
-    "benchmark::benchmark_main"
-    "tcmalloc::common_8k_pages"
-    "tcmalloc::internal_allocation_guard"
-    "tcmalloc::internal_config"
-    "tcmalloc::internal_logging"
-    "tcmalloc::tcmalloc"
 )
 
 tcmalloc_cc_test(

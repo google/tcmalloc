@@ -68,7 +68,8 @@ class PeakHeapTracker {
   using PeakHeapRecorder =
       SampleRecorder<SampledAllocation,
                      MetadataObjectAllocator<SampledAllocation,
-                                             ArenaAlloc::kSampledAllocation>>;
+                                             ArenaAlloc::kSampledAllocation>,
+                     SampleRecorderArrayAlloc>;
 
   // Guards the peak heap samples stored in `peak_heap_recorder_`.
   absl::base_internal::SpinLock recorder_lock_{

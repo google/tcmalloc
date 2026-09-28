@@ -13,14 +13,13 @@
 // limitations under the License.
 //
 // A data structure used by the caching malloc.  It maps from page# to
-// a pointer that contains info about that page using a three-level radix
-// tree.
+// metadata about that page using a three-level radix tree.
 //
 // The BITS parameter should be the number of bits required to hold
 // a page number.  E.g., with 48-bit virtual address space and 8K pages
 // (i.e., page offset fits in lower 13 bits), BITS == 35 (48-13).
 //
-// A PageMap requires external synchronization, except for the get/sizeclass
+// A PageMap requires external synchronization, except for the sizeclass/meta
 // methods (see explanation at top of tcmalloc.cc).
 
 #ifndef TCMALLOC_PAGEMAP_H_
@@ -30,6 +29,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <atomic>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -50,31 +50,9 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+struct SampledAllocation;
+
 typedef void* (*PagemapAllocator)(size_t);
-void* MetaDataAlloc(size_t bytes);
-
-// Convenience wrapper around a uintptr that packs a Span pointer and its
-// size class into a single word.
-class PackedSpanAndSizeclass {
- public:
-  void set(Span* absl_nullable span, CompactSizeClass sizeclass) {
-    packed_value_ = (static_cast<uintptr_t>(sizeclass) << kSizeclassShift) |
-                    reinterpret_cast<uintptr_t>(span);
-  }
-
-  Span* absl_nullable span() const {
-    return reinterpret_cast<Span*>(packed_value_ & kSpanMask);
-  }
-  CompactSizeClass sizeclass() const {
-    return static_cast<CompactSizeClass>(packed_value_ >> kSizeclassShift);
-  }
-
- private:
-  uintptr_t packed_value_;
-  static_assert(sizeof(CompactSizeClass) <= 2);
-  static constexpr uintptr_t kSizeclassShift = 48;
-  static constexpr uintptr_t kSpanMask = (uintptr_t{1} << kSizeclassShift) - 1;
-};
 
 // Three-level radix tree
 template <int BITS, PagemapAllocator Allocator>
@@ -101,22 +79,10 @@ class PageMap {
       (kLeafBits + kPageShift - kHugePageShift);
   static constexpr size_t kLeafHugepages = kLeafCoveredBytes / kHugePageSize;
   static_assert(kLeafHugepages == 1 << kLeafHugeBits, "sanity");
+  static_assert(std::atomic<SpanMeta>::is_always_lock_free);
   struct Leaf {
-    // We keep parallel arrays indexed by page number.  One keeps the
-    // size class; another span pointers; the last hugepage-related
-    // information.  The size class information is kept segregated
-    // since small object deallocations are so frequent and do not
-    // need the other information kept in a Span.
-    CompactSizeClass sizeclass[kLeafLength];
-    // Span pointers, with the top two most significant bytes used to also
-    // store a redundantcopy of the sizeclass. This allows us to avoid two
-    // separate memory loads when fetching both the span and the sizeclass.
-    PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
+    std::atomic<SpanMeta> meta[kLeafLength];
     void* hugepage[kLeafHugepages];
-
-    Span* absl_nullable span(int i) const {
-      return span_and_sizeclass[i].span();
-    }
   };
 
   struct Node {
@@ -166,82 +132,98 @@ class PageMap {
  public:
   constexpr PageMap() : root_{} {}
 
-  // Return the descriptor for the specified page.  Returns NULL if
-  // this PageId was not allocated previously.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] Span* absl_nullable GetDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    auto [leaf, i3] = MaybeIndex(p);
-    if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
-      return nullptr;
-    }
-    return leaf->span(i3);
-  }
-
-  // Return the descriptor for the specified page.
-  // PageId must have been previously allocated.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] Span* absl_nullable GetExistingDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    auto [leaf, i3] = MustIndex(p);
-    return leaf->span(i3);
-  }
-
-  // Return the descriptor and sizeclass for the specified page.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  //
-  // ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED is to disable array-bounds sanitizer.
-  // This function is hot, and we can manually prove the array accesses.
-  //
-  // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
-  // optimizes out the array bounds check.
-  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
-  GetDescriptorAndSizeClass(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS
-#ifdef __clang__
-      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
-#endif  // __clang__
-  {
-    auto [leaf, i3] = MaybeIndex(p);
-    if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
-      return std::make_pair(nullptr, 0);
-    }
-    PackedSpanAndSizeclass span_and_sizeclass = leaf->span_and_sizeclass[i3];
-    return std::make_pair(span_and_sizeclass.span(),
-                          span_and_sizeclass.sizeclass());
-  }
-
   // Return the size class for p, or 0 if it is not known to tcmalloc
   // or is a page containing large objects.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  //
-  // TODO(b/193887621): Convert to atomics to permit the PageMap to run cleanly
-  // under TSan.
   [[nodiscard]] CompactSizeClass sizeclass(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
     auto [leaf, i3] = MaybeIndex(p);
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return 0;
     }
-    auto ret = leaf->sizeclass[i3];
-    TC_ASSERT_EQ(ret, leaf->span_and_sizeclass[i3].sizeclass());
-    return ret;
+    SpanMeta meta = leaf->meta[i3].load(std::memory_order_relaxed);
+    return meta.is_small ? meta.size_class : 0;
   }
 
-  void Set(PageId p, Span* span) {
+  [[nodiscard]] std::atomic<SpanMeta>* GetSpanMeta(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
     auto [leaf, i3] = MustIndex(p);
-    // This function should be used just after allocating a new Span;
-    // in that case, the sizeclass should have been left at zero when the
-    // old span was deallocated/unregistered (or it would have been zero
-    // at initialization time.)
-    TC_ASSERT_EQ(leaf->sizeclass[i3], 0);
-    leaf->span_and_sizeclass[i3].set(span, 0);
+    return &leaf->meta[i3];
   }
 
-  void Set(PageId p, Span* span, CompactSizeClass sc) {
-    auto [leaf, i3] = MustIndex(p);
-    leaf->span_and_sizeclass[i3].set(span, sc);
-    leaf->sizeclass[i3] = sc;
+  [[nodiscard]] std::optional<SpanMeta> GetSpanMetaNullable(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    auto [leaf, i3] = MaybeIndex(p);
+    if (ABSL_PREDICT_FALSE(leaf == nullptr)) return std::nullopt;
+    SpanMeta meta = leaf->meta[i3].load(std::memory_order_relaxed);
+    if (ABSL_PREDICT_FALSE(!meta.IsValid())) return std::nullopt;
+    return meta;
   }
+
+  [[nodiscard]] bool IsFreed(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    auto [leaf, i3] = MaybeIndex(p);
+    if (ABSL_PREDICT_FALSE(leaf == nullptr)) return false;
+    return leaf->meta[i3].load(std::memory_order_relaxed).IsFreed();
+  }
+
+  void RegisterSmallSpan(PageId p, Length n, CompactSizeClass sc,
+                         bool donated) {
+    TC_ASSERT_GT(n, Length(0));
+    SpanMeta meta{};
+    meta.is_small = 1;
+    meta.size_class = sc;
+    meta.is_donated = donated;
+    meta.is_in_cfl = 0;
+    for (Length offset = Length(0); offset < n; ++offset) {
+      meta.heap_index_or_page_offset = offset.raw_num();
+      auto [leaf, i3] = MustIndex(p + offset);
+      leaf->meta[i3].store(meta, std::memory_order_relaxed);
+    }
+  }
+
+  void UnregisterSmallSpan(PageId p, Length n) {
+    const SpanMeta freed = SpanMeta::Freed();
+    for (Length offset = Length(0); offset < n; ++offset) {
+      auto [leaf, i3] = MustIndex(p + offset);
+      leaf->meta[i3].store(freed, std::memory_order_relaxed);
+    }
+  }
+
+  void RegisterLargeSpan(PageId p, Length n, bool donated, bool is_sampled) {
+    auto [leaf, i3] = MustIndex(p);
+    SpanMeta meta{};
+    meta.is_small1 = 0;
+    meta.is_donated1 = donated;
+    meta.is_sampled = is_sampled;
+    if (ABSL_PREDICT_TRUE(n < Length(SpanMeta::kMaxNumPages))) {
+      meta.num_pages_or_sampled_index = n.raw_num();
+    } else {
+      meta.num_pages_or_sampled_index = 0;
+      SetHugepage(p,
+                  reinterpret_cast<void*>(static_cast<uintptr_t>(n.raw_num())));
+    }
+    leaf->meta[i3].store(meta, std::memory_order_relaxed);
+  }
+
+  void UnregisterLargeSpan(PageId p, Length n) {
+    auto [leaf, i3] = MustIndex(p);
+    if (ABSL_PREDICT_FALSE(n >= Length(SpanMeta::kMaxNumPages))) {
+      SetHugepage(p, nullptr);
+    }
+    leaf->meta[i3].store(SpanMeta::Freed(), std::memory_order_relaxed);
+  }
+
+  GOOGLE_MALLOC_SECTION void RegisterSampledSpan(PageId p, SampledAllocation* s)
+      ABSL_NO_THREAD_SAFETY_ANALYSIS;
+
+  GOOGLE_MALLOC_SECTION SampledAllocation* UnregisterSampledSpan(PageId p)
+      ABSL_NO_THREAD_SAFETY_ANALYSIS;
+
+  GOOGLE_MALLOC_SECTION [[nodiscard]] size_t GetLargeSize(
+      PageId p, SpanMeta meta) const ABSL_NO_THREAD_SAFETY_ANALYSIS;
+
+  GOOGLE_MALLOC_SECTION [[nodiscard]] size_t GetLargeSize(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS;
 
   [[nodiscard]] void* GetHugepage(PageId p) const {
     auto [leaf, i3] = MustIndex(p);
@@ -250,7 +232,10 @@ class PageMap {
 
   void SetHugepage(PageId p, void* v) {
     auto [leaf, i3] = MustIndex(p);
-    leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)] = v;
+    const Number i4 = i3 >> (kLeafBits - kLeafHugeBits);
+    void*& slot = leaf->hugepage[i4];
+    TC_ASSERT(!v || !slot, "slot=%p", slot);
+    slot = v;
   }
 
   [[nodiscard]] bool HasLeaf(PageId p) const {
@@ -259,17 +244,13 @@ class PageMap {
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] std::optional<PageId> get_next_set_page(PageId p) const {
+  std::optional<PageId> get_next_set_page(PageId p) const {
     auto [i1, i2, i3] = Index(p + Length(1));
     for (; i1 < kRootLength; ++i1, i2 = 0, i3 = 0) {
       if (root_[i1] == nullptr) continue;
       for (; i2 < kMidLength; ++i2, i3 = 0) {
         if (root_[i1]->leafs[i2] == nullptr) continue;
-        for (; i3 < kLeafLength; ++i3) {
-          if (root_[i1]->leafs[i2]->span(i3) != nullptr)
-            return PageId((i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) |
-                          i3);
-        }
+        return PageId((i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) | i3);
       }
     }
     return std::nullopt;
@@ -313,34 +294,6 @@ class PageMap {
 
   constexpr size_t RootSize() const { return sizeof(root_); }
 
-  // Mark an allocated span as being used for small objects of the
-  // specified size-class.
-  // REQUIRES: span was returned by an earlier call to PageAllocator::New()
-  //           and has not yet been deleted.
-  // Concurrent calls to this method are safe unless they mark the same span.
-  void RegisterSizeClass(Span* span, size_t sc) {
-    const PageId first = span->first_page();
-    const PageId last = span->last_page();
-    TC_ASSERT_EQ(GetDescriptor(first), span);
-    for (PageId p = first; p <= last; ++p) {
-      Set(p, span, sc);
-    }
-  }
-
-  // Mark an allocated span as being not used for any size-class.
-  // REQUIRES: span was returned by an earlier call to PageAllocator::New()
-  //           and has not yet been deleted.
-  // Concurrent calls to this method are safe unless they mark the same span.
-  void UnregisterSizeClass(Span* span) {
-    const PageId first = span->first_page();
-    const PageId last = span->last_page();
-    TC_ASSERT_EQ(GetDescriptor(first), span);
-    for (PageId p = first; p <= last; ++p) {
-      auto [leaf, i3] = MustIndex(p);
-      leaf->sizeclass[i3] = 0;
-    }
-  }
-
   // Returns the count of the currently allocated Spans and also adds details
   // of such Spans in the provided allocated_spans vector. This routine avoids
   // allocation events since we hold the pageheap_lock, so no more elements will
@@ -350,7 +303,8 @@ class PageMap {
                       SpanDetails>& allocated_spans);
 };
 
-using ProdPageMap = PageMap<kAddressBits - kPageShift, MetaDataAlloc>;
+void* PageMapMetaDataAlloc(size_t bytes);
+using ProdPageMap = PageMap<kAddressBits - kPageShift, PageMapMetaDataAlloc>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
