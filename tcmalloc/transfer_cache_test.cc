@@ -37,6 +37,8 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
+#include "tcmalloc/static_forwarder.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 #include "tcmalloc/transfer_cache_internals.h"
@@ -79,8 +81,8 @@ TEST(TransferCacheLayoutTest, HotFieldsDoNotShareCachelines) {
   GTEST_SKIP() << "Test does not apply under TCMALLOC_INTERNAL_LEGACY_LOCKING";
 #else
   internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
-      internal_transfer_cache::TransferCache<CentralFreeList,
-                                             TransferCacheManager>>();
+      internal_transfer_cache::TransferCache<
+          CentralFreeList, StaticForwarder<Static, tc_globals>>>();
   internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
       internal_transfer_cache::TransferCache<BackingTransferCache,
                                              ShardedStaticForwarder>>();
