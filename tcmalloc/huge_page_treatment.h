@@ -83,15 +83,15 @@ enum class CollapseErrorType : size_t {
 };
 
 struct HugePageTreatmentStats {
-  size_t collapse_eligible = 0;
-  size_t collapse_attempted = 0;
-  size_t collapse_succeeded = 0;
+  HugeLength collapse_eligible;
+  HugeLength collapse_attempted;
+  HugeLength collapse_succeeded;
   std::array<size_t, static_cast<size_t>(CollapseErrorType::kErrorTypes)>
       collapse_errors = {0};
-  size_t treated_pages_subreleased = 0;
-  size_t treated_pages_unbacked_subreleased = 0;
-  size_t total_treated_pages_unbacked_subreleased = 0;
-  size_t treated_pages_stale_subreleased = 0;
+  Length treated_pages_subreleased;
+  Length treated_pages_unbacked_subreleased;
+  Length total_treated_pages_unbacked_subreleased;
+  Length treated_pages_stale_subreleased;
 
   // TODO(287498389): Add latency histogram once we have a better idea of the
   // range of values.
@@ -229,12 +229,8 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     double elapsed = std::max<double>(clock_now_ - tagged_state.record_time, 0);
     if (elapsed > record_interval_cycles_) {
       selected_trackers_[num_valid_trackers_] = {
-          &pt,
-          pt.longest_free_range().raw_num(),
-          pt.nallocs(),
-          pt.nobjects(),
-          pt.HasDenseSpans(),
-          pt.released()};
+          &pt,           pt.longest_free_range(), pt.nallocs(),
+          pt.nobjects(), pt.HasDenseSpans(),      pt.released()};
       pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now_});
       ++num_valid_trackers_;
       // Setting this bit makes sure that the tracker is not freed under us
@@ -253,7 +249,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     for (int i = 0; i < num_valid_trackers_; ++i) {
       PageTracker* tracker = selected_trackers_[i].tracker;
       TC_ASSERT_NE(tracker, nullptr);
-      const size_t lfr = selected_trackers_[i].lfr;
+      const Length lfr = selected_trackers_[i].lfr;
       const size_t nallocs = selected_trackers_[i].nallocs;
       const size_t nobjects = selected_trackers_[i].nobjects;
       const bool has_dense_spans = selected_trackers_[i].has_dense_spans;
@@ -264,7 +260,8 @@ class SampledTrackerTreatment final : public HugePageTreatment {
           name, sizeof(name),
           "tcmalloc_region_%s_page_%d_lfr_%d_nallocs_%d_nobjects_%d_dense_%d_"
           "released_%d",
-          MemoryTagToLabel(tag_), kPageSize, RoundDown(lfr, /*align=*/16),
+          MemoryTagToLabel(tag_), kPageSize,
+          RoundDown(lfr.raw_num(), /*align=*/16),
           RoundDown(nallocs, /*align=*/16), absl::bit_ceil(nobjects),
           has_dense_spans, released);
       tracker->SetAnonVmaName(set_anon_vma_name_, name);
@@ -289,7 +286,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
 
   struct TrackerState {
     PageTracker* tracker;
-    size_t lfr;
+    Length lfr;
     size_t nallocs;
     size_t nobjects;
     bool has_dense_spans;
@@ -424,7 +421,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
     TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
     if (enable_collapse_ == EnableCollapse::kEnabled) {
-      treatment_stats_.collapse_eligible += num_valid_trackers_;
+      treatment_stats_.collapse_eligible += NHugePages(num_valid_trackers_);
     }
     // Outside of the pageheap lock, obtain the residency and pageflags
     // information for the collected addresses. Try to collapse the pages that
@@ -508,15 +505,13 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         // TODO: b/425749361 - Clear swapped bit for pages that were freed.
         Length released_length = page_filler_.HandleReleaseFree(tracker);
         if (released_length > Length(0)) {
-          treatment_stats_.treated_pages_subreleased +=
-              released_length.raw_num();
+          treatment_stats_.treated_pages_subreleased += released_length;
         }
       } else if (release_stale_pages_ == ReleaseStalePages::kEnabled &&
                  !residency_states_[i].tracker_state.stale.IsZero()) {
         Length released_length = page_filler_.HandleReleaseFree(tracker);
         if (released_length > Length(0)) {
-          treatment_stats_.treated_pages_stale_subreleased +=
-              released_length.raw_num();
+          treatment_stats_.treated_pages_stale_subreleased += released_length;
         }
       }
 
@@ -525,7 +520,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
             tracker, residency_states_[i].tracker_state.unbacked);
         if (released_length > Length(0)) {
           treatment_stats_.treated_pages_unbacked_subreleased +=
-              released_length.raw_num();
+              released_length;
         }
       }
     }
@@ -559,9 +554,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     treatment_stats_.collapse_time_total_cycles += elapsed;
     treatment_stats_.collapse_time_max_cycles =
         std::max(elapsed, treatment_stats_.collapse_time_max_cycles);
-    treatment_stats_.collapse_attempted++;
+    treatment_stats_.collapse_attempted += NHugePages(1);
     if (ret.success) {
-      treatment_stats_.collapse_succeeded++;
+      treatment_stats_.collapse_succeeded += NHugePages(1);
     } else {
       // If the collapsed operation failed, errno should have been set.
       treatment_stats_.UpdateCollapseErrorStats(ret.error_number);

@@ -190,7 +190,7 @@ class UsageInfo {
 
   // Reports the number of pages that were previously released, but later became
   // full and are hugepage backed.
-  size_t HugepageBackedPreviouslyReleased() {
+  HugeLength HugepageBackedPreviouslyReleased() const {
     return hugepage_backed_previously_released_;
   }
 
@@ -224,21 +224,22 @@ class UsageInfo {
     Histo stale_histo{};
     Histo free_stale_histo{};
 
-    size_t treated_hugepages{};
-    size_t hugepage_backed{};
-    size_t total_pages{};
-    size_t collapse_skipped{};
-    size_t collapse_skipped_due_to_backoff{};
-    Length num_free_non_hugepage_backed{};
-    Length num_free_hugepage_backed{};
-    Length num_used_non_hugepage_backed{};
-    Length num_used_hugepage_backed{};
-    Length num_free_swapped{};
-    Length num_used_swapped{};
-    Length num_free_unbacked{};
-    Length num_used_unbacked{};
-    Length num_free_stale{};
-    Length num_used_stale{};
+    HugeLength treated_hugepages;
+    HugeLength hugepage_backed;
+    HugeLength total_hugepages;
+    HugeLength collapse_skipped;
+    HugeLength collapse_skipped_due_to_backoff;
+    Length num_free_non_hugepage_backed;
+    Length num_free_hugepage_backed;
+    Length num_used_non_hugepage_backed;
+    Length num_used_hugepage_backed;
+    // HW-level pages.
+    size_t num_free_swapped{};
+    size_t num_used_swapped{};
+    size_t num_free_unbacked{};
+    size_t num_used_unbacked{};
+    size_t num_free_stale{};
+    size_t num_used_stale{};
   };
 
   template <class TrackerType>
@@ -273,7 +274,7 @@ class UsageInfo {
         ++hugepage_backed_previously_released_;
       }
     }
-    ++records.total_pages;
+    ++records.total_hugepages;
 
     PageTracker::HugePageResidencyState hugepage_residency_state =
         pt.GetHugePageResidencyState();
@@ -309,12 +310,12 @@ class UsageInfo {
         ++records
               .free_swapped_histo[HardwarePageBucketNum(info.n_free_swapped)];
         ++records.free_stale_histo[HardwarePageBucketNum(info.n_free_stale)];
-        records.num_free_swapped += Length(info.n_free_swapped);
-        records.num_used_swapped += Length(info.n_used_swapped);
-        records.num_free_unbacked += Length(info.n_free_unbacked);
-        records.num_used_unbacked += Length(info.n_used_unbacked);
-        records.num_free_stale += Length(info.n_free_stale);
-        records.num_used_stale += Length(info.n_used_stale);
+        records.num_free_swapped += info.n_free_swapped;
+        records.num_used_swapped += info.n_used_swapped;
+        records.num_free_unbacked += info.n_free_unbacked;
+        records.num_used_unbacked += info.n_used_unbacked;
+        records.num_free_stale += info.n_free_stale;
+        records.num_used_stale += info.n_used_stale;
       }
     }
 
@@ -378,19 +379,20 @@ class UsageInfo {
                            "hps with a <= # of free AND stale < b", 0);
 
     out.printf("\nHugePageFiller: %zu of %s free native pages are swapped.",
-               records.num_free_swapped.raw_num(), TypeToStr(type));
+               records.num_free_swapped, TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s used native pages are swapped.",
-               records.num_used_swapped.raw_num(), TypeToStr(type));
+               records.num_used_swapped, TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s free native pages are unbacked.",
-               records.num_free_unbacked.raw_num(), TypeToStr(type));
+               records.num_free_unbacked, TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s used native pages are unbacked.",
-               records.num_used_unbacked.raw_num(), TypeToStr(type));
+               records.num_used_unbacked, TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s free native pages are stale.",
-               records.num_free_stale.raw_num(), TypeToStr(type));
+               records.num_free_stale, TypeToStr(type));
     out.printf("\nHugePageFiller: %zu of %s used native pages are stale.",
-               records.num_used_stale.raw_num(), TypeToStr(type));
-    out.printf("\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
-               records.hugepage_backed, TypeToStr(type), records.total_pages);
+               records.num_used_stale, TypeToStr(type));
+    out.printf("\nHugePageFiller: %v of %s pages hugepage backed out of %v.",
+               records.hugepage_backed, TypeToStr(type),
+               records.total_hugepages);
     out.printf(
         "\nHugePageFiller: Of the non-hugepage backed pages of type %s, "
         "%v tcmalloc pages are free, %v tcmalloc pages are used.",
@@ -402,15 +404,17 @@ class UsageInfo {
         TypeToStr(type), records.num_free_hugepage_backed,
         records.num_used_hugepage_backed);
 
-    out.printf("\nHugePageFiller: %zu of %s pages treated out of %zu.",
-               records.treated_hugepages, TypeToStr(type), records.total_pages);
-    out.printf("\nHugePageFiller: %zu of %s pages skipped collapse out of %zu.",
-               records.collapse_skipped, TypeToStr(type), records.total_pages);
+    out.printf("\nHugePageFiller: %v of %s pages treated out of %v.",
+               records.treated_hugepages, TypeToStr(type),
+               records.total_hugepages);
+    out.printf("\nHugePageFiller: %v of %s pages skipped collapse out of %v.",
+               records.collapse_skipped, TypeToStr(type),
+               records.total_hugepages);
     out.printf(
-        "\nHugePageFiller: %zu of %s pages skipped collapse due to backoff out "
-        "of %zu.",
+        "\nHugePageFiller: %v of %s pages skipped collapse due to backoff out "
+        "of %v.",
         records.collapse_skipped_due_to_backoff, TypeToStr(type),
-        records.total_pages);
+        records.total_hugepages);
 
     out.printf("\n");
     PrintSampledTrackers(out, type, records);
@@ -439,8 +443,9 @@ class UsageInfo {
     PrintHardwarePageHisto(scoped, records.free_swapped_histo,
                            "free_swapped_histogram", 0);
     PrintSampledTrackers(scoped, type, "sampled_trackers", records);
-    scoped.PrintI64("total_pages", records.total_pages);
-    scoped.PrintI64("num_pages_hugepage_backed", records.hugepage_backed);
+    scoped.PrintI64("total_pages", records.total_hugepages.raw_num());
+    scoped.PrintI64("num_pages_hugepage_backed",
+                    records.hugepage_backed.raw_num());
     scoped.PrintI64("num_free_pages_non_hugepage_backed",
                     records.num_free_non_hugepage_backed.raw_num());
     scoped.PrintI64("num_used_pages_non_hugepage_backed",
@@ -449,20 +454,17 @@ class UsageInfo {
                     records.num_free_hugepage_backed.raw_num());
     scoped.PrintI64("num_used_pages_hugepage_backed",
                     records.num_used_hugepage_backed.raw_num());
-    scoped.PrintI64("num_pages_treated", records.treated_hugepages);
-    scoped.PrintI64("num_pages_collapse_skipped", records.collapse_skipped);
+    scoped.PrintI64("num_pages_treated", records.treated_hugepages.raw_num());
+    scoped.PrintI64("num_pages_collapse_skipped",
+                    records.collapse_skipped.raw_num());
     scoped.PrintI64("num_pages_collapse_skipped_due_to_backoff",
-                    records.collapse_skipped_due_to_backoff);
-    scoped.PrintI64("num_pages_free_swapped",
-                    records.num_free_swapped.raw_num());
-    scoped.PrintI64("num_pages_used_swapped",
-                    records.num_used_swapped.raw_num());
-    scoped.PrintI64("num_pages_free_unbacked",
-                    records.num_free_unbacked.raw_num());
-    scoped.PrintI64("num_pages_used_unbacked",
-                    records.num_used_unbacked.raw_num());
-    scoped.PrintI64("num_pages_free_stale", records.num_free_stale.raw_num());
-    scoped.PrintI64("num_pages_used_stale", records.num_used_stale.raw_num());
+                    records.collapse_skipped_due_to_backoff.raw_num());
+    scoped.PrintI64("num_pages_free_swapped", records.num_free_swapped);
+    scoped.PrintI64("num_pages_used_swapped", records.num_used_swapped);
+    scoped.PrintI64("num_pages_free_unbacked", records.num_free_unbacked);
+    scoped.PrintI64("num_pages_used_unbacked", records.num_used_unbacked);
+    scoped.PrintI64("num_pages_free_stale", records.num_free_stale);
+    scoped.PrintI64("num_pages_used_stale", records.num_used_stale);
   }
 
  private:
@@ -685,7 +687,7 @@ class UsageInfo {
   // Arrays, because they are split per alloc type.
   size_t bucket_bounds_[kBucketCapacity];
   size_t native_page_bucket_bounds_[kBucketCapacity];
-  size_t hugepage_backed_previously_released_ = 0;
+  HugeLength hugepage_backed_previously_released_;
   int buckets_size_ = 0;
   int native_page_buckets_size_ = 0;
 };
@@ -1650,9 +1652,9 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     // unaccounted unmapped pages and release from partial allocs). Else, we aim
     // to release up to the total number of free pages in partially-released
     // allocs.
-    size_t from_partial_allocs =
-        kPartialAllocPagesRelease * FreePagesInPartialAllocs().raw_num();
-    desired = std::max(desired, Length(from_partial_allocs));
+    const Length from_partial_allocs = Length(
+        kPartialAllocPagesRelease * FreePagesInPartialAllocs().raw_num());
+    desired = std::max(desired, from_partial_allocs);
   }
 
   // We also do eager release, once we've called this at least once:
@@ -1947,7 +1949,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
 
   // Lock the pageheap lock and update residency information in the tracker.
   pageheap_lock.lock();
-  if (stats.collapse_attempted > 0) {
+  if (stats.collapse_attempted > NHugePages(0)) {
     absl::Duration max_collapse_latency = absl::Milliseconds(
         stats.collapse_time_max_cycles * 1000 / clock_.freq());
     UpdateMaxBackoffDelay(max_collapse_latency);
@@ -2073,8 +2075,8 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
   if (!everything) return;
 
   out.printf(
-      "HugePageFiller: Out of %zu eligible hugepages, %zu were "
-      "attempted, and %zu were collapsed.\n",
+      "HugePageFiller: Out of %v eligible hugepages, %v were "
+      "attempted, and %v were collapsed.\n",
       treatment_stats_.collapse_eligible, treatment_stats_.collapse_attempted,
       treatment_stats_.collapse_succeeded);
 
@@ -2102,16 +2104,16 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
 
   out.printf(
       "HugePageFiller: In the previous treatment interval, "
-      "subreleased %zu pages.\n",
+      "subreleased %v pages.\n",
       treatment_stats_.treated_pages_subreleased);
   out.printf(
       "HugePageFiller: In the previous treatment interval, "
-      "subreleased %zu stale pages.\n",
+      "subreleased %v stale pages.\n",
       treatment_stats_.treated_pages_stale_subreleased);
 
   out.printf(
       "HugePageFiller: In the previous treatment interval, "
-      "marked %zu unbacked pages as subreleased. Since startup, %zu.\n",
+      "marked %v unbacked pages as subreleased. Since startup, %v.\n",
       treatment_stats_.treated_pages_unbacked_subreleased,
       treatment_stats_.total_treated_pages_unbacked_subreleased);
 
@@ -2204,7 +2206,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
   out.printf(
       "\nHugePageFiller: %v hugepages became full after being previously "
       "released, "
-      "out of which %zu pages are hugepage backed.\n",
+      "out of which %v pages are hugepage backed.\n",
       previously_released_huge_pages(),
       usage.HugepageBackedPreviouslyReleased());
 
@@ -2381,16 +2383,16 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
   }
 
   hpaa.PrintI64("filler_previously_released_backed_huge_pages",
-                usage.HugepageBackedPreviouslyReleased());
+                usage.HugepageBackedPreviouslyReleased().raw_num());
   {
     PbtxtRegion huge_page_treatment_region =
         hpaa.CreateSubRegion("filler_huge_page_treatment_stats");
-    huge_page_treatment_region.PrintI64("collapse_eligible",
-                                        treatment_stats_.collapse_eligible);
-    huge_page_treatment_region.PrintI64("collapse_attempted",
-                                        treatment_stats_.collapse_attempted);
-    huge_page_treatment_region.PrintI64("collapse_succeeded",
-                                        treatment_stats_.collapse_succeeded);
+    huge_page_treatment_region.PrintI64(
+        "collapse_eligible", treatment_stats_.collapse_eligible.raw_num());
+    huge_page_treatment_region.PrintI64(
+        "collapse_attempted", treatment_stats_.collapse_attempted.raw_num());
+    huge_page_treatment_region.PrintI64(
+        "collapse_succeeded", treatment_stats_.collapse_succeeded.raw_num());
     for (int i = 0; i < treatment_stats_.collapse_errors.size(); ++i) {
       PbtxtRegion collapse_errors_region =
           huge_page_treatment_region.CreateSubRegion("collapse_errors");
@@ -2414,16 +2416,16 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
 
     huge_page_treatment_region.PrintI64(
         "treated_pages_subreleased",
-        treatment_stats_.treated_pages_subreleased);
+        treatment_stats_.treated_pages_subreleased.raw_num());
     huge_page_treatment_region.PrintI64(
         "treated_pages_unbacked_subreleased",
-        treatment_stats_.treated_pages_unbacked_subreleased);
+        treatment_stats_.treated_pages_unbacked_subreleased.raw_num());
     huge_page_treatment_region.PrintI64(
         "total_treated_pages_unbacked_subreleased",
-        treatment_stats_.total_treated_pages_unbacked_subreleased);
+        treatment_stats_.total_treated_pages_unbacked_subreleased.raw_num());
     huge_page_treatment_region.PrintI64(
         "treated_pages_stale_subreleased",
-        treatment_stats_.treated_pages_stale_subreleased);
+        treatment_stats_.treated_pages_stale_subreleased.raw_num());
   }
   PrintLifetimeHistoInPbtxt(hpaa,
                             lifetime_histo_[AccessDensityPrediction::kDense],
