@@ -65,6 +65,7 @@ bool use_huge_region_more_often();
 
 class StaticForwarder : private Parameters {
  public:
+  using Parameters::background_release_rate;
   using Parameters::enable_unfiltered_collapse;
   using Parameters::filler_skip_subrelease_long_interval;
   using Parameters::filler_skip_subrelease_short_interval;
@@ -1050,7 +1051,8 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   if (hpaa_subrelease()) {
     const bool release_max =
         (tag_ == MemoryTag::kCold && forwarder_.release_max_cold_pages()) ||
-        forwarder_.release_max_filler_pages();
+        (forwarder_.release_max_filler_pages() &&
+         static_cast<size_t>(forwarder_.background_release_rate()) > 0);
     if (released < num_pages || release_max) {
       Length desired = release_max ? Length::max() : num_pages - released;
       released += filler_.ReleasePages(
