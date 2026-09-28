@@ -133,7 +133,24 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
     const Length pages = BytesToLengthCeil(overage);
     if (ShrinkHardBy(pages, kHard)) {
       ++successful_shrinks_after_limit_hit_[kHard];
-      TC_ASSERT_EQ(successful_shrinks_after_limit_hit_[kHard],
+      // Not equal: a hard-limit hit that the soft shrink above resolved is
+      // counted in limit_hits_ but not here.
+      TC_ASSERT_LE(successful_shrinks_after_limit_hit_[kHard],
+                   limit_hits_[kHard]);
+      return;
+    }
+    // ShrinkHardBy counts only the pages this call released.  Releasing drops
+    // pageheap_lock while unbacking, so the heap may have changed meanwhile:
+    // other threads may have allocated from it (leaving less to release, so
+    // the shortfall is real) or freed and released memory, including
+    // candidates this call had selected and so could not release itself.
+    // Consult the heap rather than the count before aborting.
+    s = stats();
+    const size_t backed_now =
+        s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+    if (backed_now <= limits_[kHard]) {
+      ++successful_shrinks_after_limit_hit_[kHard];
+      TC_ASSERT_LE(successful_shrinks_after_limit_hit_[kHard],
                    limit_hits_[kHard]);
       return;
     }
