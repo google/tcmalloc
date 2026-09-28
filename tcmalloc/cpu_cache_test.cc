@@ -2426,7 +2426,8 @@ TEST(TouchedCpus, Multithreaded) {
     subtle::percpu::IsFast();
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    const int cpu_id_start = subtle::percpu::__rseq_abi.vcpu_id;
+    const int cpu_id_start =
+        subtle::percpu::TcmallocTest::VirtualCpuSynchronize();
 #else
     const int cpu_id_start = subtle::percpu::GetRealCpu();
 #endif
@@ -2435,7 +2436,8 @@ TEST(TouchedCpus, Multithreaded) {
     cache.Deallocate(ptr, 1);
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    const int cpu_id_end = subtle::percpu::__rseq_abi.vcpu_id;
+    const int cpu_id_end =
+        subtle::percpu::TcmallocTest::VirtualCpuSynchronize();
 #else
     const int cpu_id_end = subtle::percpu::GetRealCpu();
 #endif
