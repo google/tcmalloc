@@ -32,6 +32,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/central_freelist_hooks.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/pages.h"
@@ -39,9 +40,6 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-using InsertRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
-using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
 
 class FakeStaticForwarder {
  public:
@@ -56,8 +54,8 @@ class FakeStaticForwarder {
     clock_frequency_ = clock_frequency;
   }
 
-  HookList<InsertRangeHook> insert_range_hooks_;
-  HookList<RemoveRangeHook> remove_range_hooks_;
+  HookList<CentralFreelistInsertRangeHook> insert_range_hooks_;
+  HookList<CentralFreelistRemoveRangeHook> remove_range_hooks_;
 
   void InvokeInsertRangeHook(size_t size_class, absl::Span<void*> batch) {
     insert_range_hooks_.Invoke(size_class, batch);
