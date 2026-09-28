@@ -104,12 +104,6 @@ class FakeStaticForwarder : private Parameters {
   void set_release_max_cold_pages(bool value) {
     release_max_cold_pages_ = value;
   }
-  MallocExtension::BytesPerSecond background_release_rate() const {
-    return background_release_rate_;
-  }
-  void set_background_release_rate(MallocExtension::BytesPerSecond value) {
-    background_release_rate_ = value;
-  }
   bool release_max_filler_pages() const { return release_max_filler_pages_; }
   void set_release_max_filler_pages(bool value) {
     release_max_filler_pages_ = value;
@@ -303,8 +297,6 @@ class FakeStaticForwarder : private Parameters {
   int error_number_ = 0;
   bool huge_region_adaptive_release_ =
       Parameters::huge_region_adaptive_release();
-  MallocExtension::BytesPerSecond background_release_rate_ =
-      Parameters::background_release_rate();
   bool release_max_cold_pages_ = Parameters::release_max_cold_pages();
   bool release_max_filler_pages_ = Parameters::release_max_filler_pages();
 

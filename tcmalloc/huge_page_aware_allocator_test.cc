@@ -2195,8 +2195,6 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
   struct TestCase {
     bool release_max_filler_pages;
     bool enable_smoothing;
-    MallocExtension::BytesPerSecond background_release_rate =
-        MallocExtension::BytesPerSecond{5 * 1024 * 1024};
     Length expected_released;
   };
 
@@ -2225,16 +2223,6 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
       {.release_max_filler_pages = false,
        .enable_smoothing = false,
        .expected_released = Length(0)},
-      // With release_max_filler_pages = true but background_release_rate = 0,
-      // calling with Length(0) does not release any filler pages (0).
-      {.release_max_filler_pages = true,
-       .enable_smoothing = true,
-       .background_release_rate = MallocExtension::BytesPerSecond{0},
-       .expected_released = Length(0)},
-      {.release_max_filler_pages = true,
-       .enable_smoothing = false,
-       .background_release_rate = MallocExtension::BytesPerSecond{0},
-       .expected_released = Length(0)},
   };
 
   for (const auto& test_case : kTestCases) {
@@ -2243,8 +2231,6 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
         test_case.enable_smoothing ? absl::Minutes(1) : absl::ZeroDuration());
     allocator.forwarder().set_filler_skip_subrelease_long_interval(
         test_case.enable_smoothing ? absl::Minutes(5) : absl::ZeroDuration());
-    allocator.forwarder().set_background_release_rate(
-        test_case.background_release_rate);
     allocator.forwarder().set_release_max_filler_pages(
         test_case.release_max_filler_pages);
 
