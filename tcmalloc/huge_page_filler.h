@@ -49,6 +49,7 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/exponential_biased.h"
+#include "tcmalloc/internal/hardware_pages.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
@@ -234,12 +235,12 @@ class UsageInfo {
     Length num_used_non_hugepage_backed;
     Length num_used_hugepage_backed;
     // HW-level pages.
-    size_t num_free_swapped{};
-    size_t num_used_swapped{};
-    size_t num_free_unbacked{};
-    size_t num_used_unbacked{};
-    size_t num_free_stale{};
-    size_t num_used_stale{};
+    HardwareLength num_free_swapped{};
+    HardwareLength num_used_swapped{};
+    HardwareLength num_free_unbacked{};
+    HardwareLength num_used_unbacked{};
+    HardwareLength num_free_stale{};
+    HardwareLength num_used_stale{};
   };
 
   template <class TrackerType>
@@ -378,17 +379,17 @@ class UsageInfo {
     PrintHardwarePageHisto(out, records.free_stale_histo, type,
                            "hps with a <= # of free AND stale < b", 0);
 
-    out.printf("\nHugePageFiller: %zu of %s free native pages are swapped.",
+    out.printf("\nHugePageFiller: %v of %s free native pages are swapped.",
                records.num_free_swapped, TypeToStr(type));
-    out.printf("\nHugePageFiller: %zu of %s used native pages are swapped.",
+    out.printf("\nHugePageFiller: %v of %s used native pages are swapped.",
                records.num_used_swapped, TypeToStr(type));
-    out.printf("\nHugePageFiller: %zu of %s free native pages are unbacked.",
+    out.printf("\nHugePageFiller: %v of %s free native pages are unbacked.",
                records.num_free_unbacked, TypeToStr(type));
-    out.printf("\nHugePageFiller: %zu of %s used native pages are unbacked.",
+    out.printf("\nHugePageFiller: %v of %s used native pages are unbacked.",
                records.num_used_unbacked, TypeToStr(type));
-    out.printf("\nHugePageFiller: %zu of %s free native pages are stale.",
+    out.printf("\nHugePageFiller: %v of %s free native pages are stale.",
                records.num_free_stale, TypeToStr(type));
-    out.printf("\nHugePageFiller: %zu of %s used native pages are stale.",
+    out.printf("\nHugePageFiller: %v of %s used native pages are stale.",
                records.num_used_stale, TypeToStr(type));
     out.printf("\nHugePageFiller: %v of %s pages hugepage backed out of %v.",
                records.hugepage_backed, TypeToStr(type),
@@ -459,12 +460,16 @@ class UsageInfo {
                     records.collapse_skipped.raw_num());
     scoped.PrintI64("num_pages_collapse_skipped_due_to_backoff",
                     records.collapse_skipped_due_to_backoff.raw_num());
-    scoped.PrintI64("num_pages_free_swapped", records.num_free_swapped);
-    scoped.PrintI64("num_pages_used_swapped", records.num_used_swapped);
-    scoped.PrintI64("num_pages_free_unbacked", records.num_free_unbacked);
-    scoped.PrintI64("num_pages_used_unbacked", records.num_used_unbacked);
-    scoped.PrintI64("num_pages_free_stale", records.num_free_stale);
-    scoped.PrintI64("num_pages_used_stale", records.num_used_stale);
+    scoped.PrintI64("num_pages_free_swapped",
+                    records.num_free_swapped.raw_num());
+    scoped.PrintI64("num_pages_used_swapped",
+                    records.num_used_swapped.raw_num());
+    scoped.PrintI64("num_pages_free_unbacked",
+                    records.num_free_unbacked.raw_num());
+    scoped.PrintI64("num_pages_used_unbacked",
+                    records.num_used_unbacked.raw_num());
+    scoped.PrintI64("num_pages_free_stale", records.num_free_stale.raw_num());
+    scoped.PrintI64("num_pages_used_stale", records.num_used_stale.raw_num());
   }
 
  private:
@@ -493,10 +498,10 @@ class UsageInfo {
     return it - kLifetimeBucketBounds - 1;
   }
 
-  int HardwarePageBucketNum(size_t page) {
+  int HardwarePageBucketNum(HardwareLength page) {
     auto it = std::upper_bound(
         native_page_bucket_bounds_,
-        native_page_bucket_bounds_ + native_page_buckets_size_, page);
+        native_page_bucket_bounds_ + native_page_buckets_size_, page.raw_num());
     TC_CHECK_NE(it, native_page_bucket_bounds_);
     return it - native_page_bucket_bounds_ - 1;
   }

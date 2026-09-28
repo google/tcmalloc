@@ -337,6 +337,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_explicitly_constructed"
     "tcmalloc::internal_exponential_biased"
     "tcmalloc::internal_gwp_asan_state"
+    "tcmalloc::internal_hardware_pages"
     "tcmalloc::internal_hook_list"
     "tcmalloc::internal_is_aligned_to"
     "tcmalloc::internal_linked_list"

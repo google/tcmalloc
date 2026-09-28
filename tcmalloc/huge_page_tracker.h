@@ -47,6 +47,7 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/exponential_biased.h"
+#include "tcmalloc/internal/hardware_pages.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
@@ -332,12 +333,12 @@ class PageTracker : public TList<PageTracker>::Elem {
                       std::optional<absl::string_view> name);
 
   struct HardwarePageResidencyInfo {
-    size_t n_free_swapped;
-    size_t n_used_swapped;
-    size_t n_free_unbacked;
-    size_t n_used_unbacked;
-    size_t n_free_stale;
-    size_t n_used_stale;
+    HardwareLength n_free_swapped;
+    HardwareLength n_used_swapped;
+    HardwareLength n_free_unbacked;
+    HardwareLength n_used_unbacked;
+    HardwareLength n_free_stale;
+    HardwareLength n_used_stale;
   };
 
   HardwarePageResidencyInfo CountInfoInHugePage(const PageBitmap& unbacked,
@@ -445,7 +446,8 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   // larger than TCMalloc page size.
   const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
   if (kHardwarePagesInHugePage < kPagesPerHugePage.raw_num()) {
-    return {.n_free_swapped = 0, .n_free_unbacked = 0};
+    return {.n_free_swapped = HardwareLength(0),
+            .n_free_unbacked = HardwareLength(0)};
   }
   TC_ASSERT_LE(kHardwarePagesInHugePage, kMaxResidencyBits);
 
@@ -458,12 +460,13 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   TC_ASSERT_LT((kHardwarePagesInHugePage - 1) >> shift_bits,
                kPagesPerHugePage.raw_num());
 
-  return {.n_free_swapped = (free & swapped).CountBits() * shift,
-          .n_used_swapped = (used & swapped).CountBits() * shift,
-          .n_free_unbacked = (free & unbacked).CountBits() * shift,
-          .n_used_unbacked = (used & unbacked).CountBits() * shift,
-          .n_free_stale = (free & stale).CountBits() * shift,
-          .n_used_stale = (used & stale).CountBits() * shift};
+  return {
+      .n_free_swapped = NHardwarePages((free & swapped).CountBits() * shift),
+      .n_used_swapped = NHardwarePages((used & swapped).CountBits() * shift),
+      .n_free_unbacked = NHardwarePages((free & unbacked).CountBits() * shift),
+      .n_used_unbacked = NHardwarePages((used & unbacked).CountBits() * shift),
+      .n_free_stale = NHardwarePages((free & stale).CountBits() * shift),
+      .n_used_stale = NHardwarePages((used & stale).CountBits() * shift)};
 }
 
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {

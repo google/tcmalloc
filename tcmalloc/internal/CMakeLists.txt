@@ -247,6 +247,40 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_hardware_pages
+  ALIAS
+    tcmalloc::internal_hardware_pages
+  HDRS
+    "hardware_pages.h"
+  DEPS
+    "absl::core_headers"
+    "absl::str_format"
+    "absl::strings"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_optimization"
+    "tcmalloc::internal_page_size"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_hardware_pages_test
+  SRCS
+    "hardware_pages_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::flags"
+    "absl::strings"
+    "benchmark::benchmark"
+    "tcmalloc::internal_hardware_pages"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_declarations
   ALIAS
     tcmalloc::internal_declarations

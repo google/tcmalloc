@@ -246,6 +246,38 @@ cc_test(
 )
 
 cc_library(
+    name = "hardware_pages",
+    hdrs = ["hardware_pages.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        ":optimization",
+        ":page_size",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+    ],
+)
+
+cc_test(
+    name = "hardware_pages_test",
+    srcs = ["hardware_pages_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":hardware_pages",
+        ":page_size",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "declarations",
     hdrs = ["declarations.h"],
     visibility = [
