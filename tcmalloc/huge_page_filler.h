@@ -2254,13 +2254,6 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
   // A donated alloc full list is impossible because it would have never been
   // donated in the first place. (It's an even hugepage.)
   TC_ASSERT(donated_alloc_[0].empty());
-  // Evaluate a/b, avoiding division by zero
-  const auto safe_div = [](Length a, Length b) {
-    return b == Length(0) ? 0.
-                          : static_cast<double>(a.raw_num()) /
-                                static_cast<double>(b.raw_num());
-  };
-
   hpaa.PrintI64(
       "filler_full_huge_pages",
       stats.n_full[AccessDensityPrediction::kPredictionCounts].raw_num());
@@ -2285,14 +2278,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
                 used_pages_in_any_subreleased().raw_num());
   hpaa.PrintI64("filler_used_pages_in_partial_released",
                 used_pages_in_partial_released().raw_num());
-  hpaa.PrintI64(
-      "filler_unmapped_bytes",
-      static_cast<uint64_t>(
-          stats.n_released[AccessDensityPrediction::kPredictionCounts]
-              .raw_num() *
-          safe_div(unmapped_pages(),
-                   stats.n_released[AccessDensityPrediction::kPredictionCounts]
-                       .in_pages())));
+  hpaa.PrintI64("filler_unmapped_bytes", unmapped_pages().in_bytes());
   hpaa.PrintI64(
       "filler_hugepageable_used_bytes",
       static_cast<uint64_t>(
