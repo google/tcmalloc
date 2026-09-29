@@ -473,7 +473,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Returns hugepages that the filler emptied while it did not hold
-  // pageheap_lock (during TreatHugepageTrackers) to the cache.
+  // pageheap_lock (during ReleasePages or TreatHugepageTrackers) to the cache.
   void DrainFreedTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
   void DeleteFromHugepage(FillerType::Tracker* pt, Range r, bool might_abandon,
@@ -501,9 +501,8 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_without_lock_(*this),
       collapse_(*this),
       set_anon_vma_name_(*this),
-      filler_(forwarder_.clock(), tag_, unback_, unback_without_lock_,
-              collapse_, set_anon_vma_name_,
-              forwarder_.subrelease_unbacked_hugepages()),
+      filler_(forwarder_.clock(), tag_, unback_without_lock_, collapse_,
+              set_anon_vma_name_, forwarder_.subrelease_unbacked_hugepages()),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),
@@ -831,8 +830,10 @@ inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
     SpanAllocInfo span_alloc_info) {
   if (ABSL_PREDICT_TRUE(filler_.Put(pt, r, span_alloc_info) == nullptr)) {
     // If this allocation had resulted in a donation to the filler, we record
-    // these pages as abandoned.
-    if (ABSL_PREDICT_FALSE(might_abandon)) {
+    // these pages as abandoned.  A fully freed hugepage that the filler parked
+    // because a treatment still pins it is not abandoned: nothing else is
+    // allocated on it, and it is released as soon as it is drained.
+    if (ABSL_PREDICT_FALSE(might_abandon) && !pt->fully_freed()) {
       TC_ASSERT(pt->was_donated());
       abandoned_pages_ += pt->abandoned_count();
       pt->set_abandoned(true);
@@ -941,9 +942,12 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
     if (filler_.Put(pt, Range(virt, virt_len), span_alloc_info) == nullptr) {
       // Note that we abandoned virt_len pages with pt.  These can be reused for
       // other allocations, but this can contribute to excessive slack in the
-      // filler.
-      abandoned_pages_ += pt->abandoned_count();
-      pt->set_abandoned(true);
+      // filler.  As in DeleteFromHugepage, a parked fully freed hugepage is
+      // not abandoned.
+      if (!pt->fully_freed()) {
+        abandoned_pages_ += pt->abandoned_count();
+        pt->set_abandoned(true);
+      }
     } else {
       // We were able to reclaim the donated slack.
       TC_ASSERT(!pt->abandoned());
@@ -1064,6 +1068,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
                   forwarder_.filler_skip_subrelease_long_interval()},
           forwarder_.release_partial_alloc_pages(),
           /*hit_limit*/ false);
+      DrainFreedTrackers();
     }
   }
 
@@ -1269,6 +1274,7 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
                                    /*release_partial_alloc_pages=*/false,
                                    /*hit_limit=*/true);
+  DrainFreedTrackers();
 
   info_.RecordRelease(n, released, reason);
   return released;
