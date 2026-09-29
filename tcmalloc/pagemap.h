@@ -75,6 +75,7 @@ class PackedSpanAndSizeclass {
   // shift. Placing it lower in the word would require a mask, which costs an
   // extra instruction on the aarch64 deallocation fast path.
   static constexpr uintptr_t kSizeclassShift = 56;
+  static_assert(kSizeclassShift >= kAddressBits);
   static_assert(sizeof(CompactSizeClass) * 8 <=
                 sizeof(uintptr_t) * 8 - kSizeclassShift);
   static constexpr uintptr_t kSpanMask = (uintptr_t{1} << kSizeclassShift) - 1;
