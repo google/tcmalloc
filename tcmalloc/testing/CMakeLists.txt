@@ -748,6 +748,25 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
+    tcmalloc_testing_concurrent_release_test
+  SRCS
+    "concurrent_release_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::random_bit_gen_ref"
+    "absl::random_random"
+    "absl::time"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+    "tcmalloc::testing_thread_manager"
+  TIMEOUT
+    900
+)
+
+tcmalloc_cc_test_variants(
+  NAME
     tcmalloc_testing_drain_test
   SRCS
     "drain_test.cc"
