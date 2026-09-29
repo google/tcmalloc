@@ -1016,6 +1016,11 @@ class HugePageFiller {
       huge_page_filler_internal::UsageInfo::kLifetimeBucketBounds;
   using LifetimeHisto = huge_page_filler_internal::UsageInfo::LifetimeHisto;
   void RecordLifetime(const TrackerType* pt, int64_t now);
+  // was_released is tracked only for hugepages that are not in the released
+  // state.  Clears it, and the count of such hugepages, once pt has been
+  // released from again or is being retired.
+  void ClearWasReleased(TrackerType* absl_nonnull pt)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   void PrintLifetimeHisto(Printer& out, const LifetimeHisto& h,
                           AccessDensityPrediction type,
                           absl::string_view blurb) const;
@@ -1309,6 +1314,19 @@ void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt,
 }
 
 template <class TrackerType>
+inline void HugePageFiller<TrackerType>::ClearWasReleased(TrackerType* pt) {
+  if (!pt->was_released()) {
+    return;
+  }
+  pt->set_was_released(/*status=*/false);
+  if (pt->HasDenseSpans()) {
+    --n_was_released_[AccessDensityPrediction::kDense];
+  } else {
+    --n_was_released_[AccessDensityPrediction::kSparse];
+  }
+}
+
+template <class TrackerType>
 void HugePageFiller<TrackerType>::PrintLifetimeHisto(
     Printer& out, const LifetimeHisto& h, AccessDensityPrediction type,
     absl::string_view blurb) const {
@@ -1376,6 +1394,7 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
                                                      int64_t now) {
   TC_ASSERT_EQ(pt->nallocs(), 0);
   --size_;
+  ClearWasReleased(pt);
   if (pt->released()) {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     const Length free_pages = kPagesPerHugePage;
@@ -1409,15 +1428,6 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
         unmapping_unaccounted_ += unmapped;
         subrelease_stats_.total_pages_subreleased += unmapped;
       }
-    }
-  }
-
-  if (pt->was_released()) {
-    pt->set_was_released(/*status=*/false);
-    if (pt->HasDenseSpans()) {
-      --n_was_released_[AccessDensityPrediction::kDense];
-    } else {
-      --n_was_released_[AccessDensityPrediction::kSparse];
     }
   }
 
@@ -1554,13 +1564,8 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     // If the candidate we just released from previously had was_released set,
     // clear it. was_released is tracked only for pages that aren't in
     // released state.
-    if (best->was_released() && best->released()) {
-      best->set_was_released(/*status=*/false);
-      if (best->HasDenseSpans()) {
-        --n_was_released_[AccessDensityPrediction::kDense];
-      } else {
-        --n_was_released_[AccessDensityPrediction::kSparse];
-      }
+    if (best->released()) {
+      ClearWasReleased(best);
     }
   }
 
@@ -1988,6 +1993,9 @@ inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
   unmapped_ += released_length;
   unmapping_unaccounted_ += released_length;
   AddToFillerList(tracker);
+  if (tracker->released()) {
+    ClearWasReleased(tracker);
+  }
   return released_length;
 }
 
@@ -2008,6 +2016,9 @@ inline Length HugePageFiller<TrackerType>::HandleUnbackedHugePage(
   unmapped_ += unmapped_length;
   unmapping_unaccounted_ += unmapped_length;
   AddToFillerList(tracker);
+  if (tracker->released()) {
+    ClearWasReleased(tracker);
+  }
   return unmapped_length;
 }
 

@@ -164,6 +164,12 @@ class PageTracker : public TList<PageTracker>::Elem {
   // memory persistently donated to the filler.
   bool was_donated() const { return was_donated_; }
 
+  // Set while the hugepage is fully backed again after having been in the
+  // released state: an allocation re-backed its last released page.  It is a
+  // current-state bit, not history: it is cleared as soon as pages are
+  // released from the hugepage again, so was_released() implies !released().
+  // The filler counts such hugepages in previously_released_huge_pages()
+  // ("became full after being previously released").
   bool was_released() const { return was_released_; }
   void set_was_released(bool status) { was_released_ = status; }
 

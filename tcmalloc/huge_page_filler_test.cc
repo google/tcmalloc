@@ -1423,6 +1423,47 @@ TEST_F(FillerTest, FetchFullyFreedTrackerSkipsPinned) {
   EXPECT_EQ(filler_.size(), hp_contained_);
 }
 
+// A hugepage that left the released state (was_released) and is released
+// again by a treatment leaves the previously-released count, as it does when
+// ReleasePages releases from it.
+TEST_F(FillerTest, TreatmentReleaseClearsWasReleased) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  ASSERT_TRUE(a.pt->released());
+  EXPECT_FALSE(a.pt->was_released());
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  // Reallocating every released page returns the hugepage to the unreleased
+  // state and records that it was released before.
+  PAlloc b = AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(1),
+                                       a.span_alloc_info);
+  ASSERT_EQ(b.pt, a.pt);
+  ASSERT_FALSE(a.pt->released());
+  EXPECT_TRUE(a.pt->was_released());
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
+  Delete(b);
+
+  // The treatment finds a swapped page on the hugepage and releases its free
+  // pages.
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a.p.start_addr(), /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  swapped.SetRange(/*index=*/1, /*n=*/1);
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(a.p.start_addr(), {});
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_subreleased,
+            kPagesPerHugePage - Length(1));
+  ASSERT_TRUE(a.pt->released());
+  EXPECT_FALSE(a.pt->was_released());
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+  Delete(a);
+}
+
 // Parallelizes collapse and background swapped-subrelease operation,
 // concurrently with deallocating certain allocations. By deallocating
 // concurrently, some trackers end up in fully freed lists. We want to make sure
