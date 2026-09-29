@@ -364,7 +364,7 @@ class UsageInfo {
     out.printf("\nHugePageFiller: # of hps with lifetime >= %3zu ms.",
                absl::ToInt64Milliseconds(kLongLivedLifetime));
     PrintHisto(out, records.long_lived_hps_histo, type,
-               "hps with a <= # of allocations < b", 0);
+               "hps with a <= # of allocations < b", 1);
 
     PrintHardwarePageHisto(out, records.unbacked_histo, type,
                            "hps with a <= # of unbacked < b", 0);
@@ -434,7 +434,7 @@ class UsageInfo {
     PrintLifetimeHisto(scoped, records.low_occupancy_lifetime_histo,
                        "low_occupancy_lifetime_histogram");
     PrintHisto(scoped, records.long_lived_hps_histo,
-               "long_lived_hugepages_histogram", 0);
+               "long_lived_hugepages_histogram", 1);
     PrintHardwarePageHisto(scoped, records.unbacked_histo, "unbacked_histogram",
                            0);
     PrintHardwarePageHisto(scoped, records.swapped_histo, "swapped_histogram",

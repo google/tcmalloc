@@ -4504,6 +4504,49 @@ HugePageFiller: Allocations: 101, Longest Free Range: 155, Objects: 202, Is Huge
   }
 }
 
+// A single hugepage holding exactly two allocations must be reported in the
+// [2, 2] bucket of long_lived_hugepages_histogram once it is long-lived, the
+// same bucket allocations_histogram already uses for it.
+TEST_F(FillerTest, LongLivedHugepagesHistogramBuckets) {
+  FakePageFlags pageflags;
+  const SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a1 = AllocateWithSpanAllocInfo(Length(1), info);
+  PAlloc a2 = AllocateWithSpanAllocInfo(Length(1), info);
+  ASSERT_EQ(a1.pt, a2.pt);
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+
+  // Exceed kLongLivedLifetime (100 s).
+  FakeClock::Advance(absl::Seconds(101));
+
+  std::string pbtxt = PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
+    PageHeapSpinLockHolder l;
+    filler_.PrintInPbtxt(region, pageflags);
+  });
+  EXPECT_THAT(pbtxt,
+              testing::HasSubstr("allocations_histogram { lower_bound: 2 "
+                                 "upper_bound: 2 value: 1}"));
+  EXPECT_THAT(pbtxt,
+              testing::HasSubstr("long_lived_hugepages_histogram { "
+                                 "lower_bound: 2 upper_bound: 2 value: 1}"));
+  EXPECT_THAT(pbtxt, testing::Not(testing::HasSubstr(
+                         "long_lived_hugepages_histogram { lower_bound: 1")));
+
+  std::string text = PrintToString(1024 * 1024, [&](Printer& printer) {
+    PageHeapSpinLockHolder l;
+    filler_.Print(printer, true, pageflags);
+  });
+  EXPECT_THAT(text, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed regular hps with a<= # of allocations <b
+HugePageFiller: <  1<=     0 <  2<=     1 <  3<=     0)"));
+  EXPECT_THAT(text, testing::HasSubstr(R"(
+HugePageFiller: # of hps with lifetime >= 100000 ms.
+HugePageFiller: # of sparsely-accessed regular hps with a <= # of allocations < b
+HugePageFiller: <  1<=     0 <  2<=     1 <  3<=     0)"));
+
+  Delete(a1);
+  Delete(a2);
+}
+
 TEST_F(FillerTest, LiveLifetimeTelemetryTest) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
@@ -4534,12 +4577,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of sparsely-accessed regular hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 )"));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -4554,12 +4597,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of densely-accessed regular hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 )"));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -4574,12 +4617,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of donated hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 )"));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -4594,12 +4637,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of sparsely-accessed partial released hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 )"));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -4614,12 +4657,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of densely-accessed partial released hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 )"));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -4634,12 +4677,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of sparsely-accessed released hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 )"));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -4654,12 +4697,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of densely-accessed released hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 )"));
 
   FakeClock::Advance(absl::Seconds(101));
@@ -4684,12 +4727,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of sparsely-accessed regular hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     1 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     1 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 )"));
 
   Delete(small_alloc);
@@ -5933,12 +5976,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of sparsely-accessed regular hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 
 HugePageFiller: # of sparsely-accessed regular hps with a <= # of unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
@@ -6038,12 +6081,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of densely-accessed regular hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 
 HugePageFiller: # of densely-accessed regular hps with a <= # of unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
@@ -6127,12 +6170,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of donated hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 
 HugePageFiller: # of donated hps with a <= # of unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
@@ -6232,12 +6275,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of sparsely-accessed partial released hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 
 HugePageFiller: # of sparsely-accessed partial released hps with a <= # of unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
@@ -6337,12 +6380,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of densely-accessed partial released hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 
 HugePageFiller: # of densely-accessed partial released hps with a <= # of unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
@@ -6442,12 +6485,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of sparsely-accessed released hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 
 HugePageFiller: # of sparsely-accessed released hps with a <= # of unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
@@ -6547,12 +6590,12 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
 HugePageFiller: # of hps with lifetime >= 100000 ms.
 HugePageFiller: # of densely-accessed released hps with a <= # of allocations < b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 <  6<=     0
+HugePageFiller: <  7<=     0 <  8<=     0 <  9<=     0 < 17<=     0 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     0 <256<=     0
 
 HugePageFiller: # of densely-accessed released hps with a <= # of unbacked < b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
