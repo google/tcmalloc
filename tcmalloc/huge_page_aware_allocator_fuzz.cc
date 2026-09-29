@@ -117,9 +117,22 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
   // invokes lock_dropped_callback_ so the fuzzer can interleave other
   // operations, as another thread would while the lock is free.
   MemoryModifyStatus ReleasePages(Range r) {
-    pending_release_ += r.n;
+    // Whole hugepages (HugeCache, HugeRegion, and the remainder of a hugepage
+    // the filler is retiring) leave the free and unmapped counts before the
+    // unback, so they read as used meanwhile.  The filler's partial releases
+    // are sub-hugepage ranges that it accounts as unmapped before the unback,
+    // so they do not affect the used count.  Those partial releases still run
+    // with pageheap_lock held, so lock_dropped_callback_ is a no-op for them
+    // today; once they drop the lock too (b/73749855), this keeps the used
+    // count exact at every drop.
+    const bool whole_hugepages = r.n >= kPagesPerHugePage;
+    if (whole_hugepages) {
+      pending_release_ += r.n;
+    }
     lock_dropped_callback_();
-    pending_release_ -= r.n;
+    if (whole_hugepages) {
+      pending_release_ -= r.n;
+    }
 
     return FakeStaticForwarder::ReleasePages(r);
   }
