@@ -14,6 +14,7 @@
 
 #include "tcmalloc/internal/system_allocator.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>

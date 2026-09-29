@@ -491,6 +491,7 @@ tcmalloc_cc_binary(
   SRCS
     "logging_test_helper.cc"
   DEPS
+    "tcmalloc::internal_memory_stats"
     "tcmalloc::tcmalloc"
 )
 

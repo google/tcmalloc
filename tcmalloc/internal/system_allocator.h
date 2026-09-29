@@ -539,13 +539,23 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
 
   // Allocation failed so we need to reserve more memory.
   // Reserve new region and try allocation again.
-  void* ptr = MmapAlignedLocked(min_mmap_size_, min_mmap_size_, tag);
-  if (!ptr) return {nullptr, 0};
+  size_t region_size = min_mmap_size_;
+  void* ptr = MmapAlignedLocked(region_size, region_size, tag);
+  if (!ptr) {
+    // Reserving a full min_mmap_size_ region may fail under constrained virtual
+    // address space (e.g. a 4 GiB RLIMIT_AS sandbox once multiple tags are
+    // active). Fall back to reserving only what is needed for this request.
+    region_size = RoundUp(request_size, kHugePageSize);
+    if (region_size < request_size) return {nullptr, 0};
+    ptr =
+        MmapAlignedLocked(region_size, std::max(alignment, kHugePageSize), tag);
+    if (!ptr) return {nullptr, 0};
+  }
 
   const auto region_type = TagToHint(tag);
-  region = region_factory_->Create(ptr, min_mmap_size_, region_type);
+  region = region_factory_->Create(ptr, region_size, region_type);
   if (!region) {
-    munmap(ptr, min_mmap_size_);
+    munmap(ptr, region_size);
     return {nullptr, 0};
   }
   return region->Alloc(request_size, alignment);
@@ -633,6 +643,10 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
       // result == hint or MAP_FAILED.  Any other value indicates incorrect
       // detection.
       TC_CHECK_EQ(result, MAP_FAILED);
+      // Address collisions with MAP_FIXED_NOREPLACE fail with EEXIST; ENOMEM
+      // indicates size exceeds RLIMIT_AS or VM limits, so retrying other hints
+      // of the same size will also fail.
+      if (errno == ENOMEM) return nullptr;
     } else {
       if (result == MAP_FAILED) {
         TC_LOG("mmap(%p, %v) reservation failed (%v)", hint, size,

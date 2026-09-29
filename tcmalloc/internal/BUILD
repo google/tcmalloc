@@ -484,6 +484,7 @@ cc_binary(
     srcs = ["logging_test_helper.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
+    deps = [":memory_stats"],
 )
 
 cc_library(
