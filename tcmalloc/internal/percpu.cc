@@ -115,6 +115,7 @@ int VirtualCpu::Synchronize() {
       break;
   }
 
+  TC_CHECK(IsFastNoInit());
   TC_CHECK_GE(vcpu, kCpuIdInitialized);
   TC_ASSERT_LT(vcpu, NumCPUs());
   tcmalloc_cached_vcpu = vcpu;

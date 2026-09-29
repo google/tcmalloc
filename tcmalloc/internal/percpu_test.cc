@@ -79,5 +79,19 @@ TEST(PerCpu, SignalHandling) {
   EXPECT_GT(alarms.load(std::memory_order_relaxed), 0);
 }
 
+TEST(PerCpu, UnregisteredThread) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "per-CPU unavailable";
+  }
+
+  UnregisterRseq();
+  ASSERT_FALSE(IsFastNoInit());
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  EXPECT_EQ(__rseq_abi.mm_cid, 0u);
+#endif
+  EXPECT_GE(VirtualCpu::Synchronize(), 0);
+  EXPECT_TRUE(IsFastNoInit());
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal::subtle::percpu

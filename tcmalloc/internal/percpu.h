@@ -247,8 +247,10 @@ size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
 enum class RseqVcpuMode { kNone, kMM };
 
 extern RseqVcpuMode vcpu_mode;
+inline bool IsFast();
 
 inline RseqVcpuMode GetRseqVcpuMode() {
+  IsFast();
   return vcpu_mode;
 }
 
