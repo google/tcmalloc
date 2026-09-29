@@ -1073,10 +1073,13 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":logging",
         ":page_size",
         ":residency",
         ":util",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_macros",
