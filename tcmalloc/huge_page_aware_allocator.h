@@ -831,8 +831,10 @@ inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
     SpanAllocInfo span_alloc_info) {
   if (ABSL_PREDICT_TRUE(filler_.Put(pt, r, span_alloc_info) == nullptr)) {
     // If this allocation had resulted in a donation to the filler, we record
-    // these pages as abandoned.
-    if (ABSL_PREDICT_FALSE(might_abandon)) {
+    // these pages as abandoned.  A fully freed hugepage that the filler parked
+    // because a treatment still pins it is not abandoned: nothing else is
+    // allocated on it, and it is released as soon as it is drained.
+    if (ABSL_PREDICT_FALSE(might_abandon) && !pt->fully_freed()) {
       TC_ASSERT(pt->was_donated());
       abandoned_pages_ += pt->abandoned_count();
       pt->set_abandoned(true);
@@ -941,9 +943,12 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
     if (filler_.Put(pt, Range(virt, virt_len), span_alloc_info) == nullptr) {
       // Note that we abandoned virt_len pages with pt.  These can be reused for
       // other allocations, but this can contribute to excessive slack in the
-      // filler.
-      abandoned_pages_ += pt->abandoned_count();
-      pt->set_abandoned(true);
+      // filler.  As in DeleteFromHugepage, a parked fully freed hugepage is
+      // not abandoned.
+      if (!pt->fully_freed()) {
+        abandoned_pages_ += pt->abandoned_count();
+        pt->set_abandoned(true);
+      }
     } else {
       // We were able to reclaim the donated slack.
       TC_ASSERT(!pt->abandoned());
