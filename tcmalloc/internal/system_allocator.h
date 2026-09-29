@@ -194,7 +194,11 @@ class SystemAllocator {
   //
   // REQUIRES: pagesize <= alignment <= kTagMask
   // REQUIRES: size <= kTagMask
-  [[nodiscard]] void* MmapAligned(size_t size, size_t alignment, MemoryTag tag)
+  //
+  // sub_region picks the half of a kSampledOrCold partition; only the
+  // GWP-ASan pool may pass kGuarded.
+  [[nodiscard]] void* MmapAligned(size_t size, size_t alignment, MemoryTag tag,
+                                  SubRegion sub_region = SubRegion::kPageHeap)
       ABSL_LOCKS_EXCLUDED(spinlock_);
 
  private:
@@ -213,11 +217,12 @@ class SystemAllocator {
   uintptr_t rnd_ ABSL_GUARDED_BY(spinlock_) = 0;
   absl::once_flag rnd_flag_;
 
-  std::array<uintptr_t, kSecurityPartitions> next_sampled_addr_
+  std::array<uintptr_t, kSecurityPartitions> next_sampled_or_cold_addr_
       ABSL_GUARDED_BY(spinlock_) = {0};
+  // Cursor for SubRegion::kGuarded, separate from the page heap's.
+  uintptr_t next_guarded_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
   std::array<uintptr_t, kNumPartitions> next_normal_addr_
       ABSL_GUARDED_BY(spinlock_) = {0};
-  uintptr_t next_cold_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
   uintptr_t next_metadata_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
 
   std::atomic<int> release_errors_{0};
@@ -235,9 +240,8 @@ class SystemAllocator {
 
   std::array<AddressRegion*, kNumPartitions> normal_region_
       ABSL_GUARDED_BY(spinlock_){{nullptr}};
-  std::array<AddressRegion*, kSecurityPartitions> sampled_region_
+  std::array<AddressRegion*, kSecurityPartitions> sampled_or_cold_region_
       ABSL_GUARDED_BY(spinlock_){{nullptr}};
-  AddressRegion* cold_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
   AddressRegion* metadata_region_ ABSL_GUARDED_BY(spinlock_){nullptr};
 
   class MmapRegion final : public AddressRegion {
@@ -285,10 +289,12 @@ class SystemAllocator {
   AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) const;
   void BindMemory(void* base, size_t size, size_t partition) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
-  uintptr_t RandomMmapHint(size_t size, size_t alignment, MemoryTag tag)
+  uintptr_t RandomMmapHint(size_t size, size_t alignment, MemoryTag tag,
+                           SubRegion sub_region)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
-  [[nodiscard]] void* MmapAlignedLocked(size_t size, size_t alignment,
-                                        MemoryTag tag)
+  [[nodiscard]] void* MmapAlignedLocked(
+      size_t size, size_t alignment, MemoryTag tag,
+      SubRegion sub_region = SubRegion::kPageHeap)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
 
   enum class ReleaseStatus {
@@ -390,8 +396,8 @@ void SystemAllocator<Topology, NormalPartitions>::SetRegionFactory(
 template <typename Topology, size_t NormalPartitions>
 void SystemAllocator<Topology, NormalPartitions>::DiscardMappedRegions() {
   std::fill(normal_region_.begin(), normal_region_.end(), nullptr);
-  std::fill(sampled_region_.begin(), sampled_region_.end(), nullptr);
-  cold_region_ = nullptr;
+  std::fill(sampled_or_cold_region_.begin(), sampled_or_cold_region_.end(),
+            nullptr);
   metadata_region_ = nullptr;
 }
 
@@ -517,12 +523,10 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
             return &normal_region_[0];
           case MemoryTag::kNormalP1:
             return &normal_region_[1];
-          case MemoryTag::kSampled:
-            return &sampled_region_[0];
-          case MemoryTag::kSampledP1:
-            return &sampled_region_[1];
-          case MemoryTag::kCold:
-            return &cold_region_;
+          case MemoryTag::kSampledOrCold:
+            return &sampled_or_cold_region_[0];
+          case MemoryTag::kSampledOrColdP1:
+            return &sampled_or_cold_region_[1];
           case MemoryTag::kMetadata:
             return &metadata_region_;
         }
@@ -553,14 +557,16 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
 
 template <typename Topology, size_t NormalPartitions>
 void* SystemAllocator<Topology, NormalPartitions>::MmapAligned(
-    size_t size, size_t alignment, const MemoryTag tag) {
+    size_t size, size_t alignment, const MemoryTag tag,
+    const SubRegion sub_region) {
   AllocationGuardSpinLockHolder l(spinlock_);
-  return MmapAlignedLocked(size, alignment, tag);
+  return MmapAlignedLocked(size, alignment, tag, sub_region);
 }
 
 template <typename Topology, size_t NormalPartitions>
 void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
-    size_t size, size_t alignment, const MemoryTag tag) {
+    size_t size, size_t alignment, const MemoryTag tag,
+    const SubRegion sub_region) {
   using system_allocator_internal::MapFixedNoReplaceFlagAvailable;
 
   TC_ASSERT_LE(size, kTagMask);
@@ -569,19 +575,22 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
   std::optional<int> numa_partition;
   uintptr_t& next_addr =
       *[&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_) GOOGLE_MALLOC_SECTION {
+        if (sub_region == SubRegion::kGuarded) {
+          TC_ASSERT(tag == MemoryTag::kSampledOrCold ||
+                    tag == MemoryTag::kSampledOrColdP1);
+          return &next_guarded_addr_;
+        }
         switch (tag) {
-          case MemoryTag::kSampled:
-            return &next_sampled_addr_[0];
-          case MemoryTag::kSampledP1:
-            return &next_sampled_addr_[1];
+          case MemoryTag::kSampledOrCold:
+            return &next_sampled_or_cold_addr_[0];
+          case MemoryTag::kSampledOrColdP1:
+            return &next_sampled_or_cold_addr_[1];
           case MemoryTag::kNormalP0:
             numa_partition = 0;
             return &next_normal_addr_[0];
           case MemoryTag::kNormalP1:
             numa_partition = topology_->numa_aware() ? 1 : 0;
             return &next_normal_addr_[1];
-          case MemoryTag::kCold:
-            return &next_cold_addr_;
           case MemoryTag::kMetadata:
             return &next_metadata_addr_;
         }
@@ -591,10 +600,19 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
       }();
 
   bool first = !next_addr;
+  // Neither end of a kSampledOrCold mapping may be in the other sub-region.
+  const auto in_expected_sub_region =
+      [&](uintptr_t a) ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_) {
+        if (!IsSampledOrColdTag(tag)) return true;
+        return InPageHeapSubRegion(reinterpret_cast<void*>(a)) ==
+               (sub_region == SubRegion::kPageHeap);
+      };
   if (!next_addr || !IsAlignedTo(next_addr, alignment) ||
       GetMemoryTag(reinterpret_cast<void*>(next_addr)) != tag ||
-      GetMemoryTag(reinterpret_cast<void*>(next_addr + size - 1)) != tag) {
-    next_addr = RandomMmapHint(size, alignment, tag);
+      GetMemoryTag(reinterpret_cast<void*>(next_addr + size - 1)) != tag ||
+      !in_expected_sub_region(next_addr) ||
+      !in_expected_sub_region(next_addr + size - 1)) {
+    next_addr = RandomMmapHint(size, alignment, tag, sub_region);
   }
   const int map_fixed_noreplace_flag = MapFixedNoReplaceFlagAvailable();
   void* hint;
@@ -644,7 +662,7 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
         TC_ASSERT_EQ(err, 0);
       }
     }
-    next_addr = RandomMmapHint(size, alignment, tag);
+    next_addr = RandomMmapHint(size, alignment, tag, sub_region);
   }
 
   TC_LOG(
@@ -798,10 +816,8 @@ SystemAllocator<Topology, NormalPartitions>::TagToHint(MemoryTag tag) const {
         return UsageHint::kNormalNumaAwareS1;
       }
       return UsageHint::kNormal;
-    case MemoryTag::kSampled:
-    case MemoryTag::kSampledP1:
-      return UsageHint::kInfrequentAllocation;
-    case MemoryTag::kCold:
+    case MemoryTag::kSampledOrCold:
+    case MemoryTag::kSampledOrColdP1:
       return UsageHint::kInfrequentAccess;
     case MemoryTag::kMetadata:
       return UsageHint::kMetadata;
@@ -813,7 +829,8 @@ SystemAllocator<Topology, NormalPartitions>::TagToHint(MemoryTag tag) const {
 
 template <typename Topology, size_t NormalPartitions>
 uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
-    size_t size, size_t alignment, const MemoryTag tag) {
+    size_t size, size_t alignment, const MemoryTag tag,
+    const SubRegion sub_region) {
   // Rely on kernel's mmap randomization to seed our RNG.
   absl::base_internal::LowLevelCallOnce(
       &rnd_flag_, [&]() GOOGLE_MALLOC_SECTION {
@@ -856,11 +873,23 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   // tag.
   alignment = absl::bit_ceil(std::max(alignment, size));
 
+  // Pin kSampledOrCold hints to the requested sub-region.  Skipped if size or
+  // alignment reaches the sub-region bit; nothing tcmalloc maps comes close.
+  const bool apply_sub_region = IsSampledOrColdTag(tag) &&
+                                alignment <= kPageHeapSubRegionBit &&
+                                size <= kPageHeapSubRegionBit;
+  const auto place_in_sub_region = [&](uintptr_t a) {
+    if (!apply_sub_region) return a;
+    return sub_region == SubRegion::kPageHeap ? (a | kPageHeapSubRegionBit)
+                                              : (a & ~kPageHeapSubRegionBit);
+  };
+
   uintptr_t addr;
   do {
     rnd_ = ExponentialBiased::NextRandom(rnd_);
     addr = rnd_ & kAddrMask & ~(alignment - 1) & ~kTagMask;
     addr |= static_cast<uintptr_t>(tag) << kTagShift;
+    addr = place_in_sub_region(addr);
   } while (addr == 0);
 
 #if defined(ABSL_HAVE_THREAD_SANITIZER)
@@ -898,6 +927,7 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
       rnd_ = ExponentialBiased::NextRandom(rnd_);
       addr = rnd_ & kHiAppMask & ~(alignment - 1) & ~kTagMask;
       addr |= static_cast<uintptr_t>(tag) << kTagShift;
+      addr = place_in_sub_region(addr);
     } while (addr == 0);
   }
 #endif

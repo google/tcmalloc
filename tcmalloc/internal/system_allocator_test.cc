@@ -25,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
@@ -76,8 +77,7 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
     topology_.Init();
     SCOPED_TRACE(absl::StrFormat("size = %u, alignment = %u", size, alignment));
 
-    for (MemoryTag tag :
-         {MemoryTag::kNormal, MemoryTag::kSampled, MemoryTag::kCold}) {
+    for (MemoryTag tag : {MemoryTag::kNormal, MemoryTag::kSampledOrCold}) {
       SCOPED_TRACE(static_cast<unsigned int>(tag));
 
       void* p = allocator_.MmapAligned(size, alignment, tag);
@@ -86,6 +86,23 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
       EXPECT_EQ(IsNormalMemory(p), tag == MemoryTag::kNormal);
       EXPECT_EQ(GetMemoryTag(p), tag);
       EXPECT_EQ(GetMemoryTag(static_cast<char*>(p) + size - 1), tag);
+      // Page heap mappings must avoid the guarded sub-region.
+      if (IsSampledOrColdTag(tag) && size <= kPageHeapSubRegionBit &&
+          alignment <= kPageHeapSubRegionBit) {
+        EXPECT_TRUE(InPageHeapSubRegion(p));
+        EXPECT_TRUE(InPageHeapSubRegion(static_cast<char*>(p) + size - 1));
+      }
+      if (IsSampledOrColdTag(tag) && size <= kPageHeapSubRegionBit &&
+          alignment <= kPageHeapSubRegionBit) {
+        void* g =
+            allocator_.MmapAligned(size, alignment, tag, SubRegion::kGuarded);
+        ASSERT_NE(g, nullptr);
+        EXPECT_EQ(reinterpret_cast<uintptr_t>(g) % alignment, 0);
+        EXPECT_EQ(GetMemoryTag(g), tag);
+        EXPECT_TRUE(InGuardedSubRegion(g));
+        EXPECT_TRUE(InGuardedSubRegion(static_cast<char*>(g) + size - 1));
+        EXPECT_EQ(munmap(g, size), 0);
+      }
       if (tcmalloc::NamedVMAsSupported()) {
         EXPECT_THAT(MappingName(p, size),
                     HasSubstr(absl::StrFormat("tcmalloc_region_%s",
@@ -102,6 +119,87 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
   SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>, 1> allocator_{
       topology_, kMinMmapAlloc};
 };
+
+TEST(SubRegionTest, GuardedPoolIsDisjointFromThePageHeap) {
+  constexpr size_t kSize = 1 << 21;
+  NumaTopology<2> topology;
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kSize);
+
+  constexpr MemoryTag kTag = MemoryTag::kSampledOrCold;
+  void* heap = allocator.MmapAligned(kSize, kSize, kTag);
+  void* guarded =
+      allocator.MmapAligned(kSize, kSize, kTag, SubRegion::kGuarded);
+  ASSERT_NE(heap, nullptr);
+  ASSERT_NE(guarded, nullptr);
+
+  // Same partition ...
+  EXPECT_EQ(GetMemoryTag(heap), kTag);
+  EXPECT_EQ(GetMemoryTag(guarded), kTag);
+  // ... opposite halves of it.
+  EXPECT_TRUE(InPageHeapSubRegion(heap));
+  EXPECT_FALSE(InGuardedSubRegion(heap));
+  EXPECT_TRUE(InGuardedSubRegion(guarded));
+  EXPECT_FALSE(InPageHeapSubRegion(guarded));
+
+  EXPECT_EQ(munmap(heap, kSize), 0);
+  EXPECT_EQ(munmap(guarded, kSize), 0);
+}
+
+// Interleaving both sub-regions exercises the separate cursors: neither may
+// drag the other across the boundary.
+TEST(SubRegionTest, InterleavedMappingsStayInTheirSubRegion) {
+  constexpr size_t kSize = 1 << 21;
+  constexpr int kRounds = 32;
+  constexpr MemoryTag kTag = MemoryTag::kSampledOrCold;
+  NumaTopology<2> topology;
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kSize);
+
+  std::vector<std::pair<void*, SubRegion>> maps;
+  for (int i = 0; i < kRounds; ++i) {
+    for (SubRegion sr : {SubRegion::kPageHeap, SubRegion::kGuarded}) {
+      void* p = allocator.MmapAligned(kSize, kSize, kTag, sr);
+      ASSERT_NE(p, nullptr);
+      maps.emplace_back(p, sr);
+    }
+  }
+  for (auto [p, sr] : maps) {
+    void* last = static_cast<char*>(p) + kSize - 1;
+    EXPECT_EQ(GetMemoryTag(p), kTag);
+    EXPECT_EQ(GetMemoryTag(last), kTag);
+    const bool heap = sr == SubRegion::kPageHeap;
+    EXPECT_EQ(InPageHeapSubRegion(p), heap);
+    EXPECT_EQ(InPageHeapSubRegion(last), heap);
+    EXPECT_EQ(munmap(p, kSize), 0);
+  }
+}
+
+// A cursor that starts in the guarded half but whose next mapping would end in
+// the page heap half must be rejected.  The first 1.5 TiB mapping lands at the
+// start of the guarded half and leaves the cursor at 1.5 TiB; once it is
+// unmapped, the cursor alone would place the second mapping across the
+// boundary.
+TEST(SubRegionTest, GuardedCursorDoesNotCrossIntoPageHeap) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under constrained address space";
+  }
+  constexpr size_t kSize = kPageHeapSubRegionBit / 4 * 3;
+  constexpr size_t kAlign = 1 << 12;
+  NumaTopology<2> topology;
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kAlign);
+  constexpr MemoryTag kTag = MemoryTag::kSampledOrCold;
+
+  void* a = allocator.MmapAligned(kSize, kAlign, kTag, SubRegion::kGuarded);
+  ASSERT_NE(a, nullptr);
+  ASSERT_TRUE(InGuardedSubRegion(static_cast<char*>(a) + kSize - 1));
+  ASSERT_EQ(munmap(a, kSize), 0);
+
+  void* b = allocator.MmapAligned(kSize, kAlign, kTag, SubRegion::kGuarded);
+  ASSERT_NE(b, nullptr);
+  EXPECT_EQ(GetMemoryTag(b), kTag);
+  EXPECT_TRUE(InGuardedSubRegion(b));
+  EXPECT_TRUE(InGuardedSubRegion(static_cast<char*>(b) + kSize - 1));
+  EXPECT_EQ(munmap(b, kSize), 0);
+}
 
 constexpr size_t kSmallButSlowTCMallocPageSize = 1 << 12;
 constexpr size_t kDefaultTCMallocPageSize = 1 << 13;
