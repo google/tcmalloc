@@ -87,6 +87,9 @@ void GuardedPageAllocator::Destroy() {
     int err = munmap(reinterpret_cast<void*>(pages_base_addr_), len);
     TC_ASSERT_NE(err, -1);
     (void)err;
+    pages_base_addr_ = 0;
+    pages_end_addr_ = 0;
+    first_page_addr_ = 0;
     initialized_ = false;
     guard_pages_supported_ = false;
   }

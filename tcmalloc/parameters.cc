@@ -531,6 +531,11 @@ bool TCMalloc_Internal_GetPerCpuCachesEnabled() {
 
 void TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v) {
   Parameters::guarded_sampling_interval_.store(v, std::memory_order_relaxed);
+  if (v < 0 && tcmalloc::tcmalloc_internal::tc_globals.IsInited() &&
+      tcmalloc::tcmalloc_internal::tc_globals.guardedpage_allocator()
+              .successful_allocations() == 0) {
+    tcmalloc::tcmalloc_internal::tc_globals.guardedpage_allocator().Destroy();
+  }
 }
 
 // update_lock guards changes via SetHeapSizeHardLimit.
