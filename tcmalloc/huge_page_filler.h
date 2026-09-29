@@ -782,11 +782,24 @@ class HugePageFiller {
     return n_used_released_[AccessDensityPrediction::kDense] +
            n_used_released_[AccessDensityPrediction::kSparse];
   }
+  // Hugepages accounted as partially released.  Today these are exactly the
+  // trackers on regular_alloc_partial_released_.  A release that unbacks with
+  // pageheap_lock dropped (b/73749855) will take its tracker off the lists
+  // while the unback is in flight and count it here instead, so every reader
+  // of the partially released count goes through this accessor.
+  [[nodiscard]] HugeLength partial_released_huge_pages(
+      AccessDensityPrediction type) const {
+    return type == AccessDensityPrediction::kSparse
+               ? regular_alloc_partial_released_.sparse.size()
+               : regular_alloc_partial_released_.dense.size();
+  }
   Length used_pages_in_partial_released() const {
     TC_ASSERT_LE(n_used_partial_released_[AccessDensityPrediction::kSparse],
-                 regular_alloc_partial_released_.sparse.size().in_pages());
+                 partial_released_huge_pages(AccessDensityPrediction::kSparse)
+                     .in_pages());
     TC_ASSERT_LE(n_used_partial_released_[AccessDensityPrediction::kDense],
-                 regular_alloc_partial_released_.dense.size().in_pages());
+                 partial_released_huge_pages(AccessDensityPrediction::kDense)
+                     .in_pages());
     return n_used_partial_released_[AccessDensityPrediction::kDense] +
            n_used_partial_released_[AccessDensityPrediction::kSparse];
   }
@@ -1583,8 +1596,10 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::FreePagesInPartialAllocs() const {
-  return regular_alloc_partial_released_.sparse.size().in_pages() +
-         regular_alloc_partial_released_.dense.size().in_pages() +
+  return partial_released_huge_pages(AccessDensityPrediction::kSparse)
+             .in_pages() +
+         partial_released_huge_pages(AccessDensityPrediction::kDense)
+             .in_pages() +
          regular_alloc_released_.sparse.size().in_pages() +
          regular_alloc_released_.dense.size().in_pages() -
          used_pages_in_any_subreleased() - unmapped_pages();
@@ -1814,9 +1829,9 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
       regular_alloc_released_.dense.size();
 
   stats.n_partial_released[AccessDensityPrediction::kSparse] =
-      regular_alloc_partial_released_.sparse.size();
+      partial_released_huge_pages(AccessDensityPrediction::kSparse);
   stats.n_partial_released[AccessDensityPrediction::kDense] =
-      regular_alloc_partial_released_.dense.size();
+      partial_released_huge_pages(AccessDensityPrediction::kDense);
 
   stats.n_released[AccessDensityPrediction::kSparse] =
       stats.n_fully_released[AccessDensityPrediction::kSparse] +
