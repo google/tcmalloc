@@ -864,7 +864,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       // it can grow.
       ops += batch_size_large;
       AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
+      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) >=
           base_max_capacity) {
         break;
       }
@@ -905,7 +905,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       // it can grow.
       ops += batch_size_large;
       AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
+      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) >=
           base_max_capacity) {
         break;
       }
