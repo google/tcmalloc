@@ -271,10 +271,6 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
           capacity};
 }
 
-void MaybeUnsampleAllocation(Static& state, void* absl_nonnull ptr,
-                             std::optional<size_t> size, Span& span,
-                             AllocationType type);
-
 template <typename Policy>
 static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
                                          size_t requested_size, size_t weight,
