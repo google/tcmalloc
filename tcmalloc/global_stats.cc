@@ -524,15 +524,6 @@ void DumpStats(Printer& out, int level) {
 
     out.printf("\n");
     out.printf("------------------------------------------------\n");
-    out.printf("Central cache freelist: Span lifetime histogram\n");
-    out.printf("Non-cumulative number of spans lifetime a < N\n");
-    out.printf("------------------------------------------------\n");
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      tc_globals.central_freelist(size_class).PrintSpanLifetimeStats(out);
-    }
-
-    out.printf("\n");
-    out.printf("------------------------------------------------\n");
     out.printf("Central cache freelist: Number of spans used histogram\n");
     out.printf(
         "Number of spans used to fill a batch of allocations, from 0 to "
@@ -847,8 +838,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                      span_stats[size_class].num_spans_returned);
       entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
       tc_globals.central_freelist(size_class).PrintSpanUtilStatsInPbtxt(entry);
-      tc_globals.central_freelist(size_class)
-          .PrintSpanLifetimeStatsInPbtxt(entry);
+
       tc_globals.central_freelist(size_class).PrintNumSpansUsedInPbtxt(entry);
 
       tc_globals.central_freelist(size_class).PrintSameSpanStatsInPbtxt(entry);

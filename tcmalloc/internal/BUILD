@@ -369,6 +369,34 @@ cc_library(
 )
 
 cc_library(
+    name = "heap",
+    hdrs = ["heap.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_test(
+    name = "heap_test",
+    size = "small",
+    srcs = ["heap_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":heap",
+        ":two_level_array",
+        "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "hook_list",
     srcs = ["hook_list.cc"],
     hdrs = ["hook_list.h"],
@@ -1314,6 +1342,7 @@ cc_library(
         ":allocation_guard",
         ":config",
         ":logging",
+        ":two_level_array",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:function_ref",
@@ -1326,6 +1355,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":sampled_allocation_recorder",
+        ":scoped_allow_allocation",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/synchronization",
@@ -1568,6 +1598,33 @@ cc_test(
         ":timeseries_tracker",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "two_level_array",
+    hdrs = ["two_level_array.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/numeric:bits",
+    ],
+)
+
+cc_test(
+    name = "two_level_array_test",
+    size = "small",
+    srcs = ["two_level_array_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":two_level_array",
         "@com_google_googletest//:gtest_main",
     ],
 )

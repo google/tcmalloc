@@ -23,35 +23,41 @@
 #define TCMALLOC_INTERNAL_SAMPLED_ALLOCATION_RECORDER_H_
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 
 #include "absl/base/attributes.h"
-#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/two_level_array.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// Sample<T> that has members required for linking samples in the linked list of
-// samples maintained by the SampleRecorder.  Type T defines the sampled data.
+// Sample<T> that has members required for tracking samples maintained by the
+// SampleRecorder.  Type T defines the sampled data.
 template <typename T>
 struct Sample {
+  T* dead = nullptr;
+  // Index in TwoLevelArray `all_`. Used by PageMap to map page metadata to
+  // the sampled allocation without storing a 64-bit pointer.
+  uint32_t sampled_index = 0;
   // Guards the ability to restore the sample to a pristine state.  This
   // prevents races with sampling and resurrecting an object.
   absl::base_internal::SpinLock lock{absl::base_internal::SCHEDULE_KERNEL_ONLY};
-  T* next = nullptr;
-  T* dead ABSL_GUARDED_BY(lock) = nullptr;
+  bool live ABSL_GUARDED_BY(lock) = false;
 };
 
 // Holds samples and their associated stack traces.
 //
 // Thread safe.
-template <typename T, typename AllocatorT>
+template <typename T, typename AllocatorT, typename ArrayAllocator>
 class SampleRecorder {
  public:
   using Allocator = AllocatorT;
@@ -75,6 +81,9 @@ class SampleRecorder {
   // Unregisters the sample.
   void Unregister(T* sample);
 
+  // Returns the sample at the given index.
+  T* Map(size_t index) const;
+
   // Unregisters any live samples starting from `all_`. Note that if there are
   // any samples added in front of `all_` in other threads after this function
   // reads `all_`, they won't be cleaned up. External synchronization is
@@ -89,150 +98,124 @@ class SampleRecorder {
 
  private:
   void PushNew(T* sample);
-  void PushDead(T* sample);
-  template <typename... Targs>
-  T* PopDead(Targs&&... args);
+  T* PopDead();
 
-  // Intrusive lock free linked lists for tracking samples.
-  //
-  // `all_` records all samples (they are never removed from this list) and is
-  // terminated with a `nullptr`.
-  //
-  // `graveyard_.dead` is a circular linked list.  When it is empty,
-  // `graveyard_.dead == &graveyard`.  The list is circular so that
-  // every item on it (even the last) has a non-null dead pointer.  This allows
-  // `Iterate` to determine if a given sample is live or dead using only
-  // information on the sample itself.
-  //
-  // For example, nodes [A, B, C, D, E] with [A, C, E] alive and [B, D] dead
-  // looks like this (G is the Graveyard):
-  //
-  //           +---+    +---+    +---+    +---+    +---+
-  //    all -->| A |--->| B |--->| C |--->| D |--->| E |
-  //           |   |    |   |    |   |    |   |    |   |
-  //   +---+   |   | +->|   |-+  |   | +->|   |-+  |   |
-  //   | G |   +---+ |  +---+ |  +---+ |  +---+ |  +---+
-  //   |   |         |        |        |        |
-  //   |   | --------+        +--------+        |
-  //   +---+                                    |
-  //     ^                                      |
-  //     +--------------------------------------+
-  //
-  std::atomic<T*> all_ = nullptr;
-  T graveyard_;
+  absl::base_internal::SpinLock graveyard_lock_{
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
+  // Singly-linked freelist of dead samples available for reuse.
+  T* graveyard_ = nullptr;
+
+  absl::base_internal::SpinLock all_lock_{
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
+  // Append-only array of all allocated samples ever created (dead or alive).
+  TwoLevelArray<T*, ArrayAllocator> all_;
+  // Atomic mirror of all_.size() allowing lock-free readers in Iterate() and
+  // Map() without acquiring all_lock_.
+  std::atomic<size_t> all_size_ = 0;
 
   Allocator* allocator_ = nullptr;
 };
 
-template <typename T, typename Allocator>
-constexpr SampleRecorder<T, Allocator>::SampleRecorder(Allocator& allocator) {
+template <typename T, typename Allocator, typename ArrayAllocator>
+constexpr SampleRecorder<T, Allocator, ArrayAllocator>::SampleRecorder(
+    Allocator& allocator) {
   Init(allocator);
 }
 
-template <typename T, typename Allocator>
-constexpr void SampleRecorder<T, Allocator>::Init(Allocator& allocator)
-    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+template <typename T, typename Allocator, typename ArrayAllocator>
+constexpr void SampleRecorder<T, Allocator, ArrayAllocator>::Init(
+    Allocator& allocator) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   TC_CHECK(!allocator_);
   allocator_ = &allocator;
-  graveyard_.dead = &graveyard_;
+  // 5 buckets (31 sampled objects) is pretty arbitrary.
+  // This use is not performance-critical, and we just need some number.
+  all_.Init(5);
 }
 
-template <typename T, typename Allocator>
-SampleRecorder<T, Allocator>::~SampleRecorder() {
-  T* s = all_.load(std::memory_order_acquire);
-  while (s != nullptr) {
-    T* next = s->next;
-    allocator_->Delete(s);
-    s = next;
+template <typename T, typename Allocator, typename ArrayAllocator>
+SampleRecorder<T, Allocator, ArrayAllocator>::~SampleRecorder() {
+  all_.ForEach([&](T* sample) { allocator_->Delete(sample); });
+}
+
+template <typename T, typename Allocator, typename ArrayAllocator>
+T* SampleRecorder<T, Allocator, ArrayAllocator>::Map(size_t index) const {
+  TC_ASSERT_LT(index, all_size_.load(std::memory_order_relaxed));
+  return all_[index];
+}
+
+template <typename T, typename Allocator, typename ArrayAllocator>
+void SampleRecorder<T, Allocator, ArrayAllocator>::PushNew(T* sample) {
+  AllocationGuardSpinLockHolder l(all_lock_);
+  sample->sampled_index = all_.size();
+  all_.push_back(sample);
+  all_size_.store(all_.size(), std::memory_order_release);
+}
+
+template <typename T, typename Allocator, typename ArrayAllocator>
+T* SampleRecorder<T, Allocator, ArrayAllocator>::PopDead() {
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_lock_);
+  auto* sample = graveyard_;
+  if (ABSL_PREDICT_FALSE(sample == nullptr)) {
+    return nullptr;
   }
-}
-
-template <typename T, typename Allocator>
-void SampleRecorder<T, Allocator>::PushNew(T* sample) {
-  sample->next = all_.load(std::memory_order_relaxed);
-  while (!all_.compare_exchange_weak(sample->next, sample,
-                                     std::memory_order_release,
-                                     std::memory_order_relaxed)) {
-  }
-}
-
-template <typename T, typename Allocator>
-void SampleRecorder<T, Allocator>::PushDead(T* sample) {
-  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
-  AllocationGuardSpinLockHolder sample_lock(sample->lock);
-  sample->dead = graveyard_.dead;
-  graveyard_.dead = sample;
-}
-
-template <typename T, typename Allocator>
-template <typename... Targs>
-T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
-  AllocationGuard enforce_no_alloc;
-  T* sample;
-  {
-    absl::base_internal::SpinLockHolder graveyard_lock(graveyard_.lock);
-
-    // The list is circular, so eventually it collapses down to
-    //   graveyard_.dead == &graveyard_
-    // when it is empty.
-    sample = graveyard_.dead;
-    if (ABSL_PREDICT_FALSE(sample == &graveyard_)) return nullptr;
-
-    graveyard_.dead = sample->dead;
-  }
-  absl::base_internal::SpinLockHolder sample_lock(sample->lock);
-  // TODO(b/73749855): This could be moved out but requires updating our lock
-  // annotations.
-  sample->PrepareForSampling(std::forward<Targs>(args)...);
+  graveyard_ = sample->dead;
   sample->dead = nullptr;
   return sample;
 }
 
-template <typename T, typename Allocator>
+template <typename T, typename Allocator, typename ArrayAllocator>
 template <typename... Targs>
-T* SampleRecorder<T, Allocator>::Register(Targs&&... args) {
-  T* sample = PopDead(std::forward<Targs>(args)...);
-  if (ABSL_PREDICT_FALSE(sample == nullptr)) {
-    // Resurrection failed.  Hire a new warlock.
+T* SampleRecorder<T, Allocator, ArrayAllocator>::Register(Targs&&... args) {
+  T* sample = PopDead();
+  if (ABSL_PREDICT_TRUE(sample != nullptr)) {
+    sample->PrepareForSampling(std::forward<Targs>(args)...);
+  } else {
     sample = allocator_->New(std::forward<Targs>(args)...);
     PushNew(sample);
   }
-
+  AllocationGuardSpinLockHolder sample_lock(sample->lock);
+  sample->live = true;
   return sample;
 }
 
-template <typename T, typename Allocator>
-void SampleRecorder<T, Allocator>::Unregister(T* sample) {
-  PushDead(sample);
-}
-
-template <typename T, typename Allocator>
-void SampleRecorder<T, Allocator>::UnregisterAll() {
-  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
-  T* sample = all_.load(std::memory_order_acquire);
-  while (sample != nullptr) {
-    {
-      AllocationGuardSpinLockHolder sample_lock(sample->lock);
-      if (sample->dead == nullptr) {
-        sample->dead = graveyard_.dead;
-        graveyard_.dead = sample;
-      }
-    }
-    sample = sample->next;
+template <typename T, typename Allocator, typename ArrayAllocator>
+void SampleRecorder<T, Allocator, ArrayAllocator>::Unregister(T* sample) {
+  {
+    AllocationGuardSpinLockHolder sample_lock(sample->lock);
+    sample->live = false;
   }
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_lock_);
+  sample->dead = graveyard_;
+  graveyard_ = sample;
 }
 
-template <typename T, typename Allocator>
-void SampleRecorder<T, Allocator>::Iterate(
+template <typename T, typename Allocator, typename ArrayAllocator>
+void SampleRecorder<T, Allocator, ArrayAllocator>::UnregisterAll() {
+  AllocationGuardSpinLockHolder l(all_lock_);
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_lock_);
+  all_.ForEach([&](T* sample) {
+    AllocationGuardSpinLockHolder sample_lock(sample->lock);
+    if (!sample->live) {
+      return;
+    }
+    sample->live = false;
+    sample->dead = graveyard_;
+    graveyard_ = sample;
+  });
+}
+
+template <typename T, typename Allocator, typename ArrayAllocator>
+void SampleRecorder<T, Allocator, ArrayAllocator>::Iterate(
     const absl::FunctionRef<void(const T& sample)>& f) {
-  T* s = all_.load(std::memory_order_acquire);
-  while (s != nullptr) {
-    AllocationGuardSpinLockHolder l(s->lock);
-    if (s->dead == nullptr) {
-      f(*s);
+  // Iterate lock-free over already-allocated samples without taking all_lock_
+  // to avoid contention with concurrent allocations.
+  const uint32_t size = all_size_.load(std::memory_order_acquire);
+  all_.ForEachUpTo(size, [&](T* sample) {
+    AllocationGuardSpinLockHolder l(sample->lock);
+    if (sample->live) {
+      f(*sample);
     }
-    s = s->next;
-  }
+  });
 }
 
 }  // namespace tcmalloc_internal

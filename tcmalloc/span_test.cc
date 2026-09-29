@@ -41,18 +41,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-constexpr uint64_t kSpanAllocTime = 1234;
-
-// We bitpack alloc time and do not store the full value.  We are willing to
-// tolerate a small amount of imprecision in the least significant bits
-// because a few nanoseconds should not make or break any decisions we make
-// with it.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-constexpr uint64_t kAllocTimeMask = ~uint64_t{0x0};
-#else
-constexpr uint64_t kAllocTimeMask = ~uint64_t{0xFF};
-#endif
-
 class RawSpan {
  public:
   void Init(size_t size_class) {
@@ -65,8 +53,7 @@ class RawSpan {
 
     // Dynamically allocate so ASan can flag if we run out of bounds.
     span_ = std::make_unique<Span>(Range(PageIdContaining(mem_), npages));
-    TC_CHECK_EQ(
-        span_->BuildFreelist(size, objects_per_span, {}, kSpanAllocTime), 0);
+    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}), 0);
   }
 
   ~RawSpan() {
@@ -244,11 +231,6 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
   }
 }
 
-TEST_P(SpanTest, AllocTime) {
-  Span& span_ = raw_span_.span();
-  EXPECT_EQ(span_.AllocTime() & kAllocTimeMask,
-            kSpanAllocTime & kAllocTimeMask);
-}
 
 INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
 
@@ -259,13 +241,8 @@ TEST(SpanAllocatorTest, Alignment) {
   std::vector<Span*> spans;
   spans.reserve(kNumSpans);
 
-  {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    for (int i = 0; i < kNumSpans; ++i) {
-      spans.push_back(Span::New(r));
-    }
+  for (int i = 0; i < kNumSpans; ++i) {
+    spans.push_back(Span::New(r));
   }
 
   absl::flat_hash_map<uintptr_t, int> address_mod_cacheline;
@@ -281,13 +258,8 @@ TEST(SpanAllocatorTest, Alignment) {
     EXPECT_EQ(alignment % alignof(Span), 0);
   }
 
-  {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    for (Span* s : spans) {
-      Span::Delete(s);
-    }
+  for (Span* s : spans) {
+    Span::Delete(s);
   }
 }
 

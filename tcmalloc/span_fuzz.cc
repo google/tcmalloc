@@ -75,9 +75,7 @@ struct State {
     TC_CHECK_EQ(posix_memalign(&mem, kPageSize, pages.in_bytes()), 0);
 
     span = std::make_unique<Span>(Range(PageIdContaining(mem), pages));
-    TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {},
-                                    /*alloc_time=*/0),
-                0);
+    TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {}), 0);
 
     live_ptrs.reserve(objects_per_span);
     batch.resize(kMaxObjectsToMove);
@@ -263,7 +261,7 @@ FUZZ_TEST(SpanTest, FuzzSpanInstructions)
                  fuzztest::Arbitrary<std::vector<Instruction>>());
 
 void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
-              size_t initial_objects_at_build, uint64_t alloc_time) {
+              size_t initial_objects_at_build) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP()
       << "Skipping under HWASan, which uses the top bits of the pointer.";
@@ -291,9 +289,9 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   std::vector<void*> ptrs;
   ptrs.resize(initial_objects_at_build);
 
-  TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span,
-                                  absl::MakeSpan(ptrs), alloc_time),
-              initial_objects_at_build);
+  TC_CHECK_EQ(
+      span->BuildFreelist(object_size, objects_per_span, absl::MakeSpan(ptrs)),
+      initial_objects_at_build);
   TC_CHECK_EQ(span->Allocated(), initial_objects_at_build);
 
   ptrs.reserve(objects_per_span);
@@ -326,56 +324,42 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
              !span->FreelistEmpty(object_size, objects_per_span));
   }
 
-  // We bitpack alloc time and do not store the full value.  We are willing to
-  // tolerate a small amount of imprecision in the least significant bits
-  // because a few nanoseconds should not make or break any decisions we make
-  // with it.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  constexpr uint64_t kMask = ~uint64_t{0x0};
-#else
-  constexpr uint64_t kMask = ~uint64_t{0xFF};
-#endif
-  TC_CHECK_EQ(span->AllocTime() & kMask, alloc_time & kMask);
-
   free(mem);
 }
 
-TEST(SpanTest, Regression1) { FuzzSpan(2560, Length(40), 6, 16, 0); }
+TEST(SpanTest, Regression1) { FuzzSpan(2560, Length(40), 6, 16); }
 
-TEST(SpanTest, Fuzz6321706670620672) { FuzzSpan(262144, Length(32), 32, 1, 0); }
+TEST(SpanTest, Fuzz6321706670620672) { FuzzSpan(262144, Length(32), 32, 1); }
 
 TEST(SpanTest, Crash01d72a40d5815461b92d3f7c0f6377fd441b0034) {
-  FuzzSpan(2560, Length(0), 9, 16, 0);
+  FuzzSpan(2560, Length(0), 9, 16);
 }
 
 TEST(SpanTest, Crash32697afd59029eb8356fee8ba568e7f6b58d728f) {
-  FuzzSpan(2560, Length(24), 6, 16, 0);
+  FuzzSpan(2560, Length(24), 6, 16);
 }
 
 TEST(SpanTest, Crash42b80edf9551d1095aebb6724c070ee43d490125) {
-  FuzzSpan(2560, Length(18), 0, 16, 0);
+  FuzzSpan(2560, Length(18), 0, 16);
 }
 
 TEST(SpanTest, Crash500955af6568b0ed234bd40d6a01af496ba15eb2) {
-  FuzzSpan(2560, Length(18), 6, 16, 0);
+  FuzzSpan(2560, Length(18), 6, 16);
 }
 
 TEST(SpanTest, Crash6ef2b6ae2246d1bda0190983b1007df2699e7738) {
-  FuzzSpan(41984, Length(2), 39, 60, 0);
+  FuzzSpan(41984, Length(2), 39, 60);
 }
 
 TEST(SpanTest, Crash746940d0368bfe3e4a94b60659eeb6cb87106618) {
-  FuzzSpan(0, Length(1), 0, 1, 0);
+  FuzzSpan(0, Length(1), 0, 1);
 }
 
-TEST(SpanTest, Testcase5877384059617280) {
-  FuzzSpan(8, Length(1), 8, 1024, 13683181415406439436ull);
-}
+TEST(SpanTest, Testcase5877384059617280) { FuzzSpan(8, Length(1), 8, 1024); }
 
 FUZZ_TEST(SpanTest, FuzzSpan)
     .WithDomains(fuzztest::InRange<size_t>(0, kMaxSize), AnyLength(),
-                 fuzztest::Arbitrary<size_t>(), fuzztest::Arbitrary<size_t>(),
-                 fuzztest::Arbitrary<uint64_t>());
+                 fuzztest::Arbitrary<size_t>(), fuzztest::Arbitrary<size_t>());
 
 void FuzzSpanSampling(PageId start, Length num_pages) {
   if (num_pages.raw_num() >=

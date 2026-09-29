@@ -29,6 +29,7 @@
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/scoped_allow_allocation.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
@@ -37,12 +38,17 @@ namespace {
 using ::testing::IsEmpty;
 using ::testing::UnorderedElementsAre;
 
+struct NewAllocator {
+  void* operator()(size_t bytes, std::align_val_t alignment) const {
+    ScopedAllocationAllow allow;
+    return ::operator new(bytes, alignment);
+  }
+};
+
 struct Info : public Sample<Info> {
  public:
   Info() { PrepareForSampling(); }
-  void PrepareForSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
-    initialized = true;
-  }
+  void PrepareForSampling() { initialized = true; }
   std::atomic<size_t> size;
   absl::Time create_time;
   bool initialized;
@@ -86,7 +92,7 @@ class SampleRecorderTest : public ::testing::Test {
   }
 
   TestAllocator allocator_;
-  SampleRecorder<Info, TestAllocator> sample_recorder_;
+  SampleRecorder<Info, TestAllocator, NewAllocator> sample_recorder_;
 };
 
 // Check that the state modified by PrepareForSampling() is properly set.
@@ -153,6 +159,28 @@ TEST_F(SampleRecorderTest, Unregistration) {
   EXPECT_EQ(alloc_count1, alloc_count2);
 }
 
+TEST_F(SampleRecorderTest, SampledIndexAndGet) {
+  auto* info1 = Register(1);
+  EXPECT_EQ(info1->sampled_index, 0);
+  EXPECT_EQ(sample_recorder_.Map(0), info1);
+
+  auto* info2 = Register(2);
+  EXPECT_EQ(info2->sampled_index, 1);
+  EXPECT_EQ(sample_recorder_.Map(0), info1);
+  EXPECT_EQ(sample_recorder_.Map(1), info2);
+
+  sample_recorder_.Unregister(info1);
+  // Reusing info1 from graveyard should preserve its sampled_index.
+  auto* info3 = Register(3);
+  EXPECT_EQ(info3, info1);
+  EXPECT_EQ(info3->sampled_index, 0);
+  EXPECT_EQ(sample_recorder_.Map(0), info3);
+  EXPECT_EQ(sample_recorder_.Map(1), info2);
+
+  sample_recorder_.Unregister(info2);
+  sample_recorder_.Unregister(info3);
+}
+
 TEST_F(SampleRecorderTest, MultiThreaded) {
   absl::Notification stop;
   ThreadManager threads;
@@ -196,7 +224,7 @@ TEST_F(SampleRecorderTest, MultiThreaded) {
   // work well with the setup above since `infoz` might find itself storing dead
   // objects as `UnregisterAll()` is running concurrently. And `Unregister()`
   // assumes the object it is going to mark dead is still alive.
-  SampleRecorder<Info, TestAllocator> sample_recorder{allocator_};
+  SampleRecorder<Info, TestAllocator, NewAllocator> sample_recorder{allocator_};
   threads.Start(kThreads, [&](int) { sample_recorder.Register(); });
   threads.Start(kThreads, [&](int) { sample_recorder.UnregisterAll(); });
   threads.Start(kThreads, [&](int) {
@@ -217,7 +245,7 @@ struct InfoWithParam : public Sample<InfoWithParam> {
   // Default constructor to initialize |graveyard_|.
   InfoWithParam() = default;
   explicit InfoWithParam(size_t size) { PrepareForSampling(size); }
-  void PrepareForSampling(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+  void PrepareForSampling(size_t size) {
     info_size = size;
     initialized = true;
   }
@@ -233,7 +261,8 @@ class InfoAllocator {
 
 TEST(SampleRecorderWithParamTest, RegisterWithParam) {
   InfoAllocator allocator;
-  SampleRecorder<InfoWithParam, InfoAllocator> sample_recorder{allocator};
+  SampleRecorder<InfoWithParam, InfoAllocator, NewAllocator> sample_recorder{
+      allocator};
   // Register() goes though New().
   InfoWithParam* info = sample_recorder.Register(1);
   EXPECT_THAT(info->info_size, 1);

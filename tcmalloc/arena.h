@@ -48,6 +48,7 @@ enum class ArenaAlloc : uint8_t {
   kTransferCache,
   kCpuCache,
   kTest,
+  kSampleRecorderArray,
   kNumTypes,
 };
 
@@ -87,6 +88,8 @@ constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
       return {"CpuCache", "cpu_cache"};
     case ArenaAlloc::kTest:
       return {"Test", "test"};
+    case ArenaAlloc::kSampleRecorderArray:
+      return {"SampleRecorderArray", "sample_recorder_array"};
     case ArenaAlloc::kNumTypes:
       break;
   }
@@ -103,6 +106,10 @@ constexpr bool CheckArenaAllocInfo() {
   return true;
 }
 static_assert(CheckArenaAllocInfo());
+
+struct SampleRecorderArrayAlloc {
+  void* operator()(size_t bytes, std::align_val_t alignment);
+};
 
 struct ArenaStats {
   // The number of bytes allocated and in-use by calls to Alloc().
