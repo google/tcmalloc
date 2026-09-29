@@ -108,15 +108,6 @@ void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
 }
 #endif
 
-uint32_t Span::CalcReciprocal(size_t size) {
-  // Calculate scaling factor. We want to avoid dividing by the size of the
-  // object. Instead we'll multiply by a scaled version of the reciprocal.
-  // We divide kBitmapScalingDenominator by the object size, so later we can
-  // multiply by this reciprocal, and then divide this scaling factor out.
-  TC_ASSERT_GT(size, 0);
-  return kBitmapScalingDenominator / size;
-}
-
 void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
   // We are using a bitmap to indicate whether objects are used or not. The
   // maximum capacity for the bitmap is bitmap.size() objects.

@@ -424,7 +424,7 @@ inline void CentralFreeList<Forwarder>::Init(
   }
   pages_per_span_ = forwarder_.class_to_pages(size_class);
   objects_per_span_ = pages_per_span_.in_bytes() / object_size_;
-  size_reciprocal_ = Span::CalcReciprocal(object_size_);
+  size_reciprocal_ = CalcReciprocal(object_size_);
   use_all_buckets_for_few_object_spans_ = objects_per_span_ <= 2 * kNumLists;
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING

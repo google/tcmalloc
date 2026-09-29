@@ -65,6 +65,23 @@ struct SpanAllocInfo {
   AccessDensityPrediction density;
 };
 
+[[nodiscard]] inline uint32_t CalcReciprocal(size_t size) {
+  // Calculate scaling factor. We want to avoid dividing by the size of the
+  // object. Instead we'll multiply by a scaled version of the reciprocal.
+  // We divide kBitmapScalingDenominator by the object size, so later we can
+  // multiply by this reciprocal, and then divide this scaling factor out.
+  TC_ASSERT_GT(size, 0);
+  return kBitmapScalingDenominator / size;
+}
+
+[[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline uint32_t OffsetToIdx(
+    uintptr_t offset, uint32_t reciprocal) {
+  // Add kBitmapScalingDenominator / 2 to round to nearest integer.
+  return static_cast<uint32_t>(
+      (offset * reciprocal + kBitmapScalingDenominator / 2) /
+      kBitmapScalingDenominator);
+}
+
 // Information kept for a span (a contiguous run of pages).
 //
 // Spans can be in different states. The current state determines set of methods
@@ -233,7 +250,9 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   // For bitmap'd spans conversion from an offset to an index is performed
   // by multiplying by the scaled reciprocal of the object size.
-  [[nodiscard]] static uint32_t CalcReciprocal(size_t size);
+  [[nodiscard]] static uint32_t CalcReciprocal(size_t size) {
+    return tcmalloc_internal::CalcReciprocal(size);
+  }
 
   // When central freelist tracks a span, that span is assured to consist of <
   // kLargeSpanLength number of pages. This allows us to record number of pages
@@ -411,10 +430,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
                 "maximize byte efficiency");
   static_assert(sizeof(large_or_sampled_state_) <= sizeof(list_));
 
-  // Helper function for converting a pointer to an index.
-  [[nodiscard]] static ObjIdx OffsetToIdx(uintptr_t offset,
-                                          uint32_t reciprocal);
-
   [[nodiscard]] size_t ListPopBatch(void** __restrict batch, size_t N,
                                     size_t size) __restrict__;
 
@@ -443,9 +458,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL SampledAllocation*
   UnsampleSlow();
-
-  // Friend class to enable more indepth testing of bitmap code.
-  friend class SpanTestPeer;
 };
 
 inline uint64_t Span::AllocTime() const {
@@ -647,13 +659,6 @@ inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
   return true;
 }
 
-inline Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
-  // Add kBitmapScalingDenominator / 2 to round to nearest integer.
-  return static_cast<ObjIdx>(
-      (offset * reciprocal + kBitmapScalingDenominator / 2) /
-      kBitmapScalingDenominator);
-}
-
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
 inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size,
                                   uintptr_t start) const {
@@ -671,7 +676,7 @@ inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
                                          uint32_t reciprocal) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   uintptr_t off = static_cast<uint32_t>(p - first_page().start_uintptr());
-  ObjIdx idx = OffsetToIdx(off, reciprocal);
+  ObjIdx idx = static_cast<ObjIdx>(OffsetToIdx(off, reciprocal));
   TC_ASSERT_EQ(BitmapIdxToPtr(idx, size), ptr);
   return idx;
 }

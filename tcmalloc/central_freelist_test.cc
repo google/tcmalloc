@@ -99,7 +99,7 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
     pages_per_span_ = tc_globals.sizemap().class_to_pages(size_class_);
     batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
     objects_per_span_ = pages_per_span_.in_bytes() / object_size_;
-    size_reciprocal_ = Span::CalcReciprocal(object_size_);
+    size_reciprocal_ = CalcReciprocal(object_size_);
   }
 };
 
@@ -139,7 +139,7 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
   const size_t object_size = tc_globals.sizemap().class_to_size(size_class);
   const Length pages_per_span = tc_globals.sizemap().class_to_pages(size_class);
   const size_t objects_per_span = pages_per_span.in_bytes() / object_size;
-  const size_t size_reciprocal = Span::CalcReciprocal(object_size);
+  const size_t size_reciprocal = CalcReciprocal(object_size);
 
   Span* span = StaticForwarder::AllocateSpan(size_class, objects_per_span,
                                              pages_per_span);
