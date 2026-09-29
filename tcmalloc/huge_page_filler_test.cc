@@ -325,6 +325,12 @@ class MockSetAnonVmaName final : public MemoryTagFunction {
  public:
   MockSetAnonVmaName() = default;
   void operator()(Range r, std::optional<absl::string_view> name) override {
+    // The hook models work that interleaves with this naming before it takes
+    // effect: the treatment names with pageheap_lock dropped, so anything
+    // that runs here is ordered before the name lands.
+    if (unlocked_hook_ != nullptr) {
+      unlocked_hook_(r, name);
+    }
     if (!ignore_name_) {
       EXPECT_EQ(r.n, kPagesPerHugePage);
       if (name.has_value()) {
@@ -333,15 +339,24 @@ class MockSetAnonVmaName final : public MemoryTagFunction {
         EXPECT_EQ(expected_name_, "tcmalloc_region_NORMAL");
       }
     }
+    last_call_named_.store(name.has_value(), std::memory_order_relaxed);
     times_called_.fetch_add(1, std::memory_order_relaxed);
   }
   void SetExpectedName(absl::string_view name) { expected_name_ = name; }
   int TimesCalled() { return times_called_.load(std::memory_order_relaxed); }
+  // Whether the most recent call set a name rather than resetting it.
+  bool LastCallNamed() {
+    return last_call_named_.load(std::memory_order_relaxed);
+  }
   void SetIgnoreName(bool ignore) { ignore_name_ = ignore; }
+
+  // Runs with pageheap_lock dropped, before the call is recorded.
+  std::function<void(Range, std::optional<absl::string_view>)> unlocked_hook_;
 
  private:
   absl::string_view expected_name_ = "tcmalloc_region_NORMAL";
   std::atomic<int> times_called_{0};
+  std::atomic<bool> last_call_named_{false};
   bool ignore_name_ = false;
 };
 
@@ -1421,6 +1436,91 @@ TEST_F(FillerTest, FetchFullyFreedTrackerSkipsPinned) {
   delete pt2;
   hp_contained_ -= NHugePages(2);
   EXPECT_EQ(filler_.size(), hp_contained_);
+}
+
+// A tracker emptied while pinned is parked rather than returned.  Its
+// completed lifetime is recorded when it is parked, and a sampled tracker's
+// VMA name is reset when it is fetched, once no pin remains that could name it
+// again.
+TEST_F(FillerTest, ParkedTrackerRecordsLifetimeAndResetsVmaName) {
+  randomize_density_ = false;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a = AllocateWithSpanAllocInfo(Length(1), info);
+  a.pt->SetTagState({.sampled_for_tagging = true});
+  a.pt->SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+  FakeClock::Advance(absl::Seconds(101));
+  EXPECT_FALSE(DeleteRaw(a));
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 0);
+
+  FakePageFlags pageflags;
+  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
+    PageHeapSpinLockHolder l;
+    filler_.Print(printer, true, pageflags);
+  });
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: # of sparsely-accessed hps with completed lifetime a <= # hps < b
+HugePageFiller: <   0 ms <=      0 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
+HugePageFiller: < 100000 ms <=      1 < 1000000 ms <=      0
+)"));
+
+  EXPECT_EQ(DrainFreedTrackers(), 0);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 0);
+  a.pt->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
+}
+
+// A treatment names a sampled tracker with pageheap_lock dropped.  If the
+// tracker is emptied and parked meanwhile and another treatment pass runs
+// before the name lands, the parked tracker is left alone: the first pass
+// still pins it and its name is still in flight.  The name is reset exactly
+// once, when the tracker is fetched after the first pass has dropped its pin,
+// so the hugepage never leaves the filler carrying a sampled-region name.
+TEST_F(FillerTest, ParkedTrackerNameResetOnceAfterConcurrentTreatment) {
+  randomize_density_ = false;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a = AllocateWithSpanAllocInfo(Length(1), info);
+  a.pt->SetTagState({.sampled_for_tagging = true});
+  // Older than kRecordInterval: the treatment selects a for naming.
+  FakeClock::Advance(absl::Minutes(6));
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a.p.start_addr(), /*is_hugepage_backed=*/false);
+  pageflags.SetStaleBitmap(a.p.start_addr(), {});
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), {}, {});
+
+  set_anon_vma_name_.SetIgnoreName(true);
+  int namings = 0;
+  set_anon_vma_name_.unlocked_hook_ =
+      [&](Range r, std::optional<absl::string_view> name) {
+        if (!name.has_value()) {
+          return;
+        }
+        ASSERT_EQ(++namings, 1);
+        EXPECT_EQ(HugePageContaining(r.p), a.pt->location());
+        EXPECT_TRUE(a.pt->DontFreeTracker());
+        // Free a's last page: it is parked, still pinned by the first pass.
+        // A second pass then runs to completion before the name lands.
+        EXPECT_FALSE(DeleteRaw(a));
+        TreatHugepageTrackers(
+            EnableCollapse::kDisabled, EnableUnfilteredCollapse::kDisabled,
+            ReleaseStalePages::kDisabled, &pageflags, &residency);
+      };
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  set_anon_vma_name_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(namings, 1);
+  // The second pass left the parked tracker alone: only the first pass's
+  // naming reached the callback, and it was not followed by a reset.
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
+  EXPECT_TRUE(set_anon_vma_name_.LastCallNamed());
+
+  // The first pass has released its pin: fetching a resets the name last.
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
+  EXPECT_FALSE(set_anon_vma_name_.LastCallNamed());
 }
 
 // A hugepage that left the released state (was_released) and is released

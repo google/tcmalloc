@@ -1431,15 +1431,15 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     }
   }
 
-  if (ABSL_PREDICT_FALSE(pt->DontFreeTracker())) {
-    // A concurrent operation that dropped pageheap_lock still holds a pointer
-    // to pt.  Park it until the last pin is cleared (FetchFullyFreedTracker).
-    AddToFillerList(pt);
-    UpdateFillerStatsTracker(now);
-    return nullptr;
-  }
   RecordLifetime(pt, now);
   UpdateFillerStatsTracker(now);
+  if (ABSL_PREDICT_FALSE(pt->DontFreeTracker())) {
+    // A concurrent operation that dropped pageheap_lock still holds a pointer
+    // to pt.  Park it until the last pin is cleared (FetchFullyFreedTracker),
+    // which also resets its VMA name: the pinning treatment may still name it.
+    AddToFillerList(pt);
+    return nullptr;
+  }
   if (pt->GetTagState().sampled_for_tagging) {
     // Set the default region name if the tracked was sampled.
     pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
@@ -1976,12 +1976,6 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   unbacked_tracker_treatment.Restore();
 
   unbacked_tracker_treatment.UpdateHugePageTreatmentStats(treatment_stats_);
-  // It should be rare that we find anything in the fully freed list, because
-  // we only sample 1% of the trackers for naming, and an interleaving Put
-  // operation would have to free all the pages while the memory is being named.
-  for (TrackerType* tracker : fully_freed_trackers_) {
-    tracker->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
-  }
 }
 
 template <class TrackerType>
@@ -2553,6 +2547,11 @@ HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
       continue;
     }
     fully_freed_trackers_.remove(pt);
+    if (pt->GetTagState().sampled_for_tagging) {
+      // Set the default region name if the tracker was sampled.  No pin
+      // remains, so no treatment can name it again.
+      pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
+    }
     return pt;
   }
   return nullptr;
