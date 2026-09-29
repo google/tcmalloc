@@ -54,6 +54,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_page_tracker.h"
 #include "tcmalloc/huge_page_treatment.h"
 #include "tcmalloc/huge_pages.h"
@@ -2309,6 +2310,64 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
 
     deleter(s2);
     deleter(s3);
+  }
+}
+
+// With the parameter on, every HugeRegion AddRegion creates is advised
+// MADV_NOHUGEPAGE through the forwarder for exactly its length; with it off,
+// none is.
+TEST(HugePageAwareAllocatorTest, DisableHugepagesForRegions) {
+  constexpr SpanAllocInfo kAllocInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  // Larger than a hugepage, so the allocation bypasses the filler.  Until the
+  // slack donated by such allocations reaches 64 MiB, AllocLarge takes raw
+  // hugepages; with kUseForAllLargeAllocs it then adds a HugeRegion.
+  constexpr Length kAllocPages = kPagesPerHugePage * 3 / 2;
+  const Length kSlackThreshold = HLFromBytes(64 * 1024 * 1024).in_pages();
+  const size_t kMaxAllocs =
+      2 * (kSlackThreshold / (kAllocPages - kPagesPerHugePage)) + 2;
+
+  for (MadviseRegionsNoHugepage advice : {MadviseRegionsNoHugepage::kDisabled,
+                                          MadviseRegionsNoHugepage::kEnabled}) {
+    FakeHugePageAwareAllocator allocator(
+        {.tag = MemoryTag::kCold,
+         .use_huge_region_more_often =
+             HugeRegionUsageOption::kUseForAllLargeAllocs});
+    allocator.forwarder().set_madvise_cold_regions_nohugepage(advice);
+    ASSERT_EQ(allocator.forwarder().hugepages_disabled(), Length(0));
+
+    auto active_regions = [&]() {
+      PageHeapSpinLockHolder l;
+      return allocator.region().ActiveRegions();
+    };
+    std::vector<Span*> spans;
+    while (active_regions() == 0) {
+      ASSERT_LT(spans.size(), kMaxAllocs);
+      spans.push_back(allocator.New(kAllocPages, kAllocInfo));
+      ASSERT_NE(spans.back(), nullptr);
+      // Raw hugepage allocations are never advised.
+      if (active_regions() == 0) {
+        EXPECT_EQ(allocator.forwarder().hugepages_disabled(), Length(0));
+      }
+    }
+    ASSERT_EQ(active_regions(), 1);
+    const Length expected = advice == MadviseRegionsNoHugepage::kEnabled
+                                ? HugeRegion::size().in_pages()
+                                : Length(0);
+    EXPECT_EQ(allocator.forwarder().hugepages_disabled(), expected);
+
+    // The next allocation fits in the same region: no further advice.
+    spans.push_back(allocator.New(kAllocPages, kAllocInfo));
+    ASSERT_NE(spans.back(), nullptr);
+    EXPECT_EQ(active_regions(), 1);
+    EXPECT_EQ(allocator.forwarder().hugepages_disabled(), expected);
+
+    SpanDeleter deleter(&allocator);
+    for (Span* s : spans) {
+      deleter(s);
+    }
   }
 }
 

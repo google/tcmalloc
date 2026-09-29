@@ -15,9 +15,7 @@
 #ifndef TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_H_
 #define TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_H_
 
-#include <errno.h>
 #include <stddef.h>
-#include <sys/mman.h>
 
 #include <cstdint>
 #include <optional>
@@ -135,6 +133,8 @@ class StaticForwarder : private Parameters {
   [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r);
   [[nodiscard]] static MemoryModifyStatus CollapsePages(Range r);
   static void SetAnonVmaName(Range r, std::optional<absl::string_view> name);
+  // Advises the kernel not to back r with hugepages (MADV_NOHUGEPAGE).
+  static void DisableHugepages(Range r);
 };
 
 struct HugePageAwareAllocatorOptions {
@@ -473,7 +473,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Returns hugepages that the filler emptied while it did not hold
-  // pageheap_lock (during TreatHugepageTrackers) to the cache.
+  // pageheap_lock (during ReleasePages or TreatHugepageTrackers) to the cache.
   void DrainFreedTrackers() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
   void DeleteFromHugepage(FillerType::Tracker* pt, Range r, bool might_abandon,
@@ -501,9 +501,8 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_without_lock_(*this),
       collapse_(*this),
       set_anon_vma_name_(*this),
-      filler_(forwarder_.clock(), tag_, unback_, unback_without_lock_,
-              collapse_, set_anon_vma_name_,
-              forwarder_.subrelease_unbacked_hugepages()),
+      filler_(forwarder_.clock(), tag_, unback_without_lock_, collapse_,
+              set_anon_vma_name_, forwarder_.subrelease_unbacked_hugepages()),
       regions_(options.use_huge_region_more_often),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),
@@ -851,11 +850,8 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
 
   if (forwarder_.madvise_cold_regions_nohugepage() ==
       MadviseRegionsNoHugepage::kEnabled) {
-    bool madvise_failed = false;
-    do {
-      madvise_failed =
-          madvise(r.start_addr(), r.len().in_bytes(), MADV_NOHUGEPAGE) != 0;
-    } while (madvise_failed && errno == EAGAIN);
+    forwarder_.DisableHugepages(
+        Range(r.start().first_page(), r.len().in_pages()));
   }
 
   HugeRegion* region = region_allocator_.New(r, unback_, set_anon_vma_name_);
@@ -1069,6 +1065,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
                   forwarder_.filler_skip_subrelease_long_interval()},
           forwarder_.release_partial_alloc_pages(),
           /*hit_limit*/ false);
+      DrainFreedTrackers();
     }
   }
 
@@ -1274,6 +1271,7 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
                                    /*release_partial_alloc_pages=*/false,
                                    /*hit_limit=*/true);
+  DrainFreedTrackers();
 
   info_.RecordRelease(n, released, reason);
   return released;

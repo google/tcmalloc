@@ -18,6 +18,7 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -121,10 +122,7 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     // the filler is retiring) leave the free and unmapped counts before the
     // unback, so they read as used meanwhile.  The filler's partial releases
     // are sub-hugepage ranges that it accounts as unmapped before the unback,
-    // so they do not affect the used count.  Those partial releases still run
-    // with pageheap_lock held, so lock_dropped_callback_ is a no-op for them
-    // today; once they drop the lock too (b/73749855), this keeps the used
-    // count exact at every drop.
+    // so they do not affect the used count.
     const bool whole_hugepages = r.n >= kPagesPerHugePage;
     if (whole_hugepages) {
       pending_release_ += r.n;
@@ -760,13 +758,54 @@ struct State {
     }
   }
 
+  // Every page of the live span [first, first + n) is reported allocated by
+  // the allocator's own page-status query, whichever sub-allocator (filler
+  // tracker, region, or raw hugepages) holds it.
+  void CheckPageAllocationStatus(PageId first, Length n) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    const PageId end = first + n;
+    PageBitmap pages;
+    for (HugePage hp = HugePageContaining(first); hp.first_page() < end; ++hp) {
+      TC_CHECK(allocator.GetPageAllocationStatus(hp, pages));
+      const PageId lo = std::max(first, hp.first_page());
+      const PageId hi = std::min(end, (hp + NHugePages(1)).first_page());
+      const size_t index = (lo - hp.first_page()).raw_num();
+      const size_t count = (hi - lo).raw_num();
+      TC_CHECK_EQ(pages.CountBits(index, count), count,
+                  "pages of live span [%v, %v) on %v are not all allocated",
+                  first, end, hp);
+    }
+  }
+
+  // Walks every live span.  Quadratic over a long program, so CheckInvariants
+  // only runs it while few spans are live; Alloc checks the span it created
+  // and RunHPAA checks everything before teardown.
+  void CheckAllPagesAllocated() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    for (const auto& [first, n] : live_ranges) {
+      CheckPageAllocationStatus(first, n);
+    }
+  }
+
+  static constexpr size_t kMaxLiveRangesToWalk = 256;
+
   void CheckInvariants() {
     BackingStats stats;
     PageReleaseStats release_stats;
+    BackingStats filler_stats;
+    HugeLength donated;
+    Length abandoned;
     {
       PageHeapSpinLockHolder l;
       stats = allocator.stats();
       release_stats = allocator.GetReleaseStats();
+      filler_stats = allocator.FillerStats();
+      donated = allocator.DonatedHugePages();
+      abandoned = allocator.AbandonedPages();
+      AccountRegions();
+      if (live_ranges.size() <= kMaxLiveRangesToWalk) {
+        CheckAllPagesAllocated();
+      }
     }
     TC_CHECK_EQ(release_stats, expected_stats);
     TC_CHECK_EQ(live_ranges.size(), allocs.size());
@@ -815,6 +854,20 @@ struct State {
       return false;
     };
     size_t over = used - expected_used;
+    // Every donated hugepage is a tracker the filler counts, and abandoned
+    // pages are the donor's share of a donated hugepage.  A donated tracker
+    // that empties leaves the filler's count in HandleFullyFreedTracker, but
+    // ReleaseHugepage fixes the donation telemetry only once the filler hands
+    // the tracker back: after the unback it drops pageheap_lock for, or, when
+    // a treatment still pins it, once the pinning operation drains it.  Such
+    // a hugepage is meanwhile neither free nor unmapped, so it is counted in
+    // pending_release_ while its unback is in flight and in `over` otherwise;
+    // both are zero outside any operation, where the bound is exact.
+    const size_t retiring =
+        over + allocator.forwarder().pending_release_.in_bytes();
+    TC_CHECK_LE(donated.in_bytes(), filler_stats.system_bytes + retiring,
+                "%v %v", filler_stats.system_bytes, retiring);
+    TC_CHECK_LE(abandoned, donated.in_pages());
     if (pending_alloc == Length(0)) {
       TC_CHECK(explained(over), "%v", over);
       return;
@@ -827,6 +880,24 @@ struct State {
     TC_CHECK((over >= range && explained(over - range)) ||
                  (over >= kHugePageSize && explained(over - kHugePageSize)),
              "%v %v", over, range);
+  }
+
+  // Regions are only ever added, and AddRegion advises each new one
+  // MADV_NOHUGEPAGE through the forwarder exactly when the parameter is on.
+  // Runs before any reentrant subprogram (OnLockDropped checks invariants
+  // first), so a region the interrupted operation added is accounted under
+  // the parameter value in force when it was added.
+  void AccountRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    const size_t regions = allocator.region().ActiveRegions();
+    TC_CHECK_GE(regions, regions_seen);
+    if (allocator.forwarder().madvise_cold_regions_nohugepage() ==
+        MadviseRegionsNoHugepage::kEnabled) {
+      expected_hugepages_disabled +=
+          HugeRegion::size().in_pages() * (regions - regions_seen);
+    }
+    regions_seen = regions;
+    TC_CHECK_EQ(allocator.forwarder().hugepages_disabled(),
+                expected_hugepages_disabled);
   }
 
   HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator;
@@ -861,6 +932,10 @@ struct State {
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;
   bool treating_trackers = false;
+  // Regions counted so far by AccountRegions and the total length AddRegion
+  // should have advised MADV_NOHUGEPAGE for them.
+  size_t regions_seen = 0;
+  Length expected_hugepages_disabled;
   std::string output;
 };
 
@@ -909,8 +984,14 @@ void Alloc::Perform(State& state) const {
   } else if (!SizeMap::IsValidSizeClass(object_size, len, kMinObjectsToMove)) {
     // This is an invalid size class, so skip it.
     return;
-  } else if (density == AccessDensityPrediction::kDense) {
-    len = Length(1);
+  } else {
+    // SizeMap accepted the pair, so HPAA's own predicate must agree.
+    TC_CHECK(
+        HugePageAwareAllocator<FakeStaticForwarderWithUnback>::IsValidSizeClass(
+            object_size, len));
+    if (density == AccessDensityPrediction::kDense) {
+      len = Length(1);
+    }
   }
 
   // Allocation is too big for filler if we try to allocate >
@@ -955,6 +1036,10 @@ void Alloc::Perform(State& state) const {
     TC_CHECK_LE(prev->first + prev->second, first);
   }
   state.live_ranges.emplace(first, s->num_pages());
+  {
+    PageHeapSpinLockHolder l;
+    state.CheckPageAllocationStatus(first, s->num_pages());
+  }
 
   // A subprogram run while backing the span may have grown the heap itself.
   if (runs_before == state.reentrant_runs &&
@@ -1220,9 +1305,23 @@ PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
   // more pages to the system.
   state.reentrant_stack.clear();
 
+  // CheckInvariants skips the walk while many spans are live; every span is
+  // still held here, so check them all once.
+  {
+    PageHeapSpinLockHolder l;
+    state.CheckAllPagesAllocated();
+  }
+
   // Clean up.
   const PageReleaseStats final_stats = [&] {
-    for (auto span_info : state.allocs) {
+    // Return spans in allocation order, dropping each from the bookkeeping
+    // first: Delete may drop pageheap_lock, and the invariant checks at that
+    // point must probe only spans still live.
+    std::reverse(state.allocs.begin(), state.allocs.end());
+    while (!state.allocs.empty()) {
+      const SpanInfo span_info = state.allocs.back();
+      state.allocs.pop_back();
+      TC_CHECK_EQ(state.live_ranges.erase(span_info.span->first_page()), 1);
       state.Delete(span_info);
     }
 
@@ -1899,6 +1998,108 @@ TEST(HugePageAwareAllocatorTest, ReleaseNestedInAllocation) {
   // Only the nested releases use kSoftLimitExceeded; the first of them must
   // at least have broken up the first hugepage's free run.
   EXPECT_GE(stats.soft_limit_exceeded, Length(64));
+}
+
+// Forces HugeRegion creation with MADV_NOHUGEPAGE advice enabled, so AddRegion
+// routes through the forwarder and the fuzzer's region accounting is checked,
+// then fills that region and adds another with the advice off again.
+TEST(HugePageAwareAllocatorTest, RegionNoHugepageAdvice) {
+  // Larger than a hugepage, so each allocation bypasses the filler and, until
+  // the slack it donates reaches 64 MiB, takes raw hugepages; after that,
+  // kUseForAllLargeAllocs adds a HugeRegion.
+  const Alloc large{.length = kPagesPerHugePage.raw_num() * 3 / 2,
+                    .num_objects = 1,
+                    .alignment = 1,
+                    .use_aligned = false,
+                    .dense = false};
+  const size_t raw_allocs =
+      HLFromBytes(64 * 1024 * 1024).in_pages() / (kPagesPerHugePage / 2) + 1;
+  // A region holds this many `large` allocations.
+  const size_t region_allocs =
+      HugeRegion::size().in_pages().raw_num() / large.length;
+
+  std::vector<Instruction> instructions;
+  instructions.push_back(
+      Instruction{ChangeParam{SetMadvNoHugepageHugeRegions{.value = true}}});
+  for (size_t i = 0; i < raw_allocs + region_allocs; ++i) {
+    instructions.push_back(Instruction{large});
+  }
+  instructions.push_back(Instruction{Dealloc{.index = 0}});
+  instructions.push_back(
+      Instruction{ReleasePages{.desired = kPagesPerHugePage.raw_num(),
+                               .release_memory_to_system = true}});
+  instructions.push_back(
+      Instruction{ChangeParam{SetMadvNoHugepageHugeRegions{.value = false}}});
+  instructions.push_back(Instruction{large});
+  instructions.push_back(Instruction{large});
+  instructions.push_back(Instruction{GatherStatsPbtxt{}});
+
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often =
+              HugeRegionUsageOption::kUseForAllLargeAllocs},
+      instructions);
+}
+
+// Holds live spans in every sub-allocator GetPageAllocationStatus consults,
+// so the page-status oracle sees filler trackers, a region, and raw hugepages
+// at once.  A span one page longer than a hugepage takes a raw hugepage and
+// donates the rest of the next one to the filler; AllocLarge sends a large
+// span to a region only once the live slack of such spans reaches 64 MiB, and
+// under kUseForAllLargeAllocs it then adds one without further conditions.
+// Some donors and the first region span are freed, and everything released,
+// before the survivors are checked against a heap with free and unbacked
+// hugepages in every sub-allocator.
+TEST(HugePageAwareAllocatorTest, PageStatusAcrossSubAllocators) {
+  auto alloc = [](size_t pages) {
+    return Instruction{.instr = Alloc{.length = pages,
+                                      .num_objects = 1,
+                                      .alignment = 1,
+                                      .use_aligned = false,
+                                      .dense = false}};
+  };
+  const size_t donor_pages = kPagesPerHugePage.raw_num() + 1;
+  const size_t slack_bytes = (kPagesPerHugePage - Length(1)).in_bytes();
+  const size_t donors = (size_t{64} << 20) / slack_bytes + 1;
+  // Dealloc frees allocs[index % size] and moves the last span into its slot.
+  size_t live = 0;
+
+  std::vector<Instruction> instructions;
+  instructions.push_back(alloc(3));
+  ++live;
+  for (size_t i = 0; i < donors + 4; ++i) {
+    instructions.push_back(alloc(donor_pages));
+    ++live;
+  }
+  // Free the last four donors: their raw hugepages go back to HugeCache and
+  // their donated trackers empty.  Enough slack remains to open a region.
+  for (int i = 0; i < 4; ++i) {
+    instructions.push_back(Instruction{.instr = Dealloc{.index = live - 1}});
+    --live;
+  }
+  // Straddles hugepages inside the new region.
+  instructions.push_back(alloc(kPagesPerHugePage.raw_num() * 3 / 2));
+  const size_t region_span = live++;
+  // An exact hugepage multiple comes straight from HugeCache, undonated.
+  instructions.push_back(alloc(2 * kPagesPerHugePage.raw_num()));
+  ++live;
+  // Frees the region span; the whole-hugepage span takes its slot.
+  instructions.push_back(Instruction{.instr = Dealloc{.index = region_span}});
+  --live;
+  instructions.push_back(Instruction{
+      .instr = ReleasePages{.desired = std::numeric_limits<size_t>::max(),
+                            .release_memory_to_system = true}});
+  // Backs the region's released hugepages again.
+  instructions.push_back(alloc(kPagesPerHugePage.raw_num() * 3 / 2));
+  instructions.push_back(Instruction{.instr = GatherStatsPbtxt{}});
+
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often =
+              HugeRegionUsageOption::kUseForAllLargeAllocs},
+      instructions);
 }
 
 TEST(HugePageAwareAllocatorTest, PrinterTest) {

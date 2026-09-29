@@ -258,6 +258,19 @@ class FakeStaticForwarder : private Parameters {
   }
   void SetAnonVmaName(
       Range, std::optional<absl::string_view> name) { /* unimplemented */ }
+  // Addresses are synthetic, so no madvise is issued; the advised length is
+  // recorded so tests can check each new region was advised when the option
+  // is on.
+  void DisableHugepages(Range r) {
+    const uintptr_t start =
+        reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
+    const uintptr_t end = start + r.n.in_bytes();
+    TC_CHECK_LE(end, fake_allocation_);
+    hugepages_disabled_ += r.n;
+  }
+  [[nodiscard]] Length hugepages_disabled() const {
+    return hugepages_disabled_;
+  }
 
  private:
   // A released range overlaps no live span.  This is the property at risk once
@@ -363,6 +376,7 @@ class FakeStaticForwarder : private Parameters {
            AllocAdaptor<std::pair<const PageId, Length>>>
       live_spans_ ABSL_GUARDED_BY(live_spans_lock_);
   bool last_may_have_grown_{false};
+  Length hugepages_disabled_;
 };
 
 }  // namespace huge_page_allocator_internal
