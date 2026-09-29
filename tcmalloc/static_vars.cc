@@ -104,14 +104,15 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     return;
   }
 
+  numa_topology_.Init();
   TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
+  system_allocator_.Init(numa_topology_, kMinMmapAlloc);
   sampledallocation_allocator_.Init(arena_);
   span_allocator_.Init(arena_);
   threadcache_allocator_.Init(arena_);
   linked_sample_allocator_.Init(arena_);
   sampled_allocation_recorder_.Init(sampledallocation_allocator_);
   peak_heap_tracker_.Init(sampledallocation_allocator_);
-  system_allocator_.Init(numa_topology_, kMinMmapAlloc);
 
   // Verify we can determine the number of CPUs now, since we will need it
   // later for per-CPU caches and initializing the cache topology.
@@ -120,7 +121,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   }
   (void)subtle::percpu::IsFast();
   PerCpuState::state().Init();
-  numa_topology_.Init();
   CacheTopology::Instance().Init();
   cpu_cache_.Init();
 
