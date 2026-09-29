@@ -66,14 +66,14 @@ class PackedSpanAndSizeclass {
     return reinterpret_cast<Span*>(packed_value_ & kSpanMask);
   }
   CompactSizeClass sizeclass() const {
-    return static_cast<CompactSizeClass>(packed_value_ >> kSizeclassShift);
+    // Load the size class byte directly so `PageMap::sizeclass` emits a 1-byte
+    // load.
+    return reinterpret_cast<const CompactSizeClass*>(
+        &packed_value_)[kSizeclassShift / 8];
   }
 
  private:
   uintptr_t packed_value_;
-  // The size class is kept in the top byte so that extracting it is a single
-  // shift. Placing it lower in the word would require a mask, which costs an
-  // extra instruction on the aarch64 deallocation fast path.
   static constexpr uintptr_t kSizeclassShift = 56;
   static_assert(kSizeclassShift >= kAddressBits);
   static_assert(sizeof(CompactSizeClass) * 8 <=
