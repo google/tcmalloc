@@ -374,8 +374,8 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "slow_alloc|"
     "fast_alloc|"
     "AllocSmall|"
-    "operator new|"
-    "operator delete";
+    R"(operator new(\[\])?( \[clone \.alloc_token\])?|)"
+    R"(operator delete(\[\])?)";
 
 ProfileBuilder::ProfileBuilder()
     : profile_(std::make_unique<perftools::profiles::Profile>()) {

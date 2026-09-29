@@ -760,8 +760,21 @@ TEST(ProfileConverterTest, HeapProfile) {
     }
   }
 
-  EXPECT_TRUE(RE2::FullMatch("TCMallocInternalNew",
-                             converted.string_table(converted.drop_frames())));
+  const absl::string_view drop_frames =
+      converted.string_table(converted.drop_frames());
+  EXPECT_TRUE(RE2::FullMatch("TCMallocInternalNew", drop_frames));
+  EXPECT_TRUE(RE2::FullMatch("operator new", drop_frames));
+  EXPECT_TRUE(RE2::FullMatch("operator new[]", drop_frames));
+  EXPECT_TRUE(RE2::FullMatch("operator new [clone .alloc_token]", drop_frames));
+  EXPECT_TRUE(
+      RE2::FullMatch("operator new[] [clone .alloc_token]", drop_frames));
+  EXPECT_TRUE(RE2::FullMatch("operator delete", drop_frames));
+  EXPECT_TRUE(RE2::FullMatch("operator delete[]", drop_frames));
+  // Class-scoped operator new overloads may not be inlined and must be kept
+  // to preserve the underlying ::operator new callsite.
+  EXPECT_FALSE(RE2::FullMatch("MyClass::operator new", drop_frames));
+  EXPECT_FALSE(RE2::FullMatch("operator new_custom", drop_frames));
+  EXPECT_FALSE(RE2::FullMatch("operator new [clone .other]", drop_frames));
   // No keep frames.
   EXPECT_EQ(converted.string_table(converted.keep_frames()), "");
 
