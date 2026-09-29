@@ -33,6 +33,8 @@
 #include "absl/base/casts.h"
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
@@ -42,6 +44,9 @@
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/pagemap.h"
+#include "tcmalloc/pages.h"
+#include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/testing/testutil.h"
@@ -808,6 +813,102 @@ TEST_F(TcMallocTest, DoubleFreeInFreelistInsertion) {
           "(CHECK in ReportDoubleFree: Possible double free detected of "
           ")"));
 }
+
+// CorrectSize traps ahead of the freelist-insertion check in non-opt builds, so
+// only build this test (and its helper) for opt builds.
+#ifdef NDEBUG
+// Returns true if `output` contains a double-free report whose address is not
+// page-aligned, i.e. the report is for an individual object rather than for a
+// page range (as HugePageAwareAllocator::Delete would report).
+bool ReportsUnalignedDoubleFree(const std::string& output) {
+  constexpr absl::string_view kPrefix = "Possible double free detected of 0x";
+  const size_t pos = output.find(kPrefix);
+  if (pos == std::string::npos) return false;
+  const size_t start = pos + kPrefix.size();
+  size_t end = start;
+  while (end < output.size() && absl::ascii_isxdigit(output[end])) ++end;
+  uint64_t addr;
+  if (!absl::SimpleHexAtoi(absl::string_view(output).substr(start, end - start),
+                           &addr)) {
+    return false;
+  }
+  return addr % kPageSize != 0;
+}
+
+// Like DoubleFreeInFreelistInsertion, but only double-frees objects that live
+// on a tail page (not the first page) of a multi-page span.  Unregistering a
+// span must invalidate every page, not only the first, for the double free to
+// be detected when the object is returned to the central freelist.
+//
+// Without that, the stale Span is later freed a second time, which is
+// (sometimes) caught at the page level with a page-aligned address, or crashes.
+// To distinguish these, we only double-free objects that are not page-aligned
+// and require the report to be for an unaligned address.
+TEST_F(TcMallocTest, DoubleFreeOnTailPageInFreelistInsertion) {
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+  // Find the smallest size class whose spans cover more than one page and whose
+  // objects are not all page-aligned.
+  size_t size = 0;
+  for (size_t sc = 1; sc < tcmalloc_internal::kNumBaseClasses; ++sc) {
+    const size_t class_size = tc_globals.sizemap().class_to_size(sc);
+    if (class_size == 0 || class_size % kPageSize == 0) continue;
+    if (tc_globals.sizemap().class_to_pages(sc) <= tcmalloc_internal::Length(1))
+      continue;
+    size = class_size;
+    break;
+  }
+  if (size == 0) {
+    GTEST_SKIP() << "No suitable multi-page size class available.";
+  }
+
+  // Ensure GWP-ASAN doesn't catch the issue before we do, so that we validate
+  // the checks during freelist insertion.
+  ScopedNeverSample never_sample;
+
+  // Allocate enough to overflow the CPU and transfer caches.
+  const size_t num_objects =
+      std::clamp<size_t>((size_t{40} << 20) / size, 1000, 40000);
+  std::vector<void*> ptrs;
+  ptrs.reserve(num_objects);
+  for (size_t i = 0; i < num_objects; ++i) {
+    ptrs.push_back(::operator new(size));
+  }
+  // Record the non-page-aligned objects that lie on a tail page of their span.
+  std::vector<void*> tail_ptrs;
+  tail_ptrs.reserve(num_objects);
+  for (void* ptr : ptrs) {
+    const tcmalloc_internal::PageId p =
+        tcmalloc_internal::PageIdContaining(ptr);
+    const tcmalloc_internal::Span* span = tc_globals.pagemap().GetDescriptor(p);
+    ASSERT_NE(span, nullptr);
+    if (p != span->first_page() &&
+        absl::bit_cast<uintptr_t>(ptr) % kPageSize != 0) {
+      tail_ptrs.push_back(ptr);
+    }
+  }
+  ASSERT_FALSE(tail_ptrs.empty());
+
+  EXPECT_DEATH(
+      {
+        for (void* ptr : ptrs) {
+          ::operator delete(ptr, size);
+        }
+        // Double-free only the tail-page objects, most recently freed first
+        // (see DoubleFreeInFreelistInsertion for why reverse order is used).
+        for (auto it = tail_ptrs.rbegin(); it != tail_ptrs.rend(); ++it) {
+          ::operator delete(*it, size);
+        }
+      },
+      testing::AllOf(
+          testing::ContainsRegex(absl::StrCat(
+              "(CHECK in ReportDoubleFree: Possible double free detected of "
+              ")")),
+          testing::Truly(ReportsUnalignedDoubleFree)));
+}
+#endif  // NDEBUG
 
 class CorruptedPointerTest
     : public TcMallocTest,

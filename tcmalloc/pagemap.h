@@ -327,17 +327,24 @@ class PageMap {
     }
   }
 
-  // Mark an allocated span as being not used for any size-class.
+  // Mark an allocated span as being not used for any size-class, and mark
+  // every page in the span with `invalid_span` so that stale lookups of any
+  // page (including tail pages of multi-page spans) are detected as accesses
+  // to freed memory rather than returning the soon-to-be-deleted `span`.
+  //
+  // `invalid_span` is supplied by the caller (normally
+  // `&tc_globals.invalid_span()`), since this header cannot depend on
+  // static_vars.h.
+  //
   // REQUIRES: span was returned by an earlier call to PageAllocator::New()
   //           and has not yet been deleted.
   // Concurrent calls to this method are safe unless they mark the same span.
-  void UnregisterSizeClass(Span* span) {
+  void UnregisterSizeClass(Span* span, Span* absl_nonnull invalid_span) {
     const PageId first = span->first_page();
     const PageId last = span->last_page();
     TC_ASSERT_EQ(GetDescriptor(first), span);
     for (PageId p = first; p <= last; ++p) {
-      auto [leaf, i3] = MustIndex(p);
-      leaf->sizeclass[i3] = 0;
+      Set(p, invalid_span, 0);
     }
   }
 
