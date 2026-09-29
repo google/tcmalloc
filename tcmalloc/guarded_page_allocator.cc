@@ -437,16 +437,15 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) const {
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
 [[nodiscard]] static bool ProbeGuardPagesSupported() {
-  // madvise() fails with EINVAL on kernels without MADV_GUARD_INSTALL; do not
-  // leak that into the caller's errno.
-  ErrnoRestorer errno_restorer;
-  const size_t page_size = GetPageSize();
-  void* page = mmap(nullptr, page_size, PROT_READ | PROT_WRITE,
-                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if (page == MAP_FAILED) return false;
-  bool supported = (madvise(page, page_size, MADV_GUARD_INSTALL) == 0);
-  munmap(page, page_size);
-  return supported;
+  // MADV_GUARD_INSTALL installs guard pages without splitting or altering the
+  // permissions of the enclosing VMA, leaving the mapping as readable and
+  // writable (rw-p) in /proc/self/maps. Memory inspection tools, leak
+  // detectors, and userspace crash/core dumpers traversing readable memory
+  // ranges fault (SIGSEGV) when attempting to read these guard pages.
+  //
+  // Temporarily disable the probe to force fallback to mprotect(PROT_NONE)
+  // until tooling can handle guarded pages in readable VMAs.
+  return false;
 }
 #endif
 
