@@ -5321,6 +5321,32 @@ TEST_F(FillerTest, ReleasePriority) {
   }
 }
 
+// A candidate whose unback fails keeps its hugepage intact, so it must not be
+// counted among the hugepages broken by the release.
+TEST_F(FillerTest, FailedUnbackDoesNotBreakHugepage) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  ASSERT_TRUE(a.pt->unbroken());
+
+  blocking_unback_.success_ = false;
+  EXPECT_EQ(HardReleasePages(kPagesPerHugePage), Length(0));
+  EXPECT_TRUE(a.pt->unbroken());
+  EXPECT_FALSE(a.pt->released());
+  SubreleaseStats subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
+  EXPECT_EQ(subrelease.num_hugepages_broken, NHugePages(0));
+  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, Length(0));
+  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(0));
+
+  blocking_unback_.success_ = true;
+  EXPECT_EQ(HardReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  EXPECT_FALSE(a.pt->unbroken());
+  subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.num_hugepages_broken, NHugePages(1));
+  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit, NHugePages(1));
+  Delete(a);
+}
+
 TEST_F(FillerTest, b258965495) {
   // 1 huge page:  2 pages allocated, kPagesPerHugePage-2 free, 0 released
   auto a1 = AllocateVector(Length(2));

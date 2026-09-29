@@ -1063,9 +1063,10 @@ class HugePageFiller {
                               size_t tracker_start);
 
   // Release desired pages from the page trackers in candidates.  Returns the
-  // number of pages released.
+  // number of pages released.  hit_limit is true when the release was
+  // triggered by reaching the tcmalloc limit.
   Length ReleaseCandidates(absl::Span<TrackerType* absl_nonnull> candidates,
-                           Length target)
+                           Length target, bool hit_limit)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   HugeLength size_;
@@ -1514,7 +1515,7 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
 
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
-    absl::Span<TrackerType*> candidates, Length target) {
+    absl::Span<TrackerType*> candidates, Length target, bool hit_limit) {
   absl::c_sort(candidates, CompareForSubrelease);
 
   Length total_released;
@@ -1539,15 +1540,17 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     last = best->used_pages();
 #endif
 
-    if (best->unbroken()) {
-      ++total_broken;
-    }
+    const bool was_unbroken = best->unbroken();
     RemoveFromFillerList(best);
     Length ret = best->ReleaseFree(unback_);
     unmapped_ += ret;
     TC_ASSERT_GE(unmapped_, best->released_pages());
     total_released += ret;
     AddToFillerList(best);
+    // The hugepage is only broken if an unback succeeded.
+    if (was_unbroken && !best->unbroken()) {
+      ++total_broken;
+    }
     // If the candidate we just released from previously had was_released set,
     // clear it. was_released is tracked only for pages that aren't in
     // released state.
@@ -1566,7 +1569,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 
   // Keep separate stats if the on going release is triggered by reaching
   // tcmalloc limit
-  if (subrelease_stats_.limit_hit()) {
+  if (hit_limit) {
     subrelease_stats_.total_pages_subreleased_due_to_limit += total_released;
     subrelease_stats_.total_hugepages_broken_due_to_limit += total_broken;
   }
@@ -1696,8 +1699,6 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     }
   }
 
-  subrelease_stats_.set_limit_hit(hit_limit);
-
   // Optimize for releasing up to a huge page worth of small pages (scattered
   // over many parts of the filler).  Since we hold pageheap_lock, we cannot
   // allocate here.
@@ -1719,7 +1720,7 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
 
     Length released =
         ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
-                          desired - total_released);
+                          desired - total_released, hit_limit);
     subrelease_stats_.num_partial_alloc_pages_subreleased += released;
     if (released == Length(0)) {
       break;
@@ -1749,7 +1750,7 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
 
     Length released =
         ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
-                          desired - total_released);
+                          desired - total_released, hit_limit);
     if (released == Length(0)) {
       break;
     }

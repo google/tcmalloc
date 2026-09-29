@@ -225,7 +225,6 @@ struct SubreleaseStats {
   HugeLength total_hugepages_broken{NHugePages(0)};  // cumulative since startup
   HugeLength num_hugepages_broken{NHugePages(0)};
 
-  bool is_limit_hit = false;
   // Keep these limit-related stats cumulative since startup only
   Length total_pages_subreleased_due_to_limit;
   HugeLength total_hugepages_broken_due_to_limit{NHugePages(0)};
@@ -242,13 +241,6 @@ struct SubreleaseStats {
     num_partial_alloc_pages_subreleased = Length(0);
     num_hugepages_broken = NHugePages(0);
   }
-
-  // Must be called at the beginning of each subrelease request
-  void set_limit_hit(bool value) { is_limit_hit = value; }
-
-  // This only has a well-defined meaning within ReleaseCandidates where
-  // set_limit_hit() has been called earlier. Do not use anywhere else.
-  bool limit_hit() { return is_limit_hit; }
 };
 
 // Track subrelease statistics over a time window.
