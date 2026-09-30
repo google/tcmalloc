@@ -28,13 +28,18 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/debugging/symbolize.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace deallocationz = tcmalloc::deallocationz;
@@ -979,4 +984,212 @@ TEST(DeallocationProfilerTest, SeedingFromOtherThreadPreservesThreadMatched) {
   EXPECT_GE(matched_samples, 1);
 }
 
+TEST(EventTracingTest, TailWindowPreservesTrailingEvents) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
+  constexpr size_t kEarlySize = 1009;
+  constexpr size_t kFillerSize = 2003;
+  constexpr size_t kLateSize = 8009;
+
+  auto token = tcmalloc::MallocExtension::StartEventTracing(
+      {.window_mode =
+           tcmalloc::MallocExtension::EventTraceOptions::WindowMode::kTail});
+
+  // Alloc-ed early in the trace lifetime.
+  void* early_ptr = SingleAlloc(1, kEarlySize);
+  SingleDealloc(1, early_ptr);
+
+  // Fill up and wrap the buffer.
+  constexpr int kNumFillerAllocs = 50000;
+  for (int i = 0; i < kNumFillerAllocs; ++i) {
+    void* p = SingleAlloc(1, kFillerSize);
+    SingleDealloc(1, p);
+  }
+
+  // Late allocs: must be preserved at the tail of the trace.
+  void* late_ptr = SingleAlloc(1, kLateSize);
+  SingleDealloc(1, late_ptr);
+
+  const tcmalloc::Profile profile = std::move(token).Stop();
+  EXPECT_THAT(profile.Type(), testing::Eq(tcmalloc::ProfileType::kEventTrace));
+
+  // In tail mode, early allocations should be overwritten once buffer wraps.
+  EXPECT_THAT(profile, testing::Not(ContainsAlloc(kEarlySize)));
+  EXPECT_THAT(profile, ContainsAlloc(kLateSize));
+}
+
+TEST(EventTracingTest, TailWindowChronologicalIteration) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
+  constexpr size_t kFillerSize = 2003;
+
+  auto token = tcmalloc::MallocExtension::StartEventTracing(
+      {.window_mode =
+           tcmalloc::MallocExtension::EventTraceOptions::WindowMode::kTail});
+
+  // Enough events to wrap the buffer at least once.
+  constexpr int kNumFillerAllocs = 35000;
+  for (int i = 0; i < kNumFillerAllocs; ++i) {
+    void* p = SingleAlloc(1, kFillerSize);
+    SingleDealloc(1, p);
+  }
+
+  const tcmalloc::Profile profile = std::move(token).Stop();
+  EXPECT_THAT(profile.Type(), testing::Eq(tcmalloc::ProfileType::kEventTrace));
+
+  // Iteration yields events oldest to newest across the wrap-around. Filtering
+  // by kFillerSize ignores allocations already live when the trace started.
+  absl::Time prev_time = absl::UnixEpoch();
+  int test_samples = 0;
+  profile.Iterate([&](const tcmalloc::Profile::Sample& s) {
+    if (s.requested_size == kFillerSize && s.count == 1) {
+      ++test_samples;
+      EXPECT_GE(s.allocation_time, prev_time);
+      prev_time = s.allocation_time;
+    }
+  });
+  EXPECT_GT(test_samples, 0);
+}
+
+// An allocation or deallocation event for an object of `size` bytes.
+struct Event {
+  EventType type;
+  size_t size;
+
+  bool operator==(const Event& other) const {
+    return type == other.type && size == other.size;
+  }
+  friend std::ostream& operator<<(std::ostream& os, const Event& event) {
+    return os << (event.type == EventType::kAlloc ? "alloc" : "dealloc") << '('
+              << event.size << ')';
+  }
+};
+
+Event Alloc(size_t size) { return {EventType::kAlloc, size}; }
+Event Dealloc(size_t size) { return {EventType::kDealloc, size}; }
+
+// The profile's events for allocations of the given sizes, in iteration order.
+// TCMalloc records no size for a deallocation, so each is attributed to its
+// allocation by handle and omitted if that allocation is not in the profile.
+std::vector<Event> EventsForSizes(const tcmalloc::Profile& profile,
+                                  absl::Span<const size_t> sizes) {
+  absl::flat_hash_map<tcmalloc::MallocHook::AllocHandle, size_t> size_by_handle;
+  std::vector<Event> events;
+  profile.Iterate([&](const tcmalloc::Profile::Sample& s) {
+    if (s.count == 1 && absl::c_linear_search(sizes, s.requested_size)) {
+      size_by_handle[s.alloc_handle] = s.requested_size;
+      events.push_back(Alloc(s.requested_size));
+    } else if (s.count == -1) {
+      if (auto it = size_by_handle.find(s.alloc_handle);
+          it != size_by_handle.end()) {
+        events.push_back(Dealloc(it->second));
+      }
+    }
+  });
+  return events;
+}
+
+TEST(EventTracingTest, HeadWindowKeepsPairsWhole) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
+  constexpr size_t kFillerSize = 2003;
+
+  // Whether the pair that fills the buffer straddles its end depends on the
+  // capacity's parity, which the test cannot know. Sweeping the memory limit in
+  // steps smaller than a record (at least 512 B of stack) across more than one
+  // record covers both parities.
+  for (size_t limit = 16384; limit <= 16384 + 1024; limit += 128) {
+    SCOPED_TRACE(absl::StrCat("limit=", limit));
+    tcmalloc::ScopedEventTraceMemoryLimit test_limit(limit);
+    auto token = tcmalloc::MallocExtension::StartEventTracing();
+
+    constexpr int kNumFillerAllocs = 100;
+    for (int i = 0; i < kNumFillerAllocs; ++i) {
+      void* p = SingleAlloc(1, kFillerSize);
+      SingleDealloc(1, p);
+    }
+
+    const tcmalloc::Profile profile = std::move(token).Stop();
+
+    // Keeping an allocation while dropping its deallocation would make a freed
+    // object look live.
+    const std::vector<Event> events = EventsForSizes(profile, {kFillerSize});
+    EXPECT_THAT(events, testing::Not(testing::IsEmpty()));
+    EXPECT_EQ(absl::c_count(events, Alloc(kFillerSize)),
+              absl::c_count(events, Dealloc(kFillerSize)));
+  }
+}
+
+TEST(EventTracingTest, TailWindowRecordsEventsAsTheyHappen) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
+  constexpr size_t kOuterSize = 1009;
+  constexpr size_t kInnerSize = 2003;
+
+  auto token = tcmalloc::MallocExtension::StartEventTracing(
+      {.window_mode =
+           tcmalloc::MallocExtension::EventTraceOptions::WindowMode::kTail});
+
+  void* outer = SingleAlloc(1, kOuterSize);
+  void* inner = SingleAlloc(1, kInnerSize);
+  SingleDealloc(1, inner);
+  SingleDealloc(1, outer);
+
+  const tcmalloc::Profile profile = std::move(token).Stop();
+
+  // Each event takes its place in the buffer when it happens, not when its
+  // allocation is eventually freed, so the outer allocation precedes the inner
+  // pair even though it is freed last.
+  EXPECT_THAT(EventsForSizes(profile, {kOuterSize, kInnerSize}),
+              testing::ElementsAre(Alloc(kOuterSize), Alloc(kInnerSize),
+                                   Dealloc(kInnerSize), Dealloc(kOuterSize)));
+}
+
+TEST(EventTracingTest, TailWindowLiveAllocationsDoNotDisplaceTrailingEvents) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
+  constexpr size_t kLiveSize = 509;
+  constexpr size_t kLateSize = 8009;
+
+  auto token = tcmalloc::MallocExtension::StartEventTracing(
+      {.window_mode =
+           tcmalloc::MallocExtension::EventTraceOptions::WindowMode::kTail});
+
+  // More allocations than the buffer holds, all still live when the trace
+  // stops: the shape of a leak.
+  constexpr int kNumLiveAllocs = 40000;
+  std::vector<void*> live;
+  live.reserve(kNumLiveAllocs);
+  for (int i = 0; i < kNumLiveAllocs; ++i) {
+    live.push_back(SingleAlloc(1, kLiveSize));
+  }
+
+  // The most recent activity, which is what a tail window exists to keep.
+  void* late_ptr = SingleAlloc(1, kLateSize);
+  SingleDealloc(1, late_ptr);
+
+  const tcmalloc::Profile profile = std::move(token).Stop();
+  for (void* p : live) {
+    SingleDealloc(1, p);
+  }
+
+  // Stop() must not write the live allocations over the end of the buffer.
+  EXPECT_THAT(EventsForSizes(profile, {kLateSize}),
+              testing::ElementsAre(Alloc(kLateSize), Dealloc(kLateSize)));
+}
 }  // namespace

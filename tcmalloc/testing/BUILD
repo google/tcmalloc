@@ -1011,11 +1011,15 @@ create_tcmalloc_testsuite(
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/debugging:symbolize",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )
