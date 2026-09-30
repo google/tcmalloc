@@ -95,7 +95,11 @@ class CpuCachePeer {
     cpu_cache.RecordCacheMissStat(/*cpu=*/0, /*is_alloc=*/false);
   }
 
-  // Validate that we're using >90% of the available slab bytes.
+  // Validate that we're using >85% of the available slab bytes. When multiple
+  // partitions are active, per-class capacities are halved across twice as many
+  // size classes, so integer right-shifts and the fixed per-class reduction in
+  // GetShiftMaxCapacity leave slightly more slack (~88.5% used) at minimum
+  // shift.
   template <typename CpuCache>
   static void ValidateSlabBytes(const CpuCache& cpu_cache) {
     SlabShiftBounds bounds = cpu_cache.GetPerCpuSlabShiftBounds();
@@ -104,7 +108,7 @@ class CpuCachePeer {
          ++shift) {
       const auto [bytes_required, bytes_available] =
           EstimateSlabBytes(cpu_cache.GetMaxCapacityFunctor(shift));
-      EXPECT_GT(bytes_required * 10, bytes_available * 9)
+      EXPECT_GT(bytes_required * 20, bytes_available * 17)
           << bytes_required << " " << bytes_available << " " << kNumaPartitions
           << " " << kNumBaseClasses << " " << kNumClasses;
       EXPECT_LE(bytes_required, bytes_available);
