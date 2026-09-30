@@ -694,7 +694,9 @@ struct State {
 
     // Another thread could take the lock here whether or not a subprogram
     // does, so the accounting must be consistent at every drop.
+    ++lock_drops;
     CheckInvariants();
+    --lock_drops;
 
     if (reentrant_stack.empty()) {
       return;
@@ -778,11 +780,15 @@ struct State {
         allocator.forwarder().pending_release_.in_bytes() +
         allocator.forwarder().pending_back_.in_bytes();
     TC_CHECK_GE(used, expected_used);
-    // A tracker emptied by a reentrant free while a treatment still pins it
-    // is parked off every list until the treatment finishes, so its hugepage
-    // is neither free nor unmapped in stats until then.
+    // A tracker emptied by a reentrant free while a treatment or release still
+    // pins it is parked off every list until that operation finishes, so its
+    // hugepage is neither free nor unmapped in stats until then.  Only a
+    // subprogram can free from inside such an operation.  The filler also
+    // takes a hugepage it is retiring off the free and unmapped counts before
+    // it drops the lock to unback the remainder.
+    const bool mid_operation = depth > 0 || lock_drops > 0;
     auto parked_only = [&](size_t over) {
-      return over == 0 || (treating_trackers && over % kHugePageSize == 0);
+      return over == 0 || (mid_operation && over % kHugePageSize == 0);
     };
     // `over` is what the allocator counts as used beyond the live spans and
     // the pending releases and backs.  Besides parked trackers, each Delete
@@ -844,6 +850,9 @@ struct State {
   Length pending_alloc;
   std::vector<absl::Span<const Instruction>> reentrant_stack;
   int depth = 0;
+  // Nonzero while CheckInvariants runs from a callback the allocator invoked
+  // with pageheap_lock dropped, before any subprogram.
+  int lock_drops = 0;
   // Tails of donated spans longer than a hugepage whose Delete is in
   // progress; outer entries belong to Deletes a reentrant subprogram
   // interrupted.  Bounded by the subprogram depth.
