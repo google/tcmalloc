@@ -73,15 +73,6 @@ ABSL_FLAG(Length, page_tracker_defrag_lim, Length(32),
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-class PageTrackerTestPeer {
- public:
-  [[nodiscard]] static bool PinnedByTreatment(const PageTracker& pt,
-                                              HugePageTreatmentType type) {
-    return pt.PinnedByTreatment(type);
-  }
-};
-
 namespace {
 
 // This is an arbitrary distribution taken from page requests from
@@ -462,35 +453,6 @@ TEST_F(PageTrackerTest, CollapseReleasedPage) {
   Put(a1);
   Put(a3);
   Put(a4);
-}
-
-// Release pins are counted, so two ReleasePages calls holding the same
-// candidate keep it pinned until both let go.  Treatment pins are independent
-// bits.
-TEST_F(PageTrackerTest, ReleasePinsAreCounted) {
-  EXPECT_FALSE(tracker_.DontFreeTracker());
-  EXPECT_FALSE(tracker_.PinnedForRelease());
-
-  tracker_.PinForRelease();
-  tracker_.PinForRelease();
-  EXPECT_TRUE(tracker_.PinnedForRelease());
-  EXPECT_TRUE(tracker_.DontFreeTracker());
-  EXPECT_FALSE(PageTrackerTestPeer::PinnedByTreatment(
-      tracker_, HugePageTreatmentType::kCollapse));
-
-  tracker_.UnpinForRelease();
-  EXPECT_TRUE(tracker_.PinnedForRelease());
-  EXPECT_TRUE(tracker_.DontFreeTracker());
-
-  tracker_.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
-  tracker_.UnpinForRelease();
-  EXPECT_FALSE(tracker_.PinnedForRelease());
-  EXPECT_TRUE(tracker_.DontFreeTracker());
-  EXPECT_TRUE(PageTrackerTestPeer::PinnedByTreatment(
-      tracker_, HugePageTreatmentType::kCollapse));
-
-  tracker_.ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
-  EXPECT_FALSE(tracker_.DontFreeTracker());
 }
 
 TEST_F(PageTrackerTest, ReleasingReturn) {

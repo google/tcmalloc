@@ -320,32 +320,13 @@ class PageTracker : public TList<PageTracker>::Elem {
     return hugepage_residency_state_.being_collapsed;
   }
 
-  void SetBeingReleased(bool value) { being_released_ = value; }
-  [[nodiscard]] bool BeingReleased() const { return being_released_; }
-
   void SetDontFreeTracker(HugePageTreatmentType type) {
     dont_free_tracker_mask_ |= static_cast<uint8_t>(type);
   }
   void ClearDontFreeTracker(HugePageTreatmentType type) {
     dont_free_tracker_mask_ &= ~static_cast<uint8_t>(type);
   }
-  [[nodiscard]] bool DontFreeTracker() const {
-    return dont_free_tracker_mask_ != 0 || release_pins_ != 0;
-  }
-  // Pins held by HugePageFiller::ReleasePages on each candidate it keeps a
-  // pointer to while pageheap_lock is dropped.  Unlike the treatment pins
-  // above, concurrent ReleasePages calls may select the same candidate, so
-  // this is a count rather than a bit.  A pinned tracker is parked instead of
-  // freed when its last page is returned (see DontFreeTracker()).
-  void PinForRelease() {
-    TC_CHECK_NE(release_pins_, std::numeric_limits<uint32_t>::max());
-    ++release_pins_;
-  }
-  void UnpinForRelease() {
-    TC_ASSERT_GT(release_pins_, 0);
-    --release_pins_;
-  }
-  [[nodiscard]] bool PinnedForRelease() const { return release_pins_ != 0; }
+  bool DontFreeTracker() const { return dont_free_tracker_mask_ != 0; }
 
   struct TagState {
     bool sampled_for_tagging = false;
@@ -371,16 +352,6 @@ class PageTracker : public TList<PageTracker>::Elem {
                                                 const PageBitmap& stale) const;
 
  private:
-  friend class PageTrackerTestPeer;
-
-  // Whether treatment `type` in particular holds a pin.  Release pins are a
-  // separate count (PinnedForRelease), so this must not decide whether to
-  // free a tracker; DontFreeTracker() covers both.  Exposed to tests only,
-  // through PageTrackerTestPeer.
-  [[nodiscard]] bool PinnedByTreatment(HugePageTreatmentType type) const {
-    return (dont_free_tracker_mask_ & static_cast<uint8_t>(type)) != 0;
-  }
-
   HugePage location_;
 
   // Cached value of released_by_page_.CountBits(0, kPagesPerHugePages)
@@ -399,22 +370,12 @@ class PageTracker : public TList<PageTracker>::Elem {
   bool abandoned_;
   bool unbroken_;
   bool has_dense_spans_ = false;
-  // Set while HugePageFiller unbacks this tracker's free pages with
-  // pageheap_lock dropped.  The filler keeps such trackers off its lists (see
-  // HugePageFiller::AddToFillerList) and Collapse() leaves them alone.
-  bool being_released_ = false;
   // This field is used to avoid freeing this tracker prematurely. When this
   // is set, any maintenance operation (e.g. collapse) that drops
   // pageheap_lock might manipulate the tracker state without holding the
   // lock. When all the pages on the tracked hugepage are freed, this field
   // is checked to ensure that the tracker is not freed right away.
   uint8_t dont_free_tracker_mask_ = 0;
-  // Number of HugePageFiller::ReleasePages calls holding this tracker as a
-  // release candidate across a pageheap_lock drop.  Releases nest (a release
-  // drops the lock, an allocation on another thread hits a usage limit and
-  // releases in turn), so 16 bits could plausibly overflow; 32 bits cannot,
-  // and fit in what was padding before alloctime_.
-  uint32_t release_pins_ = 0;
   double alloctime_;
   double last_page_allocation_time_ = 0;
 
@@ -551,10 +512,12 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       PageId p = location_.first_page() + Length(free_index);
 
       if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, length), unback))) {
-        // Mark pages as released.  unback may have dropped pageheap_lock, so
-        // the count is updated per range rather than once after the loop:
-        // other threads observe this tracker between ranges and need
-        // released_count_ to match released_by_page_.
+        // Mark pages as released.  Updating the count per range rather than
+        // once after the loop is intentionally the less efficient choice:
+        //
+        // TODO(b/73749855): once unback runs with pageheap_lock dropped, other
+        // threads observe this tracker between ranges and need the count to
+        // match the bitmap.
         released_by_page_.SetRange(free_index, length.raw_num());
         released_count_ += length.raw_num();
         hugepage_residency_state_.maybe_hugepage_backed = false;
@@ -605,11 +568,8 @@ inline MemoryModifyStatus PageTracker::Collapse(
   // store the being_collapsed state.
   {
     PageHeapSpinLockHolder l;
-    // If the tracker is in the released state, or about to be, we do not want
-    // to collapse it.
-    if (released() || BeingReleased()) {
-      return {.success = false, .error_number = 0};
-    }
+    // If the tracker is in the released state, we do no want to collapse it.
+    if (released()) return {.success = false, .error_number = 0};
     TC_ASSERT(!BeingCollapsed());
     SetBeingCollapsed(/*value=*/true);
   }

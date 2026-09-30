@@ -487,12 +487,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     for (int i = 0; i < num_valid_trackers_; ++i) {
       PageTracker* tracker = residency_states_[i].tracker;
       TC_ASSERT_NE(tracker, nullptr);
-      // While we did not hold pageheap_lock, tracker may have been emptied
-      // (and parked on fully_freed_trackers_) or claimed by a ReleasePages
-      // that is unbacking it.  Either way it is off the filler lists; leave it
-      // alone.
-      if (tracker->fully_freed() || tracker->BeingReleased()) {
-        tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+      tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+      if (tracker->fully_freed()) {
         continue;
       }
       if (residency_states_[i].tracker_state.maybe_hugepage_backed &&
@@ -510,13 +506,13 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
           page_filler_.OnCollapseSuccess(tracker);
         }
-        tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
       }
 
-      // HandleReleaseFree drops pageheap_lock, so the kCollapse pin stays set
-      // across it: a concurrent Put that empties tracker then parks it rather
-      // than returning it underneath us.
+      // It's possible that all the pages on the hugepage were freed when we had
+      // released the pageheap lock. Check that the longest free range is less
+      // than kPagesPerHugePage to make sure it's valid to release from that
+      // tracker.
       if (!residency_states_[i].tracker_state.swapped.IsZero()) {
         // TODO: b/425749361 - Clear swapped bit for pages that were freed.
         Length released_length = page_filler_.HandleReleaseFree(tracker);
@@ -529,10 +525,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         if (released_length > Length(0)) {
           treatment_stats_.treated_pages_stale_subreleased += released_length;
         }
-      }
-      tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
-      if (tracker->fully_freed()) {
-        continue;
       }
 
       if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
