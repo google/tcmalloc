@@ -130,6 +130,8 @@ ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseMaxColdPages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxColdPages(bool v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseMaxFillerPages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseMaxSampledPages();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxSampledPages(bool v);
 
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
     std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull

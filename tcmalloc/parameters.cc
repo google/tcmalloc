@@ -241,6 +241,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_cold_pages_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_filler_pages_(false);
+ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_sampled_pages_(false);
 ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
     Parameters::madvise_sampled_allocations_(
         MadviseSampledAllocations::kDisabled);
@@ -694,6 +695,14 @@ bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
 
 void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
   Parameters::release_max_filler_pages_.store(v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetReleaseMaxSampledPages() {
+  return Parameters::release_max_sampled_pages();
+}
+
+void TCMalloc_Internal_SetReleaseMaxSampledPages(bool v) {
+  Parameters::release_max_sampled_pages_.store(v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
