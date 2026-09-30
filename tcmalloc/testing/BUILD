@@ -699,6 +699,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:memory_stats",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest",
     ],
 )

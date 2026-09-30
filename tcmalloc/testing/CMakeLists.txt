@@ -633,6 +633,7 @@ tcmalloc_cc_test_variants(
     "GTest::gtest"
     "GTest::gmock"
     "absl::random_random"
+    "absl::time"
     "benchmark::benchmark"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
