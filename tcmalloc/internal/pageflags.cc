@@ -163,6 +163,10 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
     is_huge = PageHead(flags);
   }
 
+  if (is_huge) {
+    last_head_read_ = flags;
+  }
+
   return absl::StatusCode::kOk;
 }
 
