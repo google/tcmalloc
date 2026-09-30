@@ -274,13 +274,17 @@ class TestStaticForwarder : private Parameters {
 
   bool reuse_size_classes() const { return true; }
 
-  const SizeMap& sizemap() const {
-    TC_CHECK(size_map_.has_value());
-    return *size_map_;
-  }
-
   size_t class_to_size(int size_class) const {
     if (size_map_.has_value()) {
+      // TODO(b/567919967): SizeMap::Init uses tc_globals's configuration rather
+      // than this forwarder's, so size_map_ may have more partitions populated
+      // than active_partitions() and we need to fix it up here (and in
+      // num_objects_to_move). The proper fix would be to allow mocking
+      // config/system info in SizeMap, which we don't do yet.
+      if (!IsColdSizeClass(size_class) &&
+          size_class >= active_partitions() * kNumBaseClasses) {
+        return 0;
+      }
       return size_map_->class_to_size(size_class);
     } else {
       return transfer_cache_.class_to_size(size_class);
@@ -289,6 +293,10 @@ class TestStaticForwarder : private Parameters {
 
   size_t num_objects_to_move(int size_class) const {
     if (size_map_.has_value()) {
+      if (!IsColdSizeClass(size_class) &&
+          size_class >= active_partitions() * kNumBaseClasses) {
+        return 0;
+      }
       return size_map_->num_objects_to_move(size_class);
     } else {
       return transfer_cache_.num_objects_to_move(size_class);
@@ -336,7 +344,7 @@ class TestStaticForwarder : private Parameters {
     return false;
   }
 
-  auto active_partitions() const {
+  size_t active_partitions() const {
     // TODO(b/446814339): Test other states.
     return 1u;
   }
