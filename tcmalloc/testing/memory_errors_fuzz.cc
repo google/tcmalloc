@@ -47,6 +47,14 @@ bool IsOwned(void* ptr) {
          MallocExtension::Ownership::kOwned;
 }
 
+// Upper bound on the sizes the fuzzer requests from the allocator.  It covers
+// the size-class, page heap, and hugepage-sized paths; anything larger only
+// adds address space and per-page metadata.  Unbounded sizes drive the fuzzer
+// out of memory: multi-TiB requests cost gigabytes of metadata, and an
+// iteration that provokes an error necessarily leaks its allocation because
+// the deallocation was interrupted mid-way.
+constexpr size_t kMaxFuzzAllocationSize = 2 * kHugePageSize;
+
 TEST(MemoryErrorsTest, IsOwnedTest) {
   // Ensure IsOwned is not tautologically true or false.
   void* ptr = TCMallocInternalNew(1);
@@ -110,7 +118,9 @@ TEST(MemoryErrorsFuzzTest, WildPointerReallocRegression) {
   WildPointerRealloc(4406726867650173363ull, 1);
 }
 
-FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerRealloc);
+FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerRealloc)
+    .WithDomains(fuzztest::Arbitrary<uintptr_t>(),
+                 fuzztest::InRange<size_t>(0, kMaxFuzzAllocationSize));
 
 void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
   GTEST_SKIP() << "Skipping";
@@ -168,12 +178,16 @@ void MismatchedSizedDelete(size_t allocated, size_t deallocated) {
   }
 
   // The pointer needs to be sampled or large for us to detect the error.
-  if (!IsSampledMemory(ptr) && deallocated <= kMaxSize) {
+  const bool sampled = IsSampledMemory(ptr);
+  if (!sampled && deallocated <= kMaxSize) {
     TCMallocInternalDeleteSized(ptr, allocated);
     return;
   }
 
-  const size_t actual_size = MallocExtension_Internal_GetAllocatedSize(ptr);
+  // This binary links tcmalloc_internal_methods_only, which omits the
+  // MallocExtension_Internal_* entry points; the weak declarations resolve to
+  // nullptr.  Use the always-defined TCMalloc_Internal_* equivalents.
+  const size_t actual_size = TCMalloc_Internal_GetAllocatedSize(ptr);
 
   LongJmpScope scope;
   if (setjmp(scope.buf_)) {
@@ -183,21 +197,41 @@ void MismatchedSizedDelete(size_t allocated, size_t deallocated) {
   TCMallocInternalDeleteSized(ptr, deallocated);
   // We should have caught the error and not reached this point.  An error did
   // not occur only if the sizes match.
-  CHECK_EQ(MallocExtension_Internal_GetEstimatedAllocatedSize(deallocated),
-           actual_size);
+  //
+  // Sampled allocations (including GWP-ASan guarded ones) record the requested
+  // size and require an exact match.  Unsampled large allocations only know
+  // the page-rounded span size, so any size that rounds to the same number of
+  // pages is accepted.
+  if (sampled) {
+    CHECK_EQ(deallocated, allocated);
+  } else {
+    CHECK_EQ(TCMalloc_Internal_GetEstimatedAllocatedSize(deallocated),
+             actual_size);
+  }
 }
 
 TEST(MemoryErrorsFuzzTest, MismatchedSizedDeleteRegression) {
   MismatchedSizedDelete(7947537452012049129, 0);
 }
 
-// TODO: b/457842787 - Re-enable once the test is fixed.
-TEST(MemoryErrorsFuzzTest, DISABLED_MismatchedSizedDeleteRegression2) {
+TEST(MemoryErrorsFuzzTest, MismatchedSizedDeleteRegression2) {
   MismatchedSizedDelete(549755813888, 15561727408584254371ull);
 }
 
-// TODO: b/457842787 - Re-enable once the test is fixed.
-FUZZ_TEST(DISABLED_MemoryErrorsFuzzTest, MismatchedSizedDelete);
+TEST(MemoryErrorsFuzzTest, MismatchedSizedDeleteSampledRegression) {
+  // GWP-ASan reports the requested size (7) from GetAllocatedSize while the
+  // size-class estimate for 7 bytes is 8, so a matching sampled delete must be
+  // judged by the requested size rather than the estimate.
+  ScopedAlwaysSample always_sample;
+  for (int i = 0; i < 4; ++i) {
+    MismatchedSizedDelete(7, 7);
+    MismatchedSizedDelete(7, 8);
+  }
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedSizedDelete)
+    .WithDomains(fuzztest::InRange<size_t>(0, kMaxFuzzAllocationSize),
+                 fuzztest::Arbitrary<size_t>());
 
 void MismatchedAlignedDelete(
     size_t size, std::optional<std::align_val_t> allocated_alignment,
@@ -215,6 +249,19 @@ void MismatchedAlignedDelete(
     return;
   }
 
+  // Only sampled allocations record their requested alignment.  The sized
+  // delete fast path for unsampled memory recomputes the size class from the
+  // provided size and alignment without consulting metadata, so a mismatch is
+  // not detected (outside of debug assertions).
+  if (!IsSampledMemory(ptr)) {
+    if (allocated_alignment.has_value()) {
+      TCMallocInternalDeleteSizedAligned(ptr, size, *allocated_alignment);
+    } else {
+      TCMallocInternalDeleteSized(ptr, size);
+    }
+    return;
+  }
+
   LongJmpScope scope;
   if (setjmp(scope.buf_)) {
     return;
@@ -228,10 +275,23 @@ void MismatchedAlignedDelete(
   CHECK_EQ(allocated_alignment, deallocated_alignment);
 }
 
-// TODO: b/457842787 - Re-enable once the test is fixed.
-FUZZ_TEST(DISABLED_MemoryErrorsFuzzTest, MismatchedAlignedDelete)
+TEST(MemoryErrorsFuzzTest, MismatchedAlignedDeleteRegression) {
+  // Unsampled: a mismatch that does not change the size class is not detected.
+  MismatchedAlignedDelete(0, std::align_val_t{2}, std::align_val_t{1});
+}
+
+TEST(MemoryErrorsFuzzTest, MismatchedAlignedDeleteSampledRegression) {
+  ScopedAlwaysSample always_sample;
+  for (int i = 0; i < 4; ++i) {
+    MismatchedAlignedDelete(8, std::align_val_t{64}, std::nullopt);
+    MismatchedAlignedDelete(8, std::nullopt, std::align_val_t{64});
+    MismatchedAlignedDelete(8, std::align_val_t{64}, std::align_val_t{64});
+  }
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedAlignedDelete)
     .WithDomains(
-        fuzztest::Arbitrary<size_t>(),
+        fuzztest::InRange<size_t>(0, kMaxFuzzAllocationSize),
         fuzztest::OptionalOf(fuzztest::Map(
             [](size_t v) { return static_cast<std::align_val_t>(1ULL << v); },
             fuzztest::InRange<size_t>(0, kHugePageShift))),
@@ -254,6 +314,16 @@ void MismatchedAlignedFree(size_t size,
     return;
   }
 
+  // As with MismatchedAlignedDelete, only sampled allocations can detect this.
+  if (!IsSampledMemory(ptr)) {
+    if (allocated_alignment.has_value()) {
+      TCMallocInternalFreeAlignedSized(ptr, *allocated_alignment, size);
+    } else {
+      TCMallocInternalFreeSized(ptr, size);
+    }
+    return;
+  }
+
   LongJmpScope scope;
   if (setjmp(scope.buf_)) {
     return;
@@ -264,12 +334,34 @@ void MismatchedAlignedFree(size_t size,
   } else {
     TCMallocInternalFreeSized(ptr, size);
   }
-  CHECK_EQ(allocated_alignment, deallocated_alignment);
+  // malloc() and free_sized() carry an implicit alignment of
+  // alignof(std::max_align_t), which is what TCMalloc records and compares
+  // against, so aligned_alloc(alignof(std::max_align_t), size) paired with
+  // free_sized() (and vice versa) is not a mismatch.
+  constexpr size_t kMallocAlignment = alignof(std::max_align_t);
+  CHECK_EQ(allocated_alignment.value_or(kMallocAlignment),
+           deallocated_alignment.value_or(kMallocAlignment));
 }
 
-// TODO: b/457842787 - Re-enable once the test is fixed.
-FUZZ_TEST(DISABLED_MemoryErrorsFuzzTest, MismatchedAlignedFree)
-    .WithDomains(fuzztest::Arbitrary<size_t>(),
+TEST(MemoryErrorsFuzzTest, MismatchedAlignedFreeRegression) {
+  // Unsampled: both alignments exceed a page and land on the same span, so the
+  // mismatch is not detected.
+  MismatchedAlignedFree(7, 2097152, 1048576);
+}
+
+TEST(MemoryErrorsFuzzTest, MismatchedAlignedFreeSampledRegression) {
+  ScopedAlwaysSample always_sample;
+  for (int i = 0; i < 4; ++i) {
+    MismatchedAlignedFree(8, alignof(std::max_align_t), std::nullopt);
+    MismatchedAlignedFree(8, std::nullopt, alignof(std::max_align_t));
+    MismatchedAlignedFree(8, 64, std::nullopt);
+    MismatchedAlignedFree(8, std::nullopt, 64);
+    MismatchedAlignedFree(8, 1, 64);
+  }
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, MismatchedAlignedFree)
+    .WithDomains(fuzztest::InRange<size_t>(0, kMaxFuzzAllocationSize),
                  fuzztest::OptionalOf(fuzztest::Map(
                      [](size_t v) { return static_cast<size_t>(1ULL << v); },
                      fuzztest::InRange<size_t>(0, kHugePageShift))),
@@ -311,8 +403,35 @@ void MisalignedPointer(size_t size, std::optional<hot_cold_t> hot_cold,
       std::min(misalignment,
                static_cast<std::align_val_t>(
                    static_cast<size_t>(alignment.value_or(kAlignment)) - 1u));
+  // Keep the misaligned pointer inside the allocation: overaligned requests can
+  // exceed their span, and the start of an unrelated live span is a valid free.
+  const size_t allocated_size =
+      std::max<size_t>(TCMalloc_Internal_GetAllocatedSize(ptr), 1u);
+  misalignment = std::min(misalignment,
+                          static_cast<std::align_val_t>(allocated_size - 1u));
   char* misaligned =
       static_cast<char*>(ptr) + static_cast<size_t>(misalignment);
+
+  // Detection is guaranteed in every build when the pointer is misaligned for
+  // kAlignment (it fails the tag/alignment mask on the fast path), when the
+  // allocation is sampled (the sampled span or GWP-ASan slot records its
+  // start), or when it has no size class (a page heap span records its start).
+  // An unsampled size-classful object misaligned by a multiple of kAlignment is
+  // only caught by debug assertions: the release fast path derives the size
+  // class from the pagemap and pushes the pointer onto a freelist.
+  const bool size_classful =
+      size <= kMaxSize &&
+      static_cast<size_t>(alignment.value_or(std::align_val_t{1})) <= kPageSize;
+  if (static_cast<size_t>(misalignment) % static_cast<size_t>(kAlignment) ==
+          0 &&
+      size_classful && !IsSampledMemory(ptr)) {
+    if (alignment.has_value()) {
+      TCMallocInternalDeleteSizedAligned(ptr, size, *alignment);
+    } else {
+      TCMallocInternalDeleteSized(ptr, size);
+    }
+    return;
+  }
 
   LongJmpScope scope;
   if (setjmp(scope.buf_)) {
@@ -335,10 +454,41 @@ void MisalignedPointer(size_t size, std::optional<hot_cold_t> hot_cold,
   CHECK_EQ(misalignment, std::align_val_t{0});
 }
 
-// TODO: b/457842787 - Re-enable once the test is fixed.
-FUZZ_TEST(DISABLED_MemoryErrorsFuzzTest, MisalignedPointer)
+TEST(MemoryErrorsFuzzTest, MisalignedPointerRegression) {
+  // Unsampled size-classful object misaligned by kAlignment: undetected by the
+  // release fast path, so the harness must not expect an error.
+  ScopedNeverSample never_sample;
+  MisalignedPointer(16, std::nullopt, std::align_val_t{64}, std::align_val_t{8},
+                    /*sized=*/false);
+  MisalignedPointer(16, std::nullopt, std::align_val_t{64}, std::align_val_t{8},
+                    /*sized=*/true);
+  // Misaligned for kAlignment: always detected.
+  MisalignedPointer(16, std::nullopt, std::nullopt, std::align_val_t{1},
+                    /*sized=*/false);
+  MisalignedPointer(16, std::nullopt, std::nullopt, std::align_val_t{1},
+                    /*sized=*/true);
+  // Page heap span: always detected.
+  MisalignedPointer(kMaxSize + 1, std::nullopt, std::align_val_t{64},
+                    std::align_val_t{8}, /*sized=*/false);
+  MisalignedPointer(0, std::nullopt, std::align_val_t{2 * kPageSize},
+                    std::align_val_t{kPageSize / 2}, /*sized=*/true);
+}
+
+TEST(MemoryErrorsFuzzTest, MisalignedPointerSampledRegression) {
+  ScopedAlwaysSample always_sample;
+  for (int i = 0; i < 4; ++i) {
+    MisalignedPointer(16, std::nullopt, std::align_val_t{64},
+                      std::align_val_t{8}, /*sized=*/false);
+    MisalignedPointer(16, std::nullopt, std::align_val_t{64},
+                      std::align_val_t{8}, /*sized=*/true);
+    MisalignedPointer(16, std::nullopt, std::nullopt, std::align_val_t{1},
+                      /*sized=*/false);
+  }
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, MisalignedPointer)
     .WithDomains(
-        fuzztest::Arbitrary<size_t>(),
+        fuzztest::InRange<size_t>(0, kMaxFuzzAllocationSize),
         fuzztest::OptionalOf(
             fuzztest::Map([](uint8_t v) { return static_cast<hot_cold_t>(v); },
                           fuzztest::Arbitrary<uint8_t>())),
