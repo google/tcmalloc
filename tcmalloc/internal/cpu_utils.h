@@ -35,14 +35,16 @@ class CpuSet {
  public:
   void Zero() { CPU_ZERO_S(kCpuSetBytes, cpu_set_.data()); }
   void Set(int cpu) { CPU_SET_S(cpu, kCpuSetBytes, cpu_set_.data()); }
-  bool IsSet(int cpu) const {
+  [[nodiscard]] bool IsSet(int cpu) const {
     return CPU_ISSET_S(cpu, kCpuSetBytes, cpu_set_.data());
   }
   void CLR(int cpu) { CPU_CLR_S(cpu, kCpuSetBytes, cpu_set_.data()); }
-  int Count() const { return CPU_COUNT_S(kCpuSetBytes, cpu_set_.data()); }
+  [[nodiscard]] int Count() const {
+    return CPU_COUNT_S(kCpuSetBytes, cpu_set_.data());
+  }
 
   // Find the index of the first set CPU. Returns -1 if none are set.
-  int FindFirstSet() const {
+  [[nodiscard]] int FindFirstSet() const {
     if (Count() == 0) {
       return -1;
     }
@@ -67,7 +69,7 @@ class CpuSet {
     return sched_getaffinity(pid, kCpuSetBytes, cpu_set_.data()) == 0;
   }
 
-  const cpu_set_t* data() const { return cpu_set_.data(); }
+  [[nodiscard]] const cpu_set_t* data() const { return cpu_set_.data(); }
 
  private:
   // In the sched.h, each CPU occupies one bit.

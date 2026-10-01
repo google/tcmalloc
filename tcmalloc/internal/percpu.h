@@ -225,19 +225,19 @@ ABSL_CONST_INIT thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_WEAK = 0;
 // linked in files.
 extern "C" ABSL_CONST_INIT thread_local char tcmalloc_rseq_layout;
 
-inline int GetRealCpuUnsafe() { return __rseq_abi.cpu_id; }
+[[nodiscard]] inline int GetRealCpuUnsafe() { return __rseq_abi.cpu_id; }
 #else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-inline int GetRealCpuUnsafe() { return kCpuIdUnsupported; }
+[[nodiscard]] inline int GetRealCpuUnsafe() { return kCpuIdUnsupported; }
 #endif
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.
 extern "C" {
-size_t TcmallocSlab_Internal_PushBatch(size_t size_class, void** batch,
-                                       size_t len);
-size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
-                                      size_t len,
-                                      std::atomic<uint16_t>* begin_ptr);
+[[nodiscard]] size_t TcmallocSlab_Internal_PushBatch(size_t size_class,
+                                                     void** batch, size_t len);
+[[nodiscard]] size_t TcmallocSlab_Internal_PopBatch(
+    size_t size_class, void** batch, size_t len,
+    std::atomic<uint16_t>* begin_ptr);
 }  // extern "C"
 
 // NOTE:  We skirt the usual naming convention slightly above using "_" to
@@ -247,22 +247,22 @@ size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
 enum class RseqVcpuMode { kNone, kMM };
 
 extern RseqVcpuMode vcpu_mode;
-inline bool IsFast();
+[[nodiscard]] inline bool IsFast();
 
-inline RseqVcpuMode GetRseqVcpuMode() {
-  IsFast();
+[[nodiscard]] inline RseqVcpuMode GetRseqVcpuMode() {
+  (void)IsFast();
   return vcpu_mode;
 }
 
 // Return whether we are using any kind of virtual CPUs.
-inline bool UsingVirtualCpus() {
+[[nodiscard]] inline bool UsingVirtualCpus() {
   return GetRseqVcpuMode() != RseqVcpuMode::kNone;
 }
 
 // Return whether we are using flat virtual CPUs (provided by kernel RSEQ).
-bool UsingRseqVirtualCpus();
+[[nodiscard]] bool UsingRseqVirtualCpus();
 
-inline int GetRealCpu() {
+[[nodiscard]] inline int GetRealCpu() {
   // The "unsafe" variant strongly depends on RSEQ.
   int cpu = GetRealCpuUnsafe();
 
@@ -287,7 +287,7 @@ inline int GetRealCpu() {
 // We just return a void* here since percpu doesn't know about the Sampler
 // type and we need to avoid a circular dependency between percpu and
 // the Sampler.
-inline void* GetThreadSamplerAddress() {
+[[nodiscard]] inline void* GetThreadSamplerAddress() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   return &tcmalloc_sampler;
 #else
@@ -308,7 +308,7 @@ class VirtualCpu {
   // This is safe, because without a RSEQ critical section to detect thread
   // preemption, a thread may be preempted at any point and the virtual (or
   // real) CPU may change.
-  static int get() {
+  [[nodiscard]] static int get() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     return tcmalloc_cached_vcpu;
 #else   // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
@@ -318,7 +318,7 @@ class VirtualCpu {
 
   // Returns the last vCPU ID since the last synchronization point.
   // REQUIRES: Synchronize() has been called by this thread
-  static int GetAfterSynchronize() {
+  [[nodiscard]] static int GetAfterSynchronize() {
     const int ret = get();
     TC_ASSERT_GE(ret, kCpuIdInitialized);
     return ret;
@@ -328,17 +328,17 @@ class VirtualCpu {
   // depends on the (per-CPU mutually exclusive) vCPU ID with the current vCPU
   // ID after a thread preemption was detected. This function may be expensive,
   // so it should only be called on slow paths.
-  static int Synchronize();
+  [[nodiscard]] static int Synchronize();
 
  private:
   // The return value of Synchronize() may be overridden by tests if they define
   // VirtualCpu::TestSynchronize().
-  ABSL_ATTRIBUTE_WEAK static int TestSynchronize();
+  [[nodiscard]] ABSL_ATTRIBUTE_WEAK static int TestSynchronize();
 };
 
-bool InitFastPerCpu();
+[[nodiscard]] bool InitFastPerCpu();
 
-inline bool IsFast() {
+[[nodiscard]] inline bool IsFast() {
   if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
     return false;
   }
@@ -358,7 +358,7 @@ inline bool IsFast() {
 
 // As IsFast(), but if this thread isn't already initialized, will not
 // attempt to do so.
-inline bool IsFastNoInit() {
+[[nodiscard]] inline bool IsFastNoInit() {
   if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
     return false;
   }

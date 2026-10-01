@@ -558,7 +558,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
             absl::Uniform(rngs[tid], 0u, region_.size().in_pages().raw_num()));
 
         absl::MutexLock l(mu);
-        region_.Release(to_release, /*adaptive_release=*/false);
+        (void)region_.Release(to_release, /*adaptive_release=*/false);
 
         break;
       }

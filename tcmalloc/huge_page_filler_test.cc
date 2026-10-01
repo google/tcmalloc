@@ -842,7 +842,7 @@ TEST_F(FillerTest, ClockCalls) {
     if (pt->GetTagState().sampled_for_tagging) {
       break;
     }
-    filler_.Put(pt, Range(page1, Length(1)), info);
+    EXPECT_EQ(filler_.Put(pt, Range(page1, Length(1)), info), pt);
   }
 
   FakeClock::ResetCalls();

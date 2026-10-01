@@ -60,14 +60,14 @@ class DeallocationSample final
   // We define the dtor to ensure it is placed in the desired text section.
   ~DeallocationSample() override;
 
-  tcmalloc::Profile Stop() && override;
+  [[nodiscard]] tcmalloc::Profile Stop() && override;
 
  private:
   std::unique_ptr<DeallocationProfiler> profiler_;
 };
 
 namespace internal {
-absl::Duration LifetimeNsToBucketedDuration(double lifetime_ns);
+[[nodiscard]] absl::Duration LifetimeNsToBucketedDuration(double lifetime_ns);
 }  // namespace internal
 }  // namespace deallocationz
 }  // namespace tcmalloc

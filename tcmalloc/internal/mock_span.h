@@ -27,7 +27,7 @@ class MockSpan : public MockSpanList::Elem {
  public:
   MockSpan() = default;
 
-  static MockSpan* New(int idx = 0) {
+  [[nodiscard]] static MockSpan* New(int idx = 0) {
     MockSpan* ret = new MockSpan();
     ret->index_ = idx;
     return ret;

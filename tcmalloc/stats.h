@@ -44,7 +44,8 @@ struct BackingStats {
   }
 };
 
-inline BackingStats operator+(BackingStats lhs, BackingStats rhs) {
+[[nodiscard]] inline BackingStats operator+(BackingStats lhs,
+                                            BackingStats rhs) {
   return lhs += rhs;
 }
 
@@ -63,7 +64,8 @@ struct SmallSpanStats {
   }
 };
 
-inline SmallSpanStats operator+(SmallSpanStats lhs, SmallSpanStats rhs) {
+[[nodiscard]] inline SmallSpanStats operator+(SmallSpanStats lhs,
+                                              SmallSpanStats rhs) {
   return lhs += rhs;
 }
 
@@ -81,7 +83,8 @@ struct LargeSpanStats {
   }
 };
 
-inline LargeSpanStats operator+(LargeSpanStats lhs, LargeSpanStats rhs) {
+[[nodiscard]] inline LargeSpanStats operator+(LargeSpanStats lhs,
+                                              LargeSpanStats rhs) {
   return lhs += rhs;
 }
 
@@ -121,8 +124,8 @@ struct PageReleaseStats {
   Length soft_limit_exceeded;
   Length hard_limit_exceeded;
 
-  constexpr friend PageReleaseStats operator+(const PageReleaseStats& lhs,
-                                              const PageReleaseStats& rhs) {
+  [[nodiscard]] constexpr friend PageReleaseStats operator+(
+      const PageReleaseStats& lhs, const PageReleaseStats& rhs) {
     return {
         .total = lhs.total + rhs.total,
 
@@ -154,8 +157,8 @@ struct PageReleaseStats {
                  v.hard_limit_exceeded);
   }
 
-  constexpr friend bool operator==(const PageReleaseStats& lhs,
-                                   const PageReleaseStats& rhs) {
+  [[nodiscard]] constexpr friend bool operator==(const PageReleaseStats& lhs,
+                                                 const PageReleaseStats& rhs) {
     return lhs.total == rhs.total &&
            lhs.release_memory_to_system == rhs.release_memory_to_system &&
            lhs.process_background_actions == rhs.process_background_actions &&
@@ -163,8 +166,8 @@ struct PageReleaseStats {
            lhs.hard_limit_exceeded == rhs.hard_limit_exceeded;
   }
 
-  constexpr friend bool operator!=(const PageReleaseStats& lhs,
-                                   const PageReleaseStats& rhs) {
+  [[nodiscard]] constexpr friend bool operator!=(const PageReleaseStats& lhs,
+                                                 const PageReleaseStats& rhs) {
     return !(lhs == rhs);
   }
 };
@@ -182,25 +185,25 @@ class PageAllocInfo {
   void RecordFree(Range r);
   void RecordRelease(Length n, Length got, PageReleaseReason reason);
 
-  PageReleaseStats GetRecordedReleases() const;
+  [[nodiscard]] PageReleaseStats GetRecordedReleases() const;
 
   // And invoking this in their Print() implementation.
   void Print(Printer& out) const;
   void PrintInPbtxt(PbtxtRegion& region, absl::string_view stat_name) const;
 
   // Total size of allocations < 1 MiB
-  Length small() const { return total_small_; }
+  [[nodiscard]] Length small() const { return total_small_; }
   // We define the "slack" of an allocation as the difference
   // between its size and the nearest hugepage multiple (i.e. how
   // much would go unused if we allocated it as an aligned hugepage
   // and didn't use the rest.)
   // Return the total slack of all non-small allocations.
-  Length slack() const { return total_slack_; }
+  [[nodiscard]] Length slack() const { return total_slack_; }
 
-  const Counts& counts_for(Length n) const;
+  [[nodiscard]] const Counts& counts_for(Length n) const;
 
   // Returns (approximate) CycleClock ticks since class instantiation.
-  int64_t TimeTicks() const;
+  [[nodiscard]] int64_t TimeTicks() const;
 
  private:
   Length total_small_;

@@ -44,14 +44,16 @@ class ABSL_ATTRIBUTE_TRIVIAL_ABI HardwareLength {
   constexpr HardwareLength(const HardwareLength&) = default;
   constexpr HardwareLength& operator=(const HardwareLength&) = default;
 
-  constexpr size_t raw_num() const { return n_; }
+  [[nodiscard]] constexpr size_t raw_num() const { return n_; }
   // Scales by the runtime page size, not EXEC_PAGESIZE: the latter is a
   // compile-time upper bound (64 KiB on aarch64 headers) that can differ from
   // the page size of the running kernel.
-  size_t in_bytes() const { return n_ * GetPageSize(); }
+  [[nodiscard]] size_t in_bytes() const { return n_ * GetPageSize(); }
 
-  static constexpr HardwareLength min() { return HardwareLength(0); }
-  static constexpr HardwareLength max() {
+  [[nodiscard]] static constexpr HardwareLength min() {
+    return HardwareLength(0);
+  }
+  [[nodiscard]] static constexpr HardwareLength max() {
     return HardwareLength(std::numeric_limits<size_t>::max());
   }
 
@@ -194,8 +196,9 @@ TCMALLOC_ATTRIBUTE_CONST inline constexpr HardwareLength operator%(
   return lhs %= rhs;
 }
 
-TCMALLOC_ATTRIBUTE_CONST
-inline constexpr HardwareLength NHardwarePages(size_t n) {
+[[nodiscard]]
+TCMALLOC_ATTRIBUTE_CONST inline constexpr HardwareLength NHardwarePages(
+    size_t n) {
   return HardwareLength(n);
 }
 

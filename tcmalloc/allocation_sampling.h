@@ -43,7 +43,7 @@ namespace tcmalloc::tcmalloc_internal {
 
 class Static;
 
-std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state);
+[[nodiscard]] std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state);
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 // For RSEQ enabled builds, we declare the sampler in percpu.h so that we can
 // reference its address in percpu_tcmalloc.h without creating a circular
@@ -55,7 +55,7 @@ ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 #endif
 
-inline Sampler& GetThreadSampler() {
+[[nodiscard]] inline Sampler& GetThreadSampler() {
   static_assert(sizeof(Sampler) == TCMALLOC_SAMPLER_SIZE,
                 "update TCMALLOC_SAMPLER_SIZE");
   static_assert(alignof(Sampler) == TCMALLOC_SAMPLER_ALIGN,
@@ -88,7 +88,7 @@ inline Sampler& GetThreadSampler() {
 // stacktrace struct, this function simply cheats and returns original
 // object. As if no sampling was requested.
 template <typename Policy>
-ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
+[[nodiscard]] ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     Static& state, Policy policy, size_t requested_size, size_t weight,
     size_t size_class, Span* absl_nullable span) {
   TC_CHECK_EQ(size_class != 0, span == nullptr);
@@ -272,23 +272,27 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
 }
 
 template <typename Policy>
-static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
-                                         size_t requested_size, size_t weight,
-                                         Span* span) {
+[[nodiscard]] static sized_ptr_t SampleLargeAllocation(Static& state,
+                                                       Policy policy,
+                                                       size_t requested_size,
+                                                       size_t weight,
+                                                       Span* span) {
   return SampleifyAllocation(state, policy, requested_size, weight, 0, span);
 }
 
 template <typename Policy>
-static sized_ptr_t SampleSmallAllocation(Static& state, Policy policy,
-                                         size_t requested_size, size_t weight,
-                                         size_t size_class) {
+[[nodiscard]] static sized_ptr_t SampleSmallAllocation(Static& state,
+                                                       Policy policy,
+                                                       size_t requested_size,
+                                                       size_t weight,
+                                                       size_t size_class) {
   return SampleifyAllocation(state, policy, requested_size, weight, size_class,
                              nullptr);
 }
 
 // Rewrite type so that the allocation type falls into one of the categories we
 // use for deallocations (new or malloc, not aligned new).
-static inline AllocationType SimplifyType(AllocationType type) {
+[[nodiscard]] static inline AllocationType SimplifyType(AllocationType type) {
   switch (type) {
     case AllocationType::New:
     case AllocationType::Malloc:

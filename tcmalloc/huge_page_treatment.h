@@ -98,7 +98,8 @@ struct HugePageTreatmentStats {
   double collapse_time_total_cycles = 0;
   double collapse_time_max_cycles = 0;
   size_t collapse_intervals_skipped = 0;
-  static absl::string_view ErrorTypeToString(CollapseErrorType type) {
+  [[nodiscard]] static absl::string_view ErrorTypeToString(
+      CollapseErrorType type) {
     switch (type) {
       case CollapseErrorType::kENoMem:
         return "ETYPE_NOMEM";
@@ -117,7 +118,7 @@ struct HugePageTreatmentStats {
     }
   }
 
-  static size_t ErrorTypeToIndex(CollapseErrorType type) {
+  [[nodiscard]] static size_t ErrorTypeToIndex(CollapseErrorType type) {
     return static_cast<size_t>(type);
   }
 
@@ -164,7 +165,7 @@ struct HugePageTreatmentStats {
 template <class TrackerType>
 class HugePageFiller;
 
-inline size_t RoundDown(size_t metric, size_t align) {
+[[nodiscard]] inline size_t RoundDown(size_t metric, size_t align) {
   return metric & ~(align - 1);
 }
 
@@ -179,7 +180,7 @@ class HugePageTreatment {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   // Returns the number of trackers that have been selected for treatment.
-  virtual int num_valid_trackers() const = 0;
+  [[nodiscard]] virtual int num_valid_trackers() const = 0;
 
   // Applies treatment to the selected trackers outside of pageheap lock. The
   // HugePageFiller will take care of preventing these trackers from going out
@@ -240,7 +241,9 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     }
   }
 
-  int num_valid_trackers() const override { return num_valid_trackers_; }
+  [[nodiscard]] int num_valid_trackers() const override {
+    return num_valid_trackers_;
+  }
 
   void Treat() ABSL_LOCKS_EXCLUDED(pageheap_lock) override {
     TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
@@ -341,7 +344,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   //    kMaxSwappedPagesForCollapse respectively.
   // 3. Acquire the pageheap lock and restore the recorded state using Restore
   //    (e.g. update the residency information in the trackers).
-  static bool CompareForHugePageTreatment(PageTracker* a, PageTracker* b) {
+  [[nodiscard]] static bool CompareForHugePageTreatment(PageTracker* a,
+                                                        PageTracker* b) {
     TC_ASSERT_NE(a, nullptr);
     TC_ASSERT_NE(b, nullptr);
     if (a->nobjects() > b->nobjects()) return true;
@@ -401,9 +405,11 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     }
   }
 
-  int num_valid_trackers() const override { return num_valid_trackers_; }
+  [[nodiscard]] int num_valid_trackers() const override {
+    return num_valid_trackers_;
+  }
 
-  bool tracker_list_full() const {
+  [[nodiscard]] bool tracker_list_full() const {
     return num_valid_trackers_ >= kTotalTrackersToScan;
   }
 
@@ -546,7 +552,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     }
   }
 
-  HugePageTreatmentStats GetStats() const { return treatment_stats_; }
+  [[nodiscard]] HugePageTreatmentStats GetStats() const {
+    return treatment_stats_;
+  }
 
   void UpdateHugePageTreatmentStats(HugePageTreatmentStats& stats) {
     stats += treatment_stats_;
@@ -566,7 +574,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
  private:
-  bool TryUserspaceCollapse(PageTracker* tracker) {
+  [[nodiscard]] bool TryUserspaceCollapse(PageTracker* tracker) {
     double before = clock_.now();
     MemoryModifyStatus ret = tracker->Collapse(collapse_);
     double after = clock_.now();

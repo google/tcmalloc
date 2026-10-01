@@ -66,15 +66,18 @@ class PageFlagsBase {
   PageFlagsBase(PageFlagsBase&&) = delete;
   PageFlagsBase& operator=(const PageFlagsBase&) = delete;
   PageFlagsBase& operator=(PageFlagsBase&&) = delete;
-  virtual std::optional<bool> IsHugepageBacked(const void* addr) = 0;
-  virtual std::optional<PageStats> Get(const void* addr, size_t size) = 0;
+  [[nodiscard]] virtual std::optional<bool> IsHugepageBacked(
+      const void* addr) = 0;
+  [[nodiscard]] virtual std::optional<PageStats> Get(const void* addr,
+                                                     size_t size) = 0;
 
   struct PageFlagsBitmaps {
     ResidencyBitmap stale;
     absl::StatusCode status;
   };
 
-  virtual PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) = 0;
+  [[nodiscard]] virtual PageFlagsBitmaps GetSinglePageBitmaps(
+      const void* addr) = 0;
 };
 
 // PageFlags offers a look at kernel page flags to identify pieces of memory as
@@ -105,13 +108,15 @@ class PageFlags final : public PageFlagsBase {
   // dynamic memory allocation would happen.  In contrast, absl::StatusOr may
   // dynamically allocate memory when needed.  Using std::optional allows us to
   // use the function in places where memory allocation is prohibited.
-  std::optional<PageStats> Get(const void* addr, size_t size) override;
-  PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override;
-  std::optional<bool> IsHugepageBacked(const void* addr) override;
+  [[nodiscard]] std::optional<PageStats> Get(const void* addr,
+                                             size_t size) override;
+  [[nodiscard]] PageFlagsBitmaps GetSinglePageBitmaps(
+      const void* addr) override;
+  [[nodiscard]] std::optional<bool> IsHugepageBacked(const void* addr) override;
 
  private:
   // Returns the offset in the pageflags file for the given virtual address.
-  size_t GetOffset(uintptr_t vaddr);
+  [[nodiscard]] size_t GetOffset(uintptr_t vaddr);
 
   // This helper seeks the internal file to the correct location for the given
   // virtual address.
@@ -119,16 +124,16 @@ class PageFlags final : public PageFlagsBase {
 
   // Tries to read staleness information about the page that contains vaddr.
   // Possibly seeks backwards in an effort to find head hugepages.
-  absl::StatusCode MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
-                                bool& is_huge);
+  [[nodiscard]] absl::StatusCode MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
+                                              bool& is_huge);
   // This helper reads staleness information for `num_pages` worth of _full_
   // pages and puts the results into `output`. It continues the read from the
   // last Seek() or last Read operation.
-  absl::StatusCode ReadMany(int64_t num_pages, PageStats& output);
+  [[nodiscard]] absl::StatusCode ReadMany(int64_t num_pages, PageStats& output);
 
   static constexpr const char* kKstaledScanSeconds =
       "/sys/kernel/mm/kstaled/scan_seconds";
-  uint64_t MaybeReadStaleScanSeconds(
+  [[nodiscard]] uint64_t MaybeReadStaleScanSeconds(
       const char* filename = kKstaledScanSeconds);
 
   // For testing.

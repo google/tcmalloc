@@ -118,9 +118,10 @@ class GuardedPageAllocator {
   // returns an instance of GuardedAllocWithStatus, that includes guarded
   // allocation Span and guarded status. Otherwise, returns nullptr and the
   // status indicating why the allocation may not be guarded.
-  GuardedAllocWithStatus TrySample(size_t size, std::align_val_t alignment,
-                                   Length num_pages,
-                                   const StackTrace& stack_trace);
+  [[nodiscard]] GuardedAllocWithStatus TrySample(size_t size,
+                                                 std::align_val_t alignment,
+                                                 Length num_pages,
+                                                 const StackTrace& stack_trace);
 
   // On success, returns an instance of GuardedAllocWithStatus which includes a
   // pointer to size bytes of page-guarded memory, aligned to alignment.  The
@@ -134,8 +135,9 @@ class GuardedPageAllocator {
   //
   // Precondition:  size and alignment <= page_size_
   // Precondition:  alignment is 0 or a power of 2
-  GuardedAllocWithStatus Allocate(size_t size, std::align_val_t alignment,
-                                  const StackTrace& stack_trace)
+  [[nodiscard]] GuardedAllocWithStatus Allocate(size_t size,
+                                                std::align_val_t alignment,
+                                                const StackTrace& stack_trace)
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Deallocates memory pointed to by ptr.  ptr must have been previously
@@ -145,11 +147,11 @@ class GuardedPageAllocator {
 
   // Returns the size requested when ptr was allocated.  ptr must have been
   // previously returned by a call to Allocate.
-  size_t GetRequestedSize(const void* absl_nonnull ptr) const;
+  [[nodiscard]] size_t GetRequestedSize(const void* absl_nonnull ptr) const;
 
   // Returns ptr's offset from the beginning of its allocation along with the
   // allocation's size.
-  std::pair<off_t, size_t> GetAllocationOffsetAndSize(
+  [[nodiscard]] std::pair<off_t, size_t> GetAllocationOffsetAndSize(
       const void* absl_nonnull ptr) const;
 
   // Records stack traces in alloc_trace and dealloc_trace for the page nearest
@@ -161,7 +163,7 @@ class GuardedPageAllocator {
   // Returns the likely error type for an access at ptr.
   //
   // Requires that ptr points to memory mapped by this class.
-  GuardedAllocationsErrorType GetStackTraces(
+  [[nodiscard]] GuardedAllocationsErrorType GetStackTraces(
       const void* absl_nonnull ptr, GuardedAllocationsStackTrace** alloc_trace,
       GuardedAllocationsStackTrace** dealloc_trace) const;
 
@@ -172,7 +174,7 @@ class GuardedPageAllocator {
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Returns true if ptr points to memory managed by this class.
-  bool ABSL_ATTRIBUTE_ALWAYS_INLINE
+  [[nodiscard]] bool ABSL_ATTRIBUTE_ALWAYS_INLINE
   PointerIsMine(const void* absl_nullable ptr) const {
     uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
     return pages_base_addr_ <= addr && addr < pages_end_addr_;
@@ -193,15 +195,15 @@ class GuardedPageAllocator {
 
   // Returns the number of pages available for allocation, based on how many are
   // currently in use.  (Should only be used in testing.)
-  size_t GetNumAvailablePages() const {
+  [[nodiscard]] size_t GetNumAvailablePages() const {
     return max_allocated_pages_ - allocated_pages();
   }
 
   // Resets sampling state.
   void Reset();
 
-  size_t page_size() const { return page_size_; }
-  size_t successful_allocations() const {
+  [[nodiscard]] size_t page_size() const { return page_size_; }
+  [[nodiscard]] size_t successful_allocations() const {
     return successful_allocations_.value();
   }
   [[nodiscard]] bool guard_pages_supported() const {
@@ -234,39 +236,43 @@ class GuardedPageAllocator {
   // Reserves and returns a slot randomly selected from the free slots in
   // used_pages_.  Returns -1 if no slots available, or if AllowAllocations()
   // hasn't been called yet.
-  ssize_t ReserveFreeSlot() ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
+  [[nodiscard]] ssize_t ReserveFreeSlot()
+      ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Returns a random free slot in used_pages_.
-  size_t GetFreeSlot() ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock_);
+  [[nodiscard]] size_t GetFreeSlot()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock_);
 
   // Marks the specified slot as unreserved.
   void FreeSlot(size_t slot) ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock_);
 
   // Returns the address of the page that addr resides on.
-  uintptr_t GetPageAddr(uintptr_t addr) const;
+  [[nodiscard]] uintptr_t GetPageAddr(uintptr_t addr) const;
 
   // Returns an address somewhere on the valid page nearest to addr.
-  uintptr_t GetNearestValidPage(uintptr_t addr) const;
+  [[nodiscard]] uintptr_t GetNearestValidPage(uintptr_t addr) const;
 
   // Returns the slot number for the page nearest to addr.
-  size_t GetNearestSlot(uintptr_t addr) const;
+  [[nodiscard]] size_t GetNearestSlot(uintptr_t addr) const;
 
   // Returns true if magic bytes for slot were overwritten.
-  bool WriteOverflowOccurred(size_t slot) const;
+  [[nodiscard]] bool WriteOverflowOccurred(size_t slot) const;
 
   // Returns the likely error type for the given access address and metadata
   // associated with the nearest slot.
-  GuardedAllocationsErrorType GetErrorType(uintptr_t addr,
-                                           const SlotMetadata& d) const;
+  [[nodiscard]] GuardedAllocationsErrorType GetErrorType(
+      uintptr_t addr, const SlotMetadata& d) const;
 
   // Magic constant used for detecting write-overflows at deallocation time.
-  static uint8_t GetWriteOverflowMagic(size_t slot) {
+  [[nodiscard]] static uint8_t GetWriteOverflowMagic(size_t slot) {
     // Only even slots get magic bytes, so use slot / 2 for more unique magics.
     return uint8_t{0xcd} * static_cast<uint8_t>(slot / 2);
   }
 
   // Returns true if slot should be right aligned.
-  static bool ShouldRightAlign(size_t slot) { return slot % 2 == 0; }
+  [[nodiscard]] static bool ShouldRightAlign(size_t slot) {
+    return slot % 2 == 0;
+  }
 
   // If slot is marked for right alignment, moves the allocation in *ptr to the
   // right end of the slot, maintaining the specified size and alignment.  Magic
@@ -274,8 +280,8 @@ class GuardedPageAllocator {
   void MaybeRightAlign(size_t slot, size_t size, std::align_val_t alignment,
                        void** absl_nonnull ptr);
 
-  uintptr_t SlotToAddr(size_t slot) const;
-  size_t AddrToSlot(uintptr_t addr) const;
+  [[nodiscard]] uintptr_t SlotToAddr(size_t slot) const;
+  [[nodiscard]] size_t AddrToSlot(uintptr_t addr) const;
 
   struct ProtectResult {
     int error;
@@ -289,7 +295,7 @@ class GuardedPageAllocator {
   [[nodiscard]] int UnprotectPage(void* addr, size_t size,
                                   bool mprotect_quarantined);
 
-  size_t allocated_pages() const {
+  [[nodiscard]] size_t allocated_pages() const {
     return allocated_pages_.load(std::memory_order_relaxed);
   }
 

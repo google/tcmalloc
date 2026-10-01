@@ -58,19 +58,20 @@ void SelectExperiments(bool* absl_nonnull buffer, absl::string_view test_target,
                        bool unset, absl::string_view hostname,
                        absl::Span<const ExperimentConfig> experiments);
 
-absl::string_view LookupHostname();
+[[nodiscard]] absl::string_view LookupHostname();
 
-std::optional<uint64_t> CalculateRolloutBucket(absl::string_view hostname,
-                                               absl::string_view salt);
+[[nodiscard]] std::optional<uint64_t> CalculateRolloutBucket(
+    absl::string_view hostname, absl::string_view salt);
 
-bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
-                                absl::string_view hostname);
+[[nodiscard]] bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
+                                              absl::string_view hostname);
 
 }  // namespace tcmalloc_internal
 
-bool IsExperimentActive(Experiment exp);
+[[nodiscard]] bool IsExperimentActive(Experiment exp);
 
-std::optional<Experiment> FindExperimentByName(absl::string_view name);
+[[nodiscard]] std::optional<Experiment> FindExperimentByName(
+    absl::string_view name);
 
 void WalkExperiments(
     absl::FunctionRef<void(absl::string_view name, bool active)> callback);
