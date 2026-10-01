@@ -212,7 +212,7 @@ template <size_t NumPartitions, size_t ScaleBy>
 inline void NumaTopology<NumPartitions, ScaleBy>::Init() {
   static_assert(offsetof(NumaTopology, gated_cpu_to_scaled_partition_) +
                         sizeof(gated_cpu_to_scaled_partition_) +
-                        sizeof(*gated_cpu_to_scaled_partition_.data()) >=
+                        sizeof(gated_cpu_to_scaled_partition_[0]) >=
                     sizeof(NumaTopology),
                 "cpu_to_scaled_partition_ is not the last field");
   numa_aware_ = InitNumaTopology(
