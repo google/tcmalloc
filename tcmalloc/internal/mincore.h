@@ -28,7 +28,8 @@ class MInCoreInterface {
  public:
   MInCoreInterface() = default;
   virtual ~MInCoreInterface() = default;
-  virtual int mincore(void* addr, size_t length, unsigned char* result) = 0;
+  [[nodiscard]] virtual int mincore(void* addr, size_t length,
+                                    unsigned char* result) = 0;
 
  private:
   MInCoreInterface(const MInCoreInterface&) = delete;
@@ -45,12 +46,12 @@ class MInCore {
   // For a region of memory return the number of bytes that are
   // actually resident in memory. Note that the address and size
   // do not need to be a multiple of the system page size.
-  static size_t residence(void* addr, size_t size);
+  [[nodiscard]] static size_t residence(void* addr, size_t size);
 
  private:
   // Separate out the implementation to make the code easier to test.
-  static size_t residence_impl(void* addr, size_t size,
-                               MInCoreInterface* mincore);
+  [[nodiscard]] static size_t residence_impl(void* addr, size_t size,
+                                             MInCoreInterface* mincore);
 
   // Size of the array used to gather results from mincore().
   static constexpr int kArrayLength = 4096;

@@ -287,7 +287,7 @@ class Printer {
     AppendPieces({static_cast<const absl::AlphaNum&>(args).Piece()...});
   }
 
-  size_t SpaceRequired() const { return required_; }
+  [[nodiscard]] size_t SpaceRequired() const { return required_; }
 
  private:
   void AppendPieces(std::initializer_list<absl::string_view> pieces) {
@@ -335,7 +335,7 @@ class PbtxtRegion {
   void PrintRaw(absl::string_view key, absl::string_view value);
 
   // Prints 'key subregion'. Return the created subregion.
-  PbtxtRegion CreateSubRegion(absl::string_view key)
+  [[nodiscard]] PbtxtRegion CreateSubRegion(absl::string_view key)
       ABSL_ATTRIBUTE_LIFETIME_BOUND;
 
 #ifndef NDEBUG

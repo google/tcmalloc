@@ -2435,7 +2435,7 @@ TEST(TouchedCpus, Multithreaded) {
   }
 
   threads.Start(10, [&](int thread_id) {
-    subtle::percpu::IsFast();
+    ASSERT_TRUE(subtle::percpu::IsFast());
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     const int cpu_id_start =
