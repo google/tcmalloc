@@ -772,7 +772,8 @@ class CpuCache {
       uint8_t resize_offset);
 
   // madvise-away slab memory, pointed to by <slab_addr> of size <slab_size>.
-  void MadviseAwaySlabs(void* slab_addr, size_t slab_size);
+  void MadviseAwaySlabs(void* slab_addr, size_t slab_size,
+                        bool skip_nohugepage);
 
   void SetSlabAnonVmaName(void* ptr, size_t size, bool is_drained);
 
@@ -1442,7 +1443,10 @@ inline void CpuCache<Forwarder>::TryDrainingCaches()
           resize_[cpu].num_unpopulates.fetch_add(1, std::memory_order_relaxed);
         },
         [this](void* slab_addr, size_t slab_size) {
-          return MadviseAwaySlabs(slab_addr, slab_size);
+          // NOTE: Since we unpopulate the CPUs, which means they'll be
+          // repopulated later before use, we don't need MADV_NOHUGEPAGE here.
+          return MadviseAwaySlabs(slab_addr, slab_size,
+                                  /*skip_nohugepage=*/true);
         });
     for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
   }
@@ -1578,7 +1582,8 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 }
 
 template <class Forwarder>
-void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
+void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size,
+                                           bool skip_nohugepage) {
   SetSlabAnonVmaName(slab_addr, slab_size, /*is_drained=*/true);
   // It is important that we do not MADV_REMOVE the memory, since file-backed
   // pages may SIGSEGV/SIGBUS if another thread sees the previous slab after
@@ -1590,8 +1595,9 @@ void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
   ErrnoRestorer errno_restorer;
   bool madvise_failed = false;
   do {
-    madvise_failed = madvise(slab_addr, slab_size, MADV_NOHUGEPAGE) |
-                     madvise(slab_addr, slab_size, MADV_DONTNEED);
+    madvise_failed =
+        (skip_nohugepage ? 0 : madvise(slab_addr, slab_size, MADV_NOHUGEPAGE)) |
+        madvise(slab_addr, slab_size, MADV_DONTNEED);
   } while (madvise_failed && errno == EAGAIN);
 
   int ret = 0;
@@ -1602,8 +1608,10 @@ void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
     } while (ret == -1 && errno == EAGAIN);
 
     do {
-      madvise_failed = madvise(slab_addr, slab_size, MADV_NOHUGEPAGE) |
-                       madvise(slab_addr, slab_size, MADV_DONTNEED);
+      madvise_failed =
+          (skip_nohugepage ? 0
+                           : madvise(slab_addr, slab_size, MADV_NOHUGEPAGE)) |
+          madvise(slab_addr, slab_size, MADV_DONTNEED);
     } while (madvise_failed && errno == EAGAIN);
   }
 
@@ -1685,7 +1693,8 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
 
-  MadviseAwaySlabs(info.old_slabs, info.old_slabs_size);
+  MadviseAwaySlabs(info.old_slabs, info.old_slabs_size,
+                   /*skip_nohugepage=*/false);
   const int64_t old_slabs_size = info.old_slabs_size;
   forwarder_.ArenaUpdateAllocatedAndNonresident(-old_slabs_size,
                                                 old_slabs_size - reused_bytes);
@@ -2529,7 +2538,8 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
 
-  MadviseAwaySlabs(info.old_slabs, info.old_slabs_size);
+  MadviseAwaySlabs(info.old_slabs, info.old_slabs_size,
+                   /*skip_nohugepage=*/false);
   const int64_t old_slabs_size = info.old_slabs_size;
   forwarder_.ArenaUpdateAllocatedAndNonresident(-old_slabs_size,
                                                 old_slabs_size - reused_bytes);
