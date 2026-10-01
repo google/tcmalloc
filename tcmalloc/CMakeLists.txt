@@ -1439,6 +1439,7 @@ tcmalloc_cc_test(
     "absl::bits"
     "absl::core_headers"
     "absl::flat_hash_set"
+    "absl::strings"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_page_size"
