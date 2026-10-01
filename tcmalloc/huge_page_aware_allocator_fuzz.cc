@@ -506,17 +506,6 @@ struct SetReleaseMaxFillerPages {
   }
 };
 
-struct SetReleaseMaxSampledPages {
-  bool value;
-
-  void Perform(State& state) const;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const SetReleaseMaxSampledPages& s) {
-    absl::Format(&sink, "SetReleaseMaxSampledPages{.value=%v}", s.value);
-  }
-};
-
 struct SetEnableReleaseStalePages {
   bool value;
 
@@ -594,9 +583,8 @@ using ParamOp = std::variant<
     SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
-    SetReleaseMaxFillerPages, SetReleaseMaxSampledPages,
-    SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions, UpdateBitmaps,
-    SetUsageLimitPressure>;
+    SetReleaseMaxFillerPages, SetEnableReleaseStalePages,
+    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -1177,10 +1165,6 @@ void SetReleaseMaxFillerPages::Perform(State& state) const {
   state.allocator.forwarder().set_release_max_filler_pages(value);
 }
 
-void SetReleaseMaxSampledPages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_max_sampled_pages(value);
-}
-
 void SetEnableReleaseStalePages::Perform(State& state) const {
   state.allocator.forwarder().set_release_stale_pages(
       value ? ReleaseStalePages::kEnabled : ReleaseStalePages::kDisabled);
@@ -1325,8 +1309,6 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                     fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
       fuzztest::Map([](SetReleaseMaxFillerPages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetReleaseMaxFillerPages>()),
-      fuzztest::Map([](SetReleaseMaxSampledPages s) { return ChangeParam{s}; },
-                    fuzztest::Arbitrary<SetReleaseMaxSampledPages>()),
       fuzztest::Map([](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
       fuzztest::Map(

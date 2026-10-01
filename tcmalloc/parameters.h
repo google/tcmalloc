@@ -152,14 +152,6 @@ class Parameters {
     TCMalloc_Internal_SetReleaseMaxFillerPages(value);
   }
 
-  static bool release_max_sampled_pages() {
-    return release_max_sampled_pages_.load(std::memory_order_relaxed);
-  }
-
-  static void set_release_max_sampled_pages(bool value) {
-    TCMalloc_Internal_SetReleaseMaxSampledPages(value);
-  }
-
   static MadviseRegionsNoHugepage madvise_cold_regions_nohugepage();
 
   static void set_madvise_cold_regions_nohugepage(bool value) {
@@ -288,7 +280,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v);
   friend void ::TCMalloc_Internal_SetReleaseMaxColdPages(bool v);
   friend void ::TCMalloc_Internal_SetReleaseMaxFillerPages(bool v);
-  friend void ::TCMalloc_Internal_SetReleaseMaxSampledPages(bool v);
   friend void ::TCMalloc_Internal_SetMadviseSampledAllocations(
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
   friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
@@ -314,7 +305,6 @@ class Parameters {
   static std::atomic<bool> enable_unfiltered_collapse_;
   static std::atomic<bool> release_max_cold_pages_;
   static std::atomic<bool> release_max_filler_pages_;
-  static std::atomic<bool> release_max_sampled_pages_;
   static std::atomic<MadviseSampledAllocations> madvise_sampled_allocations_;
   static std::atomic<int64_t> event_trace_memory_limit_;
   static std::atomic<bool> release_drained_slab_metadata_;
