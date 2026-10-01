@@ -70,7 +70,7 @@ class SampleRecorder {
 
   // Registers for sampling.  Returns an opaque registration info.
   template <typename... Targs>
-  T* Register(Targs&&... args);
+  [[nodiscard]] T* Register(Targs&&... args);
 
   // Unregisters the sample.
   void Unregister(T* sample);
@@ -91,7 +91,7 @@ class SampleRecorder {
   void PushNew(T* sample);
   void PushDead(T* sample);
   template <typename... Targs>
-  T* PopDead(Targs&&... args);
+  [[nodiscard]] T* PopDead(Targs&&... args);
 
   // Intrusive lock free linked lists for tracking samples.
   //

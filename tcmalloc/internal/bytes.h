@@ -39,10 +39,10 @@ class ABSL_ATTRIBUTE_TRIVIAL_ABI Bytes {
   constexpr Bytes(const Bytes&) = default;
   constexpr Bytes& operator=(const Bytes&) = default;
 
-  constexpr size_t raw_num() const { return n_; }
+  [[nodiscard]] constexpr size_t raw_num() const { return n_; }
 
-  static constexpr Bytes min() { return Bytes(0); }
-  static constexpr Bytes max() {
+  [[nodiscard]] static constexpr Bytes min() { return Bytes(0); }
+  [[nodiscard]] static constexpr Bytes max() {
     return Bytes(std::numeric_limits<size_t>::max());
   }
 
@@ -78,22 +78,22 @@ class ABSL_ATTRIBUTE_TRIVIAL_ABI Bytes {
     return *this;
   }
 
-  friend constexpr bool operator<(Bytes lhs, Bytes rhs) {
+  [[nodiscard]] friend constexpr bool operator<(Bytes lhs, Bytes rhs) {
     return lhs.n_ < rhs.n_;
   }
-  friend constexpr bool operator>(Bytes lhs, Bytes rhs) {
+  [[nodiscard]] friend constexpr bool operator>(Bytes lhs, Bytes rhs) {
     return lhs.n_ > rhs.n_;
   }
-  friend constexpr bool operator<=(Bytes lhs, Bytes rhs) {
+  [[nodiscard]] friend constexpr bool operator<=(Bytes lhs, Bytes rhs) {
     return lhs.n_ <= rhs.n_;
   }
-  friend constexpr bool operator>=(Bytes lhs, Bytes rhs) {
+  [[nodiscard]] friend constexpr bool operator>=(Bytes lhs, Bytes rhs) {
     return lhs.n_ >= rhs.n_;
   }
-  friend constexpr bool operator==(Bytes lhs, Bytes rhs) {
+  [[nodiscard]] friend constexpr bool operator==(Bytes lhs, Bytes rhs) {
     return lhs.n_ == rhs.n_;
   }
-  friend constexpr bool operator!=(Bytes lhs, Bytes rhs) {
+  [[nodiscard]] friend constexpr bool operator!=(Bytes lhs, Bytes rhs) {
     return lhs.n_ != rhs.n_;
   }
 
@@ -106,8 +106,8 @@ class ABSL_ATTRIBUTE_TRIVIAL_ABI Bytes {
   size_t n_;
 };
 
-inline bool AbslParseFlag(absl::string_view text, Bytes* b,
-                          std::string* /* error */) {
+[[nodiscard]] inline bool AbslParseFlag(absl::string_view text, Bytes* b,
+                                        std::string* /* error */) {
   size_t n;
   if (!absl::SimpleAtoi(text, &n)) {
     return false;
@@ -116,7 +116,9 @@ inline bool AbslParseFlag(absl::string_view text, Bytes* b,
   return true;
 }
 
-inline std::string AbslUnparseFlag(Bytes b) { return absl::StrCat(b); }
+[[nodiscard]] inline std::string AbslUnparseFlag(Bytes b) {
+  return absl::StrCat(b);
+}
 
 inline Bytes& operator++(Bytes& b) { return b += Bytes(1); }
 inline Bytes& operator--(Bytes& b) { return b -= Bytes(1); }
