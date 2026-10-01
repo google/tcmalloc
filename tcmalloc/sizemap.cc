@@ -47,6 +47,12 @@ const SizeClasses& SizeMap::CurrentClasses() {
       return kExperimentalPow2SizeClasses;
     case SizeClassConfiguration::kReuseRelaxedBelow64:
       return kSizeClasses;
+    case SizeClassConfiguration::kReuseRelaxedBelow64Rd00:
+      return kSizeClassesRd00;
+    case SizeClassConfiguration::kReuseRelaxedBelow64Rd01:
+      return kSizeClassesRd01;
+    case SizeClassConfiguration::kReuseRelaxedBelow64Rd02:
+      return kSizeClassesRd02;
   }
   TC_BUG("unreachable");
 }

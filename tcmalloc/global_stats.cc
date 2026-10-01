@@ -279,6 +279,12 @@ static absl::string_view SizeClassConfigurationString(
       return "SIZE_CLASS_POW2_ONLY";
     case SizeClassConfiguration::kReuseRelaxedBelow64:
       return "SIZE_CLASS_REUSE_RELAXED_BELOW_64";
+    case SizeClassConfiguration::kReuseRelaxedBelow64Rd00:
+      return "SIZE_CLASS_REUSE_RELAXED_BELOW_64_RD00";
+    case SizeClassConfiguration::kReuseRelaxedBelow64Rd01:
+      return "SIZE_CLASS_REUSE_RELAXED_BELOW_64_RD01";
+    case SizeClassConfiguration::kReuseRelaxedBelow64Rd02:
+      return "SIZE_CLASS_REUSE_RELAXED_BELOW_64_RD02";
   }
 
   ASSUME(false);

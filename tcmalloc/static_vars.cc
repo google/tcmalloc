@@ -93,6 +93,15 @@ SizeClassConfiguration Static::size_class_configuration() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     return SizeClassConfiguration::kPow2Only;
   }
+  if (IsExperimentActive(Experiment::TCMALLOC_RD_0_0)) {
+    return SizeClassConfiguration::kReuseRelaxedBelow64Rd00;
+  }
+  if (IsExperimentActive(Experiment::TCMALLOC_RD_0_1)) {
+    return SizeClassConfiguration::kReuseRelaxedBelow64Rd01;
+  }
+  if (IsExperimentActive(Experiment::TCMALLOC_RD_0_2)) {
+    return SizeClassConfiguration::kReuseRelaxedBelow64Rd02;
+  }
   return SizeClassConfiguration::kReuseRelaxedBelow64;
 }
 
