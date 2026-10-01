@@ -24,7 +24,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-ABSL_ATTRIBUTE_PURE_FUNCTION size_t GetPageSize();
+[[nodiscard]] ABSL_ATTRIBUTE_PURE_FUNCTION size_t GetPageSize();
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

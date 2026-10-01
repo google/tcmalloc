@@ -55,7 +55,7 @@ class StackTraceFilter {
 
   // Returns true if the filter contains the provided stack trace. See above
   // formula to calculate the probability of false positives.
-  bool Contains(absl::Span<void* const> stack_trace) const {
+  [[nodiscard]] bool Contains(absl::Span<void* const> stack_trace) const {
     size_t stack_hash = GetFirstHash(stack_trace);
 
     for (size_t i = 0; i < kHashNum; ++i) {
@@ -76,11 +76,11 @@ class StackTraceFilter {
   }
 
  protected:
-  static size_t GetFirstHash(absl::Span<void* const> s) {
+  [[nodiscard]] static size_t GetFirstHash(absl::Span<void* const> s) {
     return absl::HashOf(s);
   }
 
-  static size_t GetNextHash(size_t prev_hash) {
+  [[nodiscard]] static size_t GetNextHash(size_t prev_hash) {
     return absl::HashOf(prev_hash);
   }
 
