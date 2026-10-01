@@ -528,10 +528,10 @@ class CpuCache {
   using Freelist = subtle::percpu::TcmallocSlab<kNumClasses>;
 
   struct PerClassMissCounts {
-    std::atomic<size_t>
+    std::atomic<uint32_t>
         misses[static_cast<size_t>(PerClassMissType::kNumTypes)];
 
-    std::atomic<size_t>& operator[](PerClassMissType type) {
+    std::atomic<uint32_t>& operator[](PerClassMissType type) {
       return misses[static_cast<size_t>(type)];
     }
   };
@@ -588,9 +588,9 @@ class CpuCache {
 
   // Helper type so we don't need to sprinkle `static_cast`s everywhere.
   struct MissCounts {
-    std::atomic<size_t> misses[static_cast<size_t>(MissCount::kNumCounts)];
+    std::atomic<uint32_t> misses[static_cast<size_t>(MissCount::kNumCounts)];
 
-    std::atomic<size_t>& operator[](MissCount miss_count) {
+    std::atomic<uint32_t>& operator[](MissCount miss_count) {
       return misses[static_cast<size_t>(miss_count)];
     }
   };
