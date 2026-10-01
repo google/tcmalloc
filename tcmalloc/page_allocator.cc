@@ -22,6 +22,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -72,6 +73,19 @@ PageAllocator::PageAllocator() {
   } else {
     cold_impl_ = normal_impl_[0];
   }
+
+  size_t total_heaps = 0;
+  if (has_cold_impl_) {
+    all_heaps_[total_heaps++] = cold_impl_;
+  }
+  for (size_t partition = 0; partition < active_partitions(); ++partition) {
+    all_heaps_[total_heaps++] = normal_impl_[partition];
+  }
+  all_heaps_[total_heaps++] = sampled_impl_[0];
+  if (sampled_partition_active_) {
+    all_heaps_[total_heaps++] = sampled_impl_[1];
+  }
+  heaps_ = absl::MakeConstSpan(all_heaps_.data(), total_heaps);
   alg_ = HPAA;
   TC_CHECK_LE(part, std::size(choices_));
 }
@@ -200,26 +214,8 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
           limit);
       warned_hugepages = true;
     }
-    if (has_cold_impl_) {
-      ret += static_cast<HugePageAwareAllocator*>(cold_impl_)
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
-                                                         release_reason);
-      if (ret >= pages) {
-        return true;
-      }
-    }
-    for (int partition = 0; partition < active_partitions(); partition++) {
-      ret += static_cast<HugePageAwareAllocator*>(normal_impl_[partition])
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
-                                                         release_reason);
-      if (ret >= pages) {
-        return true;
-      }
-    }
-    for (int partition = 0;
-         partition < (sampled_partition_active_ ? kSecurityPartitions : 1);
-         partition++) {
-      ret += static_cast<HugePageAwareAllocator*>(sampled_impl_[partition])
+    for (auto* heap : heaps_) {
+      ret += static_cast<HugePageAwareAllocator*>(heap)
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
                                                          release_reason);
       if (ret >= pages) {
