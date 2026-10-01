@@ -51,9 +51,10 @@ class PeakHeapTracker {
   void MaybeSaveSample() ABSL_LOCKS_EXCLUDED(recorder_lock_);
 
   // Return the saved high-water-mark heap profile, if any.
-  std::unique_ptr<ProfileBase> DumpSample() ABSL_LOCKS_EXCLUDED(recorder_lock_);
+  [[nodiscard]] std::unique_ptr<ProfileBase> DumpSample()
+      ABSL_LOCKS_EXCLUDED(recorder_lock_);
 
-  size_t CurrentPeakSize() const {
+  [[nodiscard]] size_t CurrentPeakSize() const {
     return do_not_access_directly_peak_sampled_heap_size_.load(
         std::memory_order_relaxed);
   }
@@ -84,7 +85,7 @@ class PeakHeapTracker {
   // when we allocate memory from the system.
   PeakHeapRecorder peak_heap_recorder_ ABSL_GUARDED_BY(recorder_lock_);
 
-  bool IsNewPeak();
+  [[nodiscard]] bool IsNewPeak();
 };
 
 }  // namespace tcmalloc_internal

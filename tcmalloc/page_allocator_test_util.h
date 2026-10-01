@@ -38,7 +38,8 @@ class ExtraRegion : public AddressRegion {
  public:
   explicit ExtraRegion(AddressRegion* under) : under_(under) {}
 
-  std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override {
+  [[nodiscard]] std::pair<void*, size_t> Alloc(size_t size,
+                                               size_t alignment) override {
     size_t big = size + alignment + alignment;
     // Can't pad if allocation is within 2 * alignment of region size.
     if (big > kMinMmapAlloc) {
@@ -60,7 +61,8 @@ class ExtraRegionFactory : public AddressRegionFactory {
  public:
   explicit ExtraRegionFactory(AddressRegionFactory* under) : under_(under) {}
 
-  AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
+  [[nodiscard]] AddressRegion* Create(void* start, size_t size,
+                                      UsageHint hint) override {
     AddressRegion* underlying_region = under_->Create(start, size, hint);
     TC_CHECK(underlying_region);
     void* region_space = MallocInternal(sizeof(ExtraRegion));
@@ -68,7 +70,7 @@ class ExtraRegionFactory : public AddressRegionFactory {
     return new (region_space) ExtraRegion(underlying_region);
   }
 
-  size_t GetStats(absl::Span<char> buffer) override {
+  [[nodiscard]] size_t GetStats(absl::Span<char> buffer) override {
     return under_->GetStats(buffer);
   }
 

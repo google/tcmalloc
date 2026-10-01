@@ -63,7 +63,7 @@ void PeakHeapTracker::MaybeSaveSample() {
       [this](const SampledAllocation& sampled_allocation) {
         recorder_lock_.AssertHeld();
         StackTrace st = sampled_allocation.sampled_stack;
-        peak_heap_recorder_.Register(std::move(st));
+        (void)peak_heap_recorder_.Register(std::move(st));
       });
 }
 

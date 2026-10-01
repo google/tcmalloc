@@ -140,10 +140,10 @@ StatsTracker: Subrelease stats last 10 min: total 0 pages subreleased.
 
 TEST_F(StatsTrackerTest, InvalidDurations) {
   // These should not crash.
-  tracker_.min_free_pages(absl::InfiniteDuration());
-  tracker_.min_free_pages(kWindow + absl::Seconds(1));
-  tracker_.min_free_pages(-(kWindow + absl::Seconds(1)));
-  tracker_.min_free_pages(-absl::InfiniteDuration());
+  (void)tracker_.min_free_pages(absl::InfiniteDuration());
+  (void)tracker_.min_free_pages(kWindow + absl::Seconds(1));
+  (void)tracker_.min_free_pages(-(kWindow + absl::Seconds(1)));
+  (void)tracker_.min_free_pages(-absl::InfiniteDuration());
 }
 
 TEST_F(StatsTrackerTest, ComputeRecentPeaks) {

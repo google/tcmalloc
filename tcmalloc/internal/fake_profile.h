@@ -42,14 +42,16 @@ class FakeProfile final : public ProfileBase {
   }
 
   // The type of profile (live objects, allocated, etc.).
-  ProfileType Type() const override { return type_; }
+  [[nodiscard]] ProfileType Type() const override { return type_; }
   void SetType(ProfileType type) { type_ = type; }
 
   // The duration of the profile
-  absl::Duration Duration() const override { return duration_; }
+  [[nodiscard]] absl::Duration Duration() const override { return duration_; }
   void SetDuration(absl::Duration duration) { duration_ = duration; }
 
-  std::optional<absl::Time> StartTime() const override { return start_time_; }
+  [[nodiscard]] std::optional<absl::Time> StartTime() const override {
+    return start_time_;
+  }
   void SetStartTime(std::optional<absl::Time> t) { start_time_ = t; }
 
  private:

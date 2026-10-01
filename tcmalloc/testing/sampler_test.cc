@@ -237,7 +237,7 @@ TEST(Sampler, stirring) {
     // Sampler constructor just 0-initializes
     // everything. RecordAllocation really makes sampler initialize
     // itself.
-    sampler->RecordAllocation(1);
+    (void)sampler->RecordAllocation(1);
     // And then we probe sampler's (second) value.
     size_t retval = sampler->PickNextSamplingPoint();
     sampler->Sampler::~Sampler();
