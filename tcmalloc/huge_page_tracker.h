@@ -140,7 +140,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   //
   // Returns a PageId i and a count of previously unbacked pages in the range
   // [i, i+n) in previously_unbacked.
-  PageAllocation Get(Length n, SpanAllocInfo span_alloc_info)
+  [[nodiscard]] PageAllocation Get(Length n, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: r was the result of a previous call to Get(n)
@@ -148,12 +148,12 @@ class PageTracker : public TList<PageTracker>::Elem {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns true if any unused pages have been returned-to-system.
-  bool released() const { return released_count_ > 0; }
+  [[nodiscard]] bool released() const { return released_count_ > 0; }
 
   // Was this tracker donated from the tail of a multi-hugepage allocation?
   // Only up-to-date when the tracker is on a TrackerList in the Filler;
   // otherwise the value is meaningless.
-  bool donated() const { return donated_; }
+  [[nodiscard]] bool donated() const { return donated_; }
 
   // Set/reset the donated flag. The donated status is lost, for instance,
   // when further allocations are made on the tracker.
@@ -162,7 +162,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   // Tracks whether the page was given to the filler in the donated state.  It
   // is not cleared by the filler, allowing the HugePageAwareAllocator to track
   // memory persistently donated to the filler.
-  bool was_donated() const { return was_donated_; }
+  [[nodiscard]] bool was_donated() const { return was_donated_; }
 
   // Set while the hugepage is fully backed again after having been in the
   // released state: an allocation re-backed its last released page.  It is a
@@ -170,19 +170,21 @@ class PageTracker : public TList<PageTracker>::Elem {
   // released from the hugepage again, so was_released() implies !released().
   // The filler counts such hugepages in previously_released_huge_pages()
   // ("became full after being previously released").
-  bool was_released() const { return was_released_; }
+  [[nodiscard]] bool was_released() const { return was_released_; }
   void set_was_released(bool status) { was_released_ = status; }
 
   // Tracks whether the page, previously donated to the filler, was abondoned.
   // When a large allocation is deallocated but the huge page is not
   // reassembled, the pages are abondoned to the filler for future allocations.
-  bool abandoned() const { return abandoned_; }
+  [[nodiscard]] bool abandoned() const { return abandoned_; }
   void set_abandoned(bool status) { abandoned_ = status; }
   // Tracks how many pages were provided when the originating allocation of a
   // donated page was deallocated but other allocations were in use.
   //
   // Requires was_donated().
-  Length abandoned_count() const { return Length(abandoned_count_); }
+  [[nodiscard]] Length abandoned_count() const {
+    return Length(abandoned_count_);
+  }
   void set_abandoned_count(Length count) {
     TC_ASSERT(was_donated_);
     abandoned_count_ = count.raw_num();
@@ -190,34 +192,40 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   // These statistics help us measure the fragmentation of a hugepage and
   // the desirability of allocating from this hugepage.
-  Length longest_free_range() const { return Length(tracker_.longest_free()); }
-  size_t nallocs() const { return tracker_.allocs(); }
-  size_t nobjects() const { return num_objects_; }
-  Length used_pages() const { return Length(tracker_.used()); }
-  Length released_pages() const { return Length(released_count_); }
-  double alloctime() const { return alloctime_; }
-  double last_page_allocation_time() const {
+  [[nodiscard]] Length longest_free_range() const {
+    return Length(tracker_.longest_free());
+  }
+  [[nodiscard]] size_t nallocs() const { return tracker_.allocs(); }
+  [[nodiscard]] size_t nobjects() const { return num_objects_; }
+  [[nodiscard]] Length used_pages() const { return Length(tracker_.used()); }
+  [[nodiscard]] Length released_pages() const {
+    return Length(released_count_);
+  }
+  [[nodiscard]] double alloctime() const { return alloctime_; }
+  [[nodiscard]] double last_page_allocation_time() const {
     return last_page_allocation_time_;
   }
-  bool fully_freed() const { return longest_free_range() == kPagesPerHugePage; }
-  Length free_pages() const;
-  bool empty() const;
+  [[nodiscard]] bool fully_freed() const {
+    return longest_free_range() == kPagesPerHugePage;
+  }
+  [[nodiscard]] Length free_pages() const;
+  [[nodiscard]] bool empty() const;
 
   // This is the snapshot of the features at the time of the last invocation of
   // RecordFeatures().
-  TrackerFeatures features() const { return features_; }
-  bool unbroken() const { return unbroken_; }
+  [[nodiscard]] TrackerFeatures features() const { return features_; }
+  [[nodiscard]] bool unbroken() const { return unbroken_; }
   void set_unbroken(bool status) { unbroken_ = status; }
 
   // Returns the hugepage whose availability is being tracked.
-  HugePage location() const { return location_; }
+  [[nodiscard]] HugePage location() const { return location_; }
 
   // Return all unused pages to the system, mark future frees to do same.
   // Returns the count of pages unbacked.
-  Length ReleaseFree(MemoryModifyFunction& unback)
+  [[nodiscard]] Length ReleaseFree(MemoryModifyFunction& unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  Length MarkSubreleased(const PageBitmap& unbacked)
+  [[nodiscard]] Length MarkSubreleased(const PageBitmap& unbacked)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] const PageBitmap& released_by_page() const
@@ -232,11 +240,11 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   // Attempts to collapse memory tracked by this tracker. Returns true if the
   // collapse was successful.
-  MemoryModifyStatus Collapse(MemoryModifyFunction& collapse);
+  [[nodiscard]] MemoryModifyStatus Collapse(MemoryModifyFunction& collapse);
 
   void AddSpanStats(SmallSpanStats* absl_nullable small,
                     LargeSpanStats* absl_nullable large) const;
-  bool HasDenseSpans() const { return has_dense_spans_; }
+  [[nodiscard]] bool HasDenseSpans() const { return has_dense_spans_; }
   void SetHasDenseSpans() { has_dense_spans_ = true; }
 
   struct HugePageResidencyState {
@@ -288,7 +296,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     // since the tracker has transitioned from broken/no hugepage to hugepage'd.
   }
 
-  HugePageResidencyState GetHugePageResidencyState() const {
+  [[nodiscard]] HugePageResidencyState GetHugePageResidencyState() const {
     return hugepage_residency_state_;
   }
   // Called by a treatment pass when it selects this tracker under
@@ -316,7 +324,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     features_.longest_free_range = longest_free_range();
   }
 
-  bool BeingCollapsed() const {
+  [[nodiscard]] bool BeingCollapsed() const {
     return hugepage_residency_state_.being_collapsed;
   }
 
@@ -351,7 +359,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     bool sampled_for_tagging = false;
     double record_time = 0;
   };
-  TagState GetTagState() const { return tagged_state_; }
+  [[nodiscard]] TagState GetTagState() const { return tagged_state_; }
   void SetTagState(const TagState& state) { tagged_state_ = state; }
 
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
@@ -366,9 +374,9 @@ class PageTracker : public TList<PageTracker>::Elem {
     HardwareLength n_used_stale;
   };
 
-  HardwarePageResidencyInfo CountInfoInHugePage(const PageBitmap& unbacked,
-                                                const PageBitmap& swapped,
-                                                const PageBitmap& stale) const;
+  [[nodiscard]] HardwarePageResidencyInfo CountInfoInHugePage(
+      const PageBitmap& unbacked, const PageBitmap& swapped,
+      const PageBitmap& stale) const;
 
  private:
   friend class PageTrackerTestPeer;

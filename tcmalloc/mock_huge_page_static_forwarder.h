@@ -62,17 +62,17 @@ class FakeStaticForwarder : private Parameters {
   }
 
   // Runtime parameters.  This can change between calls.
-  absl::Duration filler_skip_subrelease_short_interval() const {
+  [[nodiscard]] absl::Duration filler_skip_subrelease_short_interval() const {
     return short_interval_;
   }
-  absl::Duration filler_skip_subrelease_long_interval() const {
+  [[nodiscard]] absl::Duration filler_skip_subrelease_long_interval() const {
     return long_interval_;
   }
-  bool release_partial_alloc_pages() const {
+  [[nodiscard]] bool release_partial_alloc_pages() const {
     return release_partial_alloc_pages_;
   }
-  bool hpaa_subrelease() const { return hpaa_subrelease_; }
-  SubreleaseUnbackedMode subrelease_unbacked_hugepages() const {
+  [[nodiscard]] bool hpaa_subrelease() const { return hpaa_subrelease_; }
+  [[nodiscard]] SubreleaseUnbackedMode subrelease_unbacked_hugepages() const {
     return subrelease_unbacked_hugepages_;
   }
 
@@ -89,41 +89,51 @@ class FakeStaticForwarder : private Parameters {
   void set_subrelease_unbacked_hugepages(SubreleaseUnbackedMode value) {
     subrelease_unbacked_hugepages_ = value;
   }
-  bool release_succeeds() const { return release_succeeds_; }
+  [[nodiscard]] bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool value) { release_succeeds_ = value; }
   void set_collapse_succeeds(bool value) { collapse_succeeds_ = value; }
   void set_error_number(int value) { error_number_ = value; }
 
-  bool huge_region_adaptive_release() const {
+  [[nodiscard]] bool huge_region_adaptive_release() const {
     return huge_region_adaptive_release_;
   }
   void set_huge_region_adaptive_release(bool value) {
     huge_region_adaptive_release_ = value;
   }
-  bool release_max_cold_pages() const { return release_max_cold_pages_; }
+  [[nodiscard]] bool release_max_cold_pages() const {
+    return release_max_cold_pages_;
+  }
   void set_release_max_cold_pages(bool value) {
     release_max_cold_pages_ = value;
   }
-  MallocExtension::BytesPerSecond background_release_rate() const {
+  [[nodiscard]] MallocExtension::BytesPerSecond background_release_rate()
+      const {
     return background_release_rate_;
   }
   void set_background_release_rate(MallocExtension::BytesPerSecond value) {
     background_release_rate_ = value;
   }
-  bool release_max_filler_pages() const { return release_max_filler_pages_; }
+  [[nodiscard]] bool release_max_filler_pages() const {
+    return release_max_filler_pages_;
+  }
   void set_release_max_filler_pages(bool value) {
     release_max_filler_pages_ = value;
   }
-  bool release_max_sampled_pages() const { return release_max_sampled_pages_; }
+  [[nodiscard]] bool release_max_sampled_pages() const {
+    return release_max_sampled_pages_;
+  }
   void set_release_max_sampled_pages(bool value) {
     release_max_sampled_pages_ = value;
   }
-  ReleaseStalePages release_stale_pages() const { return release_stale_pages_; }
+  [[nodiscard]] ReleaseStalePages release_stale_pages() const {
+    return release_stale_pages_;
+  }
   void set_release_stale_pages(ReleaseStalePages value) {
     release_stale_pages_ = value;
   }
 
-  MadviseRegionsNoHugepage madvise_cold_regions_nohugepage() const {
+  [[nodiscard]] MadviseRegionsNoHugepage madvise_cold_regions_nohugepage()
+      const {
     return madvise_cold_regions_nohugepage_;
   }
 
@@ -133,16 +143,18 @@ class FakeStaticForwarder : private Parameters {
 
   // Real time by default; forwarders derived for fuzzing shadow this with a
   // clock they control.
-  Clock clock() const { return Clock{}; }
+  [[nodiscard]] Clock clock() const { return Clock{}; }
 
-  bool BackAllocations() const { return back_allocations_; }
+  [[nodiscard]] bool BackAllocations() const { return back_allocations_; }
   void SetBackAllocations(bool value) { back_allocations_ = value; }
-  int32_t BackSizeThresholdBytes() const { return back_size_threshold_bytes_; }
+  [[nodiscard]] int32_t BackSizeThresholdBytes() const {
+    return back_size_threshold_bytes_;
+  }
   void SetBackSizeThresholdBytes(int32_t value) {
     back_size_threshold_bytes_ = value;
   }
 
-  EnableUnfilteredCollapse enable_unfiltered_collapse() const {
+  [[nodiscard]] EnableUnfilteredCollapse enable_unfiltered_collapse() const {
     return enable_unfiltered_collapse_;
   }
   void set_enable_unfiltered_collapse(bool value) {
@@ -154,7 +166,7 @@ class FakeStaticForwarder : private Parameters {
   }
 
   // Arena state.
-  Arena& arena() { return arena_; }
+  [[nodiscard]] Arena& arena() { return arena_; }
 
   // PageAllocator state.
 
@@ -165,7 +177,9 @@ class FakeStaticForwarder : private Parameters {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     last_may_have_grown_ = may_have_grown;
   }
-  bool last_may_have_grown() const { return last_may_have_grown_; }
+  [[nodiscard]] bool last_may_have_grown() const {
+    return last_may_have_grown_;
+  }
 
   // PageMap state.
   // TODO(b/242550501): We should just swap out a PageMap instead of doing
@@ -285,7 +299,7 @@ class FakeStaticForwarder : private Parameters {
     }
   }
 
-  static absl::base_internal::LowLevelAlloc::Arena* ll_arena() {
+  [[nodiscard]] static absl::base_internal::LowLevelAlloc::Arena* ll_arena() {
     ABSL_CONST_INIT static absl::base_internal::LowLevelAlloc::Arena* a;
     ABSL_CONST_INIT static absl::once_flag flag;
     absl::base_internal::LowLevelCallOnce(&flag, [&]() {
@@ -339,7 +353,7 @@ class FakeStaticForwarder : private Parameters {
     template <class T1>
     explicit AllocAdaptor(const AllocAdaptor<T1>&) {}
 
-    T* allocate(size_t n) {
+    [[nodiscard]] T* allocate(size_t n) {
       // Check if n is too big to allocate.
       TC_ASSERT_EQ((n * sizeof(T)) / sizeof(T), n);
       return static_cast<T*>(absl::base_internal::LowLevelAlloc::AllocWithArena(

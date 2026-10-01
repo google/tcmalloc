@@ -74,8 +74,8 @@ class MinMaxTracker {
 
   // If t < kEpochLength, these functions return statistics for last epoch. The
   // granularity is kEpochLength (rounded up).
-  HugeLength MaxOverTime(absl::Duration t) const;
-  HugeLength MinOverTime(absl::Duration t) const;
+  [[nodiscard]] HugeLength MaxOverTime(absl::Duration t) const;
+  [[nodiscard]] HugeLength MinOverTime(absl::Duration t) const;
 
  private:
   const absl::Duration kEpochLength;
@@ -85,7 +85,7 @@ class MinMaxTracker {
   struct Extrema {
     HugeLength min, max;
 
-    static Extrema Nil() {
+    [[nodiscard]] static Extrema Nil() {
       Extrema e;
       e.max = NHugePages(0);
       e.min = kMaxVal;
@@ -97,9 +97,9 @@ class MinMaxTracker {
       min = std::min(min, n);
     }
 
-    bool empty() const { return (*this == Nil()); }
+    [[nodiscard]] bool empty() const { return (*this == Nil()); }
 
-    bool operator==(const Extrema& other) const;
+    [[nodiscard]] bool operator==(const Extrema& other) const;
   };
 
   TimeSeriesTracker<Extrema, HugeLength, kSlots> timeseries_;
@@ -168,7 +168,7 @@ class HugeCache {
   // memory that's currently backed from the kernel if we have it available.
   // *from_released is set to false if the return range is already backed;
   // otherwise, it is set to true (and the caller should back it.)
-  HugeRange Get(HugeLength n, bool* absl_nonnull from_released);
+  [[nodiscard]] HugeRange Get(HugeLength n, bool* absl_nonnull from_released);
 
   // Deallocate <r> (assumed to be backed by the kernel.)
   void Release(HugeRange r);
@@ -179,18 +179,18 @@ class HugeCache {
   // Release to the system up to <n> hugepages of cache contents; returns
   // the number of hugepages released. It also triggers cache shrinking if
   // the cache becomes too big.
-  HugeLength ReleaseCachedPages(HugeLength n);
+  [[nodiscard]] HugeLength ReleaseCachedPages(HugeLength n);
 
   // Backed memory available.
-  HugeLength size() const { return size_; }
+  [[nodiscard]] HugeLength size() const { return size_; }
   // Current limit for how much backed memory we'll cache.
-  HugeLength limit() const { return limit_; }
+  [[nodiscard]] HugeLength limit() const { return limit_; }
   // Sum total of unreleased requests.
-  HugeLength usage() const { return usage_; }
+  [[nodiscard]] HugeLength usage() const { return usage_; }
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
-  BackingStats stats() const {
+  [[nodiscard]] BackingStats stats() const {
     BackingStats s;
     s.system_bytes = (usage() + size()).in_bytes();
     s.free_bytes = size().in_bytes();
@@ -214,15 +214,15 @@ class HugeCache {
   void MaybeGrowCacheLimit(HugeLength missed);
   // Check if the cache seems consistently too big.  Returns the
   // number of pages *evicted* (not the change in limit).
-  HugeLength MaybeShrinkCacheLimit();
+  [[nodiscard]] HugeLength MaybeShrinkCacheLimit();
 
   // Ensure the cache contains at most <target> hugepages,
   // returning the number removed.
-  HugeLength ShrinkCache(HugeLength target);
+  [[nodiscard]] HugeLength ShrinkCache(HugeLength target);
 
-  HugeRange DoGet(HugeLength n, bool* from_released);
+  [[nodiscard]] HugeRange DoGet(HugeLength n, bool* from_released);
 
-  HugeAddressMap::Node* Find(HugeLength n);
+  [[nodiscard]] HugeAddressMap::Node* Find(HugeLength n);
 
   HugeAddressMap cache_;
   HugeLength size_{NHugePages(0)};
@@ -252,7 +252,7 @@ class HugeCache {
   // 10 hugepages is a good baseline for our cache--easily wiped away
   // by periodic release, and not that much memory on any real server.
   // However, we can go below it if we haven't used that much for 30 seconds.
-  HugeLength MinCacheLimit() const { return NHugePages(10); }
+  [[nodiscard]] HugeLength MinCacheLimit() const { return NHugePages(10); }
 
   void UpdateSize(HugeLength size);
 
@@ -273,7 +273,9 @@ class HugeCache {
   // period. When the cap applies, we also release the minimum amount of free
   // hugepages that we have been consistently holding at anytime for 5 minutes
   // (realized fragmentation).
-  absl::Duration CapDemandInterval() const { return absl::Minutes(5); }
+  [[nodiscard]] absl::Duration CapDemandInterval() const {
+    return absl::Minutes(5);
+  }
 
   // The fraction of the cache that we are happy to return at a time. We use
   // this to efficiently reduce the fragmentation.

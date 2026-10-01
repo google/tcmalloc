@@ -23,8 +23,8 @@ namespace tcmalloc_internal {
 
 class ExponentialBiased {
  public:
-  static constexpr uint64_t NextRandom(uint64_t rnd);
-  static constexpr uint32_t GetRandom(uint64_t rnd);
+  [[nodiscard]] static constexpr uint64_t NextRandom(uint64_t rnd);
+  [[nodiscard]] static constexpr uint32_t GetRandom(uint64_t rnd);
 };
 
 // Returns the next prng value.
@@ -53,7 +53,7 @@ class Random {
   constexpr explicit Random(uint64_t seed) : state_(seed) {}
 
   // Return the next pseudo-random value.
-  uint32_t Next();
+  [[nodiscard]] uint32_t Next();
 
   // Reset internal state with provided seed.
   void Reset(uint64_t seed);

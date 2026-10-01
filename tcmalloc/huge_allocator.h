@@ -59,7 +59,7 @@ class HugeAllocator {
 
   // Obtain a range of n unbacked hugepages, distinct from all other
   // calls to Get (other than those that have been Released.)
-  HugeRange Get(HugeLength n);
+  [[nodiscard]] HugeRange Get(HugeLength n);
 
   // Returns a range of hugepages for reuse by subsequent Gets().
   // REQUIRES: <r> is the return value (or a subrange thereof) of a previous
@@ -68,13 +68,13 @@ class HugeAllocator {
   void Release(HugeRange r);
 
   // Total memory requested from the system, whether in use or not,
-  HugeLength system() const { return from_system_; }
+  [[nodiscard]] HugeLength system() const { return from_system_; }
   // Unused memory in the allocator.
-  HugeLength size() const { return from_system_ - in_use_; }
+  [[nodiscard]] HugeLength size() const { return from_system_ - in_use_; }
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
-  BackingStats stats() const {
+  [[nodiscard]] BackingStats stats() const {
     BackingStats s;
     s.system_bytes = system().in_bytes();
     s.free_bytes = 0;
@@ -104,7 +104,7 @@ class HugeAllocator {
   // don't matter, and most of the simple ideas can't hit all of the above
   // requirements.
   HugeAddressMap free_;
-  HugeAddressMap::Node* Find(HugeLength n);
+  [[nodiscard]] HugeAddressMap::Node* Find(HugeLength n);
 
   void CheckFreelist();
   void DebugCheckFreelist() {
@@ -117,7 +117,7 @@ class HugeAllocator {
   HugeLength in_use_{NHugePages(0)};
 
   VirtualAllocator& allocate_;
-  HugeRange AllocateRange(HugeLength n);
+  [[nodiscard]] HugeRange AllocateRange(HugeLength n);
 };
 
 }  // namespace tcmalloc_internal

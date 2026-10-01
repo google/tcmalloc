@@ -45,12 +45,12 @@ inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
 inline constexpr uintptr_t kTagMask =
     uintptr_t{kSanitizerAddressSpace ? 0x3 : 0x7} << kTagShift;
 
-inline MemoryTag GetMemoryTag(const void* ptr) {
+[[nodiscard]] inline MemoryTag GetMemoryTag(const void* ptr) {
   return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & kTagMask) >>
                                 kTagShift);
 }
 
-inline bool IsNormalMemory(const void* ptr) {
+[[nodiscard]] inline bool IsNormalMemory(const void* ptr) {
   // This is slightly faster than checking kNormalP0/P1 separetly.
   static_assert((static_cast<uint8_t>(MemoryTag::kNormalP0) &
                  (static_cast<uint8_t>(MemoryTag::kSampled) |
@@ -65,7 +65,7 @@ inline bool IsNormalMemory(const void* ptr) {
   return res;
 }
 
-inline bool IsSampledMemory(const void* ptr) {
+[[nodiscard]] inline bool IsSampledMemory(const void* ptr) {
   bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
               ~static_cast<uintptr_t>(MemoryTag::kSampledP1)) == 0;
   TC_ASSERT(res == (GetMemoryTag(ptr) == MemoryTag::kSampled ||
@@ -75,7 +75,7 @@ inline bool IsSampledMemory(const void* ptr) {
   return res;
 }
 
-absl::string_view MemoryTagToLabel(MemoryTag tag);
+[[nodiscard]] absl::string_view MemoryTagToLabel(MemoryTag tag);
 
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END

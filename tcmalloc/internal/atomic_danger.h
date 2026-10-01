@@ -40,7 +40,8 @@ namespace atomic_danger {
 // * http://wg21.link/p0019 (Atomic Ref, merged into C++20)
 // * http://wg21.link/p1478 (Byte-wise atomic memcpy)
 template <typename IntType>
-IntType* CastToIntegral(std::atomic<IntType>* atomic_for_syscall) {
+[[nodiscard]] IntType* CastToIntegral(
+    std::atomic<IntType>* atomic_for_syscall) {
   static_assert(std::is_integral<IntType>::value,
                 "CastToIntegral must be instantiated with an integral type.");
 #if __cpp_lib_atomic_is_always_lock_free >= 201603

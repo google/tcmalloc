@@ -44,26 +44,31 @@ extern "C" {
 
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackgroundReleaseRate(
     size_t value);
-ABSL_ATTRIBUTE_WEAK uint64_t TCMalloc_Internal_GetHeapSizeHardLimit();
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHPAASubrelease();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK uint64_t
+TCMalloc_Internal_GetHeapSizeHardLimit();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHPAASubrelease();
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration* v);
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration* v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled();
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetUsermodeHugepageCollapse();
-ABSL_ATTRIBUTE_WEAK bool
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetReleasePartialAllocPagesEnabled();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetUsermodeHugepageCollapse();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled();
-ABSL_ATTRIBUTE_WEAK bool
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled();
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPrioritizeSpansEnabled();
-ABSL_ATTRIBUTE_WEAK double
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetPrioritizeSpansEnabled();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK double
 TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction();
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesEnabled();
-ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetStats(char* buffer,
-                                                      size_t buffer_length);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetPerCpuCachesEnabled();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK size_t
+TCMalloc_Internal_GetStats(char* buffer, size_t buffer_length);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetGuardedSamplingInterval(
     int64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t v);
@@ -91,7 +96,8 @@ TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration v);
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(absl::Duration v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     bool v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK
@@ -99,47 +105,58 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     TCMalloc_Internal_GetMadviseSampledAllocations();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseSampledAllocations(
     tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
-ABSL_ATTRIBUTE_WEAK int64_t TCMalloc_Internal_GetEventTraceMemoryLimit();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK int64_t
+TCMalloc_Internal_GetEventTraceMemoryLimit();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
-ABSL_ATTRIBUTE_WEAK uint8_t TCMalloc_Internal_GetMinHotAccessHint();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK uint8_t
+TCMalloc_Internal_GetMinHotAccessHint();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
-[[maybe_unused]] ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_PossiblyCold(
-    const void* ptr);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled();
+[[nodiscard]] [[maybe_unused]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_PossiblyCold(const void* ptr);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(
     bool v);
 
-ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::MadvisePreference
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::MadvisePreference
 TCMalloc_Internal_GetMadvise();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadvise(
     tcmalloc::tcmalloc_internal::MadvisePreference v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseFreeSwapped();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetReleaseFreeSwapped();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
 
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetBackSmallAllocations();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetBackSmallAllocations();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackSmallAllocations(bool v);
-ABSL_ATTRIBUTE_WEAK int32_t TCMalloc_Internal_GetBackSizeThresholdBytes();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK int32_t
+TCMalloc_Internal_GetBackSizeThresholdBytes();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetEnableUnfilteredCollapse();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetEnableUnfilteredCollapse();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
-ABSL_ATTRIBUTE_WEAK bool
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetHugeRegionAdaptiveReleaseEnabled();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(
     bool v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseMaxColdPages();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetReleaseMaxColdPages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxColdPages(bool v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseMaxFillerPages();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetReleaseMaxFillerPages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleaseMaxSampledPages();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetReleaseMaxSampledPages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxSampledPages(bool v);
 
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
     std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull
         size_classes);
-ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetPageSize();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetPageSize();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(
     bool v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPageAllocationStatus(
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetPageAllocationStatus(
     const void* ptr,
     tcmalloc::tcmalloc_internal::PageAllocationStatus* absl_nonnull status);
 }
