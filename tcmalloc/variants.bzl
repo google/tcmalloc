@@ -278,6 +278,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_PAGE_HEAP_GARDENING"},
     },
+    {
+        "name": "tcmalloc_release_max_filler_pages",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_RELEASE_MAX_FILLER_PAGES"},
+    },
 ]
 
 def create_tcmalloc_library(

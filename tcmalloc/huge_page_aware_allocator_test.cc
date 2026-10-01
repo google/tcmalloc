@@ -416,7 +416,9 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
     Delete(d, kSpanInfo.objects_per_span);
   }
 
-  EXPECT_EQ(kPagesPerHugePage / 2,
+  EXPECT_EQ(allocator_->forwarder().release_max_filler_pages()
+                ? Length(N / 2)
+                : kPagesPerHugePage / 2,
             ReleasePages(Length(1),
                          /*reason=*/PageReleaseReason::kReleaseMemoryToSystem));
 
@@ -2198,6 +2200,7 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
         absl::ZeroDuration());
     cold_allocator.forwarder().set_filler_skip_subrelease_long_interval(
         absl::ZeroDuration());
+    cold_allocator.forwarder().set_release_max_filler_pages(false);
     cold_allocator.forwarder().set_release_max_cold_pages(
         release_max_cold_pages);
 

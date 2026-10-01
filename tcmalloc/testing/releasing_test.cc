@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -131,7 +132,9 @@ int main() {
   int64_t unmapped_diff = after_unmapped - before_unmapped;
   int64_t memusage_diff = before - after;
   TC_CHECK_GE(unmapped_diff, 0);
-  TC_CHECK_EQ(unmapped_diff % tcmalloc::tcmalloc_internal::kHugePageSize, 0);
+  if (!TCMalloc_Internal_GetReleaseMaxFillerPages()) {
+    TC_CHECK_EQ(unmapped_diff % tcmalloc::tcmalloc_internal::kHugePageSize, 0);
+  }
 
   // Try to release all unused memory.
 
