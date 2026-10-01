@@ -155,7 +155,11 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("madvise_cold_regions_nohugepage: false"));
   }
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_cold_pages: true"));
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_filler_pages: false"));
+  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_RELEASE_MAX_FILLER_PAGES)) {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_filler_pages: true"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_filler_pages: false"));
+  }
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_sampled_pages: false"));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
@@ -282,8 +286,14 @@ TEST_F(GetStatsTest, Parameters) {
     }
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_release_max_cold_pages 1)"));
-    EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_release_max_filler_pages 0)"));
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_RELEASE_MAX_FILLER_PAGES)) {
+      EXPECT_THAT(
+          buf, HasSubstr(R"(PARAMETER tcmalloc_release_max_filler_pages 1)"));
+    } else {
+      EXPECT_THAT(
+          buf, HasSubstr(R"(PARAMETER tcmalloc_release_max_filler_pages 0)"));
+    }
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_release_max_sampled_pages 0)"));
     EXPECT_THAT(
@@ -296,8 +306,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: false)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_release_max_cold_pages: true)"));
-    EXPECT_THAT(pbtxt,
-                HasSubstr(R"(tcmalloc_release_max_filler_pages: false)"));
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_RELEASE_MAX_FILLER_PAGES)) {
+      EXPECT_THAT(pbtxt,
+                  HasSubstr(R"(tcmalloc_release_max_filler_pages: true)"));
+    } else {
+      EXPECT_THAT(pbtxt,
+                  HasSubstr(R"(tcmalloc_release_max_filler_pages: false)"));
+    }
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_release_max_sampled_pages: false)"));
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
