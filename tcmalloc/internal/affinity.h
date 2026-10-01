@@ -32,7 +32,7 @@ namespace tcmalloc_internal {
 // Returns a vector of the which cpus the currently allowed thread is allowed to
 // run on.  There are no guarantees that this will not change before, after, or
 // even during, the call to AllowedCpus().
-std::vector<int> AllowedCpus();
+[[nodiscard]] std::vector<int> AllowedCpus();
 
 // Enacts a scoped affinity mask on the constructing thread.  Attempts to
 // restore the original affinity mask on destruction.
@@ -57,7 +57,7 @@ class ScopedAffinityMask {
   // external affinity modification to subsequently align with our originally
   // specified "allowed_cpus".  In this case Tampered() will return false when
   // time may have been spent executing previously on non-specified cpus.
-  bool Tampered();
+  [[nodiscard]] bool Tampered();
 
  private:
   CpuSet original_cpus_, specified_cpus_;

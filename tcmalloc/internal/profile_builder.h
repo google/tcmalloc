@@ -37,7 +37,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 #if defined(__linux__)
-std::string GetBuildId(const dl_phdr_info* info);
+[[nodiscard]] std::string GetBuildId(const dl_phdr_info* info);
 #endif  // defined(__linux__)
 
 // ProfileBuilder manages building up a profile.proto instance and populating
@@ -46,7 +46,7 @@ class ProfileBuilder {
  public:
   ProfileBuilder();
 
-  perftools::profiles::Profile& profile() { return *profile_; }
+  [[nodiscard]] perftools::profiles::Profile& profile() { return *profile_; }
 
   // Adds the current process mappings to the profile.
   void AddCurrentMappings();
@@ -70,7 +70,7 @@ class ProfileBuilder {
   void InternCallstack(absl::Span<const void* const> stack,
                        perftools::profiles::Sample& sample);
 
-  std::unique_ptr<perftools::profiles::Profile> Finalize() &&;
+  [[nodiscard]] std::unique_ptr<perftools::profiles::Profile> Finalize() &&;
 
  private:
   std::unique_ptr<perftools::profiles::Profile> profile_;
@@ -83,17 +83,17 @@ class ProfileBuilder {
 
 extern const absl::string_view kProfileDropFrames;
 
-absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
-    const ::tcmalloc::Profile& profile);
+[[nodiscard]] absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>>
+MakeProfileProto(const ::tcmalloc::Profile& profile);
 
 class PageFlagsBase;
 class PageFlags;
 class Residency;
 
 // Exposed to facilitate testing.
-absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
-    const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
-    Residency* residency);
+[[nodiscard]] absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>>
+MakeProfileProto(const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
+                 Residency* residency);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

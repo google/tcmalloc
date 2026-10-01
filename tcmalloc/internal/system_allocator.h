@@ -137,7 +137,7 @@ class SystemAllocator {
 
   // Returns the number of times we failed to give pages back to the OS after a
   // call to Release.
-  int release_errors() const {
+  [[nodiscard]] int release_errors() const {
     return release_errors_.load(std::memory_order_relaxed);
   }
 
@@ -145,7 +145,7 @@ class SystemAllocator {
     madvise_.store(v, std::memory_order_relaxed);
   }
 
-  MadvisePreference madvise_preference() const {
+  [[nodiscard]] MadvisePreference madvise_preference() const {
     return madvise_.load(std::memory_order_relaxed);
   }
 
@@ -229,8 +229,9 @@ class SystemAllocator {
   // Checks that there is sufficient space available in the reserved region
   // for the next allocation, if not allocate a new region.
   // Then returns a pointer to the new memory.
-  std::pair<void*, size_t> AllocateFromRegion(size_t size, size_t alignment,
-                                              MemoryTag tag)
+  [[nodiscard]] std::pair<void*, size_t> AllocateFromRegion(size_t size,
+                                                            size_t alignment,
+                                                            MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
 
   std::array<AddressRegion*, kNumPartitions> normal_region_
@@ -245,7 +246,8 @@ class SystemAllocator {
     MmapRegion(uintptr_t start, size_t size,
                AddressRegionFactory::UsageHint hint)
         : start_(start), free_size_(size), hint_(hint) {}
-    std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override;
+    [[nodiscard]] std::pair<void*, size_t> Alloc(size_t size,
+                                                 size_t alignment) override;
     ~MmapRegion() override = default;
 
     static void operator delete(void*) { __builtin_trap(); }
@@ -263,9 +265,10 @@ class SystemAllocator {
 
     static void operator delete(void*) { __builtin_trap(); }
 
-    AddressRegion* Create(void* start, size_t size, UsageHint hint) override;
-    size_t GetStats(absl::Span<char> buffer) override;
-    size_t GetStatsInPbtxt(absl::Span<char> buffer) override;
+    [[nodiscard]] AddressRegion* Create(void* start, size_t size,
+                                        UsageHint hint) override;
+    [[nodiscard]] size_t GetStats(absl::Span<char> buffer) override;
+    [[nodiscard]] size_t GetStatsInPbtxt(absl::Span<char> buffer) override;
 
    private:
     std::atomic<size_t> bytes_reserved_{0};
@@ -282,10 +285,11 @@ class SystemAllocator {
   DefaultFactory mmap_factory_ ABSL_GUARDED_BY(spinlock_);
   AddressRegionFactory* region_factory_ ABSL_GUARDED_BY(spinlock_) = nullptr;
 
-  AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) const;
+  [[nodiscard]] AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) const;
   void BindMemory(void* base, size_t size, size_t partition) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
-  uintptr_t RandomMmapHint(size_t size, size_t alignment, MemoryTag tag)
+  [[nodiscard]] uintptr_t RandomMmapHint(size_t size, size_t alignment,
+                                         MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
   [[nodiscard]] void* MmapAlignedLocked(size_t size, size_t alignment,
                                         MemoryTag tag)
@@ -318,23 +322,24 @@ static_assert(kAddressBits <= 8 * sizeof(void*),
               "kAddressBits must be smaller than the pointer size");
 
 // Rounds size down to a multiple of alignment.
-inline size_t RoundDown(const size_t size, const size_t alignment) {
+[[nodiscard]] inline size_t RoundDown(const size_t size,
+                                      const size_t alignment) {
   // Checks that the alignment has only one bit set.
   TC_ASSERT(absl::has_single_bit(alignment));
   return (size) & ~(alignment - 1);
 }
 
 // Rounds size up to a multiple of alignment.
-inline size_t RoundUp(const size_t size, const size_t alignment) {
+[[nodiscard]] inline size_t RoundUp(const size_t size, const size_t alignment) {
   return RoundDown(size + alignment - 1, alignment);
 }
 
-int MapFixedNoReplaceFlagAvailable();
+[[nodiscard]] int MapFixedNoReplaceFlagAvailable();
 // Probes whether MADV_DONTNEED_LOCKED is supported, returning the advice to
 // use.  Falls back to MADV_DONTNEED if the probe cannot be performed.
-int ProbeMadvDontNeedAdvice();
+[[nodiscard]] int ProbeMadvDontNeedAdvice();
 // Cached result of ProbeMadvDontNeedAdvice().
-int MadvDontNeedAdviceAvailable();
+[[nodiscard]] int MadvDontNeedAdviceAvailable();
 
 inline constexpr int kMapFixedNoReplace = MAP_FIXED_NOREPLACE;
 

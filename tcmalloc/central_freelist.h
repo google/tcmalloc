@@ -98,13 +98,15 @@ class StaticForwarder {
     InvokeRemoveRangeHookSlow(size_class, batch);
   }
 
-  static uint64_t clock_now() { return absl::base_internal::CycleClock::Now(); }
-  static double clock_frequency() {
+  [[nodiscard]] static uint64_t clock_now() {
+    return absl::base_internal::CycleClock::Now();
+  }
+  [[nodiscard]] static double clock_frequency() {
     return absl::base_internal::CycleClock::Frequency();
   }
 
-  static size_t class_to_size(int size_class);
-  static Length class_to_pages(int size_class);
+  [[nodiscard]] static size_t class_to_size(int size_class);
+  [[nodiscard]] static Length class_to_pages(int size_class);
   static void MapObjectsToSpans(absl::Span<void*> batch,
                                 Span** absl_nonnull spans,
                                 int expected_size_class);
@@ -186,18 +188,20 @@ class CentralFreeList {
       ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in cache.
-  size_t length() const { return static_cast<size_t>(counter_.value()); }
+  [[nodiscard]] size_t length() const {
+    return static_cast<size_t>(counter_.value());
+  }
 
   // Returns the memory overhead (internal fragmentation) attributable
   // to the freelist.  This is memory lost when the size of elements
   // in a freelist doesn't exactly divide the page-size (an 8192-byte
   // page full of 5-byte objects would have 2 bytes memory overhead).
-  size_t OverheadBytes() const;
+  [[nodiscard]] size_t OverheadBytes() const;
 
   // Returns number of live spans currently in the nonempty_[n] list.
   // REQUIRES: n >= 0 && n < kNumLists.
-  size_t NumSpansInList(int n) ABSL_LOCKS_EXCLUDED(lock_);
-  SpanStats GetSpanStats() const;
+  [[nodiscard]] size_t NumSpansInList(int n) ABSL_LOCKS_EXCLUDED(lock_);
+  [[nodiscard]] SpanStats GetSpanStats() const;
 
   // Reports span utilization, lifetime histogram stats, and number of spans
   // used to fill a batch.
@@ -215,11 +219,11 @@ class CentralFreeList {
   // absolute number of allocated objects, it uses absl::bit_width(allocated),
   // passed as <bitwidth>, to index and return the number of spans in the
   // histogram.
-  size_t NumSpansWith(uint16_t bitwidth) const;
+  [[nodiscard]] size_t NumSpansWith(uint16_t bitwidth) const;
 
-  Forwarder& forwarder() { return forwarder_; }
+  [[nodiscard]] Forwarder& forwarder() { return forwarder_; }
 
-  size_t objects_per_span() const { return objects_per_span_; }
+  [[nodiscard]] size_t objects_per_span() const { return objects_per_span_; }
 
  private:
   friend class CentralFreeListTestPeer;
@@ -228,21 +232,22 @@ class CentralFreeList {
   //
   // Returns object's span if it become completely free.
   template <typename T>
-  Span* absl_nullable ReleaseToSpans(absl::Span<T> batch,
-                                     Span* absl_nonnull span,
-                                     size_t object_size,
-                                     uint32_t size_reciprocal,
-                                     uint32_t objects_per_span)
+  [[nodiscard]] Span* absl_nullable ReleaseToSpans(absl::Span<T> batch,
+                                                   Span* absl_nonnull span,
+                                                   size_t object_size,
+                                                   uint32_t size_reciprocal,
+                                                   uint32_t objects_per_span)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Populate cache by fetching from the page heap.
   // May temporarily release lock_.
   // Fill a prefix of batch[0..N-1] with up to N elements removed from central
   // freelist. Returns the number of elements removed.
-  int Populate(absl::Span<void*> batch) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  [[nodiscard]] int Populate(absl::Span<void*> batch)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Allocate a span from the forwarder.
-  Span* AllocateSpan();
+  [[nodiscard]] Span* AllocateSpan();
 
   // Deallocate spans to the forwarder.
   void DeallocateSpans(absl::Span<Span* absl_nonnull> spans);
@@ -250,16 +255,16 @@ class CentralFreeList {
   // Parses nonempty_ and returns span from the
   // list with the lowest possible index. Returns the span if one exists in the
   // lists. Else, returns nullptr.
-  auto FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  [[nodiscard]] auto FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Returns first index to the nonempty_ lists that may record spans.
-  uint8_t GetFirstNonEmptyIndex() const;
+  [[nodiscard]] uint8_t GetFirstNonEmptyIndex() const;
 
   // Returns index into nonempty_ based on the number of allocated objects for
   // the span. Depending on the number of objects per span, either the absolute
   // number of allocated objects or the absl::bit_width(allocated), passed as
   // bitwidth, is used to to calculate the list index.
-  uint8_t IndexFor(uint16_t allocated, uint8_t bitwidth);
+  [[nodiscard]] uint8_t IndexFor(uint16_t allocated, uint8_t bitwidth);
 
   // Records span utilization in objects_to_span_ map. Instead of using the
   // absolute number of allocated objects, it uses absl::bit_width(allocated),
@@ -298,7 +303,7 @@ class CentralFreeList {
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   Length pages_per_span_;
 
-  size_t num_spans() const {
+  [[nodiscard]] size_t num_spans() const {
     size_t requested = num_spans_requested_.value();
     size_t returned = num_spans_returned_.value();
     if (requested < returned) return 0;
