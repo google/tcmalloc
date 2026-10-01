@@ -69,7 +69,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // We could template this if there was any need.
   static constexpr HugeLength kRegionSize = HLFromBytes(1024 * 1024 * 1024);
   static constexpr size_t kNumHugePages = kRegionSize.raw_num();
-  static constexpr HugeLength size() { return kRegionSize; }
+  [[nodiscard]] static constexpr HugeLength size() { return kRegionSize; }
 
   // REQUIRES: r.len() == size(); r unbacked.
   HugeRegion(
@@ -80,8 +80,8 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
   // Returns false if no range available.
-  bool MaybeGet(Length n, PageId* absl_nonnull p,
-                bool* absl_nonnull from_released);
+  [[nodiscard]] bool MaybeGet(Length n, PageId* absl_nonnull p,
+                              bool* absl_nonnull from_released);
 
   // Return r for new allocations.
   // If release=true, release any hugepages made empty as a result.
@@ -92,7 +92,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // region. If adaptive_release is true, we scan the hugepages in reverse order
   // to select candidates for release. This order is opposite to the allocation
   // order, so we hope to release pages that won't be soon allocated.
-  HugeLength Release(Length desired, bool adaptive_release);
+  [[nodiscard]] HugeLength Release(Length desired, bool adaptive_release);
 
   // Is p located in this region?
   [[nodiscard]] bool contains(PageId p) const { return location_.contains(p); }
@@ -114,28 +114,30 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   }
 
   // Stats
-  Length used_pages() const { return Length(tracker_.used()); }
-  Length free_pages() const {
+  [[nodiscard]] Length used_pages() const { return Length(tracker_.used()); }
+  [[nodiscard]] Length free_pages() const {
     return size().in_pages() - unmapped_pages() - used_pages();
   }
-  Length unmapped_pages() const { return (size() - nbacked_).in_pages(); }
+  [[nodiscard]] Length unmapped_pages() const {
+    return (size() - nbacked_).in_pages();
+  }
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
-  HugeLength backed() const;
+  [[nodiscard]] HugeLength backed() const;
 
   // Returns the number of hugepages that have been fully free (i.e. no
   // allocated pages on them), but are backed. We release hugepages lazily when
   // huge-regions-more-often feature is enabled.
-  HugeLength free_backed() const;
+  [[nodiscard]] HugeLength free_backed() const;
 
   void Print(Printer& out) const;
   void PrintInPbtxt(PbtxtRegion& detail) const;
 
-  BackingStats stats() const;
+  [[nodiscard]] BackingStats stats() const;
 
   // We don't define this as operator< because it's a rather specialized order.
-  bool BetterToAllocThan(const HugeRegion* rhs) const {
+  [[nodiscard]] bool BetterToAllocThan(const HugeRegion* rhs) const {
     return longest_free() < rhs->longest_free();
   }
 
@@ -144,9 +146,11 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 
   HugeRange location_;
 
-  Length longest_free() const { return Length(tracker_.longest_free()); }
+  [[nodiscard]] Length longest_free() const {
+    return Length(tracker_.longest_free());
+  }
 
-  bool CanUnback(size_t i) const {
+  [[nodiscard]] bool CanUnback(size_t i) const {
     TC_ASSERT_LT(i, kNumHugePages);
     return backed_[i] && pages_used_[i] == Length(0);
   }
@@ -186,11 +190,11 @@ class HugeRegionSet {
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
   // Returns false if no range available.
-  bool MaybeGet(Length n, PageId* absl_nonnull page,
-                bool* absl_nonnull from_released);
+  [[nodiscard]] bool MaybeGet(Length n, PageId* absl_nonnull page,
+                              bool* absl_nonnull from_released);
 
   // Return an allocation to a region (if one matches!)
-  bool MaybePut(Range r);
+  [[nodiscard]] bool MaybePut(Range r);
 
   // Add region to the set.
   void Contribute(Region* region);
@@ -201,15 +205,16 @@ class HugeRegionSet {
   //   low water mark of free backed pages (capped by desired).
   // - If hit_limit is false and use_adaptive is false, we release a fraction
   //   of the free backed pages.
-  Length ReleasePages(Length desired, bool use_adaptive, bool hit_limit);
+  [[nodiscard]] Length ReleasePages(Length desired, bool use_adaptive,
+                                    bool hit_limit);
 
   void Print(Printer& out) const;
   void PrintInPbtxt(PbtxtRegion& hpaa) const;
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
-  BackingStats stats() const;
-  HugeLength free_backed() const;
-  size_t ActiveRegions() const;
-  bool UseHugeRegionMoreOften() const {
+  [[nodiscard]] BackingStats stats() const;
+  [[nodiscard]] HugeLength free_backed() const;
+  [[nodiscard]] size_t ActiveRegions() const;
+  [[nodiscard]] bool UseHugeRegionMoreOften() const {
     return use_huge_region_more_often_ ==
            HugeRegionUsageOption::kUseForAllLargeAllocs;
   }

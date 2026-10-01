@@ -51,7 +51,9 @@ class StatsCounter {
   }
 
   // Return the current value of the counter.
-  Value value() const { return this->value_.load(std::memory_order_relaxed); }
+  [[nodiscard]] Value value() const {
+    return this->value_.load(std::memory_order_relaxed);
+  }
 
   // Add "increment" to this lossy statistics counter.  Counts (including those
   // added by other calls) _may be lost_ if this call is used concurrently with
@@ -74,12 +76,13 @@ class StatsCounters {
  public:
   constexpr StatsCounters() = default;
 
-  StatsCounter& operator[](int i) ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  [[nodiscard]] StatsCounter& operator[](int i) ABSL_ATTRIBUTE_LIFETIME_BOUND {
     TC_ASSERT(i < N);
     return counters_[i];
   }
 
-  const StatsCounter& operator[](int i) const ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  [[nodiscard]] const StatsCounter& operator[](int i) const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
     TC_ASSERT(i < N);
     return counters_[i];
   }

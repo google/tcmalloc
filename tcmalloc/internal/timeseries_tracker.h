@@ -84,7 +84,7 @@ class TimeSeriesTracker {
   // now). For example, epoch_taken = 1 means it was taken in the last epoch,
   // and epoch_taken = 5 means that it was taken at 5 * epoch_length ago. The
   // default record value will be returned if there is no valid record.
-  struct RecordView GetMostRecentRecord() const;
+  [[nodiscard]] struct RecordView GetMostRecentRecord() const;
 
   // Updates the time base to the current time. This is useful to report the
   // most recent time window rather than the last time window that had any
@@ -97,7 +97,7 @@ class TimeSeriesTracker {
   bool UpdateClock() { return UpdateClock(clock_.now()); }
 
   // Returns the current epoch number based on the clock.
-  int64_t GetCurrentEpoch(int64_t now) const {
+  [[nodiscard]] int64_t GetCurrentEpoch(int64_t now) const {
     // This is equivalent to `clock_.now() /
     // (absl::ToDoubleSeconds(epoch_length_) * clock_.freq())`.  We basically
     // follow the technique from
@@ -112,7 +112,9 @@ class TimeSeriesTracker {
                                     std::max<int64_t>(0, now) >>
                                 div_precision_);
   }
-  int64_t GetCurrentEpoch() const { return GetCurrentEpoch(clock_.now()); }
+  [[nodiscard]] int64_t GetCurrentEpoch() const {
+    return GetCurrentEpoch(clock_.now());
+  }
 
   void InitTracker(int64_t now) {
     // Inits the tracker by "create" an record for "now" on slot 0. The record

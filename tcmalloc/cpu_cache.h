@@ -153,61 +153,66 @@ class CpuCacheForwarder : private Parameters {
     state.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
 
-
-  bool reuse_size_classes() const {
+  [[nodiscard]] bool reuse_size_classes() const {
     return state.size_class_configuration() ==
            SizeClassConfiguration::kReuseRelaxedBelow64;
   }
 
-  size_t class_to_size(int size_class) const {
+  [[nodiscard]] size_t class_to_size(int size_class) const {
     return state.sizemap().class_to_size(size_class);
   }
 
-  size_t num_objects_to_move(int size_class) const {
+  [[nodiscard]] size_t num_objects_to_move(int size_class) const {
     return state.sizemap().num_objects_to_move(size_class);
   }
 
-  const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
+  [[nodiscard]] const NumaTopology<kNumaPartitions, kNumBaseClasses>&
+  numa_topology() const {
     return state.numa_topology();
   }
 
-  ShardedTransferCacheManager& sharded_transfer_cache() {
+  [[nodiscard]] ShardedTransferCacheManager& sharded_transfer_cache() {
     return state.sharded_transfer_cache();
   }
 
-  const ShardedTransferCacheManager& sharded_transfer_cache() const {
+  [[nodiscard]] const ShardedTransferCacheManager& sharded_transfer_cache()
+      const {
     return state.sharded_transfer_cache();
   }
 
-  TransferCacheManager& transfer_cache() { return state.transfer_cache(); }
+  [[nodiscard]] TransferCacheManager& transfer_cache() {
+    return state.transfer_cache();
+  }
 
-  bool UseGenericShardedCache() const {
+  [[nodiscard]] bool UseGenericShardedCache() const {
     return state.sharded_transfer_cache().UseGenericCache();
   }
 
-  bool UseShardedCacheForLargeClassesOnly() const {
+  [[nodiscard]] bool UseShardedCacheForLargeClassesOnly() const {
     return state.sharded_transfer_cache().UseCacheForLargeClassesOnly();
   }
 
-  bool UseWiderSlabs() const {
+  [[nodiscard]] bool UseWiderSlabs() const {
     // We use wider 512KiB slab only when partitioning is not enabled. NUMA
     // and security partitions increase shift by 1 by itself, so we can not
     // increase it further.
     return state.active_partitions() == 1;
   }
 
-  bool HaveHooks() const { return state.HaveHooks(); }
+  [[nodiscard]] bool HaveHooks() const { return state.HaveHooks(); }
 
-  auto active_partitions() const { return state.active_partitions(); }
+  [[nodiscard]] auto active_partitions() const {
+    return state.active_partitions();
+  }
 
-  bool multiple_non_numa_partitions() const {
+  [[nodiscard]] bool multiple_non_numa_partitions() const {
     return state.multiple_non_numa_partitions();
   }
 };
 
 // Translates from a shift value to the offset of that shift in arrays of
 // possible shift values.
-inline uint8_t ShiftOffset(uint8_t shift, uint8_t initial_shift) {
+[[nodiscard]] inline uint8_t ShiftOffset(uint8_t shift, uint8_t initial_shift) {
   TC_ASSERT_GE(shift, initial_shift);
   return shift - initial_shift;
 }
@@ -219,7 +224,7 @@ struct SlabShiftBounds {
 };
 
 struct GetShiftMaxCapacity {
-  size_t operator()(size_t size_class) const {
+  [[nodiscard]] size_t operator()(size_t size_class) const {
     TC_ASSERT_GE(shift_bounds.max_shift, shift);
     const uint8_t relative_shift = shift_bounds.max_shift - shift;
     if (relative_shift == 0)
@@ -341,7 +346,7 @@ class CpuCache {
   // Separate deallocation fast/slow paths.
   // The fast path succeeds iff the thread has already cached the slab pointer
   // (done by DeallocateSlow) and there is free space in the slab.
-  bool DeallocateFast(void* absl_nonnull ptr, size_t size_class);
+  [[nodiscard]] bool DeallocateFast(void* absl_nonnull ptr, size_t size_class);
   void DeallocateSlow(void* absl_nonnull ptr, size_t size_class);
   // A slightly faster version of DeallocateSlow that may be called only
   // when it's known that no hooks are installed.
@@ -352,33 +357,33 @@ class CpuCache {
   void MaybeForceSlowPath();
 
   // Give the number of bytes in <cpu>'s cache
-  uint64_t UsedBytes(int cpu) const;
+  [[nodiscard]] uint64_t UsedBytes(int cpu) const;
 
   // Give the allocated number of bytes in <cpu>'s cache
-  uint64_t Allocated(int cpu) const;
+  [[nodiscard]] uint64_t Allocated(int cpu) const;
 
   // Whether <cpu>'s cache has ever been populated with objects
-  bool HasPopulated(int cpu) const;
+  [[nodiscard]] bool HasPopulated(int cpu) const;
 
-  PerCPUMetadataState MetadataMemoryUsage() const;
+  [[nodiscard]] PerCPUMetadataState MetadataMemoryUsage() const;
 
   // Give the number of bytes used in all cpu caches.
-  uint64_t TotalUsedBytes() const;
+  [[nodiscard]] uint64_t TotalUsedBytes() const;
 
   // Give the number of objects of a given class in all cpu caches.
-  uint64_t TotalObjectsOfClass(size_t size_class) const;
+  [[nodiscard]] uint64_t TotalObjectsOfClass(size_t size_class) const;
 
   // Give the number of bytes unallocated to any sizeclass in <cpu>'s cache.
-  uint64_t Unallocated(int cpu) const;
+  [[nodiscard]] uint64_t Unallocated(int cpu) const;
 
   // Gives the total capacity of <cpu>'s cache in bytes.
   //
   // The total capacity of <cpu>'s cache should be equal to the sum of allocated
   // and unallocated bytes for that cache.
-  uint64_t Capacity(int cpu) const;
+  [[nodiscard]] uint64_t Capacity(int cpu) const;
 
   // Give the per-cpu limit of cache size.
-  uint64_t CacheLimit() const;
+  [[nodiscard]] uint64_t CacheLimit() const;
   void SetCacheLimit(uint64_t v);
 
   // Shuffles per-cpu caches using the number of underflows and overflows that
@@ -408,10 +413,10 @@ class CpuCache {
   void ResizeSizeClasses();
 
   // Gets the max capacity for the size class using the current per-cpu shift.
-  uint16_t GetMaxCapacity(int size_class, uint8_t shift) const;
+  [[nodiscard]] uint16_t GetMaxCapacity(int size_class, uint8_t shift) const;
 
   // Gets the current capacity for the <size_class> in a <cpu> cache.
-  size_t GetCapacityOfSizeClass(int cpu, int size_class) const;
+  [[nodiscard]] size_t GetCapacityOfSizeClass(int cpu, int size_class) const;
 
   // Computes maximum capacities that we want to update the size classes to. It
   // fetches number of capacity misses observed for the size classes, and
@@ -421,7 +426,8 @@ class CpuCache {
   // <max_capacity>.
   // Returns total number of valid size classes recorded in <max_capacity>
   // array.
-  int GetUpdatedMaxCapacities(absl::Span<PerSizeClassMaxCapacity> max_capacity);
+  [[nodiscard]] int GetUpdatedMaxCapacities(
+      absl::Span<PerSizeClassMaxCapacity> max_capacity);
 
   // Resizes maximum capacities for the size classes. First, it computes
   // candidates to resize using GetUpdatedMaxCapacities(...), and then updates
@@ -441,30 +447,30 @@ class CpuCache {
   uint64_t Drain(int cpu);
 
   // Reports number of times the size classes were resized for <cpu>.
-  uint64_t GetNumResizes(int cpu) const;
+  [[nodiscard]] uint64_t GetNumResizes(int cpu) const;
 
   // Reports total number of times size classes were resized.
-  uint64_t GetNumResizes() const;
+  [[nodiscard]] uint64_t GetNumResizes() const;
 
   // Reports number of times the <cpu> has been drained.
-  uint64_t GetNumDrains(int cpu) const;
+  [[nodiscard]] uint64_t GetNumDrains(int cpu) const;
 
   // Reports total number of times any CPU has been drained.
-  uint64_t GetNumDrains() const;
+  [[nodiscard]] uint64_t GetNumDrains() const;
 
   // Reports number of times the <cpu> has been unpopulated
   // (which happens when its metadata gets released, after all per-CPU
   // metadata slabs on the same hugepage have been drained).
-  uint64_t GetNumUnpopulates(int cpu) const;
+  [[nodiscard]] uint64_t GetNumUnpopulates(int cpu) const;
 
   // Reports total number of times any CPU has been unpopulated.
-  uint64_t GetNumUnpopulates() const;
+  [[nodiscard]] uint64_t GetNumUnpopulates() const;
 
   // Reports number of cpus that have touched set to true.
-  int CountTouchedCpus() const;
+  [[nodiscard]] int CountTouchedCpus() const;
 
   // Reports highest CPU ID of any touched CPU.
-  int MaxTouchedCpu() const;
+  [[nodiscard]] int MaxTouchedCpu() const;
 
   // Resets touched to false for all cpus.
   void ClearTouchedCpus();
@@ -474,15 +480,15 @@ class CpuCache {
   void ResizeSlabIfNeeded();
 
   // Reports total cache underflows and overflows for <cpu>.
-  CpuCacheMissStats GetTotalCacheMissStats(int cpu) const;
+  [[nodiscard]] CpuCacheMissStats GetTotalCacheMissStats(int cpu) const;
 
   // Reports total cache underflows and overflows for all CPUs.
-  CpuCacheMissStats GetTotalCacheMissStats() const;
+  [[nodiscard]] CpuCacheMissStats GetTotalCacheMissStats() const;
 
   // Reports the cache underflows and overflows for <cpu> that were recorded
   // during the previous interval for <miss_count>.
-  CpuCacheMissStats GetIntervalCacheMissStats(int cpu,
-                                              MissCount miss_count) const;
+  [[nodiscard]] CpuCacheMissStats GetIntervalCacheMissStats(
+      int cpu, MissCount miss_count) const;
 
   // Records current underflows and overflows in the <miss_count> underflow and
   // overflow stats.
@@ -491,35 +497,36 @@ class CpuCache {
   // Reports the cache underflows and overflows for <cpu> that were recorded
   // during the previous interval for <miss_count>. Records current underflows
   // and overflows in the <miss_count> underflow and overflow stats.
-  CpuCacheMissStats GetAndUpdateIntervalCacheMissStats(int cpu,
-                                                       MissCount miss_count);
+  [[nodiscard]] CpuCacheMissStats GetAndUpdateIntervalCacheMissStats(
+      int cpu, MissCount miss_count);
 
   // Scans through populated per-CPU caches, and reports minimum, average and
   // maximum capacity for size class <size_class>.
-  SizeClassCapacityStats GetSizeClassCapacityStats(size_t size_class) const;
+  [[nodiscard]] SizeClassCapacityStats GetSizeClassCapacityStats(
+      size_t size_class) const;
 
   // Reports the number of misses encountered by a <size_class> that were
   // recorded during the previous interval between <total_type> and
   // <interval_type> kinds of misses.
-  size_t GetIntervalSizeClassMisses(int cpu, size_t size_class,
-                                    PerClassMissType total_type,
-                                    PerClassMissType interval_type);
+  [[nodiscard]] size_t GetIntervalSizeClassMisses(
+      int cpu, size_t size_class, PerClassMissType total_type,
+      PerClassMissType interval_type);
 
   // Reports if we should use a wider 512KiB slab.
-  bool UseWiderSlabs() const;
+  [[nodiscard]] bool UseWiderSlabs() const;
 
   // Reports allowed slab shift initial and maximum bounds.
-  SlabShiftBounds GetPerCpuSlabShiftBounds() const;
+  [[nodiscard]] SlabShiftBounds GetPerCpuSlabShiftBounds() const;
 
-  size_t GetDynamicSlabFailedBytes() const;
+  [[nodiscard]] size_t GetDynamicSlabFailedBytes() const;
 
   // Report statistics
   void Print(Printer& out) const;
   void PrintInPbtxt(PbtxtRegion& region) const;
 
-  const Forwarder& forwarder() const { return forwarder_; }
+  [[nodiscard]] const Forwarder& forwarder() const { return forwarder_; }
 
-  Forwarder& forwarder() { return forwarder_; }
+  [[nodiscard]] Forwarder& forwarder() { return forwarder_; }
 
  private:
   friend struct DrainHandler<CpuCache>;
@@ -531,7 +538,7 @@ class CpuCache {
     std::atomic<size_t>
         misses[static_cast<size_t>(PerClassMissType::kNumTypes)];
 
-    std::atomic<size_t>& operator[](PerClassMissType type) {
+    [[nodiscard]] std::atomic<size_t>& operator[](PerClassMissType type) {
       return misses[static_cast<size_t>(type)];
     }
   };
@@ -545,8 +552,8 @@ class CpuCache {
     // <grow> is caller approximation of whether we want to grow capacity.
     // <successive> will contain number of successive overflows/underflows.
     // Returns if capacity needs to be grown aggressively (i.e. by batch size).
-    bool Update(bool overflow, bool grow, uint32_t* successive);
-    uint32_t Tick();
+    [[nodiscard]] bool Update(bool overflow, bool grow, uint32_t* successive);
+    [[nodiscard]] uint32_t Tick();
 
     // Records a miss for a provided <type>. A miss occurs when size class
     // attempts to grow it's capacity on underflow/overflow, but we are already
@@ -554,16 +561,16 @@ class CpuCache {
     void RecordMiss(PerClassMissType type);
 
     // Reports total number of misses recorded for this size class.
-    size_t GetTotalMisses(PerClassMissType type);
+    [[nodiscard]] size_t GetTotalMisses(PerClassMissType type);
 
-    size_t GetAndUpdateIntervalMisses(PerClassMissType total_type,
-                                      PerClassMissType interval_type);
+    [[nodiscard]] size_t GetAndUpdateIntervalMisses(
+        PerClassMissType total_type, PerClassMissType interval_type);
 
     // Reports the number of misses encountered by this size class that
     // were recorded during the previous interval between misses <total_type>
     // and <interval_type>.
-    size_t GetIntervalMisses(PerClassMissType total_type,
-                             PerClassMissType interval_type);
+    [[nodiscard]] size_t GetIntervalMisses(PerClassMissType total_type,
+                                           PerClassMissType interval_type);
 
     // Copies total misses of type <total_type> encountered by the size class to
     // the type <interval_type>.
@@ -590,7 +597,7 @@ class CpuCache {
   struct MissCounts {
     std::atomic<size_t> misses[static_cast<size_t>(MissCount::kNumCounts)];
 
-    std::atomic<size_t>& operator[](MissCount miss_count) {
+    [[nodiscard]] std::atomic<size_t>& operator[](MissCount miss_count) {
       return misses[static_cast<size_t>(miss_count)];
     }
   };
@@ -675,12 +682,12 @@ class CpuCache {
 
   // Determines how we distribute memory in the per-cpu cache to the various
   // class sizes.
-  size_t MaxCapacity(size_t size_class) const;
+  [[nodiscard]] size_t MaxCapacity(size_t size_class) const;
 
   // Updates maximum capacity for the <size_class> to <cap>.
   void UpdateMaxCapacity(int size_class, uint16_t cap);
 
-  GetShiftMaxCapacity GetMaxCapacityFunctor(uint8_t shift) const;
+  [[nodiscard]] GetShiftMaxCapacity GetMaxCapacityFunctor(uint8_t shift) const;
 
   // Fetches objects from backing transfer cache.
   [[nodiscard]] int FetchFromBackingCache(size_t size_class,
@@ -691,22 +698,24 @@ class CpuCache {
                              absl::Span<void* absl_nonnull> batch);
 
   [[nodiscard]] void* absl_nullable Refill(int cpu, size_t size_class);
-  ABSL_ATTRIBUTE_ALWAYS_INLINE std::pair<int, bool> CacheCpuSlab();
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE std::pair<int, bool>
+  CacheCpuSlab();
   void Populate(int cpu);
 
   // Returns true if we bypass cpu cache for a <size_class>. We may bypass
   // per-cpu cache when we enable certain configurations of sharded transfer
   // cache.
-  bool BypassCpuCache(size_t size_class) const;
+  [[nodiscard]] bool BypassCpuCache(size_t size_class) const;
 
   // Returns true if we use sharded transfer cache as a backing cache for
   // per-cpu caches. If a sharded transfer cache is used, we fetch/release
   // from/to a sharded transfer cache. Else, we use a legacy transfer cache.
-  bool UseBackingShardedTransferCache(size_t size_class) const;
+  [[nodiscard]] bool UseBackingShardedTransferCache(size_t size_class) const;
 
   // Called on <size_class> freelist on <cpu> to record overflow/underflow
   // Returns number of objects to return/request from transfer cache.
-  size_t UpdateCapacity(int cpu, size_t size_class, bool overflow);
+  [[nodiscard]] size_t UpdateCapacity(int cpu, size_t size_class,
+                                      bool overflow);
 
   // Tries to grow freelist <size_class> on the current <cpu> by up to
   // <desired_increase> objects if there is available capacity.
@@ -715,11 +724,11 @@ class CpuCache {
   // Depending on the number of misses that cpu caches encountered in the
   // previous resize interval, returns if slabs should be grown, shrunk or
   // remain the same.
-  DynamicSlabResize ShouldResizeSlab();
+  [[nodiscard]] DynamicSlabResize ShouldResizeSlab();
 
   // Determine if the <size_class> is a good candidate to be shrunk. We use
   // clock-like algorithm to prioritize size classes for shrinking.
-  bool IsGoodCandidateForShrinking(int cpu, size_t size_class);
+  [[nodiscard]] bool IsGoodCandidateForShrinking(int cpu, size_t size_class);
 
   struct SizeClassMissStat {
     size_t size_class;
@@ -732,7 +741,7 @@ class CpuCache {
 
   // Tries to steal <bytes> for <size_class> on <cpu> from other size classes on
   // that CPU. Returns acquired bytes.
-  size_t StealCapacityForSizeClassWithinCpu(
+  [[nodiscard]] size_t StealCapacityForSizeClassWithinCpu(
       int cpu, absl::Span<SizeClassMissStat> dest_size_classes, size_t bytes);
 
   // Records a cache underflow or overflow on <cpu>, increments underflow or
@@ -757,7 +766,7 @@ class CpuCache {
                            absl::Span<CpuMissStat> skip_cpus, size_t bytes);
 
   // Try to steal one object from cpu/size_class. Return bytes stolen.
-  size_t ShrinkOtherCache(int cpu, size_t size_class);
+  [[nodiscard]] size_t ShrinkOtherCache(int cpu, size_t size_class);
 
   // Resizes capacities of up to kMaxSizeClassesToResize size classes for a
   // single <cpu>.
@@ -776,7 +785,7 @@ class CpuCache {
 
   void SetSlabAnonVmaName(void* ptr, size_t size, bool is_drained);
 
-  uint8_t PartitionShift() const;
+  [[nodiscard]] uint8_t PartitionShift() const;
 
   Freelist freelist_;
 

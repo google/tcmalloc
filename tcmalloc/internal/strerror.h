@@ -24,7 +24,7 @@ namespace tcmalloc_internal {
 
 // Returns a string representation of the given error number.
 // This is used as a safe, allocation-free alternative to glibc's strerror().
-absl::string_view StrError(int err);
+[[nodiscard]] absl::string_view StrError(int err);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

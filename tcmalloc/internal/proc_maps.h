@@ -38,10 +38,11 @@ class ProcMapsIterator {
   explicit ProcMapsIterator(Buffer* buffer);
 
   // Returns true if the iterator successfully initialized;
-  bool Valid() const;
+  [[nodiscard]] bool Valid() const;
 
-  bool NextExt(uint64_t* start, uint64_t* end, char** flags, uint64_t* offset,
-               int64_t* inode, char** filename, dev_t* dev);
+  [[nodiscard]] bool NextExt(uint64_t* start, uint64_t* end, char** flags,
+                             uint64_t* offset, int64_t* inode, char** filename,
+                             dev_t* dev);
 
   ~ProcMapsIterator();
 

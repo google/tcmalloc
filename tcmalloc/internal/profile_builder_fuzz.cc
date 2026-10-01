@@ -44,7 +44,7 @@ void ParseBuildID(absl::string_view s) {
   info.dlpi_phdr = &note;
   info.dlpi_phnum = 1;
 
-  GetBuildId(&info);
+  (void)GetBuildId(&info);
 #endif  // defined(__linux__)
 }
 
