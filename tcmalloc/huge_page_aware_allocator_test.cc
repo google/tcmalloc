@@ -2343,7 +2343,7 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
   };
 
   for (const auto& test_case : kTestCases) {
-    FakeHugePageAwareAllocator allocator({});
+    FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
     allocator.forwarder().set_filler_skip_subrelease_short_interval(
         test_case.enable_smoothing ? absl::Minutes(1) : absl::ZeroDuration());
     allocator.forwarder().set_filler_skip_subrelease_long_interval(
