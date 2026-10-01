@@ -269,7 +269,10 @@ madvise_cold_regions_nohugepage_enabled() {
 static std::atomic<HeapPartitioningMode>& heap_partitioning_mode_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<HeapPartitioningMode> v{
-      HeapPartitioningMode::kOff};
+#ifdef __SANITIZE_ALLOC_TOKEN__
+      kSecurityPartitions > 1 ? HeapPartitioningMode::kLight :
+#endif
+                              HeapPartitioningMode::kOff};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     if (kSecurityPartitions == 1) {
       return;
