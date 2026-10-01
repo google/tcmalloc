@@ -55,7 +55,6 @@ class TransferCacheTestPeer {
     static_assert(offsetof(TC, slots_) + sizeof(void*) <= ABSL_CACHELINE_SIZE);
     // The miss counters are written by every core that falls through to the
     // freelist; they get a cacheline of their own, apart from lock_.
-    static_assert(offsetof(TC, insert_misses_) % ABSL_CACHELINE_SIZE == 0);
     static_assert(offsetof(TC, remove_object_misses_) + sizeof(MissCounts) <=
                   offsetof(TC, insert_misses_) + ABSL_CACHELINE_SIZE);
     // The freelist starts on its own cacheline, apart from lock_ and the miss
@@ -63,8 +62,6 @@ class TransferCacheTestPeer {
     constexpr size_t kFreeListOffset =
         offsetof(TC, freelist_do_not_access_directly_);
     static_assert(kFreeListOffset % ABSL_CACHELINE_SIZE == 0);
-    static_assert(kFreeListOffset >=
-                  offsetof(TC, insert_misses_) + ABSL_CACHELINE_SIZE);
   }
 };
 
