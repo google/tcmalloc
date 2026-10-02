@@ -148,26 +148,54 @@ TEST(PageFlagsTest, Stack) {
               Optional(PageStats{}));
 }
 
+// Maps `size` bytes of anonymous memory starting `misalignment` bytes past a
+// hugepage boundary. mmap only promises hardware page alignment, and asking
+// for an absolute address is not portable: under MSan and TSan on aarch64 the
+// runtime's mmap interceptor fails MAP_FIXED requests outside the sanitizer's
+// application range with EINVAL and silently drops non-fixed hints. Instead,
+// map `size` plus two hugepages of slack wherever the kernel chooses, pick the
+// sub-range with the requested alignment, and unmap the slack around it.
+char* MmapWithHugepageMisalignment(size_t size, size_t misalignment) {
+  const size_t kHardwarePageSize = getpagesize();
+  CHECK_EQ(size % kHardwarePageSize, 0);
+  CHECK_EQ(misalignment % kHardwarePageSize, 0);
+  CHECK_LT(misalignment, kHugePageSize);
+
+  const size_t padded_size = size + 2 * kHugePageSize;
+  void* raw = mmap(nullptr, padded_size, PROT_READ | PROT_WRITE,
+                   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+  CHECK_NE(raw, MAP_FAILED) << errno;
+
+  const uintptr_t raw_start = reinterpret_cast<uintptr_t>(raw);
+  const uintptr_t raw_end = raw_start + padded_size;
+  const uintptr_t start =
+      ((raw_start + kHugePageSize - 1) & kHugePageMask) + misalignment;
+  const uintptr_t end = start + size;
+  CHECK_LE(end, raw_end);
+  if (start > raw_start) {
+    CHECK_EQ(munmap(raw, start - raw_start), 0) << errno;
+  }
+  if (end < raw_end) {
+    CHECK_EQ(munmap(reinterpret_cast<void*>(end), raw_end - end), 0) << errno;
+  }
+  return reinterpret_cast<char*>(start);
+}
+
 TEST(PageFlagsTest, Alignment) {
   GTEST_SKIP() << "pageflags not commonly available";
 
   const size_t kHardwarePageSize = getpagesize();
-  const int kNumPages = 6 * kHugePageSize / kHardwarePageSize;
-  for (auto mmap_hint : std::initializer_list<void*>{
-           nullptr, reinterpret_cast<void*>(0x00007BADDE000000),
-           reinterpret_cast<void*>(0x00007BADDF001000)}) {
-    void* p = mmap(
-        mmap_hint, kNumPages * kHardwarePageSize, PROT_READ | PROT_WRITE,
-        (mmap_hint == nullptr ? 0 : MAP_FIXED) | MAP_ANONYMOUS | MAP_PRIVATE,
-        -1, 0);
-    ASSERT_NE(p, MAP_FAILED) << errno;
-    ASSERT_EQ(madvise(p, kHardwarePageSize * kNumPages, MADV_HUGEPAGE), 0)
-        << errno;
+  const size_t kSize = 6 * kHugePageSize;
+  // A hugepage-aligned start and a start one hardware page past a hugepage
+  // boundary.
+  for (size_t misalignment : {size_t{0}, kHardwarePageSize}) {
+    char* p = MmapWithHugepageMisalignment(kSize, misalignment);
+    ASSERT_EQ(madvise(p, kSize, MADV_HUGEPAGE), 0) << errno;
 
     PageFlags s;
-    EXPECT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}))
-        << p;
-    munmap(p, kNumPages * kHardwarePageSize);
+    EXPECT_THAT(s.Get(p, kSize), Optional(PageStats{}))
+        << static_cast<void*>(p);
+    ASSERT_EQ(munmap(p, kSize), 0) << errno;
   }
 }
 
@@ -194,17 +222,24 @@ void* GenerateAllStaleTest(absl::string_view filename, void* obj, size_t size) {
   CHECK_NE(write_fd, -1) << errno;
 
   CHECK_EQ(::lseek(read_fd, file_read_offset, SEEK_SET), file_read_offset);
-  std::array<uint64_t, kHugePageSize / sizeof(uint64_t)> buf;
+  // Copy the entries for `obj`'s hugepages plus three more, one hugepage's
+  // worth of entries at a time: kHugePageSize / kHardwarePageSize entries of
+  // kPagemapEntrySize bytes, not kHugePageSize bytes, which would span 1 GiB
+  // of address space per iteration and run past the end of the address space
+  // when `obj` sits near the top of the mmap area.
+  std::vector<uint64_t> buf(kHugePageSize / kHardwarePageSize);
+  const size_t kEntryBytesPerHugePage = buf.size() * kPagemapEntrySize;
   for (int i = 0; i < size / kHugePageSize + 3; ++i) {
     CHECK_EQ(signal_safe_read(read_fd, reinterpret_cast<char*>(buf.data()),
-                              kHugePageSize, nullptr),
-             kHugePageSize);
+                              kEntryBytesPerHugePage, nullptr),
+             kEntryBytesPerHugePage);
     for (uint64_t& page : buf) {
       if ((page & kPageHead) == kPageHead || (page & kPageTail) != kPageTail) {
         page |= kPageStale;
       }
     }
-    CHECK_EQ(write(write_fd, buf.data(), kHugePageSize), kHugePageSize);
+    CHECK_EQ(write(write_fd, buf.data(), kEntryBytesPerHugePage),
+             kEntryBytesPerHugePage);
   }
   CHECK_EQ(close(read_fd), 0) << errno;
   CHECK_EQ(close(write_fd), 0) << errno;
@@ -218,11 +253,11 @@ TEST(PageFlagsTest, Stale) {
   constexpr int kNumPages = 6 * kHugePageSize / kHardwarePageSize;
   // This is hardcoded because we need to know number of pages in a hugepage.
   ASSERT_EQ(getpagesize(), kHardwarePageSize);
-  char* p = reinterpret_cast<char*>(
-      mmap(reinterpret_cast<void*>(0x00007BADDE001000),
-           kNumPages * kHardwarePageSize, PROT_READ | PROT_WRITE,
-           MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
-  ASSERT_NE(p, MAP_FAILED) << errno;
+  // Start one hardware page past a hugepage boundary so that `fake_p` below is
+  // non-zero and the `fake_p - offset` cases stay inside the fake address
+  // space.
+  char* p = MmapWithHugepageMisalignment(kNumPages * kHardwarePageSize,
+                                         /*misalignment=*/kHardwarePageSize);
   absl::BitGen rng;
   for (int i = 0; i < kNumPages * kHardwarePageSize; ++i) {
     p[i] = absl::Uniform(rng, 0, 256);
@@ -264,8 +299,9 @@ TEST(PageFlagsTest, Stale) {
         absl::StrCat(testing::TempDir(), "/fake_pageflags");
     void* fake_p =
         GenerateAllStaleTest(fake_pageflags, p, kNumPages * kHardwarePageSize);
-    // fake_p is likely already aligned, but might as well make sure. This is
-    // likely a zero pointer (not to be confused with nullptr).
+    // fake_p is exactly one hardware page into the fake address space (see the
+    // mapping above), so it is already aligned and base_p == fake_p; round
+    // anyway in case the misalignment changes.
     void* base_p = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(fake_p) &
                                            ~(kHardwarePageSize - 1));
     PageFlagsFriend mocks(fake_pageflags);
@@ -335,11 +371,10 @@ TEST(PageFlagsTest, Locked) {
   constexpr int kNumPages = 6 * kHugePageSize / kHardwarePageSize;
   // This is hardcoded because we need to know number of pages in a hugepage.
   ASSERT_EQ(getpagesize(), kHardwarePageSize);
-  char* p = reinterpret_cast<char*>(
-      mmap(reinterpret_cast<void*>(0x00007BADDE000000),
-           kNumPages * kHardwarePageSize, PROT_READ | PROT_WRITE,
-           MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
-  ASSERT_NE(p, MAP_FAILED) << errno;
+  // Hugepage-aligned so that the MADV_HUGEPAGE ranges below are whole
+  // hugepages.
+  char* p = MmapWithHugepageMisalignment(kNumPages * kHardwarePageSize,
+                                         /*misalignment=*/0);
   absl::BitGen rng;
   for (int i = 0; i < kNumPages * kHardwarePageSize; ++i) {
     p[i] = absl::Uniform(rng, 0, 256);
