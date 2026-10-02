@@ -31,6 +31,7 @@
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
@@ -55,7 +56,7 @@ class NilMemoryTagFunction final : public MemoryTagFunction {
 class MockUnback final : public MemoryModifyFunction {
  public:
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
-    release_callback_();
+    release_callback_(r);
 
     if (!unback_success_) {
       return {.success = false, .error_number = 0};
@@ -71,7 +72,8 @@ class MockUnback final : public MemoryModifyFunction {
 
   absl::flat_hash_set<PageId> released_;
   bool unback_success_ = true;
-  std::function<void()> release_callback_;
+  // Runs before each unback with the range being unbacked.
+  std::function<void(Range)> release_callback_;
 };
 
 struct State;
@@ -195,6 +197,8 @@ struct State {
 
   std::vector<Range> allocs;
   std::vector<absl::Span<const Instruction>> reentrant_stack;
+  // Ranges being unbacked, innermost last.
+  std::vector<Range> in_flight;
   std::string output;
   int depth = 0;
 
@@ -209,21 +213,15 @@ struct State {
     }
     output.resize(1 << 20);
 
-    unback.release_callback_ = [this]() {
+    unback.release_callback_ = [this](Range r) {
       // HugeRegion::Release will drop pageheap_lock around the unback
       // (b/73749855), so other threads may observe the region here.
+      in_flight.push_back(r);
       CheckInvariants();
-
-      if (!this->reentrant_release) return;
-      if (reentrant_stack.empty()) return;
-      if (depth >= 5) return;
-
-      auto prog = std::move(reentrant_stack.back());
-      reentrant_stack.pop_back();
-
-      depth++;
-      Execute(prog);
-      depth--;
+      RunReentrant();
+      // Whatever ran meanwhile left the range alone.
+      CheckInvariants();
+      in_flight.pop_back();
     };
   }
 
@@ -235,6 +233,19 @@ struct State {
     allocs.clear();
     EXPECT_EQ(region.used_pages(), Length(0));
     CheckInvariants();
+  }
+
+  void RunReentrant() {
+    if (!reentrant_release) return;
+    if (reentrant_stack.empty()) return;
+    if (depth >= 5) return;
+
+    auto prog = std::move(reentrant_stack.back());
+    reentrant_stack.pop_back();
+
+    depth++;
+    Execute(prog);
+    depth--;
   }
 
   void Execute(absl::Span<const Instruction> instructions) {
@@ -263,6 +274,29 @@ struct State {
     EXPECT_EQ(
         region.used_pages() + region.free_pages() + region.unmapped_pages(),
         HugeRegion::size().in_pages());
+    for (const Range& r : in_flight) {
+      CheckInFlight(r);
+    }
+  }
+
+  // r is being unbacked.  It must consist of whole hugepages that the region
+  // reports as allocated, so that no one can allocate it, and no live
+  // allocation may overlap it.
+  void CheckInFlight(Range r) {
+    ASSERT_EQ(r.p, HugePageContaining(r.p).first_page());
+    ASSERT_EQ(r.n.raw_num() % kPagesPerHugePage.raw_num(), 0);
+    for (Length offset; offset < r.n; offset += kPagesPerHugePage) {
+      PageBitmap pages;
+      ASSERT_TRUE(region.GetPageAllocationStatus(
+          HugePageContaining(r.p + offset), pages));
+      ASSERT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()),
+                kPagesPerHugePage.raw_num());
+    }
+    for (const Range& a : allocs) {
+      ASSERT_TRUE(a.p + a.n <= r.p || r.p + r.n <= a.p)
+          << "allocation " << a.p.index() << "+" << a.n.raw_num()
+          << " overlaps unback " << r.p.index() << "+" << r.n.raw_num();
+    }
   }
 };
 
