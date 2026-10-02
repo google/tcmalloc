@@ -171,7 +171,7 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_release_stale_pages: false"));
   }
 
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: true"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: false"));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_cfl_subbucket_prioritization: true"));
 
@@ -331,7 +331,7 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf,
-        HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 1)"));
+        HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 0)"));
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_cfl_subbucket_prioritization 1)"));
