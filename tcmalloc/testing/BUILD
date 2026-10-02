@@ -667,6 +667,7 @@ create_tcmalloc_testsuite(
     srcs = ["get_stats_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    shard_count = 4,
     deps = [
         ":rseq_util",
         ":testutil",

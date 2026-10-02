@@ -1207,6 +1207,7 @@ cc_test(
     srcs = ["guarded_page_allocator_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
+    shard_count = 4,
     tags = [
         "nohwasan",
     ],
@@ -1221,6 +1222,7 @@ cc_test(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
     ],
 )
