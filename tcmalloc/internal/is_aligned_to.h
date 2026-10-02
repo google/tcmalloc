@@ -26,21 +26,23 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
-constexpr bool IsAlignedTo(uintptr_t val, size_t alignment) {
+[[nodiscard]] constexpr bool IsAlignedTo(uintptr_t val, size_t alignment) {
   TC_ASSERT(absl::has_single_bit(alignment),
             "Alignment %zu needs to be a power of two", alignment);
   return (val & (alignment - 1)) == 0;
 }
 
-constexpr bool IsAlignedTo(uintptr_t val, std::align_val_t alignment) {
+[[nodiscard]] constexpr bool IsAlignedTo(uintptr_t val,
+                                         std::align_val_t alignment) {
   return IsAlignedTo(val, static_cast<size_t>(alignment));
 }
 
-inline bool IsAlignedTo(const void* addr, size_t alignment) {
+[[nodiscard]] inline bool IsAlignedTo(const void* addr, size_t alignment) {
   return IsAlignedTo(reinterpret_cast<uintptr_t>(addr), alignment);
 }
 
-inline bool IsAlignedTo(const void* addr, std::align_val_t alignment) {
+[[nodiscard]] inline bool IsAlignedTo(const void* addr,
+                                      std::align_val_t alignment) {
   return IsAlignedTo(reinterpret_cast<uintptr_t>(addr),
                      static_cast<size_t>(alignment));
 }

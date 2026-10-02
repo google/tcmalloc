@@ -96,9 +96,9 @@ constexpr hot_cold_t kDefaultMinHotAccessHint =
 
 }  // namespace tcmalloc
 
-inline bool AbslParseFlag(absl::string_view text,
-                          tcmalloc::hot_cold_t* absl_nonnull hotness,
-                          std::string* absl_nullable /* error */) {
+[[nodiscard]] inline bool AbslParseFlag(
+    absl::string_view text, tcmalloc::hot_cold_t* absl_nonnull hotness,
+    std::string* absl_nullable /* error */) {
   uint32_t value;
   if (!absl::SimpleAtoi(text, &value)) {
     return false;
@@ -112,7 +112,7 @@ inline bool AbslParseFlag(absl::string_view text,
   return true;
 }
 
-inline std::string AbslUnparseFlag(tcmalloc::hot_cold_t hotness) {
+[[nodiscard]] inline std::string AbslUnparseFlag(tcmalloc::hot_cold_t hotness) {
   return absl::StrCat(hotness);
 }
 
@@ -313,15 +313,15 @@ class Profile final {
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;
 
-  ProfileType Type() const;
+  [[nodiscard]] ProfileType Type() const;
 
   // Time stamp when the profile collection started.  Returns std::nullopt if
   // this is not available.
-  std::optional<absl::Time> StartTime() const;
+  [[nodiscard]] std::optional<absl::Time> StartTime() const;
 
   // The duration the profile was collected for.  For instantaneous profiles
   // (heap, peakheap, etc.), this returns absl::ZeroDuration().
-  absl::Duration Duration() const;
+  [[nodiscard]] absl::Duration Duration() const;
 
  private:
   explicit Profile(std::unique_ptr<const tcmalloc_internal::ProfileBase>);
@@ -341,8 +341,8 @@ class AddressRegion {
   //
   // Alloc must return memory located within the address range given in the call
   // to AddressRegionFactory::Create that created this AddressRegion.
-  virtual std::pair<void* absl_nullable, size_t> Alloc(size_t size,
-                                                       size_t alignment) = 0;
+  [[nodiscard]] virtual std::pair<void* absl_nullable, size_t> Alloc(
+      size_t size, size_t alignment) = 0;
 };
 
 // Interface to a pluggable address region allocator.
@@ -375,25 +375,25 @@ class AddressRegionFactory {
   // start_addr with mmap(PROT_NONE) prior to calling this function (so it is
   // safe for Create() to mmap(MAP_FIXED) over the specified address range).
   // start_addr and size are always page-aligned.
-  virtual AddressRegion* absl_nonnull Create(void* absl_nonnull start_addr,
-                                             size_t size, UsageHint hint) = 0;
+  [[nodiscard]] virtual AddressRegion* absl_nonnull Create(
+      void* absl_nonnull start_addr, size_t size, UsageHint hint) = 0;
 
   // Gets a human-readable description of the current state of the allocator.
   //
   // The state is stored in the provided buffer.  The number of bytes used (or
   // would have been required, had the buffer been of sufficient size) is
   // returned.
-  virtual size_t GetStats(absl::Span<char> buffer);
+  [[nodiscard]] virtual size_t GetStats(absl::Span<char> buffer);
 
   // Gets a description of the current state of the allocator in pbtxt format.
   //
   // The state is stored in the provided buffer.  The number of bytes used (or
   // would have been required, had the buffer been of sufficient size) is
   // returned.
-  virtual size_t GetStatsInPbtxt(absl::Span<char> buffer);
+  [[nodiscard]] virtual size_t GetStatsInPbtxt(absl::Span<char> buffer);
 
   // Returns the total number of bytes allocated by MallocInternal().
-  static size_t InternalBytesAllocated();
+  [[nodiscard]] static size_t InternalBytesAllocated();
 
  protected:
   // Dynamically allocates memory for use by AddressRegionFactory.  Particularly
@@ -483,7 +483,7 @@ class MallocExtension final {
 
   // Gets the region factory used by the malloc extension instance. Returns null
   // for malloc implementations that do not support pluggable region factories.
-  static AddressRegionFactory* absl_nullable GetRegionFactory();
+  [[nodiscard]] static AddressRegionFactory* absl_nullable GetRegionFactory();
 
   // Sets the region factory to the specified.
   //
@@ -525,17 +525,17 @@ class MallocExtension final {
   //
   // If limit_kind == kHard, crash if returning memory is unable to get below
   // the limit.
-  static size_t GetMemoryLimit(LimitKind limit_kind);
+  [[nodiscard]] static size_t GetMemoryLimit(LimitKind limit_kind);
   static void SetMemoryLimit(size_t limit, LimitKind limit_kind);
 
   // Gets the sampling interval.  Returns a value < 0 if unknown.
-  static int64_t GetProfileSamplingInterval();
+  [[nodiscard]] static int64_t GetProfileSamplingInterval();
   // Sets the sampling interval for heap profiles.  TCMalloc samples
   // approximately every interval bytes allocated.
   static void SetProfileSamplingInterval(int64_t interval);
 
   // Gets the guarded sampling rate.  Returns a value < 0 if unknown.
-  static int64_t GetGuardedSamplingInterval();
+  [[nodiscard]] static int64_t GetGuardedSamplingInterval();
   // Sets the guarded sampling interval for sampled allocations.  TCMalloc
   // samples approximately every interval bytes allocated, subject to
   // implementation limitations in GWP-ASan.
@@ -550,40 +550,40 @@ class MallocExtension final {
   static void ActivateGuardedSampling();
 
   // Gets whether TCMalloc is using per-CPU caches.
-  static bool PerCpuCachesActive();
+  [[nodiscard]] static bool PerCpuCachesActive();
 
   // Gets the current maximum cache size per CPU cache.
-  static int32_t GetMaxPerCpuCacheSize();
+  [[nodiscard]] static int32_t GetMaxPerCpuCacheSize();
   // Sets the maximum cache size per CPU cache.  This is a per-core limit.
   static void SetMaxPerCpuCacheSize(int32_t value);
 
   // Gets the current maximum thread cache.
-  static int64_t GetMaxTotalThreadCacheBytes();
+  [[nodiscard]] static int64_t GetMaxTotalThreadCacheBytes();
   // Sets the maximum thread cache size.  This is a whole-process limit.
   static void SetMaxTotalThreadCacheBytes(int64_t value);
 
   // Enables or disables background processes.
-  static bool GetBackgroundProcessActionsEnabled();
+  [[nodiscard]] static bool GetBackgroundProcessActionsEnabled();
   static void SetBackgroundProcessActionsEnabled(bool value);
 
   // Gets and sets background process sleep time. This controls the interval
   // granularity at which the actions are invoked.
-  static absl::Duration GetBackgroundProcessSleepInterval();
+  [[nodiscard]] static absl::Duration GetBackgroundProcessSleepInterval();
   static void SetBackgroundProcessSleepInterval(absl::Duration value);
 
   // Gets and sets intervals used for finding short-term demand fluctuation and
   // long-term demand trend. Zero duration means not considering corresponding
   // demand history for delayed subrelease. Delayed subrelease is disabled if
   // all intervals are zero.
-  ABSL_DEPRECATE_AND_INLINE()
-  static absl::Duration GetSkipSubreleaseInterval() {
+  [[nodiscard]] ABSL_DEPRECATE_AND_INLINE() static absl::Duration
+      GetSkipSubreleaseInterval() {
     return absl::ZeroDuration();
   }
   ABSL_DEPRECATE_AND_INLINE()
   static void SetSkipSubreleaseInterval(absl::Duration) {}
-  static absl::Duration GetSkipSubreleaseShortInterval();
+  [[nodiscard]] static absl::Duration GetSkipSubreleaseShortInterval();
   static void SetSkipSubreleaseShortInterval(absl::Duration value);
-  static absl::Duration GetSkipSubreleaseLongInterval();
+  [[nodiscard]] static absl::Duration GetSkipSubreleaseLongInterval();
   static void SetSkipSubreleaseLongInterval(absl::Duration value);
 
   // Returns the estimated number of bytes that will be allocated for a request
@@ -620,7 +620,7 @@ class MallocExtension final {
   // for instance, you should not pass in a pointer after having called free()
   // on it).
   enum class Ownership { kUnknown = 0, kOwned, kNotOwned };
-  static Ownership GetOwnership(const void* absl_nullable p);
+  [[nodiscard]] static Ownership GetOwnership(const void* absl_nullable p);
 
   // Type used by GetProperties.  See comment on GetProperties.
   struct Property {
@@ -667,7 +667,7 @@ class MallocExtension final {
     // StartAllocationProfile, and return samples of calls to each function.  If
     // it is called more than once, subsequent calls will return an empty
     // profile.
-    Profile Stop() &&;
+    [[nodiscard]] Profile Stop() &&;
 
    private:
     explicit AllocationProfilingToken(
@@ -711,7 +711,7 @@ class MallocExtension final {
 
   // Gets the current release rate (in bytes per second) from the page heap.
   // Zero inhibits the release path.
-  static BytesPerSecond GetBackgroundReleaseRate();
+  [[nodiscard]] static BytesPerSecond GetBackgroundReleaseRate();
   // Specifies the release rate from the page heap.  ProcessBackgroundActions
   // must be called for this to be operative.
   static void SetBackgroundReleaseRate(BytesPerSecond rate);
@@ -809,18 +809,19 @@ extern "C" {
 [[nodiscard]] __sized_ptr_t __size_returning_new_aligned_hot_cold(
     size_t, std::align_val_t, __hot_cold_t) TCMALLOC_ATTRIBUTE_MALLOC_SPAN;
 
-ABSL_DEPRECATE_AND_INLINE()
-inline __sized_ptr_t tcmalloc_size_returning_operator_new(size_t size) {
+[[nodiscard]] ABSL_DEPRECATE_AND_INLINE() inline __sized_ptr_t
+    tcmalloc_size_returning_operator_new(size_t size) {
   return __size_returning_new(size);
 }
-__sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(size_t size) noexcept
-    TCMALLOC_ATTRIBUTE_MALLOC_SPAN;
-ABSL_DEPRECATE_AND_INLINE()
-inline __sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold(
-    size_t size, tcmalloc::hot_cold_t hot_cold) {
+[[nodiscard]] __sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
+    size_t size) noexcept TCMALLOC_ATTRIBUTE_MALLOC_SPAN;
+[[nodiscard]] ABSL_DEPRECATE_AND_INLINE() inline __sized_ptr_t
+    tcmalloc_size_returning_operator_new_hot_cold(
+        size_t size, tcmalloc::hot_cold_t hot_cold) {
   return __size_returning_new_hot_cold(size, hot_cold);
 }
-__sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+[[nodiscard]] __sized_ptr_t
+tcmalloc_size_returning_operator_new_hot_cold_nothrow(
     size_t size,
     tcmalloc::hot_cold_t hot_cold) noexcept TCMALLOC_ATTRIBUTE_MALLOC_SPAN;
 
@@ -828,20 +829,23 @@ __sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
 
 // Identical to `tcmalloc_size_returning_operator_new` except that the returned
 // memory is aligned according to the `alignment` argument.
-ABSL_DEPRECATE_AND_INLINE()
-inline __sized_ptr_t tcmalloc_size_returning_operator_new_aligned(
-    size_t size, std::align_val_t alignment) {
+[[nodiscard]] ABSL_DEPRECATE_AND_INLINE() inline __sized_ptr_t
+    tcmalloc_size_returning_operator_new_aligned(size_t size,
+                                                 std::align_val_t alignment) {
   return __size_returning_new_aligned(size, alignment);
 }
-__sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
+[[nodiscard]] __sized_ptr_t
+tcmalloc_size_returning_operator_new_aligned_nothrow(
     size_t size,
     std::align_val_t alignment) noexcept TCMALLOC_ATTRIBUTE_MALLOC_SPAN;
-ABSL_DEPRECATE_AND_INLINE()
-inline __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold(
-    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold) {
+[[nodiscard]] ABSL_DEPRECATE_AND_INLINE() inline __sized_ptr_t
+    tcmalloc_size_returning_operator_new_aligned_hot_cold(
+        size_t size, std::align_val_t alignment,
+        tcmalloc::hot_cold_t hot_cold) {
   return __size_returning_new_aligned_hot_cold(size, alignment, hot_cold);
 }
-__sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
+[[nodiscard]] __sized_ptr_t
+tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
     size_t size, std::align_val_t alignment,
     tcmalloc::hot_cold_t hot_cold) noexcept TCMALLOC_ATTRIBUTE_MALLOC_SPAN;
 
@@ -905,7 +909,7 @@ class AllocationProfilingTokenBase {
   // Finish recording started during construction of this object.
   //
   // After the first call, Stop() will return an empty profile.
-  virtual Profile Stop() && = 0;
+  [[nodiscard]] virtual Profile Stop() && = 0;
 };
 
 // ProfileBase contains a profile of allocations.
@@ -923,13 +927,13 @@ class ProfileBase {
       absl::FunctionRef<void(const Profile::Sample&)> f) const = 0;
 
   // The type of profile (live objects, allocated, etc.).
-  virtual ProfileType Type() const = 0;
+  [[nodiscard]] virtual ProfileType Type() const = 0;
 
-  virtual std::optional<absl::Time> StartTime() const = 0;
+  [[nodiscard]] virtual std::optional<absl::Time> StartTime() const = 0;
 
   // The duration the profile was collected for.  For instantaneous profiles
   // (heap, peakheap, etc.), this returns absl::ZeroDuration().
-  virtual absl::Duration Duration() const = 0;
+  [[nodiscard]] virtual absl::Duration Duration() const = 0;
 };
 
 enum class MadvisePreference {
@@ -939,9 +943,9 @@ enum class MadvisePreference {
   kFreeOnly = 0x2,
 };
 
-inline bool AbslParseFlag(absl::string_view text,
-                          MadvisePreference* absl_nonnull preference,
-                          std::string* absl_nullable /* error */) {
+[[nodiscard]] inline bool AbslParseFlag(
+    absl::string_view text, MadvisePreference* absl_nonnull preference,
+    std::string* absl_nullable /* error */) {
   if (text == "NEVER") {
     *preference = MadvisePreference::kNever;
     return true;
@@ -959,7 +963,7 @@ inline bool AbslParseFlag(absl::string_view text,
   }
 }
 
-inline std::string AbslUnparseFlag(MadvisePreference preference) {
+[[nodiscard]] inline std::string AbslUnparseFlag(MadvisePreference preference) {
   switch (preference) {
     case MadvisePreference::kNever:
       return "NEVER";

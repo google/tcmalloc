@@ -24,7 +24,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-GuardedAllocationsErrorType RefineErrorTypeBasedOnContext(
+[[nodiscard]] GuardedAllocationsErrorType RefineErrorTypeBasedOnContext(
     const void* context, GuardedAllocationsErrorType error);
 
 void SegvHandler(int signo, siginfo_t* info, void* context);

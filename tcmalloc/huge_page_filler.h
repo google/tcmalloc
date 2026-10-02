@@ -181,8 +181,8 @@ class UsageInfo {
   }
 
   template <class TrackerType>
-  std::optional<bool> IsHugepageBacked(const TrackerType& tracker,
-                                       PageFlagsBase& pageflags) {
+  [[nodiscard]] std::optional<bool> IsHugepageBacked(const TrackerType& tracker,
+                                                     PageFlagsBase& pageflags) {
     void* addr = tracker.location().start_addr();
     // TODO(b/28093874): Investigate if pageflags may be queried without
     // pageheap_lock.
@@ -191,7 +191,7 @@ class UsageInfo {
 
   // Reports the number of pages that were previously released, but later became
   // full and are hugepage backed.
-  HugeLength HugepageBackedPreviouslyReleased() const {
+  [[nodiscard]] HugeLength HugepageBackedPreviouslyReleased() const {
     return hugepage_backed_previously_released_;
   }
 
@@ -482,14 +482,14 @@ class UsageInfo {
   static constexpr Length kLowOccupancyNumFreePages =
       Length(kPagesPerHugePage.raw_num() - (kPagesPerHugePage.raw_num() >> 3));
 
-  int BucketNum(size_t page) {
+  [[nodiscard]] int BucketNum(size_t page) {
     auto it =
         std::upper_bound(bucket_bounds_, bucket_bounds_ + buckets_size_, page);
     TC_CHECK_NE(it, bucket_bounds_);
     return it - bucket_bounds_ - 1;
   }
 
-  int LifetimeBucketNum(absl::Duration duration) {
+  [[nodiscard]] int LifetimeBucketNum(absl::Duration duration) {
     int64_t duration_ms = absl::ToInt64Milliseconds(duration);
     auto it = std::upper_bound(
         kLifetimeBucketBounds, kLifetimeBucketBounds + kLifetimeBuckets,
@@ -498,7 +498,7 @@ class UsageInfo {
     return it - kLifetimeBucketBounds - 1;
   }
 
-  int HardwarePageBucketNum(HardwareLength page) {
+  [[nodiscard]] int HardwarePageBucketNum(HardwareLength page) {
     auto it = std::upper_bound(
         native_page_bucket_bounds_,
         native_page_bucket_bounds_ + native_page_buckets_size_, page.raw_num());
@@ -631,7 +631,7 @@ class UsageInfo {
     }
   }
 
-  absl::string_view TypeToStr(Type type) const {
+  [[nodiscard]] absl::string_view TypeToStr(Type type) const {
     TC_ASSERT_LT(type, kNumTypes);
     switch (type) {
       case kSparseRegular:
@@ -653,7 +653,7 @@ class UsageInfo {
     }
   }
 
-  absl::string_view AllocType(Type type) const {
+  [[nodiscard]] absl::string_view AllocType(Type type) const {
     TC_ASSERT_LT(type, kNumTypes);
     switch (type) {
       case kSparseRegular:
@@ -672,7 +672,7 @@ class UsageInfo {
     }
   }
 
-  absl::string_view ObjectType(Type type) const {
+  [[nodiscard]] absl::string_view ObjectType(Type type) const {
     TC_ASSERT_LT(type, kNumTypes);
     switch (type) {
       case kSparseRegular:
@@ -735,7 +735,7 @@ class HugePageFiller {
   // number of individual objects that would be allocated on these n pages.
   //
   // On failure, returns nullptr/PageId{0}.
-  TryGetResult TryGet(Length n, SpanAllocInfo span_alloc_info)
+  [[nodiscard]] TryGetResult TryGet(Length n, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks r as usable by new allocations into *pt; returns pt if that hugepage
@@ -743,8 +743,9 @@ class HugePageFiller {
   //
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, Range{p, n}} was the result of a previous TryGet.
-  TrackerType* absl_nullable Put(TrackerType* absl_nonnull pt, Range r,
-                                 SpanAllocInfo span_alloc_info)
+  [[nodiscard]] TrackerType* absl_nullable Put(TrackerType* absl_nonnull pt,
+                                               Range r,
+                                               SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
@@ -756,24 +757,24 @@ class HugePageFiller {
   // Returns a tracker that became empty while pinned by an operation that had
   // dropped pageheap_lock and whose pins have since all been cleared, or
   // nullptr if there is none.  The caller owns the returned tracker.
-  TrackerType* absl_nullable FetchFullyFreedTracker()
+  [[nodiscard]] TrackerType* absl_nullable FetchFullyFreedTracker()
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  HugeLength size() const { return size_; }
+  [[nodiscard]] HugeLength size() const { return size_; }
 
   // Useful statistics
-  Length pages_allocated(AccessDensityPrediction type) const {
+  [[nodiscard]] Length pages_allocated(AccessDensityPrediction type) const {
     TC_ASSERT_LT(type, AccessDensityPrediction::kPredictionCounts);
     return pages_allocated_[type];
   }
-  Length pages_allocated() const {
+  [[nodiscard]] Length pages_allocated() const {
     return pages_allocated_[AccessDensityPrediction::kSparse] +
            pages_allocated_[AccessDensityPrediction::kDense];
   }
-  Length used_pages() const { return pages_allocated(); }
-  Length unmapped_pages() const { return unmapped_; }
-  Length free_pages() const;
-  Length used_pages_in_released() const {
+  [[nodiscard]] Length used_pages() const { return pages_allocated(); }
+  [[nodiscard]] Length unmapped_pages() const { return unmapped_; }
+  [[nodiscard]] Length free_pages() const;
+  [[nodiscard]] Length used_pages_in_released() const {
     TC_ASSERT_LE(n_used_released_[AccessDensityPrediction::kSparse],
                  regular_alloc_released_.sparse.size().in_pages());
     TC_ASSERT_LE(n_used_released_[AccessDensityPrediction::kDense],
@@ -792,7 +793,7 @@ class HugePageFiller {
                 : regular_alloc_partial_released_.dense.size()) +
            n_in_flight_release_[type];
   }
-  Length used_pages_in_partial_released() const {
+  [[nodiscard]] Length used_pages_in_partial_released() const {
     TC_ASSERT_LE(n_used_partial_released_[AccessDensityPrediction::kSparse],
                  partial_released_huge_pages(AccessDensityPrediction::kSparse)
                      .in_pages());
@@ -802,29 +803,29 @@ class HugePageFiller {
     return n_used_partial_released_[AccessDensityPrediction::kDense] +
            n_used_partial_released_[AccessDensityPrediction::kSparse];
   }
-  Length used_pages_in_any_subreleased() const {
+  [[nodiscard]] Length used_pages_in_any_subreleased() const {
     return used_pages_in_released() + used_pages_in_partial_released();
   }
 
-  HugeLength previously_released_huge_pages() const {
+  [[nodiscard]] HugeLength previously_released_huge_pages() const {
     return n_was_released_[AccessDensityPrediction::kDense] +
            n_was_released_[AccessDensityPrediction::kSparse];
   }
 
-  Length FreePagesInPartialAllocs() const;
+  [[nodiscard]] Length FreePagesInPartialAllocs() const;
 
   // Fraction of used pages that are on non-released hugepages and
   // thus could be backed by kernel hugepages. (Of course, we can't
   // guarantee that the kernel had available 2-mib regions of physical
   // memory--so this being 1 doesn't mean that everything actually
   // *is* hugepage-backed!)
-  double hugepage_frac() const;
+  [[nodiscard]] double hugepage_frac() const;
 
   // Returns the amount of memory to release if all remaining options of
   // releasing memory involve subreleasing pages. Provided intervals are used
   // for making skip subrelease decisions.
-  Length GetDesiredSubreleasePages(Length desired, Length total_released,
-                                   SkipSubreleaseIntervals intervals)
+  [[nodiscard]] Length GetDesiredSubreleasePages(
+      Length desired, Length total_released, SkipSubreleaseIntervals intervals)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Tries to release desired pages by iteratively releasing from the emptiest
@@ -845,14 +846,16 @@ class HugePageFiller {
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
-  BackingStats stats() const;
-  SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
-  HugePageTreatmentStats GetHugePageTreatmentStats() const
+  [[nodiscard]] BackingStats stats() const;
+  [[nodiscard]] SubreleaseStats subrelease_stats() const {
+    return subrelease_stats_;
+  }
+  [[nodiscard]] HugePageTreatmentStats GetHugePageTreatmentStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return treatment_stats_;
   };
 
-  HugePageFillerStats GetStats() const;
+  [[nodiscard]] HugePageFillerStats GetStats() const;
   void Print(Printer& out, bool everything, PageFlagsBase& pageflags) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   void PrintInPbtxt(PbtxtRegion& hpaa, PageFlagsBase& pageflags) const
@@ -867,7 +870,8 @@ class HugePageFiller {
   // Returns true if we should back off from MADV_COLLAPSE. In case of high
   // collapse latency, this is used to reduce the frequency of collapse
   // attempts.
-  bool ShouldBackoffFromCollapse() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] bool ShouldBackoffFromCollapse()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Based on the <latency>, updates the max backoff delay.
   void UpdateMaxBackoffDelay(absl::Duration latency)
@@ -915,7 +919,7 @@ class HugePageFiller {
   template <size_t N>
   class PageTrackerLists : public HintedTrackerLists<TrackerType, N> {
    public:
-    HugeLength size() const {
+    [[nodiscard]] HugeLength size() const {
       return NHugePages(HintedTrackerLists<TrackerType, N>::size());
     }
   };
@@ -929,19 +933,20 @@ class HugePageFiller {
   // Which chunk should this hugepage be in?
   // This returns the largest possible value kChunks - 1 iff
   // pt has a single allocation.
-  size_t IndexFor(const TrackerType& pt) const;
+  [[nodiscard]] size_t IndexFor(const TrackerType& pt) const;
   // Returns index in the tracker list for a given page tracker.
-  size_t ListFor(const TrackerType& pt) const;
+  [[nodiscard]] size_t ListFor(const TrackerType& pt) const;
   // Returns index for sparse alloclists.
-  size_t SparseListFor(Length longest, size_t chunk) const;
+  [[nodiscard]] size_t SparseListFor(Length longest, size_t chunk) const;
   // Returns index for dense alloclists.
-  size_t DenseListFor(size_t nallocs) const;
+  [[nodiscard]] size_t DenseListFor(size_t nallocs) const;
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
 
   struct DensityTrackerLists {
     PageTrackerLists<kNumLists> sparse;
     PageTrackerLists<kPagesPerHugePage.raw_num()> dense;
-    TrackerType* GetLeast(AccessDensityPrediction type, size_t listindex) {
+    [[nodiscard]] TrackerType* GetLeast(AccessDensityPrediction type,
+                                        size_t listindex) {
       if (type == AccessDensityPrediction::kSparse) {
         return sparse.GetLeast(listindex);
       }
@@ -1060,8 +1065,8 @@ class HugePageFiller {
 
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
-  static bool CompareForSubrelease(const TrackerType* absl_nonnull a,
-                                   const TrackerType* absl_nonnull b) {
+  [[nodiscard]] static bool CompareForSubrelease(
+      const TrackerType* absl_nonnull a, const TrackerType* absl_nonnull b) {
     TC_ASSERT_NE(a, nullptr);
     TC_ASSERT_NE(b, nullptr);
 
@@ -1081,10 +1086,9 @@ class HugePageFiller {
   // To support gathering candidates from multiple tracker lists,
   // current_candidates is nonzero.
   template <size_t N>
-  static int SelectCandidates(absl::Span<TrackerType*> candidates,
-                              int current_candidates,
-                              const PageTrackerLists<N>& tracker_list,
-                              size_t tracker_start);
+  [[nodiscard]] static int SelectCandidates(
+      absl::Span<TrackerType*> candidates, int current_candidates,
+      const PageTrackerLists<N>& tracker_list, size_t tracker_start);
 
   // Unbacks pt's free pages with pageheap_lock dropped, keeping pt off the
   // filler lists meanwhile.  pt must be pinned (DontFreeTracker) by the caller

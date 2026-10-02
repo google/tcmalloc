@@ -197,7 +197,7 @@ TEST_F(SampleRecorderTest, MultiThreaded) {
   // objects as `UnregisterAll()` is running concurrently. And `Unregister()`
   // assumes the object it is going to mark dead is still alive.
   SampleRecorder<Info, TestAllocator> sample_recorder{allocator_};
-  threads.Start(kThreads, [&](int) { sample_recorder.Register(); });
+  threads.Start(kThreads, [&](int) { (void)sample_recorder.Register(); });
   threads.Start(kThreads, [&](int) { sample_recorder.UnregisterAll(); });
   threads.Start(kThreads, [&](int) {
     sample_recorder.Iterate(
@@ -244,7 +244,7 @@ TEST(SampleRecorderWithParamTest, RegisterWithParam) {
   sample_recorder.Unregister(info);
   // |info| is not deleted, just marked as dead. Here, Register() would invoke
   // PopDead(), revive the same object, with its fields populated by PopDead().
-  sample_recorder.Register(2);
+  EXPECT_EQ(sample_recorder.Register(2), info);
   EXPECT_THAT(info->info_size, 2);
   EXPECT_TRUE(info->initialized);
 }

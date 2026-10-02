@@ -41,7 +41,7 @@
 // limiting the address-space size we get sufficient coverage without blowing
 // out job limits.
 void SetTestResourceLimit(size_t limit);
-size_t GetTestResourceLimit();
+[[nodiscard]] size_t GetTestResourceLimit();
 
 namespace tcmalloc {
 
@@ -84,9 +84,9 @@ inline void sized_array_aligned_delete(void* ptr, size_t size,
 }
 
 // Get the TCMalloc stats in textproto format.
-std::string GetStatsInPbTxt();
-extern "C" ABSL_ATTRIBUTE_WEAK int MallocExtension_Internal_GetStatsInPbtxt(
-    char* buffer, int buffer_length);
+[[nodiscard]] std::string GetStatsInPbTxt();
+extern "C" [[nodiscard]] ABSL_ATTRIBUTE_WEAK int
+MallocExtension_Internal_GetStatsInPbtxt(char* buffer, int buffer_length);
 
 class ScopedProfileSamplingInterval {
  public:
@@ -322,10 +322,11 @@ class ScopedFakeCpuId {
 // for the given set of sorted random doubles
 // See "Evaluating the Anderson-Darling Distribution" by
 // Marsaglia and Marsaglia for details.
-double AndersonDarlingTest(absl::Span<const double> random_sample);
+[[nodiscard]] double AndersonDarlingTest(
+    absl::Span<const double> random_sample);
 
 template <typename Function>
-std::string PrintToString(size_t buffer_size, Function&& f) {
+[[nodiscard]] std::string PrintToString(size_t buffer_size, Function&& f) {
   std::string buf;
   absl::StringResizeAndOverwrite(buf, buffer_size, [&](char* ptr, size_t size) {
     tcmalloc_internal::Printer p(ptr, size);
@@ -373,7 +374,7 @@ class LongJmpScope {
   inline static void (*previous_)(const char*, int) = nullptr;
 };
 
-bool NamedVMAsSupported();
+[[nodiscard]] bool NamedVMAsSupported();
 
 }  // namespace tcmalloc
 

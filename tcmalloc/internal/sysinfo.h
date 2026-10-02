@@ -44,7 +44,7 @@ namespace tcmalloc_internal {
 // should read up to `count` bytes into `buf` and return the number of bytes
 // actually read. If an error occurs during reading it should return -1 with
 // errno set to an appropriate error code.  read should handle EINTR and retry.
-std::optional<CpuSet> ParseCpulist(
+[[nodiscard]] std::optional<CpuSet> ParseCpulist(
     absl::FunctionRef<ssize_t(char* buf, size_t count)> read);
 
 namespace sysinfo_internal {
@@ -53,11 +53,11 @@ namespace sysinfo_internal {
 // offline CPUs.  If this cannot be retrieved, std::nullopt is returned.
 //
 // The result of this function is not cached internally.
-std::optional<int> NumPossibleCPUsNoCache();
+[[nodiscard]] std::optional<int> NumPossibleCPUsNoCache();
 
 }  // namespace sysinfo_internal
 
-inline std::optional<int> NumCPUsMaybe() {
+[[nodiscard]] inline std::optional<int> NumCPUsMaybe() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::optional<int> result;
   absl::base_internal::LowLevelCallOnce(
@@ -67,11 +67,11 @@ inline std::optional<int> NumCPUsMaybe() {
 
 #else  // __linux__
 
-inline std::optional<int> NumCPUsMaybe() { return std::nullopt; }
+[[nodiscard]] inline std::optional<int> NumCPUsMaybe() { return std::nullopt; }
 
 #endif  // __linux__
 
-inline int NumCPUs() {
+[[nodiscard]] inline int NumCPUs() {
   std::optional<int> maybe_cpus = NumCPUsMaybe();
   TC_CHECK(maybe_cpus.has_value());
   return *maybe_cpus;

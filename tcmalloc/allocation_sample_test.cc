@@ -101,7 +101,8 @@ TEST(AllocationSample, Threaded) {
       std::unique_ptr<AllocationSample> sampler = PopSample(state);
 
       if (sampler) {
-        std::move(*sampler).Stop();
+        Profile profile = std::move(*sampler).Stop();
+        EXPECT_EQ(profile.Type(), ProfileType::kAllocations);
       }
     } else {
       int allocations;

@@ -29,7 +29,7 @@ namespace tcmalloc_internal {
 
 class CacheTopology {
  public:
-  static CacheTopology& Instance() {
+  [[nodiscard]] static CacheTopology& Instance() {
     ABSL_CONST_INIT static CacheTopology instance;
     return instance;
   }
@@ -38,9 +38,9 @@ class CacheTopology {
 
   void Init();
 
-  unsigned l3_count() const { return l3_count_; }
+  [[nodiscard]] unsigned l3_count() const { return l3_count_; }
 
-  unsigned GetL3FromCpuId(int cpu) const {
+  [[nodiscard]] unsigned GetL3FromCpuId(int cpu) const {
     TC_ASSERT_GE(cpu, 0);
     TC_ASSERT_LT(cpu, cpu_count_);
     unsigned l3 = l3_cache_index_[cpu];

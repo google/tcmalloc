@@ -96,7 +96,7 @@ class NumaTopology {
   void InitForTest(absl::FunctionRef<int(size_t)> open_node_cpulist);
 
   // Returns true if NUMA awareness is available & enabled, otherwise false.
-  bool numa_aware() const {
+  [[nodiscard]] bool numa_aware() const {
     // Explicitly checking NumPartitions here provides a compile time constant
     // false in cases where NumPartitions==1, allowing NUMA awareness to be
     // optimized away.
@@ -107,7 +107,7 @@ class NumaTopology {
   // partitions that other parts of TCMalloc need to concern themselves with.
   // Checking this rather than using kNumaPartitions allows users to avoid work
   // on non-zero partitions when NUMA awareness is disabled.
-  size_t active_partitions() const {
+  [[nodiscard]] size_t active_partitions() const {
     return numa_aware() ? kNumInternalPartitions : 1;
   }
 
@@ -128,11 +128,11 @@ class NumaTopology {
   // executing upon belongs. Note that whilst the CPU->partition mapping is
   // fixed, the return value of this function may change at arbitrary times as
   // this thread migrates between CPUs.
-  size_t GetCurrentPartition() const;
+  [[nodiscard]] size_t GetCurrentPartition() const;
 
   // Like GetCurrentPartition(), but returns a partition number multiplied by
   // ScaleBy.
-  size_t GetCurrentScaledPartition() const;
+  [[nodiscard]] size_t GetCurrentScaledPartition() const;
 
   // Return the NUMA partition number to which `cpu` belongs.  This partition
   // number may exceed NumPartitions as part of providing an unconditional NUMA
@@ -141,15 +141,15 @@ class NumaTopology {
   // It is valid for cpu to equal subtle::percpu::kCpuIdUninitialized or
   // subtle::percpu::kCpuIdUnsupported. In either case partition 0 will be
   // returned.
-  size_t GetCpuPartition(int cpu) const;
+  [[nodiscard]] size_t GetCpuPartition(int cpu) const;
 
   // Like GetCpuPartition(), but returns a partition number multiplied by
   // ScaleBy.
-  size_t GetCpuScaledPartition(int cpu) const;
+  [[nodiscard]] size_t GetCpuScaledPartition(int cpu) const;
 
   // Return a bitmap in which set bits identify the nodes that belong to the
   // specified NUMA `partition`.
-  uint64_t GetPartitionNodes(int partition) const;
+  [[nodiscard]] uint64_t GetPartitionNodes(int partition) const;
 
  private:
   // Maps from NUMA partition to a bitmap of NUMA nodes within the partition.
@@ -185,7 +185,7 @@ class NumaTopology {
 
 // Opens a /sys/devices/system/node/nodeX/cpulist file for read only access &
 // returns the file descriptor.
-int OpenSysfsCpulist(size_t node);
+[[nodiscard]] int OpenSysfsCpulist(size_t node);
 
 // Initialize the data members of a NumaTopology<> instance.
 //
@@ -197,14 +197,14 @@ int OpenSysfsCpulist(size_t node);
 //
 // Returns true if we're actually NUMA aware; i.e. if we have CPUs mapped to
 // multiple partitions.
-bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
-                      uint64_t* partition_to_nodes, NumaBindMode* bind_mode,
-                      size_t num_partitions, size_t scale_by,
-                      absl::FunctionRef<int(size_t)> open_node_cpulist,
-                      size_t* num_nodes);
+[[nodiscard]] bool InitNumaTopology(
+    size_t cpu_to_scaled_partition[kMaxCpus], uint64_t* partition_to_nodes,
+    NumaBindMode* bind_mode, size_t num_partitions, size_t scale_by,
+    absl::FunctionRef<int(size_t)> open_node_cpulist, size_t* num_nodes);
 
 // Returns the NUMA partition to which `node` belongs.
-inline size_t NodeToPartition(const size_t node, const size_t num_partitions) {
+[[nodiscard]] inline size_t NodeToPartition(const size_t node,
+                                            const size_t num_partitions) {
   return node % num_partitions;
 }
 

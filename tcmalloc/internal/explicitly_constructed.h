@@ -44,7 +44,7 @@ class ExplicitlyConstructed {
     new (&union_) T(std::forward<Args>(args)...);
   }
 
-  T& get_mutable() { return reinterpret_cast<T&>(union_); }
+  [[nodiscard]] T& get_mutable() { return reinterpret_cast<T&>(union_); }
 
  private:
   union AlignedUnion {

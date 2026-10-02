@@ -1358,7 +1358,7 @@ extern "C" void TCMalloc_Internal_MarkThreadBusy() {
   }
 
   // Force creation of the cache.
-  tcmalloc::tcmalloc_internal::ThreadCache::GetCache();
+  (void)tcmalloc::tcmalloc_internal::ThreadCache::GetCache();
 }
 
 extern "C" bool TCMalloc_Internal_GetPageAllocationStatus(

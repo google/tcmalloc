@@ -51,7 +51,7 @@ void BM_PushPop(benchmark::State& state) {
     // Pop sequential_calls times.
     for (int j = 0; j < sequential_calls; j++) {
       void* ret;
-      list.TryPop(&ret);
+      benchmark::DoNotOptimize(list.TryPop(&ret));
     }
   }
 

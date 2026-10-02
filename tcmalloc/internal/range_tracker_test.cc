@@ -530,9 +530,9 @@ TEST(BitmapScaleTest, ScaleAssertionFailures) {
 #endif
   Bitmap<64> map1;
   // 1. src_len (64) doesn't divide M (10) and vice versa
-  EXPECT_DEATH(Scale<10>(map1, 64, ReductionOp::kAll), "");
+  EXPECT_DEATH((void)Scale<10>(map1, 64, ReductionOp::kAll), "");
   // 2. src_len > N (64)
-  EXPECT_DEATH(Scale<256>(map1, 128, ReductionOp::kAll), "");
+  EXPECT_DEATH((void)Scale<256>(map1, 128, ReductionOp::kAll), "");
 }
 
 TEST(BitmapScaleTest, Scale) {

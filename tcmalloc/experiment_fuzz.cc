@@ -67,7 +67,7 @@ TEST(ExperimentTest, FuzzSelectExperiments_b395212979) {
 
 void FuzzRolloutEnabled(const ExperimentConfig& config,
                         absl::string_view hostname) {
-  IsExperimentRolloutEnabled(config, hostname);
+  (void)IsExperimentRolloutEnabled(config, hostname);
 }
 
 FUZZ_TEST(ExperimentTest, FuzzRolloutEnabled);
