@@ -20,6 +20,7 @@
 
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_static_library.bzl", "cc_static_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
@@ -121,6 +122,13 @@ cc_library(
         "@com_google_absl//absl/types:span",
     ],
     alwayslink = 1,
+)
+
+cc_static_library(
+    name = "tcmalloc_standalone",
+    tags = ["manual"],
+    visibility = [":__subpackages__"],
+    deps = [":tcmalloc"],
 )
 
 cc_library(
