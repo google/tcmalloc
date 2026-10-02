@@ -14,10 +14,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
-#include <unistd.h>
 
 #include <limits>
 #include <string>
@@ -25,33 +23,20 @@
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
-#include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/smaps.h"
 
 namespace tcmalloc {
 namespace {
 
-int64_t MemoryUsageSlow(pid_t pid) {
+int64_t MemoryUsageSlow() {
   int64_t ret = 0;
-
-  FILE* f =
-      fopen(absl::StrCat("/proc/", pid, "/task/", pid, "/smaps").c_str(), "r");
-  TC_CHECK_NE(f, nullptr);
-
-  char buf[BUFSIZ];
-  while (fgets(buf, sizeof(buf), f) != nullptr) {
-    size_t rss;
-    if (sscanf(buf, "Rss: %zu kB", &rss) == 1) ret += rss;
-  }
-  TC_CHECK(feof(f));
-  fclose(f);
-
-  // Rss is reported in KiB
-  ret *= 1024;
+  TC_CHECK(ForEachSmapEntry(
+      [&](const SmapEntry& entry) { ret += entry.rss_bytes; }));
 
   // A sanity check: our return value should be in the same ballpark as
   // GetMemoryStats.
@@ -100,7 +85,7 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
   if (mlockall(MCL_CURRENT) != 0) {
     GTEST_SKIP();
   }
-  const int64_t start_size = MemoryUsageSlow(getpid());
+  const int64_t start_size = MemoryUsageSlow();
   ASSERT_GT(start_size, 0);
 
   static const size_t kThreads = 16 * 1024;
@@ -120,7 +105,7 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
 
   // Read RSS usage only after releasing page heap has had an opportunity to
   // reduce it.
-  const int64_t end_size = MemoryUsageSlow(getpid());
+  const int64_t end_size = MemoryUsageSlow();
 
   // This will detect a leak rate of 12 bytes per thread, which is well under 1%
   // of the allocation done.
