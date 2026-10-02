@@ -58,13 +58,15 @@ class PageAllocator {
   //
   // Any address in the returned Span is guaranteed to satisfy
   // GetMemoryTag(addr) == "tag".
-  Span* absl_nullable New(Length n, SpanAllocInfo span_alloc_info,
-                          MemoryTag tag) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  [[nodiscard]] Span* absl_nullable New(Length n, SpanAllocInfo span_alloc_info,
+                                        MemoryTag tag)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  Span* absl_nullable NewAligned(Length n, Length align,
-                                 SpanAllocInfo span_alloc_info, MemoryTag tag)
+  [[nodiscard]] Span* absl_nullable NewAligned(Length n, Length align,
+                                               SpanAllocInfo span_alloc_info,
+                                               MemoryTag tag)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Delete the span "[p, p+n-1]".
@@ -80,7 +82,8 @@ class PageAllocator {
               SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  BackingStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] BackingStats stats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void GetSmallSpanStats(SmallSpanStats* result) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -94,12 +97,13 @@ class PageAllocator {
   // may also be larger than num_pages since page_heap might decide to
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
-  Length ReleaseAtLeastNPages(Length num_pages, PageReleaseReason reason)
+  [[nodiscard]] Length ReleaseAtLeastNPages(Length num_pages,
+                                            PageReleaseReason reason)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns the number of pages that have been released, combined across all
   // child PageAllocatorInterface implementations.
-  PageReleaseStats GetReleaseStats() const
+  [[nodiscard]] PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] bool GetPageAllocationStatus(HugePage hp, PageBitmap& pages,
@@ -128,17 +132,18 @@ class PageAllocator {
   enum LimitKind { kSoft, kHard, kNumLimits };
   void set_limit(size_t limit, LimitKind limit_kind)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  int64_t limit(LimitKind limit_kind) const ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  [[nodiscard]] int64_t limit(LimitKind limit_kind) const
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT_LT(limit_kind, kNumLimits);
     PageHeapSpinLockHolder h;
     return limits_[limit_kind];
   }
 
-  int64_t limit_hits(LimitKind limit_kind) const
+  [[nodiscard]] int64_t limit_hits(LimitKind limit_kind) const
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  int64_t successful_shrinks_after_limit_hit(LimitKind limit_kind) const
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  [[nodiscard]] int64_t successful_shrinks_after_limit_hit(
+      LimitKind limit_kind) const ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // If we have a usage limit set, ensure we're not violating it from our latest
   // allocation.
@@ -161,7 +166,7 @@ class PageAllocator {
                              PageFlagsBase* pageflags, Residency* residency)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  const PageAllocInfo& info(MemoryTag tag) const
+  [[nodiscard]] const PageAllocInfo& info(MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   static void InvokeNewHook(Span* span, Length n, Length align,
@@ -198,7 +203,8 @@ class PageAllocator {
     size_t sampled_application_bytes;
   };
 
-  PeakStats peak_stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  [[nodiscard]] PeakStats peak_stats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return PeakStats{peak_backed_bytes_, peak_sampled_application_bytes_};
   }
 
@@ -212,14 +218,15 @@ class PageAllocator {
                                     PageReleaseReason reason);
   ABSL_ATTRIBUTE_NOINLINE void ShrinkToUsageLimitSlow(Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  bool ShrinkHardBy(Length page, LimitKind limit_kind)
+  [[nodiscard]] bool ShrinkHardBy(Length page, LimitKind limit_kind)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   using Interface = HugePageAwareAllocator;
 
-  ABSL_ATTRIBUTE_RETURNS_NONNULL Interface* impl(MemoryTag tag) const;
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL Interface* impl(
+      MemoryTag tag) const;
 
-  size_t active_partitions() const;
+  [[nodiscard]] size_t active_partitions() const;
 
   static constexpr size_t kNumHeaps = 3;  // 3 heaps: normal, sampled, cold.
 

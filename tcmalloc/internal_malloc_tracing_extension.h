@@ -26,9 +26,9 @@
 
 #if ABSL_HAVE_ATTRIBUTE_WEAK && !defined(__APPLE__) && !defined(__EMSCRIPTEN__)
 
-ABSL_ATTRIBUTE_WEAK
-absl::StatusOr<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges>
-MallocTracingExtension_Internal_GetAllocatedAddressRanges();
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK
+    absl::StatusOr<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges>
+    MallocTracingExtension_Internal_GetAllocatedAddressRanges();
 
 #endif
 

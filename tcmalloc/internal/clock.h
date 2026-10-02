@@ -42,7 +42,7 @@ struct Clock {
     double freq;
   };
 
-  Snapshot GetSnapshot() const { return Snapshot{now(), freq()}; }
+  [[nodiscard]] Snapshot GetSnapshot() const { return Snapshot{now(), freq()}; }
 };
 
 // Encapsulates a 32-bit cycle timestamp by right-shifting clock.now() by
@@ -76,7 +76,7 @@ class Cycles32 {
 
   // Returns elapsed time since the recorded tick using a pre-taken snapshot.
   // Returns absl::InfiniteDuration() if val_ == 0 (uninitialized).
-  absl::Duration AsDuration(Clock::Snapshot snap) const {
+  [[nodiscard]] absl::Duration AsDuration(Clock::Snapshot snap) const {
     const uint32_t last = val_.load(std::memory_order_relaxed);
     if (last == 0) return absl::InfiniteDuration();
     const uint32_t now_32 = static_cast<uint32_t>(snap.now >> kShift);
@@ -88,20 +88,22 @@ class Cycles32 {
   }
 
   // Convenience overload: takes a fresh clock snapshot.
-  absl::Duration AsDuration(Clock clock = Clock{}) const {
+  [[nodiscard]] absl::Duration AsDuration(Clock clock = Clock{}) const {
     return AsDuration(clock.GetSnapshot());
   }
 
   // Returns true if this timestamp occurred after or at the same time as other
   // across 32-bit wraparound boundaries (valid within half the epoch).
-  bool TimeAfterOrEqual(const Cycles32& other) const {
+  [[nodiscard]] bool TimeAfterOrEqual(const Cycles32& other) const {
     return TimeAfterOrEqual(raw(), other.raw());
   }
 
-  uint32_t raw() const { return val_.load(std::memory_order_relaxed); }
+  [[nodiscard]] uint32_t raw() const {
+    return val_.load(std::memory_order_relaxed);
+  }
 
  private:
-  static bool TimeAfterOrEqual(uint32_t a, uint32_t b) {
+  [[nodiscard]] static bool TimeAfterOrEqual(uint32_t a, uint32_t b) {
     return static_cast<int32_t>(a - b) >= 0;
   }
 

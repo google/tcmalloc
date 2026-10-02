@@ -47,20 +47,21 @@ enum class HeapPartitioningMode {
 
 class Parameters {
  public:
-  static MallocExtension::BytesPerSecond background_release_rate();
+  [[nodiscard]] static MallocExtension::BytesPerSecond
+  background_release_rate();
 
   static void set_background_release_rate(
       MallocExtension::BytesPerSecond value);
 
-  static uint64_t heap_size_hard_limit();
+  [[nodiscard]] static uint64_t heap_size_hard_limit();
   static void set_heap_size_hard_limit(uint64_t value);
 
-  static bool hpaa_subrelease();
+  [[nodiscard]] static bool hpaa_subrelease();
   static void set_hpaa_subrelease(bool value);
 
-  static bool use_all_buckets_for_few_object_spans_in_cfl();
+  [[nodiscard]] static bool use_all_buckets_for_few_object_spans_in_cfl();
 
-  static int64_t guarded_sampling_interval() {
+  [[nodiscard]] static int64_t guarded_sampling_interval() {
     return guarded_sampling_interval_.load(std::memory_order_relaxed);
   }
 
@@ -68,17 +69,17 @@ class Parameters {
     TCMalloc_Internal_SetGuardedSamplingInterval(value);
   }
 
-  static int32_t max_per_cpu_cache_size();
+  [[nodiscard]] static int32_t max_per_cpu_cache_size();
 
   static void set_max_per_cpu_cache_size(int32_t value) {
     TCMalloc_Internal_SetMaxPerCpuCacheSize(value);
   }
 
-  static int64_t max_total_thread_cache_bytes() {
+  [[nodiscard]] static int64_t max_total_thread_cache_bytes() {
     return max_total_thread_cache_bytes_.load(std::memory_order_relaxed);
   }
 
-  static tcmalloc::hot_cold_t min_hot_access_hint() {
+  [[nodiscard]] static tcmalloc::hot_cold_t min_hot_access_hint() {
     return min_hot_access_hint_.load(std::memory_order_relaxed);
   }
 
@@ -90,7 +91,7 @@ class Parameters {
     TCMalloc_Internal_SetMaxTotalThreadCacheBytes(value);
   }
 
-  static double peak_sampling_heap_growth_fraction() {
+  [[nodiscard]] static double peak_sampling_heap_growth_fraction() {
     return peak_sampling_heap_growth_fraction_.load(std::memory_order_relaxed);
   }
 
@@ -98,45 +99,45 @@ class Parameters {
     TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(value);
   }
 
-  static bool release_partial_alloc_pages() {
+  [[nodiscard]] static bool release_partial_alloc_pages() {
     return release_partial_alloc_pages_.load(std::memory_order_relaxed);
   }
 
-  static EnableCollapse usermode_hugepage_collapse();
+  [[nodiscard]] static EnableCollapse usermode_hugepage_collapse();
 
-  static SubreleaseUnbackedMode subrelease_unbacked_hugepages();
+  [[nodiscard]] static SubreleaseUnbackedMode subrelease_unbacked_hugepages();
 
-  static bool back_small_allocations() {
+  [[nodiscard]] static bool back_small_allocations() {
     return back_small_allocations_.load(std::memory_order_relaxed);
   }
 
-  static int32_t back_size_threshold_bytes() {
+  [[nodiscard]] static int32_t back_size_threshold_bytes() {
     return back_size_threshold_bytes_.load(std::memory_order_relaxed);
   }
 
-  static bool release_pages_from_huge_region() {
+  [[nodiscard]] static bool release_pages_from_huge_region() {
     return release_pages_from_huge_region_.load(std::memory_order_relaxed);
   }
 
-  static bool resize_size_class_max_capacity() {
+  [[nodiscard]] static bool resize_size_class_max_capacity() {
     return resize_size_class_max_capacity_.load(std::memory_order_relaxed);
   }
 
-  static bool per_cpu_caches() {
+  [[nodiscard]] static bool per_cpu_caches() {
     return per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
 
-  static EnableUnfilteredCollapse enable_unfiltered_collapse() {
+  [[nodiscard]] static EnableUnfilteredCollapse enable_unfiltered_collapse() {
     return enable_unfiltered_collapse_.load(std::memory_order_relaxed)
                ? EnableUnfilteredCollapse::kEnabled
                : EnableUnfilteredCollapse::kDisabled;
   }
 
-  static bool huge_region_adaptive_release() {
+  [[nodiscard]] static bool huge_region_adaptive_release() {
     return huge_region_adaptive_release_.load(std::memory_order_relaxed);
   }
 
-  static bool release_max_cold_pages() {
+  [[nodiscard]] static bool release_max_cold_pages() {
     return release_max_cold_pages_.load(std::memory_order_relaxed);
   }
 
@@ -144,7 +145,7 @@ class Parameters {
     TCMalloc_Internal_SetReleaseMaxColdPages(value);
   }
 
-  static bool release_max_filler_pages() {
+  [[nodiscard]] static bool release_max_filler_pages() {
     return release_max_filler_pages_.load(std::memory_order_relaxed);
   }
 
@@ -152,7 +153,7 @@ class Parameters {
     TCMalloc_Internal_SetReleaseMaxFillerPages(value);
   }
 
-  static bool release_max_sampled_pages() {
+  [[nodiscard]] static bool release_max_sampled_pages() {
     return release_max_sampled_pages_.load(std::memory_order_relaxed);
   }
 
@@ -160,7 +161,8 @@ class Parameters {
     TCMalloc_Internal_SetReleaseMaxSampledPages(value);
   }
 
-  static MadviseRegionsNoHugepage madvise_cold_regions_nohugepage();
+  [[nodiscard]] static MadviseRegionsNoHugepage
+  madvise_cold_regions_nohugepage();
 
   static void set_madvise_cold_regions_nohugepage(bool value) {
     TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(value);
@@ -174,7 +176,7 @@ class Parameters {
     TCMalloc_Internal_SetMadviseSampledAllocations(value);
   }
 
-  static int64_t event_trace_memory_limit() {
+  [[nodiscard]] static int64_t event_trace_memory_limit() {
     return event_trace_memory_limit_.load(std::memory_order_relaxed);
   }
 
@@ -195,7 +197,7 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesEnabled(value);
   }
 
-  static int64_t profile_sampling_interval() {
+  [[nodiscard]] static int64_t profile_sampling_interval() {
     return profile_sampling_interval_.load(std::memory_order_relaxed);
   }
 
@@ -203,40 +205,40 @@ class Parameters {
     TCMalloc_Internal_SetProfileSamplingInterval(value);
   }
 
-  static bool background_process_actions_enabled();
+  [[nodiscard]] static bool background_process_actions_enabled();
   static void set_background_process_actions_enabled(bool value);
-  static absl::Duration background_process_sleep_interval();
+  [[nodiscard]] static absl::Duration background_process_sleep_interval();
 
   static void set_filler_skip_subrelease_short_interval(absl::Duration value) {
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(value);
   }
 
-  static absl::Duration filler_skip_subrelease_short_interval();
+  [[nodiscard]] static absl::Duration filler_skip_subrelease_short_interval();
 
   static void set_filler_skip_subrelease_long_interval(absl::Duration value) {
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(value);
   }
 
-  static absl::Duration filler_skip_subrelease_long_interval();
+  [[nodiscard]] static absl::Duration filler_skip_subrelease_long_interval();
 
-  static bool per_cpu_caches_dynamic_slab_enabled() {
+  [[nodiscard]] static bool per_cpu_caches_dynamic_slab_enabled() {
     return per_cpu_caches_dynamic_slab_.load(std::memory_order_relaxed);
   }
   static void set_per_cpu_caches_dynamic_slab_enabled(bool value) {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(value);
   }
 
-  static double per_cpu_caches_dynamic_slab_grow_threshold() {
+  [[nodiscard]] static double per_cpu_caches_dynamic_slab_grow_threshold() {
     return per_cpu_caches_dynamic_slab_grow_threshold_.load(
         std::memory_order_relaxed);
   }
 
-  static double per_cpu_caches_dynamic_slab_shrink_threshold() {
+  [[nodiscard]] static double per_cpu_caches_dynamic_slab_shrink_threshold() {
     return per_cpu_caches_dynamic_slab_shrink_threshold_.load(
         std::memory_order_relaxed);
   }
 
-  static bool release_drained_slab_metadata() {
+  [[nodiscard]] static bool release_drained_slab_metadata() {
     return release_drained_slab_metadata_.load(std::memory_order_relaxed);
   }
 
@@ -244,13 +246,13 @@ class Parameters {
     TCMalloc_Internal_SetReleaseDrainedSlabMetadata(value);
   }
 
-  static HeapPartitioningMode heap_partitioning_mode();
+  [[nodiscard]] static HeapPartitioningMode heap_partitioning_mode();
 
   // TODO: b/527473378 - Remove this function once the experiment is cleaned up.
-  static ReleaseStalePages release_stale_pages();
+  [[nodiscard]] static ReleaseStalePages release_stale_pages();
 
   // TODO: b/557224124 - Remove this function once the experiment is cleaned up.
-  static central_freelist_internal::CflSubbucketPrioritization
+  [[nodiscard]] static central_freelist_internal::CflSubbucketPrioritization
   cfl_subbucket_prioritization();
 
  private:

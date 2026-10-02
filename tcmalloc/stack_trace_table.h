@@ -38,13 +38,15 @@ class StackTraceTable final : public ProfileBase {
   void Iterate(
       absl::FunctionRef<void(const Profile::Sample&)> func) const override;
 
-  ProfileType Type() const override { return type_; }
+  [[nodiscard]] ProfileType Type() const override { return type_; }
 
   void SetStartTime(absl::Time start_time) { start_time_ = start_time; }
-  std::optional<absl::Time> StartTime() const override { return start_time_; }
+  [[nodiscard]] std::optional<absl::Time> StartTime() const override {
+    return start_time_;
+  }
 
   void SetDuration(absl::Duration duration) { duration_ = duration; }
-  absl::Duration Duration() const override { return duration_; }
+  [[nodiscard]] absl::Duration Duration() const override { return duration_; }
 
   // Adds stack trace "t" of the sample to table with the given weight of the
   // sample. `sample_weight` is a floating point value used to calculate the
@@ -60,7 +62,7 @@ class StackTraceTable final : public ProfileBase {
   };
 
   // For testing
-  int depth_total() const { return depth_total_; }
+  [[nodiscard]] int depth_total() const { return depth_total_; }
 
  private:
   ProfileType type_;

@@ -80,14 +80,16 @@ namespace subtle {
 namespace percpu {
 
 enum class Shift : uint8_t;
-constexpr uint8_t ToUint8(Shift shift) { return static_cast<uint8_t>(shift); }
-constexpr Shift ToShiftType(size_t shift) {
+[[nodiscard]] constexpr uint8_t ToUint8(Shift shift) {
+  return static_cast<uint8_t>(shift);
+}
+[[nodiscard]] constexpr Shift ToShiftType(size_t shift) {
   TC_ASSERT_EQ(ToUint8(static_cast<Shift>(shift)), shift);
   return static_cast<Shift>(shift);
 }
 
 // The allocation size for the slabs array.
-inline size_t GetSlabsAllocSize(Shift shift, int num_cpus) {
+[[nodiscard]] inline size_t GetSlabsAllocSize(Shift shift, int num_cpus) {
   return static_cast<size_t>(num_cpus) << ToUint8(shift);
 }
 
@@ -101,7 +103,7 @@ inline size_t GetSlabsAllocSize(Shift shift, int num_cpus) {
 // We still align it a page size so neighboring allocations (from
 // TCMalloc's internal arena) do not necessarily cause the metadata to be
 // faulted in.
-constexpr std::align_val_t SlabAlignment(Shift shift) {
+[[nodiscard]] constexpr std::align_val_t SlabAlignment(Shift shift) {
   constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   return kPhysicalPageAlign;
@@ -201,10 +203,10 @@ class TcmallocSlab {
   void* Destroy(absl::FunctionRef<void(void*, size_t, std::align_val_t)> free);
 
   // Number of elements in cpu/size_class slab.
-  size_t Length(int cpu, size_t size_class) const;
+  [[nodiscard]] size_t Length(int cpu, size_t size_class) const;
 
   // Number of elements (currently) allowed in cpu/size_class slab.
-  size_t Capacity(int cpu, size_t size_class) const;
+  [[nodiscard]] size_t Capacity(int cpu, size_t size_class) const;
 
   // If running on cpu, increment the cpu/size_class slab's capacity to no
   // greater than min(capacity+len, max_capacity(<shift>)) and return the
@@ -214,13 +216,13 @@ class TcmallocSlab {
   // order to ensure that the shift value used is consistent with the one used
   // in the rest of this function call. Note: max_capacity must be the same as
   // returned by capacity callback passed to Init.
-  size_t Grow(int cpu, size_t size_class, size_t len,
-              absl::FunctionRef<size_t(uint8_t)> max_capacity);
+  [[nodiscard]] size_t Grow(int cpu, size_t size_class, size_t len,
+                            absl::FunctionRef<size_t(uint8_t)> max_capacity);
 
   // Add an item (which must be non-zero) to the current CPU's slab. Returns
   // true if add succeeds. Otherwise invokes <overflow_handler> and returns
   // false (assuming that <overflow_handler> returns negative value).
-  bool Push(size_t size_class, void* item);
+  [[nodiscard]] bool Push(size_t size_class, void* item);
 
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <underflow_handler> and returns its result.
@@ -232,19 +234,19 @@ class TcmallocSlab {
   // added if there is no space on the current cpu, or if the thread was
   // re-scheduled since last Push/Pop.
   // REQUIRES: len > 0.
-  size_t PushBatch(size_t size_class, void** batch, size_t len);
+  [[nodiscard]] size_t PushBatch(size_t size_class, void** batch, size_t len);
 
   // Pop up to <len> items from the current cpu slab and return them in <batch>.
   // Returns the number of items actually removed. If the thread was
   // re-scheduled since last Push/Pop, the function returns 0.
   // REQUIRES: len > 0.
-  size_t PopBatch(size_t size_class, void** batch, size_t len);
+  [[nodiscard]] size_t PopBatch(size_t size_class, void** batch, size_t len);
 
   // Caches the current cpu slab offset in tcmalloc_slabs if it wasn't
   // cached and the cpu is not stopped. Returns the current cpu and the flag
   // if the offset was previously uncached and is now cached. If the cpu
   // is stopped, returns {-1, true}.
-  std::pair<int, bool> CacheCpuSlab();
+  [[nodiscard]] std::pair<int, bool> CacheCpuSlab();
 
   // Uncaches the slab offset for the current thread, so that the next Push/Pop
   // operation will return false.
@@ -291,8 +293,9 @@ class TcmallocSlab {
   // in the rest of this function call. Note: max_capacity must be the same as
   // returned by capacity callback passed to Init.
   // This may be called from another processor, not just the <cpu>.
-  size_t GrowOtherCache(int cpu, size_t size_class, size_t len,
-                        absl::FunctionRef<size_t(uint8_t)> max_capacity);
+  [[nodiscard]] size_t GrowOtherCache(
+      int cpu, size_t size_class, size_t len,
+      absl::FunctionRef<size_t(uint8_t)> max_capacity);
 
   // Decrements the cpu/size_class slab's capacity to no less than
   // max(capacity-len, 0) and returns the actual decrement applied. It attempts
@@ -302,8 +305,8 @@ class TcmallocSlab {
   //
   // May be called from another processor, not just the <cpu>.
   // REQUIRES: len > 0.
-  size_t ShrinkOtherCache(int cpu, size_t size_class, size_t len,
-                          ShrinkHandler shrink_handler);
+  [[nodiscard]] size_t ShrinkOtherCache(int cpu, size_t size_class, size_t len,
+                                        ShrinkHandler shrink_handler);
 
   // Remove all items (of all classes) from <cpu>'s slab; reset capacity for all
   // classes to zero.  Then, for each sizeclass, invoke
@@ -325,15 +328,17 @@ class TcmallocSlab {
       absl::FunctionRef<void(size_t)> unpopulate,
       absl::FunctionRef<void(void*, size_t)> madvise_away_slabs);
 
-  PerCPUMetadataState MetadataMemoryUsage() const;
+  [[nodiscard]] PerCPUMetadataState MetadataMemoryUsage() const;
 
   // Gets the current shift of the slabs. Intended for use by the thread that
   // calls ResizeSlabs().
-  uint8_t GetShift() const {
+  [[nodiscard]] uint8_t GetShift() const {
     return ToUint8(GetSlabsAndShift(std::memory_order_relaxed).second);
   }
 
-  constexpr static size_t GetCpuStateSize() { return sizeof(CpuState); }
+  [[nodiscard]] constexpr static size_t GetCpuStateSize() {
+    return sizeof(CpuState);
+  }
 
  private:
   // In order to support dynamic slab metadata sizes, we need to be able to
@@ -354,7 +359,7 @@ class TcmallocSlab {
       TC_ASSERT_EQ(reinterpret_cast<void*>(raw_ & kSlabsMask), slabs);
     }
 
-    std::pair<void*, Shift> Get() const {
+    [[nodiscard]] std::pair<void*, Shift> Get() const {
       static_assert(kShiftMask >= 0 && kShiftMask <= UCHAR_MAX,
                     "kShiftMask must fit in a uint8_t");
       // Avoid expanding the width of Shift else the compiler will insert an
@@ -396,7 +401,7 @@ class TcmallocSlab {
       TC_ASSERT_NE(val, 0xffff);
       current = val;
     }
-    uint16_t capacity(uint16_t begin) const {
+    [[nodiscard]] uint16_t capacity(uint16_t begin) const {
       if (current < begin) {
         // Uninitialized; special case.
         return 0;
@@ -425,13 +430,13 @@ class TcmallocSlab {
     return slabs_and_shift_.load(order).Get();
   }
 
-  static void* CpuMemoryStart(void* slabs, Shift shift, int cpu);
-  static AtomicHeader* GetHeader(void* slabs, Shift shift, int cpu,
-                                 size_t size_class);
-  static Header LoadHeader(AtomicHeader* hdrp);
+  [[nodiscard]] static void* CpuMemoryStart(void* slabs, Shift shift, int cpu);
+  [[nodiscard]] static AtomicHeader* GetHeader(void* slabs, Shift shift,
+                                               int cpu, size_t size_class);
+  [[nodiscard]] static Header LoadHeader(AtomicHeader* hdrp);
   static void StoreHeader(AtomicHeader* hdrp, Header hdr);
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
-  bool CpuIsDrained(void* slabs, Shift shift, int cpu);
+  [[nodiscard]] bool CpuIsDrained(void* slabs, Shift shift, int cpu);
   void DrainOldSlabs(void* slabs, Shift shift, int cpu,
                      const std::array<uint16_t, NumClasses>& old_begins,
                      DrainHandler drain_handler);
@@ -440,13 +445,13 @@ class TcmallocSlab {
   void InitCpuImpl(void* slabs, Shift shift, int cpu,
                    absl::FunctionRef<size_t(size_t)> capacity);
 
-  std::pair<int, bool> CacheCpuSlabSlow();
+  [[nodiscard]] std::pair<int, bool> CacheCpuSlabSlow();
 
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
   std::atomic<SlabsAndShift> slabs_and_shift_{};
 
-  size_t num_cpus() const { return state_.size(); }
+  [[nodiscard]] size_t num_cpus() const { return state_.size(); }
 
   struct CpuState {
     // Remote Cpu operation (Resize/Drain/Grow/Shrink) is running so any local
@@ -644,8 +649,8 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
 // Store v to p (*p = v) if the current thread wasn't rescheduled
 // (still has the slab pointer cached). Otherwise returns false.
 template <typename T>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
-                                                         T v) {
+[[nodiscard]] inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(
+    volatile void* p, T v) {
   uintptr_t scratch = 0;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
   asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
@@ -707,8 +712,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemory(uintptr_t ptr) {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 // Note: These helpers must be "static inline" to avoid ODR violations due to
 // different labels emitted in TCMALLOC_RSEQ_PROLOGUE.
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
-    size_t size_class, void* item) {
+[[nodiscard]] static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+TcmallocSlab_Internal_Push(size_t size_class, void* item) {
   uintptr_t scratch, current;
   uint32_t tmp;
   asm goto(
@@ -751,8 +756,8 @@ overflow_label:
 #endif  // defined(__x86_64__)
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
-    size_t size_class, void* item) {
+[[nodiscard]] static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+TcmallocSlab_Internal_Push(size_t size_class, void* item) {
   uintptr_t region_start, scratch, current;
   asm goto(
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)

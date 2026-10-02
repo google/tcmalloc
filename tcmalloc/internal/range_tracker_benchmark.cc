@@ -85,7 +85,7 @@ BENCHMARK_TEMPLATE(BM_MarkUnmarkEmpty, 256 * 32, 256 * 32);
 template <size_t N>
 static void BM_MarkUnmarkChunks(benchmark::State& state) {
   RangeTracker<N> range;
-  range.FindAndMark(N);
+  benchmark::DoNotOptimize(range.FindAndMark(N));
   size_t index = 0;
   absl::BitGen rng;
   while (index < N) {
@@ -135,7 +135,7 @@ static void BM_EmptyOnes(benchmark::State& state) {
   while (state.KeepRunningBatch(N)) {
     state.PauseTiming();
     range.Clear();
-    range.FindAndMark(N);
+    benchmark::DoNotOptimize(range.FindAndMark(N));
     state.ResumeTiming();
     for (size_t j = 0; j < N; ++j) {
       range.Unmark(j, 1);

@@ -134,8 +134,8 @@ class SizeMap {
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
   // parameter idx and returning true. Otherwise return false.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
-                                                                  size_t& idx) {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(
+      size_t s, size_t& idx) {
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
       idx = (s + kSmallSizeAlignment - 1) / kSmallSizeAlignment;
       return true;
@@ -163,7 +163,8 @@ class SizeMap {
     return false;
   }
 
-  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(size_t s) {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(
+      size_t s) {
     size_t ret;
     TC_CHECK(ClassIndexMaybe(s, ret));
     return ret;
@@ -181,14 +182,16 @@ class SizeMap {
 
  protected:
   // Set the give size classes to be used by TCMalloc.
-  bool SetSizeClasses(absl::Span<const SizeClassInfo> size_classes);
+  [[nodiscard]] bool SetSizeClasses(
+      absl::Span<const SizeClassInfo> size_classes);
 
   // Check that the size classes meet all requirements.
-  static bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
+  [[nodiscard]] static bool ValidSizeClasses(
+      absl::Span<const SizeClassInfo> size_classes);
 
  public:
   // Returns size classes to use in the current process.
-  static const SizeClasses& CurrentClasses();
+  [[nodiscard]] static const SizeClasses& CurrentClasses();
 
   // Checks assumptions used to generate the current size classes.
   // Prints any wrong assumptions to stderr.
@@ -313,14 +316,15 @@ class SizeMap {
   // regression.
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
-  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
-  ABSL_ATTRIBUTE_ALWAYS_INLINE size_t class_to_size(size_t size_class) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+      ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+      class_to_size(size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return class_to_size_[size_class];
   }
 
   // Mapping from size class to number of pages to allocate at a time
-  ABSL_ATTRIBUTE_ALWAYS_INLINE inline Length class_to_pages(
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline Length class_to_pages(
       size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return Length(class_to_pages_[size_class]);
@@ -328,7 +332,8 @@ class SizeMap {
 
   // Returns the inclusive range of possible sizes for a given size class.
   // REQUIRES: size_class < kNumClasses.
-  std::pair<size_t, size_t> class_to_size_range(size_t size_class) const {
+  [[nodiscard]] std::pair<size_t, size_t> class_to_size_range(
+      size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     if (size_class == 0) {
       return {0, 0};
@@ -350,8 +355,8 @@ class SizeMap {
   // amortize the lock overhead for accessing the central list.  Making
   // it too big may temporarily cause unnecessary memory wastage in the
   // per-thread free list until the scavenger cleans up the list.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMap::BatchSize num_objects_to_move(
-      size_t size_class) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMap::BatchSize
+  num_objects_to_move(size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return num_objects_to_move_[size_class];
   }

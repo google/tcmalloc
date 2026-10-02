@@ -59,7 +59,7 @@ class SkippedSubreleaseCorrectnessTracker {
       return *this;
     }
 
-    static SkippedSubreleaseDecision Zero() {
+    [[nodiscard]] static SkippedSubreleaseDecision Zero() {
       return SkippedSubreleaseDecision();
     }
   };
@@ -133,13 +133,17 @@ class SkippedSubreleaseCorrectnessTracker {
     last_confirmed_peak_ = std::max(last_confirmed_peak_, current_peak);
   }
 
-  SkippedSubreleaseDecision total_skipped() const { return total_skipped_; }
+  [[nodiscard]] SkippedSubreleaseDecision total_skipped() const {
+    return total_skipped_;
+  }
 
-  SkippedSubreleaseDecision correctly_skipped() const {
+  [[nodiscard]] SkippedSubreleaseDecision correctly_skipped() const {
     return correctly_skipped_;
   }
 
-  SkippedSubreleaseDecision pending_skipped() const { return pending_skipped_; }
+  [[nodiscard]] SkippedSubreleaseDecision pending_skipped() const {
+    return pending_skipped_;
+  }
 
  private:
   struct SkippedSubreleaseUpdate {
@@ -163,7 +167,9 @@ class SkippedSubreleaseCorrectnessTracker {
     Length max_num_pages_at_decision;
     Length max_confirmed_peak;
 
-    static SkippedSubreleaseEntry Nil() { return SkippedSubreleaseEntry(); }
+    [[nodiscard]] static SkippedSubreleaseEntry Nil() {
+      return SkippedSubreleaseEntry();
+    }
 
     void Report(SkippedSubreleaseUpdate e) {
       decisions += e.decision;
@@ -202,11 +208,11 @@ struct SkipSubreleaseIntervals {
   // Interval that locates recent long-term demand trend.
   absl::Duration long_interval;
   // Checks if the peak interval is set.
-  bool IsPeakIntervalSet() const {
+  [[nodiscard]] bool IsPeakIntervalSet() const {
     return peak_interval != absl::ZeroDuration();
   }
   // Checks if the skip subrelease feature is enabled.
-  bool SkipSubreleaseEnabled() const {
+  [[nodiscard]] bool SkipSubreleaseEnabled() const {
     if (peak_interval != absl::ZeroDuration() ||
         short_interval != absl::ZeroDuration() ||
         long_interval != absl::ZeroDuration()) {
@@ -307,7 +313,7 @@ class SubreleaseStatsTracker {
   // subreleasing. If our demand is going above that peak again within another
   // realized fragemenation interval, we report that we made the correct
   // decision.
-  Length GetRecentPeak(absl::Duration peak_interval) {
+  [[nodiscard]] Length GetRecentPeak(absl::Duration peak_interval) {
     last_skip_subrelease_intervals_.peak_interval =
         std::min(peak_interval, window_);
     // Being precise about the interval length as the tracker can hold records
@@ -323,8 +329,8 @@ class SubreleaseStatsTracker {
   // short_interval should be (significantly) shorter or equal to long_interval
   // to avoid realized fragmentation caused by non-recent (short-term) demand
   // spikes. The demand is capped to the peak observed in the history window.
-  Length GetRecentDemand(absl::Duration short_interval,
-                         absl::Duration long_interval) {
+  [[nodiscard]] Length GetRecentDemand(absl::Duration short_interval,
+                                       absl::Duration long_interval) {
     return GetRecentDemand(short_interval, long_interval, window_);
   }
 
@@ -337,9 +343,9 @@ class SubreleaseStatsTracker {
   // to avoid realized fragmentation caused by non-recent (short-term) demand
   // spikes. The demand is capped to the peak observed in the time series over
   // the last <peak_interval>.
-  Length GetRecentDemand(absl::Duration short_interval,
-                         absl::Duration long_interval,
-                         absl::Duration peak_interval) {
+  [[nodiscard]] Length GetRecentDemand(absl::Duration short_interval,
+                                       absl::Duration long_interval,
+                                       absl::Duration peak_interval) {
     Length demand_trend =
         CalculateCombinedDemandTrend(short_interval, long_interval);
     Length demand_peak = CalculateDemandPeak(peak_interval);
@@ -356,19 +362,19 @@ class SubreleaseStatsTracker {
                                                                  peak_pages);
   }
 
-  typename SkippedSubreleaseCorrectnessTracker<
+  [[nodiscard]] typename SkippedSubreleaseCorrectnessTracker<
       kSlots>::SkippedSubreleaseDecision
   total_skipped() const {
     return skipped_subrelease_correctness_.total_skipped();
   }
 
-  typename SkippedSubreleaseCorrectnessTracker<
+  [[nodiscard]] typename SkippedSubreleaseCorrectnessTracker<
       kSlots>::SkippedSubreleaseDecision
   correctly_skipped() const {
     return skipped_subrelease_correctness_.correctly_skipped();
   }
 
-  typename SkippedSubreleaseCorrectnessTracker<
+  [[nodiscard]] typename SkippedSubreleaseCorrectnessTracker<
       kSlots>::SkippedSubreleaseDecision
   pending_skipped() const {
     return skipped_subrelease_correctness_.pending_skipped();
@@ -377,7 +383,7 @@ class SubreleaseStatsTracker {
   // Returns the minimum number of free pages throughout the tracker period.
   // The first value of the pair is the number of all free pages, the second
   // value contains only the backed ones.
-  NumberOfFreePages min_free_pages(absl::Duration w) const {
+  [[nodiscard]] NumberOfFreePages min_free_pages(absl::Duration w) const {
     NumberOfFreePages mins;
     mins.free = Length::max();
     mins.free_backed = Length::max();
@@ -401,7 +407,7 @@ class SubreleaseStatsTracker {
 
   // Returns the realized fragmentation, which is the minimum number of free
   // backed pages over the last summary_interval_ (default 5 min).
-  Length RealizedFragmentation() const {
+  [[nodiscard]] Length RealizedFragmentation() const {
     Length min_free_backed = Length::max();
     tracker_.IterBackwards(
         [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
@@ -430,7 +436,9 @@ class SubreleaseStatsTracker {
     Length min_free_backed_pages = kDefaultValue;
     Length num_pages_subreleased;
 
-    static SubreleaseStatsEntry Nil() { return SubreleaseStatsEntry(); }
+    [[nodiscard]] static SubreleaseStatsEntry Nil() {
+      return SubreleaseStatsEntry();
+    }
 
     void Report(const SubreleaseStats& e) {
       if (empty()) {
@@ -455,12 +463,12 @@ class SubreleaseStatsTracker {
       num_pages_subreleased += e.num_pages_subreleased;
     }
 
-    bool empty() const { return min_free_pages == kDefaultValue; }
+    [[nodiscard]] bool empty() const { return min_free_pages == kDefaultValue; }
   };
 
   // Gets the peak demand recorded in the time series over the last
   // <peak_interval>.
-  Length CalculateDemandPeak(absl::Duration peak_interval) {
+  [[nodiscard]] Length CalculateDemandPeak(absl::Duration peak_interval) {
     Length max_demand_pages;
     tracker_.IterBackwards(
         [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
@@ -478,8 +486,8 @@ class SubreleaseStatsTracker {
 
   // Gets the combined demand trend, which is the sum of the maximum demand
   // difference in <short_interval> and the max-min demand in <long_interval>.
-  Length CalculateCombinedDemandTrend(absl::Duration short_interval,
-                                      absl::Duration long_interval) {
+  [[nodiscard]] Length CalculateCombinedDemandTrend(
+      absl::Duration short_interval, absl::Duration long_interval) {
     if (short_interval != absl::ZeroDuration() &&
         long_interval != absl::ZeroDuration()) {
       short_interval = std::min(short_interval, long_interval);
@@ -535,7 +543,7 @@ class SubreleaseStatsTracker {
 };
 
 // Evaluates a/b, avoiding division by zero.
-inline double safe_div(Length a, Length b) {
+[[nodiscard]] inline double safe_div(Length a, Length b) {
   return safe_div(a.raw_num(), b.raw_num());
 }
 
