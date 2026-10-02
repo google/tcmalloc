@@ -317,6 +317,31 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "smaps",
+    testonly = 1,
+    srcs = ["smaps.cc"],
+    hdrs = ["smaps.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
+    deps = [
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_test(
+    name = "smaps_test",
+    srcs = ["smaps_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":smaps",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "outofmemory_test",
     srcs = ["outofmemory_test.cc"],
