@@ -72,9 +72,7 @@ class StaticForwarder : private Parameters {
   using Parameters::hpaa_subrelease;
   using Parameters::huge_region_adaptive_release;
   using Parameters::madvise_cold_regions_nohugepage;
-  using Parameters::release_max_cold_pages;
   using Parameters::release_max_filler_pages;
-  using Parameters::release_max_sampled_pages;
   using Parameters::release_partial_alloc_pages;
   using Parameters::release_stale_pages;
   using Parameters::subrelease_unbacked_hugepages;
@@ -1055,9 +1053,8 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // for testing.
   if (hpaa_subrelease()) {
     const bool release_max =
-        (tag_ == MemoryTag::kCold && forwarder_.release_max_cold_pages()) ||
-        ((tag_ == MemoryTag::kSampled || tag_ == MemoryTag::kSampledP1) &&
-         forwarder_.release_max_sampled_pages()) ||
+        tag_ == MemoryTag::kCold || tag_ == MemoryTag::kSampled ||
+        tag_ == MemoryTag::kSampledP1 ||
         (forwarder_.release_max_filler_pages() &&
          static_cast<size_t>(forwarder_.background_release_rate()) > 0);
     if (released < num_pages || release_max) {

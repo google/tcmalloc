@@ -484,17 +484,6 @@ struct SetEnableUnfilteredCollapse {
   }
 };
 
-struct SetReleaseMaxColdPages {
-  bool value;
-
-  void Perform(State& state) const;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const SetReleaseMaxColdPages& s) {
-    absl::Format(&sink, "SetReleaseMaxColdPages{.value=%v}", s.value);
-  }
-};
-
 struct SetReleaseMaxFillerPages {
   bool value;
 
@@ -503,17 +492,6 @@ struct SetReleaseMaxFillerPages {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetReleaseMaxFillerPages& s) {
     absl::Format(&sink, "SetReleaseMaxFillerPages{.value=%v}", s.value);
-  }
-};
-
-struct SetReleaseMaxSampledPages {
-  bool value;
-
-  void Perform(State& state) const;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const SetReleaseMaxSampledPages& s) {
-    absl::Format(&sink, "SetReleaseMaxSampledPages{.value=%v}", s.value);
   }
 };
 
@@ -593,8 +571,7 @@ using ParamOp = std::variant<
     SetHpaaSubrelease, SetSubreleaseUnbackedHugepages, SetReleaseSucceeds,
     SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
-    SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
-    SetReleaseMaxFillerPages, SetReleaseMaxSampledPages,
+    SetEnableUnfilteredCollapse, SetReleaseMaxFillerPages,
     SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions, UpdateBitmaps,
     SetUsageLimitPressure>;
 
@@ -1169,16 +1146,8 @@ void SetEnableUnfilteredCollapse::Perform(State& state) const {
   state.allocator.forwarder().set_enable_unfiltered_collapse(value);
 }
 
-void SetReleaseMaxColdPages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_max_cold_pages(value);
-}
-
 void SetReleaseMaxFillerPages::Perform(State& state) const {
   state.allocator.forwarder().set_release_max_filler_pages(value);
-}
-
-void SetReleaseMaxSampledPages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_max_sampled_pages(value);
 }
 
 void SetEnableReleaseStalePages::Perform(State& state) const {
@@ -1321,12 +1290,8 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
       fuzztest::Map(
           [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
-      fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
-                    fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
       fuzztest::Map([](SetReleaseMaxFillerPages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetReleaseMaxFillerPages>()),
-      fuzztest::Map([](SetReleaseMaxSampledPages s) { return ChangeParam{s}; },
-                    fuzztest::Arbitrary<SetReleaseMaxSampledPages>()),
       fuzztest::Map([](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
       fuzztest::Map(
