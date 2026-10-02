@@ -75,15 +75,15 @@ PageAllocator::PageAllocator() {
   }
 
   size_t total_heaps = 0;
-  all_heaps_[total_heaps++] = sampled_impl_[0];
-  if (sampled_partition_active_) {
-    all_heaps_[total_heaps++] = sampled_impl_[1];
-  }
   if (has_cold_impl_) {
     all_heaps_[total_heaps++] = cold_impl_;
   }
   for (size_t partition = 0; partition < active_partitions(); ++partition) {
     all_heaps_[total_heaps++] = normal_impl_[partition];
+  }
+  all_heaps_[total_heaps++] = sampled_impl_[0];
+  if (sampled_partition_active_) {
+    all_heaps_[total_heaps++] = sampled_impl_[1];
   }
   heaps_ = absl::MakeConstSpan(all_heaps_.data(), total_heaps);
   alg_ = HPAA;
