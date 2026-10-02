@@ -2185,106 +2185,72 @@ TEST_F(GetReleaseStatsTest, b339535705) {
                                }));
 }
 
-TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
+TEST(HugePageAwareAllocatorTest, ReleaseMaxSampledOrColdPages) {
   constexpr SpanAllocInfo kAllocInfo = {
       .objects_per_span = 1,
       .density = AccessDensityPrediction::kSparse,
   };
   constexpr Length kAllocPages = kPagesPerHugePage / 2;
 
-  for (bool release_max_cold_pages : {false, true}) {
-    FakeHugePageAwareAllocator cold_allocator({.tag = MemoryTag::kCold});
-    cold_allocator.forwarder().set_filler_skip_subrelease_short_interval(
-        absl::ZeroDuration());
-    cold_allocator.forwarder().set_filler_skip_subrelease_long_interval(
-        absl::ZeroDuration());
-    cold_allocator.forwarder().set_release_max_cold_pages(
-        release_max_cold_pages);
-
-    Span* s1 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s2 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s3 = cold_allocator.New(kAllocPages, kAllocInfo);
-    Span* s4 = cold_allocator.New(kAllocPages, kAllocInfo);
-
-    SpanDeleter deleter(&cold_allocator);
-    deleter(s1);
-    deleter(s3);
-
-    Length released;
-    {
-      PageHeapSpinLockHolder l;
-      released = cold_allocator.ReleaseAtLeastNPages(
-          kAllocPages, PageReleaseReason::kReleaseMemoryToSystem);
-    }
-
-    if (release_max_cold_pages) {
-      EXPECT_EQ(released, 2 * kAllocPages);
-    } else {
-      EXPECT_EQ(released, kAllocPages);
-    }
-
-    deleter(s2);
-    deleter(s4);
-  }
-}
-
-TEST(HugePageAwareAllocatorTest, ReleaseMaxSampledPages) {
-  constexpr SpanAllocInfo kAllocInfo = {
-      .objects_per_span = 1,
-      .density = AccessDensityPrediction::kSparse,
-  };
-  constexpr Length kAllocPages = kPagesPerHugePage / 2;
-
-  for (MemoryTag tag :
-       {MemoryTag::kSampled, MemoryTag::kSampledP1, MemoryTag::kNormal}) {
+  for (MemoryTag tag : {MemoryTag::kCold, MemoryTag::kSampled,
+                        MemoryTag::kSampledP1, MemoryTag::kNormal}) {
     // Under sanitizers the tag is narrower and kSampledP1 cannot be encoded in
     // an address.
     if (((static_cast<uintptr_t>(tag) << kTagShift) & kTagMask) >> kTagShift !=
         static_cast<uintptr_t>(tag)) {
       continue;
     }
-    const bool is_sampled =
-        tag == MemoryTag::kSampled || tag == MemoryTag::kSampledP1;
-    for (bool release_max_sampled_pages : {false, true}) {
-      // PageAllocator releases from the sampled heap last, so it is commonly
-      // asked for zero pages.
-      for (Length requested : {Length(0), kAllocPages}) {
-        SCOPED_TRACE(absl::StrCat(
-            "tag=", static_cast<int>(tag), " release_max_sampled_pages=",
-            release_max_sampled_pages, " requested=", requested.raw_num()));
-        FakeHugePageAwareAllocator allocator({.tag = tag});
-        allocator.forwarder().set_filler_skip_subrelease_short_interval(
-            absl::ZeroDuration());
-        allocator.forwarder().set_filler_skip_subrelease_long_interval(
-            absl::ZeroDuration());
-        allocator.forwarder().set_release_max_filler_pages(false);
-        allocator.forwarder().set_release_max_sampled_pages(
-            release_max_sampled_pages);
+    const bool is_sampled_or_cold = IsSampledOrColdMemory(tag);
+    for (bool release_max_cold_pages : {false, true}) {
+      for (bool release_max_sampled_pages : {false, true}) {
+        // PageAllocator releases from the sampled heap last, so it is commonly
+        // asked for zero pages.
+        for (Length requested : {Length(0), kAllocPages}) {
+          SCOPED_TRACE(absl::StrCat(
+              "tag=", static_cast<int>(tag),
+              " release_max_cold_pages=", release_max_cold_pages,
+              " release_max_sampled_pages=", release_max_sampled_pages,
+              " requested=", requested.raw_num()));
+          FakeHugePageAwareAllocator allocator({.tag = tag});
+          // Sampled and cold heaps always subrelease, so turn the parameter
+          // off for them to check that it is ignored.  kNormal needs it on.
+          allocator.forwarder().set_hpaa_subrelease(!is_sampled_or_cold);
+          allocator.forwarder().set_filler_skip_subrelease_short_interval(
+              absl::ZeroDuration());
+          allocator.forwarder().set_filler_skip_subrelease_long_interval(
+              absl::ZeroDuration());
+          allocator.forwarder().set_release_max_filler_pages(false);
+          allocator.forwarder().set_release_max_cold_pages(
+              release_max_cold_pages);
+          allocator.forwarder().set_release_max_sampled_pages(
+              release_max_sampled_pages);
 
-        Span* s1 = allocator.New(kAllocPages, kAllocInfo);
-        Span* s2 = allocator.New(kAllocPages, kAllocInfo);
-        Span* s3 = allocator.New(kAllocPages, kAllocInfo);
-        Span* s4 = allocator.New(kAllocPages, kAllocInfo);
+          Span* s1 = allocator.New(kAllocPages, kAllocInfo);
+          Span* s2 = allocator.New(kAllocPages, kAllocInfo);
+          Span* s3 = allocator.New(kAllocPages, kAllocInfo);
+          Span* s4 = allocator.New(kAllocPages, kAllocInfo);
 
-        SpanDeleter deleter(&allocator);
-        deleter(s1);
-        deleter(s3);
+          SpanDeleter deleter(&allocator);
+          deleter(s1);
+          deleter(s3);
 
-        Length released;
-        {
-          PageHeapSpinLockHolder l;
-          released = allocator.ReleaseAtLeastNPages(
-              requested, PageReleaseReason::kReleaseMemoryToSystem);
+          Length released;
+          {
+            PageHeapSpinLockHolder l;
+            released = allocator.ReleaseAtLeastNPages(
+                requested, PageReleaseReason::kReleaseMemoryToSystem);
+          }
+
+          if (is_sampled_or_cold &&
+              (release_max_cold_pages || release_max_sampled_pages)) {
+            EXPECT_EQ(released, 2 * kAllocPages);
+          } else {
+            EXPECT_EQ(released, requested);
+          }
+
+          deleter(s2);
+          deleter(s4);
         }
-
-        if (is_sampled && release_max_sampled_pages) {
-          EXPECT_EQ(released, 2 * kAllocPages);
-        } else {
-          EXPECT_EQ(released, requested);
-        }
-
-        deleter(s2);
-        deleter(s4);
       }
     }
   }

@@ -65,6 +65,11 @@ inline bool IsNormalMemory(const void* ptr) {
   return res;
 }
 
+inline bool IsSampledOrColdMemory(MemoryTag tag) {
+  return tag == MemoryTag::kSampled || tag == MemoryTag::kSampledP1 ||
+         tag == MemoryTag::kCold;
+}
+
 inline bool IsSampledMemory(const void* ptr) {
   bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
               ~static_cast<uintptr_t>(MemoryTag::kSampledP1)) == 0;

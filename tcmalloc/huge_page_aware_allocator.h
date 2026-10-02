@@ -1055,9 +1055,9 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // for testing.
   if (hpaa_subrelease()) {
     const bool release_max =
-        (tag_ == MemoryTag::kCold && forwarder_.release_max_cold_pages()) ||
-        ((tag_ == MemoryTag::kSampled || tag_ == MemoryTag::kSampledP1) &&
-         forwarder_.release_max_sampled_pages()) ||
+        (IsSampledOrColdMemory(tag_) &&
+         (forwarder_.release_max_sampled_pages() ||
+          forwarder_.release_max_cold_pages())) ||
         (forwarder_.release_max_filler_pages() &&
          static_cast<size_t>(forwarder_.background_release_rate()) > 0);
     if (released < num_pages || release_max) {
@@ -1303,7 +1303,9 @@ bool HugePageAwareAllocator<Forwarder>::IsValidSizeClass(size_t size,
 
 template <class Forwarder>
 inline bool HugePageAwareAllocator<Forwarder>::hpaa_subrelease() const {
-  if (tag_ == MemoryTag::kCold) {
+  // Sampled and cold memory is infrequently accessed and largely
+  // MADV_NOHUGEPAGE, so subrelease it aggressively.
+  if (IsSampledOrColdMemory(tag_)) {
     return true;
   } else {
     return forwarder_.hpaa_subrelease();
