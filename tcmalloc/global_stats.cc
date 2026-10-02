@@ -648,8 +648,6 @@ void DumpStats(Printer& out, int level) {
                        MadviseRegionsNoHugepage::kEnabled
                    ? 1
                    : 0);
-    out.printf("PARAMETER tcmalloc_release_max_cold_pages %d\n",
-               Parameters::release_max_cold_pages() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_release_max_filler_pages %d\n",
                Parameters::release_max_filler_pages() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_release_max_sampled_pages %d\n",
@@ -944,8 +942,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("madvise_cold_regions_nohugepage",
                    Parameters::madvise_cold_regions_nohugepage() ==
                        MadviseRegionsNoHugepage::kEnabled);
-  region.PrintBool("tcmalloc_release_max_cold_pages",
-                   Parameters::release_max_cold_pages());
   region.PrintBool("tcmalloc_release_max_filler_pages",
                    Parameters::release_max_filler_pages());
   region.PrintBool("tcmalloc_release_max_sampled_pages",
