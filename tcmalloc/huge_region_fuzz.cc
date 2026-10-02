@@ -210,6 +210,10 @@ struct State {
     output.resize(1 << 20);
 
     unback.release_callback_ = [this]() {
+      // HugeRegion::Release will drop pageheap_lock around the unback
+      // (b/73749855), so other threads may observe the region here.
+      CheckInvariants();
+
       if (!this->reentrant_release) return;
       if (reentrant_stack.empty()) return;
       if (depth >= 5) return;
@@ -246,6 +250,12 @@ struct State {
     region.AddSpanStats(&small, &large);
     ASSERT_LE(region.free_backed(), region.backed());
     ASSERT_LE(region.backed(), region.size());
+    // Free-and-backed hugepages are entirely free.  A range being unbacked is
+    // neither.
+    ASSERT_LE(region.free_backed().in_pages(), region.free_pages());
+    // The per-hugepage backed bits agree with the backed count.
+    EXPECT_EQ(region.backed().in_pages() + region.unmapped_pages(),
+              HugeRegion::size().in_pages());
     BackingStats stats = region.stats();
     EXPECT_EQ(stats.system_bytes, HugeRegion::size().in_bytes());
     EXPECT_EQ(stats.free_bytes, region.free_pages().in_bytes());
