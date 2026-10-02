@@ -248,7 +248,7 @@ ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
     16 << 20);
 ABSL_CONST_INIT
-std::atomic<bool> Parameters::release_drained_slab_metadata_(false);
+std::atomic<bool> Parameters::release_drained_slab_metadata_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
     true);
 
