@@ -314,6 +314,8 @@ TEST(AllocationSampleTest, SampleAccuracy) {
 extern "C" {
 void* __alloc_token_0__ZnwmRKSt9nothrow_t(size_t size, std::nothrow_t);
 void* __alloc_token_1__ZnwmRKSt9nothrow_t(size_t size, std::nothrow_t);
+void* __alloc_token_0__ZnamRKSt9nothrow_t(size_t size, std::nothrow_t);
+void* __alloc_token_1__ZnamRKSt9nothrow_t(size_t size, std::nothrow_t);
 }
 
 TEST(ProfileTest, HeapProfile) {
@@ -347,6 +349,19 @@ TEST(ProfileTest, HeapProfile) {
     allocs.emplace_back(__size_returning_new(alloc_size).p, deleter);
   }
 
+  auto array_deleter = [](void* ptr) { ::operator delete[](ptr); };
+  std::vector<std::unique_ptr<void, decltype(array_deleter)>> array_allocs;
+  array_allocs.reserve(3 * kAllocs);
+  for (int i = 0; i < kAllocs; i++) {
+    array_allocs.emplace_back(::operator new[](alloc_size), array_deleter);
+    array_allocs.emplace_back(
+        __alloc_token_0__ZnamRKSt9nothrow_t(alloc_size, std::nothrow),
+        array_deleter);
+    array_allocs.emplace_back(
+        __alloc_token_1__ZnamRKSt9nothrow_t(alloc_size, std::nothrow),
+        array_deleter);
+  }
+
   auto malloc_deleter = [](void* ptr) { free(ptr); };
   std::vector<std::unique_ptr<void, decltype(malloc_deleter)>> mallocs;
   mallocs.reserve(2 * kAllocs);
@@ -370,10 +385,10 @@ TEST(ProfileTest, HeapProfile) {
   perftools::profiles::Profile converted;
   ASSERT_TRUE(converted.ParseFromCodedStream(&coded));
 
-  // Look for "request", "size_returning", "allocation_type", "new", "malloc",
-  // "aligned_malloc" strings in string table.
+  // Look for "request", "size_returning", "allocation_type", "new", "new[]",
+  // "malloc", "aligned_malloc" strings in string table.
   std::optional<int> request_id, size_returning_id, allocation_type_id, new_id,
-      malloc_id, aligned_malloc_id, token_id;
+      new_array_id, malloc_id, aligned_malloc_id, token_id;
   for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
     if (converted.string_table(i) == "request") {
       request_id = i;
@@ -383,6 +398,8 @@ TEST(ProfileTest, HeapProfile) {
       allocation_type_id = i;
     } else if (converted.string_table(i) == "new") {
       new_id = i;
+    } else if (converted.string_table(i) == "new[]") {
+      new_array_id = i;
     } else if (converted.string_table(i) == "malloc") {
       malloc_id = i;
     } else if (converted.string_table(i) == "aligned malloc") {
@@ -396,13 +413,15 @@ TEST(ProfileTest, HeapProfile) {
   EXPECT_TRUE(size_returning_id.has_value());
   EXPECT_TRUE(allocation_type_id.has_value());
   EXPECT_TRUE(new_id.has_value());
+  EXPECT_TRUE(new_array_id.has_value());
   EXPECT_TRUE(malloc_id.has_value());
   EXPECT_TRUE(aligned_malloc_id.has_value());
   EXPECT_TRUE(token_id.has_value());
 
   absl::flat_hash_map<int, int> token_count;
   size_t count = 0, bytes = 0, samples = 0, size_returning_samples = 0,
-         new_samples = 0, malloc_samples = 0, aligned_malloc_samples = 0;
+         new_samples = 0, new_array_samples = 0, malloc_samples = 0,
+         aligned_malloc_samples = 0;
   for (const auto& sample : converted.sample()) {
     count += sample.value(0);
     bytes += sample.value(1);
@@ -432,6 +451,8 @@ TEST(ProfileTest, HeapProfile) {
 
           if (label.str() == new_id) {
             new_samples++;
+          } else if (label.str() == new_array_id) {
+            new_array_samples++;
           } else if (label.str() == malloc_id) {
             malloc_samples++;
           } else if (label.str() == aligned_malloc_id) {
@@ -455,15 +476,16 @@ TEST(ProfileTest, HeapProfile) {
   // profile.proto.  Since all of the calls to operator new(alloc_size) are
   // similar in these dimensions, we expect to see only 2 samples, one for
   // ::operator new and one for __size_returning_new.
-  EXPECT_EQ(samples, 7);
+  EXPECT_EQ(samples, 10);
   EXPECT_EQ(size_returning_samples, 1);
   EXPECT_EQ(new_samples, 5);
+  EXPECT_EQ(new_array_samples, 3);
   EXPECT_EQ(malloc_samples, 1);
   EXPECT_EQ(aligned_malloc_samples, 1);
 
-  EXPECT_EQ(token_count[static_cast<int>(TokenId::kAllocToken0)], 1);
-  EXPECT_EQ(token_count[static_cast<int>(TokenId::kAllocToken1)], 1);
-  EXPECT_EQ(token_count[static_cast<int>(TokenId::kNoAllocToken)], 5);
+  EXPECT_EQ(token_count[static_cast<int>(TokenId::kAllocToken0)], 2);
+  EXPECT_EQ(token_count[static_cast<int>(TokenId::kAllocToken1)], 2);
+  EXPECT_EQ(token_count[static_cast<int>(TokenId::kNoAllocToken)], 6);
 
   // Dump the profile in case of failures so that it's possible to debug.
   // Since SCOPED_TRACE attaches output to every failure, we use ASSERTs below.

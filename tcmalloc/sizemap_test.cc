@@ -255,6 +255,34 @@ TEST(SizeMapTest, HeapPartitioningSizeZero) {
   }
 }
 
+TEST(SizeMapTest, NewArrayMatchesNew) {
+  for (const SizeClasses* sc : kAllSizeClassesConfigs) {
+    const auto& classes = sc->classes;
+    SizeMap size_map;
+    EXPECT_TRUE(size_map.Init(classes));
+
+    for (size_t i = 1; i < classes.size(); ++i) {
+      const size_t size = classes[i].size;
+      EXPECT_EQ(
+          size_map.SizeClass(CppPolicy().WithSecurityToken<TokenId{0}>(), size),
+          size_map.SizeClass(CppArrayPolicy().WithSecurityToken<TokenId{0}>(),
+                             size));
+      EXPECT_EQ(
+          size_map.SizeClass(
+              CppPolicy().WithSecurityToken<TokenId::kAllocToken1>(), size),
+          size_map.SizeClass(
+              CppArrayPolicy().WithSecurityToken<TokenId::kAllocToken1>(),
+              size));
+      EXPECT_EQ(
+          size_map.SizeClass(
+              CppPolicy().WithSecurityToken<TokenId{0}>().AccessAsCold(), size),
+          size_map.SizeClass(
+              CppArrayPolicy().WithSecurityToken<TokenId{0}>().AccessAsCold(),
+              size));
+    }
+  }
+}
+
 TEST(SizeMapTest, SpecificClassRanges) {
   // Verify kSizeClasses (with 24/48)
   {
