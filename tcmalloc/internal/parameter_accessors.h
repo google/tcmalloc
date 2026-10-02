@@ -62,8 +62,8 @@ ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPrioritizeSpansEnabled();
 ABSL_ATTRIBUTE_WEAK double
 TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesEnabled();
-ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetStats(char* buffer,
-                                                      size_t buffer_length);
+ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetStats(
+    char* buffer, size_t buffer_length, bool include_hugepage_fragmentation);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetGuardedSamplingInterval(
     int64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t v);
