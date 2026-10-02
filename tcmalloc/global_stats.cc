@@ -310,7 +310,7 @@ static absl::string_view PerCpuTypeString(RseqVcpuMode mode) {
   return "NONE";
 }
 
-void DumpStats(Printer& out, int level) {
+void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
@@ -467,14 +467,16 @@ void DumpStats(Printer& out, int level) {
     // clang-format on
   }
 
-  out.printf("\nMachine-level hugepage fragmentation stats:\n");
-  const size_t num_nodes = tc_globals.numa_topology().num_nodes();
-  for (size_t node = 0; node < num_nodes; node++) {
-    std::optional<double> hugepage_frag_ratio =
-        GetHugepageFragmentationRatio(node);
-    if (hugepage_frag_ratio.has_value()) {
-      out.printf("TOTAL: %12.3f Hugepage fragmentation ratio (node%zu)\n",
-                 *hugepage_frag_ratio, node);
+  if (include_hugepage_fragmentation) {
+    out.printf("\nMachine-level hugepage fragmentation stats:\n");
+    const size_t num_nodes = tc_globals.numa_topology().num_nodes();
+    for (size_t node = 0; node < num_nodes; node++) {
+      std::optional<double> hugepage_frag_ratio =
+          GetHugepageFragmentationRatio(node);
+      if (hugepage_frag_ratio.has_value()) {
+        out.printf("TOTAL: %12.3f Hugepage fragmentation ratio (node%zu)\n",
+                   *hugepage_frag_ratio, node);
+      }
     }
   }
 

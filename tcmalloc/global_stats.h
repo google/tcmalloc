@@ -76,7 +76,11 @@ size_t LocalBytes(const TCMallocStats& stats);
 size_t SlackBytes(const BackingStats& stats);
 
 // WRITE stats to "out"
-void DumpStats(Printer& out, int level);
+//
+// The machine-level hugepage fragmentation ratio is one sysfs read per NUMA
+// node, which takes hundreds of milliseconds each on production kernels, so
+// callers that are crashing skip it.
+void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation);
 void DumpStatsInPbtxt(Printer& out, int level);
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
