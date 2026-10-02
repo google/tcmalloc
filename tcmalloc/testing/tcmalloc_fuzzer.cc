@@ -497,7 +497,10 @@ FUZZ_TEST(TCMalloc, MallocSizeAndOwnership)
 void MallInfoTrimOpt(size_t size, size_t pad, int cmd, int value) {
   void* ptr = TCMallocInternalMalloc(size);
   ASSERT_TRUE(ptr != nullptr);
+#if defined(TCMALLOC_HAVE_STRUCT_MALLINFO) || \
+    defined(TCMALLOC_HAVE_STRUCT_MALLINFO2)
   const size_t allocated = TCMallocInternalMallocSize(ptr);
+#endif
 #if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)
   // The int-typed fields truncate, but this process stays far below 2 GiB.
   const struct mallinfo info = TCMallocInternalMallInfo();
