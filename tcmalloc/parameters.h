@@ -136,28 +136,12 @@ class Parameters {
     return huge_region_adaptive_release_.load(std::memory_order_relaxed);
   }
 
-  static bool release_max_cold_pages() {
-    return release_max_cold_pages_.load(std::memory_order_relaxed);
-  }
-
-  static void set_release_max_cold_pages(bool value) {
-    TCMalloc_Internal_SetReleaseMaxColdPages(value);
-  }
-
   static bool release_max_filler_pages() {
     return release_max_filler_pages_.load(std::memory_order_relaxed);
   }
 
   static void set_release_max_filler_pages(bool value) {
     TCMalloc_Internal_SetReleaseMaxFillerPages(value);
-  }
-
-  static bool release_max_sampled_pages() {
-    return release_max_sampled_pages_.load(std::memory_order_relaxed);
-  }
-
-  static void set_release_max_sampled_pages(bool value) {
-    TCMalloc_Internal_SetReleaseMaxSampledPages(value);
   }
 
   static MadviseRegionsNoHugepage madvise_cold_regions_nohugepage();
@@ -286,9 +270,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
   friend void ::TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
   friend void ::TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v);
-  friend void ::TCMalloc_Internal_SetReleaseMaxColdPages(bool v);
   friend void ::TCMalloc_Internal_SetReleaseMaxFillerPages(bool v);
-  friend void ::TCMalloc_Internal_SetReleaseMaxSampledPages(bool v);
   friend void ::TCMalloc_Internal_SetMadviseSampledAllocations(
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
   friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
@@ -313,9 +295,7 @@ class Parameters {
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<bool> enable_unfiltered_collapse_;
-  static std::atomic<bool> release_max_cold_pages_;
   static std::atomic<bool> release_max_filler_pages_;
-  static std::atomic<bool> release_max_sampled_pages_;
   static std::atomic<MadviseSampledAllocations> madvise_sampled_allocations_;
   static std::atomic<int64_t> event_trace_memory_limit_;
   static std::atomic<bool> release_drained_slab_metadata_;
