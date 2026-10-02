@@ -1256,7 +1256,8 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
   EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), 0);
 
-  const int num_resizes = NumCPUs() / CpuCache::kNumCpuCachesToResize;
+  const int num_resizes = (NumCPUs() + CpuCache::kNumCpuCachesToResize - 1) /
+                          CpuCache::kNumCpuCachesToResize;
   {
     ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
     for (int i = 0; i < num_resizes; ++i) {
@@ -1457,7 +1458,9 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   int n_threads = NumStressThreads();
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
-  ASSERT_EQ(ret, 0);
+  if (ret != 0) {
+    GTEST_SKIP() << "mlockall failed, errno=" << errno;
+  }
 
   CpuCache cache;
   cache.Init();
@@ -1506,7 +1509,9 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   int n_threads = NumStressThreads();
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
-  ASSERT_EQ(ret, 0);
+  if (ret != 0) {
+    GTEST_SKIP() << "mlockall failed, errno=" << errno;
+  }
 
   CpuCache cache;
   cache.Init();
@@ -2514,6 +2519,13 @@ TEST(CpuCacheTest, NamedVma) {
   CpuCache cache;
   cache.Init();
   cache.Activate();
+
+  const auto shift =
+      subtle::percpu::ToShiftType(CpuCachePeer::GetSlabShift(cache));
+  if (subtle::percpu::GetSlabsAllocSize(shift, NumCPUs()) < 2 * kHugePageSize) {
+    cache.Deactivate();
+    GTEST_SKIP() << "Not enough CPUs to run test";
+  }
 
   TestStaticForwarder& forwarder = cache.forwarder();
   auto calls = forwarder.vma_name_calls();
