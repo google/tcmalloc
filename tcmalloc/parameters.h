@@ -237,7 +237,13 @@ class Parameters {
   }
 
   static bool release_drained_slab_metadata() {
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+    // The small-but-slow configuration does not align the slab metadata
+    // on huge pages, which we need to release them.
+    return false;
+#else
     return release_drained_slab_metadata_.load(std::memory_order_relaxed);
+#endif
   }
 
   static void set_release_drained_slab_metadata(bool value) {
