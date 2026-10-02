@@ -531,6 +531,44 @@ TEST_F(PageAllocatorTest, Hooks) {
   EXPECT_TRUE(page_allocator_release_hooks.Remove(&TestReleaseHook));
 }
 
+TEST_F(PageAllocatorTest, ReleasePriority) {
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  const bool has_cold = ColdFeatureActive();
+
+  std::vector<MemoryTag> order = {MemoryTag::kSampled};
+  if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
+    order.push_back(MemoryTag::kSampledP1);
+  }
+  if (has_cold) {
+    order.push_back(MemoryTag::kCold);
+  }
+  order.push_back(MemoryTag::kNormal);
+  if (tc_globals.active_partitions() > 1) {
+    order.push_back(MemoryTag::kNormalP1);
+  }
+
+  for (MemoryTag tag : order) {
+    Delete(New(kPagesPerHugePage, kSpanInfo, tag), kSpanInfo, tag);
+  }
+
+  for (size_t i = 0; i < order.size(); ++i) {
+    EXPECT_EQ(
+        Release(kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem),
+        kPagesPerHugePage);
+    for (size_t j = 0; j < order.size(); ++j) {
+      PageReleaseStats releases;
+      {
+        PageHeapSpinLockHolder l;
+        releases = allocator_->info(order[j]).GetRecordedReleases();
+      }
+      EXPECT_EQ(releases.release_memory_to_system,
+                j <= i ? kPagesPerHugePage : Length(0))
+          << "i=" << i << " j=" << j;
+    }
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -232,7 +232,7 @@ class PageAllocator {
   std::array<Interface*, kNormalPartitions> normal_impl_;
   std::array<Interface*, kSecurityPartitions> sampled_impl_;
   Interface* cold_impl_;
-  // All active heaps: cold (if active), normal, then sampled.
+  // All active heaps: sampled, cold (if active), then normal.
   std::array<Interface*, kNormalPartitions + kSecurityPartitions + 1>
       all_heaps_;
   absl::Span<Interface* const> heaps_;
