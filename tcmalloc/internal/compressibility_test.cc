@@ -109,6 +109,98 @@ TEST(CompressibilityTest, AllZeroes) {
   EXPECT_EQ(res->zero_bytes, 8199);
 }
 
+// The zero counter walks the sample a word at a time; exercise every tail
+// length and zero placement against a byte-wise reference.
+TEST(CompressibilityTest, ZeroCountMatchesByteWiseCount) {
+  CompressionAnalyzer analyzer;
+  std::mt19937_64 rng(0x5eed);
+  for (size_t size = 1; size <= 4 * sizeof(uint64_t) + 3; ++size) {
+    for (int trial = 0; trial < 8; ++trial) {
+      std::vector<char> buf(size);
+      for (char& c : buf) {
+        // Bias towards zeroes so that partially and fully zero words occur.
+        const uint64_t r = rng();
+        c = (r % 4 == 0) ? static_cast<char>(r >> 8) : '\0';
+      }
+      const size_t count = std::count(buf.begin(), buf.end(), '\0');
+      // The estimator scales the sampled zero ratio back to the allocation
+      // size in floating point, which may truncate by one byte.
+      const size_t expected =
+          static_cast<size_t>(static_cast<double>(count) / size * size);
+      auto res =
+          analyzer.Analyze(absl::MakeConstSpan(buf),
+                           MakeResidencyInfo(buf.data(), buf.size(), "R"));
+      ABSL_ASSERT_OK(res);
+      EXPECT_EQ(res->zero_bytes, expected) << "size=" << size;
+    }
+  }
+
+  // Single non-zero byte at every position in an otherwise zero page,
+  // including bytes with the high bit set, which the SWAR mask must not
+  // misclassify.
+  const size_t page_size = GetPageSize();
+  std::vector<char> page(page_size, 0);
+  for (size_t pos = 0; pos < page_size; pos += 61) {
+    for (char value : {'\x01', '\x7f', '\x80', '\xff'}) {
+      page[pos] = value;
+      auto res =
+          analyzer.Analyze(absl::MakeConstSpan(page),
+                           MakeResidencyInfo(page.data(), page.size(), "R"));
+      ABSL_ASSERT_OK(res);
+      EXPECT_EQ(res->zero_bytes, page_size - 1) << "pos=" << pos;
+      page[pos] = 0;
+    }
+  }
+}
+
+// Repeated calls on one analyzer reuse its scratch state; each result must be
+// identical to what a fresh analyzer reports for the same input.
+TEST(CompressibilityTest, RepeatedAnalyzeMatchesFreshAnalyzer) {
+  std::mt19937_64 rng(0xc0ffee);
+  const size_t page_size = GetPageSize();
+  const size_t max_pages =
+      CompressionAnalyzer::kDefaultMaxLocalCopySize / page_size;
+  PageAlignedBuffer buf(max_pages + 1);
+
+  CompressionAnalyzer reused;
+  for (int round = 0; round < 3; ++round) {
+    for (int kind = 0; kind < 4; ++kind) {
+      // Alternate between sizes above and below the sampling cap so that the
+      // retained context sees both growing and shrinking inputs.
+      const size_t size =
+          (kind % 2 == 0) ? buf.size : page_size * (1 + rng() % 4) + 199;
+      switch (kind) {
+        case 0:  // All zero.
+          std::memset(buf.ptr, 0, size);
+          break;
+        case 1:  // Uniform, highly compressible.
+          std::memset(buf.ptr, 0x42, size);
+          break;
+        case 2:  // Incompressible.
+          for (size_t i = 0; i < size; ++i) {
+            buf.ptr[i] = static_cast<char>(rng() | 1);
+          }
+          break;
+        default:  // Half zero, half incompressible.
+          std::memset(buf.ptr, 0, size);
+          for (size_t i = size / 2; i < size; ++i) {
+            buf.ptr[i] = static_cast<char>(rng() | 1);
+          }
+          break;
+      }
+      const absl::Span<const char> data(buf.ptr, size);
+      const Residency::Info info = MakeResidencyInfo(buf.ptr, size, "R");
+
+      auto expected = CompressionAnalyzer().Analyze(data, info);
+      ABSL_ASSERT_OK(expected);
+      auto actual = reused.Analyze(data, info);
+      ABSL_ASSERT_OK(actual);
+      EXPECT_EQ(actual->zero_bytes, expected->zero_bytes)
+          << "round=" << round << " kind=" << kind;
+    }
+  }
+}
+
 TEST(CompressibilityTest, PartialZeroes) {
   CompressionAnalyzer analyzer;
   std::vector<char> buf(8199, 0);
