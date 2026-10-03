@@ -263,7 +263,6 @@ class SizeMap {
                                  kClassArraySize] +
           policy.scaled_numa_partition();
     }
-
     // Don't search for suitably aligned class for operator new
     // (when alignment is statically known to be no greater than kAlignment).
     // But don't do this check at runtime when the alignment is dynamic.

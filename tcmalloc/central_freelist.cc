@@ -47,6 +47,9 @@ static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
   if (IsColdSizeClass(size_class)) {
     return MemoryTag::kCold;
   }
+  if (size_class >= kSecurityClassesStart)
+    return tc_globals.active_partitions() == 1 ? MemoryTag::kNormal
+                                               : MemoryTag::kNormalP1;
   if (tc_globals.active_partitions() == 1) {
     return MemoryTag::kNormal;
   }

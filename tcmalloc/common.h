@@ -189,11 +189,15 @@ inline constexpr size_t kNormalPartitions =
 static_assert(kNormalPartitions <= 2,
               "Error: There can be at most 2 normal partitions.");
 
-// We have copies of kNumBaseClasses size classes for each NUMA node or
-// security partition, followed by any cold classes.
-inline constexpr size_t kColdClassesStart = kNumBaseClasses * kNormalPartitions;
-inline constexpr size_t kNumClasses =
+// We have copies of kNumBaseClasses size classes for each NUMA node,
+// followed by any cold classes, and finally the security partition classes.
+inline constexpr size_t kColdClassesStart = kNumBaseClasses * kNumaPartitions;
+inline constexpr size_t kSecurityClassesStart =
     kColdClassesStart + (kHasColdClasses ? kNumBaseClasses : 0);
+inline constexpr size_t kNumClasses =
+    kSecurityClassesStart + (kSecurityPartitions > 1 ? kNumBaseClasses : 0);
+
+inline constexpr size_t kNumClassesForTransferCache = kSecurityClassesStart;
 
 // Size classes are often stored as uint32_t values, but there are some
 // situations where we need to store a size class with as compact a
@@ -232,7 +236,8 @@ inline constexpr size_t kMaxDynamicFreeListLength = 8192;
 constexpr bool ColdFeatureActive() { return kHasColdClasses; }
 
 constexpr bool IsColdSizeClass(unsigned size_class) {
-  return kHasColdClasses && (size_class >= kColdClassesStart);
+  return kHasColdClasses && (size_class >= kColdClassesStart &&
+                             size_class < kSecurityClassesStart);
 }
 
 #if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
