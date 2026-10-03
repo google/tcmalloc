@@ -695,11 +695,11 @@ void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
           std::max<double>(now - static_cast<double>(span->AllocTime()), 0.0);
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       const int64_t elapsed_ms = static_cast<int64_t>(elapsed * ms_per_cycle);
-      completed_spans_[LifetimeBucketNum(elapsed_ms)].LossyAdd(1);
+      completed_spans_[LifetimeBucketNum(elapsed_ms)].Add(1);
 #else
       const absl::Duration lifetime =
           absl::Milliseconds(elapsed * 1000 / frequency);
-      completed_spans_[LifetimeBucketNum(lifetime)].LossyAdd(1);
+      completed_spans_[LifetimeBucketNum(lifetime)].Add(1);
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     }
   }
