@@ -498,6 +498,7 @@ void MallInfoTrimOpt(size_t size, size_t pad, int cmd, int value) {
   void* ptr = TCMallocInternalMalloc(size);
   ASSERT_TRUE(ptr != nullptr);
   const size_t allocated = TCMallocInternalMallocSize(ptr);
+  (void)allocated;
 #if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)
   // The int-typed fields truncate, but this process stays far below 2 GiB.
   const struct mallinfo info = TCMallocInternalMallInfo();
