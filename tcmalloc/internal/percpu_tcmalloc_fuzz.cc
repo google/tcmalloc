@@ -54,7 +54,16 @@ namespace {
 constexpr size_t kNumClasses = 5;
 constexpr size_t kMaxCapacity = 16;
 constexpr size_t kMaxBatchSize = 16;
-constexpr Shift kShift{18};
+// Slot offsets in a slab header are uint16_t, so InitCpuImpl rejects per-CPU
+// regions larger than (1 << 16) * sizeof(void*) bytes: Shift{19} is the
+// largest legal shift.  Shift{12} is the small-but-slow production minimum.
+// Spanning the whole range makes ResizeSlabs cross hugepage boundaries in
+// both directions on hosts with few CPUs.
+constexpr uint8_t kMinShift = 12;
+constexpr uint8_t kMaxShift = 19;
+static_assert((size_t{1} << kMaxShift) < kHugePageSize,
+              "ReleaseSlabMetadataForDrainedCpus requires a slab smaller than "
+              "a hugepage");
 
 using SlabsType = TcmallocSlab<kNumClasses>;
 
@@ -72,19 +81,26 @@ struct State {
   std::vector<bool> cpu_initialized;
   std::vector<bool> cpu_stopped;
   std::array<size_t, kNumClasses> max_capacity;
+  // Expected value of slab.Capacity(cpu, size_class), accumulated from the
+  // increments and decrements the slab reports.
+  std::vector<std::array<uint16_t, kNumClasses>> expected_capacity;
 
   absl::flat_hash_set<void*> allocated_objects[kNumClasses];
   std::vector<void*> available_objects[kNumClasses];
 
-  State()
+  explicit State(uint8_t initial_shift)
       : num_cpus(NumCPUs()),
         active_cpu(current_cpu),
         cpu_initialized(num_cpus, false),
-        cpu_stopped(num_cpus, false) {
+        cpu_stopped(num_cpus, false),
+        expected_capacity(num_cpus) {
     for (size_t sc = 0; sc < kNumClasses; ++sc) {
       max_capacity[sc] = (sc == 0) ? 0 : kMaxCapacity;
     }
-    const Shift shift = kShift;
+    for (auto& caps : expected_capacity) {
+      caps.fill(0);
+    }
+    const Shift shift = ToShiftType(initial_shift);
     const size_t slabs_size = GetSlabsAllocSize(shift, num_cpus);
     void* slabs_mem = Malloc(slabs_size, SlabAlignment(shift));
     slab.Init(
@@ -101,8 +117,13 @@ struct State {
   }
 
   void EnsureCpuInitialized(int cpu);
+  bool IsDrained(int cpu) const;
   void CheckInvariants();
   void CheckValidObject(void* obj, size_t sc) const;
+  // Shared by every DrainHandler: the reported capacity must match the model
+  // and the objects must be ours.
+  void HandleDrain(int cpu, size_t size_class, void** batch, size_t size,
+                   size_t cap);
 
   // Allocates an object from the underlying malloc implementation that we can
   // freelist.
@@ -138,6 +159,11 @@ void State::EnsureCpuInitialized(int cpu) {
   }
 }
 
+bool State::IsDrained(int cpu) const {
+  return absl::c_all_of(expected_capacity[cpu],
+                        [](uint16_t cap) { return cap == 0; });
+}
+
 void State::CheckInvariants() {
   for (size_t sc = 1; sc < kNumClasses; ++sc) {
     size_t total_in_slabs = 0;
@@ -147,6 +173,8 @@ void State::CheckInvariants() {
       const size_t cap = slab.Capacity(cpu, sc);
       TC_CHECK_LE(len, cap);
       TC_CHECK_LE(cap, max_cap);
+      TC_CHECK_EQ(cap, expected_capacity[cpu][sc], "cpu=%d size_class=%v", cpu,
+                  sc);
       total_in_slabs += len;
     }
     TC_CHECK_EQ(available_objects[sc].size() + total_in_slabs,
@@ -160,6 +188,17 @@ void State::CheckValidObject(void* obj, size_t sc) const {
   TC_CHECK(allocated_objects[sc].contains(obj));
 }
 
+void State::HandleDrain(int cpu, size_t size_class, void** batch, size_t size,
+                        size_t cap) {
+  TC_CHECK_LT(size_class, kNumClasses);
+  TC_CHECK_LE(size, cap);
+  TC_CHECK_EQ(cap, expected_capacity[cpu][size_class]);
+  for (size_t i = 0; i < size; ++i) {
+    CheckValidObject(batch[i], size_class);
+    available_objects[size_class].push_back(batch[i]);
+  }
+}
+
 State::~State() {
   // Teardown: restart stopped CPUs and drain all CPUs to recover all objects.
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
@@ -170,11 +209,7 @@ State::~State() {
     slab.Drain(cpu, [&](int drained_cpu, size_t size_class, void** batch,
                         size_t size, size_t cap) {
       TC_CHECK_EQ(drained_cpu, cpu);
-      TC_CHECK_LT(size_class, kNumClasses);
-      for (size_t i = 0; i < size; ++i) {
-        CheckValidObject(batch[i], size_class);
-        available_objects[size_class].push_back(batch[i]);
-      }
+      HandleDrain(drained_cpu, size_class, batch, size, cap);
     });
   }
 
@@ -340,6 +375,7 @@ struct Grow {
         state.current_cpu, sc, len,
         [&state, sc](uint8_t) { return state.MaxCapacity(sc); });
     TC_CHECK_LE(grew, len);
+    state.expected_capacity[state.current_cpu][sc] += grew;
   }
 };
 
@@ -374,6 +410,7 @@ struct GrowOtherClass {
         target_cpu, sc, len,
         [&state, sc](uint8_t) { return state.MaxCapacity(sc); });
     TC_CHECK_LE(grew, len);
+    state.expected_capacity[target_cpu][sc] += grew;
     if (!was_stopped) {
       state.slab.StartCpu(target_cpu);
       state.cpu_stopped[target_cpu] = false;
@@ -417,6 +454,8 @@ struct ShrinkOtherCache {
           }
         });
     TC_CHECK_LE(shrunk, len);
+    TC_CHECK_LE(shrunk, state.expected_capacity[target_cpu][sc]);
+    state.expected_capacity[target_cpu][sc] -= shrunk;
     if (!was_stopped) {
       state.slab.StartCpu(target_cpu);
       state.cpu_stopped[target_cpu] = false;
@@ -440,19 +479,13 @@ struct Drain {
     state.slab.Drain(target_cpu, [&](int cpu, size_t size_class, void** batch,
                                      size_t size, size_t cap) {
       TC_CHECK_EQ(cpu, target_cpu);
-      TC_CHECK_LT(size_class, kNumClasses);
-      for (size_t i = 0; i < size; ++i) {
-        state.CheckValidObject(batch[i], size_class);
-        state.available_objects[size_class].push_back(batch[i]);
-      }
+      state.HandleDrain(cpu, size_class, batch, size, cap);
     });
+    state.expected_capacity[target_cpu].fill(0);
 
     for (size_t sc = 1; sc < kNumClasses; ++sc) {
       TC_CHECK_EQ(state.slab.Length(target_cpu, sc), 0);
-      const size_t cap = state.slab.Capacity(target_cpu, sc);
-      const size_t max_cap = state.MaxCapacity(sc);
-      TC_CHECK_LE(0, cap);
-      TC_CHECK_LE(cap, max_cap);
+      TC_CHECK_EQ(state.slab.Capacity(target_cpu, sc), 0);
     }
   }
 };
@@ -479,6 +512,7 @@ struct ReleasePerCPUSlabMetadata {
         [&state](int cpu) { return state.cpu_initialized[cpu]; },
         [&state](int cpu) {
           state.cpu_initialized[cpu] = false;
+          TC_CHECK(state.IsDrained(cpu));
           for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
             TC_CHECK_EQ(state.slab.Length(cpu, size_class), 0);
             TC_CHECK_EQ(state.slab.Capacity(cpu, size_class), 0);
@@ -509,8 +543,6 @@ struct ResizeSlabs {
       return;
     }
     const uint8_t current_shift = state.slab.GetShift();
-    constexpr uint8_t kMinShift = 14;
-    constexpr uint8_t kMaxShift = 18;
     uint8_t target_shift =
         kMinShift + (shift_index % (kMaxShift - kMinShift + 1));
     if (target_shift == current_shift) {
@@ -526,14 +558,15 @@ struct ResizeSlabs {
         [&state](size_t cpu) { return state.cpu_initialized[cpu]; },
         [&state](int cpu, size_t size_class, void** batch, size_t size,
                  size_t cap) {
-          TC_CHECK_LT(size_class, kNumClasses);
-          for (size_t i = 0; i < size; ++i) {
-            state.CheckValidObject(batch[i], size_class);
-            state.available_objects[size_class].push_back(batch[i]);
-          }
+          state.HandleDrain(cpu, size_class, batch, size, cap);
         });
+    TC_CHECK_EQ(state.slab.GetShift(), target_shift);
     const Shift old_shift = ToShiftType(current_shift);
     sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(old_shift));
+    // ResizeSlabs starts every CPU at capacity 0 in the new slabs.
+    for (auto& caps : state.expected_capacity) {
+      caps.fill(0);
+    }
     auto [got_cpu, cached] = state.slab.CacheCpuSlab();
     if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
       state.EnsureCpuInitialized(got_cpu);
@@ -578,14 +611,15 @@ struct UpdateMaxCapacities {
         [&state](size_t cpu) { return state.cpu_initialized[cpu]; },
         [&state](int cpu, size_t size_class, void** batch, size_t size,
                  size_t cap) {
-          TC_CHECK_LT(size_class, kNumClasses);
-          for (size_t i = 0; i < size; ++i) {
-            state.CheckValidObject(batch[i], size_class);
-            state.available_objects[size_class].push_back(batch[i]);
-          }
+          state.HandleDrain(cpu, size_class, batch, size, cap);
         },
         new_caps, 1);
+    TC_CHECK_EQ(state.max_capacity[sc], target_cap);
     sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(shift));
+    // UpdateMaxCapacities starts every CPU at capacity 0 in the new slabs.
+    for (auto& caps : state.expected_capacity) {
+      caps.fill(0);
+    }
     auto [got_cpu, cached] = state.slab.CacheCpuSlab();
     if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
       state.EnsureCpuInitialized(got_cpu);
@@ -683,7 +717,9 @@ void AbslStringify(Sink& sink, const Instruction& i) {
   std::visit([&](auto&& arg) { absl::Format(&sink, "%v", arg); }, i);
 }
 
-void FuzzPercpuTcmalloc(const std::vector<Instruction>& instructions) {
+// `initial_shift` is the slab shift to Init with, in [kMinShift, kMaxShift].
+void FuzzPercpuTcmalloc(uint8_t initial_shift,
+                        const std::vector<Instruction>& instructions) {
   if (MallocExtension::PerCpuCachesActive()) {
     return;
   }
@@ -693,7 +729,7 @@ void FuzzPercpuTcmalloc(const std::vector<Instruction>& instructions) {
     return;
   }
 
-  State state;
+  State state(initial_shift);
 
   for (const auto& instruction : instructions) {
     std::visit([&](auto&& arg) { arg.Perform(state); }, instruction);
@@ -702,19 +738,19 @@ void FuzzPercpuTcmalloc(const std::vector<Instruction>& instructions) {
 }
 
 TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
-  FuzzPercpuTcmalloc({Pop{.size_class = 127}});
-
-  FuzzPercpuTcmalloc({Grow{.size_class = 2147483647, .len = 185},
-                      Push{.size_class = 0},
-                      PushBatch{.size_class = 0, .count = 56}});
+  FuzzPercpuTcmalloc(18, {Pop{.size_class = 127}});
 
   FuzzPercpuTcmalloc(
-      {GrowOtherClass{.cpu_index = 0, .size_class = 1, .len = 5},
-       ShrinkOtherCache{.cpu_index = 0, .size_class = 1, .len = 2},
-       Drain{.cpu_index = 0}, ResizeSlabs{.shift_index = 1},
-       UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
-       UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
-       StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}});
+      18, {Grow{.size_class = 2147483647, .len = 185}, Push{.size_class = 0},
+           PushBatch{.size_class = 0, .count = 56}});
+
+  FuzzPercpuTcmalloc(
+      18, {GrowOtherClass{.cpu_index = 0, .size_class = 1, .len = 5},
+           ShrinkOtherCache{.cpu_index = 0, .size_class = 1, .len = 2},
+           Drain{.cpu_index = 0}, ResizeSlabs{.shift_index = 1},
+           UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
+           UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
+           StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}});
 }
 
 TEST(PercpuTcmallocTest, ShrinkOtherCacheStringify) {
@@ -725,7 +761,8 @@ TEST(PercpuTcmallocTest, ShrinkOtherCacheStringify) {
 }
 
 FUZZ_TEST(PercpuTcmallocTest, FuzzPercpuTcmalloc)
-    .WithDomains(fuzztest::Arbitrary<std::vector<Instruction>>());
+    .WithDomains(fuzztest::InRange<uint8_t>(kMinShift, kMaxShift),
+                 fuzztest::Arbitrary<std::vector<Instruction>>());
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal::subtle::percpu
