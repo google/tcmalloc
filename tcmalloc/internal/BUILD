@@ -1630,6 +1630,25 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "util_test",
+    size = "medium",
+    srcs = ["util_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":page_size",
+        ":util",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
 cc_library(
     name = "is_aligned_to",
     hdrs = ["is_aligned_to.h"],
