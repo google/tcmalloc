@@ -1656,6 +1656,24 @@ tcmalloc_cc_library(
     "absl::core_headers"
 )
 
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_util_test
+  SRCS
+    "util_test.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::check"
+    "absl::flags"
+    "absl::span"
+    "absl::strings"
+    "absl::time"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_util"
+    "tcmalloc::tcmalloc"
+)
+
 tcmalloc_cc_library(
   NAME
     tcmalloc_internal_is_aligned_to
