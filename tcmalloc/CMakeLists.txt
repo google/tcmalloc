@@ -1360,6 +1360,7 @@ tcmalloc_cc_test(
     "GTest::gmock_main"
     "GTest::gmock"
     "absl::base"
+    "absl::btree"
     "absl::core_headers"
     "absl::flat_hash_map"
     "absl::nullability"
