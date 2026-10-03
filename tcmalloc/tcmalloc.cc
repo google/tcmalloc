@@ -991,7 +991,6 @@ inline
     static void fast_free_with_size(void* ptr, size_t size, Policy policy) {
   // Mismatched-size-delete error detection for sampled memory is performed in
   // the slow path above in all builds.
-  TC_ASSERT(CorrectSize(ptr, size, policy));
 
   // At this point, since ptr's tag bit is 1, it means that it
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
