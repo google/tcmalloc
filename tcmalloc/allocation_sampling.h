@@ -287,7 +287,7 @@ static sized_ptr_t SampleSmallAllocation(Static& state, Policy policy,
 }
 
 // Rewrite type so that the allocation type falls into one of the categories we
-// use for deallocations (new or malloc, not aligned new).
+// use for deallocations (new or malloc, not aligned malloc or array new).
 static inline AllocationType SimplifyType(AllocationType type) {
   switch (type) {
     case AllocationType::New:
@@ -295,6 +295,8 @@ static inline AllocationType SimplifyType(AllocationType type) {
       return type;
     case AllocationType::AlignedMalloc:
       return AllocationType::Malloc;
+    case AllocationType::NewArray:
+      return AllocationType::New;
   }
 
   ABSL_UNREACHABLE();
@@ -382,9 +384,14 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   }
 
   if ((size.has_value() || policy.allocation_type() == AllocationType::New)) {
-    const bool type_mismatch =
-        policy.allocation_type() !=
-        sampled_allocation->sampled_stack.allocation_type;
+    // operator delete[] is not distinguished from operator delete, so an
+    // operator new[] allocation is expected to be deallocated as "new".
+    const AllocationType alloc_type =
+        sampled_allocation->sampled_stack.allocation_type ==
+                AllocationType::NewArray
+            ? AllocationType::New
+            : sampled_allocation->sampled_stack.allocation_type;
+    const bool type_mismatch = policy.allocation_type() != alloc_type;
     const std::optional<std::align_val_t> deallocated_alignment =
         policy.has_explicit_alignment()
             ? std::make_optional<std::align_val_t>(policy.align())

@@ -55,6 +55,14 @@
 //     size_t align() const;
 //   };
 //
+// - Array policy
+//   Dictates whether the allocation is made by operator new[].
+//
+//   struct ArrayPolicyTemplate {
+//     // Returns true if the allocation is made by operator new[].
+//     static constexpr bool is_array();
+//   };
+//
 // - Hook invocation policy
 //   dictates invocation of allocation hooks
 //
@@ -157,6 +165,16 @@ class AlignAsPolicy {
 
  private:
   std::align_val_t value_;
+};
+
+// IsArrayPolicy: allocation is made by operator new[]
+struct IsArrayPolicy {
+  static constexpr bool is_array() { return true; }
+};
+
+// NonArrayPolicy: allocation is not made by operator new[]
+struct NonArrayPolicy {
+  static constexpr bool is_array() { return false; }
 };
 
 // AllocationAccessAsPolicy: use user provided access hint
@@ -311,6 +329,7 @@ struct ConstSecurityPartitionPolicy {
 // Is trivially constructible, copyable and destructible.
 template <typename OomPolicy = CppOomPolicy,
           typename AlignPolicy = DefaultAlignPolicy,
+          typename ArrayPolicy = NonArrayPolicy,
           typename AccessPolicy = DefaultAllocationAccessPolicy,
           typename HooksPolicy = InvokeHooksPolicy,
           typename SizeReturningPolicy = NonSizeReturningPolicy,
@@ -338,7 +357,8 @@ class TCMallocPolicy {
   // requiring redundant data.
   static constexpr AllocationType allocation_type() {
     if constexpr (!std::is_same_v<OomPolicy, MallocOomPolicy>) {
-      return AllocationType::New;
+      return ArrayPolicy::is_array() ? AllocationType::NewArray
+                                     : AllocationType::New;
     } else if constexpr (std::is_same_v<MallocAlignPolicy, AlignPolicy>) {
       return AllocationType::Malloc;
     } else {
@@ -412,80 +432,86 @@ class TCMallocPolicy {
 
   // Returns this policy aligned as 'align'
   template <typename align_t>
-  constexpr TCMallocPolicy<OomPolicy, AlignAsPolicy, AccessPolicy, HooksPolicy,
-                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>
-  AlignAs(align_t align) const {
-    return TCMallocPolicy<OomPolicy, AlignAsPolicy, AccessPolicy, HooksPolicy,
-                          SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
-        AlignAsPolicy{align}, numa_, partition_);
-  }
-
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+  constexpr TCMallocPolicy<OomPolicy, AlignAsPolicy, ArrayPolicy, AccessPolicy,
                            HooksPolicy, SizeReturningPolicy, NumaPolicy,
                            PartitionPolicy>
-  AccessAs(hot_cold_t hot_cold) const {
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+  AlignAs(align_t align) const {
+    return TCMallocPolicy<OomPolicy, AlignAsPolicy, ArrayPolicy, AccessPolicy,
                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
-                          PartitionPolicy>(
+                          PartitionPolicy>(AlignAsPolicy{align}, numa_,
+                                           partition_);
+  }
+
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy,
+                           AllocationAccessAsPolicy, HooksPolicy,
+                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>
+  AccessAs(hot_cold_t hot_cold) const {
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy,
+                          AllocationAccessAsPolicy, HooksPolicy,
+                          SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
         align_, AllocationAccessAsPolicy{hot_cold}, numa_, partition_);
   }
 
   // Returns this policy for frequent access
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessHotPolicy,
-                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
-                           PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy,
+                           AllocationAccessHotPolicy, HooksPolicy,
+                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>
   AccessAsHot() const {
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessHotPolicy,
-                          HooksPolicy, SizeReturningPolicy, NumaPolicy,
-                          PartitionPolicy>(align_, numa_, partition_);
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy,
+                          AllocationAccessHotPolicy, HooksPolicy,
+                          SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
+        align_, numa_, partition_);
   }
 
   // Returns this policy for infrequent access
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessColdPolicy,
-                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
-                           PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy,
+                           AllocationAccessColdPolicy, HooksPolicy,
+                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>
   AccessAsCold() const {
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessColdPolicy,
-                          HooksPolicy, SizeReturningPolicy, NumaPolicy,
-                          PartitionPolicy>(align_, numa_, partition_);
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy,
+                          AllocationAccessColdPolicy, HooksPolicy,
+                          SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
+        align_, numa_, partition_);
   }
 
   // Returns this policy with a nullptr OOM policy.
-  constexpr TCMallocPolicy<NullOomPolicy, AlignPolicy, AccessPolicy,
-                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
-                           PartitionPolicy>
+  constexpr TCMallocPolicy<NullOomPolicy, AlignPolicy, ArrayPolicy,
+                           AccessPolicy, HooksPolicy, SizeReturningPolicy,
+                           NumaPolicy, PartitionPolicy>
   Nothrow() const {
-    return TCMallocPolicy<NullOomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
-        align_, access_, numa_, partition_);
+    return TCMallocPolicy<NullOomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                          HooksPolicy, SizeReturningPolicy, NumaPolicy,
+                          PartitionPolicy>(align_, access_, numa_, partition_);
   }
 
   // Returns this policy with NewAllocHook invocations disabled.
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
-                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                           NoHooksPolicy, SizeReturningPolicy, NumaPolicy,
+                           PartitionPolicy>
   WithoutHooks() const {
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
-                          SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
-        align_, access_, numa_, partition_);
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                          NoHooksPolicy, SizeReturningPolicy, NumaPolicy,
+                          PartitionPolicy>(align_, access_, numa_, partition_);
   }
 
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                           IsSizeReturningPolicy, NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                           HooksPolicy, IsSizeReturningPolicy, NumaPolicy,
+                           PartitionPolicy>
   SizeReturning() const {
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          IsSizeReturningPolicy, NumaPolicy, PartitionPolicy>(
-        align_, access_, numa_, partition_);
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                          HooksPolicy, IsSizeReturningPolicy, NumaPolicy,
+                          PartitionPolicy>(align_, access_, numa_, partition_);
   }
 
   // Returns this policy with a fixed NUMA/type partition.
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                           SizeReturningPolicy, FixedNumaPartitionPolicy,
-                           SecurityPartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                           HooksPolicy, SizeReturningPolicy,
+                           FixedNumaPartitionPolicy, SecurityPartitionPolicy>
   InPartition(size_t partition) const {
     const size_t numa_partition = partition % kNumaPartitions;
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          SizeReturningPolicy, FixedNumaPartitionPolicy,
-                          SecurityPartitionPolicy>(
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                          HooksPolicy, SizeReturningPolicy,
+                          FixedNumaPartitionPolicy, SecurityPartitionPolicy>(
         align_, access_, FixedNumaPartitionPolicy{numa_partition},
         SecurityPartitionPolicy{(partition - numa_partition) /
                                 kNumaPartitions});
@@ -499,8 +525,9 @@ class TCMallocPolicy {
         (kPartition - kNumaPartition) / kNumaPartitions;
     using ConstSecurityPartitionPolicy =
         ConstSecurityPartitionPolicy<TokenId::kNoAllocToken, kSecPartition>;
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          SizeReturningPolicy, FixedNumaPartitionPolicy,
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                          HooksPolicy, SizeReturningPolicy,
+                          FixedNumaPartitionPolicy,
                           ConstSecurityPartitionPolicy>(
         align_, access_, FixedNumaPartitionPolicy{kNumaPartition},
         ConstSecurityPartitionPolicy());
@@ -508,13 +535,13 @@ class TCMallocPolicy {
 
   // Returns this policy with a fixed partition and token ID.
   // Note, this results in a slower allocation path for non-zero partitions.
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                           SizeReturningPolicy, NumaPolicy,
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
                            SecurityPartitionPolicy>
   InPartitionWithToken(size_t partition, TokenId token_id) const {
     const size_t numa_partition = partition % kNumaPartitions;
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          SizeReturningPolicy, NumaPolicy,
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                          HooksPolicy, SizeReturningPolicy, NumaPolicy,
                           SecurityPartitionPolicy>(
         align_, numa_,
         SecurityPartitionPolicy{(partition - numa_partition) / kNumaPartitions,
@@ -524,12 +551,12 @@ class TCMallocPolicy {
   // Returns this policy with a partition choice based on the token ID.
   // Namely, tokens != kAllocToken0 will use partition 1.
   template <TokenId kTokenId>
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                           SizeReturningPolicy, NumaPolicy,
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
                            ConstSecurityPartitionPolicy<kTokenId>>
   WithSecurityToken() const {
-    return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          SizeReturningPolicy, NumaPolicy,
+    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                          HooksPolicy, SizeReturningPolicy, NumaPolicy,
                           ConstSecurityPartitionPolicy<kTokenId>>(
         align_, numa_, ConstSecurityPartitionPolicy<kTokenId>());
   }
@@ -548,6 +575,8 @@ class TCMallocPolicy {
 };
 
 using CppPolicy = TCMallocPolicy<CppOomPolicy, DefaultAlignPolicy>;
+using CppArrayPolicy =
+    TCMallocPolicy<CppOomPolicy, DefaultAlignPolicy, IsArrayPolicy>;
 using MallocPolicy = TCMallocPolicy<MallocOomPolicy, MallocAlignPolicy>;
 
 }  // namespace tcmalloc_internal

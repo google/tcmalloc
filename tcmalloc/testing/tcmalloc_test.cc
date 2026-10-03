@@ -1059,16 +1059,6 @@ TEST(TCMallocTest, TestAliasedFunctions) {
   if (kSanitizerPresent) {
     GTEST_SKIP() << "Skipping under sanitizers";
   }
-  void* (*operator_new)(size_t) = &::operator new;
-  void* (*operator_new_nothrow)(size_t, const std::nothrow_t&) =
-      &::operator new;
-  void* (*operator_new_array)(size_t) = &::operator new[];
-  void* (*operator_new_array_nothrow)(size_t, const std::nothrow_t&) =
-      &::operator new[];
-
-  ExpectSameAddresses(operator_new, operator_new_array);
-  ExpectSameAddresses(operator_new_nothrow, operator_new_array_nothrow);
-
   void (*operator_delete)(void*) = &::operator delete;
   void (*operator_delete_nothrow)(void*, const std::nothrow_t&) =
       &::operator delete;

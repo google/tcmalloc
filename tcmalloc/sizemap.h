@@ -244,7 +244,8 @@ class SizeMap {
     // is added to the cold heap. See the comment for kTotalClassArraySize
     // for more details.
     if (kHasColdClasses && policy.is_cold()) {
-      TC_ASSERT(policy.allocation_type() == AllocationType::New);
+      TC_ASSERT(policy.allocation_type() == AllocationType::New ||
+                policy.allocation_type() == AllocationType::NewArray);
       TC_ASSERT_LT(idx + (policy.security_partition() + kColdRegionsStart) *
                              kClassArraySize,
                    kTotalClassArraySize);
@@ -253,8 +254,10 @@ class SizeMap {
                                  kClassArraySize];
     } else {
       constexpr size_t kTypeOffset =
-          policy.allocation_type() != AllocationType::New ? kSecurityPartitions
-                                                          : 0;
+          policy.allocation_type() != AllocationType::New &&
+                  policy.allocation_type() != AllocationType::NewArray
+              ? kSecurityPartitions
+              : 0;
       TC_ASSERT_LT(
           idx + (policy.security_partition() + kTypeOffset) * kClassArraySize,
           kTotalClassArraySize);

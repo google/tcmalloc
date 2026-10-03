@@ -129,6 +129,7 @@ enum class AllocationType : uint8_t {
   New,
   Malloc,
   AlignedMalloc,
+  NewArray,
 };
 
 template <typename Sink>
@@ -142,6 +143,9 @@ GOOGLE_MALLOC_SECTION void AbslStringify(Sink& sink, const AllocationType& t) {
       break;
     case AllocationType::AlignedMalloc:
       sink.Append("aligned-malloc");
+      break;
+    case AllocationType::NewArray:
+      sink.Append("new[]");
       break;
   }
 }
