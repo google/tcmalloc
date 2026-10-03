@@ -42,13 +42,13 @@ class GwpAsanState {
     kMismatchedFree,
   };
 
-  Type type() const { return type_; }
+  [[nodiscard]] Type type() const { return type_; }
 
-  const void* ptr() const { return ptr_; }
+  [[nodiscard]] const void* ptr() const { return ptr_; }
 
-  bool triggered() const { return type_ != Type::kNone; }
+  [[nodiscard]] bool triggered() const { return type_ != Type::kNone; }
 
-  std::optional<absl::Span<void* const>> AllocationStack() const {
+  [[nodiscard]] std::optional<absl::Span<void* const>> AllocationStack() const {
     TC_ASSERT_NE(type_, Type::kNone);
 
     if (!allocation_stack_depth_.has_value()) {
@@ -58,7 +58,8 @@ class GwpAsanState {
     return absl::MakeSpan(allocation_stack_, *allocation_stack_depth_);
   }
 
-  std::optional<absl::Span<void* const>> DeallocationStack() const {
+  [[nodiscard]] std::optional<absl::Span<void* const>> DeallocationStack()
+      const {
     TC_ASSERT_NE(type_, Type::kNone);
     if (!deallocation_stack_depth_.has_value()) {
       return std::nullopt;
@@ -67,41 +68,41 @@ class GwpAsanState {
     return absl::MakeSpan(deallocation_stack_, *deallocation_stack_depth_);
   }
 
-  size_t provided_min() const {
+  [[nodiscard]] size_t provided_min() const {
     TC_ASSERT_EQ(type_, Type::kMismatchedDelete);
     return provided_min_;
   }
-  size_t provided_max() const {
+  [[nodiscard]] size_t provided_max() const {
     TC_ASSERT_EQ(type_, Type::kMismatchedDelete);
     return provided_max_;
   }
 
-  size_t minimum_size() const {
+  [[nodiscard]] size_t minimum_size() const {
     TC_ASSERT_EQ(type_, Type::kMismatchedDelete);
     return minimum_;
   }
 
-  size_t maximum_size() const {
+  [[nodiscard]] size_t maximum_size() const {
     TC_ASSERT_EQ(type_, Type::kMismatchedDelete);
     return maximum_;
   }
 
-  std::optional<std::align_val_t> actual_alignment() const {
+  [[nodiscard]] std::optional<std::align_val_t> actual_alignment() const {
     TC_ASSERT_EQ(type_, Type::kInvalidFree);
     return actual_alignment_;
   }
 
-  std::optional<std::align_val_t> expected_alignment() const {
+  [[nodiscard]] std::optional<std::align_val_t> expected_alignment() const {
     TC_ASSERT_EQ(type_, Type::kInvalidFree);
     return expected_alignment_;
   }
 
-  AllocationType alloc_type() const {
+  [[nodiscard]] AllocationType alloc_type() const {
     TC_ASSERT_EQ(type_, Type::kMismatchedFree);
     return *alloc_type_;
   }
 
-  AllocationType dealloc_type() const {
+  [[nodiscard]] AllocationType dealloc_type() const {
     TC_ASSERT_EQ(type_, Type::kMismatchedFree);
     return *dealloc_type_;
   }

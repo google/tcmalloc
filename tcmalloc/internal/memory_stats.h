@@ -42,17 +42,17 @@ struct MemoryStats {
 };
 
 // Memory stats of a process
-bool GetMemoryStats(MemoryStats& stats);
+[[nodiscard]] bool GetMemoryStats(MemoryStats& stats);
 
 [[nodiscard]] std::optional<double> GetHugepageFragmentationRatio(size_t node);
 
 ABSL_DEPRECATE_AND_INLINE()
-inline bool GetMemoryStats(MemoryStats* stats) {
+[[nodiscard]] inline bool GetMemoryStats(MemoryStats* stats) {
   return GetMemoryStats(*stats);
 }
 
 // For testing
-bool GetMemoryStatsFromStatus(
+[[nodiscard]] bool GetMemoryStatsFromStatus(
     MemoryStats& stats,
     absl::FunctionRef<ssize_t(char* buf, size_t count)> read);
 

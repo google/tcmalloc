@@ -38,7 +38,7 @@ extern "C" ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_DestroyThreadCache(
 // TODO(b/478927694): Include actual per-core state.
 class PerCpuState {
  public:
-  static constexpr PerCpuState& state() { return g; }
+  [[nodiscard]] static constexpr PerCpuState& state() { return g; }
 
   void Init();
 

@@ -48,7 +48,7 @@ namespace tcmalloc_internal {
 // signal_safe_open() - a wrapper for open(2) which ignores signals
 // Semantics equivalent to open(2):
 //   returns a file-descriptor (>=0) on success, -1 on failure, error in errno
-int signal_safe_open(const char* path, int flags, ...);
+[[nodiscard]] int signal_safe_open(const char* path, int flags, ...);
 
 // signal_safe_close() - a wrapper for close(2) which ignores signals
 // Semantics equivalent to close(2):
@@ -82,7 +82,8 @@ ssize_t signal_safe_write(int fd, const char* buf, size_t count,
 // read by a previous read.  To handle this case the optional bytes_written
 // parameter is provided, when not-NULL, it will always return the total bytes
 // read before any error.
-ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read);
+[[nodiscard]] ssize_t signal_safe_read(int fd, char* buf, size_t count,
+                                       size_t* bytes_read);
 
 // signal_safe_poll() - a wrapper for poll(2) which ignores signals
 // Semantics equivalent to poll(2):
@@ -92,20 +93,22 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read);
 // poll for data.  Unlike ppoll/pselect, signal_safe_poll is *ignoring* signals
 // not attempting to re-enable them.  Protecting us from the traditional races
 // involved with the latter.
-int signal_safe_poll(struct ::pollfd* fds, int nfds, absl::Duration timeout);
+[[nodiscard]] int signal_safe_poll(struct ::pollfd* fds, int nfds,
+                                   absl::Duration timeout);
 
 // Copies memory from multiple source memory chunks (`src_chunks`) to `dst`
 // safely using process_vm_readv. If any source chunk points to unmapped or
 // concurrently freed/mprotected memory, this function returns false without
 // triggering a SIGSEGV crash. Returns true if all chunks were successfully
 // copied.
-bool SafeCopyMemory(absl::Span<const absl::string_view> src_chunks, void* dst);
+[[nodiscard]] bool SafeCopyMemory(
+    absl::Span<const absl::string_view> src_chunks, void* dst);
 
 // Copies `size` bytes from `src` to `dst` safely using process_vm_readv.
 // If `src` points to unmapped or concurrently freed/mprotected memory, this
 // function returns false without triggering a SIGSEGV crash. Returns true if
 // exactly `size` bytes were successfully copied.
-bool SafeCopyMemory(const void* src, void* dst, size_t size);
+[[nodiscard]] bool SafeCopyMemory(const void* src, void* dst, size_t size);
 
 class ScopedSigmask {
  public:

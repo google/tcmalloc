@@ -30,7 +30,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* SLL_Next(void* t) {
+[[nodiscard]] inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* SLL_Next(void* t) {
   return *(reinterpret_cast<void**>(t));
 }
 
@@ -43,7 +43,7 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE SLL_Push(void** list, void* element) {
   *list = element;
 }
 
-inline void* SLL_Pop(void** list) {
+[[nodiscard]] inline void* SLL_Pop(void** list) {
   void* result = *list;
   void* next = SLL_Next(*list);
   *list = next;
@@ -73,17 +73,17 @@ class LinkedList {
   LinkedList& operator=(LinkedList&&) = delete;
 
   // Return current length of list
-  size_t length() const { return length_; }
+  [[nodiscard]] size_t length() const { return length_; }
 
   // Is list empty?
-  bool empty() const { return list_ == nullptr; }
+  [[nodiscard]] bool empty() const { return list_ == nullptr; }
 
   void ABSL_ATTRIBUTE_ALWAYS_INLINE Push(void* ptr) {
     SLL_Push(&list_, ptr);
     length_++;
   }
 
-  bool ABSL_ATTRIBUTE_ALWAYS_INLINE TryPop(void** ret) {
+  [[nodiscard]] bool ABSL_ATTRIBUTE_ALWAYS_INLINE TryPop(void** ret) {
     void* obj = list_;
     if (ABSL_PREDICT_FALSE(obj == nullptr)) {
       return false;
@@ -210,10 +210,10 @@ class TList {
   TList& operator=(const TList&) = delete;
   TList& operator=(TList&&) = delete;
 
-  bool empty() const { return head_.next_ == &head_; }
+  [[nodiscard]] bool empty() const { return head_.next_ == &head_; }
 
   // Return the length of the linked list. O(n).
-  size_t length() const {
+  [[nodiscard]] size_t length() const {
     size_t result = 0;
     for (Elem* e = head_.next_; e != &head_; e = e->next_) {
       result++;
@@ -222,14 +222,14 @@ class TList {
   }
 
   // Returns first element in the list. The list must not be empty.
-  ABSL_ATTRIBUTE_RETURNS_NONNULL T* first() const {
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* first() const {
     TC_ASSERT(!empty());
     TC_ASSERT_NE(head_.next_, nullptr);
     return static_cast<T*>(head_.next_);
   }
 
   // Returns last element in the list. The list must not be empty.
-  ABSL_ATTRIBUTE_RETURNS_NONNULL T* last() const {
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* last() const {
     TC_ASSERT(!empty());
     TC_ASSERT_NE(head_.prev_, nullptr);
     return static_cast<T*>(head_.prev_);
@@ -253,15 +253,15 @@ class TList {
   }
 
   // Support for range-based iteration over a list.
-  Iter begin() const { return Iter(head_.next_); }
-  Iter end() const { return Iter(const_cast<Elem*>(&head_)); }
+  [[nodiscard]] Iter begin() const { return Iter(head_.next_); }
+  [[nodiscard]] Iter end() const { return Iter(const_cast<Elem*>(&head_)); }
 
-  RIter rbegin() const { return RIter(head_.prev_); }
-  RIter rend() const { return RIter(const_cast<Elem*>(&head_)); }
+  [[nodiscard]] RIter rbegin() const { return RIter(head_.prev_); }
+  [[nodiscard]] RIter rend() const { return RIter(const_cast<Elem*>(&head_)); }
 
   // Iterator pointing to a given list item.
   // REQUIRES: item is a member of the list.
-  Iter at(T* item) const { return Iter(item); }
+  [[nodiscard]] Iter at(T* item) const { return Iter(item); }
 
  private:
   // Support for range-based iteration over a list.
