@@ -106,11 +106,13 @@ class CpuCachePeer {
     for (uint8_t shift = bounds.initial_shift;
          shift <= bounds.max_shift && shift > kInitialBasePerCpuShift;
          ++shift) {
-      const auto [bytes_required, bytes_available] =
-          EstimateSlabBytes(cpu_cache.GetMaxCapacityFunctor(shift));
-      EXPECT_GT(bytes_required * 20, bytes_available * 17)
-          << bytes_required << " " << bytes_available << " " << kNumaPartitions
-          << " " << kNumBaseClasses << " " << kNumClasses;
+      std::atomic<uint16_t> max_capacity[kNumClasses] = {0};
+
+      cpu_cache.CalculateMaxCapacityForAllClasses(shift, max_capacity);
+      const size_t bytes_available = 1 << shift;
+      const size_t bytes_required = EstimateSlabBytes(
+          {max_capacity}, CpuCache::Freelist::GetTotalClassHeaderSize());
+      EXPECT_GT(bytes_required * 20, bytes_available * 17);
       EXPECT_LE(bytes_required, bytes_available);
     }
   }
@@ -859,8 +861,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
   for (auto large_class : {static_cast<size_t>(2), kColdClassesStart + 1}) {
     const int kLargeClass = large_class;
     constexpr int kGrowthFactor = 5;
-    const int base_max_capacity =
-        cache.GetMaxCapacity(kLargeClass, CpuCachePeer::GetSlabShift(cache));
+    const int base_max_capacity = cache.GetMaxCapacity(kLargeClass);
 
     const size_t large_class_size =
         cache.forwarder().class_to_size(kLargeClass);
@@ -876,7 +877,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       // it can grow.
       ops += batch_size_large;
       AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
+      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) >=
           base_max_capacity) {
         break;
       }
@@ -900,8 +901,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       cache.ResizeSizeClassMaxCapacities();
     }
 
-    const int resized_max_capacity =
-        cache.GetMaxCapacity(kLargeClass, CpuCachePeer::GetSlabShift(cache));
+    const int resized_max_capacity = cache.GetMaxCapacity(kLargeClass);
     EXPECT_EQ(resized_max_capacity,
               base_max_capacity + kGrowthFactor * batch_size_large);
 
@@ -917,7 +917,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       // it can grow.
       ops += batch_size_large;
       AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
+      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) >=
           base_max_capacity) {
         break;
       }
@@ -964,8 +964,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
   size_t old_max_capacity = 0;
   size_t new_max_capacity = 0;
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    old_max_capacity +=
-        cache.GetMaxCapacity(size_class, CpuCachePeer::GetSlabShift(cache));
+    old_max_capacity += cache.GetMaxCapacity(size_class);
   }
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -992,8 +991,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
     capacity += cache.Capacity(cpu);
   }
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    new_max_capacity +=
-        cache.GetMaxCapacity(size_class, CpuCachePeer::GetSlabShift(cache));
+    new_max_capacity += cache.GetMaxCapacity(size_class);
   }
   EXPECT_EQ(new_max_capacity, old_max_capacity);
 

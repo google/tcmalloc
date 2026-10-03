@@ -238,7 +238,7 @@ TEST_F(TcmallocSlabTest, Unit) {
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
-      const auto max_capacity = [](uint8_t shift) { return kCapacity; };
+      const auto max_capacity = []() { return kCapacity; };
       ASSERT_EQ(slab_.Grow(cpu, size_class, 1, max_capacity), 0);
       {
         auto [got_cpu, cached] = slab_.CacheCpuSlab();
@@ -465,11 +465,11 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
 
   // Make sure that the slab may grow the available maximum capacity.
   EXPECT_EQ(slab_.Grow(kCpu, kSizeClassToGrow, max_capacity[kSizeClassToGrow],
-                       [&](uint8_t) { return max_capacity[kSizeClassToGrow]; }),
+                       [&]() { return max_capacity[kSizeClassToGrow]; }),
             max_capacity[kSizeClassToGrow]);
   EXPECT_EQ(
       slab_.Grow(kCpu, kSizeClassToShrink, max_capacity[kSizeClassToShrink],
-                 [&](uint8_t) { return max_capacity[kSizeClassToShrink]; }),
+                 [&]() { return max_capacity[kSizeClassToShrink]; }),
       max_capacity[kSizeClassToShrink]);
 
   for (int i = 0; i < kCapacity; ++i) {
@@ -516,13 +516,12 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
     EXPECT_EQ(slab_.Capacity(kCpu, kSizeClassToShrink), 0);
 
     // Make sure that the slab may grow the available maximum capacity.
-    EXPECT_EQ(
-        slab_.Grow(kCpu, kSizeClassToGrow, max_capacity[kSizeClassToGrow],
-                   [&](uint8_t) { return max_capacity[kSizeClassToGrow]; }),
-        max_capacity[kSizeClassToGrow]);
+    EXPECT_EQ(slab_.Grow(kCpu, kSizeClassToGrow, max_capacity[kSizeClassToGrow],
+                         [&]() { return max_capacity[kSizeClassToGrow]; }),
+              max_capacity[kSizeClassToGrow]);
     EXPECT_EQ(
         slab_.Grow(kCpu, kSizeClassToShrink, max_capacity[kSizeClassToShrink],
-                   [&](uint8_t) { return max_capacity[kSizeClassToShrink]; }),
+                   [&]() { return max_capacity[kSizeClassToShrink]; }),
         max_capacity[kSizeClassToShrink]);
   }
 
@@ -576,7 +575,8 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
     void* slabs = AllocSlabs(alloc, shift);
     (void)slab_.ResizeSlabs(
         subtle::percpu::ToShiftType(shift), slabs,
-        [](size_t) { return kCapacity / 2; }, [](int cpu) { return cpu == 0; },
+        [](size_t) { return kCapacity / 2; }, [] { /* Nothing to commit. */ },
+        [](int cpu) { return cpu == 0; },
         [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
           EXPECT_EQ(size, 0);
           EXPECT_EQ(cap, 0);
@@ -720,7 +720,7 @@ void StressThread(size_t thread_id,
           }
           // Grow runs unlocked, as CpuCache::Grow does: it must be safe
           // against a concurrent resize, which holds every mutex.
-          res = ctx.slab->Grow(cpu, size_class, n, [&](uint8_t shift) {
+          res = ctx.slab->Grow(cpu, size_class, n, [&]() {
             return ctx.GetMaxCapacityFunctor()(size_class);
           });
           EXPECT_LE(res, n);
@@ -796,7 +796,7 @@ void StressThread(size_t thread_id,
         ctx.slab->StopCpu(cpu);
         size_t grown = ctx.slab->GrowOtherCache(
             cpu, size_class, to_grow,
-            [&](uint8_t) { return ctx.GetMaxCapacityFunctor()(size_class); });
+            [&]() { return ctx.GetMaxCapacityFunctor()(size_class); });
         ctx.slab->StartCpu(cpu);
         EXPECT_LE(grown, to_grow);
         EXPECT_GE(grown, 0);
@@ -1001,6 +1001,11 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
   const size_t num_cpus = NumCPUs();
   size_t shift = kResizeInitialShift;
   size_t old_slabs_idx = 0;
+  std::atomic<size_t> new_max_capacity[kStressSlabs];
+  for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {
+    new_max_capacity[size_class].store(kStressCapacity,
+                                       std::memory_order_relaxed);
+  }
   for (int i = 0; i < 10; ++i) {
     if (shift == kResizeInitialShift) {
       ++shift;
@@ -1017,7 +1022,13 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].lock();
     void* slabs = AllocSlabs(allocator, shift);
     const auto [old_slabs, old_slabs_size] = ctx.slab->ResizeSlabs(
-        ToShiftType(shift), slabs, ctx.GetMaxCapacityFunctor(),
+        ToShiftType(shift), slabs, GetMaxCapacity{new_max_capacity},
+        [&] {
+          for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {
+            ctx.max_capacity[size_class].store(
+                new_max_capacity[size_class].load());
+          }
+        },
         [&](size_t cpu) {
           return ctx.has_init[cpu].load(std::memory_order_relaxed);
         },
@@ -1348,9 +1359,9 @@ void BM_PushPop(benchmark::State& state) {
   auto [cpu, _] = slab.CacheCpuSlab();
   TC_CHECK_EQ(cpu, kCpu);
 
-  TC_CHECK_EQ(slab.Grow(kCpu, kSizeClass, kBatchSize,
-                        [](uint8_t shift) { return kBatchSize; }),
-              kBatchSize);
+  TC_CHECK_EQ(
+      slab.Grow(kCpu, kSizeClass, kBatchSize, []() { return kBatchSize; }),
+      kBatchSize);
   void* batch[kBatchSize];
   for (int i = 0; i < kBatchSize; i++) {
     batch[i] = &batch[i];
@@ -1386,9 +1397,9 @@ void BM_PushPopBatch(benchmark::State& state) {
   }
   auto [cpu, _] = slab.CacheCpuSlab();
   TC_CHECK_EQ(cpu, kCpu);
-  TC_CHECK_EQ(slab.Grow(kCpu, kSizeClass, kBatchSize,
-                        [](uint8_t shift) { return kBatchSize; }),
-              kBatchSize);
+  TC_CHECK_EQ(
+      slab.Grow(kCpu, kSizeClass, kBatchSize, []() { return kBatchSize; }),
+      kBatchSize);
   void* batch[kBatchSize];
   for (int i = 0; i < kBatchSize; i++) {
     batch[i] = &batch[i];
