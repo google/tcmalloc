@@ -186,7 +186,9 @@ class CentralFreeList {
       ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in cache.
-  size_t length() const { return static_cast<size_t>(counter_.value()); }
+  size_t length() const {
+    return static_cast<size_t>(std::max<int64_t>(0, counter_.value()));
+  }
 
   // Returns the memory overhead (internal fragmentation) attributable
   // to the freelist.  This is memory lost when the size of elements
@@ -669,8 +671,8 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
         .LossyAdd(1);
 #endif
 
-    RecordMultiSpansDeallocated(free_count);
     UpdateObjectCounts(batch.size());
+    RecordMultiSpansDeallocated(free_count);
   }
 
   // Then, release all free spans into page heap under its mutex.
