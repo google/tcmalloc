@@ -157,6 +157,7 @@ tcmalloc_cc_library(
   SRCS
     "page_allocation_status.cc"
   DEPS
+    "tcmalloc::internal_config"
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::internal_range_tracker"
 )
