@@ -1287,6 +1287,8 @@ tcmalloc_cc_test(
     tcmalloc_internal_range_tracker_fuzz_test
   SRCS
     "range_tracker_fuzz.cc"
+  COPTS
+    $<$<CXX_COMPILER_ID:Clang>:-fbracket-depth=512>
   DEPS
     "GTest::gtest"
     "GTest::gmock"
