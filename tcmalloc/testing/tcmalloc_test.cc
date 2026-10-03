@@ -949,6 +949,25 @@ TEST(TCMallocTest, sdallocx_alignment) {
   }
 }
 
+// nullptr carries no memory tag, so it must be rejected by the tag compares on
+// the sized deallocation fast path and treated as a no-op by every entry point.
+TEST(TCMallocTest, SizedDeallocationOfNullptrIsNoop) {
+  for (size_t size :
+       {size_t{0}, size_t{1}, size_t{8}, size_t{1024},
+        size_t{tcmalloc_internal::kMaxSize + 1}, size_t{1} << 30}) {
+    void* ptr = nullptr;
+    benchmark::DoNotOptimize(ptr);
+    sized_delete(ptr, size);
+    sized_array_delete(ptr, size);
+    sized_aligned_delete(ptr, size, std::align_val_t{64});
+    sized_array_aligned_delete(ptr, size, std::align_val_t{64});
+    free_sized(ptr, size);
+    free_aligned_sized(ptr, 64, size);
+    sdallocx(ptr, size, 0);
+    sdallocx(ptr, size, MALLOCX_LG_ALIGN(6));
+  }
+}
+
 TEST(TCMallocTest, alloc_at_least) {
   for (size_t size = 0; size <= 4096; size += 31) {
     auto result = alloc_at_least(size);
