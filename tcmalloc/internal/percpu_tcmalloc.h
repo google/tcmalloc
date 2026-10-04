@@ -1456,14 +1456,9 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
   // we add + 1 as a buffer.
   constexpr int kMaxHugePagesTouched = kMaxCpus + 1;
   std::array<HugePageStatus, kMaxHugePagesTouched> hugepage_status;
-  std::fill(hugepage_status.begin(), hugepage_status.end(), kNotTouched);
 
   // We can't allocate while holding the per-cpu spinlocks.
   AllocationGuard enforce_no_alloc;
-
-  // Stop all CPUs. They must also be locked, since we are touching the
-  // populated bit later.
-  StopAllCpus();
 
   // See which ones are actually drained, and which hugepages we can free.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -1481,67 +1476,86 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
     return reinterpret_cast<uintptr_t>(addr) >> kHugePageShift;
   };
   const size_t base_hugepage_nr = address_to_hugepage_number(slabs);
-
   void* slabs_start = CpuMemoryStart(slabs, shift, 0);
-  if (!IsAlignedTo(slabs_start, kHugePageSize)) {
-    // If our slab doesn't doesn't start hugepage-aligned,
-    // we cannot free the first hugepage.
-    hugepage_status[0] = kCannotFree;
-  }
-
-  // We cannot free the last page page either, if the slabs doesn't
-  // end perfectly on a hugepage boundary. (At the very least,
-  // we'd risk tearing a hugepage.)
   void* slabs_end = CpuMemoryStart(slabs, shift, n_cpus);
-  hugepage_status[address_to_hugepage_number(slabs_end) - base_hugepage_nr] =
-      kCannotFree;
 
-  // Go through all the CPUs and figure out which hugepage its slab
-  // lives in. (Because we've already tested that slabs are slab-aligned
-  // and not larger than a hugepage, and they are also powers of two,
-  // it can never cross hugepages.)
-  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
-    if (!populated(cpu)) {
-      continue;
+  auto compute_hugepage_status = [&]() {
+    std::fill(hugepage_status.begin(), hugepage_status.end(), kNotTouched);
+    if (!IsAlignedTo(slabs_start, kHugePageSize)) {
+      // If our slab doesn't start hugepage-aligned,
+      // we cannot free the first hugepage.
+      hugepage_status[0] = kCannotFree;
     }
 
-    size_t slab_hugepage =
-        address_to_hugepage_number(CpuMemoryStart(slabs, shift, cpu));
-    TC_CHECK_GE(slab_hugepage, base_hugepage_nr);
-    HugePageStatus& status = hugepage_status[slab_hugepage - base_hugepage_nr];
+    // We cannot free the last page either, if the slabs doesn't
+    // end perfectly on a hugepage boundary. (At the very least,
+    // we'd risk tearing a hugepage.)
+    hugepage_status[address_to_hugepage_number(slabs_end) - base_hugepage_nr] =
+        kCannotFree;
 
-    if (status == kCannotFree) {
-      // No need to check, don't do anything.
-    } else if (CpuIsDrained(slabs, shift, cpu)) {
-      status = kShouldFree;
-    } else {
-      status = kCannotFree;
+    // Go through all the CPUs and figure out which hugepage its slab
+    // lives in. (Because we've already tested that slabs are slab-aligned
+    // and not larger than a hugepage, and they are also powers of two,
+    // it can never cross hugepages.)
+    for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
+      if (!populated(cpu)) {
+        continue;
+      }
+
+      size_t slab_hugepage =
+          address_to_hugepage_number(CpuMemoryStart(slabs, shift, cpu));
+      TC_CHECK_GE(slab_hugepage, base_hugepage_nr);
+      HugePageStatus& status =
+          hugepage_status[slab_hugepage - base_hugepage_nr];
+
+      if (status == kCannotFree) {
+        // No need to check, don't do anything.
+      } else if (CpuIsDrained(slabs, shift, cpu)) {
+        status = kShouldFree;
+      } else {
+        status = kCannotFree;
+      }
     }
+    return std::any_of(
+        hugepage_status.begin(), hugepage_status.end(),
+        [](HugePageStatus status) { return status == kShouldFree; });
+  };
+
+  if (!compute_hugepage_status()) {
+    return;
   }
 
-  for (size_t hugepage_idx = 0; hugepage_idx < hugepage_status.size();
-       ++hugepage_idx) {
-    if (hugepage_status[hugepage_idx] != kShouldFree) {
-      continue;
-    }
+  // Stop all CPUs and re-check in case any drained CPU grew capacity before
+  // being stopped. They must also be locked, since we are touching the
+  // populated bit later.
+  StopAllCpus();
+  if (compute_hugepage_status()) {
+    for (size_t hugepage_idx = 0; hugepage_idx < hugepage_status.size();
+         ++hugepage_idx) {
+      if (hugepage_status[hugepage_idx] != kShouldFree) {
+        continue;
+      }
 
-    void* hugepage_start = reinterpret_cast<void*>(
-        (base_hugepage_nr + hugepage_idx) * kHugePageSize);
+      void* hugepage_start = reinterpret_cast<void*>(
+          (base_hugepage_nr + hugepage_idx) * kHugePageSize);
 
-    // Coalesce neighboring madvises.
-    size_t bytes_to_free = kHugePageSize;
-    while (hugepage_idx + 1 < hugepage_status.size() &&
-           hugepage_status[hugepage_idx + 1] == kShouldFree) {
-      bytes_to_free += kHugePageSize;
-      ++hugepage_idx;
-    }
+      // Coalesce neighboring madvises.
+      size_t bytes_to_free = kHugePageSize;
+      while (hugepage_idx + 1 < hugepage_status.size() &&
+             hugepage_status[hugepage_idx + 1] == kShouldFree) {
+        bytes_to_free += kHugePageSize;
+        ++hugepage_idx;
+      }
 
-    madvise_away_slabs(hugepage_start, bytes_to_free);
-    size_t first_cpu = (reinterpret_cast<uintptr_t>(hugepage_start) -
-                        reinterpret_cast<uintptr_t>(slabs)) /
-                       slab_size_bytes;
-    for (unsigned i = 0; i < bytes_to_free / slab_size_bytes; ++i) {
-      unpopulate(first_cpu + i);
+      madvise_away_slabs(hugepage_start, bytes_to_free);
+      size_t first_cpu = (reinterpret_cast<uintptr_t>(hugepage_start) -
+                          reinterpret_cast<uintptr_t>(slabs)) /
+                         slab_size_bytes;
+      for (unsigned i = 0; i < bytes_to_free / slab_size_bytes; ++i) {
+        if (populated(first_cpu + i)) {
+          unpopulate(first_cpu + i);
+        }
+      }
     }
   }
 

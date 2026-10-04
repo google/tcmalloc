@@ -1423,8 +1423,14 @@ inline void CpuCache<Forwarder>::TryDrainingCaches()
 
     // Drain the cache if the number of used bytes and total number of misses
     // stayed constant since the last interval.
-    if (used_bytes != 0 && used_bytes == prev_used_bytes && misses == 0) {
-      Drain(cpu);
+    if (used_bytes == prev_used_bytes && misses == 0) {
+      if (used_bytes != 0 || Allocated(cpu) != 0) {
+        Drain(cpu);
+        // Snapshot the post-drain state so that, if the CPU stays idle, the
+        // next interval sees 0 == prev_used_bytes and keeps it a release
+        // candidate.
+        used_bytes = 0;
+      }
       any_drained = true;
     }
 
