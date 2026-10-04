@@ -98,6 +98,7 @@
   .type  label##_trampoline, @function;                           \
 label##_trampoline:                                               \
   CFI(.cfi_startproc);                                            \
+  CFI(.cfi_def_cfa_offset 8);                                     \
   jmp .L##label##_abort;                                          \
   CFI(.cfi_endproc);                                              \
   .size label##_trampoline, . - label##_trampoline;
@@ -177,11 +178,17 @@ tcmalloc_internal_tls_fetch_pic:
   CFI(.cfi_def_cfa_register 6)
   sub $0x30, %rsp
   mov %rsi, -0x08(%rbp)  /* atypical abi: tcmalloc_tls_fetch_pic preserves regs */
+  CFI(.cfi_offset 4, -24)
   mov %rdi, -0x10(%rbp)
+  CFI(.cfi_offset 5, -32)
   mov %rdx, -0x18(%rbp)
+  CFI(.cfi_offset 1, -40)
   mov %rcx, -0x20(%rbp)
+  CFI(.cfi_offset 2, -48)
   mov %r8,  -0x28(%rbp)
+  CFI(.cfi_offset 8, -56)
   mov %r9,  -0x30(%rbp)
+  CFI(.cfi_offset 9, -64)
   /*
    * Below is an optimized relocatable TLS lookup per ELF spec:
    *   http://www.akkadia.org/drepper/tls.pdf
@@ -193,15 +200,22 @@ tcmalloc_internal_tls_fetch_pic:
   rex64;
   call __tls_get_addr@PLT;
   mov -0x08(%rbp), %rsi
+  CFI(.cfi_restore 4)
   mov -0x10(%rbp), %rdi
+  CFI(.cfi_restore 5)
   mov -0x18(%rbp), %rdx
+  CFI(.cfi_restore 1)
   mov -0x20(%rbp), %rcx
+  CFI(.cfi_restore 2)
   mov -0x28(%rbp), %r8
+  CFI(.cfi_restore 8)
   mov -0x30(%rbp), %r9
+  CFI(.cfi_restore 9)
   add $0x30, %rsp
   leave
   CFI(.cfi_def_cfa_register 7)
   CFI(.cfi_def_cfa_offset 8)
+  CFI(.cfi_restore 6)
   ret; /* &__rseq_abi in %rax */
   CFI(.cfi_endproc)
 ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
