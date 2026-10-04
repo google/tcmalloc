@@ -14,6 +14,10 @@
 
 #include "tcmalloc/internal/percpu.h"
 
+#if defined(__linux__) && defined(__GLIBC__)
+#include <execinfo.h>
+#endif
+
 #include <sys/time.h>
 
 #include <atomic>
@@ -43,6 +47,11 @@ ABSL_CONST_INIT std::atomic<int> alarms{0};
 void sa_alrm(int sig) {
   alarms.fetch_add(1, std::memory_order_relaxed);
   TC_CHECK(IsFast());
+#if defined(__linux__) && defined(__GLIBC__)
+  void* stack[32];
+  int depth = backtrace(stack, 32);
+  TC_CHECK_GT(depth, 0);
+#endif
 }
 
 TEST(PerCpu, SignalHandling) {
@@ -68,6 +77,8 @@ TEST(PerCpu, SignalHandling) {
   for (int i = 0; i < 15000; ++i) {
     UnregisterRseq();
     TC_CHECK(IsFast());
+    (void)GetRealCpu();
+    (void)VirtualCpu::get();
   }
 
   timeval = absl::ToTimeval(absl::ZeroDuration());
