@@ -22,7 +22,13 @@ load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
-load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
+load(
+    "//tcmalloc:variants.bzl",
+    "create_tcmalloc_benchmark",
+    "create_tcmalloc_benchmark_suite",
+    "create_tcmalloc_libraries",
+    "create_tcmalloc_testsuite",
+)
 
 package(default_visibility = ["//visibility:private"])
 
@@ -1637,13 +1643,11 @@ create_tcmalloc_testsuite(
     ],
 )
 
-create_tcmalloc_benchmark(
+create_tcmalloc_benchmark_suite(
     name = "central_freelist_benchmark",
     srcs = ["central_freelist_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = [
-        ":common_8k_pages",
         "//tcmalloc/internal:bytes",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
