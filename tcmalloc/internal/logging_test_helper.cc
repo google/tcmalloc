@@ -20,14 +20,15 @@
 
 #include "tcmalloc/internal/memory_stats.h"
 
-// This runs after the process image has been loaded, so the new rlimit will
-// apply only to any subsequent mmap() calls done through tcmalloc. Leave some
-// headroom so RandomMmapHint's single-page seed mmap() succeeds while failing
-// SystemAllocator's region reservations.
-#if !defined(__clang__) && defined(__GNUC__)
-#pragma GCC diagnostic ignored "-Wprio-ctor-dtor"
-#endif
-__attribute__((constructor(99))) void LowerRlimitAs() {
+// This runs from .preinit_array: after the process image has been loaded, so
+// the new rlimit will apply only to any subsequent mmap() calls done through
+// tcmalloc, but before any constructor regardless of its priority. In
+// particular, it precedes the priority-0 constructors emitted by coverage
+// instrumentation, which call malloc() and would otherwise initialize tcmalloc
+// before the limit is in place. Leave some headroom so RandomMmapHint's
+// single-page seed mmap() succeeds while failing SystemAllocator's region
+// reservations.
+void LowerRlimitAs() {
   tcmalloc::tcmalloc_internal::MemoryStats stats;
   if (tcmalloc::tcmalloc_internal::GetMemoryStats(stats)) {
     const rlim_t limit = stats.vss + (2 << 20) - 1;
@@ -35,6 +36,9 @@ __attribute__((constructor(99))) void LowerRlimitAs() {
     setrlimit(RLIMIT_AS, &rlim);
   }
 }
+
+__attribute__((section(".preinit_array"),
+               used)) void (*lower_rlimit_as_preinit)() = LowerRlimitAs;
 #endif  // __linux__
 
 int main() { return 0; }
