@@ -109,11 +109,11 @@
   .quad __rseq_cs_##label;                                        \
   .popsection;                                                    \
   .pushsection rseq_trampoline, "ax";                             \
-  SIGN_ABORT();                                                   \
   .globl label##_trampoline;                                      \
   .type  label##_trampoline, @function;                           \
-label##_trampoline:                                               \
   CFI(.cfi_startproc);                                            \
+  SIGN_ABORT();                                                   \
+label##_trampoline:                                               \
   BTI_C;                                                          \
   b .L##label##_abort;                                            \
   CFI(.cfi_endproc);                                              \
