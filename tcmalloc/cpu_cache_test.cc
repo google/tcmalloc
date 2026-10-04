@@ -1256,7 +1256,8 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
   EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), 0);
 
-  const int num_resizes = NumCPUs() / CpuCache::kNumCpuCachesToResize;
+  const int num_resizes = (NumCPUs() + CpuCache::kNumCpuCachesToResize - 1) /
+                          CpuCache::kNumCpuCachesToResize;
   {
     ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
     for (int i = 0; i < num_resizes; ++i) {
