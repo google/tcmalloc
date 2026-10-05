@@ -46,12 +46,15 @@ inline constexpr int kSizeClass = 1;
 // Useful for benchmarks where you want to unrelated expensive operations.
 class FakeTransferCacheManager {
  public:
-  constexpr static size_t class_to_size(int size_class) { return kClassSize; }
-  constexpr static size_t num_objects_to_move(int size_class) {
+  [[nodiscard]] constexpr static size_t class_to_size(int size_class) {
+    return kClassSize;
+  }
+  [[nodiscard]] constexpr static size_t num_objects_to_move(int size_class) {
     // TODO(b/170732338): test with multiple different num_objects_to_move
     return kNumToMove;
   }
-  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+  [[nodiscard]] void* Alloc(size_t size,
+                            std::align_val_t alignment = kAlignment) {
     memory_.push_back(std::make_unique<AlignedPtr>(
         ::operator new(size, alignment), alignment));
     return memory_.back()->ptr;
@@ -74,16 +77,17 @@ class FakeTransferCacheManager {
 class ArenaBasedFakeTransferCacheManager {
  public:
   ArenaBasedFakeTransferCacheManager() = default;
-  constexpr static size_t class_to_size(int size_class) {
+  [[nodiscard]] constexpr static size_t class_to_size(int size_class) {
     // Chosen >= min size for the sharded transfer cache to kick in.
     if (size_class == kSizeClass) return 4096;
     return 0;
   }
-  constexpr static size_t num_objects_to_move(int size_class) {
+  [[nodiscard]] constexpr static size_t num_objects_to_move(int size_class) {
     if (size_class == kSizeClass) return kNumToMove;
     return 0;
   }
-  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+  [[nodiscard]] void* Alloc(size_t size,
+                            std::align_val_t alignment = kAlignment) {
     {
       // Bounce pageheap_lock to verify we can take it.
       //
@@ -93,7 +97,7 @@ class ArenaBasedFakeTransferCacheManager {
     used_ += size;
     return ::operator new(size, alignment);
   }
-  static size_t used() { return used_; }
+  [[nodiscard]] static size_t used() { return used_; }
 
   static void SetPartialLegacyTransferCache(bool value) {
     partial_legacy_transfer_cache_ = value;
@@ -110,9 +114,9 @@ class FakeShardedTransferCacheManager
     : public ArenaBasedFakeTransferCacheManager {
  public:
   static void Init() {}
-  static bool UseGenericCache() { return enable_generic_cache_; }
+  [[nodiscard]] static bool UseGenericCache() { return enable_generic_cache_; }
   static void SetGenericCache(bool value) { enable_generic_cache_ = value; }
-  static bool EnableCacheForLargeClassesOnly() {
+  [[nodiscard]] static bool EnableCacheForLargeClassesOnly() {
     return enable_cache_for_large_classes_only_;
   }
   static void SetCacheForLargeClassesOnly(bool value) {
@@ -190,7 +194,7 @@ class FakeTransferCacheEnvironment {
     } else if (choice < 0.2) {
       Grow();
     } else if (choice < 0.3) {
-      cache_.HasSpareCapacity(kSizeClass);
+      (void)cache_.HasSpareCapacity(kSizeClass);
     } else if (choice < 0.4) {
       Insert(absl::Uniform(gen, 1, kBatchSize));
     } else if (choice < 0.5) {
@@ -204,9 +208,9 @@ class FakeTransferCacheEnvironment {
     }
   }
 
-  TransferCache& transfer_cache() { return cache_; }
+  [[nodiscard]] TransferCache& transfer_cache() { return cache_; }
 
-  FreeList& central_freelist() { return cache_.freelist(); }
+  [[nodiscard]] FreeList& central_freelist() { return cache_.freelist(); }
 
  private:
   void Init() {};
@@ -229,7 +233,7 @@ class ThreeSizeClassForwarder : public FakeTransferCacheManager {
   static constexpr size_t kNumToMove3 = 2;
   static constexpr size_t kColdSizeClass = kColdClassesStart + 1;
 
-  constexpr static size_t class_to_size(int size_class) {
+  [[nodiscard]] constexpr static size_t class_to_size(int size_class) {
     switch (size_class) {
       case 1:
         return kClassSize1;
@@ -241,7 +245,7 @@ class ThreeSizeClassForwarder : public FakeTransferCacheManager {
         return 0;
     }
   }
-  constexpr static size_t num_objects_to_move(int size_class) {
+  [[nodiscard]] constexpr static size_t num_objects_to_move(int size_class) {
     switch (size_class) {
       case 1:
         return kNumToMove1;
@@ -272,10 +276,10 @@ class ThreeSizeClassManager {
     caches_[kColdSizeClass] = std::make_unique<TransferCache>(kColdSizeClass);
   }
 
-  constexpr static size_t class_to_size(int size_class) {
+  [[nodiscard]] constexpr static size_t class_to_size(int size_class) {
     return Forwarder::class_to_size(size_class);
   }
-  constexpr static size_t num_objects_to_move(int size_class) {
+  [[nodiscard]] constexpr static size_t num_objects_to_move(int size_class) {
     return Forwarder::num_objects_to_move(size_class);
   }
 
@@ -284,13 +288,15 @@ class ThreeSizeClassManager {
     caches_[size_class]->InsertRange(size_class, batch);
   }
 
-  int RemoveRange(int size_class, absl::Span<void*> batch) {
+  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
     TC_ASSERT(caches_.contains(size_class));
     return caches_[size_class]->RemoveRange(size_class, batch);
   }
 
-  size_t tc_length(int size_class) { return caches_[size_class]->tc_length(); }
-  TransferCacheStats GetStats(int size_class) {
+  [[nodiscard]] size_t tc_length(int size_class) {
+    return caches_[size_class]->tc_length();
+  }
+  [[nodiscard]] TransferCacheStats GetStats(int size_class) {
     TC_ASSERT(caches_.contains(size_class));
     return caches_[size_class]->GetStats();
   }
@@ -315,9 +321,9 @@ class FakeCpuLayout {
     current_cpu_ = cpu;
   }
 
-  unsigned NumShards() { return num_shards_; }
-  int CurrentCpu() { return current_cpu_; }
-  unsigned CpuShard(int cpu) {
+  [[nodiscard]] unsigned NumShards() { return num_shards_; }
+  [[nodiscard]] int CurrentCpu() { return current_cpu_; }
+  [[nodiscard]] unsigned CpuShard(int cpu) {
     return std::min(cpu / kCpusPerShard, num_shards_ - 1);
   }
 
@@ -396,9 +402,9 @@ class MultiSizeClassTransferCacheEnvironment {
     }
   }
 
-  Manager& transfer_cache_manager() { return manager_; }
+  [[nodiscard]] Manager& transfer_cache_manager() { return manager_; }
 
-  auto& central_freelist(int size_class) {
+  [[nodiscard]] auto& central_freelist(int size_class) {
     return manager_.central_freelist(size_class);
   }
 
@@ -446,11 +452,15 @@ class FakeShardedTransferCacheEnvironment {
     }
   }
 
-  ShardedManager& sharded_manager() { return sharded_manager_; }
-  Manager& transfer_cache_manager() { return sharded_manager_.forwarder(); }
-  MinimalFakeCentralFreeList& central_freelist() { return freelist_; }
+  [[nodiscard]] ShardedManager& sharded_manager() { return sharded_manager_; }
+  [[nodiscard]] Manager& transfer_cache_manager() {
+    return sharded_manager_.forwarder();
+  }
+  [[nodiscard]] MinimalFakeCentralFreeList& central_freelist() {
+    return freelist_;
+  }
   void SetCurrentCpu(int cpu) { cpu_layout_.SetCurrentCpu(cpu); }
-  size_t MetadataAllocated() const { return Manager::used(); }
+  [[nodiscard]] size_t MetadataAllocated() const { return Manager::used(); }
 
  private:
   MinimalFakeCentralFreeList freelist_;
