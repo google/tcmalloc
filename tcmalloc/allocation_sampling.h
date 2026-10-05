@@ -124,8 +124,6 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
           : MemoryTag::kSampled;
   size_t capacity = 0;
   if (size_class != 0) {
-    state.per_size_class_counts()[size_class].Add(allocation_estimate);
-
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
     stack_trace.cold_allocated = IsColdSizeClass(size_class);
 
@@ -157,6 +155,8 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
     } else {
       return {};
     }
+
+    state.per_size_class_counts()[size_class].Add(allocation_estimate);
   } else {
     // Set stack_trace.allocated_size to the exact size for a page allocation.
     // NOTE: if we introduce gwp-asan sampling / guarded allocations
