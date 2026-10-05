@@ -1914,6 +1914,110 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateRepeated) {
   cache.Deactivate();
 }
 
+TEST(CpuCacheTest, DrainCpuCacheWithZeroUsedBytesAndAllocatedCapacity) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.forwarder().release_drained_slab_metadata_ = true;
+  cache.Activate();
+
+  const int num_cpus = NumCPUs();
+  const auto shift =
+      subtle::percpu::ToShiftType(CpuCachePeer::GetSlabShift(cache));
+  if (subtle::percpu::GetSlabsAllocSize(shift, num_cpus) < 3 * kHugePageSize) {
+    cache.Deactivate();
+    GTEST_SKIP() << "Not enough CPUs to run test";
+  }
+
+  constexpr size_t kSizeClass = 1;
+  std::vector<void*> held_ptrs;
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    ScopedFakeCpuId fake_cpu_id(cpu);
+    do {
+      held_ptrs.push_back(cache.Allocate(kSizeClass));
+    } while (cache.UsedBytes(cpu) > 0);
+    EXPECT_TRUE(cache.HasPopulated(cpu));
+    EXPECT_EQ(cache.UsedBytes(cpu), 0);
+    EXPECT_GT(cache.Allocated(cpu), 0);
+  }
+
+  cache.TryDrainingCaches();
+  cache.TryDrainingCaches();
+  const int unpopulates = cache.GetNumUnpopulates();
+  EXPECT_EQ(cache.GetNumDrains(), num_cpus);
+  EXPECT_GT(unpopulates, 0);
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    EXPECT_EQ(cache.Allocated(cpu), 0);
+  }
+
+  // Subsequent passes do not re-drain or re-unpopulate.
+  cache.TryDrainingCaches();
+  EXPECT_EQ(cache.GetNumDrains(), num_cpus);
+  EXPECT_EQ(cache.GetNumUnpopulates(), unpopulates);
+
+  for (void* ptr : held_ptrs) {
+    cache.Deallocate(ptr, kSizeClass);
+  }
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, UnpopulateAfterSlabResize) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.dynamic_slab_enabled_ = true;
+  forwarder.release_drained_slab_metadata_ = true;
+  cache.Activate();
+
+  const int num_cpus = NumCPUs();
+  SlabShiftBounds shift_bounds = cache.GetPerCpuSlabShiftBounds();
+  if (subtle::percpu::GetSlabsAllocSize(
+          subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus) <
+      3 * kHugePageSize) {
+    cache.Deactivate();
+    GTEST_SKIP() << "Not enough CPUs to run test";
+  }
+
+  forwarder.dynamic_slab_ = DynamicSlab::kGrow;
+  while (CpuCachePeer::GetSlabShift(cache) < shift_bounds.max_shift) {
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      ColdCacheOperations(cache, cpu, /*size_class=*/1);
+    }
+    CpuCachePeer::IncrementCacheMisses(cache);
+    cache.ResizeSlabIfNeeded();
+  }
+
+  // ResizeSlabIfNeeded drains all objects and capacities from old_slabs via
+  // DrainOldSlabs, leaving populated CPUs on new_slabs with UsedBytes == 0 and
+  // Allocated == 0.
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    EXPECT_TRUE(cache.HasPopulated(cpu));
+    EXPECT_EQ(cache.UsedBytes(cpu), 0);
+    EXPECT_EQ(cache.Allocated(cpu), 0);
+  }
+  EXPECT_EQ(cache.GetNumUnpopulates(), 0);
+
+  cache.TryDrainingCaches();
+  cache.TryDrainingCaches();
+  const int unpopulates = cache.GetNumUnpopulates();
+  EXPECT_EQ(cache.GetNumDrains(), 0);
+  EXPECT_GT(unpopulates, 0);
+
+  // Subsequent passes do not re-unpopulate.
+  cache.TryDrainingCaches();
+  EXPECT_EQ(cache.GetNumDrains(), 0);
+  EXPECT_EQ(cache.GetNumUnpopulates(), unpopulates);
+
+  cache.Deactivate();
+}
+
 TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateConcurrent) {
   if (!subtle::percpu::IsFast()) {
     return;
