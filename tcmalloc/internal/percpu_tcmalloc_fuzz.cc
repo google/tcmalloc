@@ -362,9 +362,9 @@ struct Grow {
       return;
     }
     state.EnsureCpuInitialized(state.current_cpu);
-    size_t grew = state.slab.Grow(
-        state.current_cpu, sc, len,
-        [&state, sc](uint8_t) { return state.MaxCapacity(sc); });
+    size_t grew = state.slab.Grow(state.current_cpu, sc, len, [&state, sc]() {
+      return state.MaxCapacity(sc);
+    });
     TC_CHECK_LE(grew, len);
     state.expected_capacity[state.current_cpu][sc] += grew;
   }
@@ -398,8 +398,7 @@ struct GrowOtherClass {
       state.cpu_stopped[target_cpu] = true;
     }
     size_t grew = state.slab.GrowOtherCache(
-        target_cpu, sc, len,
-        [&state, sc](uint8_t) { return state.MaxCapacity(sc); });
+        target_cpu, sc, len, [&state, sc]() { return state.MaxCapacity(sc); });
     TC_CHECK_LE(grew, len);
     state.expected_capacity[target_cpu][sc] += grew;
     if (!was_stopped) {
@@ -545,9 +544,17 @@ struct ResizeSlabs {
     const Shift new_shift = ToShiftType(target_shift);
     const size_t new_slabs_size = GetSlabsAllocSize(new_shift, state.num_cpus);
     void* new_slabs = Malloc(new_slabs_size, SlabAlignment(new_shift));
+    std::array<size_t, kNumClasses> new_max_capacity;
+
+    // TODO: We could consider actually scaling this by the slab size.
+    for (size_t sc = 0; sc < kNumClasses; ++sc) {
+      new_max_capacity[sc] = (sc == 0) ? 0 : kMaxCapacity;
+    }
+
     const auto [old_slabs, old_slabs_size] = state.slab.ResizeSlabs(
         new_shift, new_slabs,
-        [&state](size_t sc) { return state.MaxCapacity(sc); },
+        [&new_max_capacity](size_t sc) { return new_max_capacity[sc]; },
+        [&] { state.max_capacity = new_max_capacity; },
         [&state](size_t cpu) { return state.cpu_initialized[cpu]; },
         [&state](int cpu, size_t size_class, void** batch, size_t size,
                  size_t cap) {

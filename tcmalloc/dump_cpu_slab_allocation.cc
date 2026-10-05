@@ -79,10 +79,8 @@ void DumpMaxCapacityForTest() {
   for (uint8_t shift = kInitialBasePerCpuShift; shift <= kMaxBasePerCpuShift;
        ++shift) {
     std::array<std::atomic<uint16_t>, kNumClasses> max_capacity;
-    cache.CalculateMaxCapacityForAllClasses(kMaxBasePerCpuShift,
-                                            max_capacity.data());
-    GetShiftMaxCapacity get_capacity{max_capacity.data(),
-                                     kMaxBasePerCpuShift - shift};
+    cache.CalculateMaxCapacityForAllClasses(shift, max_capacity.data());
+    MaxCapacityFunctor get_capacity{max_capacity.data()};
 
     // Add space used for Header.
     printf(
