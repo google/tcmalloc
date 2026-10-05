@@ -2337,8 +2337,7 @@ TEST(CpuCacheTest, Fuzz) {
   std::cout << mallocz;
 }
 
-// TODO(b/179516472):  Enable this test.
-TEST(CpuCacheTest, DISABLED_ChangingSizes) {
+TEST(CpuCacheTest, ChangingSizes) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2415,7 +2414,7 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
   EXPECT_EQ(env.num_cpus() * last_cache_size, capacity);
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitBeforeActivate) {
+TEST(CpuCacheTest, SetCacheLimitBeforeActivate) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2434,7 +2433,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitBeforeActivate) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitDuringActivate) {
+TEST(CpuCacheTest, SetCacheLimitDuringActivate) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2467,7 +2466,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitDuringActivate) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitToZeroAndBack) {
+TEST(CpuCacheTest, SetCacheLimitToZeroAndBack) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2526,7 +2525,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitToZeroAndBack) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitAfterShuffle) {
+TEST(CpuCacheTest, SetCacheLimitAfterShuffle) {
   if (!subtle::percpu::IsFast() || NumCPUs() < 2) {
     return;
   }
@@ -2568,7 +2567,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitAfterShuffle) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitWithInFlightGrow) {
+TEST(CpuCacheTest, SetCacheLimitWithInFlightGrow) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2613,7 +2612,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitWithInFlightGrow) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitRetriesAvailableUnderResizeLock) {
+TEST(CpuCacheTest, SetCacheLimitRetriesAvailableUnderResizeLock) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2653,7 +2652,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitRetriesAvailableUnderResizeLock) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_StressSetCacheLimit) {
+TEST(CpuCacheTest, StressSetCacheLimit) {
   if (!subtle::percpu::IsFast()) {
     return;
   }

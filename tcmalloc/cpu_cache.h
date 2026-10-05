@@ -194,10 +194,10 @@ class CpuCache {
   // do all initialization here instead.
   void Init();
 
-  void Activate() ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void Activate() ABSL_LOCKS_EXCLUDED(resize_lock_, pageheap_lock);
 
   // For testing
-  void Deactivate() ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void Deactivate() ABSL_LOCKS_EXCLUDED(resize_lock_, pageheap_lock);
 
   // Allocate an object of the given size class.
   // Returns nullptr when allocation fails.
@@ -254,7 +254,8 @@ class CpuCache {
 
   // Give the per-cpu limit of cache size.
   [[nodiscard]] uint64_t CacheLimit() const;
-  void SetCacheLimit(uint64_t v) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void SetCacheLimit(uint64_t v)
+      ABSL_LOCKS_EXCLUDED(resize_lock_, pageheap_lock);
 
   // Shuffles per-cpu caches using the number of underflows and overflows that
   // occurred in the prior interval. It selects the top per-cpu caches
@@ -264,7 +265,7 @@ class CpuCache {
   //
   // TODO(vgogte): There are quite a few knobs that we can play around with in
   // ShuffleCpuCaches.
-  void ShuffleCpuCaches();
+  void ShuffleCpuCaches() ABSL_LOCKS_EXCLUDED(resize_lock_);
 
   // Tries to drain/reclaim inactive per-CPU caches. It iterates through
   // the set of populated cpu caches and drains the caches that:
@@ -509,14 +510,17 @@ class CpuCache {
     // e.g. CPUs steal from each other (although the invariants below
     // are maintained).
     //
-    // At any given point, we have 0 <= available <= capacity.
-    // We also have:
+    // At any given point, we have available <= capacity, and:
     //
     //   capacity = available + allocated
     //            = available + sum(sizeclass_size * (end - begin))
     //
+    // Shrinking in SetCacheLimit subtracts from available before draining, so
+    // available may be transiently negative until the drain and any in-flight
+    // Grow() return their bytes.
+    //
     // Modify atomically; we don't want to lose space.
-    std::atomic<size_t> available;
+    std::atomic<int64_t> available;
     // Size class to steal from for the clock-wise algorithm.
     size_t next_steal = 1;
     // Track whether we have ever populated this CPU.
@@ -540,9 +544,28 @@ class CpuCache {
       Cycles32 last_underflow_cycles;
     };
     LastMiss last_miss[kNumClasses];
-    // Total cache space available on this CPU (see above).
-    // This tracks the total allocated and unallocated bytes on this CPU cache.
-    std::atomic<size_t> capacity;
+    // Total cache space available on this CPU (see above): the allocated and
+    // unallocated bytes on this CPU cache.
+    [[nodiscard]] size_t capacity() const {
+      return raw_capacity.load(std::memory_order_relaxed);
+    }
+    // `resize_lock` is CpuCache::resize_lock_, which keeps capacity consistent
+    // with CpuCache::max_per_cpu_cache_size_.  It is not used in the method
+    // body and is only passed for the lock annotations.
+    void AddCapacity(absl::base_internal::SpinLock& resize_lock, size_t bytes)
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(resize_lock) {
+      raw_capacity.fetch_add(bytes, std::memory_order_relaxed);
+    }
+    void SubtractCapacity(absl::base_internal::SpinLock& resize_lock,
+                          size_t bytes)
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(resize_lock) {
+      raw_capacity.fetch_sub(bytes, std::memory_order_relaxed);
+    }
+
+   private:
+    std::atomic<size_t> raw_capacity;
+
+   public:
     // Used bytes in the cache as of the end of the last resize interval.
     std::atomic<uint64_t> drain_used_bytes;
     // Tracks number of times this CPU has been drained.
@@ -658,7 +681,8 @@ class CpuCache {
   // them. Currently, we use a clock-like algorithm to identify the size_class
   // to steal from.
   void StealFromOtherCache(int cpu, int max_populated_cpu,
-                           absl::Span<CpuMissStat> skip_cpus, size_t bytes);
+                           absl::Span<CpuMissStat> skip_cpus, size_t bytes)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(resize_lock_);
 
   // Try to steal one object from cpu/size_class. Return bytes stolen.
   [[nodiscard]] size_t ShrinkOtherCache(int cpu, size_t size_class);
@@ -666,6 +690,11 @@ class CpuCache {
   // Resizes capacities of up to kMaxSizeClassesToResize size classes for a
   // single <cpu>.
   void ResizeCpuSizeClasses(int cpu);
+
+  // `cpu_lock` is resize_[cpu].lock.  It is not used in the method body and is
+  // only passed for the lock annotations.
+  uint64_t DrainLocksHeld(absl::base_internal::SpinLock& cpu_lock, int cpu)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(cpu_lock);
 
   // <shift_offset> is the offset of the shift in slabs_by_shift_. Note that we
   // can't calculate this from `shift` directly due to numa shift.
@@ -708,6 +737,12 @@ class CpuCache {
   // capacity, we choose a new slab from one of the copies. resize_slab_offset_
   // is an index into the copy currently in use.
   std::atomic<int> resize_slab_offset_ = 0;
+
+  // Held for every write to ResizeInfo::capacity and for publishing or
+  // retiring resize_, so that max_per_cpu_cache_size_ and the per-CPU
+  // capacities change together.  Acquired before resize_[cpu].lock.
+  absl::base_internal::SpinLock resize_lock_ ABSL_ACQUIRED_BEFORE(
+      pageheap_lock){absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
   // Per-core cache limit in bytes.
   std::atomic<uint64_t> max_per_cpu_cache_size_ = 0;
@@ -1038,19 +1073,24 @@ inline void CpuCache<Forwarder>::Activate() {
   // Set the actual max capacities for the initial shift.
   CalculateMaxCapacityForAllClasses(per_cpu_shift, max_capacity_);
 
-  resize_ = reinterpret_cast<ResizeInfo*>(forwarder_.AllocCpuCache(
+  ResizeInfo* resize = reinterpret_cast<ResizeInfo*>(forwarder_.AllocCpuCache(
       sizeof(ResizeInfo) * num_cpus, std::align_val_t{alignof(ResizeInfo)}));
 
-  const uint64_t max_cache_size = CacheLimit();
+  {
+    AllocationGuardSpinLockHolder l(resize_lock_);
+    const uint64_t max_cache_size = CacheLimit();
 
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    new (&resize_[cpu]) ResizeInfo();
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      new (&resize[cpu]) ResizeInfo();
 
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      resize_[cpu].per_class[size_class].Init();
+      for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+        resize[cpu].per_class[size_class].Init();
+      }
+      resize[cpu].available.store(max_cache_size, std::memory_order_relaxed);
+      resize[cpu].AddCapacity(resize_lock_, max_cache_size);
     }
-    resize_[cpu].available.store(max_cache_size, std::memory_order_relaxed);
-    resize_[cpu].capacity.store(max_cache_size, std::memory_order_relaxed);
+
+    resize_ = resize;
   }
 
   auto Alloc = [&](size_t size, std::align_val_t alignment) {
@@ -1069,14 +1109,19 @@ inline void CpuCache<Forwarder>::Activate() {
 template <class Forwarder>
 inline void CpuCache<Forwarder>::Deactivate() {
   int num_cpus = NumCPUs();
-  for (int i = 0; i < num_cpus; i++) {
-    Drain(i);
+  ResizeInfo* resize;
+  {
+    AllocationGuardSpinLockHolder l(resize_lock_);
+    for (int i = 0; i < num_cpus; i++) {
+      Drain(i);
+    }
+    resize = std::exchange(resize_, nullptr);
   }
 
   freelist_.Destroy(&forwarder_.Dealloc);
   static_assert(std::is_trivially_destructible_v<decltype(*resize_)>,
                 "ResizeInfo is expected to be trivially destructible");
-  forwarder_.Dealloc(resize_, sizeof(*resize_) * num_cpus,
+  forwarder_.Dealloc(resize, sizeof(*resize) * num_cpus,
                      std::align_val_t{alignof(decltype(*resize_))});
 }
 
@@ -1329,14 +1374,14 @@ ABSL_ATTRIBUTE_NOINLINE void CpuCache<Forwarder>::Populate(int cpu) {
   resize_[cpu].populated.store(true, std::memory_order_release);
 }
 
-inline size_t subtract_at_least(std::atomic<size_t>* a, size_t min,
-                                size_t max) {
-  size_t cmp = a->load(std::memory_order_relaxed);
+inline int64_t subtract_at_least(std::atomic<int64_t>* a, int64_t min,
+                                 int64_t max) {
+  int64_t cmp = a->load(std::memory_order_relaxed);
   for (;;) {
     if (cmp < min) {
       return 0;
     }
-    size_t got = std::min(cmp, max);
+    int64_t got = std::min(cmp, max);
     if (a->compare_exchange_weak(cmp, cmp - got, std::memory_order_relaxed)) {
       return got;
     }
@@ -1418,7 +1463,8 @@ inline void CpuCache<Forwarder>::TryDrainingCaches()
           // with subtract_at_least, so available <= capacity is not strictly
           // an equality.
           TC_CHECK_LE(
-              resize_[cpu].available, resize_[cpu].capacity,
+              resize_[cpu].available.load(std::memory_order_relaxed),
+              static_cast<int64_t>(resize_[cpu].capacity()),
               "CPU %u was not actually drained, or available is out of sync",
               cpu);
           resize_[cpu].populated.store(false, std::memory_order_release);
@@ -1724,7 +1770,7 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
 template <class Forwarder>
 void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   if (resize_[cpu].available.load(std::memory_order_relaxed) >=
-      kMaxCpuCacheSize) {
+      static_cast<int64_t>(kMaxCpuCacheSize)) {
     // We still have enough available capacity, so all size classes can just
     // grow as they see fit.
     return;
@@ -1754,7 +1800,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   {
     AllocationGuardSpinLockHolder h(resize_[cpu].lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
-    size_t available =
+    int64_t available =
         resize_[cpu].available.exchange(0, std::memory_order_relaxed);
     const auto max_capacity = GetMaxCapacityFunctor();
     size_t size_classes_to_resize = 5;
@@ -1790,12 +1836,14 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
           std::min<size_t>(can_grow,
                            forwarder_.num_objects_to_move(size_class_to_grow)) *
           size;
-      const ssize_t to_steal_bytes = need_bytes - available;
+      const ssize_t to_steal_bytes =
+          static_cast<ssize_t>(need_bytes) - available;
       if (to_steal_bytes > 0) {
         available += StealCapacityForSizeClassWithinCpu(
             cpu, {miss_stats.begin(), size_classes_to_resize}, to_steal_bytes);
       }
-      size_t capacity_acquired = std::min<size_t>(can_grow, available / size);
+      size_t capacity_acquired =
+          available > 0 ? std::min<size_t>(can_grow, available / size) : 0;
       if (capacity_acquired != 0) {
         size_t got = freelist_.GrowOtherCache(
             cpu, size_class_to_grow, capacity_acquired,
@@ -1817,6 +1865,8 @@ inline void CpuCache<Forwarder>::ShuffleCpuCaches() {
 
   const int num_cpus = NumCPUs();
   absl::FixedArray<CpuMissStat> misses(num_cpus);
+
+  AllocationGuardSpinLockHolder l(resize_lock_);
 
   // Record the cumulative misses for the caches so that we can select the
   // caches with the highest misses as the candidates to steal the cache for.
@@ -1886,7 +1936,8 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
   const CpuCacheMissStats dest_misses =
       GetIntervalCacheMissStats(cpu, MissCount::kShuffle);
 
-  if (resize_[cpu].available.load(std::memory_order_relaxed) >= kMaxSize) {
+  if (resize_[cpu].available.load(std::memory_order_relaxed) >=
+      static_cast<int64_t>(kMaxSize)) {
     // We still have enough available capacity, so all size classes can just
     // grow as they see fit.
     return;
@@ -1949,7 +2000,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
     size_t stolen =
         subtract_at_least(&resize_[src_cpu].available, 0, bytes - acquired);
     if (stolen != 0) {
-      resize_[src_cpu].capacity.fetch_sub(stolen, std::memory_order_relaxed);
+      resize_[src_cpu].SubtractCapacity(resize_lock_, stolen);
       acquired += stolen;
       if (acquired >= bytes) {
         continue;
@@ -1964,7 +2015,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
         source_size_class = 1;
       }
       if (size_t stolen = ShrinkOtherCache(src_cpu, source_size_class)) {
-        resize_[src_cpu].capacity.fetch_sub(stolen, std::memory_order_relaxed);
+        resize_[src_cpu].SubtractCapacity(resize_lock_, stolen);
         acquired += stolen;
         if (acquired >= bytes) {
           break;
@@ -1980,7 +2031,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
   // Increment the capacity of the destination cpu cache by the amount of bytes
   // acquired from source caches.
   if (acquired) {
-    resize_[cpu].capacity.fetch_add(acquired, std::memory_order_relaxed);
+    resize_[cpu].AddCapacity(resize_lock_, acquired);
     resize_[cpu].available.fetch_add(acquired, std::memory_order_relaxed);
   }
 }
@@ -2189,12 +2240,13 @@ inline uint64_t CpuCache<Forwarder>::TotalObjectsOfClass(
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::Unallocated(int cpu) const {
-  return resize_[cpu].available.load(std::memory_order_relaxed);
+  return std::max<int64_t>(
+      0, resize_[cpu].available.load(std::memory_order_relaxed));
 }
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::Capacity(int cpu) const {
-  return resize_[cpu].capacity.load(std::memory_order_relaxed);
+  return resize_[cpu].capacity();
 }
 
 template <class Forwarder>
@@ -2204,8 +2256,59 @@ inline uint64_t CpuCache<Forwarder>::CacheLimit() const {
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::SetCacheLimit(uint64_t v) {
-  // TODO(b/179516472): Drain cores as required.
-  max_per_cpu_cache_size_.store(v, std::memory_order_relaxed);
+  if (v > std::numeric_limits<int64_t>::max()) {
+    return;
+  }
+
+  AllocationGuardSpinLockHolder l(resize_lock_);
+  const uint64_t prev =
+      max_per_cpu_cache_size_.exchange(v, std::memory_order_relaxed);
+  if (resize_ == nullptr || prev == v) {
+    return;
+  }
+
+  const int num_cpus = NumCPUs();
+  if (prev < v) {
+    const size_t delta = v - prev;
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      resize_[cpu].AddCapacity(resize_lock_, delta);
+      resize_[cpu].available.fetch_add(delta, std::memory_order_relaxed);
+    }
+    return;
+  }
+
+  // Shrinking resets every CPU to exactly v, discarding any redistribution by
+  // ShuffleCpuCaches: CPUs below v are topped up, and CPUs above v give up the
+  // excess, draining when their unallocated bytes do not cover it.
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    const size_t capacity = resize_[cpu].capacity();
+    if (capacity < v) {
+      const size_t delta = v - capacity;
+      resize_[cpu].AddCapacity(resize_lock_, delta);
+      resize_[cpu].available.fetch_add(delta, std::memory_order_relaxed);
+      continue;
+    } else if (capacity == v) {
+      continue;
+    }
+    const size_t delta = capacity - v;
+    // Reclaim unallocated capacity lock-free when slack covers delta.
+    if (subtract_at_least(&resize_[cpu].available, delta, delta) == delta) {
+      resize_[cpu].SubtractCapacity(resize_lock_, delta);
+      continue;
+    }
+
+    AllocationGuardSpinLockHolder h(resize_[cpu].lock);
+    // Retry under the lock in case ResizeCpuSizeClasses temporarily held
+    // available at 0; otherwise drain the CPU to reclaim allocated capacity.
+    if (subtract_at_least(&resize_[cpu].available, delta, delta) < delta) {
+      // Subtract delta before draining so available is at most v when Drain
+      // restarts the CPU; available may be transiently negative while
+      // DrainLocksHeld or an in-flight Grow() returns its bytes.
+      resize_[cpu].available.fetch_sub(delta, std::memory_order_relaxed);
+      DrainLocksHeld(resize_[cpu].lock, cpu);
+    }
+    resize_[cpu].SubtractCapacity(resize_lock_, delta);
+  }
 }
 
 template <class CpuCache>
@@ -2233,6 +2336,13 @@ struct DrainHandler {
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::Drain(int cpu) {
   AllocationGuardSpinLockHolder h(resize_[cpu].lock);
+  return DrainLocksHeld(resize_[cpu].lock, cpu);
+}
+
+template <class Forwarder>
+inline uint64_t CpuCache<Forwarder>::DrainLocksHeld(
+    absl::base_internal::SpinLock& cpu_lock, int cpu) {
+  TC_ASSERT_EQ(&cpu_lock, &resize_[cpu].lock);
 
   // If we haven't populated this core, freelist_.Drain() will touch the memory
   // (for writing) as part of its locking process.  Avoid faulting new pages as
