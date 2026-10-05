@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -133,6 +134,7 @@ struct Toggle {
   void Perform(State& state) const;
 };
 
+// Shared by FuzzRegion and FuzzRegionSet, whose states both own a MockUnback.
 struct SetUnbackSuccess {
   bool success;
 
@@ -141,8 +143,30 @@ struct SetUnbackSuccess {
     absl::Format(&sink, "SetUnbackSuccess{.success=%v}", s.success);
   }
 
-  void Perform(State& state) const;
+  template <typename State>
+  void Perform(State& state) const {
+    state.unback.unback_success_ = success;
+  }
 };
+
+// Stringifies either fuzzer's instruction variant.
+template <typename Sink, typename... Ts>
+void AbslStringify(Sink& sink, const std::variant<Ts...>& i) {
+  std::visit([&](const auto& arg) { absl::Format(&sink, "%v", arg); }, i);
+}
+
+// Checks AddSpanStats output against the free and unmapped pages it covers.
+void ExpectSpanStats(const SmallSpanStats& small, const LargeSpanStats& large,
+                     Length free, Length unmapped) {
+  Length small_normal_pages;
+  Length small_returned_pages;
+  for (size_t i = 0; i < kMaxPages.raw_num(); ++i) {
+    small_normal_pages += Length(i * small.normal_length[i]);
+    small_returned_pages += Length(i * small.returned_length[i]);
+  }
+  EXPECT_EQ(small_normal_pages + large.normal_pages, free);
+  EXPECT_EQ(small_returned_pages + large.returned_pages, unmapped);
+}
 
 struct Reentrant;
 
@@ -173,11 +197,6 @@ struct Reentrant {
 
   void Perform(State& state) const;
 };
-
-template <typename Sink>
-void AbslStringify(Sink& sink, const Instruction& i) {
-  std::visit([&](const auto& arg) { absl::Format(&sink, "%v", arg); }, i);
-}
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Reentrant& r) {
@@ -356,17 +375,8 @@ void Stats::Perform(State& state) const {
   SmallSpanStats small;
   LargeSpanStats large;
   state.region.AddSpanStats(&small, &large);
-
-  Length small_normal_pages;
-  Length small_returned_pages;
-  for (size_t i = 0; i < kMaxPages.raw_num(); ++i) {
-    small_normal_pages += Length(i * small.normal_length[i]);
-    small_returned_pages += Length(i * small.returned_length[i]);
-  }
-
-  EXPECT_EQ(small_normal_pages + large.normal_pages, state.region.free_pages());
-  EXPECT_EQ(small_returned_pages + large.returned_pages,
-            state.region.unmapped_pages());
+  ExpectSpanStats(small, large, state.region.free_pages(),
+                  state.region.unmapped_pages());
 
   BackingStats stats = state.region.stats();
   EXPECT_EQ(stats.system_bytes, HugeRegion::size().in_bytes());
@@ -381,10 +391,6 @@ void Stats::Perform(State& state) const {
 
 void Toggle::Perform(State& state) const {
   state.unback.unback_success_ = !state.unback.unback_success_;
-}
-
-void SetUnbackSuccess::Perform(State& state) const {
-  state.unback.unback_success_ = success;
 }
 
 void Reentrant::Perform(State& state) const {
@@ -469,5 +475,339 @@ TEST(HugeRegionTest, b339521569) {
   FuzzRegion(p, false);
 }
 
+// Drives a HugeRegionSet<HugeRegion> over up to kMaxRegions regions that are
+// contributed lazily.
+namespace region_set {
+
+constexpr size_t kMaxRegions = 4;
+
+struct State;
+
+struct Contribute {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Contribute&) {
+    sink.Append("Contribute{}");
+  }
+
+  void Perform(State& state) const;
+};
+
+struct Get {
+  uint32_t length;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Get& g) {
+    absl::Format(&sink, "Get{.length=%d}", g.length);
+  }
+
+  void Perform(State& state) const;
+};
+
+struct Put {
+  uint32_t index;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Put& p) {
+    absl::Format(&sink, "Put{.index=%d}", p.index);
+  }
+
+  void Perform(State& state) const;
+};
+
+struct ReleasePages {
+  uint32_t length;
+  bool use_adaptive;
+  bool hit_limit;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const ReleasePages& r) {
+    absl::Format(&sink,
+                 "ReleasePages{.length=%d, .use_adaptive=%v, .hit_limit=%v}",
+                 r.length, r.use_adaptive, r.hit_limit);
+  }
+
+  void Perform(State& state) const;
+};
+
+struct SpanStats {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SpanStats&) {
+    sink.Append("SpanStats{}");
+  }
+
+  void Perform(State& state) const;
+};
+
+struct Print {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Print&) {
+    sink.Append("Print{}");
+  }
+
+  void Perform(State& state) const;
+};
+
+struct PrintInPbtxt {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const PrintInPbtxt&) {
+    sink.Append("PrintInPbtxt{}");
+  }
+
+  void Perform(State& state) const;
+};
+
+using Instruction = std::variant<Contribute, Get, Put, ReleasePages, SpanStats,
+                                 Print, PrintInPbtxt, SetUnbackSuccess>;
+
+struct State {
+  const HugePage start;
+  MockUnback unback;
+  NilMemoryTagFunction nil_set_anon_vma_name;
+  HugeRegionSet<HugeRegion> set;
+
+  std::vector<std::unique_ptr<HugeRegion>> regions;
+  std::vector<Range> allocs;
+  // The set's low-water mark of free-but-backed hugepages, which bounds an
+  // adaptive release: the minimum observed after each successful MaybeGet,
+  // reset by ReleasePages.
+  HugeLength lowater = NHugePages(0);
+  std::string output;
+
+  explicit State(bool use_huge_region_more_often)
+      : start(HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal))),
+        set(use_huge_region_more_often
+                ? HugeRegionUsageOption::kUseForAllLargeAllocs
+                : HugeRegionUsageOption::kDefault) {
+    output.resize(1 << 20);
+    unback.release_callback_ = [](Range) {};
+  }
+
+  ~State() {
+    for (const Range& alloc : allocs) {
+      EXPECT_TRUE(set.MaybePut(alloc));
+    }
+    allocs.clear();
+    for (const auto& region : regions) {
+      EXPECT_EQ(region->used_pages(), Length(0));
+    }
+    CheckInvariants();
+  }
+
+  // Returns the index of the region containing p, or regions.size() if none.
+  [[nodiscard]] size_t RegionIndex(PageId p) const {
+    size_t found = regions.size();
+    for (size_t i = 0; i < regions.size(); ++i) {
+      if (!regions[i]->contains(p)) continue;
+      EXPECT_EQ(found, regions.size());
+      found = i;
+    }
+    return found;
+  }
+
+  void Execute(absl::Span<const Instruction> instructions) {
+    for (const auto& inst : instructions) {
+      std::visit([&](const auto& arg) { arg.Perform(*this); }, inst);
+      CheckInvariants();
+    }
+  }
+
+  void CheckInvariants() {
+    EXPECT_EQ(set.ActiveRegions(), regions.size());
+
+    Length used, free, unmapped;
+    HugeLength free_backed = NHugePages(0);
+    for (const auto& region : regions) {
+      used += region->used_pages();
+      free += region->free_pages();
+      unmapped += region->unmapped_pages();
+      free_backed += region->free_backed();
+    }
+
+    const BackingStats stats = set.stats();
+    EXPECT_EQ(stats.system_bytes,
+              (HugeRegion::size() * regions.size()).in_bytes());
+    EXPECT_EQ(stats.free_bytes, free.in_bytes());
+    EXPECT_EQ(stats.unmapped_bytes, unmapped.in_bytes());
+    EXPECT_EQ(set.free_backed(), free_backed);
+
+    Length live;
+    for (const Range& alloc : allocs) {
+      live += alloc.n;
+      EXPECT_LT(RegionIndex(alloc.p), regions.size());
+    }
+    EXPECT_EQ(used, live);
+
+    // Neither the hugepage before the first region nor the first hugepage
+    // past the contributed regions belongs to the set.
+    PageBitmap pages;
+    EXPECT_FALSE(set.GetPageAllocationStatus(start - NHugePages(1), pages));
+    EXPECT_FALSE(set.GetPageAllocationStatus(
+        start + HugeRegion::size() * regions.size(), pages));
+  }
+};
+
+void Contribute::Perform(State& state) const {
+  if (state.regions.size() == kMaxRegions) {
+    return;
+  }
+  const HugePage start =
+      state.start + HugeRegion::size() * state.regions.size();
+  state.regions.push_back(
+      std::make_unique<HugeRegion>(HugeRange(start, HugeRegion::size()),
+                                   state.unback, state.nil_set_anon_vma_name));
+  state.set.Contribute(state.regions.back().get());
+  EXPECT_EQ(state.set.ActiveRegions(), state.regions.size());
+}
+
+void Get::Perform(State& state) const {
+  const Length n = Length(std::max<size_t>(length % (1 << 18), 1));
+  std::vector<Length> longest_free;
+  longest_free.reserve(state.regions.size());
+  for (const auto& region : state.regions) {
+    longest_free.push_back(region->longest_free());
+  }
+
+  PageId p;
+  bool from_released;
+  if (!state.set.MaybeGet(n, &p, &from_released)) {
+    for (Length longest : longest_free) {
+      EXPECT_LT(longest, n);
+    }
+    return;
+  }
+
+  const size_t i = state.RegionIndex(p);
+  ASSERT_LT(i, state.regions.size());
+  EXPECT_TRUE(state.regions[i]->contains(p + n - Length(1)));
+  // The set allocates from the most fragmented region that fits: the one with
+  // the shortest longest-free range that is still at least n.
+  EXPECT_GE(longest_free[i], n);
+  for (Length longest : longest_free) {
+    if (longest < n) continue;
+    EXPECT_GE(longest, longest_free[i]);
+  }
+
+  state.allocs.push_back(Range(p, n));
+  state.lowater = std::min(state.lowater, state.set.free_backed());
+}
+
+void Put::Perform(State& state) const {
+  if (state.allocs.empty()) {
+    // A range outside every region is not accepted.
+    const PageId outside = (state.start - NHugePages(1)).first_page();
+    EXPECT_FALSE(state.set.MaybePut(Range(outside, Length(1))));
+    return;
+  }
+  const size_t target_index = index % state.allocs.size();
+  const Range alloc = state.allocs[target_index];
+  using std::swap;
+  swap(state.allocs[target_index], state.allocs.back());
+  state.allocs.pop_back();
+
+  EXPECT_TRUE(state.set.MaybePut(alloc));
+}
+
+void ReleasePages::Perform(State& state) const {
+  const Length desired = Length(length % (1 << 20));
+  const HugeLength before = state.set.free_backed();
+  Length to_release;
+  if (hit_limit) {
+    to_release = desired;
+  } else if (use_adaptive) {
+    to_release = state.lowater.in_pages();
+  } else {
+    // HugeRegionSet::kFractionToReleaseFromRegion.
+    to_release = Length(static_cast<size_t>(before.in_pages().raw_num() * 0.1));
+  }
+  // The set releases whole hugepages until it has covered its target or run
+  // out of free-but-backed hugepages.
+  const Length cap = std::min(to_release, before.in_pages());
+
+  const Length released =
+      state.set.ReleasePages(desired, use_adaptive, hit_limit);
+  if (!state.unback.unback_success_) {
+    EXPECT_EQ(released, Length(0));
+  } else {
+    EXPECT_GE(released, cap);
+    EXPECT_LE(released, HLFromPages(cap).in_pages());
+  }
+  EXPECT_EQ(released % kPagesPerHugePage, Length(0));
+  EXPECT_EQ(state.set.free_backed(), before - HLFromPages(released));
+  state.lowater = state.set.free_backed();
+}
+
+void SpanStats::Perform(State& state) const {
+  SmallSpanStats small;
+  LargeSpanStats large;
+  state.set.AddSpanStats(&small, &large);
+
+  Length free, unmapped;
+  for (const auto& region : state.regions) {
+    free += region->free_pages();
+    unmapped += region->unmapped_pages();
+  }
+  ExpectSpanStats(small, large, free, unmapped);
+}
+
+void Print::Perform(State& state) const {
+  Printer p(&state.output[0], state.output.size());
+  state.set.Print(p);
+  ASSERT_LE(p.SpaceRequired(), state.output.size());
+}
+
+void PrintInPbtxt::Perform(State& state) const {
+  Printer p(&state.output[0], state.output.size());
+  {
+    PbtxtRegion r(p, kTop);
+    state.set.PrintInPbtxt(r);
+  }
+  CHECK_LE(p.SpaceRequired(), state.output.size());
+}
+
+void FuzzRegionSet(const std::vector<Instruction>& instructions,
+                   bool use_huge_region_more_often) {
+  State state(use_huge_region_more_often);
+  state.Execute(instructions);
+}
+
+FUZZ_TEST(HugeRegionTest, FuzzRegionSet)
+    .WithDomains(fuzztest::VectorOf(fuzztest::Arbitrary<Instruction>()),
+                 fuzztest::Arbitrary<bool>());
+
+TEST(HugeRegionTest, RegionSetSmoke) {
+  for (bool use_huge_region_more_often : {false, true}) {
+    FuzzRegionSet(
+        {
+            Get{.length = 1},
+            Put{.index = 0},
+            Contribute{},
+            Get{.length = 1},
+            Contribute{},
+            // Only the empty second region fits a whole region.
+            Get{.length = 1 << 17},
+            Get{.length = 513},
+            SpanStats{},
+            Print{},
+            PrintInPbtxt{},
+            Put{.index = 0},
+            ReleasePages{
+                .length = 1024, .use_adaptive = false, .hit_limit = true},
+            SetUnbackSuccess{.success = false},
+            Put{.index = 0},
+            ReleasePages{
+                .length = 100, .use_adaptive = true, .hit_limit = false},
+            SetUnbackSuccess{.success = true},
+            Put{.index = 0},
+            ReleasePages{
+                .length = 1 << 20, .use_adaptive = false, .hit_limit = false},
+            ReleasePages{
+                .length = 1 << 20, .use_adaptive = true, .hit_limit = false},
+            PrintInPbtxt{},
+        },
+        use_huge_region_more_often);
+  }
+}
+
+}  // namespace region_set
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

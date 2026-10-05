@@ -130,6 +130,9 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // allocated pages on them), but are backed. We release hugepages lazily when
   // huge-regions-more-often feature is enabled.
   [[nodiscard]] HugeLength free_backed() const;
+  [[nodiscard]] Length longest_free() const {
+    return Length(tracker_.longest_free());
+  }
 
   void Print(Printer& out) const;
   void PrintInPbtxt(PbtxtRegion& detail) const;
@@ -145,10 +148,6 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   RangeTracker<kRegionSize.in_pages().raw_num()> tracker_;
 
   HugeRange location_;
-
-  [[nodiscard]] Length longest_free() const {
-    return Length(tracker_.longest_free());
-  }
 
   [[nodiscard]] bool CanUnback(size_t i) const {
     TC_ASSERT_LT(i, kNumHugePages);
