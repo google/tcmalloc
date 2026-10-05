@@ -2065,11 +2065,10 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
 
 class CpuCacheEnvironment {
  public:
-  CpuCacheEnvironment() : num_cpus_(NumCPUs()) {}
+  CpuCacheEnvironment() : num_cpus_(NumCPUs()) { cache_.Init(); }
   ~CpuCacheEnvironment() { cache_.Deactivate(); }
 
   void Activate() {
-    cache_.Init();
     cache_.Activate();
     ready_.store(true, std::memory_order_release);
   }
