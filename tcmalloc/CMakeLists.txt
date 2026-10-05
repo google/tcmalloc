@@ -1585,7 +1585,6 @@ tcmalloc_cc_test(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
-    "absl::strings"
     "absl::time"
     "benchmark::benchmark"
     "tcmalloc::internal_logging"
@@ -1593,6 +1592,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc_deprecated_perthread"
+    "tcmalloc::testing_smaps"
 )
 
 tcmalloc_cc_test_variants(
