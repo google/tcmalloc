@@ -484,17 +484,6 @@ struct SetEnableUnfilteredCollapse {
   }
 };
 
-struct SetReleaseMaxColdPages {
-  bool value;
-
-  void Perform(State& state) const;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const SetReleaseMaxColdPages& s) {
-    absl::Format(&sink, "SetReleaseMaxColdPages{.value=%v}", s.value);
-  }
-};
-
 struct SetReleaseMaxFillerPages {
   bool value;
 
@@ -593,10 +582,9 @@ using ParamOp = std::variant<
     SetHpaaSubrelease, SetSubreleaseUnbackedHugepages, SetReleaseSucceeds,
     SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
-    SetEnableUnfilteredCollapse, SetReleaseMaxColdPages,
-    SetReleaseMaxFillerPages, SetReleaseMaxSampledPages,
-    SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions, UpdateBitmaps,
-    SetUsageLimitPressure>;
+    SetEnableUnfilteredCollapse, SetReleaseMaxFillerPages,
+    SetReleaseMaxSampledPages, SetEnableReleaseStalePages,
+    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -1169,10 +1157,6 @@ void SetEnableUnfilteredCollapse::Perform(State& state) const {
   state.allocator.forwarder().set_enable_unfiltered_collapse(value);
 }
 
-void SetReleaseMaxColdPages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_max_cold_pages(value);
-}
-
 void SetReleaseMaxFillerPages::Perform(State& state) const {
   state.allocator.forwarder().set_release_max_filler_pages(value);
 }
@@ -1321,8 +1305,6 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
       fuzztest::Map(
           [](SetEnableUnfilteredCollapse s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetEnableUnfilteredCollapse>()),
-      fuzztest::Map([](SetReleaseMaxColdPages s) { return ChangeParam{s}; },
-                    fuzztest::Arbitrary<SetReleaseMaxColdPages>()),
       fuzztest::Map([](SetReleaseMaxFillerPages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetReleaseMaxFillerPages>()),
       fuzztest::Map([](SetReleaseMaxSampledPages s) { return ChangeParam{s}; },

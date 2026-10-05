@@ -154,7 +154,6 @@ TEST_F(GetStatsTest, Pbtxt) {
   } else {
     EXPECT_THAT(buf, HasSubstr("madvise_cold_regions_nohugepage: false"));
   }
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_cold_pages: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_filler_pages: false"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_sampled_pages: true"));
 
@@ -281,8 +280,6 @@ TEST_F(GetStatsTest, Parameters) {
                   HasSubstr(R"(PARAMETER madvise_cold_regions_nohugepage 0)"));
     }
     EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_release_max_cold_pages 1)"));
-    EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_release_max_filler_pages 0)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_release_max_sampled_pages 1)"));
@@ -295,7 +292,6 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: -1)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: false)"));
-    EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_release_max_cold_pages: true)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_release_max_filler_pages: false)"));
     EXPECT_THAT(pbtxt,

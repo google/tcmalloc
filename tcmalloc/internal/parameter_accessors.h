@@ -140,9 +140,6 @@ TCMalloc_Internal_GetHugeRegionAdaptiveReleaseEnabled();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(
     bool v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
-TCMalloc_Internal_GetReleaseMaxColdPages();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxColdPages(bool v);
-[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetReleaseMaxFillerPages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
