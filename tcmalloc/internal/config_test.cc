@@ -24,6 +24,7 @@
 #include "absl/strings/str_cat.h"
 #include "google/protobuf/io/gzip_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl.h"
+#include "tcmalloc/internal/address_bits.h"
 #include "tcmalloc/internal/util.h"
 
 namespace tcmalloc {
@@ -92,9 +93,39 @@ TEST(AddressBits, CpuVirtualBits) {
   int levels;
   ASSERT_TRUE(absl::SimpleAtoi(string_levels, &levels)) << string_levels;
 
-  ASSERT_GE(levels, 3);
-  const int kImplementedVirtualBits = 39 + (levels - 3) * 9;
-  ASSERT_EQ(kAddressBits, kImplementedVirtualBits);
+  // Prefer the kernel's own CONFIG_ARM64_VA_BITS value when present; it is
+  // exact, unlike the page-table-level derivation below (which cannot
+  // distinguish e.g. 47-bit from 39-bit configurations).
+  constexpr absl::string_view va_bits_token = "CONFIG_ARM64_VA_BITS=";
+  int kImplementedVirtualBits = 0;
+  auto va_pos = config.find(va_bits_token);
+  if (va_pos != std::string::npos) {
+    va_pos += va_bits_token.size();
+    auto va_eol = config.find('\n', va_pos);
+    ASSERT_NE(va_eol, std::string::npos);
+    ASSERT_NE(va_eol, va_pos);
+    absl::string_view string_va_bits(&config[va_pos], va_eol - va_pos);
+    ASSERT_TRUE(absl::SimpleAtoi(string_va_bits, &kImplementedVirtualBits))
+        << string_va_bits;
+  } else {
+    constexpr absl::string_view token = "CONFIG_PGTABLE_LEVELS=";
+    ASSERT_THAT(config, testing::HasSubstr(token));
+    auto position = config.find(token);
+    ASSERT_NE(position, std::string::npos);
+    position += token.size();
+    auto eol = config.find('\n', position);
+    ASSERT_NE(eol, std::string::npos);
+    ASSERT_NE(eol, position);
+    absl::string_view string_levels(&config[position], eol - position);
+    int levels;
+    ASSERT_TRUE(absl::SimpleAtoi(string_levels, &levels)) << string_levels;
+
+    ASSERT_GE(levels, 3);
+    kImplementedVirtualBits = 39 + (levels - 3) * 9;
+  }
+  // The allocator detects the kernel's address width at runtime; the
+  // compile-time maximum only needs to cover it.
+  ASSERT_EQ(EffectiveAddressBits(), kImplementedVirtualBits);
   ASSERT_GE(kAddressBits, std::min(kImplementedVirtualBits, kPointerBits));
 #endif
 }

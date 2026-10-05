@@ -2266,7 +2266,7 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxSampledPages) {
        {MemoryTag::kSampled, MemoryTag::kSampledP1, MemoryTag::kNormal}) {
     // Under sanitizers the tag is narrower and kSampledP1 cannot be encoded in
     // an address.
-    if (((static_cast<uintptr_t>(tag) << kTagShift) & kTagMask) >> kTagShift !=
+    if (((static_cast<uintptr_t>(tag) << TagShift()) & TagMask()) >> TagShift() !=
         static_cast<uintptr_t>(tag)) {
       continue;
     }
