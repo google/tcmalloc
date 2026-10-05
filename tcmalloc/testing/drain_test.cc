@@ -75,7 +75,8 @@ void GetMallocStats(std::string* buffer) {
   buffer->resize(buffer->capacity());
 
   TC_CHECK(&TCMalloc_Internal_GetStats != nullptr);
-  size_t required = TCMalloc_Internal_GetStats(buffer->data(), buffer->size());
+  size_t required = TCMalloc_Internal_GetStats(
+      buffer->data(), buffer->size(), /*include_hugepage_fragmentation=*/false);
   EXPECT_LE(required, buffer->size());
 
   buffer->resize(std::min(required, buffer->size()));

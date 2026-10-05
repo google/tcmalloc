@@ -173,7 +173,11 @@ void RecordCrash(absl::string_view detector, absl::string_view error) {
   if (first_crash && oom) {
 #ifndef __APPLE__
     if (&TCMalloc_Internal_GetStats != nullptr) {
-      size_t n = TCMalloc_Internal_GetStats(stats_buffer, kStatsBufferSize);
+      // Machine-level hugepage fragmentation says nothing about why this
+      // process ran out of memory and costs a sysfs read per NUMA node.
+      size_t n =
+          TCMalloc_Internal_GetStats(stats_buffer, kStatsBufferSize,
+                                     /*include_hugepage_fragmentation=*/false);
       (*log_message_writer)(stats_buffer, std::min(n, kStatsBufferSize));
     }
 #endif  // __APPLE__
