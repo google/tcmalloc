@@ -278,6 +278,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_PAGE_HEAP_GARDENING"},
     },
+    {
+        "name": "defer_per_cpu_caches",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"TCMALLOC_DEFER_PER_CPU_CACHES": "1"},
+    },
 ]
 
 def create_tcmalloc_library(

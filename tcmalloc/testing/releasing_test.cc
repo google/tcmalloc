@@ -32,6 +32,7 @@
 #include "benchmark/benchmark.h"
 #include "absl/random/random.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
@@ -39,6 +40,9 @@
 #include "tcmalloc/testing/testutil.h"
 
 namespace {
+
+using tcmalloc::tcmalloc_internal::AllowedCpus;
+using tcmalloc::tcmalloc_internal::ScopedAffinityMask;
 
 int64_t GetRSS() {
   tcmalloc::tcmalloc_internal::MemoryStats stats;
@@ -95,64 +99,82 @@ int main() {
   ptrs.reserve(kSmallAllocations + kLargeAllocations);
 
   absl::BitGen rng;
-  for (int i = 0; i < kSmallAllocations; i++) {
-    size_t size = absl::LogUniform<size_t>(rng, 0, kSmallSize);
-    void* ptr = ::operator new(size);
-    memset(ptr, 0xCD, size);
-    ::benchmark::DoNotOptimize(ptr);
-    ptrs.push_back(ptr);
+  constexpr int kMaxTries = 10;
+  for (int attempt = 0; attempt < kMaxTries; ++attempt) {
+    // Pin to a single CPU so that thread migration during deallocation does not
+    // lazily initialize a new per-CPU slab or L3 sharded transfer cache shard,
+    // which would allocate metadata from the arena and fault new mlocked pages
+    // between RSS measurements.
+    const std::vector<int> allowed_cpus = AllowedCpus();
+    TC_CHECK(!allowed_cpus.empty());
+    ScopedAffinityMask mask(allowed_cpus[0]);
+
+    ptrs.clear();
+    for (int i = 0; i < kSmallAllocations; i++) {
+      size_t size = absl::LogUniform<size_t>(rng, 0, kSmallSize);
+      void* ptr = ::operator new(size);
+      memset(ptr, 0xCD, size);
+      ::benchmark::DoNotOptimize(ptr);
+      ptrs.push_back(ptr);
+    }
+
+    for (int i = 0; i < kLargeAllocations; i++) {
+      size_t size = absl::LogUniform<size_t>(rng, kLargeSize / 2, kLargeSize);
+      void* ptr = ::operator new(size);
+      memset(ptr, 0xCD, size);
+      ::benchmark::DoNotOptimize(ptr);
+      ptrs.push_back(ptr);
+    }
+
+    int64_t before, after, before_unmapped, after_unmapped;
+    // Release all of the memory that we can.  Verify that RSS change
+    // corresponds to what the release logic did.
+
+    before = GetRSS();
+    before_unmapped = UnmappedBytes();
+
+    // Clean up.
+    for (void* ptr : ptrs) {
+      ::operator delete(ptr);
+    }
+
+    // Try to release memory TCMalloc thinks it does not need.
+    tcmalloc::MallocExtension::ReleaseMemoryToSystem(0);
+    after = GetRSS();
+    after_unmapped = UnmappedBytes();
+
+    int64_t unmapped_diff = after_unmapped - before_unmapped;
+    int64_t memusage_diff = before - after;
+    TC_CHECK_GE(unmapped_diff, 0);
+    TC_CHECK_EQ(unmapped_diff % tcmalloc::tcmalloc_internal::kHugePageSize, 0);
+
+    // Try to release all unused memory.
+
+    tcmalloc::MallocExtension::ReleaseMemoryToSystem(
+        std::numeric_limits<size_t>::max());
+    after = GetRSS();
+    after_unmapped = UnmappedBytes();
+
+    if (attempt + 1 < kMaxTries && mask.Tampered()) {
+      continue;
+    }
+    TC_CHECK(!mask.Tampered());
+
+    unmapped_diff = after_unmapped - before_unmapped;
+    memusage_diff = before - after;
+    const double kTolerance = 5e-3;
+
+    TC_LOG("Unmapped Memory [Before] %v", before_unmapped);
+    TC_LOG("Unmapped Memory [After ] %v", after_unmapped);
+    TC_LOG("Unmapped Memory [Diff  ] %v", after_unmapped - before_unmapped);
+    TC_LOG("Memory Usage [Before] %v", before);
+    TC_LOG("Memory Usage [After ] %v", after);
+    TC_LOG("Memory Usage [Diff  ] %v", before - after);
+    TC_CHECK_NE(unmapped_diff, 0);
+    TC_CHECK_GE(unmapped_diff * (1. + kTolerance), memusage_diff);
+    TC_CHECK_LE(unmapped_diff * (1. - kTolerance), memusage_diff);
+    break;
   }
-
-  for (int i = 0; i < kLargeAllocations; i++) {
-    size_t size = absl::LogUniform<size_t>(rng, kLargeSize / 2, kLargeSize);
-    void* ptr = ::operator new(size);
-    memset(ptr, 0xCD, size);
-    ::benchmark::DoNotOptimize(ptr);
-    ptrs.push_back(ptr);
-  }
-
-  int64_t before, after, before_unmapped, after_unmapped;
-  // Release all of the memory that we can.  Verify that RSS change corresponds
-  // to what the release logic did.
-
-  before = GetRSS();
-  before_unmapped = UnmappedBytes();
-
-  // Clean up.
-  for (void* ptr : ptrs) {
-    ::operator delete(ptr);
-  }
-
-  // Try to release memory TCMalloc thinks it does not need.
-  tcmalloc::MallocExtension::ReleaseMemoryToSystem(0);
-  after = GetRSS();
-  after_unmapped = UnmappedBytes();
-
-  int64_t unmapped_diff = after_unmapped - before_unmapped;
-  int64_t memusage_diff = before - after;
-  TC_CHECK_GE(unmapped_diff, 0);
-  TC_CHECK_EQ(unmapped_diff % tcmalloc::tcmalloc_internal::kHugePageSize, 0);
-
-  // Try to release all unused memory.
-
-  tcmalloc::MallocExtension::ReleaseMemoryToSystem(
-      std::numeric_limits<size_t>::max());
-  after = GetRSS();
-  after_unmapped = UnmappedBytes();
-
-  unmapped_diff = after_unmapped - before_unmapped;
-  memusage_diff = before - after;
-  const double kTolerance = 5e-3;
-
-  TC_LOG("Unmapped Memory [Before] %v", before_unmapped);
-  TC_LOG("Unmapped Memory [After ] %v", after_unmapped);
-  TC_LOG("Unmapped Memory [Diff  ] %v", after_unmapped - before_unmapped);
-  TC_LOG("Memory Usage [Before] %v", before);
-  TC_LOG("Memory Usage [After ] %v", after);
-  TC_LOG("Memory Usage [Diff  ] %v", before - after);
-  TC_CHECK_NE(unmapped_diff, 0);
-  TC_CHECK_GE(unmapped_diff * (1. + kTolerance), memusage_diff);
-  TC_CHECK_LE(unmapped_diff * (1. - kTolerance), memusage_diff);
   printf("PASS\n");
   return 0;
 }

@@ -18,6 +18,7 @@
 // auto-generated files as the result a crash happens in this test rather than
 // in a host binary executed from blaze.
 
+#undef NDEBUG
 #include <assert.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -41,6 +42,9 @@ const size_t kMin = 8;
 void* blocks[kMem / kMin];
 
 int main() {
+  void* ptr = malloc(kMin);
+  free(ptr);
+
   if (&TCMalloc_Internal_ForceCpuCacheActivation != nullptr) {
     TCMalloc_Internal_ForceCpuCacheActivation();
   }

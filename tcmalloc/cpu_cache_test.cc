@@ -2065,11 +2065,10 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
 
 class CpuCacheEnvironment {
  public:
-  CpuCacheEnvironment() : num_cpus_(NumCPUs()) {}
+  CpuCacheEnvironment() : num_cpus_(NumCPUs()) { cache_.Init(); }
   ~CpuCacheEnvironment() { cache_.Deactivate(); }
 
   void Activate() {
-    cache_.Init();
     cache_.Activate();
     ready_.store(true, std::memory_order_release);
   }
@@ -2272,8 +2271,7 @@ TEST(CpuCacheTest, Fuzz) {
   std::cout << mallocz;
 }
 
-// TODO(b/179516472):  Enable this test.
-TEST(CpuCacheTest, DISABLED_ChangingSizes) {
+TEST(CpuCacheTest, ChangingSizes) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2344,6 +2342,114 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
 
   EXPECT_EQ(allocated + unallocated, capacity);
   EXPECT_EQ(env.num_cpus() * last_cache_size, capacity);
+}
+
+TEST(CpuCacheTest, SetCacheLimitBeforeActivate) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  constexpr size_t kCustomLimit = 64 << 10;
+  cache.SetCacheLimit(kCustomLimit);
+  EXPECT_EQ(cache.CacheLimit(), kCustomLimit);
+
+  cache.Activate();
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), kCustomLimit);
+    EXPECT_EQ(cache.Unallocated(cpu), kCustomLimit);
+  }
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, SetCacheLimitToZeroAndBack) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  {
+    ScopedFakeCpuId fake_cpu_id(0);
+    void* ptr = cache.Allocate(1);
+    cache.Deallocate(ptr, 1);
+    EXPECT_GT(cache.Allocated(0), 0);
+    EXPECT_GT(cache.UsedBytes(0), 0);
+  }
+
+  cache.SetCacheLimit(0);
+  EXPECT_EQ(cache.CacheLimit(), 0);
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), 0);
+    EXPECT_EQ(cache.Allocated(cpu), 0);
+    EXPECT_EQ(cache.Unallocated(cpu), 0);
+    EXPECT_EQ(cache.UsedBytes(cpu), 0);
+  }
+
+  {
+    ScopedFakeCpuId fake_cpu_id(0);
+    void* ptr = cache.Allocate(1);
+    EXPECT_NE(ptr, nullptr);
+    cache.Deallocate(ptr, 1);
+    EXPECT_EQ(cache.Allocated(0), 0);
+    EXPECT_EQ(cache.UsedBytes(0), 0);
+  }
+
+  cache.SetCacheLimit(kMaxCpuCacheSize);
+  EXPECT_EQ(cache.CacheLimit(), kMaxCpuCacheSize);
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), kMaxCpuCacheSize);
+    EXPECT_EQ(cache.Unallocated(cpu), kMaxCpuCacheSize);
+  }
+
+  {
+    ScopedFakeCpuId fake_cpu_id(0);
+    void* ptr = cache.Allocate(1);
+    cache.Deallocate(ptr, 1);
+    EXPECT_GT(cache.Allocated(0), 0);
+    EXPECT_GT(cache.UsedBytes(0), 0);
+  }
+
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, SetCacheLimitAfterShuffle) {
+  if (!subtle::percpu::IsFast() || NumCPUs() < 2) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  constexpr size_t kInitialLimit = 1 << 10;
+  cache.SetCacheLimit(kInitialLimit);
+  cache.Activate();
+
+  constexpr int kHotCpu = 0;
+  constexpr int kColdCpu = 1;
+  constexpr size_t kSizeClass = 2;
+
+  for (int i = 0; i < 100 && cache.Capacity(kColdCpu) == kInitialLimit; ++i) {
+    ColdCacheOperations(cache, kColdCpu, kSizeClass);
+    HotCacheOperations(cache, kHotCpu, /*drain=*/true);
+    cache.ShuffleCpuCaches();
+  }
+  EXPECT_LT(cache.Capacity(kColdCpu), kInitialLimit);
+  EXPECT_GT(cache.Capacity(kHotCpu), kInitialLimit);
+
+  for (size_t new_limit :
+       {kInitialLimit, kInitialLimit / 2, kInitialLimit * 2, size_t{0}}) {
+    cache.SetCacheLimit(new_limit);
+    EXPECT_EQ(cache.CacheLimit(), new_limit);
+    for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+      EXPECT_EQ(cache.Capacity(cpu), new_limit);
+      EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu), new_limit);
+    }
+  }
+
+  cache.Deactivate();
 }
 
 TEST(TouchedCpus, SingleThreaded) {

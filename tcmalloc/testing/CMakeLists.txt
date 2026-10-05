@@ -635,6 +635,7 @@ tcmalloc_cc_test_variants(
     "absl::random_random"
     "absl::time"
     "benchmark::benchmark"
+    "tcmalloc::internal_affinity"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_stats"

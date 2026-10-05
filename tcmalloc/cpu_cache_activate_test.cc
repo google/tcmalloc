@@ -72,6 +72,8 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
   ASSERT_NE(&TCMalloc_Internal_ForceCpuCacheActivation, nullptr);
   Parameters::set_per_cpu_caches(true);
   TCMalloc_Internal_ForceCpuCacheActivation();
+  TCMalloc_Internal_ForceCpuCacheActivation();
+  tc_globals.ActivateCpuCacheIfNecessary();
   EXPECT_TRUE(tc_globals.CpuCacheActive());
 
   absl::SleepFor(absl::Milliseconds(100));
