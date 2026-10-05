@@ -38,7 +38,7 @@ class AllocationSample final : public AllocationProfilingTokenBase {
                    absl::Time start);
   ~AllocationSample() override;
 
-  Profile Stop() && override;
+  [[nodiscard]] Profile Stop() && override;
 
  private:
   AllocationSampleList* absl_nonnull list_;
