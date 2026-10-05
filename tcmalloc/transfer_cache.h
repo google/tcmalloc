@@ -251,6 +251,7 @@ class ShardedTransferCacheManagerBase {
       entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));
       entry.PrintI64("insert_hits", stats.insert_hits);
       entry.PrintI64("insert_misses", stats.insert_misses);
+      entry.PrintI64("insert_object_misses", stats.insert_object_misses);
       entry.PrintI64("remove_hits", stats.remove_hits);
       entry.PrintI64("remove_misses", stats.remove_misses);
       entry.PrintI64("remove_object_hits", stats.remove_object_hits);
