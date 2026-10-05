@@ -2520,6 +2520,13 @@ TEST(CpuCacheTest, NamedVma) {
   cache.Init();
   cache.Activate();
 
+  const auto shift =
+      subtle::percpu::ToShiftType(CpuCachePeer::GetSlabShift(cache));
+  if (subtle::percpu::GetSlabsAllocSize(shift, NumCPUs()) < 2 * kHugePageSize) {
+    cache.Deactivate();
+    GTEST_SKIP() << "Not enough CPUs to run test";
+  }
+
   TestStaticForwarder& forwarder = cache.forwarder();
   auto calls = forwarder.vma_name_calls();
   EXPECT_FALSE(calls.empty());
