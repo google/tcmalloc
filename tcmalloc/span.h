@@ -331,7 +331,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   struct {
     uint16_t value;
 
-    [[nodiscard]] uint16_t load(std::memory_order) const { return value; }
+    uint16_t load(std::memory_order) const { return value; }
 
     void store(uint16_t v, std::memory_order) { value = v; }
   }

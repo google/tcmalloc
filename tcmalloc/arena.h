@@ -59,7 +59,7 @@ struct ArenaAllocInfo {
   absl::string_view proto_field;
 };
 
-[[nodiscard]] constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
+constexpr ArenaAllocInfo GetArenaAllocInfo(ArenaAlloc type) {
   switch (type) {
     case ArenaAlloc::kSpan:
       return {"Span", "span"};
@@ -93,7 +93,7 @@ struct ArenaAllocInfo {
   TC_BUG("Invalid ArenaAlloc type: %zu", static_cast<size_t>(type));
 }
 
-[[nodiscard]] constexpr bool CheckArenaAllocInfo() {
+constexpr bool CheckArenaAllocInfo() {
   for (size_t i = 0; i < kNumArenaAllocs; ++i) {
     ArenaAllocInfo info = GetArenaAllocInfo(static_cast<ArenaAlloc>(i));
     if (info.label.empty() || info.proto_field.empty()) {
@@ -166,7 +166,7 @@ class ABSL_CACHELINE_ALIGNED Arena {
   }
 
   // Allocated bytes without taking any locks.
-  [[nodiscard]] size_t allocated() const ABSL_LOCKS_EXCLUDED(arena_lock_) {
+  size_t allocated() const ABSL_LOCKS_EXCLUDED(arena_lock_) {
     return bytes_allocated_.load(std::memory_order_relaxed);
   }
 
@@ -179,7 +179,7 @@ class ABSL_CACHELINE_ALIGNED Arena {
   ABSL_ATTRIBUTE_NOINLINE void AllocSlow(size_t bytes, size_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(arena_lock_);
   void StashRemainingFreeArea() ABSL_EXCLUSIVE_LOCKS_REQUIRED(arena_lock_);
-  [[nodiscard]] Block* TryPopFromFreelist(size_t bytes, size_t align)
+  Block* TryPopFromFreelist(size_t bytes, size_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(arena_lock_);
 
   // How much to allocate from system at a time

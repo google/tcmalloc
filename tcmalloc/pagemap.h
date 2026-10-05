@@ -51,7 +51,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 typedef void* (*PagemapAllocator)(size_t);
-[[nodiscard]] void* MetaDataAlloc(size_t bytes);
+void* MetaDataAlloc(size_t bytes);
 
 // Convenience wrapper around a uintptr that packs a Span pointer and its
 // size class into a single word.
@@ -62,10 +62,10 @@ class PackedSpanAndSizeclass {
                     reinterpret_cast<uintptr_t>(span);
   }
 
-  [[nodiscard]] Span* absl_nullable span() const {
+  Span* absl_nullable span() const {
     return reinterpret_cast<Span*>(packed_value_ & kSpanMask);
   }
-  [[nodiscard]] CompactSizeClass sizeclass() const {
+  CompactSizeClass sizeclass() const {
     // Load the size class byte directly so `PageMap::sizeclass` emits a 1-byte
     // load.
     return reinterpret_cast<const CompactSizeClass*>(
@@ -113,7 +113,7 @@ class PageMap {
     PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
     void* hugepage[kLeafHugepages];
 
-    [[nodiscard]] Span* absl_nullable span(int i) const {
+    Span* absl_nullable span(int i) const {
       return span_and_sizeclass[i].span();
     }
   };
@@ -307,7 +307,7 @@ class PageMap {
     return true;
   }
 
-  [[nodiscard]] constexpr size_t RootSize() const { return sizeof(root_); }
+  constexpr size_t RootSize() const { return sizeof(root_); }
 
   // Mark an allocated span as being used for small objects of the
   // specified size-class.
@@ -341,7 +341,7 @@ class PageMap {
   // of such Spans in the provided allocated_spans vector. This routine avoids
   // allocation events since we hold the pageheap_lock, so no more elements will
   // be added to allocated_spans after it reaches its already reserved capacity.
-  [[nodiscard]] GOOGLE_MALLOC_SECTION int GetAllocatedSpans(
+  GOOGLE_MALLOC_SECTION int GetAllocatedSpans(
       std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
                       SpanDetails>& allocated_spans);
 };

@@ -76,7 +76,7 @@ class MetadataObjectAllocator {
     LockAndDeleteMemory(p);
   }
 
-  [[nodiscard]] AllocatorStats stats() const {
+  AllocatorStats stats() const {
     AllocationGuardSpinLockHolder l(metadata_lock_);
 
     return stats_;
@@ -92,8 +92,8 @@ class MetadataObjectAllocator {
     T* ret = LockAndAllocMemory(size, align);
     return new (ret) T(std::forward<Args>(args)...);
   }
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* LockAndAllocMemory(
-      size_t size, std::align_val_t align) {
+  ABSL_ATTRIBUTE_RETURNS_NONNULL T* LockAndAllocMemory(size_t size,
+                                                       std::align_val_t align) {
     TC_ASSERT_GE(static_cast<size_t>(align), alignof(T));
 
     AllocationGuardSpinLockHolder l(metadata_lock_);

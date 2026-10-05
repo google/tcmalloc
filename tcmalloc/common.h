@@ -229,9 +229,9 @@ inline constexpr int kMaxOverages = 3;
 // scavenging code will shrink it down when its contents are not in use.
 inline constexpr size_t kMaxDynamicFreeListLength = 8192;
 
-[[nodiscard]] constexpr bool ColdFeatureActive() { return kHasColdClasses; }
+constexpr bool ColdFeatureActive() { return kHasColdClasses; }
 
-[[nodiscard]] constexpr bool IsColdSizeClass(unsigned size_class) {
+constexpr bool IsColdSizeClass(unsigned size_class) {
   return kHasColdClasses && (size_class >= kColdClassesStart);
 }
 
@@ -252,7 +252,7 @@ enum class AllocationAccess {
   kCold,
 };
 
-[[nodiscard]] inline MemoryTag MultiNormalTag(size_t partition) {
+inline MemoryTag MultiNormalTag(size_t partition) {
   switch (partition) {
     case 0:
       return MemoryTag::kNormalP0;
@@ -264,7 +264,7 @@ enum class AllocationAccess {
   }
 }
 
-[[nodiscard]] inline size_t PartitionFromPointer(const void* ptr) {
+inline size_t PartitionFromPointer(const void* ptr) {
   if constexpr (kNormalPartitions == 1) {
     return 0;
   }
@@ -279,7 +279,7 @@ enum class AllocationAccess {
 
 // TODO: b/470136917 - Investigate if we can beautify this by avoiding two
 // PartitionFromPointer functions.
-[[nodiscard]] inline size_t PartitionFromPointerFast(void* ptr) {
+inline size_t PartitionFromPointerFast(void* ptr) {
   TC_ASSERT(GetMemoryTag(ptr) == MemoryTag::kNormal ||
             GetMemoryTag(ptr) == MemoryTag::kNormalP1);
   static_assert((static_cast<uint8_t>(MemoryTag::kNormal) & 2) == 0);
@@ -310,7 +310,7 @@ class ABSL_SCOPED_LOCKABLE PageHeapSpinLockHolder {
 };
 
 // Evaluates a/b, avoiding division by zero.
-[[nodiscard]] inline double safe_div(double a, double b) {
+inline double safe_div(double a, double b) {
   if (b == 0) {
     return 0.;
   } else {

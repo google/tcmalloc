@@ -429,7 +429,7 @@ TEST(Arena, ArenaAllocInfo) {
       EXPECT_NE(info.proto_field, other.proto_field);
     }
   }
-  EXPECT_DEATH((void)GetArenaAllocInfo(ArenaAlloc::kNumTypes),
+  EXPECT_DEATH(GetArenaAllocInfo(ArenaAlloc::kNumTypes),
                "Invalid ArenaAlloc type");
 }
 
