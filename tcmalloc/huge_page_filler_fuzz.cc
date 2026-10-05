@@ -398,12 +398,11 @@ struct State {
                subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
-    // To avoid reentrancy during unback, reserve space in released_set.  We
+    // MockUnback inserts into released_set while the AllocationGuard of the
+    // caller's PageHeapSpinLockHolder is still in force, even though the filler
+    // has dropped pageheap_lock itself, so the set must never grow there.  We
     // have at most num_instructions allocations, for at most kPagesPerHugePage
     // pages each, that we can track the released status of.
-    //
-    // TODO(b/73749855): Releasing the pageheap_lock during ReleaseFree will
-    // eliminate the need for this.
     released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
   }
 
