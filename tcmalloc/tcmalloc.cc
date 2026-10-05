@@ -1200,7 +1200,8 @@ template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
 alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
                                        Policy policy, size_t weight) {
-  if (ABSL_PREDICT_FALSE(size_class == 0)) {
+  if (ABSL_PREDICT_FALSE(size_class == 0 || (kNumaPartitions > 1 &&
+                                             size_class == kNumBaseClasses))) {
     // This happens on the first call then the size class table is not inited.
     TC_ASSERT(tc_globals.IsInited());
     auto ret = tc_globals.sizemap().GetSizeClass(policy, size);
@@ -1244,7 +1245,9 @@ ABSL_ATTRIBUTE_NOINLINE static
                                                    uint32_t size_class,
                                                    Policy policy) {
   size_t weight = GetThreadSampler().RecordedAllocationFast(size);
-  if (ABSL_PREDICT_FALSE(weight != 0) ||
+  if (ABSL_PREDICT_FALSE(size_class == 0 || (kNumaPartitions > 1 &&
+                                             size_class == kNumBaseClasses)) ||
+      ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
     return alloc_small_sampled_hooks_or_perthread(size, size_class, policy,
