@@ -192,9 +192,8 @@ class Static final {
   [[nodiscard]] bool ABSL_ATTRIBUTE_ALWAYS_INLINE CpuCacheActive() const {
     return cpu_cache_active_.load(std::memory_order_acquire);
   }
-  void ActivateCpuCache() {
-    cpu_cache_active_.store(true, std::memory_order_release);
-  }
+  void ActivateCpuCacheIfNecessary()
+      ABSL_LOCKS_EXCLUDED(init_lock_, pageheap_lock);
 
   [[nodiscard]] static bool ABSL_ATTRIBUTE_ALWAYS_INLINE HaveHooks() {
     return
@@ -221,7 +220,7 @@ class Static final {
 #if defined(__clang__)
   __attribute__((preserve_most))
 #endif
-  void SlowInitIfNecessary() ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void SlowInitIfNecessary() ABSL_LOCKS_EXCLUDED(init_lock_, pageheap_lock);
 
   // PageHeap uses a constructor for initialization.  Like the members above,
   // we can't depend on initialization order, so pageheap is new'd
@@ -251,6 +250,8 @@ class Static final {
   MetadataObjectAllocator<StackTraceTable::LinkedSample,
                           ArenaAlloc::kStackTraceTable>
       linked_sample_allocator_;
+  absl::base_internal::SpinLock init_lock_ ABSL_ACQUIRED_BEFORE(pageheap_lock){
+      absl::base_internal::SCHEDULE_KERNEL_ONLY};
   std::atomic<bool> inited_ = false;
   std::atomic<bool> cpu_cache_active_ = false;
   PeakHeapTracker peak_heap_tracker_;

@@ -41,6 +41,9 @@ const size_t kMin = 8;
 void* blocks[kMem / kMin];
 
 int main() {
+  // TCMallocGuard's allocation before main() activates per-CPU caches unless
+  // deferred.
+
   if (&TCMalloc_Internal_ForceCpuCacheActivation != nullptr) {
     TCMalloc_Internal_ForceCpuCacheActivation();
   }

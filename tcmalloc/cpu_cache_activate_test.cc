@@ -14,7 +14,9 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <thread>  // NOLINT(build/c++11)
+#include <vector>
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
@@ -67,11 +69,28 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
   });
 
   // Trigger initialization of the CpuCache, confirming it was not initialized
-  // at the start of the test and is afterwards.
+  // at the start of the test and is afterwards.  Activate from several threads
+  // at once: only one of them may call CpuCache::Activate.
   EXPECT_FALSE(tc_globals.CpuCacheActive());
   ASSERT_NE(&TCMalloc_Internal_ForceCpuCacheActivation, nullptr);
   Parameters::set_per_cpu_caches(true);
-  TCMalloc_Internal_ForceCpuCacheActivation();
+
+  constexpr int kActivators = 4;
+  std::atomic<bool> go(false);
+  std::vector<std::thread> activators;
+  activators.reserve(kActivators);
+  for (int i = 0; i < kActivators; ++i) {
+    activators.emplace_back([&]() {
+      while (!go.load(std::memory_order_acquire)) {
+      }
+      TCMalloc_Internal_ForceCpuCacheActivation();
+      EXPECT_TRUE(tc_globals.CpuCacheActive());
+    });
+  }
+  go.store(true, std::memory_order_release);
+  for (auto& activator : activators) {
+    activator.join();
+  }
   EXPECT_TRUE(tc_globals.CpuCacheActive());
 
   absl::SleepFor(absl::Milliseconds(100));
