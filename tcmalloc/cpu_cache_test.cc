@@ -69,6 +69,7 @@
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
+#include "tcmalloc/testing/smaps.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 #include "tcmalloc/transfer_cache.h"
@@ -126,15 +127,29 @@ class CpuCachePeer {
   static size_t CpuStateSize(const CpuCache& cpu_cache) {
     return cpu_cache.freelist_.GetCpuStateSize();
   }
-
-  template <typename CpuCache>
-  static void MadviseAwaySlabs(CpuCache& cpu_cache, void* slab_addr,
-                               size_t slab_size) {
-    cpu_cache.MadviseAwaySlabs(slab_addr, slab_size);
-  }
 };
 
 namespace {
+
+// Returns whether any VMA overlapping [addr, addr + size) in /proc/self/smaps
+// has the MADV_NOHUGEPAGE ("nh") flag set in VmFlags.
+[[nodiscard]] std::optional<bool> HasNoHugePageFlag(const void* addr,
+                                                    size_t size) {
+  bool found_overlap = false;
+  bool has_nohugepage = false;
+  if (!ForEachSmapEntry([&](const SmapEntry& entry) {
+        if (entry.Overlaps(addr, size)) {
+          found_overlap = true;
+          has_nohugepage |= entry.HasVmFlag("nh");
+        }
+      })) {
+    return std::nullopt;
+  }
+  if (!found_overlap) {
+    return std::nullopt;
+  }
+  return has_nohugepage;
+}
 
 enum class DynamicSlab { kGrow, kShrink, kNoop };
 
@@ -1143,6 +1158,8 @@ TEST(CpuCacheTest, DynamicSlab) {
                                          "tcmalloc_cpu_slab_drained_up",
                                          "tcmalloc_cpu_slab_drained_down",
                                          "tcmalloc_cpu_slab_drained_exact"));
+              EXPECT_THAT(HasNoHugePageFlag(call.ptr, call.size),
+                          testing::Optional(true));
             }
           }
 
@@ -1850,6 +1867,16 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
 
       EXPECT_GT(cache.GetNumUnpopulates(), 0);
       EXPECT_LT(cache.GetNumUnpopulates(), num_cpus);
+
+      int drained_names = 0;
+      for (const auto& call : cache.forwarder().vma_name_calls()) {
+        if (absl::StartsWith(call.name, "tcmalloc_cpu_slab_drained_")) {
+          ++drained_names;
+          EXPECT_THAT(HasNoHugePageFlag(call.ptr, call.size),
+                      testing::Optional(false));
+        }
+      }
+      EXPECT_GT(drained_names, 0);
     } else {
       EXPECT_EQ(cache.GetNumUnpopulates(), 0);
     }
@@ -1905,6 +1932,8 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateRepeated) {
   for (const auto& call : forwarder.vma_name_calls()) {
     if (absl::StartsWith(call.name, "tcmalloc_cpu_slab_drained_")) {
       ++drained_names;
+      EXPECT_THAT(HasNoHugePageFlag(call.ptr, call.size),
+                  testing::Optional(false));
     }
   }
   EXPECT_GE(drained_names, kIterations);

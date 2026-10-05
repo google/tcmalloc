@@ -281,6 +281,35 @@ tcmalloc_cc_library(
     "tcmalloc::testing_testutil"
 )
 
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_smaps
+  ALIAS
+    tcmalloc::testing_smaps
+  HDRS
+    "smaps.h"
+  SRCS
+    "smaps.cc"
+  DEPS
+    "absl::function_ref"
+    "absl::string_view"
+    "absl::strings"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_testing_smaps_test
+  SRCS
+    "smaps_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::string_view"
+    "tcmalloc::tcmalloc"
+    "tcmalloc::testing_smaps"
+)
+
 tcmalloc_cc_test(
   NAME
     tcmalloc_testing_outofmemory_test
