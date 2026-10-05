@@ -2271,47 +2271,42 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxSampledPages) {
     }
     const bool is_sampled =
         tag == MemoryTag::kSampled || tag == MemoryTag::kSampledP1;
-    for (bool release_max_sampled_pages : {false, true}) {
-      // PageAllocator releases from the sampled heap last, so it is commonly
-      // asked for zero pages.
-      for (Length requested : {Length(0), kAllocPages}) {
-        SCOPED_TRACE(absl::StrCat(
-            "tag=", static_cast<int>(tag), " release_max_sampled_pages=",
-            release_max_sampled_pages, " requested=", requested.raw_num()));
-        FakeHugePageAwareAllocator allocator({.tag = tag});
-        allocator.forwarder().set_filler_skip_subrelease_short_interval(
-            absl::ZeroDuration());
-        allocator.forwarder().set_filler_skip_subrelease_long_interval(
-            absl::ZeroDuration());
-        allocator.forwarder().set_release_max_filler_pages(false);
-        allocator.forwarder().set_release_max_sampled_pages(
-            release_max_sampled_pages);
+    // PageAllocator releases from the sampled heap last, so it is commonly
+    // asked for zero pages.
+    for (Length requested : {Length(0), kAllocPages}) {
+      SCOPED_TRACE(absl::StrCat("tag=", static_cast<int>(tag),
+                                " requested=", requested.raw_num()));
+      FakeHugePageAwareAllocator allocator({.tag = tag});
+      allocator.forwarder().set_filler_skip_subrelease_short_interval(
+          absl::ZeroDuration());
+      allocator.forwarder().set_filler_skip_subrelease_long_interval(
+          absl::ZeroDuration());
+      allocator.forwarder().set_release_max_filler_pages(false);
 
-        Span* s1 = allocator.New(kAllocPages, kAllocInfo);
-        Span* s2 = allocator.New(kAllocPages, kAllocInfo);
-        Span* s3 = allocator.New(kAllocPages, kAllocInfo);
-        Span* s4 = allocator.New(kAllocPages, kAllocInfo);
+      Span* s1 = allocator.New(kAllocPages, kAllocInfo);
+      Span* s2 = allocator.New(kAllocPages, kAllocInfo);
+      Span* s3 = allocator.New(kAllocPages, kAllocInfo);
+      Span* s4 = allocator.New(kAllocPages, kAllocInfo);
 
-        SpanDeleter deleter(&allocator);
-        deleter(s1);
-        deleter(s3);
+      SpanDeleter deleter(&allocator);
+      deleter(s1);
+      deleter(s3);
 
-        Length released;
-        {
-          PageHeapSpinLockHolder l;
-          released = allocator.ReleaseAtLeastNPages(
-              requested, PageReleaseReason::kReleaseMemoryToSystem);
-        }
-
-        if (is_sampled && release_max_sampled_pages) {
-          EXPECT_EQ(released, 2 * kAllocPages);
-        } else {
-          EXPECT_EQ(released, requested);
-        }
-
-        deleter(s2);
-        deleter(s4);
+      Length released;
+      {
+        PageHeapSpinLockHolder l;
+        released = allocator.ReleaseAtLeastNPages(
+            requested, PageReleaseReason::kReleaseMemoryToSystem);
       }
+
+      if (is_sampled) {
+        EXPECT_EQ(released, 2 * kAllocPages);
+      } else {
+        EXPECT_EQ(released, requested);
+      }
+
+      deleter(s2);
+      deleter(s4);
     }
   }
 }
