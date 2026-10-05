@@ -222,7 +222,8 @@ struct State {
     live_ranges.clear();
     outstanding_usage = NHugePages(0);
 
-    cache.ReleaseCachedPages(cache.size());
+    const HugeLength to_release = cache.size();
+    TC_CHECK_EQ(cache.ReleaseCachedPages(to_release), to_release);
     CheckInvariants();
     TC_CHECK_EQ(cache.size(), NHugePages(0));
     TC_CHECK_EQ(cache.usage(), NHugePages(0));

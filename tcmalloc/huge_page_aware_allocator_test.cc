@@ -1688,7 +1688,7 @@ TEST_F(StatTest, Basic) {
     if (absl::Bernoulli(rng, 1.0 / 3)) {
       Length pages(absl::LogUniform<int32_t>(rng, 0, (1 << 10) - 1) + 1);
       PageHeapSpinLockHolder l;
-      alloc_->ReleaseAtLeastNPages(
+      (void)alloc_->ReleaseAtLeastNPages(
           pages, /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
     }
 

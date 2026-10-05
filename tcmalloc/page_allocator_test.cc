@@ -382,7 +382,7 @@ static void ReleaseDuringHardLimitShrinkHook(size_t num_pages, size_t released,
   const PageAllocatorInterface::AllocationState a = *shrink_hook_alloc;
   shrink_hook_alloc.reset();
   shrink_hook_allocator->Delete(a, MemoryTag::kNormal, shrink_hook_alloc_info);
-  shrink_hook_allocator->ReleaseAtLeastNPages(
+  (void)shrink_hook_allocator->ReleaseAtLeastNPages(
       kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem);
 }
 
@@ -519,7 +519,7 @@ TEST_F(PageAllocatorTest, Hooks) {
   Length requested = Length(1);
   for (PageReleaseReason reason : kReasons) {
     release_record_count = 0;
-    Release(requested, reason);
+    (void)Release(requested, reason);
     EXPECT_GE(release_record_count, 1);
     EXPECT_EQ(release_records[0].num_pages, requested.raw_num());
     EXPECT_EQ(release_records[0].reason, reason);
