@@ -78,77 +78,84 @@ class Static final {
   Static& operator=(Static&&) = delete;
 
   // True if InitIfNecessary() has run to completion.
-  bool IsInited() const;
+  [[nodiscard]] bool IsInited() const;
   // Must be called before calling any of the accessors below.
   // Safe to call multiple times.
   void InitIfNecessary();
 
   // Central cache.
-  CentralFreeList& central_freelist(int size_class) {
+  [[nodiscard]] CentralFreeList& central_freelist(int size_class) {
     return transfer_cache().central_freelist(size_class);
   }
   // Central cache -- an array of free-lists, one per size-class.
   // We have a separate lock per free-list to reduce contention.
-  TransferCacheManager& transfer_cache() { return transfer_cache_; }
+  [[nodiscard]] TransferCacheManager& transfer_cache() {
+    return transfer_cache_;
+  }
 
   // A per-cache domain TransferCache.
-  ShardedTransferCacheManager& sharded_transfer_cache() {
+  [[nodiscard]] ShardedTransferCacheManager& sharded_transfer_cache() {
     return sharded_transfer_cache_;
   }
 
-  SizeMap& sizemap() { return sizemap_; }
+  [[nodiscard]] SizeMap& sizemap() { return sizemap_; }
 
-  auto& cpu_cache() { return cpu_cache_; }
+  [[nodiscard]] auto& cpu_cache() { return cpu_cache_; }
 
-  PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
+  [[nodiscard]] PeakHeapTracker& peak_heap_tracker() {
+    return peak_heap_tracker_;
+  }
 
-  NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
+  [[nodiscard]] NumaTopology<kNumaPartitions, kNumBaseClasses>&
+  numa_topology() {
     return numa_topology_;
   }
 
-  static bool multiple_non_numa_partitions() {
+  [[nodiscard]] static bool multiple_non_numa_partitions() {
     return Parameters::heap_partitioning_mode() != HeapPartitioningMode::kOff;
   }
 
-  size_t active_partitions() {
+  [[nodiscard]] size_t active_partitions() {
     return multiple_non_numa_partitions() ? kNormalPartitions
                                           : numa_topology().active_partitions();
   }
 
-  SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
-                  kNormalPartitions>&
+  [[nodiscard]] SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
+                                kNormalPartitions>&
   system_allocator() {
     return system_allocator_;
   }
 
-  Arena& arena() { return arena_; }
+  [[nodiscard]] Arena& arena() { return arena_; }
 
   // Page-level allocator.
-  PageAllocator& page_allocator() {
+  [[nodiscard]] PageAllocator& page_allocator() {
     return *reinterpret_cast<PageAllocator*>(page_allocator_.memory);
   }
 
-  ProdPageMap& pagemap() { return pagemap_; }
+  [[nodiscard]] ProdPageMap& pagemap() { return pagemap_; }
 
-  GuardedPageAllocator& guardedpage_allocator() {
+  [[nodiscard]] GuardedPageAllocator& guardedpage_allocator() {
     return guardedpage_allocator_;
   }
 
-  MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>&
+  [[nodiscard]] MetadataObjectAllocator<SampledAllocation,
+                                        ArenaAlloc::kSampledAllocation>&
   sampledallocation_allocator() {
     return sampledallocation_allocator_;
   }
 
-  MetadataObjectAllocator<Span, ArenaAlloc::kSpan>& span_allocator() {
+  [[nodiscard]] MetadataObjectAllocator<Span, ArenaAlloc::kSpan>&
+  span_allocator() {
     return span_allocator_;
   }
 
-  MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
+  [[nodiscard]] MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
   threadcache_allocator() {
     return threadcache_allocator_;
   }
 
-  SampledAllocationRecorder& sampled_allocation_recorder() {
+  [[nodiscard]] SampledAllocationRecorder& sampled_allocation_recorder() {
     return sampled_allocation_recorder_;
   }
 
@@ -163,7 +170,9 @@ class Static final {
 
   using PerSizeClassCounts = StatsCounters<kNumClasses>;
 
-  PerSizeClassCounts& per_size_class_counts() { return per_size_class_counts_; }
+  [[nodiscard]] PerSizeClassCounts& per_size_class_counts() {
+    return per_size_class_counts_;
+  }
 
   AllocationSampleList allocation_samples;
 
@@ -173,20 +182,20 @@ class Static final {
   // other data.
   std::atomic<int64_t> sampled_alloc_handle_generator = 0;
 
-  MetadataObjectAllocator<StackTraceTable::LinkedSample,
-                          ArenaAlloc::kStackTraceTable>&
+  [[nodiscard]] MetadataObjectAllocator<StackTraceTable::LinkedSample,
+                                        ArenaAlloc::kStackTraceTable>&
   linked_sample_allocator() {
     return linked_sample_allocator_;
   }
 
-  bool ABSL_ATTRIBUTE_ALWAYS_INLINE CpuCacheActive() const {
+  [[nodiscard]] bool ABSL_ATTRIBUTE_ALWAYS_INLINE CpuCacheActive() const {
     return cpu_cache_active_.load(std::memory_order_acquire);
   }
   void ActivateCpuCache() {
     cpu_cache_active_.store(true, std::memory_order_release);
   }
 
-  static bool ABSL_ATTRIBUTE_ALWAYS_INLINE HaveHooks() {
+  [[nodiscard]] static bool ABSL_ATTRIBUTE_ALWAYS_INLINE HaveHooks() {
     return
         // These boolean operations do not require short-circuiting from &&.
         // Bitwise AND of booleans triggers -Wbitwise-instead-of-logical, as
@@ -196,17 +205,18 @@ class Static final {
         static_cast<int>(!delete_hooks_.empty());
   }
 
-  size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] size_t metadata_bytes()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // The root of the pagemap is potentially a large poorly utilized
   // structure, so figure out how much of it is actually resident.
-  size_t pagemap_residence();
+  [[nodiscard]] size_t pagemap_residence();
 
-  GwpAsanState& gwp_asan_state() { return gwp_asan_state_; }
+  [[nodiscard]] GwpAsanState& gwp_asan_state() { return gwp_asan_state_; }
 
-  static SizeClassConfiguration size_class_configuration();
+  [[nodiscard]] static SizeClassConfiguration size_class_configuration();
 
-  static const Span& invalid_span() { return kInvalidSpan; }
+  [[nodiscard]] static const Span& invalid_span() { return kInvalidSpan; }
 
  private:
 #if defined(__clang__)

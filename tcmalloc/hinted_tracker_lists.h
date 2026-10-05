@@ -39,7 +39,7 @@ class HintedTrackerLists {
 
   // Removes a TrackerType from the first non-empty freelist with index at
   // least n and returns it. Returns nullptr if there is none.
-  TrackerType* absl_nullable GetLeast(const size_t n) {
+  [[nodiscard]] TrackerType* absl_nullable GetLeast(const size_t n) {
     TC_ASSERT_LT(n, N);
     size_t i = nonempty_.FindSet(n);
     if (ABSL_PREDICT_FALSE(i == N)) {
@@ -64,7 +64,7 @@ class HintedTrackerLists {
     size_t index;
   };
 
-  PeekResult PeekLeast(const size_t n) {
+  [[nodiscard]] PeekResult PeekLeast(const size_t n) {
     TC_ASSERT_LT(n, N);
     size_t i = nonempty_.FindSet(n);
     if (ABSL_PREDICT_FALSE(i == N)) {
@@ -124,15 +124,15 @@ class HintedTrackerLists {
     nonempty_.SetBit(to);
   }
 
-  const TrackerList& operator[](const size_t n) const {
+  [[nodiscard]] const TrackerList& operator[](const size_t n) const {
     TC_ASSERT_LT(n, N);
     return lists_[n];
   }
-  size_t size() const { return size_; }
+  [[nodiscard]] size_t size() const { return size_; }
 
   // Returns length of the list at an index <n>.
   // REQUIRES: n < N.
-  size_t SizeOfList(const size_t n) const {
+  [[nodiscard]] size_t SizeOfList(const size_t n) const {
     TC_ASSERT_LT(n, N);
     return lists_[n].length();
   }

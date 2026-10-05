@@ -42,6 +42,7 @@
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/distributions.h"
@@ -157,6 +158,7 @@ class HugePageAwareAllocatorTest
 
   ~HugePageAwareAllocatorTest() override {
     TC_CHECK(ids_.empty());
+    TC_CHECK(present_.empty());
     TC_CHECK_EQ(total_, Length(0));
     // We end up leaking both the backing allocations and the metadata.
     // The backing allocations are unmapped--it's silly, but not
@@ -229,11 +231,17 @@ class HugePageAwareAllocatorTest
     Span* span = AllocatorNew(n, span_alloc_info);
     TC_CHECK_NE(span, nullptr);
     EXPECT_GE(span->num_pages(), n);
+    const PageId p = span->first_page();
+    const PageId end = p + span->num_pages();
     const size_t id = next_id_++;
     total_ += n;
     CheckStats();
+    // Ensure all live allocations get distinct
+    // ranges, without touching the memory itself
+    TC_CHECK(IsEmptyRange(p, end));
     // and distinct spans...
     TC_CHECK(ids_.insert({span, id}).second);
+    TC_CHECK(present_.insert({p, {end, id}}).second);
     return span;
   }
 
@@ -241,14 +249,31 @@ class HugePageAwareAllocatorTest
     Length n = span->num_pages();
     {
       absl::base_internal::SpinLockHolder h(lock_);
+      const PageId p = span->first_page();
+      const PageId end = p + span->num_pages();
       auto i = ids_.find(span);
       TC_CHECK(i != ids_.end());
       const size_t id = i->second;
       ids_.erase(i);
+      // Make sure no one has scrobbled on our memory
+      auto it = present_.find(p);
+      ASSERT_NE(it, present_.end());
+      ASSERT_EQ(it->second.first, end);
+      ASSERT_EQ(it->second.second, id);
+      present_.erase(it);
       AllocatorDelete(span, objects_per_span);
       total_ -= n;
       CheckStats();
     }
+  }
+
+  // Returns true if no live allocation overlaps [p, end).
+  [[nodiscard]] bool IsEmptyRange(PageId p, PageId end) const {
+    auto it = present_.lower_bound(p);
+    if (it != present_.end() && it->first < end) return false;
+    if (it == present_.begin()) return true;
+    --it;
+    return it->second.first <= p;
   }
 
   // Mostly small things, some large ones.
@@ -314,6 +339,8 @@ class HugePageAwareAllocatorTest
   ExtraRegionFactory* extra_ = nullptr;
   AddressRegionFactory* before_ = nullptr;
   absl::base_internal::SpinLock lock_;
+  // Live allocations: first page -> (end page, allocation id).
+  absl::btree_map<PageId, std::pair<PageId, size_t>> present_;
   absl::flat_hash_map<Span*, size_t> ids_;
   size_t next_id_{0};
   Length total_;
@@ -1661,7 +1688,7 @@ TEST_F(StatTest, Basic) {
     if (absl::Bernoulli(rng, 1.0 / 3)) {
       Length pages(absl::LogUniform<int32_t>(rng, 0, (1 << 10) - 1) + 1);
       PageHeapSpinLockHolder l;
-      alloc_->ReleaseAtLeastNPages(
+      (void)alloc_->ReleaseAtLeastNPages(
           pages, /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
     }
 

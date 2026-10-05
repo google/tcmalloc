@@ -53,10 +53,10 @@ namespace tcmalloc_internal {
 
 class StaticForwarder {
  public:
-  static size_t class_to_size(int size_class);
-  static size_t num_objects_to_move(int size_class);
-  static void* absl_nonnull Alloc(size_t size,
-                                  std::align_val_t alignment = kAlignment);
+  [[nodiscard]] static size_t class_to_size(int size_class);
+  [[nodiscard]] static size_t num_objects_to_move(int size_class);
+  [[nodiscard]] static void* absl_nonnull Alloc(
+      size_t size, std::align_val_t alignment = kAlignment);
 };
 
 class ShardedStaticForwarder : public StaticForwarder {
@@ -72,9 +72,9 @@ class ShardedStaticForwarder : public StaticForwarder {
         Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
   }
 
-  static bool UseGenericCache() { return use_generic_cache_; }
+  [[nodiscard]] static bool UseGenericCache() { return use_generic_cache_; }
 
-  static bool EnableCacheForLargeClassesOnly() {
+  [[nodiscard]] static bool EnableCacheForLargeClassesOnly() {
     return enable_cache_for_large_classes_only_;
   }
 
@@ -85,9 +85,13 @@ class ShardedStaticForwarder : public StaticForwarder {
 
 class ProdCpuLayout {
  public:
-  static unsigned NumShards() { return CacheTopology::Instance().l3_count(); }
-  static int CurrentCpu() { return subtle::percpu::GetRealCpuUnsafe(); }
-  static unsigned CpuShard(int cpu) {
+  [[nodiscard]] static unsigned NumShards() {
+    return CacheTopology::Instance().l3_count();
+  }
+  [[nodiscard]] static int CurrentCpu() {
+    return subtle::percpu::GetRealCpuUnsafe();
+  }
+  [[nodiscard]] static unsigned CpuShard(int cpu) {
     return CacheTopology::Instance().GetL3FromCpuId(cpu);
   }
 };
@@ -102,7 +106,7 @@ class BackingTransferCache {
   }
   void InsertRange(absl::Span<void*> batch) const;
   [[nodiscard]] int RemoveRange(absl::Span<void*> batch) const;
-  int size_class() const { return size_class_; }
+  [[nodiscard]] int size_class() const { return size_class_; }
 
  private:
   int size_class_ = -1;
@@ -153,11 +157,11 @@ class ShardedTransferCacheManagerBase {
     }
   }
 
-  bool should_use(int size_class) const {
+  [[nodiscard]] bool should_use(int size_class) const {
     return active_for_class_[size_class];
   }
 
-  size_t TotalBytes() const {
+  [[nodiscard]] size_t TotalBytes() const {
     if (shards_ == nullptr) return 0;
     size_t out = 0;
     for (int shard = 0; shard < num_shards_; ++shard) {
@@ -172,7 +176,7 @@ class ShardedTransferCacheManagerBase {
     return out;
   }
 
-  int TotalObjectsOfClass(int size_class) const {
+  [[nodiscard]] int TotalObjectsOfClass(int size_class) const {
     if (shards_ == nullptr) return 0;
     int objects = 0;
     for (int shard = 0; shard < num_shards_; ++shard) {
@@ -247,6 +251,7 @@ class ShardedTransferCacheManagerBase {
       entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));
       entry.PrintI64("insert_hits", stats.insert_hits);
       entry.PrintI64("insert_misses", stats.insert_misses);
+      entry.PrintI64("insert_object_misses", stats.insert_object_misses);
       entry.PrintI64("remove_hits", stats.remove_hits);
       entry.PrintI64("remove_misses", stats.remove_misses);
       entry.PrintI64("remove_object_hits", stats.remove_object_hits);
@@ -260,7 +265,7 @@ class ShardedTransferCacheManagerBase {
   }
 
   // Returns cumulative stats over all the shards of the sharded transfer cache.
-  TransferCacheStats GetStats(int size_class) const {
+  [[nodiscard]] TransferCacheStats GetStats(int size_class) const {
     TransferCacheStats stats = {};
     for (int index = 0; index < num_shards_; ++index) {
       if (!shard_initialized(index)) continue;
@@ -302,7 +307,7 @@ class ShardedTransferCacheManagerBase {
     }
   }
 
-  int tc_length(int cpu, int size_class) const {
+  [[nodiscard]] int tc_length(int cpu, int size_class) const {
     if (shards_ == nullptr) return 0;
     const uint8_t shard = cpu_layout_->CpuShard(cpu);
     TC_ASSERT_LT(shard, num_shards_);
@@ -310,22 +315,24 @@ class ShardedTransferCacheManagerBase {
     return shards_[shard].transfer_caches[size_class].tc_length();
   }
 
-  bool shard_initialized(int shard) const {
+  [[nodiscard]] bool shard_initialized(int shard) const {
     if (shards_ == nullptr) return false;
     TC_ASSERT_LT(shard, num_shards_);
     return shards_[shard].initialized.load(std::memory_order_acquire);
   }
 
-  bool UseCacheForLargeClassesOnly() const {
+  [[nodiscard]] bool UseCacheForLargeClassesOnly() const {
     return forwarder_.EnableCacheForLargeClassesOnly();
   }
 
-  bool UseGenericCache() const { return forwarder_.UseGenericCache(); }
+  [[nodiscard]] bool UseGenericCache() const {
+    return forwarder_.UseGenericCache();
+  }
 
-  Forwarder& forwarder() { return forwarder_; }
-  const Forwarder& forwarder() const { return forwarder_; }
+  [[nodiscard]] Forwarder& forwarder() { return forwarder_; }
+  [[nodiscard]] const Forwarder& forwarder() const { return forwarder_; }
 
-  int NumActiveShards() const {
+  [[nodiscard]] int NumActiveShards() const {
     return active_shards_.load(std::memory_order_relaxed);
   }
 
@@ -353,14 +360,14 @@ class ShardedTransferCacheManagerBase {
     int max_capacity;
   };
 
-  Capacity LargeCacheCapacity(size_t size_class) const {
+  [[nodiscard]] Capacity LargeCacheCapacity(size_t size_class) const {
     const int size_per_object = forwarder_.class_to_size(size_class);
     static constexpr int k12MB = 12 << 20;
     const int capacity = should_use(size_class) ? k12MB / size_per_object : 0;
     return {capacity, capacity};
   }
 
-  Capacity ScaledCacheCapacity(size_t size_class) const {
+  [[nodiscard]] Capacity ScaledCacheCapacity(size_t size_class) const {
     if (!should_use(size_class)) return {0, 0};
     auto [capacity, max_capacity] = TransferCache::CapacityNeeded(size_class);
     return {capacity, max_capacity};
@@ -388,7 +395,7 @@ class ShardedTransferCacheManagerBase {
 
   // Returns the cache shard corresponding to the given size class and the
   // current cpu's L3 node. The cache will be initialized if required.
-  TransferCache& get_cache(int size_class) {
+  [[nodiscard]] TransferCache& get_cache(int size_class) {
     const uint8_t shard_index =
         cpu_layout_->CpuShard(cpu_layout_->CurrentCpu());
     TC_ASSERT_LT(shard_index, num_shards_);
@@ -450,19 +457,19 @@ class TransferCacheManager {
 
   // This is not const because the underlying ring-buffer transfer cache
   // function requires acquiring a lock.
-  size_t tc_length(int size_class) const {
+  [[nodiscard]] size_t tc_length(int size_class) const {
     return cache_[size_class].tc.tc_length();
   }
 
-  TransferCacheStats GetStats(int size_class) const {
+  [[nodiscard]] TransferCacheStats GetStats(int size_class) const {
     return cache_[size_class].tc.GetStats();
   }
 
-  CentralFreeList& central_freelist(int size_class) {
+  [[nodiscard]] CentralFreeList& central_freelist(int size_class) {
     return cache_[size_class].tc.freelist();
   }
 
-  bool CanIncreaseCapacity(int size_class) const {
+  [[nodiscard]] bool CanIncreaseCapacity(int size_class) const {
     return cache_[size_class].tc.CanIncreaseCapacity(size_class);
   }
 
@@ -487,18 +494,18 @@ class TransferCacheManager {
     }
   }
 
-  bool ShrinkCache(int size_class) {
+  [[nodiscard]] bool ShrinkCache(int size_class) {
     return cache_[size_class].tc.ShrinkCache(size_class);
   }
 
-  StaticForwarder& forwarder() { return forwarder_; }
-  const StaticForwarder& forwarder() const { return forwarder_; }
+  [[nodiscard]] StaticForwarder& forwarder() { return forwarder_; }
+  [[nodiscard]] const StaticForwarder& forwarder() const { return forwarder_; }
 
-  bool IncreaseCacheCapacity(int size_class) {
+  [[nodiscard]] bool IncreaseCacheCapacity(int size_class) {
     return cache_[size_class].tc.IncreaseCacheCapacity(size_class);
   }
 
-  size_t FetchCommitIntervalMisses(int size_class) {
+  [[nodiscard]] size_t FetchCommitIntervalMisses(int size_class) {
     return cache_[size_class].tc.FetchCommitIntervalMisses();
   }
 
@@ -597,15 +604,17 @@ class TransferCacheManager {
     return cache_[size_class].freelist.RemoveRange(batch);
   }
 
-  static constexpr size_t tc_length(int size_class) { return 0; }
+  [[nodiscard]] static constexpr size_t tc_length(int size_class) { return 0; }
 
-  static constexpr TransferCacheStats GetStats(int size_class) { return {}; }
+  [[nodiscard]] static constexpr TransferCacheStats GetStats(int size_class) {
+    return {};
+  }
 
-  const CentralFreeList& central_freelist(int size_class) const {
+  [[nodiscard]] const CentralFreeList& central_freelist(int size_class) const {
     return cache_[size_class].freelist;
   }
 
-  CentralFreeList& central_freelist(int size_class) {
+  [[nodiscard]] CentralFreeList& central_freelist(int size_class) {
     return cache_[size_class].freelist;
   }
 
@@ -628,7 +637,9 @@ class TransferCacheManager {
 struct ShardedTransferCacheManager {
   constexpr explicit ShardedTransferCacheManager(std::nullptr_t) {}
   static constexpr void Init() {}
-  static constexpr bool should_use(int size_class) { return false; }
+  [[nodiscard]] static constexpr bool should_use(int size_class) {
+    return false;
+  }
   [[nodiscard]] static constexpr void* Pop(int size_class) { return nullptr; }
   static constexpr void Push(int size_class, void* ptr) {}
   [[nodiscard]] static constexpr int RemoveRange(int size_class,
@@ -636,14 +647,16 @@ struct ShardedTransferCacheManager {
     return 0;
   }
   static constexpr void InsertRange(int size_class, absl::Span<void*> batch) {}
-  static constexpr size_t TotalBytes() { return 0; }
+  [[nodiscard]] static constexpr size_t TotalBytes() { return 0; }
   static constexpr void Plunder() {}
-  static int tc_length(int cpu, int size_class) { return 0; }
-  static int TotalObjectsOfClass(int size_class) { return 0; }
-  static constexpr TransferCacheStats GetStats(int size_class) { return {}; }
-  bool UseGenericCache() const { return false; }
-  bool UseCacheForLargeClassesOnly() const { return false; }
-  int NumActiveShards() const { return 0; }
+  [[nodiscard]] static int tc_length(int cpu, int size_class) { return 0; }
+  [[nodiscard]] static int TotalObjectsOfClass(int size_class) { return 0; }
+  [[nodiscard]] static constexpr TransferCacheStats GetStats(int size_class) {
+    return {};
+  }
+  [[nodiscard]] bool UseGenericCache() const { return false; }
+  [[nodiscard]] bool UseCacheForLargeClassesOnly() const { return false; }
+  [[nodiscard]] int NumActiveShards() const { return 0; }
   void Print(const StatsCounters<kNumClasses>&, Printer& out) const {}
   void PrintInPbtxt(const StatsCounters<kNumClasses>&,
                     PbtxtRegion& region) const {}

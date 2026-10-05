@@ -351,7 +351,7 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
             env.transfer_cache().GetStats().capacity);
 
   const int capacity = env.transfer_cache().GetStats().capacity;
-  env.transfer_cache().ShrinkCache(kSizeClass);
+  EXPECT_TRUE(env.transfer_cache().ShrinkCache(kSizeClass));
   // We should shrink the cache capacity, and at the same time, it should also
   // set low water mark to the new capacity of the cache.
   EXPECT_EQ(env.transfer_cache().GetStats().capacity,
@@ -827,6 +827,13 @@ TEST(ShardedTransferCacheManagerTest, GetStatsAggregatesInsertObjectMisses) {
   EXPECT_THAT(output, ::testing::HasSubstr(absl::StrFormat(
                           "%8u insert misses (%10lu object misses)", 1,
                           static_cast<unsigned long>(kBatch))));
+
+  std::string pbtxt_output = PrintToString(
+      1024 * 1024,
+      [&](PbtxtRegion& region) { manager.PrintInPbtxt(counts, region); });
+  EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("insert_misses: 1"));
+  EXPECT_THAT(pbtxt_output, ::testing::HasSubstr(absl::StrFormat(
+                                "insert_object_misses: %d", kBatch)));
 }
 
 namespace unit_tests {

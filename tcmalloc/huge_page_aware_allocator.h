@@ -58,10 +58,10 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
-bool decide_subrelease();
+[[nodiscard]] bool decide_subrelease();
 
-HugeRegionUsageOption huge_region_option();
-bool use_huge_region_more_often();
+[[nodiscard]] HugeRegionUsageOption huge_region_option();
+[[nodiscard]] bool use_huge_region_more_often();
 
 class StaticForwarder : private Parameters {
  public:
@@ -81,10 +81,10 @@ class StaticForwarder : private Parameters {
 
   // Clock consumed by the filler and huge cache.  Tests substitute a fake so
   // they can advance time deterministically.
-  static Clock clock() { return Clock{}; }
+  [[nodiscard]] static Clock clock() { return Clock{}; }
 
   // Arena state.
-  static Arena& arena();
+  [[nodiscard]] static Arena& arena();
 
   // PageAllocator state.
 
@@ -101,7 +101,7 @@ class StaticForwarder : private Parameters {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // PageMap state.
-  static void* GetHugepage(HugePage p);
+  [[nodiscard]] static void* GetHugepage(HugePage p);
   [[nodiscard]] static bool Ensure(Range r)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void ClearSpan(PageId page);
@@ -109,7 +109,7 @@ class StaticForwarder : private Parameters {
   static void SetHugepage(HugePage p, void* pt);
 
   // SpanAllocator state.
-  static Span* NewSpan(Range r)
+  [[nodiscard]] static Span* NewSpan(Range r)
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
 #else
@@ -128,8 +128,10 @@ class StaticForwarder : private Parameters {
   // SystemAlloc state.
   [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
                                                   MemoryTag tag);
-  static bool BackAllocations() { return back_small_allocations(); }
-  static int32_t BackSizeThresholdBytes() {
+  [[nodiscard]] static bool BackAllocations() {
+    return back_small_allocations();
+  }
+  [[nodiscard]] static int32_t BackSizeThresholdBytes() {
     return back_size_threshold_bytes();
   }
   static void Back(Range r);
@@ -166,13 +168,13 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
-  Span* absl_nullable New(Length n, SpanAllocInfo span_alloc_info)
+  [[nodiscard]] Span* absl_nullable New(Length n, SpanAllocInfo span_alloc_info)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  Span* absl_nullable NewAligned(Length n, Length align,
-                                 SpanAllocInfo span_alloc_info)
+  [[nodiscard]] Span* absl_nullable NewAligned(Length n, Length align,
+                                               SpanAllocInfo span_alloc_info)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Delete the span "[p, p+n-1]".
@@ -186,7 +188,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void Delete(AllocationState s, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  BackingStats stats() const
+  [[nodiscard]] BackingStats stats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   void GetSmallSpanStats(SmallSpanStats* result) const
@@ -201,14 +203,15 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // may also be larger than num_pages since page_heap might decide to
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
-  Length ReleaseAtLeastNPages(Length num_pages, PageReleaseReason reason)
+  [[nodiscard]] Length ReleaseAtLeastNPages(Length num_pages,
+                                            PageReleaseReason reason)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
-                                               PageReleaseReason reason)
+  [[nodiscard]] Length ReleaseAtLeastNPagesBreakingHugepages(
+      Length n, PageReleaseReason reason)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  PageReleaseStats GetReleaseStats() const
+  [[nodiscard]] PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   void TreatHugepageTrackers(EnableCollapse enable_collapse,
@@ -227,51 +230,53 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void PrintInPbtxt(PbtxtRegion& region, PageFlagsBase& pageflags)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
-  BackingStats FillerStats() const
+  [[nodiscard]] BackingStats FillerStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return filler_.stats();
   }
 
-  BackingStats RegionsStats() const
+  [[nodiscard]] BackingStats RegionsStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return regions_.stats();
   }
 
-  BackingStats CacheStats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  [[nodiscard]] BackingStats CacheStats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return cache_.stats();
   }
 
-  HugeLength DonatedHugePages() const
+  [[nodiscard]] HugeLength DonatedHugePages() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return donated_huge_pages_;
   }
 
-  HugeLength RegionsFreeBacked() const
+  [[nodiscard]] HugeLength RegionsFreeBacked() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return regions_.free_backed();
   }
 
   // Number of pages that have been retained on huge pages by donations that did
   // not reassemble by the time the larger allocation was deallocated.
-  Length AbandonedPages() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  [[nodiscard]] Length AbandonedPages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return abandoned_pages_;
   }
 
-  const HugeCache* cache() const { return &cache_; }
+  [[nodiscard]] const HugeCache* cache() const { return &cache_; }
 
-  const HugeRegionSet<HugeRegion>& region() const
+  [[nodiscard]] const HugeRegionSet<HugeRegion>& region() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return regions_;
   };
 
   // IsValidSizeClass verifies size class parameters from the HPAA perspective.
-  static bool IsValidSizeClass(size_t size, Length pages);
+  [[nodiscard]] static bool IsValidSizeClass(size_t size, Length pages);
 
   [[nodiscard]] bool GetPageAllocationStatus(HugePage hp,
                                              PageBitmap& pages) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  Forwarder& forwarder() { return forwarder_; }
+  [[nodiscard]] Forwarder& forwarder() { return forwarder_; }
 
  private:
   static constexpr Length kSmallAllocPages = kPagesPerHugePage / 2;
@@ -408,11 +413,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   MetadataObjectAllocator<HugeRegion, ArenaAlloc::kHugeRegion> region_allocator_
       ABSL_GUARDED_BY(pageheap_lock);
 
-  FillerType::Tracker* GetTracker(HugePage p) const;
+  [[nodiscard]] FillerType::Tracker* GetTracker(HugePage p) const;
 
   void SetTracker(HugePage p, FillerType::Tracker* pt);
 
-  AddressRange AllocAndReport(size_t bytes, size_t align)
+  [[nodiscard]] AddressRange AllocAndReport(size_t bytes, size_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   VirtualMemoryAllocator vm_allocator_ ABSL_GUARDED_BY(pageheap_lock);
@@ -434,8 +439,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  PageId RefillFiller(Length n, SpanAllocInfo span_alloc_info,
-                      bool* from_released)
+  [[nodiscard]] PageId RefillFiller(Length n, SpanAllocInfo span_alloc_info,
+                                    bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Allocate the first <n> from p, and contribute the rest to the filler.  If
@@ -452,24 +457,27 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   using FinalizeType = AllocationState;
 #endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
 
-  FinalizeType LockAndAlloc(Length n, SpanAllocInfo span_alloc_info,
-                            bool* from_released);
+  [[nodiscard]] FinalizeType LockAndAlloc(Length n,
+                                          SpanAllocInfo span_alloc_info,
+                                          bool* from_released);
 
-  FinalizeType AllocSmall(Length n, SpanAllocInfo span_alloc_info,
-                          bool* from_released)
+  [[nodiscard]] FinalizeType AllocSmall(Length n, SpanAllocInfo span_alloc_info,
+                                        bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  FinalizeType AllocLarge(Length n, SpanAllocInfo span_alloc_info,
-                          bool* from_released)
+  [[nodiscard]] FinalizeType AllocLarge(Length n, SpanAllocInfo span_alloc_info,
+                                        bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  FinalizeType AllocEnormous(Length n, SpanAllocInfo span_alloc_info,
-                             bool* from_released)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
-  FinalizeType AllocRawHugepages(Length n, SpanAllocInfo span_alloc_info,
-                                 bool* from_released)
+  [[nodiscard]] FinalizeType AllocEnormous(Length n,
+                                           SpanAllocInfo span_alloc_info,
+                                           bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] FinalizeType AllocRawHugepages(Length n,
+                                               SpanAllocInfo span_alloc_info,
+                                               bool* from_released)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  [[nodiscard]] bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -482,16 +490,16 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  FinalizeType Finalize(Range r, bool may_have_grown);
+  [[nodiscard]] FinalizeType Finalize(Range r, bool may_have_grown);
 
-  Span* Spanify(FinalizeType f);
-  Range Unspanify(FinalizeType f);
+  [[nodiscard]] Span* Spanify(FinalizeType f);
+  [[nodiscard]] Range Unspanify(FinalizeType f);
 
-  bool ShouldBack(const Range& r) const;
+  [[nodiscard]] bool ShouldBack(const Range& r) const;
 
   // Whether this HPAA should use subrelease. This delegates to the appropriate
   // parameter depending whether this is for the cold heap or another heap.
-  bool hpaa_subrelease() const;
+  [[nodiscard]] bool hpaa_subrelease() const;
 };
 
 template <class Forwarder>
@@ -1101,7 +1109,7 @@ inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
   DrainFreedTrackers();
 }
 
-inline static double BytesToMiB(size_t bytes) {
+[[nodiscard]] inline static double BytesToMiB(size_t bytes) {
   const double MiB = 1048576.0;
   return bytes / MiB;
 }

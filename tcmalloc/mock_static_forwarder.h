@@ -67,7 +67,9 @@ class FakeStaticForwarder {
     remove_range_hooks_.Invoke(size_class, batch);
   }
 
-  uint64_t clock_now() const { return clock_.load(std::memory_order_relaxed); }
+  [[nodiscard]] uint64_t clock_now() const {
+    return clock_.load(std::memory_order_relaxed);
+  }
 
   void set_clock_now(uint64_t t) { clock_.store(t, std::memory_order_relaxed); }
   void AdvanceClock(absl::Duration d) {
@@ -78,10 +80,12 @@ class FakeStaticForwarder {
     clock_.store(static_cast<uint64_t>(std::max<int64_t>(0, cur + delta)),
                  std::memory_order_relaxed);
   }
-  double clock_frequency() const { return clock_frequency_; }
+  [[nodiscard]] double clock_frequency() const { return clock_frequency_; }
 
-  size_t class_to_size(int size_class) const { return class_size_; }
-  Length class_to_pages(int size_class) const { return pages_; }
+  [[nodiscard]] size_t class_to_size(int size_class) const {
+    return class_size_;
+  }
+  [[nodiscard]] Length class_to_pages(int size_class) const { return pages_; }
 
   void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                          int expected_size_class) {
@@ -227,11 +231,11 @@ class FakeCentralFreeListEnvironment {
   using Forwarder = typename CentralFreeListT::Forwarder;
 
   static constexpr int kSizeClass = 1;
-  size_t objects_per_span() {
+  [[nodiscard]] size_t objects_per_span() {
     return forwarder().class_to_pages(kSizeClass).in_bytes() /
            forwarder().class_to_size(kSizeClass);
   }
-  size_t batch_size() const { return batch_size_; }
+  [[nodiscard]] size_t batch_size() const { return batch_size_; }
 
   explicit FakeCentralFreeListEnvironment(
       size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
@@ -247,9 +251,9 @@ class FakeCentralFreeListEnvironment {
 
   ~FakeCentralFreeListEnvironment() { EXPECT_EQ(cache_.length(), 0); }
 
-  CentralFreeList& central_freelist() { return cache_; }
+  [[nodiscard]] CentralFreeList& central_freelist() { return cache_; }
 
-  Forwarder& forwarder() { return cache_.forwarder(); }
+  [[nodiscard]] Forwarder& forwarder() { return cache_.forwarder(); }
 
  private:
   size_t batch_size_;
