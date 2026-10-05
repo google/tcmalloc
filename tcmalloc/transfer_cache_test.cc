@@ -351,7 +351,7 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
             env.transfer_cache().GetStats().capacity);
 
   const int capacity = env.transfer_cache().GetStats().capacity;
-  EXPECT_TRUE(env.transfer_cache().ShrinkCache(kSizeClass));
+  env.transfer_cache().ShrinkCache(kSizeClass);
   // We should shrink the cache capacity, and at the same time, it should also
   // set low water mark to the new capacity of the cache.
   EXPECT_EQ(env.transfer_cache().GetStats().capacity,

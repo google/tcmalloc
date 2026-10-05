@@ -45,21 +45,21 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   // Allocate an object of the given size class.
   // Returns nullptr when allocation fails.
-  [[nodiscard]] void* absl_nullable Allocate(size_t size_class);
+  void* absl_nullable Allocate(size_t size_class);
 
   void Deallocate(void* absl_nonnull ptr, size_t size_class);
 
   static void InitTSD();
-  [[nodiscard]] static ThreadCache* absl_nonnull GetCache();
-  [[nodiscard]] static ThreadCache* absl_nullable GetCacheIfPresent();
+  static ThreadCache* absl_nonnull GetCache();
+  static ThreadCache* absl_nullable GetCacheIfPresent();
   static void BecomeIdle();
 
   // Adds to *total_bytes the total number of bytes used by all thread heaps.
   // Also, if class_count is not NULL, it must be an array of size kNumClasses,
   // and this function will increment each element of class_count by the number
   // of items in all thread-local freelists of the corresponding size class.
-  [[nodiscard]] static AllocatorStats GetStats(
-      uint64_t* absl_nonnull total_bytes, uint64_t* absl_nullable class_count)
+  static AllocatorStats GetStats(uint64_t* absl_nonnull total_bytes,
+                                 uint64_t* absl_nullable class_count)
       ABSL_LOCKS_EXCLUDED(threadcache_lock_);
 
   // Sets the total thread cache size to new_size, recomputing the
@@ -67,7 +67,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   static void set_overall_thread_cache_size(size_t new_size)
       ABSL_LOCKS_EXCLUDED(threadcache_lock_);
 
-  [[nodiscard]] static size_t overall_thread_cache_size()
+  static size_t overall_thread_cache_size()
       ABSL_LOCKS_EXCLUDED(threadcache_lock_) {
     return overall_thread_cache_size_.load(std::memory_order_relaxed);
   }
@@ -96,22 +96,22 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
     }
 
     // Return the maximum length of the list.
-    [[nodiscard]] size_t max_length() const { return max_length_; }
+    size_t max_length() const { return max_length_; }
 
     // Set the maximum length of the list.  If 'new_max' > length(), the
     // client is responsible for removing objects from the list.
     void set_max_length(size_t new_max) { max_length_ = new_max; }
 
     // Return the number of times that length() has gone over max_length().
-    [[nodiscard]] size_t length_overages() const { return length_overages_; }
+    size_t length_overages() const { return length_overages_; }
 
     void set_length_overages(size_t new_count) { length_overages_ = new_count; }
 
     // Low-water mark management
-    [[nodiscard]] int lowwatermark() const { return lowater_; }
+    int lowwatermark() const { return lowater_; }
     void clear_lowwatermark() { lowater_ = length(); }
 
-    [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool TryPop(void** ret) {
+    ABSL_ATTRIBUTE_ALWAYS_INLINE bool TryPop(void** ret) {
       bool out = LinkedList::TryPop(ret);
       if (ABSL_PREDICT_TRUE(out) && ABSL_PREDICT_FALSE(length() < lowater_)) {
         lowater_ = length();
@@ -127,8 +127,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   // Gets and returns an object from the transfer cache, and, if possible,
   // also adds some objects of that size class to this thread cache.
-  [[nodiscard]] void* FetchFromTransferCache(size_t size_class,
-                                             size_t byte_size);
+  void* FetchFromTransferCache(size_t size_class, size_t byte_size);
 
   // Releases some number of items from src.  Adjusts the list's max_length
   // to eventually converge on num_objects_to_move(size_class).
@@ -151,7 +150,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(threadcache_lock_);
 
   void Scavenge();
-  [[nodiscard]] static ThreadCache* CreateCacheIfNecessary();
+  static ThreadCache* CreateCacheIfNecessary();
 
   // If TLS is available, we also store a copy of the per-thread object
   // in a __thread variable since __thread variables are faster to read
@@ -208,7 +207,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   bool in_setspecific_;
 
   // Allocate a new heap.
-  [[nodiscard]] static ThreadCache* NewHeap(pthread_t tid)
+  static ThreadCache* NewHeap(pthread_t tid)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(threadcache_lock_);
 
   // Use only as pthread thread-specific destructor function.

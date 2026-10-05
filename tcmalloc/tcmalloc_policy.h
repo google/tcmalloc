@@ -105,7 +105,7 @@ namespace tcmalloc_internal {
 // NullOomPolicy: returns nullptr
 struct NullOomPolicy {
   template <typename Policy, typename Pointer = typename Policy::pointer_type>
-  [[nodiscard]] static constexpr Pointer handle_oom(size_t size) {
+  static constexpr Pointer handle_oom(size_t size) {
     return Policy::as_pointer(nullptr, 0);
   }
 };
@@ -113,7 +113,7 @@ struct NullOomPolicy {
 // MallocOomPolicy: sets errno to ENOMEM and returns nullptr
 struct MallocOomPolicy {
   template <typename Policy, typename Pointer = typename Policy::pointer_type>
-  [[nodiscard]] static Pointer handle_oom(size_t size) {
+  static Pointer handle_oom(size_t size) {
     errno = ENOMEM;
     return Policy::as_pointer(nullptr, 0);
   }
@@ -133,14 +133,12 @@ struct DefaultAlignPolicy {
   // alignment is the default alignment of the size tables in tcmalloc.
   // The constexpr value of 1 will optimize out the alignment checks and
   // iterations in the GetSizeClass() calls for default aligned allocations.
-  [[nodiscard]] static constexpr std::align_val_t align() {
-    return std::align_val_t{1};
-  }
+  static constexpr std::align_val_t align() { return std::align_val_t{1}; }
 };
 
 // MallocAlignPolicy: use std::max_align_t allocation
 struct MallocAlignPolicy {
-  [[nodiscard]] static constexpr std::align_val_t align() {
+  static constexpr std::align_val_t align() {
     return std::align_val_t{alignof(std::max_align_t)};
   }
 };
@@ -155,7 +153,7 @@ class AlignAsPolicy {
     TC_ASSERT(absl::has_single_bit(static_cast<size_t>(value)));
   }
 
-  [[nodiscard]] std::align_val_t constexpr align() const { return value_; }
+  std::align_val_t constexpr align() const { return value_; }
 
  private:
   std::align_val_t value_;
@@ -168,12 +166,11 @@ class AllocationAccessAsPolicy {
   explicit constexpr AllocationAccessAsPolicy(hot_cold_t value)
       : value_(value) {}
 
-  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t
-  access() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t access() const {
     return value_;
   }
 
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() const {
     return value_ < Parameters::min_hot_access_hint();
   }
 
@@ -185,51 +182,45 @@ struct AllocationAccessHotPolicy {
   // Important: the value here is explicitly hot_cold_t{255} to allow the value
   // to be constant propagated.  This allows allocations without a hot/cold hint
   // to use the normal fast path.
-  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t
-  access() {
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t access() {
     return hot_cold_t{255};
   }
 
-  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() {
-    return false;
-  }
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() { return false; }
 };
 
 struct AllocationAccessColdPolicy {
-  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t
-  access() {
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t access() {
     return hot_cold_t{0};
   }
 
-  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() {
-    return true;
-  }
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() { return true; }
 };
 
 using DefaultAllocationAccessPolicy = AllocationAccessHotPolicy;
 
 // InvokeHooksPolicy: invoke memory allocation hooks
 struct InvokeHooksPolicy {
-  [[nodiscard]] static constexpr bool invoke_hooks() { return true; }
+  static constexpr bool invoke_hooks() { return true; }
 };
 
 // NoHooksPolicy: do not invoke memory allocation hooks
 struct NoHooksPolicy {
-  [[nodiscard]] static constexpr bool invoke_hooks() { return false; }
+  static constexpr bool invoke_hooks() { return false; }
 };
 
 // IsSizeReturningPolicy: Allocation returns size externally
 struct IsSizeReturningPolicy {
   using pointer_type = sized_ptr_t;
 
-  [[nodiscard]] static constexpr bool size_returning() { return true; }
+  static constexpr bool size_returning() { return true; }
 
-  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
   as_pointer(void* ptr, size_t capacity) {
     return {ptr, capacity};
   }
 
-  [[nodiscard]] static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
   to_pointer(void* ptr, size_t size_class) {
     return {ptr, tc_globals.sizemap().class_to_size(size_class)};
   }
@@ -239,15 +230,15 @@ struct IsSizeReturningPolicy {
 struct NonSizeReturningPolicy {
   using pointer_type = void*;
 
-  [[nodiscard]] static constexpr bool size_returning() { return false; }
+  static constexpr bool size_returning() { return false; }
 
-  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
   as_pointer(void* ptr, size_t) {
     return ptr;
   }
 
-  [[nodiscard]] static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
-  to_pointer(void* ptr, size_t) {
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type to_pointer(void* ptr,
+                                                              size_t) {
     return ptr;
   }
 };
@@ -258,9 +249,9 @@ class FixedNumaPartitionPolicy {
   explicit constexpr FixedNumaPartitionPolicy(size_t partition)
       : partition_(partition) {}
 
-  [[nodiscard]] size_t constexpr partition() const { return partition_; }
+  size_t constexpr partition() const { return partition_; }
 
-  [[nodiscard]] size_t constexpr scaled_partition() const {
+  size_t constexpr scaled_partition() const {
     return partition_ * kNumBaseClasses;
   }
 
@@ -273,20 +264,18 @@ struct LocalNumaPartitionPolicy {
   // Note that the partition returned may change between calls if the executing
   // thread migrates between NUMA nodes & partitions. Users of this function
   // should not rely upon multiple invocations returning the same partition.
-  [[nodiscard]] size_t partition() const {
+  size_t partition() const {
     return tc_globals.numa_topology().GetCurrentPartition();
   }
-  [[nodiscard]] size_t scaled_partition() const {
+  size_t scaled_partition() const {
     return tc_globals.numa_topology().GetCurrentScaledPartition();
   }
 };
 
 // Use default partition without any type restrictions.
 struct DefaultPartitionPolicy {
-  [[nodiscard]] constexpr size_t partition() const { return 1; }
-  [[nodiscard]] constexpr TokenId token_id() const {
-    return TokenId::kNoAllocToken;
-  }
+  constexpr size_t partition() const { return 1; }
+  constexpr TokenId token_id() const { return TokenId::kNoAllocToken; }
 };
 
 // Use runtime specified partition.
@@ -301,10 +290,8 @@ class SecurityPartitionPolicy {
   explicit constexpr SecurityPartitionPolicy(size_t partition_id,
                                              TokenId token_id)
       : partition_id_(partition_id), token_id_(token_id) {}
-  [[nodiscard]] constexpr size_t partition() const {
-    return partition_id_ > 0 ? 1 : 0;
-  }
-  [[nodiscard]] constexpr TokenId token_id() const { return token_id_; }
+  constexpr size_t partition() const { return partition_id_ > 0 ? 1 : 0; }
+  constexpr TokenId token_id() const { return token_id_; }
 
  private:
   const size_t partition_id_;
@@ -315,10 +302,8 @@ class SecurityPartitionPolicy {
 // partition value, so we define a constant version that can be optimized.
 template <TokenId kTokenId, size_t kPartitionId = static_cast<size_t>(kTokenId)>
 struct ConstSecurityPartitionPolicy {
-  [[nodiscard]] constexpr size_t partition() const {
-    return kPartitionId > 0 ? 1 : 0;
-  }
-  [[nodiscard]] constexpr TokenId token_id() const { return kTokenId; }
+  constexpr size_t partition() const { return kPartitionId > 0 ? 1 : 0; }
+  constexpr TokenId token_id() const { return kTokenId; }
 };
 
 // TCMallocPolicy defines the compound policy object containing
@@ -351,7 +336,7 @@ class TCMallocPolicy {
 
   // Allocation type is deduced from the policy characteristics to avoid
   // requiring redundant data.
-  [[nodiscard]] static constexpr AllocationType allocation_type() {
+  static constexpr AllocationType allocation_type() {
     if constexpr (!std::is_same_v<OomPolicy, MallocOomPolicy>) {
       return AllocationType::New;
     } else if constexpr (std::is_same_v<MallocAlignPolicy, AlignPolicy>) {
@@ -362,30 +347,26 @@ class TCMallocPolicy {
   }
 
   // Alignment policy
-  [[nodiscard]] constexpr bool has_explicit_alignment() const {
+  constexpr bool has_explicit_alignment() const {
     return !std::is_same_v<DefaultAlignPolicy, AlignPolicy>;
   }
 
-  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE std::align_val_t align()
-      const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE std::align_val_t align() const {
     return align_.align();
   }
 
   // NUMA partition
-  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
-  numa_partition() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t numa_partition() const {
     return numa_.partition();
   }
 
   // NUMA partition multiplied by kNumBaseClasses
-  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
-  scaled_numa_partition() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t scaled_numa_partition() const {
     return numa_.scaled_partition();
   }
 
   // Security partition (0 or 1)
-  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
-  security_partition() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t security_partition() const {
     if constexpr (kSecurityPartitions == 1) {
       return 0;
     }
@@ -393,8 +374,7 @@ class TCMallocPolicy {
   }
 
   // NUMA or Security partition (0 or 1)
-  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
-  partition() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t partition() const {
     if constexpr (kSecurityPartitions == 1) {
       return numa_partition();
     }
@@ -402,53 +382,47 @@ class TCMallocPolicy {
   }
 
   // The token ID is used to determine the security partition.
-  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE TokenId
-  token_id() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE TokenId token_id() const {
     return partition_.token_id();
   }
 
-  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t
-  access() const {
+  constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE hot_cold_t access() const {
     return access_.access();
   }
 
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() const {
     return access_.is_cold();
   }
 
   // Hooks policy
-  [[nodiscard]] static constexpr bool invoke_hooks() {
-    return HooksPolicy::invoke_hooks();
-  }
+  static constexpr bool invoke_hooks() { return HooksPolicy::invoke_hooks(); }
 
   // Size returning functions
-  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool
-  size_returning() {
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool size_returning() {
     return SizeReturningPolicy::size_returning();
   }
-  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
   as_pointer(void* ptr, size_t capacity) {
     return SizeReturningPolicy::as_pointer(ptr, capacity);
   }
-  [[nodiscard]] static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE pointer_type
   to_pointer(void* ptr, size_t size_class) {
     return SizeReturningPolicy::to_pointer(ptr, size_class);
   }
 
   // Returns this policy aligned as 'align'
   template <typename align_t>
-  [[nodiscard]] constexpr TCMallocPolicy<OomPolicy, AlignAsPolicy, AccessPolicy,
-                                         HooksPolicy, SizeReturningPolicy,
-                                         NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignAsPolicy, AccessPolicy, HooksPolicy,
+                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>
   AlignAs(align_t align) const {
     return TCMallocPolicy<OomPolicy, AlignAsPolicy, AccessPolicy, HooksPolicy,
                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
         AlignAsPolicy{align}, numa_, partition_);
   }
 
-  [[nodiscard]] constexpr TCMallocPolicy<
-      OomPolicy, AlignPolicy, AllocationAccessAsPolicy, HooksPolicy,
-      SizeReturningPolicy, NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
+                           PartitionPolicy>
   AccessAs(hot_cold_t hot_cold) const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
@@ -457,9 +431,9 @@ class TCMallocPolicy {
   }
 
   // Returns this policy for frequent access
-  [[nodiscard]] constexpr TCMallocPolicy<
-      OomPolicy, AlignPolicy, AllocationAccessHotPolicy, HooksPolicy,
-      SizeReturningPolicy, NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessHotPolicy,
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
+                           PartitionPolicy>
   AccessAsHot() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessHotPolicy,
                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
@@ -467,9 +441,9 @@ class TCMallocPolicy {
   }
 
   // Returns this policy for infrequent access
-  [[nodiscard]] constexpr TCMallocPolicy<
-      OomPolicy, AlignPolicy, AllocationAccessColdPolicy, HooksPolicy,
-      SizeReturningPolicy, NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessColdPolicy,
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
+                           PartitionPolicy>
   AccessAsCold() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessColdPolicy,
                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
@@ -477,9 +451,9 @@ class TCMallocPolicy {
   }
 
   // Returns this policy with a nullptr OOM policy.
-  [[nodiscard]] constexpr TCMallocPolicy<
-      NullOomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-      SizeReturningPolicy, NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<NullOomPolicy, AlignPolicy, AccessPolicy,
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy,
+                           PartitionPolicy>
   Nothrow() const {
     return TCMallocPolicy<NullOomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
@@ -487,18 +461,16 @@ class TCMallocPolicy {
   }
 
   // Returns this policy with NewAllocHook invocations disabled.
-  [[nodiscard]] constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy,
-                                         NoHooksPolicy, SizeReturningPolicy,
-                                         NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
+                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>
   WithoutHooks() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
                           SizeReturningPolicy, NumaPolicy, PartitionPolicy>(
         align_, access_, numa_, partition_);
   }
 
-  [[nodiscard]] constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy,
-                                         HooksPolicy, IsSizeReturningPolicy,
-                                         NumaPolicy, PartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
+                           IsSizeReturningPolicy, NumaPolicy, PartitionPolicy>
   SizeReturning() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
                           IsSizeReturningPolicy, NumaPolicy, PartitionPolicy>(
@@ -506,9 +478,9 @@ class TCMallocPolicy {
   }
 
   // Returns this policy with a fixed NUMA/type partition.
-  [[nodiscard]] constexpr TCMallocPolicy<
-      OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy, SizeReturningPolicy,
-      FixedNumaPartitionPolicy, SecurityPartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
+                           SizeReturningPolicy, FixedNumaPartitionPolicy,
+                           SecurityPartitionPolicy>
   InPartition(size_t partition) const {
     const size_t numa_partition = partition % kNumaPartitions;
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
@@ -521,7 +493,7 @@ class TCMallocPolicy {
 
   // Returns this policy with a compile-time fixed NUMA/type partition.
   template <size_t kPartition>
-  [[nodiscard]] constexpr auto InPartition() const {
+  constexpr auto InPartition() const {
     constexpr size_t kNumaPartition = kPartition % kNumaPartitions;
     constexpr size_t kSecPartition =
         (kPartition - kNumaPartition) / kNumaPartitions;
@@ -536,9 +508,9 @@ class TCMallocPolicy {
 
   // Returns this policy with a fixed partition and token ID.
   // Note, this results in a slower allocation path for non-zero partitions.
-  [[nodiscard]] constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy,
-                                         HooksPolicy, SizeReturningPolicy,
-                                         NumaPolicy, SecurityPartitionPolicy>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
+                           SizeReturningPolicy, NumaPolicy,
+                           SecurityPartitionPolicy>
   InPartitionWithToken(size_t partition, TokenId token_id) const {
     const size_t numa_partition = partition % kNumaPartitions;
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
@@ -552,9 +524,9 @@ class TCMallocPolicy {
   // Returns this policy with a partition choice based on the token ID.
   // Namely, tokens != kAllocToken0 will use partition 1.
   template <TokenId kTokenId>
-  [[nodiscard]] constexpr TCMallocPolicy<
-      OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy, SizeReturningPolicy,
-      NumaPolicy, ConstSecurityPartitionPolicy<kTokenId>>
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
+                           SizeReturningPolicy, NumaPolicy,
+                           ConstSecurityPartitionPolicy<kTokenId>>
   WithSecurityToken() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
                           SizeReturningPolicy, NumaPolicy,
@@ -564,7 +536,7 @@ class TCMallocPolicy {
 
   // Returns this policy with a fixed NUMA/type partition matching that of the
   // previously allocated `ptr`.
-  [[nodiscard]] constexpr auto InSamePartitionAs(const void* ptr) const {
+  constexpr auto InSamePartitionAs(const void* ptr) const {
     return InPartition(PartitionFromPointer(ptr));
   }
 

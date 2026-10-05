@@ -58,12 +58,10 @@ class MissCounts {
                  std::memory_order_relaxed);
   }
 
-  [[nodiscard]] size_t Total() const {
-    return total_.load(std::memory_order_relaxed);
-  }
+  size_t Total() const { return total_.load(std::memory_order_relaxed); }
 
   // Returns the number of misses since the last commit call.
-  [[nodiscard]] size_t Commit() {
+  size_t Commit() {
     size_t t = total_.load(std::memory_order_relaxed);
     size_t c = total_committed_.exchange(t, std::memory_order_relaxed);
     if (ABSL_PREDICT_TRUE(t > c)) {
@@ -112,7 +110,7 @@ class TransferCache {
   TransferCache& operator=(const TransferCache&) = delete;
 
   // Compute initial and max capacity that we should configure this cache for.
-  [[nodiscard]] static Capacity CapacityNeeded(size_t size_class) {
+  static Capacity CapacityNeeded(size_t size_class) {
     // We need at least 2 slots to store list head and tail.
     static_assert(kMinObjectsToMove >= 2);
 
@@ -244,17 +242,17 @@ class TransferCache {
     lock_.unlock();
   }
   // Returns the number of free objects in the transfer cache.
-  [[nodiscard]] size_t tc_length() const {
+  size_t tc_length() const {
     return static_cast<size_t>(slot_info_.load(std::memory_order_relaxed).used);
   }
 
   // Fetches the misses for the latest interval and commits them to the total.
-  [[nodiscard]] size_t FetchCommitIntervalMisses() ABSL_LOCKS_EXCLUDED(lock_) {
+  size_t FetchCommitIntervalMisses() ABSL_LOCKS_EXCLUDED(lock_) {
     return insert_object_misses_.Commit() + remove_object_misses_.Commit();
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
-  [[nodiscard]] TransferCacheStats GetStats() const ABSL_LOCKS_EXCLUDED(lock_) {
+  TransferCacheStats GetStats() const ABSL_LOCKS_EXCLUDED(lock_) {
     TransferCacheStats stats;
 
     stats.insert_hits = insert_hits_.value();
@@ -273,14 +271,13 @@ class TransferCache {
     return stats;
   }
 
-  [[nodiscard]] SizeInfo GetSlotInfo() const {
+  SizeInfo GetSlotInfo() const {
     return slot_info_.load(std::memory_order_relaxed);
   }
 
   // Increases capacity of the cache by a batch size. Returns true if it
   // succeeded at growing the cache by a batch size. Else, returns false.
-  [[nodiscard]] bool IncreaseCacheCapacity(int size_class)
-      ABSL_LOCKS_EXCLUDED(lock_) {
+  bool IncreaseCacheCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     int n = forwarder_.num_objects_to_move(size_class);
 
     AllocationGuardSpinLockHolder h(lock_);
@@ -294,8 +291,7 @@ class TransferCache {
   }
 
   // Checks if the cache capacity may be increased by a batch size.
-  [[nodiscard]] bool CanIncreaseCapacity(int size_class) const
-      ABSL_LOCKS_EXCLUDED(lock_) {
+  bool CanIncreaseCapacity(int size_class) const ABSL_LOCKS_EXCLUDED(lock_) {
     int n = forwarder_.num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return max_capacity_ - info.capacity >= n;
@@ -303,7 +299,7 @@ class TransferCache {
 
   // Checks if the cache has at least batch size number of free slots. Returns
   // false if (capacity - used) slots is less than the batch size.
-  [[nodiscard]] bool HasSpareCapacity(int size_class) const {
+  bool HasSpareCapacity(int size_class) const {
     int n = forwarder_.num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return info.capacity - info.used >= n;
@@ -312,7 +308,7 @@ class TransferCache {
   // REQUIRES: lock_ is *not* held.
   // Tries to shrink the Cache.  Return false if it failed to shrink the cache.
   // Decreases cache_slots_ on success.
-  [[nodiscard]] bool ShrinkCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+  bool ShrinkCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     int N = forwarder_.num_objects_to_move(size_class);
 
     void* to_free[kMaxObjectsToMove];
@@ -349,18 +345,17 @@ class TransferCache {
 
   // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
   // that we are not holding lock_ when we access it.
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList& freelist()
-      ABSL_LOCKS_EXCLUDED(lock_) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList& freelist() ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
 
-  [[nodiscard]] int32_t max_capacity() const { return max_capacity_; }
+  int32_t max_capacity() const { return max_capacity_; }
 
  private:
   friend class TransferCacheTestPeer;
 
   // Returns first object of the i-th slot.
-  [[nodiscard]] void** GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+  void** GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     return slots_ + i;
   }
 
