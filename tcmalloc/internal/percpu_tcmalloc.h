@@ -340,6 +340,11 @@ class TcmallocSlab {
     return sizeof(CpuState);
   }
 
+  [[nodiscard]] constexpr static size_t GetTotalClassHeaderSize() {
+    return (sizeof(Header) * NumClasses + sizeof(void*) - 1) / sizeof(void*) *
+           sizeof(void*);
+  }
+
  private:
   // In order to support dynamic slab metadata sizes, we need to be able to
   // atomically update both the slabs pointer and the shift value so we store
@@ -1068,8 +1073,7 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitSlabs(
     void* slabs, Shift shift, absl::FunctionRef<size_t(size_t)> capacity) {
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
-  size_t consumed_bytes =
-      (NumClasses * sizeof(Header) + sizeof(void*) - 1) & ~(sizeof(void*) - 1);
+  size_t consumed_bytes = GetTotalClassHeaderSize();
   bool prev_empty = false;
   for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
     size_t cap = capacity(size_class);

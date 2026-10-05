@@ -106,8 +106,14 @@ class CpuCachePeer {
     for (uint8_t shift = bounds.initial_shift;
          shift <= bounds.max_shift && shift > kInitialBasePerCpuShift;
          ++shift) {
-      const auto [bytes_required, bytes_available] =
-          EstimateSlabBytes(cpu_cache.GetMaxCapacityFunctor(shift));
+      std::atomic<uint16_t> max_capacity[kNumClasses] = {0};
+
+      cpu_cache.CalculateMaxCapacityForAllClasses(bounds.max_shift,
+                                                  max_capacity);
+      const size_t bytes_available = 1 << shift;
+      const size_t bytes_required =
+          EstimateSlabBytes({max_capacity, bounds.max_shift - shift},
+                            CpuCache::Freelist::GetTotalClassHeaderSize());
       EXPECT_GT(bytes_required * 20, bytes_available * 17)
           << bytes_required << " " << bytes_available << " " << kNumaPartitions
           << " " << kNumBaseClasses << " " << kNumClasses;

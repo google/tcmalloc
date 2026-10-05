@@ -1788,3 +1788,26 @@ cc_library(
     ],
     deps = ["@com_google_absl//absl/base:core_headers"],
 )
+
+cc_binary(
+    name = "dump_cpu_slab_allocation",
+    testonly = 1,
+    srcs = ["dump_cpu_slab_allocation.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common_8k_pages",
+        ":mock_central_freelist",
+        ":mock_transfer_cache",
+        "//tcmalloc/internal:numa",
+        "//tcmalloc/internal:percpu_tcmalloc",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+genrule(
+    name = "gen_dump_cpu_slab_allocation",
+    testonly = 1,
+    outs = ["cpu_slab_allocation.txt"],
+    cmd = "$(location :dump_cpu_slab_allocation) > \"$@\"",
+    tools = [":dump_cpu_slab_allocation"],
+)

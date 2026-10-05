@@ -2043,3 +2043,18 @@ tcmalloc_cc_library(
     "absl::core_headers"
 )
 
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_dump_cpu_slab_allocation
+  SRCS
+    "dump_cpu_slab_allocation.cc"
+  DEPS
+    "absl::string_view"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_numa"
+    "tcmalloc::internal_percpu_tcmalloc"
+    "tcmalloc::mock_central_freelist"
+    "tcmalloc::mock_transfer_cache"
+    "tcmalloc::tcmalloc"
+)
+
