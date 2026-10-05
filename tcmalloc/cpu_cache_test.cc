@@ -1458,7 +1458,9 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   int n_threads = NumStressThreads();
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
-  ASSERT_EQ(ret, 0);
+  if (ret != 0) {
+    GTEST_SKIP() << "mlockall failed, errno=" << errno;
+  }
 
   CpuCache cache;
   cache.Init();
@@ -1507,7 +1509,9 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   int n_threads = NumStressThreads();
 
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
-  ASSERT_EQ(ret, 0);
+  if (ret != 0) {
+    GTEST_SKIP() << "mlockall failed, errno=" << errno;
+  }
 
   CpuCache cache;
   cache.Init();
