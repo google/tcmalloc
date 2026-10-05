@@ -694,6 +694,7 @@ create_tcmalloc_testsuite(
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_stats",

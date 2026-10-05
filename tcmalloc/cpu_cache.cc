@@ -41,10 +41,8 @@ static void ActivatePerCpuCaches() {
     return;
   }
 
-  if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
-    tc_globals.InitIfNecessary();
-    tc_globals.cpu_cache().Activate();
-    tc_globals.ActivateCpuCache();
+  tc_globals.ActivateCpuCacheIfNecessary();
+  if (tc_globals.CpuCacheActive()) {
     // no need for this thread cache anymore, I guess.
     ThreadCache::BecomeIdle();
     // If there's a problem with this code, let's notice it right away:

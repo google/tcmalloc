@@ -96,50 +96,95 @@ SizeClassConfiguration Static::size_class_configuration() {
   return SizeClassConfiguration::kReuseRelaxedBelow64;
 }
 
-ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
-  PageHeapSpinLockHolder l;
+namespace {
 
-  // double-checked locking
-  if (inited_.load(std::memory_order_acquire)) {
+bool DeferPerCpuCaches() {
+  const char* e = thread_safe_getenv("TCMALLOC_DEFER_PER_CPU_CACHES");
+  if (e != nullptr) {
+    if (e[0] == '\0' || (e[0] == '0' && e[1] == '\0')) {
+      return false;
+    }
+    if (e[0] == '1' && e[1] == '\0') {
+      return true;
+    }
+    TC_BUG("bad env var '%s'", e);
+  }
+
+  return false;
+}
+
+}  // namespace
+
+void Static::ActivateCpuCacheIfNecessary() {
+  InitIfNecessary();
+  if (CpuCacheActive()) {
+    return;
+  }
+  if (!Parameters::per_cpu_caches() || !subtle::percpu::IsFast()) {
     return;
   }
 
-  numa_topology_.Init();
-  TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
-  system_allocator_.Init(numa_topology_, kMinMmapAlloc);
-  sampledallocation_allocator_.Init(arena_);
-  span_allocator_.Init(arena_);
-  threadcache_allocator_.Init(arena_);
-  linked_sample_allocator_.Init(arena_);
-  sampled_allocation_recorder_.Init(sampledallocation_allocator_);
-  peak_heap_tracker_.Init(sampledallocation_allocator_);
-
-  // Verify we can determine the number of CPUs now, since we will need it
-  // later for per-CPU caches and initializing the cache topology.
-  if (ABSL_PREDICT_FALSE(!NumCPUsMaybe().has_value())) {
-    TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(false);
+  AllocationGuardSpinLockHolder l(init_lock_);
+  if (!CpuCacheActive()) {
+    cpu_cache_.Activate();
+    cpu_cache_active_.store(true, std::memory_order_release);
   }
-  (void)subtle::percpu::IsFast();
-  PerCpuState::state().Init();
-  CacheTopology::Instance().Init();
-  cpu_cache_.Init();
+}
 
-  if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
-  ) {
-    TCMalloc_Internal_SetMinHotAccessHint(/*v=*/2);
+ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
+  AllocationGuardSpinLockHolder init_l(init_lock_);
+
+  // double-checked locking
+  if (IsInited()) {
+    return;
   }
 
-  // Do a bit of sanitizing: make sure central_cache is aligned properly
-  TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);
-  transfer_cache_.Init();
-  // The constructor of the sharded transfer cache leaves it in a disabled
-  // state.
-  sharded_transfer_cache_.Init();
-  new (page_allocator_.memory) PageAllocator;
-  guardedpage_allocator_.Init(/*max_allocated_pages=*/64,
-                              /*total_pages=*/128);
+  {
+    PageHeapSpinLockHolder l;
 
-  inited_.store(true, std::memory_order_release);
+    numa_topology_.Init();
+    TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
+    system_allocator_.Init(numa_topology_, kMinMmapAlloc);
+    sampledallocation_allocator_.Init(arena_);
+    span_allocator_.Init(arena_);
+    threadcache_allocator_.Init(arena_);
+    linked_sample_allocator_.Init(arena_);
+    sampled_allocation_recorder_.Init(sampledallocation_allocator_);
+    peak_heap_tracker_.Init(sampledallocation_allocator_);
+
+    // Verify we can determine the number of CPUs now, since we will need it
+    // later for per-CPU caches and initializing the cache topology.
+    if (ABSL_PREDICT_FALSE(!NumCPUsMaybe().has_value())) {
+      TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(false);
+    }
+    (void)subtle::percpu::IsFast();
+    PerCpuState::state().Init();
+    CacheTopology::Instance().Init();
+    cpu_cache_.Init();
+
+    if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
+    ) {
+      TCMalloc_Internal_SetMinHotAccessHint(/*v=*/2);
+    }
+
+    // Do a bit of sanitizing: make sure central_cache is aligned properly
+    TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);
+    transfer_cache_.Init();
+    // The constructor of the sharded transfer cache leaves it in a disabled
+    // state.
+    sharded_transfer_cache_.Init();
+    new (page_allocator_.memory) PageAllocator;
+    guardedpage_allocator_.Init(/*max_allocated_pages=*/64,
+                                /*total_pages=*/128);
+
+    inited_.store(true, std::memory_order_release);
+  }
+
+  if (!DeferPerCpuCaches() && Parameters::per_cpu_caches() &&
+      subtle::percpu::IsFast()) {
+    cpu_cache_.Activate();
+    cpu_cache_active_.store(true, std::memory_order_release);
+  }
 }
 
 }  // namespace tcmalloc_internal
