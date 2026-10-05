@@ -1874,7 +1874,7 @@ tcmalloc_cc_test_variants(
     "tcmalloc::testing_thread_manager"
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_binary_variants(
   NAME
     tcmalloc_central_freelist_benchmark
   SRCS
@@ -1892,11 +1892,9 @@ tcmalloc_cc_binary(
     "absl::time"
     "benchmark::benchmark"
     "benchmark::benchmark_main"
-    "tcmalloc::common_8k_pages"
     "tcmalloc::internal_bytes"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
-    "tcmalloc::tcmalloc"
 )
 
 tcmalloc_cc_library(
