@@ -919,7 +919,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_util"
 )
 
-tcmalloc_cc_test(
+create_percpu_tcmalloc_testsuite(
   NAME
     tcmalloc_internal_percpu_test
   SRCS
@@ -933,7 +933,6 @@ tcmalloc_cc_test(
     "absl::time"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_percpu"
-    "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
 )
 

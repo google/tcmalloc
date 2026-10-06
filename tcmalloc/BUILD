@@ -22,7 +22,14 @@ load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS", "TCMALLOC_DEFAULT_CXXOPTS")
-load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
+load(
+    "//tcmalloc:variants.bzl",
+    "create_tcmalloc_benchmark",
+    "create_tcmalloc_benchmark_suite",
+    "create_tcmalloc_libraries",
+    "create_tcmalloc_testsuite",
+)
+load("//tcmalloc/internal:percpu.bzl", "create_percpu_tcmalloc_testsuite")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -780,6 +787,7 @@ cc_test(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:mock_metadata_allocator",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
@@ -1362,8 +1370,8 @@ cc_test(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_stats",
         "//tcmalloc/internal:parameter_accessors",
+        "//tcmalloc/testing:smaps",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
@@ -1539,7 +1547,7 @@ cc_test(
     ],
 )
 
-cc_test(
+create_percpu_tcmalloc_testsuite(
     name = "cpu_cache_test",
     timeout = "long",
     srcs = ["cpu_cache_test.cc"],
@@ -1638,13 +1646,11 @@ create_tcmalloc_testsuite(
     ],
 )
 
-create_tcmalloc_benchmark(
+create_tcmalloc_benchmark_suite(
     name = "central_freelist_benchmark",
     srcs = ["central_freelist_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = [
-        ":common_8k_pages",
         "//tcmalloc/internal:bytes",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
@@ -1787,4 +1793,27 @@ cc_library(
         ":tcmalloc_tests",
     ],
     deps = ["@com_google_absl//absl/base:core_headers"],
+)
+
+cc_binary(
+    name = "dump_cpu_slab_allocation",
+    testonly = 1,
+    srcs = ["dump_cpu_slab_allocation.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common_8k_pages",
+        ":mock_central_freelist",
+        ":mock_transfer_cache",
+        "//tcmalloc/internal:numa",
+        "//tcmalloc/internal:percpu_tcmalloc",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+genrule(
+    name = "gen_dump_cpu_slab_allocation",
+    testonly = 1,
+    outs = ["cpu_slab_allocation.txt"],
+    cmd = "$(location :dump_cpu_slab_allocation) > \"$@\"",
+    tools = [":dump_cpu_slab_allocation"],
 )

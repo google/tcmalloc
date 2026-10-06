@@ -961,6 +961,7 @@ tcmalloc_cc_test(
     "GTest::gmock"
     "absl::check"
     "absl::core_headers"
+    "absl::flat_hash_set"
     "absl::span"
     "absl::str_format"
     "absl::strings"
@@ -1584,7 +1585,6 @@ tcmalloc_cc_test(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
-    "absl::strings"
     "absl::time"
     "benchmark::benchmark"
     "tcmalloc::internal_logging"
@@ -1592,6 +1592,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc_deprecated_perthread"
+    "tcmalloc::testing_smaps"
 )
 
 tcmalloc_cc_test_variants(
@@ -1777,7 +1778,7 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
 )
 
-tcmalloc_cc_test(
+create_percpu_tcmalloc_testsuite(
   NAME
     tcmalloc_cpu_cache_test
   SRCS
@@ -1874,7 +1875,7 @@ tcmalloc_cc_test_variants(
     "tcmalloc::testing_thread_manager"
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_binary_variants(
   NAME
     tcmalloc_central_freelist_benchmark
   SRCS
@@ -1892,11 +1893,9 @@ tcmalloc_cc_binary(
     "absl::time"
     "benchmark::benchmark"
     "benchmark::benchmark_main"
-    "tcmalloc::common_8k_pages"
     "tcmalloc::internal_bytes"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
-    "tcmalloc::tcmalloc"
 )
 
 tcmalloc_cc_library(
@@ -2041,5 +2040,20 @@ tcmalloc_cc_library(
     "alloc_at_least.cc"
   DEPS
     "absl::core_headers"
+)
+
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_dump_cpu_slab_allocation
+  SRCS
+    "dump_cpu_slab_allocation.cc"
+  DEPS
+    "absl::string_view"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_numa"
+    "tcmalloc::internal_percpu_tcmalloc"
+    "tcmalloc::mock_central_freelist"
+    "tcmalloc::mock_transfer_cache"
+    "tcmalloc::tcmalloc"
 )
 

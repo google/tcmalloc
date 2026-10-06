@@ -239,9 +239,6 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
     kPageSize);
 ABSL_CONST_INIT std::atomic<bool> Parameters::enable_unfiltered_collapse_(
     false);
-ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_cold_pages_(true);
-ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_filler_pages_(false);
-ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_sampled_pages_(true);
 ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
     Parameters::madvise_sampled_allocations_(
         MadviseSampledAllocations::kDisabled);
@@ -251,6 +248,14 @@ ABSL_CONST_INIT
 std::atomic<bool> Parameters::release_drained_slab_metadata_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
     true);
+
+static std::atomic<bool>& release_max_filler_pages_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+  });
+  return v;
+}
 
 static std::atomic<MadviseRegionsNoHugepage>&
 madvise_cold_regions_nohugepage_enabled() {
@@ -334,6 +339,10 @@ EnableCollapse Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed)
              ? EnableCollapse::kEnabled
              : EnableCollapse::kDisabled;
+}
+
+bool Parameters::release_max_filler_pages() {
+  return release_max_filler_pages_enabled().load(std::memory_order_relaxed);
 }
 
 MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
@@ -684,28 +693,13 @@ void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v) {
   Parameters::huge_region_adaptive_release_.store(v, std::memory_order_relaxed);
 }
 
-bool TCMalloc_Internal_GetReleaseMaxColdPages() {
-  return Parameters::release_max_cold_pages();
-}
-
-void TCMalloc_Internal_SetReleaseMaxColdPages(bool v) {
-  Parameters::release_max_cold_pages_.store(v, std::memory_order_relaxed);
-}
-
 bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
   return Parameters::release_max_filler_pages();
 }
 
 void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
-  Parameters::release_max_filler_pages_.store(v, std::memory_order_relaxed);
-}
-
-bool TCMalloc_Internal_GetReleaseMaxSampledPages() {
-  return Parameters::release_max_sampled_pages();
-}
-
-void TCMalloc_Internal_SetReleaseMaxSampledPages(bool v) {
-  Parameters::release_max_sampled_pages_.store(v, std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::release_max_filler_pages_enabled().store(
+      v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {

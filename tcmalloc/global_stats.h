@@ -65,15 +65,15 @@ struct TCMallocStats {
 
 void ExtractTCMallocStats(TCMallocStats& r, bool report_residence);
 
-uint64_t InUseByApp(const TCMallocStats& stats);
-uint64_t VirtualMemoryUsed(const TCMallocStats& stats);
-uint64_t UnmappedBytes(const TCMallocStats& stats);
-uint64_t PhysicalMemoryUsed(const TCMallocStats& stats);
-uint64_t RequiredBytes(const TCMallocStats& stats);
-size_t ExternalBytes(const TCMallocStats& stats);
-size_t HeapSizeBytes(const BackingStats& stats);
-size_t LocalBytes(const TCMallocStats& stats);
-size_t SlackBytes(const BackingStats& stats);
+[[nodiscard]] uint64_t InUseByApp(const TCMallocStats& stats);
+[[nodiscard]] uint64_t VirtualMemoryUsed(const TCMallocStats& stats);
+[[nodiscard]] uint64_t UnmappedBytes(const TCMallocStats& stats);
+[[nodiscard]] uint64_t PhysicalMemoryUsed(const TCMallocStats& stats);
+[[nodiscard]] uint64_t RequiredBytes(const TCMallocStats& stats);
+[[nodiscard]] size_t ExternalBytes(const TCMallocStats& stats);
+[[nodiscard]] size_t HeapSizeBytes(const BackingStats& stats);
+[[nodiscard]] size_t LocalBytes(const TCMallocStats& stats);
+[[nodiscard]] size_t SlackBytes(const BackingStats& stats);
 
 // WRITE stats to "out"
 //
@@ -83,8 +83,8 @@ size_t SlackBytes(const BackingStats& stats);
 void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation);
 void DumpStatsInPbtxt(Printer& out, int level);
 
-bool GetNumericProperty(const char* name_data, size_t name_size,
-                        size_t* absl_nonnull value);
+[[nodiscard]] bool GetNumericProperty(const char* name_data, size_t name_size,
+                                      size_t* absl_nonnull value);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -14,14 +14,17 @@
 
 #include "tcmalloc/internal/percpu.h"
 
+#include <signal.h>
 #include <sys/time.h>
+#include <ucontext.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <cstring>
 
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
-#include "absl/log/absl_check.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/testing/testutil.h"
@@ -39,10 +42,38 @@ static_assert(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ == 0,
 #endif
 
 ABSL_CONST_INIT std::atomic<int> alarms{0};
+ABSL_CONST_INIT std::atomic<int> iterations{0};
+ABSL_CONST_INIT std::atomic<int> last_alarm_iteration{-1};
+ABSL_CONST_INIT std::atomic<int> same_iteration_alarms{0};
+constexpr int kMaxSameIterationAlarms = 1;
+ABSL_CONST_INIT std::atomic<bool> starved{false};
 
-void sa_alrm(int sig) {
+void SetTimer(absl::Duration interval) {
+  const struct timeval timeval = absl::ToTimeval(interval);
+  struct itimerval signal_interval;
+  signal_interval.it_value = timeval;
+  signal_interval.it_interval = timeval;
+  setitimer(ITIMER_REAL, &signal_interval, nullptr);
+}
+
+void sa_alrm(int sig, siginfo_t* info, void* ucontext) {
+  const int saved_errno = errno;
   alarms.fetch_add(1, std::memory_order_relaxed);
   TC_CHECK(IsFast());
+
+  const int iter = iterations.load(std::memory_order_relaxed);
+  if (iter >= 0 &&
+      last_alarm_iteration.exchange(iter, std::memory_order_relaxed) == iter) {
+    if (same_iteration_alarms.fetch_add(1, std::memory_order_relaxed) >=
+        kMaxSameIterationAlarms) {
+      same_iteration_alarms.store(0, std::memory_order_relaxed);
+      starved.store(true, std::memory_order_relaxed);
+      sigaddset(&static_cast<ucontext_t*>(ucontext)->uc_sigmask, SIGALRM);
+    }
+  } else {
+    same_iteration_alarms.store(0, std::memory_order_relaxed);
+  }
+  errno = saved_errno;
 }
 
 TEST(PerCpu, SignalHandling) {
@@ -50,31 +81,42 @@ TEST(PerCpu, SignalHandling) {
     GTEST_SKIP() << "per-CPU unavailable";
   }
 
+  alarms.store(0, std::memory_order_relaxed);
+  iterations.store(0, std::memory_order_relaxed);
+  last_alarm_iteration.store(-1, std::memory_order_relaxed);
+  same_iteration_alarms.store(0, std::memory_order_relaxed);
+  starved.store(false, std::memory_order_relaxed);
+
   struct sigaction sig;
-  memset(&sig, 0, sizeof(sig));  // sa_flags == 0 => SA_RESTART not set
-  sig.sa_handler = sa_alrm;
-  ABSL_CHECK_EQ(sigaction(SIGALRM, &sig, nullptr),
-                0);  // install signal handler
+  memset(&sig, 0, sizeof(sig));  // SA_RESTART not set
+  sig.sa_sigaction = sa_alrm;
+  sig.sa_flags = SA_SIGINFO;
+  struct sigaction old_sig;
+  ASSERT_EQ(sigaction(SIGALRM, &sig, &old_sig), 0);  // install signal handler
 
-  constexpr absl::Duration interval = absl::Microseconds(1);
-  struct timeval timeval = absl::ToTimeval(interval);
+  absl::Duration interval = absl::Microseconds(1);
+  SetTimer(interval);
 
-  struct itimerval signal_interval;
-  signal_interval.it_value = timeval;
-  signal_interval.it_interval = timeval;
-
-  setitimer(ITIMER_REAL, &signal_interval, nullptr);
+  sigset_t alrm_set;
+  sigemptyset(&alrm_set);
+  sigaddset(&alrm_set, SIGALRM);
 
   for (int i = 0; i < 15000; ++i) {
+    iterations.store(i, std::memory_order_relaxed);
+    if (starved.load(std::memory_order_relaxed)) {
+      starved.store(false, std::memory_order_relaxed);
+      interval = std::min(interval * 2, absl::Milliseconds(10));
+      SetTimer(interval);
+      ASSERT_EQ(sigprocmask(SIG_UNBLOCK, &alrm_set, nullptr), 0);
+    }
     UnregisterRseq();
     TC_CHECK(IsFast());
   }
+  iterations.store(-1, std::memory_order_relaxed);
 
-  timeval = absl::ToTimeval(absl::ZeroDuration());
-  signal_interval.it_value = timeval;
-  signal_interval.it_interval = timeval;
-
-  setitimer(ITIMER_REAL, &signal_interval, nullptr);
+  SetTimer(absl::ZeroDuration());
+  ASSERT_EQ(sigprocmask(SIG_UNBLOCK, &alrm_set, nullptr), 0);
+  ASSERT_EQ(sigaction(SIGALRM, &old_sig, nullptr), 0);
 
   EXPECT_GT(alarms.load(std::memory_order_relaxed), 0);
 }

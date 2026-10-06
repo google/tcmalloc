@@ -46,7 +46,8 @@ struct AllocatedAddressRanges {
   std::vector<SpanDetails> spans;
 };
 // Returns the address ranges currently allocated by TCMalloc.
-absl::StatusOr<AllocatedAddressRanges> GetAllocatedAddressRanges();
+[[nodiscard]] absl::StatusOr<AllocatedAddressRanges>
+GetAllocatedAddressRanges();
 
 }  // namespace malloc_tracing_extension
 }  // namespace tcmalloc

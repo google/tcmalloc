@@ -90,8 +90,8 @@ class HookList final : HookListBase {
 
  private:
   template <typename... Args>
-  void InvokeSlow(Args&&... args) const ABSL_ATTRIBUTE_COLD
-      ABSL_ATTRIBUTE_NOINLINE;
+  ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void InvokeSlow(
+      Args&&... args) const;
 
   // One more than the index of the last valid element in priv_data.  During
   // 'Remove' this may be past the last valid element in priv_data, but

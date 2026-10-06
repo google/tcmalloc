@@ -68,11 +68,24 @@ int64_t mock_clock() { return fake_clock; }
 
 double freq() { return 1 << 10; }
 
-Bitmap<kMaxResidencyBits> GetBitmap(int value) {
-  int v = value % kMaxResidencyBits;
+// A prefix bitmap models residency that runs out part-way through a
+// hugepage.  Repeating value as a 16-bit pattern instead models sparse
+// residency, so the treatment's per-page reductions (all-of / any-of a group
+// of native pages) and MarkSubreleased see set bits interleaved with clear
+// ones at every offset.
+Bitmap<kMaxResidencyBits> GetBitmap(uint16_t value, bool repeat_pattern) {
   Bitmap<kMaxResidencyBits> bitmap;
-  if (v > 0) {
-    bitmap.SetRange(/*index=*/0, v);
+  if (!repeat_pattern) {
+    const size_t v = value % kMaxResidencyBits;
+    if (v > 0) {
+      bitmap.SetRange(/*index=*/0, v);
+    }
+    return bitmap;
+  }
+  for (size_t i = 0; i < kMaxResidencyBits; ++i) {
+    if ((value >> (i % 16)) & 1) {
+      bitmap.SetBit(i);
+    }
   }
   return bitmap;
 }
@@ -233,11 +246,14 @@ struct ToggleUnback {
 };
 
 struct GatherStats {
+  // Print's summary branch, as mallocz's short form takes it.
+  bool summary_only;
+
   void Perform(State& state) const;
 
   template <typename Sink>
-  friend void AbslStringify(Sink& sink, const GatherStats&) {
-    sink.Append("GatherStats{}");
+  friend void AbslStringify(Sink& sink, const GatherStats& g) {
+    absl::Format(&sink, "GatherStats{.summary_only=%v}", g.summary_only);
   }
 };
 
@@ -305,6 +321,9 @@ struct UpdateBitmaps {
   uint16_t unbacked_bitmap_val;
   uint16_t swapped_bitmap_val;
   uint16_t stale_bitmap_val;
+  // Repeat each *_bitmap_val as a 16-bit pattern across the hugepage instead
+  // of setting a prefix of that many bits.
+  bool repeat_pattern;
 
   void Perform(State& state) const;
 
@@ -313,10 +332,11 @@ struct UpdateBitmaps {
     absl::Format(&sink,
                  "UpdateBitmaps{.hugepage_backed_set=%v, "
                  ".hugepage_backed_val=%v, .unbacked_bitmap_val=%d, "
-                 ".swapped_bitmap_val=%d, .stale_bitmap_val=%d}",
+                 ".swapped_bitmap_val=%d, .stale_bitmap_val=%d, "
+                 ".repeat_pattern=%v}",
                  u.hugepage_backed_set, u.hugepage_backed_val,
                  u.unbacked_bitmap_val, u.swapped_bitmap_val,
-                 u.stale_bitmap_val);
+                 u.stale_bitmap_val, u.repeat_pattern);
   }
 };
 
@@ -330,6 +350,8 @@ struct ToggleCollapseSuccess {
 };
 
 struct SetErrorNumber {
+  // Selects one of the errnos the treatment classifies, or raw_value, which
+  // lands in its "other" bucket for any value the switch does not name.
   uint8_t error_type;
   uint32_t raw_value;
 
@@ -337,7 +359,8 @@ struct SetErrorNumber {
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetErrorNumber& s) {
-    absl::Format(&sink, "SetErrorNumber{.error_type=%d}", s.error_type);
+    absl::Format(&sink, "SetErrorNumber{.error_type=%d, .raw_value=%d}",
+                 s.error_type, s.raw_value);
   }
 };
 
@@ -398,12 +421,11 @@ struct State {
                subrelease_unbacked_mode) {
     fake_clock = 0;
     output.resize(1 << 20);
-    // To avoid reentrancy during unback, reserve space in released_set.  We
+    // MockUnback inserts into released_set while the AllocationGuard of the
+    // caller's PageHeapSpinLockHolder is still in force, even though the filler
+    // has dropped pageheap_lock itself, so the set must never grow there.  We
     // have at most num_instructions allocations, for at most kPagesPerHugePage
     // pages each, that we can track the released status of.
-    //
-    // TODO(b/73749855): Releasing the pageheap_lock during ReleaseFree will
-    // eliminate the need for this.
     released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
   }
 
@@ -840,16 +862,18 @@ void Deallocate::Perform(State& state) const {
 
 void Release::Perform(State& state) const {
   SkipSubreleaseIntervals skip_subrelease_intervals;
+  // The filler accepts the peak and the short/long demand intervals together
+  // and gives the peak priority, so set both when use_peak_interval asks for
+  // the peak rather than choosing one.
   if (use_peak_interval) {
     skip_subrelease_intervals.peak_interval = peak_interval;
-  } else {
-    skip_subrelease_intervals.short_interval = short_interval;
-    skip_subrelease_intervals.long_interval = long_interval;
-    if (skip_subrelease_intervals.short_interval >
-        skip_subrelease_intervals.long_interval) {
-      std::swap(skip_subrelease_intervals.short_interval,
-                skip_subrelease_intervals.long_interval);
-    }
+  }
+  skip_subrelease_intervals.short_interval = short_interval;
+  skip_subrelease_intervals.long_interval = long_interval;
+  if (skip_subrelease_intervals.short_interval >
+      skip_subrelease_intervals.long_interval) {
+    std::swap(skip_subrelease_intervals.short_interval,
+              skip_subrelease_intervals.long_interval);
   }
   Length desired(desired_pages);
   Length to_release_from_partial_allocs;
@@ -896,7 +920,7 @@ void GatherStats::Perform(State& state) const {
   Printer p(&state.output[0], state.output.size());
   FakePageFlags pageflags(state);
   PageHeapSpinLockHolder l;
-  state.filler.Print(p, true, pageflags);
+  state.filler.Print(p, /*everything=*/!summary_only, pageflags);
 }
 
 void ModelTail::Perform(State& state) const {
@@ -1021,9 +1045,9 @@ void UpdateBitmaps::Perform(State& state) const {
     state.stale_bitmap.Clear();
     return;
   }
-  state.unbacked_bitmap = GetBitmap(unbacked_bitmap_val);
-  state.swapped_bitmap = GetBitmap(swapped_bitmap_val);
-  state.stale_bitmap = GetBitmap(stale_bitmap_val);
+  state.unbacked_bitmap = GetBitmap(unbacked_bitmap_val, repeat_pattern);
+  state.swapped_bitmap = GetBitmap(swapped_bitmap_val, repeat_pattern);
+  state.stale_bitmap = GetBitmap(stale_bitmap_val, repeat_pattern);
 }
 
 void ToggleCollapseSuccess::Perform(State& state) const {
@@ -1031,7 +1055,7 @@ void ToggleCollapseSuccess::Perform(State& state) const {
 }
 
 void SetErrorNumber::Perform(State& state) const {
-  switch (error_type % 4) {
+  switch (error_type % 6) {
     case 0:
       state.error_number = ENOMEM;
       break;
@@ -1043,6 +1067,13 @@ void SetErrorNumber::Perform(State& state) const {
       break;
     case 3:
       state.error_number = EINVAL;
+      break;
+    case 4:
+      state.error_number = EINTR;
+      break;
+    case 5:
+      // Any errno, including 0 and values the treatment does not classify.
+      state.error_number = static_cast<int>(raw_value);
       break;
   }
 }
@@ -1151,7 +1182,7 @@ FUZZ_TEST(HugePageFillerTest, FuzzFiller)
 TEST(HugePageFillerTest, b510326948) {
   FuzzFiller(
       {SetCollapseLatency{.latency = absl::Nanoseconds(9223372036854775807)},
-       SetErrorNumber{.error_type = 115},
+       SetErrorNumber{.error_type = 3},
        UpdateBitmaps{.hugepage_backed_set = false,
                      .hugepage_backed_val = false,
                      .unbacked_bitmap_val = 65535,
@@ -1588,9 +1619,9 @@ TEST(HugePageFillerTest, InstructionStringify) {
               ".release_partial_allocs=true}");
   }
   {
-    Instruction inst = GatherStats{};
+    Instruction inst = GatherStats{.summary_only = true};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(s, "GatherStats{}");
+    EXPECT_EQ(s, "GatherStats{.summary_only=true}");
   }
   {
     Instruction inst = ModelTail{.length = 5};
@@ -1627,12 +1658,14 @@ TEST(HugePageFillerTest, InstructionStringify) {
                                      .hugepage_backed_val = false,
                                      .unbacked_bitmap_val = 1,
                                      .swapped_bitmap_val = 2,
-                                     .stale_bitmap_val = 3};
+                                     .stale_bitmap_val = 3,
+                                     .repeat_pattern = true};
     std::string s = absl::StrFormat("%v", inst);
     EXPECT_EQ(
         s,
         "UpdateBitmaps{.hugepage_backed_set=true, .hugepage_backed_val=false, "
-        ".unbacked_bitmap_val=1, .swapped_bitmap_val=2, .stale_bitmap_val=3}");
+        ".unbacked_bitmap_val=1, .swapped_bitmap_val=2, .stale_bitmap_val=3, "
+        ".repeat_pattern=true}");
   }
   {
     Instruction inst = ToggleCollapseSuccess{};
@@ -1640,9 +1673,9 @@ TEST(HugePageFillerTest, InstructionStringify) {
     EXPECT_EQ(s, "ToggleCollapseSuccess{}");
   }
   {
-    Instruction inst = SetErrorNumber{.error_type = 1};
+    Instruction inst = SetErrorNumber{.error_type = 1, .raw_value = 7};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(s, "SetErrorNumber{.error_type=1}");
+    EXPECT_EQ(s, "SetErrorNumber{.error_type=1, .raw_value=7}");
   }
   {
     Instruction inst = SetCollapseLatency{.latency = absl::Seconds(5)};
@@ -1726,6 +1759,110 @@ TEST(HugePageFillerTest, b547364068) {
                      .unbacked_bitmap_val = 512,
                      .swapped_bitmap_val = 1,
                      .stale_bitmap_val = 0}},
+      SubreleaseUnbackedMode::kDisabled);
+}
+
+// Collapse fails with EINTR, then with errnos the treatment does not name
+// (-1 and 0), so every collapse error bucket, including "other", is counted
+// and printed.  Each rescan needs kRecordInterval to elapse.
+TEST(HugePageFillerTest, CollapseErrorEintrAndRawErrno) {
+  FuzzFiller({UpdateBitmaps{.hugepage_backed_set = true,
+                            .hugepage_backed_val = false,
+                            .unbacked_bitmap_val = 0,
+                            .swapped_bitmap_val = 0},
+              ToggleCollapseSuccess{}, Allocate{.length = 1, .num_objects = 1},
+              SetErrorNumber{.error_type = 4, .raw_value = 0},
+              TreatTrackers{.enable_collapse = true,
+                            .enable_unfiltered_collapse = true},
+              AdvanceClock{.amount = absl::Minutes(10)},
+              SetErrorNumber{.error_type = 5, .raw_value = 4294967295},
+              TreatTrackers{.enable_collapse = true,
+                            .enable_unfiltered_collapse = true},
+              AdvanceClock{.amount = absl::Minutes(10)},
+              SetErrorNumber{.error_type = 5, .raw_value = 0},
+              TreatTrackers{.enable_collapse = true,
+                            .enable_unfiltered_collapse = true},
+              GatherStats{}, GatherStatsPbtxt{},
+              Deallocate{.tracker_index = 0, .alloc_index = 0}},
+             SubreleaseUnbackedMode::kDisabled);
+}
+
+// Skip-subrelease with the peak interval and the short/long demand intervals
+// set together: the filler takes the peak and ignores the demand history.
+TEST(HugePageFillerTest, ReleaseWithPeakAndDemandIntervals) {
+  FuzzFiller({Allocate{.length = 1, .num_objects = 1},
+              Allocate{.length = 1, .num_objects = 1},
+              Allocate{.length = 1, .num_objects = 1},
+              AdvanceClock{.amount = absl::Minutes(1)},
+              Deallocate{.tracker_index = 0, .alloc_index = 1},
+              AdvanceClock{.amount = absl::Minutes(1)},
+              Release{.hit_limit = false,
+                      .use_peak_interval = true,
+                      .peak_interval = absl::Minutes(5),
+                      .short_interval = absl::Seconds(30),
+                      .long_interval = absl::Minutes(2),
+                      .desired_pages = 65535,
+                      .release_partial_allocs = false},
+              Release{.hit_limit = false,
+                      .use_peak_interval = true,
+                      .peak_interval = absl::Nanoseconds(1),
+                      .short_interval = absl::Minutes(2),
+                      .long_interval = absl::Seconds(30),
+                      .desired_pages = 65535,
+                      .release_partial_allocs = true},
+              GatherStats{}},
+             SubreleaseUnbackedMode::kDisabled);
+}
+
+// Residency bitmaps repeated as 16-bit patterns rather than prefixes: the
+// treatment's all-of/any-of page reductions see mixed groups, the filtered
+// collapse sees 256 unbacked but only 64 swapped pages, and subreleasing
+// unbacked free pages and stale pages works from interleaved bits.
+TEST(HugePageFillerTest, SparseResidencyBitmaps) {
+  FuzzFiller({UpdateBitmaps{.hugepage_backed_set = true,
+                            .hugepage_backed_val = false,
+                            .unbacked_bitmap_val = 0xAAAA,
+                            .swapped_bitmap_val = 0x0101,
+                            .stale_bitmap_val = 0x8000,
+                            .repeat_pattern = true},
+              Allocate{.length = 1, .num_objects = 1},
+              Allocate{.length = 1, .num_objects = 1},
+              Allocate{.length = 3, .num_objects = 1},
+              Deallocate{.tracker_index = 0, .alloc_index = 1},
+              TreatTrackers{.enable_collapse = true,
+                            .enable_unfiltered_collapse = false,
+                            .enable_release_stale_pages = true},
+              GatherStats{}, GatherStatsPbtxt{},
+              AdvanceClock{.amount = absl::Minutes(10)},
+              UpdateBitmaps{.hugepage_backed_set = true,
+                            .hugepage_backed_val = false,
+                            .unbacked_bitmap_val = 0x5555,
+                            .swapped_bitmap_val = 0,
+                            .stale_bitmap_val = 0x0001,
+                            .repeat_pattern = true},
+              TreatTrackers{.enable_collapse = false,
+                            .enable_unfiltered_collapse = false,
+                            .enable_release_stale_pages = true},
+              Allocate{.length = 1, .num_objects = 1},
+              Release{.hit_limit = false,
+                      .use_peak_interval = false,
+                      .peak_interval = absl::ZeroDuration(),
+                      .short_interval = absl::ZeroDuration(),
+                      .long_interval = absl::ZeroDuration(),
+                      .desired_pages = 65535,
+                      .release_partial_allocs = true},
+              GatherStats{}},
+             SubreleaseUnbackedMode::kEnabled);
+}
+
+// Print's summary form, before and after subrelease.
+TEST(HugePageFillerTest, PrintSummaryOnly) {
+  FuzzFiller(
+      {GatherStats{.summary_only = true},
+       Allocate{.length = 1, .num_objects = 1},
+       GatherStats{.summary_only = true},
+       MemoryLimitHitRelease{.desired = 65535},
+       GatherStats{.summary_only = true}, GatherStats{.summary_only = false}},
       SubreleaseUnbackedMode::kDisabled);
 }
 

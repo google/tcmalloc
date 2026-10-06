@@ -106,11 +106,13 @@ class CpuCachePeer {
     for (uint8_t shift = bounds.initial_shift;
          shift <= bounds.max_shift && shift > kInitialBasePerCpuShift;
          ++shift) {
-      const auto [bytes_required, bytes_available] =
-          EstimateSlabBytes(cpu_cache.GetMaxCapacityFunctor(shift));
-      EXPECT_GT(bytes_required * 20, bytes_available * 17)
-          << bytes_required << " " << bytes_available << " " << kNumaPartitions
-          << " " << kNumBaseClasses << " " << kNumClasses;
+      std::atomic<uint16_t> max_capacity[kNumClasses] = {0};
+
+      cpu_cache.CalculateMaxCapacityForAllClasses(shift, max_capacity);
+      const size_t bytes_available = 1 << shift;
+      const size_t bytes_required = EstimateSlabBytes(
+          {max_capacity}, CpuCache::Freelist::GetTotalClassHeaderSize());
+      EXPECT_GT(bytes_required * 20, bytes_available * 17);
       EXPECT_LE(bytes_required, bytes_available);
     }
   }
@@ -505,183 +507,148 @@ TEST(CpuCacheTest, Metadata) {
 
   const int num_cpus = NumCPUs();
 
-  const int kAttempts = 3;
-  for (int attempt = 1; attempt <= kAttempts; attempt++) {
-    SCOPED_TRACE(absl::StrCat("attempt=", attempt));
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
 
-    CpuCache cache;
-    cache.Init();
-    cache.Activate();
+  SlabShiftBounds shift_bounds = cache.GetPerCpuSlabShiftBounds();
 
-    SlabShiftBounds shift_bounds = cache.GetPerCpuSlabShiftBounds();
+  PerCPUMetadataState r = cache.MetadataMemoryUsage();
+  size_t slabs_size = subtle::percpu::GetSlabsAllocSize(
+      subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus);
+  size_t resize_size = num_cpus * CpuCachePeer::CpuStateSize(cache);
+  size_t begins_size = kNumClasses * sizeof(std::atomic<uint16_t>);
+  EXPECT_EQ(r.virtual_size, slabs_size + resize_size + begins_size);
+  EXPECT_EQ(r.resident_size, 0);
 
-    PerCPUMetadataState r = cache.MetadataMemoryUsage();
-    size_t slabs_size = subtle::percpu::GetSlabsAllocSize(
-        subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus);
-    size_t resize_size = num_cpus * CpuCachePeer::CpuStateSize(cache);
-    size_t begins_size = kNumClasses * sizeof(std::atomic<uint16_t>);
-    EXPECT_EQ(r.virtual_size, slabs_size + resize_size + begins_size);
-    EXPECT_EQ(r.resident_size, 0);
-
-    auto count_cores = [&]() {
-      int populated_cores = 0;
-      for (int i = 0; i < num_cpus; i++) {
-        if (cache.HasPopulated(i)) {
-          populated_cores++;
-        }
-      }
-      return populated_cores;
-    };
-
-    EXPECT_EQ(0, count_cores());
-
-    int allowed_cpu_id;
-    const size_t kSizeClass = 2;
-    const size_t num_to_move =
-        cache.forwarder().num_objects_to_move(kSizeClass);
-
-    TransferCacheStats tc_stats =
-        cache.forwarder().transfer_cache().GetStats(kSizeClass);
-    EXPECT_EQ(tc_stats.remove_hits, 0);
-    EXPECT_EQ(tc_stats.remove_misses, 0);
-    EXPECT_EQ(tc_stats.remove_object_misses, 0);
-    EXPECT_EQ(tc_stats.insert_hits, 0);
-    EXPECT_EQ(tc_stats.insert_misses, 0);
-    EXPECT_EQ(tc_stats.insert_object_misses, 0);
-
-    void* ptr;
-    {
-      // Restrict this thread to a single core while allocating and processing
-      // the slow path.
-      //
-      // TODO(b/151313823):  Without this restriction, we may access--for
-      // reading only--other slabs if we end up being migrated.  These may cause
-      // huge pages to be faulted for those cores, leading to test flakiness.
-      tcmalloc_internal::ScopedAffinityMask mask(
-          tcmalloc_internal::AllowedCpus()[0]);
-      allowed_cpu_id = subtle::percpu::TcmallocTest::VirtualCpuSynchronize();
-
-      ptr = cache.Allocate(kSizeClass);
-
-      if (mask.Tampered() ||
-          allowed_cpu_id !=
-              subtle::percpu::TcmallocTest::VirtualCpuSynchronize()) {
-        return;
+  auto count_cores = [&]() {
+    int populated_cores = 0;
+    for (int i = 0; i < num_cpus; i++) {
+      if (cache.HasPopulated(i)) {
+        populated_cores++;
       }
     }
-    EXPECT_NE(ptr, nullptr);
-    EXPECT_EQ(1, count_cores());
+    return populated_cores;
+  };
 
-    // We don't care if the transfer cache hit or missed, but the CPU cache
-    // should have done the operation.
-    tc_stats = cache.forwarder().transfer_cache().GetStats(kSizeClass);
-    if ((tc_stats.remove_object_misses != num_to_move ||
-         tc_stats.insert_hits + tc_stats.insert_misses != 0) &&
-        attempt < kAttempts) {
-      // The operation didn't occur as expected, likely because we were
-      // preempted but returned to the same core (otherwise Tampered would have
-      // fired).
-      //
-      // The MSB of tcmalloc_slabs should be cleared to indicate we were
-      // preempted.  As of December 2024, Refill and its callees do not invoke
-      // CacheCpuSlab.  This check can spuriously pass if we're preempted
-      // between the end of Allocate and now, rather than within Allocate, but
-      // it ensures we do not silently break.
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-      EXPECT_EQ(subtle::percpu::tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK, 0);
-#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  EXPECT_EQ(0, count_cores());
 
-      cache.Deallocate(ptr, kSizeClass);
-      cache.Deactivate();
+  const size_t kSizeClass = 2;
+  const size_t num_to_move = cache.forwarder().num_objects_to_move(kSizeClass);
 
-      continue;
-    }
+  TransferCacheStats tc_stats =
+      cache.forwarder().transfer_cache().GetStats(kSizeClass);
+  EXPECT_EQ(tc_stats.remove_hits, 0);
+  EXPECT_EQ(tc_stats.remove_misses, 0);
+  EXPECT_EQ(tc_stats.remove_object_misses, 0);
+  EXPECT_EQ(tc_stats.insert_hits, 0);
+  EXPECT_EQ(tc_stats.insert_misses, 0);
+  EXPECT_EQ(tc_stats.insert_object_misses, 0);
 
-    EXPECT_EQ(tc_stats.remove_hits + tc_stats.remove_misses, 1);
-    EXPECT_EQ(tc_stats.remove_object_misses, num_to_move);
-    EXPECT_EQ(tc_stats.insert_hits, 0);
-    EXPECT_EQ(tc_stats.insert_misses, 0);
-    EXPECT_EQ(tc_stats.insert_object_misses, 0);
-
-    r = cache.MetadataMemoryUsage();
-    EXPECT_EQ(
-        r.virtual_size,
-        resize_size + begins_size +
-            subtle::percpu::GetSlabsAllocSize(
-                subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus));
-
-    // We expect to fault in a single core, but we may end up faulting an
-    // entire hugepage worth of memory when we touch that core and another when
-    // touching the header.
-    const size_t core_slab_size = r.virtual_size / num_cpus;
-    const size_t upper_bound =
-        ((core_slab_size + kHugePageSize - 1) & ~(kHugePageSize - 1)) +
-        kHugePageSize;
-
-    // A single core may be less than the full slab (core_slab_size), since we
-    // do not touch every page within the slab.
-    EXPECT_GT(r.resident_size, 0);
-    EXPECT_LE(r.resident_size, upper_bound)
-        << count_cores() << " " << core_slab_size << " " << kHugePageSize;
-
-    // This test is much more sensitive to implementation details of the per-CPU
-    // cache.  It may need to be updated from time to time.  These numbers were
-    // calculated by MADV_NOHUGEPAGE'ing the memory used for the slab and
-    // measuring the resident size.
-    switch (shift_bounds.max_shift) {
-      case 13:
-        EXPECT_GE(r.resident_size, 4096);
-        break;
-      case 19:
-        EXPECT_GE(r.resident_size, 8192);
-        break;
-      default:
-        ASSUME(false);
-        break;
-    }
-
-    // Read stats from the CPU caches.  This should not impact resident_size.
-    const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
-    size_t total_used_bytes = 0;
-    for (int cpu = 0; cpu < num_cpus; ++cpu) {
-      size_t used_bytes = cache.UsedBytes(cpu);
-      total_used_bytes += used_bytes;
-
-      if (cpu == allowed_cpu_id) {
-        EXPECT_GT(used_bytes, 0);
-        EXPECT_TRUE(cache.HasPopulated(cpu));
-      } else {
-        EXPECT_EQ(used_bytes, 0);
-        EXPECT_FALSE(cache.HasPopulated(cpu));
-      }
-
-      EXPECT_LE(cache.Unallocated(cpu), max_cpu_cache_size);
-      EXPECT_EQ(cache.Capacity(cpu), max_cpu_cache_size);
-      EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu),
-                cache.Capacity(cpu));
-    }
-
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      // This is sensitive to the current growth policies of CpuCache.  It may
-      // require updating from time-to-time.
-      EXPECT_EQ(cache.TotalObjectsOfClass(size_class),
-                (size_class == kSizeClass ? num_to_move - 1 : 0))
-          << size_class;
-    }
-    EXPECT_EQ(cache.TotalUsedBytes(), total_used_bytes);
-
-    PerCPUMetadataState post_stats = cache.MetadataMemoryUsage();
-    // Confirm stats are within expected bounds.
-    EXPECT_GT(post_stats.resident_size, 0);
-    EXPECT_LE(post_stats.resident_size, upper_bound) << count_cores();
-    // Confirm stats are unchanged.
-    EXPECT_EQ(r.resident_size, post_stats.resident_size);
-
-    // Tear down.
-    cache.Deallocate(ptr, kSizeClass);
-    cache.Deactivate();
-    break;
+  // Allocate() populates the slab of the current CPU and refills it in a
+  // single slow path.  The slow path takes hundreds of microseconds (it page
+  // faults the fresh per-CPU slab region), and with rseq registered any
+  // reschedule in that window, including an involuntary context switch back
+  // onto the same CPU, clears the cached slabs pointer: TcmallocSlab::Grow
+  // then refuses to grow the capacity and Refill fetches a single object
+  // instead of a batch.  Pinning the thread's affinity does not prevent this,
+  // so inject a fake CPU ID for just this call, which unregisters rseq for
+  // its duration and makes the refill independent of scheduling.
+  constexpr int kCpuId = 0;
+  void* ptr;
+  {
+    ScopedFakeCpuId fake_cpu_id(kCpuId);
+    ptr = cache.Allocate(kSizeClass);
   }
+  EXPECT_NE(ptr, nullptr);
+  EXPECT_EQ(1, count_cores());
+
+  // We don't care if the transfer cache hit or missed, but the CPU cache
+  // should have done the operation.
+  tc_stats = cache.forwarder().transfer_cache().GetStats(kSizeClass);
+  EXPECT_EQ(tc_stats.remove_hits + tc_stats.remove_misses, 1);
+  EXPECT_EQ(tc_stats.remove_object_misses, num_to_move);
+  EXPECT_EQ(tc_stats.insert_hits, 0);
+  EXPECT_EQ(tc_stats.insert_misses, 0);
+  EXPECT_EQ(tc_stats.insert_object_misses, 0);
+
+  r = cache.MetadataMemoryUsage();
+  EXPECT_EQ(
+      r.virtual_size,
+      resize_size + begins_size +
+          subtle::percpu::GetSlabsAllocSize(
+              subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus));
+
+  // We expect to fault in a single core, but we may end up faulting an
+  // entire hugepage worth of memory when we touch that core and another when
+  // touching the header.
+  const size_t core_slab_size = r.virtual_size / num_cpus;
+  const size_t upper_bound =
+      ((core_slab_size + kHugePageSize - 1) & ~(kHugePageSize - 1)) +
+      kHugePageSize;
+
+  // A single core may be less than the full slab (core_slab_size), since we
+  // do not touch every page within the slab.
+  EXPECT_GT(r.resident_size, 0);
+  EXPECT_LE(r.resident_size, upper_bound)
+      << count_cores() << " " << core_slab_size << " " << kHugePageSize;
+
+  // This test is much more sensitive to implementation details of the per-CPU
+  // cache.  It may need to be updated from time to time.  These numbers were
+  // calculated by MADV_NOHUGEPAGE'ing the memory used for the slab and
+  // measuring the resident size.
+  switch (shift_bounds.max_shift) {
+    case 13:
+      EXPECT_GE(r.resident_size, 4096);
+      break;
+    case 19:
+      EXPECT_GE(r.resident_size, 8192);
+      break;
+    default:
+      ASSUME(false);
+      break;
+  }
+
+  // Read stats from the CPU caches.  This should not impact resident_size.
+  const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
+  size_t total_used_bytes = 0;
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    size_t used_bytes = cache.UsedBytes(cpu);
+    total_used_bytes += used_bytes;
+
+    if (cpu == kCpuId) {
+      EXPECT_GT(used_bytes, 0);
+      EXPECT_TRUE(cache.HasPopulated(cpu));
+    } else {
+      EXPECT_EQ(used_bytes, 0);
+      EXPECT_FALSE(cache.HasPopulated(cpu));
+    }
+
+    EXPECT_LE(cache.Unallocated(cpu), max_cpu_cache_size);
+    EXPECT_EQ(cache.Capacity(cpu), max_cpu_cache_size);
+    EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu),
+              cache.Capacity(cpu));
+  }
+
+  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+    // This is sensitive to the current growth policies of CpuCache.  It may
+    // require updating from time-to-time.
+    EXPECT_EQ(cache.TotalObjectsOfClass(size_class),
+              (size_class == kSizeClass ? num_to_move - 1 : 0))
+        << size_class;
+  }
+  EXPECT_EQ(cache.TotalUsedBytes(), total_used_bytes);
+
+  PerCPUMetadataState post_stats = cache.MetadataMemoryUsage();
+  // Confirm stats are within expected bounds.
+  EXPECT_GT(post_stats.resident_size, 0);
+  EXPECT_LE(post_stats.resident_size, upper_bound) << count_cores();
+  // Confirm stats are unchanged.
+  EXPECT_EQ(r.resident_size, post_stats.resident_size);
+
+  // Tear down.
+  cache.Deallocate(ptr, kSizeClass);
+  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, CacheMissStats) {
@@ -859,8 +826,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
   for (auto large_class : {static_cast<size_t>(2), kColdClassesStart + 1}) {
     const int kLargeClass = large_class;
     constexpr int kGrowthFactor = 5;
-    const int base_max_capacity =
-        cache.GetMaxCapacity(kLargeClass, CpuCachePeer::GetSlabShift(cache));
+    const int base_max_capacity = cache.GetMaxCapacity(kLargeClass);
 
     const size_t large_class_size =
         cache.forwarder().class_to_size(kLargeClass);
@@ -876,7 +842,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       // it can grow.
       ops += batch_size_large;
       AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
+      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) >=
           base_max_capacity) {
         break;
       }
@@ -900,8 +866,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       cache.ResizeSizeClassMaxCapacities();
     }
 
-    const int resized_max_capacity =
-        cache.GetMaxCapacity(kLargeClass, CpuCachePeer::GetSlabShift(cache));
+    const int resized_max_capacity = cache.GetMaxCapacity(kLargeClass);
     EXPECT_EQ(resized_max_capacity,
               base_max_capacity + kGrowthFactor * batch_size_large);
 
@@ -917,7 +882,7 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       // it can grow.
       ops += batch_size_large;
       AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
-      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) ==
+      if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) >=
           base_max_capacity) {
         break;
       }
@@ -964,8 +929,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
   size_t old_max_capacity = 0;
   size_t new_max_capacity = 0;
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    old_max_capacity +=
-        cache.GetMaxCapacity(size_class, CpuCachePeer::GetSlabShift(cache));
+    old_max_capacity += cache.GetMaxCapacity(size_class);
   }
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -992,8 +956,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
     capacity += cache.Capacity(cpu);
   }
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    new_max_capacity +=
-        cache.GetMaxCapacity(size_class, CpuCachePeer::GetSlabShift(cache));
+    new_max_capacity += cache.GetMaxCapacity(size_class);
   }
   EXPECT_EQ(new_max_capacity, old_max_capacity);
 
@@ -2067,11 +2030,10 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
 
 class CpuCacheEnvironment {
  public:
-  CpuCacheEnvironment() : num_cpus_(NumCPUs()) {}
+  CpuCacheEnvironment() : num_cpus_(NumCPUs()) { cache_.Init(); }
   ~CpuCacheEnvironment() { cache_.Deactivate(); }
 
   void Activate() {
-    cache_.Init();
     cache_.Activate();
     ready_.store(true, std::memory_order_release);
   }
