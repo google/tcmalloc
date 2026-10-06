@@ -749,10 +749,16 @@ struct State {
   void CheckInvariants() {
     BackingStats stats;
     PageReleaseStats release_stats;
+    BackingStats filler_stats;
+    HugeLength donated;
+    Length abandoned;
     {
       PageHeapSpinLockHolder l;
       stats = allocator.stats();
       release_stats = allocator.GetReleaseStats();
+      filler_stats = allocator.FillerStats();
+      donated = allocator.DonatedHugePages();
+      abandoned = allocator.AbandonedPages();
     }
     TC_CHECK_EQ(release_stats, expected_stats);
     TC_CHECK_EQ(live_ranges.size(), allocs.size());
@@ -801,6 +807,20 @@ struct State {
       return false;
     };
     size_t over = used - expected_used;
+    // Every donated hugepage is a tracker the filler counts, and abandoned
+    // pages are the donor's share of a donated hugepage.  A donated tracker
+    // that empties leaves the filler's count in HandleFullyFreedTracker, but
+    // ReleaseHugepage fixes the donation telemetry only once the filler hands
+    // the tracker back: after the unback it drops pageheap_lock for, or, when
+    // a treatment still pins it, once the pinning operation drains it.  Such
+    // a hugepage is meanwhile neither free nor unmapped, so it is counted in
+    // pending_release_ while its unback is in flight and in `over` otherwise;
+    // both are zero outside any operation, where the bound is exact.
+    const size_t retiring =
+        over + allocator.forwarder().pending_release_.in_bytes();
+    TC_CHECK_LE(donated.in_bytes(), filler_stats.system_bytes + retiring,
+                "%v %v", filler_stats.system_bytes, retiring);
+    TC_CHECK_LE(abandoned, donated.in_pages());
     if (pending_alloc == Length(0)) {
       TC_CHECK(explained(over), "%v", over);
       return;
