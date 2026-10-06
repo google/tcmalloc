@@ -280,7 +280,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
 
   static std::atomic<int64_t> guarded_sampling_interval_;
-  static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
