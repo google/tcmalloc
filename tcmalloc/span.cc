@@ -16,7 +16,6 @@
 
 #include <stdint.h>
 
-#include <atomic>
 #include <cstddef>
 #include <cstring>
 #include <new>
@@ -101,18 +100,11 @@ SampledAllocation* Span::UnsampleSlow() {
 //              [---|idx|idx|idx|idx|idx|idx|idx]  16-byte object
 //
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
-  uintptr_t off = first_page().start_uintptr() + idx * size;
-  return reinterpret_cast<ObjIdx*>(off);
-}
-#endif
-
 void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
   // We are using a bitmap to indicate whether objects are used or not. The
   // maximum capacity for the bitmap is bitmap.size() objects.
   TC_ASSERT_LE(count, bitmap_.size());
-  allocated_.store(0, std::memory_order_relaxed);
+  allocated_ = 0;
   bitmap_.Clear();  // bitmap can be non-zero from a previous use.
   bitmap_.SetRange(0, count);
   TC_ASSERT_EQ(bitmap_.CountBits(), count);
@@ -138,7 +130,7 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
     batch[i] = ptr;
     ptr += size;
   }
-  allocated_.store(result, std::memory_order_relaxed);
+  allocated_ = result;
 
   const ObjIdx idxStep = size / static_cast<size_t>(kAlignment);
   // Valid objects are {0, idxStep, idxStep * 2, ..., idxStep * (count - 1)}.

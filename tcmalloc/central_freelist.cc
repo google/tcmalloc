@@ -123,19 +123,6 @@ Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
   return span;
 }
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
-                                  size_t objects_per_span)
-    ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-  PageHeapSpinLockHolder l;
-  for (Span* const free_span : free_spans) {
-    TC_ASSERT_EQ(tag, GetMemoryTag(free_span->start_address()));
-    tc_globals.page_allocator().Delete(free_span, tag,
-                                       {.objects_per_span = objects_per_span});
-  }
-}
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-
 static void ReturnAllocsToPageHeap(
     MemoryTag tag,
     absl::Span<PageAllocatorInterface::AllocationState> free_allocs,
@@ -171,9 +158,6 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
                                       ABSL_CACHELINE_SIZE));
   }
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  ReturnSpansToPageHeap(tag, free_spans, objects_per_span);
-#else
   PageAllocatorInterface::AllocationState allocs[kMaxObjectsToMove];
   for (int i = 0, n = free_spans.size(); i < n; ++i) {
     Span* s = free_spans[i];
@@ -187,7 +171,6 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
                                    .density = density};
   ReturnAllocsToPageHeap(tag, absl::MakeSpan(allocs, free_spans.size()),
                          span_alloc_info);
-#endif
 }
 
 ABSL_ATTRIBUTE_NOINLINE void StaticForwarder::InvokeInsertRangeHookSlow(

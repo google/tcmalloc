@@ -134,9 +134,6 @@ template <typename Policy>
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       TC_ASSERT(!IsNormalMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
       span = Span::New(Range(p, num_pages));
       state.pagemap().Set(p, span);
       // If we report capacity back from a size returning allocation, we can not

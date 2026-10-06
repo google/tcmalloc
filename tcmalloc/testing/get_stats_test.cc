@@ -176,7 +176,11 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: false"));
 
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_cfl_subbucket_prioritization: true"));
+  if (IsExperimentActive(Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION)) {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_cfl_subbucket_prioritization: false"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_cfl_subbucket_prioritization: true"));
+  }
 
   sized_delete(alloc, kSize);
 }
@@ -341,8 +345,15 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 0)"));
 
-    EXPECT_THAT(
-        buf, HasSubstr(R"(PARAMETER tcmalloc_cfl_subbucket_prioritization 1)"));
+    if (IsExperimentActive(Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION)) {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_cfl_subbucket_prioritization 0)"));
+    } else {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_cfl_subbucket_prioritization 1)"));
+    }
   }
 
   Parameters::set_hpaa_subrelease(true);

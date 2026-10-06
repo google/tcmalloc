@@ -335,6 +335,8 @@ cc_test(
     name = "smaps_test",
     srcs = ["smaps_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
     deps = [
         ":smaps",
         "@com_google_absl//absl/strings:string_view",

@@ -47,11 +47,7 @@ constexpr uint64_t kSpanAllocTime = 1234;
 // tolerate a small amount of imprecision in the least significant bits
 // because a few nanoseconds should not make or break any decisions we make
 // with it.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-constexpr uint64_t kAllocTimeMask = ~uint64_t{0x0};
-#else
 constexpr uint64_t kAllocTimeMask = ~uint64_t{0xFF};
-#endif
 
 class RawSpan {
  public:
@@ -117,7 +113,7 @@ class SpanTest : public testing::TestWithParam<size_t> {
 TEST_P(SpanTest, FreelistBasic) {
   Span& span_ = raw_span_.span();
 
-  EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
+  EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
   void* batch[kMaxObjectsToMove];
   size_t popped = 0;
   size_t want = 1;
@@ -129,7 +125,7 @@ TEST_P(SpanTest, FreelistBasic) {
     for (;;) {
       size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
       popped += n;
-      EXPECT_EQ(span_.FreelistEmpty(size_, objects_per_span_),
+      EXPECT_EQ(span_.FreelistEmpty(objects_per_span_),
                 popped == objects_per_span_);
       for (size_t i = 0; i < n; ++i) {
         void* p = batch[i];
@@ -148,7 +144,7 @@ TEST_P(SpanTest, FreelistBasic) {
         want = 1;
       }
     }
-    EXPECT_TRUE(span_.FreelistEmpty(size_, objects_per_span_));
+    EXPECT_TRUE(span_.FreelistEmpty(objects_per_span_));
     EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
     EXPECT_EQ(popped, objects_per_span_);
 
@@ -159,7 +155,7 @@ TEST_P(SpanTest, FreelistBasic) {
       bool ok =
           span_.FreelistPushBatch(absl::MakeSpan(&ptr, 1), size_, reciprocal_);
       EXPECT_TRUE(ok);
-      EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
+      EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
       objects[idx] = false;
       --popped;
     }
@@ -176,7 +172,7 @@ TEST_P(SpanTest, FreelistBasic) {
 TEST_P(SpanTest, FreelistBasicObjIdx) {
   Span& span_ = raw_span_.span();
 
-  EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
+  EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
   void* batch[kMaxObjectsToMove];
   size_t popped = 0;
   size_t want = 1;
@@ -188,7 +184,7 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
     for (;;) {
       size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
       popped += n;
-      EXPECT_EQ(span_.FreelistEmpty(size_, objects_per_span_),
+      EXPECT_EQ(span_.FreelistEmpty(objects_per_span_),
                 popped == objects_per_span_);
       for (size_t i = 0; i < n; ++i) {
         void* p = batch[i];
@@ -207,7 +203,7 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
         want = 1;
       }
     }
-    EXPECT_TRUE(span_.FreelistEmpty(size_, objects_per_span_));
+    EXPECT_TRUE(span_.FreelistEmpty(objects_per_span_));
     EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
     EXPECT_EQ(popped, objects_per_span_);
 
@@ -224,7 +220,7 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
       bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
                                         reciprocal_);
       EXPECT_TRUE(ok);
-      EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
+      EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
       objects[idx] = false;
       --popped;
     }
@@ -259,13 +255,8 @@ TEST(SpanAllocatorTest, Alignment) {
   std::vector<Span*> spans;
   spans.reserve(kNumSpans);
 
-  {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    for (int i = 0; i < kNumSpans; ++i) {
-      spans.push_back(Span::New(r));
-    }
+  for (int i = 0; i < kNumSpans; ++i) {
+    spans.push_back(Span::New(r));
   }
 
   absl::flat_hash_map<uintptr_t, int> address_mod_cacheline;
@@ -281,13 +272,8 @@ TEST(SpanAllocatorTest, Alignment) {
     EXPECT_EQ(alignment % alignof(Span), 0);
   }
 
-  {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    for (Span* s : spans) {
-      Span::Delete(s);
-    }
+  for (Span* s : spans) {
+    Span::Delete(s);
   }
 }
 

@@ -103,7 +103,7 @@ struct Alloc {
   }
 
   void Perform(State& state) const {
-    if (state.span->FreelistEmpty(state.object_size, state.objects_per_span)) {
+    if (state.span->FreelistEmpty(state.objects_per_span)) {
       return;
     }
     size_t n = std::min<size_t>(count, state.num_to_move);
@@ -301,7 +301,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     size_t want = std::min(num_to_move, objects_per_span - ptrs.size());
     TC_CHECK_GT(want, 0);
     void* batch[kMaxObjectsToMove];
-    TC_CHECK(!span->FreelistEmpty(object_size, objects_per_span));
+    TC_CHECK(!span->FreelistEmpty(objects_per_span));
     size_t n = span->FreelistPopBatch(absl::MakeSpan(batch, want), object_size);
 
     TC_CHECK_GT(n, 0);
@@ -310,7 +310,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     ptrs.insert(ptrs.end(), batch, batch + n);
   }
 
-  TC_CHECK(span->FreelistEmpty(object_size, objects_per_span));
+  TC_CHECK(span->FreelistEmpty(objects_per_span));
   TC_CHECK_EQ(ptrs.size(), objects_per_span);
   TC_CHECK_EQ(ptrs.size(), span->Allocated());
 
@@ -322,19 +322,14 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     // element onto the freelist.
     //
     // For single object spans, the freelist always stays "empty" as a result.
-    TC_CHECK(popped == 1 ||
-             !span->FreelistEmpty(object_size, objects_per_span));
+    TC_CHECK(popped == 1 || !span->FreelistEmpty(objects_per_span));
   }
 
   // We bitpack alloc time and do not store the full value.  We are willing to
   // tolerate a small amount of imprecision in the least significant bits
   // because a few nanoseconds should not make or break any decisions we make
   // with it.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  constexpr uint64_t kMask = ~uint64_t{0x0};
-#else
   constexpr uint64_t kMask = ~uint64_t{0xFF};
-#endif
   TC_CHECK_EQ(span->AllocTime() & kMask, alloc_time & kMask);
 
   free(mem);

@@ -27,6 +27,7 @@
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/exponential_biased.h"
@@ -187,6 +188,13 @@ class GuardedPageAllocator {
     return metadata.allocation_start == addr;
   }
 
+  // Populates `pages` with the allocation status of pages in `hp` if `hp`
+  // overlaps with memory managed by this allocator. Returns true if `hp` is
+  // managed by GuardedPageAllocator, or false otherwise.
+  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp,
+                                             PageBitmap& pages) const
+      ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
+
   // Allows Allocate() to start returning allocations.
   void AllowAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock_) {
     AllocationGuardSpinLockHolder h(guarded_page_lock_);
@@ -308,7 +316,7 @@ class GuardedPageAllocator {
   // 80% or below, the probability of false positives will be below 10%.
   DecayingStackTraceFilter<kGpaMaxPages * 3, 2, 32> stacktrace_filter_;
 
-  absl::base_internal::SpinLock guarded_page_lock_;
+  mutable absl::base_internal::SpinLock guarded_page_lock_;
 
   // Maps each bool to one page.
   // true: reserved. false: freed.

@@ -312,10 +312,10 @@ class CpuCache {
   // do all initialization here instead.
   void Init();
 
-  void Activate();
+  void Activate() ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // For testing
-  void Deactivate();
+  void Deactivate() ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Allocate an object of the given size class.
   // Returns nullptr when allocation fails.
@@ -372,7 +372,7 @@ class CpuCache {
 
   // Give the per-cpu limit of cache size.
   [[nodiscard]] uint64_t CacheLimit() const;
-  void SetCacheLimit(uint64_t v);
+  void SetCacheLimit(uint64_t v) ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Shuffles per-cpu caches using the number of underflows and overflows that
   // occurred in the prior interval. It selects the top per-cpu caches

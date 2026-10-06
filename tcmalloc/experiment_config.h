@@ -23,6 +23,7 @@ namespace tcmalloc {
 enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
+  TCMALLOC_CFL_PRIORITIZATION_ABLATION,  // TODO: b/567166830 - Complete experiment.
   TCMALLOC_DEMAND_CYCLE_120S,  // TODO: b/540987155 - Complete experiment.
   TCMALLOC_PAGE_HEAP_GARDENING,  // TODO: b/525422238 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
@@ -54,6 +55,7 @@ struct ExperimentConfig {
 // clang-format off
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
+    {Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION, "TCMALLOC_CFL_PRIORITIZATION_ABLATION"},
     {Experiment::TCMALLOC_DEMAND_CYCLE_120S, "TCMALLOC_DEMAND_CYCLE_120S"},
     {Experiment::TCMALLOC_PAGE_HEAP_GARDENING, "TCMALLOC_PAGE_HEAP_GARDENING"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
