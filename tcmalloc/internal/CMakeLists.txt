@@ -35,9 +35,7 @@ tcmalloc_cc_test(
   SRCS
     "affinity_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::span"
     "tcmalloc::internal_affinity"
     "tcmalloc::internal_cpu_utils"
@@ -78,9 +76,7 @@ tcmalloc_cc_test(
   SRCS
     "allocation_guard_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::base"
     "absl::core_headers"
     "tcmalloc::internal_allocation_guard"
@@ -180,9 +176,7 @@ tcmalloc_cc_test(
   SRCS
     "clock_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::time"
     "tcmalloc::internal_clock"
     "tcmalloc::tcmalloc"
@@ -206,9 +200,7 @@ tcmalloc_cc_test(
   SRCS
     "config_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::strings"
     "protobuf::libprotobuf"
     "tcmalloc::internal_config"
@@ -237,9 +229,7 @@ tcmalloc_cc_test(
   SRCS
     "bytes_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "benchmark::benchmark"
     "tcmalloc::internal_bytes"
     "tcmalloc::tcmalloc"
@@ -268,9 +258,7 @@ tcmalloc_cc_test(
   SRCS
     "hardware_pages_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::flags"
     "absl::strings"
     "benchmark::benchmark"
@@ -308,9 +296,7 @@ tcmalloc_cc_test(
   SRCS
     "environment_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "tcmalloc::internal_environment"
     "tcmalloc::tcmalloc"
 )
@@ -341,9 +327,7 @@ tcmalloc_cc_test(
   SRCS
     "exponential_biased_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "tcmalloc::internal_exponential_biased"
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
@@ -426,9 +410,7 @@ tcmalloc_cc_test(
   SRCS
     "linked_list_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::flat_hash_set"
     "absl::random_random"
     "tcmalloc::internal_linked_list"
@@ -475,9 +457,7 @@ tcmalloc_cc_test(
   SRCS
     "logging_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::core_headers"
     "absl::string_view"
     "absl::strings"
@@ -519,9 +499,7 @@ tcmalloc_cc_test(
   SRCS
     "memory_stats_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::function_ref"
     "absl::string_view"
     "absl::strings"
@@ -607,9 +585,7 @@ tcmalloc_cc_test(
   SRCS
     "pageflags_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::check"
     "absl::flags"
     "absl::log"
@@ -674,9 +650,7 @@ tcmalloc_cc_test(
   SRCS
     "mincore_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "benchmark::benchmark"
     "tcmalloc::internal_is_aligned_to"
     "tcmalloc::internal_mincore"
@@ -690,9 +664,7 @@ tcmalloc_cc_test(
   SRCS
     "residency_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::check"
     "absl::status"
     "absl::string_view"
@@ -757,9 +729,7 @@ tcmalloc_cc_test(
   SRCS
     "cache_topology_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "tcmalloc::internal_cache_topology"
     "tcmalloc::internal_sysinfo"
     "tcmalloc::tcmalloc"
@@ -792,9 +762,7 @@ tcmalloc_cc_test(
   SRCS
     "numa_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::optional"
     "absl::random_random"
     "absl::span"
@@ -885,9 +853,7 @@ tcmalloc_cc_test(
   SRCS
     "percpu_state_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::core_headers"
     "absl::nullability"
     "tcmalloc::internal_allocation_guard"
@@ -925,9 +891,7 @@ create_percpu_tcmalloc_testsuite(
   SRCS
     "percpu_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::absl_check"
     "absl::core_headers"
     "absl::time"
@@ -942,9 +906,7 @@ tcmalloc_cc_test(
   SRCS
     "percpu_early_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::core_headers"
     "tcmalloc::internal_percpu"
     "tcmalloc::tcmalloc"
@@ -979,9 +941,7 @@ create_percpu_tcmalloc_testsuite(
   SRCS
     "percpu_tcmalloc_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::base"
     "absl::core_headers"
     "absl::fixed_array"
@@ -1012,7 +972,6 @@ tcmalloc_cc_test(
   SRCS
     "percpu_tcmalloc_fuzz.cc"
   DEPS
-    "GTest::gtest"
     "GTest::gmock"
     "absl::check"
     "absl::flat_hash_set"
@@ -1047,9 +1006,7 @@ tcmalloc_cc_test(
   SRCS
     "prefetch_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "tcmalloc::internal_prefetch"
     "tcmalloc::tcmalloc"
 )
@@ -1083,10 +1040,8 @@ tcmalloc_cc_library(
   SRCS
     "compressibility.cc"
   DEPS
+    "absl::algorithm_container"
     "absl::fixed_array"
-    "absl::flat_hash_map"
-    "absl::flat_hash_set"
-    "absl::inlined_vector"
     "absl::span"
     "absl::status"
     "absl::status_macros"
@@ -1103,9 +1058,7 @@ tcmalloc_cc_test(
   SRCS
     "compressibility_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::span"
     "absl::status_matchers"
     "absl::strings"
@@ -1122,7 +1075,6 @@ tcmalloc_cc_test(
   SRCS
     "compressibility_fuzz.cc"
   DEPS
-    "GTest::gtest"
     "GTest::gmock"
     "absl::span"
     "fuzztest::fuzztest"
@@ -1167,7 +1119,6 @@ tcmalloc_cc_test(
   SRCS
     "profile_builder_fuzz.cc"
   DEPS
-    "GTest::gtest"
     "GTest::gmock"
     "absl::string_view"
     "fuzztest::fuzztest"
@@ -1182,9 +1133,7 @@ tcmalloc_cc_test(
   SRCS
     "profile_builder_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::base"
     "absl::check"
     "absl::flat_hash_map"
@@ -1211,9 +1160,7 @@ tcmalloc_cc_test(
   SRCS
     "profile_builder_no_tcmalloc_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::status"
     "absl::status_matchers"
     "tcmalloc::internal_profile_builder"
@@ -1272,9 +1219,7 @@ tcmalloc_cc_test(
   SRCS
     "range_tracker_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::fixed_array"
     "absl::random_random"
     "tcmalloc::internal_range_tracker"
@@ -1287,7 +1232,6 @@ tcmalloc_cc_test(
   SRCS
     "range_tracker_fuzz.cc"
   DEPS
-    "GTest::gtest"
     "GTest::gmock"
     "absl::span"
     "fuzztest::fuzztest"
@@ -1314,9 +1258,7 @@ tcmalloc_cc_test(
   SRCS
     "sampled_allocation_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::base"
     "absl::stacktrace"
     "tcmalloc::internal_logging"
@@ -1346,9 +1288,7 @@ tcmalloc_cc_test(
   SRCS
     "sampled_allocation_recorder_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::core_headers"
     "absl::synchronization"
     "absl::time"
@@ -1390,9 +1330,7 @@ tcmalloc_cc_test(
   SRCS
     "stacktrace_filter_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::flat_hash_set"
     "absl::span"
     "tcmalloc::internal_stacktrace_filter"
@@ -1438,9 +1376,7 @@ tcmalloc_cc_test(
   SRCS
     "system_allocator_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::core_headers"
     "absl::str_format"
     "absl::string_view"
@@ -1463,9 +1399,7 @@ tcmalloc_cc_test(
   SRCS
     "system_allocator_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::core_headers"
     "absl::str_format"
     "absl::string_view"
@@ -1489,9 +1423,7 @@ tcmalloc_cc_test(
   SRCS
     "system_allocator_mlockall_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::time"
     "tcmalloc::internal_memory_tag"
     "tcmalloc::internal_numa"
@@ -1526,7 +1458,6 @@ tcmalloc_cc_test(
   SRCS
     "sysinfo_fuzz.cc"
   DEPS
-    "GTest::gtest"
     "GTest::gmock"
     "absl::string_view"
     "absl::strings"
@@ -1543,9 +1474,7 @@ tcmalloc_cc_test(
   SRCS
     "sysinfo_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::base"
     "absl::optional"
     "absl::random_random"
@@ -1586,9 +1515,7 @@ tcmalloc_cc_test(
   SRCS
     "timeseries_tracker_test.cc"
   DEPS
-    "GTest::gtest_main"
     "GTest::gmock_main"
-    "GTest::gmock"
     "absl::base"
     "absl::time"
     "tcmalloc::internal_clock"
@@ -1631,7 +1558,6 @@ tcmalloc_cc_test(
   SRCS
     "memory_stats_fuzz.cc"
   DEPS
-    "GTest::gtest"
     "GTest::gmock"
     "absl::strings"
     "fuzztest::fuzztest"
@@ -1661,7 +1587,6 @@ tcmalloc_cc_test(
   SRCS
     "util_test.cc"
   DEPS
-    "GTest::gtest"
     "GTest::gmock"
     "absl::check"
     "absl::flags"
