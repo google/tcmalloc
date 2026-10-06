@@ -207,11 +207,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // These methods REQUIRE a SMALL_OBJECT span.
   // ---------------------------------------------------------------------------
 
-  // Indicate whether the Span is empty. Size is used to determine whether
-  // the span is using a compressed linked list of objects, or a bitmap
-  // to hold available objects.
-  [[nodiscard]] bool FreelistEmpty(size_t size,
-                                   uint32_t objects_per_span) const;
+  // Indicate whether the Span is empty.
+  [[nodiscard]] bool FreelistEmpty(uint32_t objects_per_span) const;
 
   // Pushes ptr onto freelist unless the freelist becomes full, in which case
   // just return false.
@@ -687,9 +684,8 @@ inline size_t Span::bytes_in_span() const ABSL_NO_THREAD_SAFETY_ANALYSIS {
   return Length(small_num_pages_).in_bytes();
 }
 
-inline bool Span::FreelistEmpty(size_t size, uint32_t objects_per_span) const {
+inline bool Span::FreelistEmpty(uint32_t objects_per_span) const {
   TC_ASSERT(!is_large_or_sampled());
-  (void)size;
   return allocated_ == objects_per_span;
 }
 

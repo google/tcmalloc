@@ -432,7 +432,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   const bool use_prepend =
       cfl_subbucket_prioritization_ == CflSubbucketPrioritization::kDisabled;
 
-  const bool was_empty = span->FreelistEmpty(object_size, objects_per_span);
+  const bool was_empty = span->FreelistEmpty(objects_per_span);
   if (!kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
     const uint8_t index = GetFirstNonEmptyIndex();
     nonempty_.Add(span, index, use_prepend);
@@ -695,8 +695,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         RecordSpanUtil(cur_bitwidth, /*increase=*/true);
       }
       const bool is_empty = cur_allocated == objects_per_span;
-      TC_ASSERT_EQ(is_empty,
-                   span->FreelistEmpty(object_size, objects_per_span));
+      TC_ASSERT_EQ(is_empty, span->FreelistEmpty(objects_per_span));
       if (ABSL_PREDICT_FALSE(is_empty)) {
         nonempty_.Remove(span, prev_index);
       } else {

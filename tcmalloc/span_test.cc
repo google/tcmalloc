@@ -113,7 +113,7 @@ class SpanTest : public testing::TestWithParam<size_t> {
 TEST_P(SpanTest, FreelistBasic) {
   Span& span_ = raw_span_.span();
 
-  EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
+  EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
   void* batch[kMaxObjectsToMove];
   size_t popped = 0;
   size_t want = 1;
@@ -125,7 +125,7 @@ TEST_P(SpanTest, FreelistBasic) {
     for (;;) {
       size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
       popped += n;
-      EXPECT_EQ(span_.FreelistEmpty(size_, objects_per_span_),
+      EXPECT_EQ(span_.FreelistEmpty(objects_per_span_),
                 popped == objects_per_span_);
       for (size_t i = 0; i < n; ++i) {
         void* p = batch[i];
@@ -144,7 +144,7 @@ TEST_P(SpanTest, FreelistBasic) {
         want = 1;
       }
     }
-    EXPECT_TRUE(span_.FreelistEmpty(size_, objects_per_span_));
+    EXPECT_TRUE(span_.FreelistEmpty(objects_per_span_));
     EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
     EXPECT_EQ(popped, objects_per_span_);
 
@@ -155,7 +155,7 @@ TEST_P(SpanTest, FreelistBasic) {
       bool ok =
           span_.FreelistPushBatch(absl::MakeSpan(&ptr, 1), size_, reciprocal_);
       EXPECT_TRUE(ok);
-      EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
+      EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
       objects[idx] = false;
       --popped;
     }
@@ -172,7 +172,7 @@ TEST_P(SpanTest, FreelistBasic) {
 TEST_P(SpanTest, FreelistBasicObjIdx) {
   Span& span_ = raw_span_.span();
 
-  EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
+  EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
   void* batch[kMaxObjectsToMove];
   size_t popped = 0;
   size_t want = 1;
@@ -184,7 +184,7 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
     for (;;) {
       size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
       popped += n;
-      EXPECT_EQ(span_.FreelistEmpty(size_, objects_per_span_),
+      EXPECT_EQ(span_.FreelistEmpty(objects_per_span_),
                 popped == objects_per_span_);
       for (size_t i = 0; i < n; ++i) {
         void* p = batch[i];
@@ -203,7 +203,7 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
         want = 1;
       }
     }
-    EXPECT_TRUE(span_.FreelistEmpty(size_, objects_per_span_));
+    EXPECT_TRUE(span_.FreelistEmpty(objects_per_span_));
     EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
     EXPECT_EQ(popped, objects_per_span_);
 
@@ -220,7 +220,7 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
       bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
                                         reciprocal_);
       EXPECT_TRUE(ok);
-      EXPECT_FALSE(span_.FreelistEmpty(size_, objects_per_span_));
+      EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
       objects[idx] = false;
       --popped;
     }
