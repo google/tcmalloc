@@ -1375,11 +1375,11 @@ extern "C" bool TCMalloc_Internal_GetPageAllocationStatus(
   if (!tc_globals.pagemap().HasLeaf(hp.first_page())) {
     return false;
   }
-  // TODO(b/548699586): Check GWP-ASan.
-  auto tag = tcmalloc::tcmalloc_internal::GetMemoryTag(ptr);
   tcmalloc::tcmalloc_internal::PageBitmap pages;
-  bool ok;
-  {
+  bool ok =
+      tc_globals.guardedpage_allocator().GetPageAllocationStatus(hp, pages);
+  if (!ok) {
+    auto tag = tcmalloc::tcmalloc_internal::GetMemoryTag(ptr);
     tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder l;
     ok = tc_globals.page_allocator().GetPageAllocationStatus(hp, pages, tag);
   }

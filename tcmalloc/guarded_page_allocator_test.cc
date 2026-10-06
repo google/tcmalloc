@@ -107,6 +107,33 @@ TEST_F(GuardedPageAllocatorTest, SingleAllocDealloc) {
   EXPECT_DEATH(buf[PageSize() - 1] = 'B', "");
 }
 
+TEST_F(GuardedPageAllocatorTest, GetPageAllocationStatus) {
+  PageBitmap pages;
+  HugePage outside_hp = HugePageContaining(reinterpret_cast<void*>(0x1000));
+  EXPECT_FALSE(gpa_.GetPageAllocationStatus(outside_hp, pages));
+
+  auto alloc_with_status =
+      gpa_.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace());
+  ASSERT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  void* buf = alloc_with_status.alloc;
+  ASSERT_NE(buf, nullptr);
+
+  HugePage hp = HugePageContaining(buf);
+  EXPECT_TRUE(gpa_.GetPageAllocationStatus(hp, pages));
+
+  const size_t page_offset =
+      (PageIdContaining(buf) - hp.first_page()).raw_num();
+  const size_t num_pages = PageSize() / kPageSize;
+  for (size_t i = 0; i < num_pages; ++i) {
+    EXPECT_TRUE(pages.GetBit(page_offset + i));
+  }
+  EXPECT_EQ(pages.CountBits(), num_pages);
+
+  gpa_.Deallocate(buf);
+  EXPECT_TRUE(gpa_.GetPageAllocationStatus(hp, pages));
+  EXPECT_EQ(pages.CountBits(), 0);
+}
+
 // Applications may lock pages that we have already handed out, either by
 // calling mlock() on them directly or via mlockall(MCL_CURRENT).  Locking
 // constrains what the kernel lets us do to the VMA, so check that quarantining
