@@ -15,10 +15,10 @@
 #ifndef TCMALLOC_INTERNAL_MEMORY_TAG_H_
 #define TCMALLOC_INTERNAL_MEMORY_TAG_H_
 
-#include <algorithm>
 #include <cstdint>
 
 #include "absl/strings/string_view.h"
+#include "tcmalloc/internal/address_bits.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 
@@ -41,13 +41,29 @@ enum class MemoryTag : uint8_t {
   kMetadata = 0x3,
 };
 
-inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
-inline constexpr uintptr_t kTagMask =
-    uintptr_t{kSanitizerAddressSpace ? 0x3 : 0x7} << kTagShift;
+inline uintptr_t TagShift() {
+  // The tag bits ride just below the top of the *effective* user address
+  // space, so that one binary keeps working on kernels built with a narrower
+  // virtual address width (e.g. 39-bit Raspberry Pi OS kernels).  The values
+  // are cached after first use; the width cannot change during the lifetime
+  // of a process.  On a 48-bit kernel this evaluates to 42, exactly the
+  // previous compile-time constant.
+  static const uintptr_t kShift = [] {
+    const uintptr_t shift = static_cast<uintptr_t>(EffectiveAddressBits()) - 4;
+    return shift < 42 ? shift : 42;
+  }();
+  return kShift;
+}
+
+inline uintptr_t TagMask() {
+  static const uintptr_t kMask =
+      uintptr_t{kSanitizerAddressSpace ? 0x3 : 0x7} << TagShift();
+  return kMask;
+}
 
 [[nodiscard]] inline MemoryTag GetMemoryTag(const void* ptr) {
-  return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & kTagMask) >>
-                                kTagShift);
+  return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & TagMask()) >>
+                                TagShift());
 }
 
 [[nodiscard]] inline bool IsNormalMemory(const void* ptr) {

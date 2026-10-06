@@ -72,10 +72,10 @@ struct FuzzHugePageAwareAllocatorOptions {
 
   explicit operator HugePageAwareAllocatorOptions() const {
     HugePageAwareAllocatorOptions options;
-    // Roundtrip the tag through kTagMask.  Under some sanitizers, we restrict
+    // Roundtrip the tag through TagMask().  Under some sanitizers, we restrict
     // the width of the tag.
     options.tag = static_cast<MemoryTag>(
-        ((static_cast<uintptr_t>(tag) << kTagShift) & kTagMask) >> kTagShift);
+        ((static_cast<uintptr_t>(tag) << TagShift()) & TagMask()) >> TagShift());
     options.use_huge_region_more_often = use_huge_region_more_often;
     return options;
   }

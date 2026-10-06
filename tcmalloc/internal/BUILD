@@ -520,6 +520,18 @@ cc_test(
 )
 
 cc_library(
+    name = "address_bits",
+    srcs = ["address_bits.cc"],
+    hdrs = ["address_bits.h"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+    ],
+)
+
+cc_library(
     name = "memory_tag",
     srcs = ["memory_tag.cc"],
     hdrs = ["memory_tag.h"],
@@ -527,6 +539,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":address_bits",
         ":config",
         ":logging",
         ":optimization",

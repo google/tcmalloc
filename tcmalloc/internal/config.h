@@ -136,7 +136,20 @@ namespace tcmalloc_internal {
 // TODO(b/134686025): Under what operating systems can we decrease it safely to
 // 47? This lets us use smaller page maps.  On first allocation, a 36-bit page
 // map uses only 96 KB instead of the 4.5 MB used by a 52-bit page map.
+// Note: many production kernels are built with a narrower user address
+// space (e.g. Raspberry Pi OS and Android GKI ship CONFIG_ARM64_VA_BITS=39).
+// The allocator detects the running kernel's width at runtime (see
+// EffectiveAddressBits() in tcmalloc/internal/address_bits.h), so a single
+// binary works across kernels.  Defining TCMALLOC_ADDRESS_BITS lowers the
+// compile-time maximum instead (which also shrinks the page map); it must
+// not exceed the architectural 48 bits.
+#ifdef TCMALLOC_ADDRESS_BITS
+static_assert(TCMALLOC_ADDRESS_BITS <= 48,
+              "TCMALLOC_ADDRESS_BITS must not exceed 48");
+inline constexpr int kAddressBits = TCMALLOC_ADDRESS_BITS;
+#else
 inline constexpr int kAddressBits = 48;
+#endif
 
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
     defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \

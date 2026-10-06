@@ -20,6 +20,7 @@
 
 #include <asm/unistd.h>
 
+#include <algorithm>
 #include <cstring>
 #include <optional>
 
@@ -119,7 +120,7 @@ class SystemAllocator {
   }
 
   // REQUIRES: "alignment" is a power of two or "0" to indicate default
-  // alignment REQUIRES: "alignment" and "size" <= kTagMask
+  // alignment REQUIRES: "alignment" and "size" <= TagMask()
   //
   // Allocate and return "bytes" of zeroed memory.  The allocator may optionally
   // return more bytes than asked for (i.e. return an entire "huge" page).
@@ -190,10 +191,10 @@ class SystemAllocator {
   void SetRegionFactory(AddressRegionFactory* factory);
 
   // Reserves using mmap() a region of memory of the requested size and
-  // alignment, with the bits specified by kTagMask set according to tag.
+  // alignment, with the bits specified by TagMask() set according to tag.
   //
-  // REQUIRES: pagesize <= alignment <= kTagMask
-  // REQUIRES: size <= kTagMask
+  // REQUIRES: pagesize <= alignment <= TagMask()
+  // REQUIRES: size <= TagMask()
   [[nodiscard]] void* MmapAligned(size_t size, size_t alignment, MemoryTag tag)
       ABSL_LOCKS_EXCLUDED(spinlock_);
 
@@ -481,7 +482,7 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
     size_t request_size, size_t alignment, const MemoryTag tag) {
   using system_allocator_internal::RoundUp;
 
-  constexpr uintptr_t kTagFree = uintptr_t{1} << kTagShift;
+  const uintptr_t kTagFree = uintptr_t{1} << TagShift();
 
   // We do not support size or alignment larger than kTagFree.
   // TODO(b/141325493): Handle these large allocations.
@@ -578,8 +579,8 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
     size_t size, size_t alignment, const MemoryTag tag) {
   using system_allocator_internal::MapFixedNoReplaceFlagAvailable;
 
-  TC_ASSERT_LE(size, kTagMask);
-  TC_ASSERT_LE(alignment, kTagMask);
+  TC_ASSERT_LE(size, TagMask());
+  TC_ASSERT_LE(alignment, TagMask());
 
   std::optional<int> numa_partition;
   uintptr_t& next_addr =
@@ -863,7 +864,13 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   //
   //  *  Below that, the top highest the hardware allows us to use, since it is
   //     reserved for kernel space addresses.
-  constexpr uintptr_t kAddrMask = (uintptr_t{1} << (kAddressBits - 1)) - 1;
+  //
+  // The mask is clamped to the address space the running kernel provides
+  // (EffectiveAddressBits()): on kernels with a narrower user address space
+  // than the compile-time maximum (e.g. 39-bit Raspberry Pi OS kernels),
+  // hints above the kernel's limit would be rejected by mmap, so we must not
+  // generate them.  On a 48-bit kernel this is bit-identical to before.
+  const uintptr_t kAddrMask = (uintptr_t{1} << (EffectiveAddressBits() - 1)) - 1;
 #else
   // MSan and TSan use up all of the lower address space, so we allow use of
   // mid-upper address space when they're active.  This only matters for
@@ -878,8 +885,8 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   uintptr_t addr;
   do {
     rnd_ = ExponentialBiased::NextRandom(rnd_);
-    addr = rnd_ & kAddrMask & ~(alignment - 1) & ~kTagMask;
-    addr |= static_cast<uintptr_t>(tag) << kTagShift;
+    addr = rnd_ & kAddrMask & ~(alignment - 1) & ~TagMask();
+    addr |= static_cast<uintptr_t>(tag) << TagShift();
   } while (addr == 0);
 
 #if defined(ABSL_HAVE_THREAD_SANITIZER)
@@ -912,11 +919,17 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
            (a >= kHiAppMemBeg && a < kHiAppMemEnd);
   };
 
+  // Sanitizer builds keep the previous compile-time tag placement; the
+  // hardcoded app-memory ranges above already assume the full address
+  // space and sanitizer runs are test-only configurations.
+  constexpr uintptr_t kTagShiftC = std::min(kAddressBits - 4, 42);
+  constexpr uintptr_t kTagMaskC =
+      uintptr_t{kSanitizerAddressSpace ? 0x3 : 0x7} << kTagShiftC;
   for (int i = 0; i < 10 && !reserved_for_app(addr); ++i) {
     do {
       rnd_ = ExponentialBiased::NextRandom(rnd_);
-      addr = rnd_ & kHiAppMask & ~(alignment - 1) & ~kTagMask;
-      addr |= static_cast<uintptr_t>(tag) << kTagShift;
+      addr = rnd_ & kHiAppMask & ~(alignment - 1) & ~kTagMaskC;
+      addr |= static_cast<uintptr_t>(tag) << kTagShiftC;
     } while (addr == 0);
   }
 #endif

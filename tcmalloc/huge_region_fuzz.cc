@@ -46,7 +46,7 @@ namespace {
 
 void* MakeTaggedAddress(MemoryTag tag) {
   return reinterpret_cast<void*>(uintptr_t{static_cast<uint8_t>(tag)}
-                                 << kTagShift);
+                                 << TagShift());
 }
 
 class NilMemoryTagFunction final : public MemoryTagFunction {

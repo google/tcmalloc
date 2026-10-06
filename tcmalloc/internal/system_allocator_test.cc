@@ -111,16 +111,16 @@ INSTANTIATE_TEST_SUITE_P(VariedAlignment, MmapAlignedTest,
                          testing::Values(kSmallButSlowTCMallocPageSize,
                                          kDefaultTCMallocPageSize,
                                          kHugePageSize, kMinMmapAlloc,
-                                         uintptr_t{1} << kTagShift));
+                                         uintptr_t{1} << TagShift()));
 
 TEST_P(MmapAlignedTest, CorrectAlignmentAndTag) {
   MmapAndCheck(kHugePageSize, GetParam());
 }
 
-// Ensure mmap sizes near kTagMask still have the correct tag at the beginning
+// Ensure mmap sizes near TagMask() still have the correct tag at the beginning
 // and end of the mapping.
 TEST_F(MmapAlignedTest, LargeSizeSmallAlignment) {
-  MmapAndCheck(uintptr_t{1} << kTagShift, 1 << 12);
+  MmapAndCheck(uintptr_t{1} << TagShift(), 1 << 12);
 }
 
 TEST(SystemAllocatorTest, ReleaseLockedMemory) {

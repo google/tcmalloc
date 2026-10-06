@@ -778,18 +778,26 @@ static constexpr uintptr_t kBadAlignmentMask =
     static_cast<uintptr_t>(kAlignment) - 1u;
 // kNormalMask covers both kNormal and kNormalP1 because they share an
 // overlapping tag bit.  This is the same property IsNormalMemory relies on.
-static constexpr uintptr_t kNormalMask =
-    static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift;
-static constexpr uintptr_t kColdMask = static_cast<uintptr_t>(MemoryTag::kCold)
-                                       << kTagShift;
+// NB: dynamic (not constexpr): the tag placement now depends on the
+// runtime-detected address width (see TagShift()/TagMask()).
+static const uintptr_t kNormalMask =
+    static_cast<uintptr_t>(MemoryTag::kNormal) << TagShift();
+// NB: dynamic (not constexpr): the tag placement now depends on the
+// runtime-detected address width (see TagShift()/TagMask()).
+static const uintptr_t kColdMask = static_cast<uintptr_t>(MemoryTag::kCold)
+                                       << TagShift();
 static_assert((static_cast<uintptr_t>(MemoryTag::kNormal) &
                static_cast<uintptr_t>(MemoryTag::kNormalP1)) != 0);
 
-static constexpr uintptr_t kNormalOrBadDeallocationMask =
+// NB: dynamic (not constexpr): the tag placement now depends on the
+// runtime-detected address width (see TagShift()/TagMask()).
+static const uintptr_t kNormalOrBadDeallocationMask =
     kBadDeallocationHighMask | kNormalMask | kBadAlignmentMask;
 
-static constexpr uintptr_t kTagOrBadDeallocationMask =
-    kBadDeallocationHighMask | kTagMask | kBadAlignmentMask;
+// NB: dynamic (not constexpr): the tag placement now depends on the
+// runtime-detected address width (see TagShift()/TagMask()).
+static const uintptr_t kTagOrBadDeallocationMask =
+    kBadDeallocationHighMask | TagMask() | kBadAlignmentMask;
 
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
