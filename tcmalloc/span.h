@@ -21,7 +21,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include <atomic>
 #include <cassert>
 #include <cstddef>
 
@@ -103,7 +102,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   constexpr Span()
       : embed_count_(0),
         freelist_(0),
-        allocated_{std::numeric_limits<uint16_t>::max()},
+        allocated_(std::numeric_limits<uint16_t>::max()),
         cache_size_(0),
         nonempty_index_(0),
         first_page_(0),
@@ -114,7 +113,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   explicit Span(Range r)
       : embed_count_(0),
         freelist_(0),
-        allocated_{0},
+        allocated_(0),
         cache_size_(0),
         nonempty_index_(0),
         first_page_(r.p.index()),
@@ -192,9 +191,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] size_t bytes_in_span() const;
 
   // Returns number of objects allocated in the span.
-  [[nodiscard]] uint16_t Allocated() const {
-    return allocated_.load(std::memory_order_relaxed);
-  }
+  [[nodiscard]] uint16_t Allocated() const { return allocated_; }
 
   // Returns index of the non-empty list to which this span belongs to.
   [[nodiscard]] uint8_t nonempty_index() const { return nonempty_index_; }
@@ -309,13 +306,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     uint16_t embed_count_;
     uint16_t freelist_;
   };
-  struct {
-    uint16_t value;
-
-    [[nodiscard]] uint16_t load(std::memory_order) const { return value; }
-
-    void store(uint16_t v, std::memory_order) { value = v; }
-  } allocated_;  // Number of non-free objects
+  uint16_t allocated_;  // Number of non-free objects
   uint8_t cache_size_;
   uint8_t nonempty_index_;  // The nonempty_ list index for this span.
 
@@ -447,12 +438,12 @@ template <typename T>
 inline bool Span::FreelistPushBatch(absl::Span<T> batch, size_t size,
                                     uint32_t reciprocal) __restrict__ {
   TC_ASSERT(!is_large_or_sampled());
-  const auto allocated = allocated_.load(std::memory_order_relaxed);
+  const uint16_t allocated = allocated_;
   TC_ASSERT_GE(allocated, batch.size());
   if (ABSL_PREDICT_FALSE(allocated == batch.size())) {
     return false;
   }
-  allocated_.store(allocated - batch.size(), std::memory_order_relaxed);
+  allocated_ = allocated - batch.size();
   // Bitmaps are used to record object availability when there are no more than
   // kBitmapSize objects in a span.
   if (ABSL_PREDICT_TRUE(UseBitmapForSize(size))) {
@@ -699,7 +690,7 @@ inline size_t Span::bytes_in_span() const ABSL_NO_THREAD_SAFETY_ANALYSIS {
 inline bool Span::FreelistEmpty(size_t size, uint32_t objects_per_span) const {
   TC_ASSERT(!is_large_or_sampled());
   (void)size;
-  return allocated_.load(std::memory_order_relaxed) == objects_per_span;
+  return allocated_ == objects_per_span;
 }
 
 inline void Span::Prefetch() { PrefetchW(this); }
@@ -732,8 +723,7 @@ inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
         *ptrs++ = BitmapIdxToPtr(static_cast<ObjIdx>(offset), size, span_start);
       },
       batch.size());
-  allocated_.store(allocated_.load(std::memory_order_relaxed) + popped,
-                   std::memory_order_relaxed);
+  allocated_ += popped;
   return popped;
 }
 
@@ -797,8 +787,7 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
     freelist_ = host[0];
     embed_count_ = size / sizeof(ObjIdx) - 1;
   }
-  allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
-                   std::memory_order_relaxed);
+  allocated_ += result;
   return result;
 }
 
