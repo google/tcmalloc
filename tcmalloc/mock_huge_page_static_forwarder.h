@@ -197,11 +197,7 @@ class FakeStaticForwarder : private Parameters {
   void SetHugepage(HugePage p, void* pt) { trackers_[p] = pt; }
 
   // SpanAllocator state.
-  [[nodiscard]] Span* NewSpan(Range r)
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-          ABSL_ATTRIBUTE_RETURNS_NONNULL {
+  [[nodiscard]] Span* NewSpan(Range r) ABSL_ATTRIBUTE_RETURNS_NONNULL {
     Span* span;
     void* result = absl::base_internal::LowLevelAlloc::AllocWithArena(
         sizeof(*span) + alignof(Span) + sizeof(void*), ll_arena());
@@ -212,11 +208,7 @@ class FakeStaticForwarder : private Parameters {
         reinterpret_cast<uintptr_t>(result);
     return span;
   }
-  void DeleteSpan(Span* span)
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-          ABSL_ATTRIBUTE_NONNULL() {
+  void DeleteSpan(Span* span) ABSL_ATTRIBUTE_NONNULL() {
     absl::base_internal::LowLevelAlloc::Free(
         reinterpret_cast<void*>(*(reinterpret_cast<uintptr_t*>(span + 1))));
   }
@@ -355,8 +347,8 @@ class FakeStaticForwarder : private Parameters {
                       AllocAdaptor<std::pair<HugePage, void*>>>
       trackers_;
   // Live spans by first page, with their length.  SetSpan runs outside
-  // pageheap_lock when TCMALLOC_INTERNAL_LEGACY_LOCKING is off and
-  // ReleasePages runs with or without it, so the map has its own lock.
+  // pageheap_lock and ReleasePages runs with or without it, so the map has its
+  // own lock.
   //
   // TODO(b/73749855): This lock serializes allocation, deallocation and
   // release across threads and may hide the interleavings that dropping

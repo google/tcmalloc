@@ -141,18 +141,6 @@ class HintedTrackerLists {
   // This quirk is inherited from TrackerList.
   template <typename Functor>
   void Iter(const Functor& func, size_t start) const {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    size_t i = nonempty_.FindSet(start);
-    while (i < N) {
-      auto& list = lists_[i];
-      TC_ASSERT(!list.empty());
-      for (TrackerType* pt : list) {
-        func(*pt);
-      }
-      i++;
-      if (i < N) i = nonempty_.FindSet(i);
-    }
-#else
     nonempty_.ForEachSet(start, [&](size_t i) GOOGLE_MALLOC_SECTION {
       auto& list = lists_[i];
       TC_ASSERT(!list.empty());
@@ -160,19 +148,12 @@ class HintedTrackerLists {
         func(*pt);
       }
     });
-#endif
   }
 
  private:
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  TrackerList lists_[N];
-  size_t size_;
-  Bitmap<N> nonempty_;
-#else
   size_t size_;
   Bitmap<N> nonempty_;
   TrackerList lists_[N];
-#endif
 };
 
 }  // namespace tcmalloc_internal

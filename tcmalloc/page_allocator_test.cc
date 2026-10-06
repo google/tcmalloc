@@ -81,10 +81,6 @@ class PageAllocatorTest : public testing::Test {
   }
   void Delete(Span* s, SpanAllocInfo span_alloc_info,
               MemoryTag tag = MemoryTag::kNormal) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-    allocator_->Delete(s, tag, span_alloc_info);
-#else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
         s->donated(),
@@ -92,7 +88,6 @@ class PageAllocatorTest : public testing::Test {
     Span::Delete(s);
     PageHeapSpinLockHolder l;
     allocator_->Delete(a, tag, span_alloc_info);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   Length Release(Length n, PageReleaseReason reason) {
@@ -391,9 +386,6 @@ static void ReleaseDuringHardLimitShrinkHook(size_t num_pages, size_t released,
 // the shrink had pageheap_lock dropped, possibly by releasing the very
 // candidates the shrink had selected.
 TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  GTEST_SKIP() << "Delete requires an AllocationState";
-#else
   // Turn off subrelease so that the hard-limit shrink cannot break hugepages
   // and takes the failure path.
   const bool old_subrelease = Parameters::hpaa_subrelease();
@@ -463,7 +455,6 @@ TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
   shrink_hook_allocator = nullptr;
   Delete(sampled, kSpanInfo, MemoryTag::kSampled);
   Parameters::set_hpaa_subrelease(old_subrelease);
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
 }
 
 TEST_F(PageAllocatorTest, Hooks) {

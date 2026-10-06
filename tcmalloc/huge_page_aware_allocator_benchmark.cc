@@ -91,11 +91,6 @@ class BenchmarkAllocator {
   }
 
   void Delete(Span* s) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-    alloc_->Delete(s, {.objects_per_span = kObjectsPerSpan,
-                       .density = AccessDensityPrediction::kSparse});
-#else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
         s->donated(),
@@ -104,7 +99,6 @@ class BenchmarkAllocator {
     PageHeapSpinLockHolder l;
     alloc_->Delete(a, {.objects_per_span = kObjectsPerSpan,
                        .density = AccessDensityPrediction::kSparse});
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   BackingStats stats() const {

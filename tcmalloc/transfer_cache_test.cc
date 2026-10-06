@@ -75,16 +75,12 @@ namespace {
 using ::testing::Return;
 
 TEST(TransferCacheLayoutTest, HotFieldsDoNotShareCachelines) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  GTEST_SKIP() << "Test does not apply under TCMALLOC_INTERNAL_LEGACY_LOCKING";
-#else
   internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
       internal_transfer_cache::TransferCache<CentralFreeList,
                                              TransferCacheManager>>();
   internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
       internal_transfer_cache::TransferCache<BackingTransferCache,
                                              ShardedStaticForwarder>>();
-#endif
 }
 
 template <typename Env>

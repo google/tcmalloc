@@ -1124,9 +1124,7 @@ class HugePageFiller {
   LifetimeHisto lifetime_histo_[AccessDensityPrediction::kPredictionCounts]{};
 
   Clock clock_;
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const double ms_per_cycle_;
-#endif
   const MemoryTag tag_;
   MemoryModifyFunction& unback_without_lock_;
   MemoryModifyFunction& collapse_;
@@ -1156,9 +1154,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
     : size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       ms_per_cycle_(1000.0 / clock.freq()),
-#endif
       tag_(tag),
       unback_without_lock_(unback_without_lock),
       collapse_(collapse),
@@ -1287,13 +1283,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   const int64_t now = clock_.now();
   if (ABSL_PREDICT_FALSE(pt->GetTagState().sampled_for_tagging)) {
     pt->RecordFeatures();
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     pt->SetLastAllocationTime(now);
-#endif
   }
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  pt->SetLastAllocationTime(now);
-#endif
   const auto page_allocation = pt->Get(n, span_alloc_info);
   AddToFillerList(pt);
   pages_allocated_[type] += n;
@@ -1318,21 +1309,11 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 template <class TrackerType>
 void HugePageFiller<TrackerType>::RecordLifetime(const TrackerType* pt,
                                                  int64_t now) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  now = clock_.now();
-#endif
   const double elapsed = std::max<double>(0.0, now - pt->alloctime());
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const int64_t elapsed_ms = static_cast<int64_t>(std::min<double>(
       static_cast<double>(kLifetimeBucketBounds[kLifetimeBuckets - 1]),
       elapsed * ms_per_cycle_));
   const int bucket = LifetimeBucketNum(elapsed_ms);
-#else
-  const double frequency = clock_.freq();
-  const absl::Duration lifetime =
-      absl::Milliseconds(elapsed * 1000 / frequency);
-  const int bucket = LifetimeBucketNum(lifetime);
-#endif
   if (pt->HasDenseSpans()) {
     ++lifetime_histo_[AccessDensityPrediction::kDense][bucket];
   } else {
@@ -1392,11 +1373,7 @@ void HugePageFiller<TrackerType>::PrintLifetimeHistoInPbtxt(
 template <class TrackerType>
 inline TrackerType* HugePageFiller<TrackerType>::Put(
     TrackerType* pt, Range r, SpanAllocInfo span_alloc_info) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const int64_t now = clock_.now();
-#else
-  const int64_t now = 0;
-#endif
   RemoveFromFillerList(pt);
   pt->Put(r, span_alloc_info);
   if (pt->HasDenseSpans()) {
@@ -1427,11 +1404,7 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
   --size_;
   ClearWasReleased(pt);
   if (pt->released()) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     const Length free_pages = kPagesPerHugePage;
-#else
-    const Length free_pages = pt->free_pages();
-#endif
     const Length released_pages = pt->released_pages();
     TC_ASSERT_GE(free_pages, released_pages);
     TC_ASSERT_GE(unmapped_, released_pages);
@@ -1446,13 +1419,11 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
       bool success =
           unback_without_lock_(HugeRange(pt->location(), NHugePages(1)))
               .success;
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
       // pageheap_lock was dropped for the unback.  Another thread may have
       // reported filler stats at a later time meanwhile, and reporting with the
       // earlier time below would read as a clock regression to the time series
       // tracker, which discards its demand history in response.
       now = clock_.now();
-#endif
 
       if (ABSL_PREDICT_TRUE(success)) {
         const Length unmapped = free_pages - released_pages;
@@ -1593,11 +1564,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseFreeFromTracker(
     // and left retiring it to us.  pt is still pinned by our caller, so it is
     // parked on fully_freed_trackers_ for the caller to drain.  This may drop
     // pageheap_lock again to unback the rest of the hugepage.
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     const int64_t now = clock_.now();
-#else
-    const int64_t now = 0;
-#endif
     [[maybe_unused]] TrackerType* freed = HandleFullyFreedTracker(pt, now);
     TC_ASSERT_EQ(freed, nullptr);
     return ret;
@@ -2538,18 +2505,13 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker(
-    [[maybe_unused]] int64_t now) {
+inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker(int64_t now) {
   StatsTrackerType::SubreleaseStats stats;
   stats.num_pages = pages_allocated();
   stats.free_pages = free_pages();
   stats.unmapped_pages = unmapped_pages();
   stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  fillerstats_tracker_.Report(stats, clock_.now());
-#else
   fillerstats_tracker_.Report(stats, now);
-#endif
   subrelease_stats_.reset();
 }
 

@@ -435,7 +435,6 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) const {
   gwp_asan.PrintI64("tcmalloc_guarded_sample_parameter", GetChainedInterval());
 }
 
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
 [[nodiscard]] static bool ProbeGuardPagesSupported() {
   // MADV_GUARD_INSTALL installs guard pages without splitting or altering the
   // permissions of the enclosing VMA, leaving the mapping as readable and
@@ -447,7 +446,6 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) const {
   // until tooling can handle guarded pages in readable VMAs.
   return false;
 }
-#endif
 
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages
 // we can return from Allocate with guard pages before and after them.
@@ -456,9 +454,7 @@ void GuardedPageAllocator::MapPages() {
   TC_ASSERT(!first_page_addr_);
   TC_ASSERT_EQ(page_size_ % GetPageSize(), 0);
   size_t len = (2 * total_pages_ + 1) * page_size_;
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   guard_pages_supported_ = ProbeGuardPagesSupported();
-#endif
   void* base;
   if (guard_pages_supported_) {
     // Guard regions make individual pages of an otherwise accessible mapping

@@ -330,11 +330,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   // tolerate a small amount of imprecision in the least significant bits
   // because a few nanoseconds should not make or break any decisions we make
   // with it.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  constexpr uint64_t kMask = ~uint64_t{0x0};
-#else
   constexpr uint64_t kMask = ~uint64_t{0xFF};
-#endif
   TC_CHECK_EQ(span->AllocTime() & kMask, alloc_time & kMask);
 
   free(mem);

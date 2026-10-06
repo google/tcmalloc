@@ -376,53 +376,11 @@ TEST_P(StaticForwarderTest, Fuzz) {
 class CentralFreeListTestPeer {
  public:
   template <typename Forwarder>
-  using CFL = CentralFreeList<Forwarder>;
-
-  template <typename Forwarder>
   static size_t num_same_spans(const CentralFreeList<Forwarder>& cfl,
                                size_t index) {
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
     return cfl.num_same_spans_[absl::bit_width(index)].value();
-#else
-    return 0;
-#endif
-  }
-
-  static void VerifyLegacyLayout() {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    using CFLType = CFL<StaticForwarder>;
-    EXPECT_EQ(offsetof(CFLType, lock_), 0);
-    EXPECT_EQ(offsetof(CFLType, size_class_), 8);
-    EXPECT_EQ(offsetof(CFLType, object_size_), 16);
-    EXPECT_EQ(offsetof(CFLType, objects_per_span_), 24);
-    EXPECT_EQ(offsetof(CFLType, size_reciprocal_), 32);
-    EXPECT_EQ(offsetof(CFLType, first_nonempty_index_), 40);
-    EXPECT_EQ(offsetof(CFLType, pages_per_span_), 48);
-    EXPECT_EQ(offsetof(CFLType, completed_spans_), 56);
-    EXPECT_EQ(offsetof(CFLType, span_allocations_tracker_), 120);
-    EXPECT_EQ(offsetof(CFLType, counter_), 184);
-    EXPECT_EQ(offsetof(CFLType, num_spans_requested_), 192);
-    EXPECT_EQ(offsetof(CFLType, num_spans_returned_), 200);
-    EXPECT_EQ(offsetof(CFLType, objects_to_spans_), 208);
-    EXPECT_EQ(offsetof(CFLType, nonempty_), 336);
-#ifdef NDEBUG
-    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 144);
-    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 480);
-#else
-    EXPECT_EQ(sizeof(((CFLType*)0)->nonempty_), 208);
-    EXPECT_EQ(offsetof(CFLType, use_all_buckets_for_few_object_spans_), 544);
-#endif
-#endif
   }
 };
-
-TEST(CentralFreeListLayoutTest, LegacyOffsets) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  CentralFreeListTestPeer::VerifyLegacyLayout();
-#else
-  GTEST_SKIP() << "Test only applies under TCMALLOC_INTERNAL_LEGACY_LOCKING";
-#endif
-}
 
 INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
                          testing::Range(size_t(1), kNumClasses));
@@ -519,12 +477,10 @@ TEST_P(CentralFreeListTest, SameSpanTracking) {
 
   e.central_freelist().InsertRange(absl::MakeSpan(&batch[0], allocated));
 
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
   const int expected_same_span = allocated - 1;
   EXPECT_GE(central_freelist_internal::CentralFreeListTestPeer::num_same_spans(
                 e.central_freelist(), expected_same_span),
             1);
-#endif
 }
 
 TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
@@ -1238,9 +1194,6 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
 }
 
 TEST_P(CentralFreeListTest, SameSpans) {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-  GTEST_SKIP() << "Stats are non-functional when optimization is not enabled.";
-#endif
   const int num_to_move = std::get<0>(GetParam()).num_to_move;
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
               num_to_move, std::get<1>(GetParam()));

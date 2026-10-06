@@ -47,11 +47,7 @@ constexpr uint64_t kSpanAllocTime = 1234;
 // tolerate a small amount of imprecision in the least significant bits
 // because a few nanoseconds should not make or break any decisions we make
 // with it.
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-constexpr uint64_t kAllocTimeMask = ~uint64_t{0x0};
-#else
 constexpr uint64_t kAllocTimeMask = ~uint64_t{0xFF};
-#endif
 
 class RawSpan {
  public:
@@ -259,13 +255,8 @@ TEST(SpanAllocatorTest, Alignment) {
   std::vector<Span*> spans;
   spans.reserve(kNumSpans);
 
-  {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    for (int i = 0; i < kNumSpans; ++i) {
-      spans.push_back(Span::New(r));
-    }
+  for (int i = 0; i < kNumSpans; ++i) {
+    spans.push_back(Span::New(r));
   }
 
   absl::flat_hash_map<uintptr_t, int> address_mod_cacheline;
@@ -281,13 +272,8 @@ TEST(SpanAllocatorTest, Alignment) {
     EXPECT_EQ(alignment % alignof(Span), 0);
   }
 
-  {
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    PageHeapSpinLockHolder l;
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
-    for (Span* s : spans) {
-      Span::Delete(s);
-    }
+  for (Span* s : spans) {
+    Span::Delete(s);
   }
 }
 

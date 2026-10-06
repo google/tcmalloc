@@ -725,13 +725,6 @@ struct State {
     if (tail_tracked) {
       tails_in_flight.push_back(r.n % kPagesPerHugePage);
     }
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
-    {
-      PageHeapSpinLockHolder l;
-      allocator.Delete(span, {.objects_per_span = span_info.objects_per_span,
-                              .density = span_info.density});
-    }
-#else
     PageAllocatorInterface::AllocationState a{r, span->donated()};
     // DeleteSpan frees span; nothing below may read it.
     allocator.forwarder().DeleteSpan(span);
@@ -740,7 +733,6 @@ struct State {
       allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
                            .density = span_info.density});
     }
-#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     if (tail_tracked) {
       tails_in_flight.pop_back();
     }
