@@ -443,7 +443,9 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
     Delete(d, kSpanInfo.objects_per_span);
   }
 
-  EXPECT_EQ(kPagesPerHugePage / 2,
+  EXPECT_EQ(allocator_->forwarder().release_max_filler_pages()
+                ? Length(N / 2)
+                : kPagesPerHugePage / 2,
             ReleasePages(Length(1),
                          /*reason=*/PageReleaseReason::kReleaseMemoryToSystem));
 

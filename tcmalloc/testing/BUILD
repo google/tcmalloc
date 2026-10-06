@@ -722,6 +722,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_stats",
+        "//tcmalloc/internal:parameter_accessors",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
