@@ -1351,6 +1351,27 @@ tcmalloc_cc_test(
     900
 )
 
+tcmalloc_cc_binary(
+  NAME
+    tcmalloc_huge_page_aware_allocator_benchmark
+  SRCS
+    "huge_page_aware_allocator_benchmark.cc"
+  DEPS
+    "absl::core_headers"
+    "absl::flags"
+    "absl::random_random"
+    "absl::synchronization"
+    "benchmark::benchmark"
+    "benchmark::benchmark_main"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::tcmalloc"
+)
+
 tcmalloc_cc_test(
   NAME
     tcmalloc_huge_page_aware_allocator_test

@@ -1139,6 +1139,26 @@ cc_test(
     ],
 )
 
+create_tcmalloc_benchmark(
+    name = "huge_page_aware_allocator_benchmark",
+    srcs = ["huge_page_aware_allocator_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    deps = [
+        ":common_8k_pages",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:page_size",
+        "//tcmalloc/internal:sysinfo",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/synchronization",
+    ],
+)
+
 cc_test(
     name = "huge_page_aware_allocator_test",
     srcs = ["huge_page_aware_allocator_test.cc"],
