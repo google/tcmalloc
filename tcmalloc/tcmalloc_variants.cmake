@@ -354,6 +354,15 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_PAGE_HEAP_GARDENING"
   )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_prioritization_ablation
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_CFL_PRIORITIZATION_ABLATION"
+  )
 endfunction()
 
 function(tcmalloc_cc_binary_variants)

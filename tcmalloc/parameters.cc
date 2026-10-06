@@ -381,12 +381,15 @@ want_cfl_subbucket_prioritization() {
   if (e) {
     switch (e[0]) {
       case '0':
-        break;
+        return central_freelist_internal::CflSubbucketPrioritization::kEnabled;
       case '1':
         return central_freelist_internal::CflSubbucketPrioritization::kDisabled;
       default:
         TC_BUG("bad env var '%s'", e);
     }
+  }
+  if (IsExperimentActive(Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION)) {
+    return central_freelist_internal::CflSubbucketPrioritization::kDisabled;
   }
   return central_freelist_internal::CflSubbucketPrioritization::kEnabled;
 }

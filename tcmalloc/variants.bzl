@@ -278,6 +278,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_PAGE_HEAP_GARDENING"},
     },
+    {
+        "name": "tcmalloc_cfl_prioritization_ablation",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_CFL_PRIORITIZATION_ABLATION"},
+    },
 ]
 
 def create_tcmalloc_library(
