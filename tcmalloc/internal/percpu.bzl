@@ -30,6 +30,13 @@ percpu_test_variants = [
         "env": {"GLIBC_TUNABLES": "glibc.pthread.rseq=0"},
     },
     {
+        "name": "_mm_vcpu",
+        "env": {
+            "BORG_EXPERIMENTS": "TEST_ONLY_MM_VCPU",
+            "GLIBC_TUNABLES": "glibc.pthread.rseq=0",
+        },
+    },
+    {
         "name": "_real",
         "env": {"PERCPU_VCPU_MODE": "none"},
     },
@@ -42,17 +49,33 @@ def create_percpu_tcmalloc_testsuite(
         deps = [],
         env = {},
         linkstatic = 1,
-        malloc = ":system_malloc",
+        malloc = "//tcmalloc/internal:system_malloc",
         tags = [],
         timeout = "long",
         **kwargs):
-    """Creates percpu test targets for all percpu modes."""
+    """Creates percpu test targets for all percpu modes.
+
+    Args:
+      name: The base name, suffixed with variant names to form target names.
+      srcs: Source files to be built.
+      copts: Compiler options passed to cc_test.
+      deps: Dependencies passed to cc_test.
+      env: Environment variables merged with each variant's environment.
+      linkstatic: Whether to link the test statically.
+      malloc: The malloc target passed to cc_test.
+      tags: Tags passed to cc_test.
+      timeout: Test timeout passed to cc_test.
+      **kwargs: Other arguments passed through to cc_test.
+
+    Returns:
+      A list of the targets generated.
+    """
     targets = []
     for variant in percpu_test_variants:
         test_name = name + variant["name"]
         targets.append(test_name)
-        variant_env = dict(variant["env"])
-        variant_env.update(env)
+        variant_env = dict(env)
+        variant_env.update(variant["env"])
         cc_test(
             name = test_name,
             srcs = srcs,

@@ -915,7 +915,7 @@ cc_library(
     ],
 )
 
-cc_test(
+create_percpu_tcmalloc_testsuite(
     name = "percpu_test",
     srcs = ["percpu_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

@@ -1778,7 +1778,7 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
 )
 
-tcmalloc_cc_test(
+create_percpu_tcmalloc_testsuite(
   NAME
     tcmalloc_cpu_cache_test
   SRCS

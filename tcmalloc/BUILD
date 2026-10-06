@@ -29,6 +29,7 @@ load(
     "create_tcmalloc_libraries",
     "create_tcmalloc_testsuite",
 )
+load("//tcmalloc/internal:percpu.bzl", "create_percpu_tcmalloc_testsuite")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -1546,7 +1547,7 @@ cc_test(
     ],
 )
 
-cc_test(
+create_percpu_tcmalloc_testsuite(
     name = "cpu_cache_test",
     timeout = "long",
     srcs = ["cpu_cache_test.cc"],
