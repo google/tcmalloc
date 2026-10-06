@@ -222,7 +222,7 @@ class Static final {
 #if defined(__clang__)
   __attribute__((preserve_most))
 #endif
-  void SlowInitIfNecessary();
+  void SlowInitIfNecessary() ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // PageHeap uses a constructor for initialization.  Like the members above,
   // we can't depend on initialization order, so pageheap is new'd
