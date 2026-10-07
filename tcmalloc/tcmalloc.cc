@@ -449,6 +449,10 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.pageheap_free_bytes"].value = stats.pageheap.free_bytes;
   // Metadata Bytes
   (*result)["tcmalloc.metadata_bytes"].value = stats.metadata_bytes;
+  (*result)["tcmalloc.metadata_arena_unavailable_bytes"].value =
+      stats.arena.bytes_unavailable;
+  (*result)["tcmalloc.metadata_arena_unallocated_bytes"].value =
+      stats.arena.bytes_unallocated;
   // Heaps in Use
   (*result)["tcmalloc.thread_cache_count"].value = stats.tc_stats.in_use;
   // Central Cache Free List

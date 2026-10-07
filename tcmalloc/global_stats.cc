@@ -1150,6 +1150,18 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     return true;
   }
 
+  if (name == "tcmalloc.metadata_arena_unavailable_bytes") {
+    PageHeapSpinLockHolder l;
+    *value = tc_globals.arena().stats().bytes_unavailable;
+    return true;
+  }
+
+  if (name == "tcmalloc.metadata_arena_unallocated_bytes") {
+    PageHeapSpinLockHolder l;
+    *value = tc_globals.arena().stats().bytes_unallocated;
+    return true;
+  }
+
   if (name == "tcmalloc.transfer_cache_free") {
     TCMallocStats stats;
     ExtractTCMallocStats(stats, false);

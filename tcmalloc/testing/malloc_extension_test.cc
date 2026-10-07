@@ -143,6 +143,8 @@ TEST(MallocExtension, Properties) {
             "tcmalloc.hard_usage_limit_bytes",
             "tcmalloc.local_bytes",
             "tcmalloc.max_total_thread_cache_bytes",
+            "tcmalloc.metadata_arena_unallocated_bytes",
+            "tcmalloc.metadata_arena_unavailable_bytes",
             "tcmalloc.metadata_bytes",
             "tcmalloc.num_released_hard_limit_exceeded_bytes",
             "tcmalloc.num_released_process_background_actions_bytes",
