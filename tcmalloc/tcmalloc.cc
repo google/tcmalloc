@@ -652,16 +652,20 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
       tag = MultiNormalTag(policy.partition());
     }
   }
-  Span* span = tc_globals.page_allocator().NewAligned(
-      num_pages, BytesToLengthCeil(policy.align()),
-      {1, AccessDensityPrediction::kSparse}, tag);
-  if (span == nullptr) return {nullptr, 0};
+  PageAllocatorInterface::AllocationState alloc_res =
+      tc_globals.page_allocator().NewAligned(
+          num_pages, BytesToLengthCeil(policy.align()),
+          {1, AccessDensityPrediction::kSparse}, tag);
+  if (!alloc_res) return {nullptr, 0};
+
+  Span* span = tc_globals.AllocAndSetSpan(alloc_res.r, alloc_res.donated);
 
   // Set capacity to the exact size for a page allocation.  This needs to be
   // revisited if we introduce gwp-asan sampling / guarded allocations to
   // do_malloc_pages().
-  sized_ptr_t res{span->start_address(), num_pages.in_bytes()};
-  TC_ASSERT(!ColdFeatureActive() || tag == GetMemoryTag(span->start_address()));
+  sized_ptr_t res{alloc_res.r.start_addr(), num_pages.in_bytes()};
+  TC_ASSERT(!ColdFeatureActive() ||
+            tag == GetMemoryTag(alloc_res.r.start_addr()));
 
   if (weight != 0) {
     auto ptr = SampleLargeAllocation(tc_globals, policy, size, weight, span);
@@ -745,6 +749,7 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
       ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
                           ptr);
     }
+    tc_globals.pagemap().Set(p, const_cast<Span*>(&tc_globals.invalid_span()));
     PageAllocatorInterface::AllocationState a{
         Range(p, span->num_pages()),
         span->donated(),

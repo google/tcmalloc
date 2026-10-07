@@ -39,22 +39,7 @@ class PageAllocatorInterface {
  public:
   PageAllocatorInterface(const char* label, MemoryTag tag);
   virtual ~PageAllocatorInterface() = default;
-  // Allocate a run of "n" pages. These pages would be allocated to a total of
-  // 'objects_per_span' objects. Returns zero if out of memory.  Caller should
-  // not pass "n == 0" -- instead, n should have been rounded up already.
-  [[nodiscard]] virtual Span* absl_nullable New(Length n,
-                                                SpanAllocInfo span_alloc_info)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
-  // As New, but the returned span is aligned to a <align>-page boundary.
-  // <align> must be a power of two.
-  [[nodiscard]] virtual Span* absl_nullable NewAligned(
-      Length n, Length align, SpanAllocInfo span_alloc_info)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
-
-  // Delete the span "[p, p+n-1]".
-  // REQUIRES: span was returned by earlier call to New() and
-  //           has not yet been deleted.
   struct AllocationState {
     Range r;
     bool donated;
@@ -63,6 +48,23 @@ class PageAllocatorInterface {
       return ABSL_PREDICT_TRUE(r.p != PageId{0});
     }
   };
+
+  // Allocate a run of "n" pages. These pages would be allocated to a total of
+  // 'objects_per_span' objects. Returns zero if out of memory.  Caller should
+  // not pass "n == 0" -- instead, n should have been rounded up already.
+  [[nodiscard]] virtual AllocationState New(Length n,
+                                            SpanAllocInfo span_alloc_info)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
+
+  // As New, but the returned span is aligned to a <align>-page boundary.
+  // <align> must be a power of two.
+  [[nodiscard]] virtual AllocationState NewAligned(
+      Length n, Length align, SpanAllocInfo span_alloc_info)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
+
+  // Delete the span "[p, p+n-1]".
+  // REQUIRES: span was returned by earlier call to New() and
+  //           has not yet been deleted.
 
   virtual void Delete(AllocationState s, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;

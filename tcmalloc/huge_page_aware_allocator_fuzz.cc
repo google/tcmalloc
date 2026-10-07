@@ -65,6 +65,7 @@ namespace {
 using huge_page_allocator_internal::FakeStaticForwarder;
 using huge_page_allocator_internal::HugePageAwareAllocator;
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
+using AllocationState = PageAllocatorInterface::AllocationState;
 
 struct FuzzHugePageAwareAllocatorOptions {
   MemoryTag tag;
@@ -622,7 +623,7 @@ void AbslStringify(Sink& sink, const ReentrantSubprogram& r) {
 }
 
 struct SpanInfo {
-  Span* span;
+  AllocationState span;
   size_t objects_per_span;
   AccessDensityPrediction density;
 };
@@ -713,25 +714,22 @@ struct State {
   }
 
   void Delete(const SpanInfo& span_info) {
-    Span* span = span_info.span;
-    const Range r(span->first_page(), span->num_pages());
+    const Range r = span_info.span.r;
     allocated -= r.n;
     // A donated span longer than a hugepage came straight from HugeCache, with
     // its tail on a hugepage the filler tracks.  Delete returns the whole
     // hugepages to HugeCache, which may unback them with pageheap_lock
     // dropped, before returning the tail to the filler (see
     // HugePageAwareAllocator::Delete).
-    const bool tail_tracked = span->donated() && r.n > kPagesPerHugePage;
+    const bool tail_tracked = span_info.span.donated && r.n > kPagesPerHugePage;
     if (tail_tracked) {
       tails_in_flight.push_back(r.n % kPagesPerHugePage);
     }
-    PageAllocatorInterface::AllocationState a{r, span->donated()};
-    // DeleteSpan frees span; nothing below may read it.
-    allocator.forwarder().DeleteSpan(span);
     {
       PageHeapSpinLockHolder l;
-      allocator.Delete(a, {.objects_per_span = span_info.objects_per_span,
-                           .density = span_info.density});
+      allocator.Delete(span_info.span,
+                       {.objects_per_span = span_info.objects_per_span,
+                        .density = span_info.density});
     }
     if (tail_tracked) {
       tails_in_flight.pop_back();
@@ -929,30 +927,31 @@ void Alloc::Perform(State& state) const {
       before_stats.system_bytes - before_stats.unmapped_bytes;
   const size_t runs_before = state.reentrant_runs;
 
-  Span* s = use_aligned ? state.allocator.NewAligned(len, align, alloc_info)
-                        : state.allocator.New(len, alloc_info);
-  if (s == nullptr) {
+  AllocationState s = use_aligned
+                          ? state.allocator.NewAligned(len, align, alloc_info)
+                          : state.allocator.New(len, alloc_info);
+  if (!s) {
     return;
   }
-  TC_CHECK_EQ(s->num_pages(), len);
-  TC_CHECK(GetMemoryTag(s->start_address()) == state.tag);
+  TC_CHECK_EQ(s.r.n, len);
+  TC_CHECK(GetMemoryTag(s.r.p.start_addr()) == state.tag);
   if (align > Length(1)) {
     // NewAligned requires a power-of-two alignment; honor the largest one the
     // fuzzed value implies.
     size_t pow2 = absl::bit_ceil(align.raw_num());
-    TC_CHECK_EQ(s->first_page().index() % pow2, 0);
+    TC_CHECK_EQ(s.r.p.index() % pow2, 0);
   }
 
   // The span is disjoint from every live span.
-  const PageId first = s->first_page();
-  const PageId end = first + s->num_pages();
+  const PageId first = s.r.p;
+  const PageId end = first + s.r.n;
   auto next = state.live_ranges.lower_bound(first);
   TC_CHECK(next == state.live_ranges.end() || next->first >= end);
   if (next != state.live_ranges.begin()) {
     const auto prev = std::prev(next);
     TC_CHECK_LE(prev->first + prev->second, first);
   }
-  state.live_ranges.emplace(first, s->num_pages());
+  state.live_ranges.emplace(first, s.r.n);
 
   // A subprogram run while backing the span may have grown the heap itself.
   if (runs_before == state.reentrant_runs &&
@@ -968,7 +967,7 @@ void Alloc::Perform(State& state) const {
   }
 
   state.allocs.push_back(SpanInfo{s, num_obj, density});
-  state.allocated += s->num_pages();
+  state.allocated += s.r.n;
 }
 
 void Dealloc::Perform(State& state) const {
@@ -981,7 +980,7 @@ void Dealloc::Perform(State& state) const {
 
   SpanInfo span_info = state.allocs.back();
   state.allocs.pop_back();
-  TC_CHECK_EQ(state.live_ranges.erase(span_info.span->first_page()), 1);
+  TC_CHECK_EQ(state.live_ranges.erase(span_info.span.r.p), 1);
   state.Delete(span_info);
 }
 

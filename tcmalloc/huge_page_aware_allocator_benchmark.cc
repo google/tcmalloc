@@ -36,6 +36,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/sysinfo.h"
+#include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -51,6 +52,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using AllocationState = PageAllocatorInterface::AllocationState;
+
 int64_t pagesize = GetPageSize();
 
 void Touch(PageId p) {
@@ -62,8 +65,8 @@ void Touch(PageId p) {
   }
 }
 
-void Touch(Span* s) {
-  for (PageId p = s->first_page(); p <= s->last_page(); ++p) {
+void Touch(AllocationState s) {
+  for (PageId p = s.r.p; p < s.r.p + s.r.n; ++p) {
     Touch(p);
   }
 }
@@ -72,7 +75,7 @@ class BenchmarkAllocator {
  public:
   char buf_[sizeof(HugePageAwareAllocator)];
   HugePageAwareAllocator* alloc_;
-  Span* prime_;
+  AllocationState prime_;
   static constexpr size_t kObjectsPerSpan = 1;
   BenchmarkAllocator() = default;
   ~BenchmarkAllocator() = default;
@@ -86,18 +89,13 @@ class BenchmarkAllocator {
 
   void Done() { Delete(prime_); }
 
-  Span* New(Length n) {
+  AllocationState New(Length n) {
     return alloc_->New(n, {kObjectsPerSpan, AccessDensityPrediction::kSparse});
   }
 
-  void Delete(Span* s) {
-    PageAllocatorInterface::AllocationState a{
-        Range(s->first_page(), s->num_pages()),
-        s->donated(),
-    };
-    alloc_->forwarder().DeleteSpan(s);
+  void Delete(AllocationState s) {
     PageHeapSpinLockHolder l;
-    alloc_->Delete(a, {.objects_per_span = kObjectsPerSpan,
+    alloc_->Delete(s, {.objects_per_span = kObjectsPerSpan,
                        .density = AccessDensityPrediction::kSparse});
   }
 
@@ -129,7 +127,7 @@ static void BM_AllocFree(benchmark::State& state) {
   const Length len(state.range(0));
   ba.Reset();
   for (auto s : state) {
-    Span* alloc = ba.New(len);
+    AllocationState alloc = ba.New(len);
     benchmark::DoNotOptimize(alloc);
     ba.Delete(alloc);
   }
@@ -149,7 +147,7 @@ BENCHMARK(BM_AllocFree)
 static void BM_AllocLoaded(benchmark::State& state) {
   const int nspans = state.range(0);
   ba.Reset();
-  std::vector<Span*> spans;
+  std::vector<AllocationState> spans;
   absl::BitGen rng;
   for (int i = 0; i < nspans; ++i) {
     auto len = Length(absl::LogUniform<int32_t>(rng, 0, (1 << 9) - 1) + 1);
@@ -177,7 +175,7 @@ BENCHMARK(BM_AllocLoaded)->Range(100, 6400);
 static void BM_Growth(benchmark::State& state) {
   ABSL_CONST_INIT static absl::Mutex m(absl::kConstInit);
   absl::InsecureBitGen gen;
-  std::vector<Span*> spans;
+  std::vector<AllocationState> spans;
   Length lifetime_alloc;
   Length total;
 
@@ -195,14 +193,14 @@ static void BM_Growth(benchmark::State& state) {
 
       total += k;
       lifetime_alloc += k;
-      Span* s;
+      AllocationState s;
       {
         // Why this lock? Because otherwise we just contend on the spinlock,
         // which is less scalable.
         absl::MutexLock l(m);
         s = ba.New(k);
       }
-      TC_CHECK_EQ(k, s->num_pages());
+      TC_CHECK_EQ(k, s.r.n);
 
       spans.push_back(s);
       // Ensure we pay for page faults.
@@ -216,9 +214,9 @@ static void BM_Growth(benchmark::State& state) {
 
     state.ResumeTiming();
     while (total >= min) {
-      Span* s = spans.back();
+      AllocationState s = spans.back();
       spans.pop_back();
-      total -= s->num_pages();
+      total -= s.r.n;
       {
         absl::MutexLock l(m);
         ba.Delete(s);

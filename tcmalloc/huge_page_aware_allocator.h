@@ -102,14 +102,7 @@ class StaticForwarder : private Parameters {
   [[nodiscard]] static void* GetHugepage(HugePage p);
   [[nodiscard]] static bool Ensure(Range r)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  static void ClearSpan(PageId page);
-  static void SetSpan(PageId page, Span* absl_nonnull span);
   static void SetHugepage(HugePage p, void* pt);
-
-  // SpanAllocator state.
-  [[nodiscard]] static Span* NewSpan(Range r)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) ABSL_ATTRIBUTE_RETURNS_NONNULL;
-  static void DeleteSpan(Span* span) ABSL_ATTRIBUTE_NONNULL();
 
   // Error reporting
   [[noreturn]] static void ReportDoubleFree(void* ptr);
@@ -157,13 +150,13 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
-  [[nodiscard]] Span* absl_nullable New(Length n, SpanAllocInfo span_alloc_info)
+  [[nodiscard]] AllocationState New(Length n, SpanAllocInfo span_alloc_info)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  [[nodiscard]] Span* absl_nullable NewAligned(Length n, Length align,
-                                               SpanAllocInfo span_alloc_info)
+  [[nodiscard]] AllocationState NewAligned(Length n, Length align,
+                                           SpanAllocInfo span_alloc_info)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Delete the span "[p, p+n-1]".
@@ -472,8 +465,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Finish an allocation request - give it a span and mark it in the pagemap.
   [[nodiscard]] AllocationState Finalize(Range r, bool may_have_grown);
 
-  [[nodiscard]] Span* Spanify(AllocationState f);
-
   [[nodiscard]] bool ShouldBack(const Range& r) const;
 
   // Whether this HPAA should use subrelease. This delegates to the appropriate
@@ -692,8 +683,9 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
 
 // public
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::New(
-    Length n, SpanAllocInfo span_alloc_info) {
+inline PageAllocatorInterface::AllocationState
+HugePageAwareAllocator<Forwarder>::New(Length n,
+                                       SpanAllocInfo span_alloc_info) {
   TC_CHECK_GT(n, Length(0));
   bool from_released;
   AllocationState f = LockAndAlloc(n, span_alloc_info, &from_released);
@@ -704,10 +696,10 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
     if (ABSL_PREDICT_FALSE(from_released && ShouldBack(r))) {
       forwarder_.Back(r);
     }
+    TC_ASSERT(GetMemoryTag(r.p.start_addr()) == tag_);
+    return f;
   }
-  Span* s = Spanify(f);
-  TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
-  return s;
+  return {};
 }
 
 template <class Forwarder>
@@ -735,8 +727,9 @@ HugePageAwareAllocator<Forwarder>::LockAndAlloc(Length n,
 
 // public
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
-    Length n, Length align, SpanAllocInfo span_alloc_info) {
+inline PageAllocatorInterface::AllocationState
+HugePageAwareAllocator<Forwarder>::NewAligned(Length n, Length align,
+                                              SpanAllocInfo span_alloc_info) {
   if (align <= Length(1)) {
     return New(n, span_alloc_info);
   }
@@ -749,31 +742,19 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
     PageHeapSpinLockHolder l;
     f = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
-  if (f && from_released) {
+  if (f) {
     Range r = f.r;
-    // Prefetch for writing, as we anticipate using the memory soon.
-    PrefetchW(r.p.start_addr());
-    if (ShouldBack(r)) {
-      forwarder_.Back(r);
+    if (from_released) {
+      // Prefetch for writing, as we anticipate using the memory soon.
+      PrefetchW(r.p.start_addr());
+      if (ShouldBack(r)) {
+        forwarder_.Back(r);
+      }
     }
+    TC_ASSERT(GetMemoryTag(r.p.start_addr()) == tag_);
+    return f;
   }
-
-  Span* s = Spanify(f);
-  TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
-  return s;
-}
-
-template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::Spanify(AllocationState f) {
-  if (ABSL_PREDICT_FALSE(f.r.p == PageId{0})) {
-    return nullptr;
-  }
-
-  Span* s = forwarder_.NewSpan(f.r);
-  forwarder_.SetSpan(f.r.p, s);
-  TC_ASSERT(!s->sampled());
-  s->set_donated(f.donated);
-  return s;
+  return {};
 }
 
 template <class Forwarder>
@@ -830,10 +811,6 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
   const HugePage hp = HugePageContaining(p);
   const Length n = s.r.n;
   info_.RecordFree(Range(p, n));
-
-  // Clear the descriptor of the pages so a second pass through the same page
-  // could trigger the check in InvokeHooksAndFreePages.
-  forwarder_.ClearSpan(p);
 
   const bool might_abandon = s.donated;
 

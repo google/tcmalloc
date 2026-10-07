@@ -147,8 +147,9 @@ template <typename Policy>
         stack_trace.allocated_size = requested_size;
       }
       capacity = requested_size;
-    } else if ((span = state.page_allocator().New(
-                    num_pages, {1, AccessDensityPrediction::kSparse}, tag))) {
+    } else if (auto res = state.page_allocator().New(
+                   num_pages, {1, AccessDensityPrediction::kSparse}, tag)) {
+      span = state.AllocAndSetSpan(res.r, res.donated);
       capacity = stack_trace.allocated_size;
     } else {
       return {};

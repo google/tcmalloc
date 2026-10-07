@@ -111,13 +111,14 @@ Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
   TC_ASSERT(density == AccessDensityPrediction::kSparse ||
             (density == AccessDensityPrediction::kDense &&
              pages_per_span == Length(1)));
-  Span* span =
+  auto res =
       tc_globals.page_allocator().New(pages_per_span, span_alloc_info, tag);
-  if (ABSL_PREDICT_FALSE(span == nullptr)) {
+  if (ABSL_PREDICT_FALSE(!res)) {
     return nullptr;
   }
-  TC_ASSERT_EQ(tag, GetMemoryTag(span->start_address()));
-  TC_ASSERT_EQ(span->num_pages(), pages_per_span);
+  Span* span = tc_globals.AllocAndSetSpan(res.r, res.donated);
+  TC_ASSERT_EQ(tag, GetMemoryTag(res.r.start_addr()));
+  TC_ASSERT_EQ(res.r.n, pages_per_span);
 
   tc_globals.pagemap().RegisterSizeClass(span, size_class);
   return span;
@@ -164,6 +165,8 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
     TC_ASSERT_EQ(tag, GetMemoryTag(s->start_address()));
     allocs[i].r = Range(s->first_page(), s->num_pages());
     allocs[i].donated = s->donated();
+    tc_globals.pagemap().Set(s->first_page(),
+                             const_cast<Span*>(&tc_globals.invalid_span()));
     Span::Delete(s);
   }
   const AccessDensityPrediction density = AccessDensity(objects_per_span);
