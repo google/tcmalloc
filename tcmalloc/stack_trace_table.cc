@@ -40,11 +40,16 @@ StackTraceTable::StackTraceTable(ProfileType type)
 
 StackTraceTable::~StackTraceTable() {
   LinkedSample* cur = all_;
-  while (cur != nullptr) {
-    LinkedSample* next = cur->next;
-    tc_globals.linked_sample_allocator().Delete(cur);
-    cur = next;
+  if (cur == nullptr) {
+    return;
   }
+  tc_globals.linked_sample_allocator().Delete([&]() -> LinkedSample* {
+    LinkedSample* s = cur;
+    if (s != nullptr) {
+      cur = s->next;
+    }
+    return s;
+  });
   all_ = nullptr;
 }
 

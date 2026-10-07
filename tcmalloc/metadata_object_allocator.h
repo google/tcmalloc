@@ -23,8 +23,10 @@
 #include "absl/base/const_init.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -73,7 +75,16 @@ class MetadataObjectAllocator {
 
   void Delete(T* p) ABSL_ATTRIBUTE_NONNULL() {
     p->~T();
-    LockAndDeleteMemory(p);
+    AllocationGuardSpinLockHolder l(metadata_lock_);
+    DeleteMemory(p);
+  }
+
+  void Delete(absl::FunctionRef<T* absl_nullable()> callback) {
+    AllocationGuardSpinLockHolder l(metadata_lock_);
+    while (T* p = callback()) {
+      p->~T();
+      DeleteMemory(p);
+    }
   }
 
   [[nodiscard]] AllocatorStats stats() const {
@@ -117,9 +128,8 @@ class MetadataObjectAllocator {
     return result;
   }
 
-  void LockAndDeleteMemory(T* p) ABSL_ATTRIBUTE_NONNULL() {
-    AllocationGuardSpinLockHolder l(metadata_lock_);
-
+  void DeleteMemory(T* p) ABSL_ATTRIBUTE_NONNULL()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(metadata_lock_) {
     *(reinterpret_cast<void**>(p)) = free_list_;
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
     // Poison the object on the freelist.  We do not dereference it after this
