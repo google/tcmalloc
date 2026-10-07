@@ -300,15 +300,6 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_latency_injection,tcmalloc::common_latency_injection>
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_stale_pages
-    ${EXTRA_ARGS}
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS}
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES"
-  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_free_stale
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}

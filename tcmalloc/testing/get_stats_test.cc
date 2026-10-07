@@ -167,8 +167,7 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, ContainsRegex("max_cpu_cache_touched: [0-9]+"));
   }
 
-  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES) ||
-      IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
+  if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_release_stale_pages: true"));
   } else {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_release_stale_pages: false"));
@@ -335,9 +334,7 @@ TEST_F(GetStatsTest, Parameters) {
       EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
     }
 
-    if (IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES) ||
-        IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
+    if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
       EXPECT_THAT(buf,
                   HasSubstr(R"(PARAMETER tcmalloc_release_stale_pages 1)"));
     } else {

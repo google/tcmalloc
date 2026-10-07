@@ -244,12 +244,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "tcmalloc_release_stale_pages",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_RELEASE_STALE_PAGES"},
-    },
-    {
         "name": "tcmalloc_release_free_stale",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
