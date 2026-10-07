@@ -133,6 +133,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] static Span* absl_nonnull New(Range r)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
   static void Delete(Span* absl_nonnull span);
+  static void Delete(absl::Span<Span*> spans);
 
   // ---------------------------------------------------------------------------
   // Support for sampled allocations.

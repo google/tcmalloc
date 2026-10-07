@@ -185,12 +185,16 @@ int Span::BuildFreelist(size_t size, size_t count,
 
 Span* Span::New(Range r) { return tc_globals.span_allocator().New(r); }
 
-void Span::Delete(Span* span) {
+void Span::Delete(Span* span) { Delete(absl::MakeSpan(&span, 1)); }
+
+void Span::Delete(absl::Span<Span*> spans) {
 #ifndef NDEBUG
-  // In debug mode, trash the contents of deleted Spans
-  memset(static_cast<void*>(span), 0x3f, sizeof(*span));
+  for (Span* span : spans) {
+    // In debug mode, trash the contents of deleted Spans
+    memset(static_cast<void*>(span), 0x3f, sizeof(*span));
+  }
 #endif
-  tc_globals.span_allocator().Delete(span);
+  tc_globals.span_allocator().Delete(spans);
 }
 
 [[noreturn]] void Span::ReportDoubleFree(const void* ptr) {
