@@ -63,7 +63,9 @@ class ShardedStaticForwarder : public StaticForwarder {
  public:
   static void Init() {
     use_generic_cache_ =
-        IsExperimentActive(Experiment::TCMALLOC_SHARDED_TC_ABLATION) &&
+        (IsExperimentActive(Experiment::TCMALLOC_SHARDED_TC_ABLATION) ||
+         IsExperimentActive(
+             Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE)) &&
         !IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
     // Traditionally, we enable sharded transfer cache for large size

@@ -165,6 +165,15 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SHARDED_TC_ABLATION"
   )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_sonic_sharded_transfer_cache
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE"
+  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}

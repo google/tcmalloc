@@ -537,10 +537,12 @@ TEST(ShardedTransferCacheManagerTest, GenericCacheExperiment) {
 
   ShardedTransferCacheManager manager(nullptr);
   manager.Init();
-  EXPECT_EQ(manager.UseGenericCache(),
-            IsExperimentActive(Experiment::TCMALLOC_SHARDED_TC_ABLATION) &&
-                !IsExperimentActive(
-                    Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE));
+  EXPECT_EQ(
+      manager.UseGenericCache(),
+      (IsExperimentActive(Experiment::TCMALLOC_SHARDED_TC_ABLATION) ||
+       IsExperimentActive(Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE)) &&
+          !IsExperimentActive(
+              Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE));
 }
 
 TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {

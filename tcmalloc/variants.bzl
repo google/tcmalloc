@@ -113,6 +113,14 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SHARDED_TC_ABLATION"},
     },
     {
+        "name": "sonic_sharded_transfer_cache",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE"},
+    },
+    {
         "name": "numa_aware",
         "malloc": "//tcmalloc:tcmalloc_numa_aware",
         "deps": [
