@@ -44,7 +44,17 @@ namespace {
 int64_t GetRSS() {
   tcmalloc::tcmalloc_internal::MemoryStats stats;
   TC_CHECK(tcmalloc::tcmalloc_internal::GetMemoryStats(&stats));
-  return stats.rss;
+
+  // Under mlockall(MCL_CURRENT | MCL_FUTURE), any new arena block mapped for
+  // metadata (such as lazily initializing a sharded transfer cache shard if
+  // the thread migrates across L3 domains during deallocation) is immediately
+  // faulted into RSS. Subtract metadata bytes so we measure only pageheap RSS
+  // changes.
+  std::optional<size_t> metadata_bytes =
+      tcmalloc::MallocExtension::GetNumericProperty("tcmalloc.metadata_bytes");
+  TC_CHECK(metadata_bytes.has_value());
+
+  return stats.rss - *metadata_bytes;
 }
 
 int64_t UnmappedBytes() {
