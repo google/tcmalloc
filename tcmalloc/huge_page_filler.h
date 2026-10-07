@@ -1051,10 +1051,6 @@ class HugePageFiller {
   void PrintLifetimeHistoInPbtxt(PbtxtRegion& hpaa, const LifetimeHisto& h,
                                  absl::string_view key) const;
 
-  [[nodiscard]] int LifetimeBucketNum(absl::Duration duration) const {
-    return LifetimeBucketNum(absl::ToInt64Milliseconds(duration));
-  }
-
   [[nodiscard]] int LifetimeBucketNum(int64_t duration_ms) const {
     auto it = std::upper_bound(
         kLifetimeBucketBounds, kLifetimeBucketBounds + kLifetimeBuckets,

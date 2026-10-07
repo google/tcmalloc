@@ -435,26 +435,26 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Helpers for New().
 
-  using FinalizeType = AllocationState;
+  [[nodiscard]] AllocationState LockAndAlloc(Length n,
+                                             SpanAllocInfo span_alloc_info,
+                                             bool* from_released);
 
-  [[nodiscard]] FinalizeType LockAndAlloc(Length n,
-                                          SpanAllocInfo span_alloc_info,
-                                          bool* from_released);
-
-  [[nodiscard]] FinalizeType AllocSmall(Length n, SpanAllocInfo span_alloc_info,
-                                        bool* from_released)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  [[nodiscard]] FinalizeType AllocLarge(Length n, SpanAllocInfo span_alloc_info,
-                                        bool* from_released)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  [[nodiscard]] FinalizeType AllocEnormous(Length n,
+  [[nodiscard]] AllocationState AllocSmall(Length n,
                                            SpanAllocInfo span_alloc_info,
                                            bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] AllocationState AllocLarge(Length n,
+                                           SpanAllocInfo span_alloc_info,
+                                           bool* from_released)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] AllocationState AllocEnormous(Length n,
+                                              SpanAllocInfo span_alloc_info,
+                                              bool* from_released)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  [[nodiscard]] FinalizeType AllocRawHugepages(Length n,
-                                               SpanAllocInfo span_alloc_info,
-                                               bool* from_released)
+  [[nodiscard]] AllocationState AllocRawHugepages(Length n,
+                                                  SpanAllocInfo span_alloc_info,
+                                                  bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -470,10 +470,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  [[nodiscard]] FinalizeType Finalize(Range r, bool may_have_grown);
+  [[nodiscard]] AllocationState Finalize(Range r, bool may_have_grown);
 
-  [[nodiscard]] Span* Spanify(FinalizeType f);
-  [[nodiscard]] Range Unspanify(FinalizeType f);
+  [[nodiscard]] Span* Spanify(AllocationState f);
 
   [[nodiscard]] bool ShouldBack(const Range& r) const;
 
@@ -555,7 +554,7 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
 }
 
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   TC_ASSERT_NE(r.p, PageId{0});
@@ -567,7 +566,7 @@ HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown)
 // For anything <= half a huge page, we will unconditionally use the filler
 // to pack it into a single page.  If we need another page, that's fine.
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
                                               SpanAllocInfo span_alloc_info,
                                               bool* from_released) {
@@ -585,7 +584,7 @@ HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
 }
 
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
                                               SpanAllocInfo span_alloc_info,
                                               bool* from_released) {
@@ -651,7 +650,7 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
 }
 
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocEnormous(Length n,
                                                  SpanAllocInfo span_alloc_info,
                                                  bool* from_released) {
@@ -659,7 +658,7 @@ HugePageAwareAllocator<Forwarder>::AllocEnormous(Length n,
 }
 
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
     Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
   HugeLength hl = HLFromPages(n);
@@ -697,9 +696,9 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
     Length n, SpanAllocInfo span_alloc_info) {
   TC_CHECK_GT(n, Length(0));
   bool from_released;
-  FinalizeType f = LockAndAlloc(n, span_alloc_info, &from_released);
+  AllocationState f = LockAndAlloc(n, span_alloc_info, &from_released);
   if (ABSL_PREDICT_TRUE(f)) {
-    Range r = Unspanify(f);
+    Range r = f.r;
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(r.p.start_addr());
     if (ABSL_PREDICT_FALSE(from_released && ShouldBack(r))) {
@@ -712,7 +711,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
 }
 
 template <class Forwarder>
-inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::LockAndAlloc(Length n,
                                                 SpanAllocInfo span_alloc_info,
                                                 bool* from_released) {
@@ -745,13 +744,13 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
   // we can do better than this, but...
   TC_CHECK_LE(align, kPagesPerHugePage);
   bool from_released;
-  FinalizeType f;
+  AllocationState f;
   {
     PageHeapSpinLockHolder l;
     f = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
   if (f && from_released) {
-    Range r = Unspanify(f);
+    Range r = f.r;
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(r.p.start_addr());
     if (ShouldBack(r)) {
@@ -765,7 +764,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
+inline Span* HugePageAwareAllocator<Forwarder>::Spanify(AllocationState f) {
   if (ABSL_PREDICT_FALSE(f.r.p == PageId{0})) {
     return nullptr;
   }
@@ -775,11 +774,6 @@ inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
   TC_ASSERT(!s->sampled());
   s->set_donated(f.donated);
   return s;
-}
-
-template <class Forwarder>
-inline Range HugePageAwareAllocator<Forwarder>::Unspanify(FinalizeType f) {
-  return f.r;
 }
 
 template <class Forwarder>
