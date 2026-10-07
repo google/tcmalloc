@@ -25,6 +25,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/types/span.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -73,7 +74,18 @@ class MetadataObjectAllocator {
 
   void Delete(T* p) ABSL_ATTRIBUTE_NONNULL() {
     p->~T();
-    LockAndDeleteMemory(p);
+    AllocationGuardSpinLockHolder l(metadata_lock_);
+    DeleteMemory(p);
+  }
+
+  void Delete(absl::Span<T*> ptrs) {
+    for (T* p : ptrs) {
+      p->~T();
+    }
+    AllocationGuardSpinLockHolder l(metadata_lock_);
+    for (T* p : ptrs) {
+      DeleteMemory(p);
+    }
   }
 
   [[nodiscard]] AllocatorStats stats() const {
@@ -117,9 +129,8 @@ class MetadataObjectAllocator {
     return result;
   }
 
-  void LockAndDeleteMemory(T* p) ABSL_ATTRIBUTE_NONNULL() {
-    AllocationGuardSpinLockHolder l(metadata_lock_);
-
+  void DeleteMemory(T* p) ABSL_ATTRIBUTE_NONNULL()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(metadata_lock_) {
     *(reinterpret_cast<void**>(p)) = free_list_;
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
     // Poison the object on the freelist.  We do not dereference it after this

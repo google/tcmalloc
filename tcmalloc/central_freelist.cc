@@ -167,8 +167,8 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
     allocs[i].donated = s->donated();
     tc_globals.pagemap().Set(s->first_page(),
                              const_cast<Span*>(&tc_globals.invalid_span()));
-    Span::Delete(s);
   }
+  Span::Delete(free_spans);
   const AccessDensityPrediction density = AccessDensity(objects_per_span);
   SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,
                                    .density = density};
