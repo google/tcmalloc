@@ -14,6 +14,8 @@
 
 #include "tcmalloc/mock_transfer_cache.h"
 
+#include <cstddef>
+
 #include "absl/base/attributes.h"
 
 namespace tcmalloc {

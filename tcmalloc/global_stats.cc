@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <initializer_list>
 #include <optional>
 #include <utility>
@@ -33,23 +34,26 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
-#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/system_allocator.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 #include "tcmalloc/stack_trace_table.h"

@@ -30,6 +30,7 @@
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 
 // Note: we leak memory every time a map is constructed, so do not
