@@ -15,10 +15,12 @@
 #ifndef TCMALLOC_ALLOCATION_SAMPLE_H_
 #define TCMALLOC_ALLOCATION_SAMPLE_H_
 
+#include <atomic>
 #include <memory>
 
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/config.h"
@@ -54,21 +56,23 @@ class AllocationSampleList {
 
   void Add(AllocationSample* absl_nonnull as TCMALLOC_CAPTURED_BY_THIS) {
     AllocationGuardSpinLockHolder h(lock_);
-    as->next_ = first_;
-    first_ = as;
+    as->next_ = first_.load(std::memory_order_relaxed);
+    first_.store(as, std::memory_order_release);
   }
 
   // This list is very short and we're nowhere near a hot path, just walk
   void Remove(AllocationSample* absl_nonnull as) {
     AllocationGuardSpinLockHolder h(lock_);
-    AllocationSample** link = &first_;
-    AllocationSample* cur = first_;
-    while (cur != as) {
-      TC_CHECK_NE(cur, nullptr);
-      link = &cur->next_;
+    AllocationSample* cur = first_.load(std::memory_order_relaxed);
+    if (cur == as) {
+      first_.store(as->next_, std::memory_order_release);
+      return;
+    }
+    while (cur != nullptr && cur->next_ != as) {
       cur = cur->next_;
     }
-    *link = as->next_;
+    TC_CHECK_NE(cur, nullptr);
+    cur->next_ = as->next_;
   }
 
   void ReportMalloc(const struct StackTrace& sample) {
@@ -76,8 +80,11 @@ class AllocationSampleList {
     // memory (potentially holding cryptographic material) into core dumps.
     TC_CHECK(sample.depth == kMaxStackDepth ||
              sample.stack[sample.depth] == nullptr);
+    if (ABSL_PREDICT_TRUE(first_.load(std::memory_order_acquire) == nullptr)) {
+      return;
+    }
     AllocationGuardSpinLockHolder h(lock_);
-    AllocationSample* cur = first_;
+    AllocationSample* cur = first_.load(std::memory_order_relaxed);
     while (cur != nullptr) {
       cur->mallocs_->AddTrace(1.0, sample);
       cur = cur->next_;
@@ -89,7 +96,7 @@ class AllocationSampleList {
   // samples. Invoking `new` while holding this lock can lead to deadlock.
   absl::base_internal::SpinLock lock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
-  AllocationSample* absl_nullable first_ ABSL_GUARDED_BY(lock_) = nullptr;
+  std::atomic<AllocationSample* absl_nullable> first_{nullptr};
 };
 
 }  // namespace tcmalloc::tcmalloc_internal
