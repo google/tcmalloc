@@ -105,14 +105,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "sharded_tc_ablation",
-        "malloc": "//tcmalloc",
-        "deps": [
-            "//tcmalloc:common_8k_pages",
-        ],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SHARDED_TC_ABLATION"},
-    },
-    {
         "name": "sonic_sharded_transfer_cache",
         "malloc": "//tcmalloc",
         "deps": [
