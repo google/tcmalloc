@@ -407,6 +407,7 @@ Parameters::cfl_subbucket_prioritization() {
 }
 
 int32_t Parameters::max_per_cpu_cache_size() {
+  tc_globals.InitIfNecessary();
   return tc_globals.cpu_cache().CacheLimit();
 }
 
@@ -595,6 +596,7 @@ void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v) {
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
+  tcmalloc::tcmalloc_internal::tc_globals.InitIfNecessary();
   tcmalloc::tcmalloc_internal::tc_globals.cpu_cache().SetCacheLimit(v);
 }
 
