@@ -240,7 +240,7 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_per_cpu_caches 0)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_max_per_cpu_cache_size -1)"));
+                HasSubstr(R"(PARAMETER tcmalloc_max_per_cpu_cache_size 0)"));
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_max_total_thread_cache_bytes -1)"));
@@ -315,7 +315,7 @@ TEST_F(GetStatsTest, Parameters) {
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
-    EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: -1)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: 0)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: -1)"));
     EXPECT_THAT(

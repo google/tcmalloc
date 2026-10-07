@@ -13,6 +13,7 @@
 // limitations under the License.
 #include "tcmalloc/parameters.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -597,7 +598,8 @@ void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v) {
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
   tcmalloc::tcmalloc_internal::tc_globals.InitIfNecessary();
-  tcmalloc::tcmalloc_internal::tc_globals.cpu_cache().SetCacheLimit(v);
+  tcmalloc::tcmalloc_internal::tc_globals.cpu_cache().SetCacheLimit(
+      std::max<int32_t>(0, v));
 }
 
 void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v) {
