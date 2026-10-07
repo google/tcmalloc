@@ -1006,8 +1006,6 @@ tcmalloc_cc_test_variants(
     "absl::flat_hash_set"
     "absl::malloc_internal"
     "absl::statusor"
-    "absl::str_format"
-    "absl::time"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"
