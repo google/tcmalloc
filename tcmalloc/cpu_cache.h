@@ -1202,6 +1202,8 @@ inline void CpuCache<Forwarder>::Deactivate() {
 template <class Forwarder>
 inline int CpuCache<Forwarder>::FetchFromBackingCache(size_t size_class,
                                                       absl::Span<void*> batch) {
+  // Make sure that the thread is registered with rseq.
+  TC_ASSERT(subtle::percpu::IsFastNoInit());
   if (UseBackingShardedTransferCache(size_class)) {
     return forwarder_.sharded_transfer_cache().RemoveRange(size_class, batch);
   }
@@ -1308,11 +1310,10 @@ inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
 template <class Forwarder>
 inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
     size_t size_class) const {
-  // Make sure that the thread is registered with rseq.
-  TC_ASSERT(subtle::percpu::IsFastNoInit());
   // We enable sharded cache as a backing cache for all size classes when
-  // generic configuration is enabled.
-  return forwarder_.UseGenericShardedCache() &&
+  // generic configuration is enabled and the thread is registered with rseq.
+  return subtle::percpu::IsFastNoInit() &&
+         forwarder_.UseGenericShardedCache() &&
          forwarder_.sharded_transfer_cache().should_use(size_class);
 }
 

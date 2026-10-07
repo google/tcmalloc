@@ -91,7 +91,7 @@ static bool InitThreadPerCpu() {
 }
 
 bool UsingRseqVirtualCpus() {
-  return GetRseqVcpuMode() == RseqVcpuMode::kMM;
+  return vcpu_mode == RseqVcpuMode::kMM;
 }
 
 int VirtualCpu::Synchronize() {

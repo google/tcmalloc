@@ -128,6 +128,8 @@ TEST(PerCpu, UnregisteredThread) {
 
   UnregisterRseq();
   ASSERT_FALSE(IsFastNoInit());
+  (void)UsingRseqVirtualCpus();
+  EXPECT_FALSE(IsFastNoInit());
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   EXPECT_EQ(__rseq_abi.mm_cid, 0u);
 #endif

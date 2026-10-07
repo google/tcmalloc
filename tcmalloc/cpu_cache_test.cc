@@ -494,6 +494,43 @@ TEST(CpuCacheTest, UsesShardedAsBackingCache) {
   cache.Deactivate();
 }
 
+TEST(CpuCacheTest, DrainShardedFromUnregisteredThread) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  using ShardedManager = TestStaticForwarder::ShardedManager;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.SetShardedCacheForLargeClassesOnly(false);
+  forwarder.SetGenericShardedCache(true);
+
+  constexpr int kNumShards = ShardedManager::kMinShardsAllowed;
+  TC_ASSERT_GT(kNumShards, 0);
+  forwarder.InitializeShardedManager(kNumShards);
+
+  constexpr size_t kSizeClass = 1;
+  {
+    ScopedFakeCpuId fake_cpu_id(0);
+    void* ptr = cache.Allocate(kSizeClass);
+    cache.Deallocate(ptr, kSizeClass);
+  }
+
+  {
+    ScopedUnregisterRseq unregister_rseq;
+    ASSERT_FALSE(subtle::percpu::IsFastNoInit());
+    cache.Drain(0);
+    EXPECT_FALSE(subtle::percpu::IsFastNoInit());
+  }
+
+  TransferCacheStats tc_stats = forwarder.transfer_cache().GetStats(kSizeClass);
+  EXPECT_EQ(tc_stats.insert_hits, 1);
+  forwarder.SetGenericShardedCache(false);
+  cache.Deactivate();
+}
+
 TEST(CpuCacheTest, ResizeInfoNoFalseSharing) {
   const size_t resize_info_size = CpuCachePeer::ResizeInfoSize<CpuCache>();
   EXPECT_EQ(resize_info_size % ABSL_CACHELINE_SIZE, 0) << resize_info_size;
