@@ -550,6 +550,7 @@ static void AddCommonSampleTags(const tcmalloc::Profile::Sample& entry,
   const int token_id = builder.InternString("token_id");
   const int allocation_type_id = builder.InternString("allocation type");
   const int new_id = builder.InternString("new");
+  const int new_array_id = builder.InternString("new[]");
   const int malloc_id = builder.InternString("malloc");
   const int aligned_malloc_id = builder.InternString("aligned malloc");
 
@@ -612,6 +613,9 @@ static void AddCommonSampleTags(const tcmalloc::Profile::Sample& entry,
       break;
     case AllocationType::AlignedMalloc:
       type_label.set_str(aligned_malloc_id);
+      break;
+    case AllocationType::NewArray:
+      type_label.set_str(new_array_id);
       break;
   }
 

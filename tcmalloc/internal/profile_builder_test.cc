@@ -523,7 +523,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.access_allocated = Profile::Sample::Access::Cold;
     sample.token_id = TokenId{1};
     sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
-    sample.type = AllocationType::New;
+    sample.type = AllocationType::NewArray;
     samples.push_back(sample);
 
     Profile::Sample sample2 = sample;
@@ -692,21 +692,21 @@ TEST(ProfileConverterTest, HeapProfile) {
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("token_id", 1), Pair("size_returning", 1),
               Pair("guarded_status", "RateLimited"),
-              Pair("allocation type", "new")),
+              Pair("allocation type", "new[]")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("token_id", 1), Pair("size_returning", 1),
               Pair("guarded_status", "Filtered"),
-              Pair("allocation type", "new")),
+              Pair("allocation type", "new[]")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("token_id", 1), Pair("size_returning", 1),
               Pair("guarded_status", "Guarded"),
-              Pair("allocation type", "new"))));
+              Pair("allocation type", "new[]"))));
 
   EXPECT_THAT(extracted_samples,
               UnorderedElementsAre(IsSupersetOf({

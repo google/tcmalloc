@@ -254,6 +254,13 @@ enum class AllocationAccess {
   kCold,
 };
 
+// new[] allocations are indistinguishable from new allocations at
+// deallocation (operator delete[] aliases operator delete) and are treated
+// identically everywhere except in profiles.
+[[nodiscard]] constexpr bool IsNew(AllocationType type) {
+  return type == AllocationType::New || type == AllocationType::NewArray;
+}
+
 [[nodiscard]] inline MemoryTag MultiNormalTag(size_t partition) {
   switch (partition) {
     case 0:

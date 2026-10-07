@@ -944,6 +944,27 @@ TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
           "(alloc-dealloc-mismatch \\(operator new vs free\\))|"
           "(Deallocating 0x[0-9a-f]+ with malloc, expected new"
           ")"));
+  EXPECT_DEATH(
+      {
+        void* p = ::operator new[](1);
+        benchmark::DoNotOptimize(p);
+        free(p);
+      },
+      absl::StrCat(
+          "(alloc-dealloc-mismatch \\(operator new \\[\\] vs free\\))|"
+          "(Deallocating 0x[0-9a-f]+ with malloc, expected new\\[\\]"
+          ")"));
+
+  // operator delete[] is not distinguished from operator delete, so it must
+  // not be reported as a mismatch for an operator new[] allocation.
+  {
+    void* p = ::operator new[](1);
+    benchmark::DoNotOptimize(p);
+    ::operator delete[](p);
+    p = ::operator new[](1);
+    benchmark::DoNotOptimize(p);
+    ::operator delete[](p, 1);
+  }
 }
 
 TEST_F(TcMallocTest, DeleteWithoutAlignment) {

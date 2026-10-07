@@ -22,6 +22,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/debugging/stacktrace.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
@@ -288,7 +289,7 @@ template <typename Policy>
 }
 
 // Rewrite type so that the allocation type falls into one of the categories we
-// use for deallocations (new or malloc, not aligned new).
+// use for deallocations (new or malloc, not aligned malloc or array new).
 [[nodiscard]] static inline AllocationType SimplifyType(AllocationType type) {
   switch (type) {
     case AllocationType::New:
@@ -296,6 +297,8 @@ template <typename Policy>
       return type;
     case AllocationType::AlignedMalloc:
       return AllocationType::Malloc;
+    case AllocationType::NewArray:
+      return AllocationType::New;
   }
 
   ABSL_UNREACHABLE();
@@ -382,10 +385,16 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
                        sampled_allocation->sampled_stack.depth));
   }
 
-  if ((size.has_value() || policy.allocation_type() == AllocationType::New)) {
-    const bool type_mismatch =
-        policy.allocation_type() !=
+  if ((size.has_value() || IsNew(policy.allocation_type()))) {
+    // operator delete[] aliases operator delete, so a new[] allocation is
+    // expected to be deallocated as "new".
+    // TODO(b/457842787): Distinguish operator delete[] from operator delete to
+    // detect new[]/delete mismatches.
+    const AllocationType alloc_type =
         sampled_allocation->sampled_stack.allocation_type;
+    const bool type_mismatch = IsNew(alloc_type)
+                                   ? !IsNew(policy.allocation_type())
+                                   : policy.allocation_type() != alloc_type;
     const std::optional<std::align_val_t> deallocated_alignment =
         policy.has_explicit_alignment()
             ? std::make_optional<std::align_val_t>(policy.align())

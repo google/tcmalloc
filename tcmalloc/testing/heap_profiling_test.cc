@@ -24,6 +24,7 @@
 #include <string>
 
 #include "tcmalloc/internal/profile.pb.h"
+#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
@@ -174,6 +175,50 @@ TEST(HeapProfilingTest, AllocateDifferentSizes) {
   for (int i = 0; i < num_allocations; i++) {
     ::operator delete(allocations2[i]);
   }
+}
+
+// Unlike ProfileTest.HeapProfile, this also runs with alloc-token
+// instrumentation, where new expressions call the __alloc_token_* entry points.
+TEST(HeapProfilingTest, AllocationType) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizers intercept allocations";
+  }
+  const ScopedProfileSamplingInterval sample_interval(1);
+
+  // Sizes that no other allocation in the process is likely to request.
+  constexpr size_t kObjectSize = (1 << 19) + 3;
+  constexpr size_t kArraySize = (1 << 19) + 5;
+  constexpr size_t kCookieArrayCount = (1 << 19) + 7;
+  struct Object {
+    char bytes[kObjectSize];
+  };
+  // A non-trivial destructor makes new[] prepend an element count cookie, so
+  // the requested size exceeds the array payload.
+  struct Elem {
+    ~Elem() { benchmark::DoNotOptimize(c); }
+    char c;
+  };
+  static_assert(!std::is_trivially_destructible_v<Elem>);
+  constexpr size_t kCookieArraySize =
+      kCookieArrayCount * sizeof(Elem) + sizeof(size_t);
+
+  auto object = std::make_unique<Object>();
+  benchmark::DoNotOptimize(object);
+  auto array = std::make_unique<char[]>(kArraySize);
+  benchmark::DoNotOptimize(array);
+  auto cookie_array = std::make_unique<Elem[]>(kCookieArrayCount);
+  benchmark::DoNotOptimize(cookie_array);
+
+  std::optional<AllocationType> object_type, array_type, cookie_array_type;
+  MallocExtension::SnapshotCurrent(ProfileType::kHeap)
+      .Iterate([&](const Profile::Sample& s) {
+        if (s.requested_size == kObjectSize) object_type = s.type;
+        if (s.requested_size == kArraySize) array_type = s.type;
+        if (s.requested_size == kCookieArraySize) cookie_array_type = s.type;
+      });
+  EXPECT_EQ(object_type, AllocationType::New);
+  EXPECT_EQ(array_type, AllocationType::NewArray);
+  EXPECT_EQ(cookie_array_type, AllocationType::NewArray);
 }
 
 TEST(HeapProfilingTest, CheckResidency) {

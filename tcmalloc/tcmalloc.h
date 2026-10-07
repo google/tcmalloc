@@ -207,8 +207,8 @@ TCMallocInternalSizeReturningNewAligned(size_t size, std::align_val_t alignment)
   void* __alloc_token_##id##__Znam(size_t);                                  \
   void* __alloc_token_##id##__ZnwmRKSt9nothrow_t(                            \
       size_t size, const std::nothrow_t&) noexcept;                          \
-  void* __alloc_token_##id##__ZnamRKSt9nothrow_t(size_t,                     \
-                                                 const std::nothrow_t&);     \
+  void* __alloc_token_##id##__ZnamRKSt9nothrow_t(                            \
+      size_t size, const std::nothrow_t&) noexcept;                          \
   void* __alloc_token_##id##__ZnwmSt11align_val_t(size_t, std::align_val_t); \
   void* __alloc_token_##id##__ZnamSt11align_val_t(size_t, std::align_val_t); \
   void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t(             \
