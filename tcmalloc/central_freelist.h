@@ -254,9 +254,6 @@ class CentralFreeList {
   // lists. Else, returns nullptr.
   [[nodiscard]] auto FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
-  // Returns first index to the nonempty_ lists that may record spans.
-  [[nodiscard]] uint8_t GetFirstNonEmptyIndex() const;
-
   // Returns index into nonempty_ based on the number of allocated objects for
   // the span. Depending on the number of objects per span, either the absolute
   // number of allocated objects or the absl::bit_width(allocated), passed as
@@ -425,20 +422,12 @@ template <typename T>
 inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     absl::Span<T> batch, Span* span, size_t object_size,
     uint32_t size_reciprocal, uint32_t objects_per_span) {
-  constexpr bool kDeferredNonEmpty = true;
-
   // By default, we prepend (AddFront) to the nonempty_ list. When the
   // CflSubbucketPrioritization feature is enabled, we append (AddBack).
   const bool use_prepend =
       cfl_subbucket_prioritization_ == CflSubbucketPrioritization::kDisabled;
 
   const bool was_empty = span->FreelistEmpty(objects_per_span);
-  if (!kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
-    const uint8_t index = GetFirstNonEmptyIndex();
-    nonempty_.Add(span, index, use_prepend);
-    span->set_nonempty_index(index);
-  }
-
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth =
@@ -448,7 +437,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     // Update the histogram as the span is full and will be removed from the
     // nonempty_ list.
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
-    if (!kDeferredNonEmpty || ABSL_PREDICT_TRUE(!was_empty)) {
+    if (ABSL_PREDICT_TRUE(!was_empty)) {
       nonempty_.Remove(span, prev_index);
     }
     return span;
@@ -468,7 +457,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // we remove it from the previous list and add it to the desired list indexed
   // by cur_index.
   const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
-  if (kDeferredNonEmpty && ABSL_PREDICT_FALSE(was_empty)) {
+  if (ABSL_PREDICT_FALSE(was_empty)) {
     nonempty_.Add(span, cur_index, use_prepend);
     span->set_nonempty_index(cur_index);
   } else if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
@@ -480,19 +469,10 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
 
 template <class Forwarder>
 inline auto CentralFreeList<Forwarder>::FirstNonEmptySpan() {
-  // Scan nonempty_ lists in the range [first_nonempty_index_, kNumLists) and
-  // return the span from a non-empty list if one exists. If all the lists are
-  // empty, return nullptr.
-  return nonempty_.PeekLeast(GetFirstNonEmptyIndex());
-}
-
-template <class Forwarder>
-inline uint8_t CentralFreeList<Forwarder>::GetFirstNonEmptyIndex() const {
-  // Our hinted list bitmap fits into a single word.  Since we will never
-  // populate these, we do not actually need to skip them with a
-  // runtime-controlled parameter that triggers a dependent load for hint
-  // lookup.
-  return 0;
+  // Scan nonempty_ lists in the range [0, kNumLists) and return the span from
+  // a non-empty list if one exists. If all the lists are empty, return
+  // nullptr.
+  return nonempty_.PeekLeast(0);
 }
 
 template <class Forwarder>
