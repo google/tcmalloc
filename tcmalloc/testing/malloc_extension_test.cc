@@ -174,6 +174,13 @@ TEST(MallocExtension, Properties) {
     EXPECT_THAT(properties, testing::Contains(testing::Key(testing::Eq(known))))
         << known;
   }
+
+  if (!kSanitizerPresent) {
+    EXPECT_GT(
+        properties.at("tcmalloc.metadata_bytes").value,
+        properties.at("tcmalloc.metadata_arena_unallocated_bytes").value +
+            properties.at("tcmalloc.metadata_arena_unavailable_bytes").value);
+  }
 }
 
 // Test that when we resize the slab repeatedly, the metadata metric is

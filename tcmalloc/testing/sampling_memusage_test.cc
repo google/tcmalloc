@@ -37,12 +37,6 @@ namespace {
 using tcmalloc_internal::AllowedCpus;
 using tcmalloc_internal::ScopedAffinityMask;
 
-size_t Property(absl::string_view name) {
-  std::optional<size_t> result = MallocExtension::GetNumericProperty(name);
-  TC_CHECK(result.has_value());
-  return *result;
-}
-
 void SetSamplingInterval(int64_t val) {
   MallocExtension::SetProfileSamplingInterval(val);
   // We do this to reset the per-thread sampler - it may have a
@@ -52,8 +46,20 @@ void SetSamplingInterval(int64_t val) {
 }
 
 size_t CurrentHeapSize() {
-  return Property("generic.current_allocated_bytes") +
-         Property("tcmalloc.metadata_bytes");
+  const auto properties = MallocExtension::GetProperties();
+  size_t result = properties.at("generic.current_allocated_bytes").value +
+                  properties.at("tcmalloc.metadata_bytes").value;
+  // Ignore unallocated bytes managed by the Arena.  These are accessible to
+  // future metadata allocations and we might trigger a new Arena block in the
+  // course of sampling.
+  //
+  // tcmalloc.metadata_bytes includes bytes wasted due to the Arena's block
+  // overhead, which is more attributable to the cost of sampling.
+  const size_t unallocated =
+      properties.at("tcmalloc.metadata_arena_unallocated_bytes").value;
+
+  result = result >= unallocated ? result - unallocated : 0;
+  return result;
 }
 
 // Return peak memory usage growth when allocating many "size" byte objects.

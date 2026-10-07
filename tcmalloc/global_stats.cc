@@ -1136,7 +1136,8 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.metadata_bytes") {
     TCMallocStats stats;
     ExtractTCMallocStats(stats, true);
-    *value = stats.metadata_bytes;
+    *value = stats.metadata_bytes + stats.arena.bytes_unavailable +
+             stats.arena.bytes_unallocated;
     return true;
   }
 
