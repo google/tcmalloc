@@ -41,14 +41,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-constexpr uint64_t kSpanAllocTime = 1234;
-
-// We bitpack alloc time and do not store the full value.  We are willing to
-// tolerate a small amount of imprecision in the least significant bits
-// because a few nanoseconds should not make or break any decisions we make
-// with it.
-constexpr uint64_t kAllocTimeMask = ~uint64_t{0xFF};
-
 class RawSpan {
  public:
   void Init(size_t size_class) {
@@ -61,8 +53,7 @@ class RawSpan {
 
     // Dynamically allocate so ASan can flag if we run out of bounds.
     span_ = std::make_unique<Span>(Range(PageIdContaining(mem_), npages));
-    TC_CHECK_EQ(
-        span_->BuildFreelist(size, objects_per_span, {}, kSpanAllocTime), 0);
+    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}), 0);
   }
 
   ~RawSpan() {
@@ -240,11 +231,6 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
   }
 }
 
-TEST_P(SpanTest, AllocTime) {
-  Span& span_ = raw_span_.span();
-  EXPECT_EQ(span_.AllocTime() & kAllocTimeMask,
-            kSpanAllocTime & kAllocTimeMask);
-}
 
 INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
 

@@ -176,33 +176,18 @@ struct PrintStats {
     s.resize(1 << 20);
     Printer p(&s[0], s.size());
     state.env.central_freelist().PrintSpanUtilStats(p);
-    state.env.central_freelist().PrintSpanLifetimeStats(p);
     state.env.central_freelist().PrintNumSpansUsed(p);
     state.env.central_freelist().PrintSameSpanStats(p);
 
     PbtxtRegion region(p, kTop);
     state.env.central_freelist().PrintSpanUtilStatsInPbtxt(region);
-    state.env.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
     state.env.central_freelist().PrintNumSpansUsedInPbtxt(region);
     state.env.central_freelist().PrintSameSpanStatsInPbtxt(region);
   }
 };
 
-struct AdvanceClock {
-  int32_t value;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const AdvanceClock& a) {
-    absl::Format(&sink, "AdvanceClock{.value=%v}", a.value);
-  }
-
-  void Perform(State& state) const {
-    state.env.forwarder().AdvanceClock(absl::Milliseconds(value));
-  }
-};
-
-using Instruction = std::variant<Allocate, Deallocate, Shuffle, CheckStats,
-                                 PrintStats, AdvanceClock>;
+using Instruction =
+    std::variant<Allocate, Deallocate, Shuffle, CheckStats, PrintStats>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {
@@ -237,9 +222,7 @@ auto GetInstructionDomain() {
       fuzztest::Map([](CheckStats c) { return Instruction{c}; },
                     fuzztest::Arbitrary<CheckStats>()),
       fuzztest::Map([](PrintStats p) { return Instruction{p}; },
-                    fuzztest::Arbitrary<PrintStats>()),
-      fuzztest::Map([](int32_t v) { return Instruction{AdvanceClock{v}}; },
-                    fuzztest::Arbitrary<int32_t>()));
+                    fuzztest::Arbitrary<PrintStats>()));
 }
 
 FUZZ_TEST(CentralFreeListTest, FuzzCFL)

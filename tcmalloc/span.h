@@ -226,12 +226,10 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Initializes freelist to contain all objects in the span.
   //  - size: the size of each object in the span.
   //  - count: the total number of objects in the span.
-  //  - alloc_time: timestamp for tracking the span's allocation time.
   // Populates up to batch.size() objects in the batch array.
   // Returns the number of objects actually placed in batch.
   [[nodiscard]] int BuildFreelist(size_t size, size_t count,
-                                  absl::Span<void*> batch,
-                                  uint64_t alloc_time) __restrict__;
+                                  absl::Span<void*> batch) __restrict__;
 
   // Prefetch cacheline containing most important span information.
   void Prefetch();
@@ -251,8 +249,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static constexpr size_t kMaxNumPageBits = 6;
   static constexpr Length kLargeSpanLength = Length((1 << kMaxNumPageBits) - 1);
   static_assert(kMaxSize <= kLargeSpanLength.in_bytes());
-
-  [[nodiscard]] uint64_t AllocTime() const;
 
   // Returns true if Span will use bitmap for objects of size <size>.
   [[nodiscard]] static bool UseBitmapForSize(size_t size);
@@ -325,9 +321,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     SampledAllocation* sampled_allocation;
   };
 
-  static constexpr size_t kAllocTimeShift = kMaxNumPageBits;
-  static constexpr size_t kAllocTimeBits = 64 - kAllocTimeShift;
-
   // When a span consists of < kLargeSpanLength number of pages, we can record
   // the number of pages in kMaxNumPageBits number of bits. Additionally, it's
   // likely (although not assured) that the central freelist is tracking that
@@ -335,14 +328,13 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   //
   // This field is not used when we are in the LargeOrSampledState.
   uint64_t small_num_pages_ : kMaxNumPageBits = 0;
-  uint64_t alloc_time_ : kAllocTimeBits = 0;
+  uint64_t reserved_ : 64 - kMaxNumPageBits = 0;
 
   struct ListSpanState {
     // Used only for spans in CentralFreeList (SMALL_OBJECT state).
     // Embed cache of free objects.
     ObjIdx cache[Span::kCacheSize];
   };
-
   union {
     // When a span consists of greater than kLargeSpanLength number of pages,
     // it's the page heap that is allocating an object > kMaxSize. In such a
@@ -399,10 +391,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   UnsampleSlow();
 };
 
-inline uint64_t Span::AllocTime() const {
-  if (is_large_or_sampled()) return 0;
-  return alloc_time_ << kAllocTimeShift;
-}
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {

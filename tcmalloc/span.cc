@@ -110,12 +110,11 @@ void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
   TC_ASSERT_EQ(bitmap_.CountBits(), count);
 }
 
-int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
-                        uint64_t alloc_time) __restrict__ {
+int Span::BuildFreelist(size_t size, size_t count,
+                        absl::Span<void*> batch) __restrict__ {
   TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
-  alloc_time_ = alloc_time >> kAllocTimeShift;
 
   if (UseBitmapForSize(size)) {
     BuildBitmap(size, count);

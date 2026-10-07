@@ -45,7 +45,6 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/synchronization/mutex.h"
-#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
@@ -109,9 +108,8 @@ TEST_P(StaticForwarderTest, Simple) {
   ASSERT_NE(span, nullptr);
 
   absl::FixedArray<void*> batch(objects_per_span_);
-  const uint64_t alloc_time = StaticForwarder::clock_now();
   size_t allocated = span->BuildFreelist(object_size_, objects_per_span_,
-                                         absl::MakeSpan(batch), alloc_time);
+                                         absl::MakeSpan(batch));
   ASSERT_EQ(allocated, objects_per_span_);
 
   EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
@@ -146,9 +144,8 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
   ASSERT_NE(span, nullptr);
 
   absl::FixedArray<void*> batch(objects_per_span);
-  const uint64_t alloc_time = StaticForwarder::clock_now();
-  size_t allocated = span->BuildFreelist(object_size, objects_per_span,
-                                         absl::MakeSpan(batch), alloc_time);
+  size_t allocated =
+      span->BuildFreelist(object_size, objects_per_span, absl::MakeSpan(batch));
   ASSERT_EQ(allocated, objects_per_span);
 
   // Mismatched size class
@@ -254,8 +251,7 @@ class StaticForwarderEnvironment {
     d->span = span;
 
     size_t allocated = span->BuildFreelist(
-        object_size_, objects_per_span_, absl::MakeSpan(d->batch, batch_size_),
-        StaticForwarder::clock_now());
+        object_size_, objects_per_span_, absl::MakeSpan(d->batch, batch_size_));
     EXPECT_LE(allocated, objects_per_span_);
 
     EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
@@ -961,77 +957,6 @@ TEST_P(CentralFreeListTest, InsertRangeSameBucketDoesNotChangePriority) {
   test_release_keeps_priority(/*release_to_front=*/false);
 }
 
-struct SpanLifetimes {
-  absl::flat_hash_map<size_t, size_t> live;
-  absl::flat_hash_map<size_t, size_t> completed;
-  void InitializeDefault() {
-    live[0] = 0;
-    completed[0] = 0;
-    for (int i = 1; i <= 1000000; i *= 10) {
-      live[i] = 0;
-      completed[i] = 0;
-    }
-  }
-};
-
-void CheckLifetimeStats(TypeParam& e, SpanLifetimes span_lifetimes) {
-  SpanLifetimes expected_lifetimes;
-  expected_lifetimes.InitializeDefault();
-
-  auto& live = expected_lifetimes.live;
-  for (const auto& [key, value] : span_lifetimes.live) {
-    live[key] = value;
-  }
-
-  auto& completed = expected_lifetimes.completed;
-  for (const auto& [key, value] : span_lifetimes.completed) {
-    completed[key] = value;
-  }
-
-  // Check txt stats
-  std::string live_spans_txt = absl::StrFormat(
-      R"(live spans:   0 ms <      %d,  1 ms <      %d, 10 ms <      %d,100 ms <      %d,1000 ms <      %d,10000 ms <      %d,100000 ms <      %d,1000000 ms <      %d)",
-      live[0], live[1], live[10], live[100], live[1000], live[10000],
-      live[100000], live[1000000]);
-
-  std::string completed_spans_txt = absl::StrFormat(
-      R"(completed spans:   0 ms <      %d,  1 ms <      %d, 10 ms <      %d,100 ms <      %d,1000 ms <      %d,10000 ms <      %d,100000 ms <      %d,1000000 ms <      %d)",
-      completed[0], completed[1], completed[10], completed[100],
-      completed[1000], completed[10000], completed[100000], completed[1000000]);
-
-  std::string buffer = PrintToString(1024 * 1024, [&](Printer& printer) {
-    e.central_freelist().PrintSpanLifetimeStats(printer);
-  });
-
-  EXPECT_THAT(buffer, testing::AllOf(testing::HasSubstr(completed_spans_txt),
-                                     testing::HasSubstr(live_spans_txt)));
-
-  // Check pbtxt stats
-  std::vector<std::pair<size_t, size_t>> bounds = {
-      {0, 1},        {1, 10},         {10, 100},         {100, 1000},
-      {1000, 10000}, {10000, 100000}, {100000, 1000000}, {1000000, 1000000}};
-  std::vector<std::string> live_spans_pbtxt;
-  std::vector<std::string> completed_spans_pbtxt;
-  for (auto [lower_bound, upper_bound] : bounds) {
-    live_spans_pbtxt.push_back(absl::StrFormat(
-        "span_lifetime_histogram { lower_bound: %d upper_bound: %d value: %d}",
-        lower_bound, upper_bound, live[lower_bound]));
-    completed_spans_pbtxt.push_back(
-        absl::StrFormat("span_completed_lifetime_histogram { lower_bound: %d "
-                        "upper_bound: %d value: %d}",
-                        lower_bound, upper_bound, completed[lower_bound]));
-  }
-
-  std::string buffer_pbtxt =
-      PrintToString(1024 * 1024, [&](PbtxtRegion& region) {
-        e.central_freelist().PrintSpanLifetimeStatsInPbtxt(region);
-      });
-  EXPECT_THAT(
-      buffer_pbtxt,
-      testing::AllOf(
-          testing::HasSubstr(absl::StrJoin(live_spans_pbtxt, " ")),
-          testing::HasSubstr(absl::StrJoin(completed_spans_pbtxt, " "))));
-}
 
 TEST_P(CentralFreeListTest, HookTracing) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
@@ -1069,52 +994,6 @@ TEST_P(CentralFreeListTest, HookTracing) {
   EXPECT_TRUE(e.forwarder().remove_range_hooks_.Remove(remove_hook));
 }
 
-TEST_P(CentralFreeListTest, SpanLifetime) {
-#if ABSL_HAVE_HWADDRESS_SANITIZER
-  GTEST_SKIP()
-      << "Skipping under HWASan, which uses the top bits of the pointer.";
-#endif
-
-  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
-  // Skip the check for objects_per_span = 1 since such spans skip most of the
-  // central freelist's logic.
-  if (e.objects_per_span() == 1) {
-    GTEST_SKIP() << "Skipping test for objects_per_span = 1.";
-  }
-
-  std::vector<void*> all_objects;
-  // Request kNumSpans spans.
-  void* batch[kMaxObjectsToMove];
-  ASSERT_GT(e.objects_per_span(), 0);
-  int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
-  ASSERT_EQ(got, 1);
-
-  e.forwarder().AdvanceClock(absl::Seconds(1));
-  CheckLifetimeStats(e, {.live = {{1000, 1}}});
-
-  e.forwarder().AdvanceClock(absl::Seconds(10));
-  CheckLifetimeStats(e, {.live = {{10000, 1}}});
-
-  e.forwarder().AdvanceClock(absl::Seconds(100));
-  CheckLifetimeStats(e, {.live = {{100000, 1}}});
-
-  e.forwarder().AdvanceClock(absl::Seconds(1000));
-  CheckLifetimeStats(e, {.live = {{1000000, 1}}});
-
-  e.forwarder().AdvanceClock(absl::Seconds(-1000));
-  e.central_freelist().InsertRange({batch, 1});
-  e.forwarder().AdvanceClock(absl::Seconds(1000));
-  CheckLifetimeStats(e, {.completed = {{100000, 1}}});
-
-  // Allocate another span, regress the clock before its allocation time,
-  // and ensure deallocation clamps to bucket 0 instead of underflowing.
-  got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
-  ASSERT_EQ(got, 1);
-  e.forwarder().AdvanceClock(absl::Seconds(-500));
-  e.central_freelist().InsertRange({batch, 1});
-  CheckLifetimeStats(e, {.completed = {{0, 1}, {100000, 1}}});
-}
 
 TEST_P(CentralFreeListTest, SpanAllocationTracker) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
