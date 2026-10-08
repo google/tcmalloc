@@ -42,28 +42,6 @@ namespace tcmalloc_internal {
 #ifdef NDEBUG
 #endif  // NDEBUG
 
-void Span::Sample(SampledAllocation* sampled_allocation) {
-  TC_CHECK(!sampled_ && sampled_allocation);
-  Length pages_per_span = num_pages();
-  TC_CHECK_GT(pages_per_span, Length(0));
-  sampled_ = 1;
-  large_or_sampled_state_.num_pages = pages_per_span.raw_num();
-  large_or_sampled_state_.sampled_allocation = sampled_allocation;
-}
-
-SampledAllocation* Span::UnsampleSlow() {
-  TC_ASSERT(sampled_);
-  Length pages_per_span = num_pages();
-  TC_CHECK_GT(pages_per_span, Length(0));
-  TC_CHECK(sampled_ && large_or_sampled_state_.sampled_allocation);
-  sampled_ = 0;
-  large_or_sampled_state_.num_pages = pages_per_span.raw_num();
-  SampledAllocation* sampled_allocation =
-      large_or_sampled_state_.sampled_allocation;
-  large_or_sampled_state_.sampled_allocation = nullptr;
-  return sampled_allocation;
-}
-
 // Freelist organization.
 //
 // Partially full spans in CentralFreeList contain a list of free objects
@@ -112,7 +90,6 @@ void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
 
 int Span::BuildFreelist(size_t size, size_t count,
                         absl::Span<void*> batch) __restrict__ {
-  TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
 

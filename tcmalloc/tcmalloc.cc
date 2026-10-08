@@ -309,12 +309,9 @@ MallocExtension_Internal_StartEventTracing() {
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {
   const PageId p = PageIdContainingTagged(ptr);
-  Span* span = tc_globals.pagemap().GetDescriptor(p);
-  if (span != nullptr && span != &tc_globals.invalid_span()) {
-    return MallocExtension::Ownership::kOwned;
-  } else {
-    return MallocExtension::Ownership::kNotOwned;
-  }
+  return tc_globals.pagemap().GetDescriptor(p).valid()
+             ? MallocExtension::Ownership::kOwned
+             : MallocExtension::Ownership::kNotOwned;
 }
 
 extern "C" bool MallocExtension_Internal_GetNumericProperty(
@@ -543,38 +540,36 @@ struct SizeAndSampled {
   bool sampled;
 };
 
-inline SizeAndSampled GetLargeSizeAndSampled(const void* ptr,
-                                             const Span& span) {
-  if (span.sampled()) {
+inline SizeAndSampled GetLargeSizeAndSampled(const void* ptr, PageMeta meta) {
+  if (meta.sampled()) {
     if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
       return SizeAndSampled{
           tc_globals.guardedpage_allocator().GetRequestedSize(ptr), true};
     }
     return SizeAndSampled{
-        span.sampled_allocation().sampled_stack.allocated_size, true};
+        meta.sampled_allocation()->sampled_stack.allocated_size, true};
   } else {
-    return SizeAndSampled{span.bytes_in_span(), false};
+    return SizeAndSampled{meta.size().in_bytes(), false};
   }
 }
 
-inline size_t GetLargeSize(const void* ptr, const Span& span) {
-  return GetLargeSizeAndSampled(ptr, span).size;
+inline size_t GetLargeSize(const void* ptr, PageMeta meta) {
+  return GetLargeSizeAndSampled(ptr, meta).size;
 }
 
 inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
   if (ABSL_PREDICT_FALSE(ptr == nullptr)) return SizeAndSampled{0, false};
   const PageId p = PageIdContainingTagged(ptr);
-  const auto [span, size_class] =
-      tc_globals.pagemap().GetDescriptorAndSizeClass(p);
-  if (size_class != 0) {
-    return SizeAndSampled{tc_globals.sizemap().class_to_size(size_class),
+  const PageMeta meta = tc_globals.pagemap().GetDescriptor(p);
+  if (meta.sizeclass() != 0) {
+    return SizeAndSampled{tc_globals.sizemap().class_to_size(meta.sizeclass()),
                           false};
-  } else if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    ReportCorruptedFree(tc_globals, ptr);
-  } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
+  } else if (ABSL_PREDICT_FALSE(meta.freed())) {
     ReportDoubleFree(tc_globals, ptr);
+  } else if (ABSL_PREDICT_FALSE(!meta.valid())) {
+    ReportCorruptedFree(tc_globals, ptr);
   } else {
-    return GetLargeSizeAndSampled(ptr, *span);
+    return GetLargeSizeAndSampled(ptr, meta);
   }
 }
 
@@ -660,8 +655,6 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
           {1, AccessDensityPrediction::kSparse}, tag);
   if (!alloc_res) return {nullptr, 0};
 
-  Span* span = tc_globals.AllocAndSetSpan(alloc_res.r, alloc_res.donated);
-
   // Set capacity to the exact size for a page allocation.  This needs to be
   // revisited if we introduce gwp-asan sampling / guarded allocations to
   // do_malloc_pages().
@@ -670,8 +663,11 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
             tag == GetMemoryTag(alloc_res.r.start_addr()));
 
   if (weight != 0) {
-    auto ptr = SampleLargeAllocation(tc_globals, policy, size, weight, span);
+    auto ptr = SampleLargeAllocation(tc_globals, policy, size, weight,
+                                     alloc_res.r, alloc_res.donated);
     TC_CHECK_EQ(res.p, ptr.p);
+  } else {
+    tc_globals.pagemap().SetLarge(alloc_res.r.p, num_pages, alloc_res.donated);
   }
 
   return res;
@@ -690,22 +686,24 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   // could be potentially corrupted and this is off the fast path.  Most of the
   // cost of the lookup comes from pointer chasing, so the well-predicted
   // branches have minimal cost anyways.
-  auto [span, size_class] = tc_globals.pagemap().GetDescriptorAndSizeClass(p);
-  // We have two potential failure modes here:
-  // * span is nullptr:  We are freeing a pointer to a page which we have never
-  //                     allocated as part of the first page of a Span (an
-  //                     interior pointer, it's corrupted, etc.) or our data
-  //                     structures are corrupt.
-  // * span is invalid:  We double-freed the span.  In the page heap, we set the
-  //                     descriptor on Delete(span) to a sentinel.
-  if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    ReportCorruptedFree(tc_globals, ptr);
-  } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
-    ReportDoubleFree(tc_globals, ptr);
-  }
-
+  const PageMeta meta = tc_globals.pagemap().GetDescriptor(p);
   auto& gwp_asan = tc_globals.guardedpage_allocator();
   const bool is_gwp_asan_ptr = gwp_asan.PointerIsMine(ptr);
+  // We have two potential failure modes here:
+  // * !meta.valid(): We are freeing a pointer to a page which we have never
+  //                  allocated as part of the first page of an allocation (an
+  //                  interior pointer, it's corrupted, etc.) or our data
+  //                  structures are corrupt.
+  // * meta.freed():  We double-freed the allocation.
+  if (ABSL_PREDICT_FALSE(meta.freed())) {
+    if (is_gwp_asan_ptr) {
+      gwp_asan.Deallocate(ptr);
+    }
+    ReportDoubleFree(tc_globals, ptr);
+  } else if (ABSL_PREDICT_FALSE(!meta.valid())) {
+    ReportCorruptedFree(tc_globals, ptr);
+  }
+
   // Check for alignment before invoking hooks.
   //
   // We need to do special checks for GWP-ASan guarded allocations, since we may
@@ -715,48 +713,49 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   bool valid_ptr = true;
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
     valid_ptr = gwp_asan.PointerIsCorrectlyAligned(ptr);
-  } else if (ABSL_PREDICT_FALSE(ptr != span->start_address())) {
+  } else if (ABSL_PREDICT_FALSE(ptr != p.start_addr() ||
+                                meta.sizeclass() != 0)) {
     valid_ptr = false;
   }
 
   // HookList::Invoke checks for an empty hook list, but only after its
-  // DeleteInfo argument (and the span walk behind GetLargeSize) has been
+  // DeleteInfo argument (and the lookup behind GetLargeSize) has been
   // materialized.  Check first so the no-hook path skips both.
   if (ABSL_PREDICT_TRUE(valid_ptr) &&
       ABSL_PREDICT_FALSE(!delete_hooks_.empty())) {
     MallocHook::InvokeDeleteHook(
-        {ptr, size, GetLargeSize(ptr, *span), HookMemoryMutable::kMutable});
+        {ptr, size, GetLargeSize(ptr, meta), HookMemoryMutable::kMutable});
   }
 
-  MaybeUnsampleAllocation(tc_globals, policy, ptr, size, *span);
-
-  if (ABSL_PREDICT_FALSE(size_class != 0)) {
-    // Single object spans are given size class 0.
+  if (ABSL_PREDICT_FALSE(meta.sizeclass() != 0)) {
+    if (size.has_value()) {
+      auto [minimum_size, maximum_size] =
+          tc_globals.sizemap().class_to_size_range(meta.sizeclass());
+      ReportMismatchedDelete(tc_globals, ptr, *size, minimum_size,
+                             maximum_size);
+    }
+    // Single object allocations are given size class 0.
     //
     // TODO(b/478294698): Decide whether to retain this check.
     ReportCorruptedFree(tc_globals, ptr);
-  } else if (ABSL_PREDICT_FALSE(span->Allocated() != 0)) {
-    // Single object spans directly from the page heap (or GWP-ASan) don't have
-    // freelists constructed on them, so Allocated() is always 0.
-    //
-    // TODO(b/478294698): Decide whether to retain this check.
-    ReportCorruptedFree(tc_globals, ptr);
   }
+
+  const Length num_pages = meta.size();
+  MaybeUnsampleAllocation(tc_globals, policy, ptr, size, p, meta);
 
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
+    tc_globals.pagemap().SetFreed(p);
     gwp_asan.Deallocate(ptr);
-    Span::Delete(span);
   } else {
-    if (ABSL_PREDICT_FALSE(ptr != span->start_address())) {
+    if (ABSL_PREDICT_FALSE(ptr != p.start_addr())) {
       ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
                           ptr);
     }
-    tc_globals.pagemap().Set(p, const_cast<Span*>(&tc_globals.invalid_span()));
+    tc_globals.pagemap().SetFreed(p);
     PageAllocatorInterface::AllocationState a{
-        Range(p, span->num_pages()),
-        span->donated(),
+        Range(p, num_pages),
+        meta.donated(),
     };
-    Span::Delete(span);
     PageHeapSpinLockHolder l;
     tc_globals.page_allocator().Delete(
         a, GetMemoryTag(ptr),
@@ -1013,23 +1012,23 @@ bool CorrectSize(const void* ptr, const size_t provided_size, Policy policy) {
 
   // Lookup actual size/span information for ptr.
   const PageId p = PageIdContainingTagged(ptr);
-  const auto [span, size_class] =
-      tc_globals.pagemap().GetDescriptorAndSizeClass(p);
+  const PageMeta meta = tc_globals.pagemap().GetDescriptor(p);
+  const CompactSizeClass size_class = meta.sizeclass();
   size_t minimum_size, maximum_size;
 
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
     std::tie(minimum_size, maximum_size) =
         tc_globals.sizemap().class_to_size_range(size_class);
-  } else if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    ReportCorruptedFree(tc_globals, ptr);
-  } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
+  } else if (ABSL_PREDICT_FALSE(meta.freed())) {
     ReportDoubleFree(tc_globals, ptr);
+  } else if (ABSL_PREDICT_FALSE(!meta.valid())) {
+    ReportCorruptedFree(tc_globals, ptr);
   } else {
     if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
       minimum_size = maximum_size =
           tc_globals.guardedpage_allocator().GetRequestedSize(ptr);
     } else {
-      maximum_size = span->bytes_in_span();
+      maximum_size = meta.size().in_bytes();
       minimum_size = maximum_size - kPageSize + 1;
       if (ABSL_PREDICT_FALSE(static_cast<size_t>(policy.align()) > kPageSize) &&
           maximum_size == kPageSize) {
@@ -1092,19 +1091,21 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
   }
 
   const PageId p = PageIdContainingTagged(ptr);
-  const auto [span, size_class] =
-      tc_globals.pagemap().GetDescriptorAndSizeClass(p);
+  const PageMeta meta = tc_globals.pagemap().GetDescriptor(p);
+  const CompactSizeClass size_class = meta.sizeclass();
   if (size_class != 0) {
     size_t size = tc_globals.sizemap().class_to_size(size_class);
     // Extract least significant bit from size, since that provides a lower
     // bound on the possible alignment.  No size class-ful size can have more
     // than a page of alignment, though.
     align = std::max(align, std::min(size & -size, kPageSize));
-  } else if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    ReportCorruptedFree(tc_globals, ptr);
-  } else if (ABSL_PREDICT_FALSE(span == &tc_globals.invalid_span())) {
+  } else if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
+    // Let GWP-ASan handle alignment and double-free checks.
+  } else if (ABSL_PREDICT_FALSE(meta.freed())) {
     ReportDoubleFree(tc_globals, ptr);
-  } else if (!tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
+  } else if (ABSL_PREDICT_FALSE(!meta.valid())) {
+    ReportCorruptedFree(tc_globals, ptr);
+  } else {
     align = std::max(align, kPageSize);
   }
 
@@ -1415,9 +1416,10 @@ MallocTracingExtension_Internal_GetAllocatedAddressRanges() {
       allocated_address_ranges;
   constexpr float kAllocatedSpansSizeReserveFactor = 1.2;
   constexpr int kMaxAttempts = 10;
+  int estimated_span_count =
+      tc_globals.span_allocator().stats().total +
+      tc_globals.sampledallocation_allocator().stats().total;
   for (int i = 0; i < kMaxAttempts; i++) {
-    int estimated_span_count = tc_globals.span_allocator().stats().total;
-
     // We need to avoid allocation events during GetAllocatedSpans, as that may
     // cause a deadlock on pageheap_lock. To this end, we ensure that the result
     // vector already has a capacity greater than the current total span count.
@@ -1428,6 +1430,7 @@ MallocTracingExtension_Internal_GetAllocatedAddressRanges() {
     if (allocated_address_ranges.spans.size() == actual_span_count) {
       return allocated_address_ranges;
     }
+    estimated_span_count = actual_span_count;
     allocated_address_ranges.spans.clear();
   }
   return absl::InternalError(

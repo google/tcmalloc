@@ -30,6 +30,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <algorithm>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -42,6 +43,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
@@ -56,27 +58,98 @@ typedef void* (*PagemapAllocator)(size_t);
 // Per-page metadata kept in the PageMap.
 class PageMeta {
  public:
-  void set(Span* absl_nullable span, CompactSizeClass sizeclass) {
+  constexpr PageMeta()
+      : sizeclass_(0),
+        sampled_(0),
+        donated_(0),
+        freed_(0),
+        unused_(0),
+        span_or_size_(0) {}
+
+  void set_small(Span* absl_nonnull span, CompactSizeClass sizeclass) {
+    TC_ASSERT_NE(span, nullptr);
+    TC_ASSERT_NE(sizeclass, 0);
     sizeclass_ = static_cast<uint64_t>(sizeclass);
+    sampled_ = 0;
+    donated_ = 0;
+    freed_ = 0;
     unused_ = 0;
-    span_ = reinterpret_cast<uint64_t>(span);
+    span_or_size_ = reinterpret_cast<uint64_t>(span);
     TC_ASSERT_EQ(this->span(), span);
   }
 
-  [[nodiscard]] Span* absl_nullable span() const {
-    return reinterpret_cast<Span*>(span_);
+  void set_large(Length size, bool donated) {
+    TC_ASSERT_GT(size, Length(0));
+    sizeclass_ = 0;
+    sampled_ = 0;
+    donated_ = donated;
+    freed_ = 0;
+    unused_ = 0;
+    span_or_size_ = size.raw_num();
+    TC_ASSERT_EQ(span_or_size_, size.raw_num());
   }
 
+  void set_sampled(SampledAllocation* absl_nonnull sampled, bool donated) {
+    TC_ASSERT_NE(sampled, nullptr);
+    sizeclass_ = 0;
+    sampled_ = 1;
+    donated_ = donated;
+    freed_ = 0;
+    unused_ = 0;
+    span_or_size_ = reinterpret_cast<uint64_t>(sampled);
+  }
+
+  void set_freed() {
+    sizeclass_ = 0;
+    sampled_ = 0;
+    donated_ = 0;
+    freed_ = 1;
+    unused_ = 0;
+    span_or_size_ = 0;
+  }
+
+  [[nodiscard]] bool valid() const { return span_or_size_ != 0; }
   [[nodiscard]] CompactSizeClass sizeclass() const { return sizeclass_; }
+  [[nodiscard]] bool sampled() const { return sampled_; }
+  [[nodiscard]] bool donated() const { return donated_; }
+  [[nodiscard]] bool freed() const { return freed_; }
+
+  [[nodiscard]] Span* absl_nonnull span() const {
+    TC_ASSERT_NE(sizeclass_, 0);
+    TC_ASSERT_NE(span_or_size_, 0);
+    return reinterpret_cast<Span*>(span_or_size_);
+  }
+
+  [[nodiscard]] Length size() const {
+    TC_ASSERT_EQ(sizeclass_, 0);
+    TC_ASSERT_NE(span_or_size_, 0);
+    if (sampled_) {
+      return std::max<Length>(
+          BytesToLengthCeil(sampled_allocation()->sampled_stack.allocated_size),
+          Length(1));
+    }
+    return Length(span_or_size_);
+  }
+
+  [[nodiscard]] SampledAllocation* absl_nonnull sampled_allocation() const {
+    TC_ASSERT_EQ(sizeclass_, 0);
+    TC_ASSERT(sampled_);
+    TC_ASSERT_NE(span_or_size_, 0);
+    return reinterpret_cast<SampledAllocation*>(span_or_size_);
+  }
 
  private:
-  // Place sizeclass_ in the low bits and span_ in the high bits with explicit
-  // padding in between, so that sizeclass_ can be loaded without shifting,
-  // span_ can be extracted with a single shift, and the whole 64-bit word can
-  // be written at once without preserving unmentioned padding bits.
+  // Place sizeclass_ in the low bits and span_or_size_ in the high bits with
+  // flags and explicit padding in between, so that sizeclass_ can be loaded
+  // without shifting, span_or_size_ can be extracted with a single shift, and
+  // the whole 64-bit word can be written at once without preserving unmentioned
+  // padding bits.
   uint64_t sizeclass_ : sizeof(CompactSizeClass) * 8;
-  uint64_t unused_ : 64 - kAddressBits - sizeof(CompactSizeClass) * 8;
-  uint64_t span_ : kAddressBits;
+  uint64_t sampled_ : 1;
+  uint64_t donated_ : 1;
+  uint64_t freed_ : 1;
+  uint64_t unused_ : 64 - kAddressBits - sizeof(CompactSizeClass) * 8 - 3;
+  uint64_t span_or_size_ : kAddressBits;
 };
 
 static_assert(sizeof(PageMeta) == 8);
@@ -107,9 +180,10 @@ class PageMap {
   static constexpr size_t kLeafHugepages = kLeafCoveredBytes / kHugePageSize;
   static_assert(kLeafHugepages == 1 << kLeafHugeBits, "sanity");
   struct Leaf {
-    // Span pointers, with the most significant byte used to also store the
-    // sizeclass. This allows us to avoid two separate memory loads when
-    // fetching both the span and the sizeclass.
+    // Per-page metadata (span pointer, large allocation size, or sampled
+    // allocation pointer, along with flags and sizeclass). This allows us to
+    // avoid two separate memory loads when fetching both the descriptor and the
+    // sizeclass.
     PageMeta page[kLeafLength];
     void* hugepage[kLeafHugepages];
   };
@@ -161,28 +235,8 @@ class PageMap {
  public:
   constexpr PageMap() : root_{} {}
 
-  // Return the descriptor for the specified page.  Returns NULL if
+  // Return the descriptor for the specified page.  Returns an empty PageMeta if
   // this PageId was not allocated previously.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] Span* absl_nullable GetDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    auto [leaf, i3] = MaybeIndex(p);
-    if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
-      return nullptr;
-    }
-    return leaf->page[i3].span();
-  }
-
-  // Return the descriptor for the specified page.
-  // PageId must have been previously allocated.
-  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] Span* absl_nullable GetExistingDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    auto [leaf, i3] = MustIndex(p);
-    return leaf->page[i3].span();
-  }
-
-  // Return the descriptor and sizeclass for the specified page.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   //
   // ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED is to disable array-bounds sanitizer.
@@ -190,19 +244,26 @@ class PageMap {
   //
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
-  [[nodiscard]] std::pair<Span* absl_nullable, CompactSizeClass>
-  GetDescriptorAndSizeClass(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS
+  [[nodiscard]] PageMeta GetDescriptor(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS
 #ifdef __clang__
       ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
 #endif  // __clang__
   {
     auto [leaf, i3] = MaybeIndex(p);
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
-      return std::make_pair(nullptr, 0);
+      return PageMeta{};
     }
-    PageMeta span_and_sizeclass = leaf->page[i3];
-    return std::make_pair(span_and_sizeclass.span(),
-                          span_and_sizeclass.sizeclass());
+    return leaf->page[i3];
+  }
+
+  // Return the descriptor for the specified page.
+  // PageId must have been previously allocated.
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  [[nodiscard]] PageMeta GetExistingDescriptor(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    auto [leaf, i3] = MustIndex(p);
+    return leaf->page[i3];
   }
 
   // Return the size class for p, or 0 if it is not known to tcmalloc
@@ -220,19 +281,28 @@ class PageMap {
     return leaf->page[i3].sizeclass();
   }
 
-  void Set(PageId p, Span* span) {
+  void SetSmall(PageId p, Span* absl_nonnull span, CompactSizeClass sc) {
     auto [leaf, i3] = MustIndex(p);
-    // This function should be used just after allocating a new Span;
-    // in that case, the sizeclass should have been left at zero when the
-    // old span was deallocated/unregistered (or it would have been zero
-    // at initialization time.)
-    TC_ASSERT_EQ(leaf->page[i3].sizeclass(), 0);
-    leaf->page[i3].set(span, 0);
+    leaf->page[i3].set_small(span, sc);
   }
 
-  void Set(PageId p, Span* span, CompactSizeClass sc) {
+  void SetLarge(PageId p, Length size, bool donated) {
     auto [leaf, i3] = MustIndex(p);
-    leaf->page[i3].set(span, sc);
+    TC_ASSERT_EQ(leaf->page[i3].sizeclass(), 0);
+    leaf->page[i3].set_large(size, donated);
+  }
+
+  void SetSampled(PageId p, SampledAllocation* absl_nonnull sampled,
+                  bool donated) {
+    auto [leaf, i3] = MustIndex(p);
+    TC_ASSERT_EQ(leaf->page[i3].sizeclass(), 0);
+    leaf->page[i3].set_sampled(sampled, donated);
+  }
+
+  void SetFreed(PageId p) {
+    auto [leaf, i3] = MustIndex(p);
+    TC_ASSERT_EQ(leaf->page[i3].sizeclass(), 0);
+    leaf->page[i3].set_freed();
   }
 
   [[nodiscard]] void* GetHugepage(PageId p) const {
@@ -258,7 +328,7 @@ class PageMap {
       for (; i2 < kMidLength; ++i2, i3 = 0) {
         if (root_[i1]->leafs[i2] == nullptr) continue;
         for (; i3 < kLeafLength; ++i3) {
-          if (root_[i1]->leafs[i2]->page[i3].span() != nullptr)
+          if (root_[i1]->leafs[i2]->page[i3].valid())
             return PageId((i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) |
                           i3);
         }
@@ -313,9 +383,8 @@ class PageMap {
   void RegisterSizeClass(Span* span, size_t sc) {
     const PageId first = span->first_page();
     const PageId last = span->last_page();
-    TC_ASSERT_EQ(GetDescriptor(first), span);
     for (PageId p = first; p <= last; ++p) {
-      Set(p, span, sc);
+      SetSmall(p, span, sc);
     }
   }
 
@@ -326,10 +395,10 @@ class PageMap {
   void UnregisterSizeClass(Span* span) {
     const PageId first = span->first_page();
     const PageId last = span->last_page();
-    TC_ASSERT_EQ(GetDescriptor(first), span);
+    TC_ASSERT_EQ(GetDescriptor(first).span(), span);
     for (PageId p = first; p <= last; ++p) {
       auto [leaf, i3] = MustIndex(p);
-      leaf->page[i3].set(span, 0);
+      leaf->page[i3].set_freed();
     }
   }
 

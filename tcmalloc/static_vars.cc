@@ -51,13 +51,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
-// Force kInvalidSpan to be read-protected.  Span contains a std::atomic, and
-// libc++'s std::atomic implementation contains a mutable field in one of its
-// implementation details.  This prevents Span from being placed in a read-only
-// section automatically, even though we will never mutate this particular
-// instance.
-ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro)
-constexpr Span Static::kInvalidSpan;
 
 // We expect tc_globals to be in a zero-initialized section (.bss). This is
 // important to keep binary size smaller. But there is no easy way to enforce
@@ -70,9 +63,9 @@ constexpr Span Static::kInvalidSpan;
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT Static tc_globals;
 
 size_t Static::metadata_bytes() {
-  const size_t internal_dependencies_size =
-      sizeof(pageheap_lock) + sizeof(kInvalidSpan) +
-      sizeof(CacheTopology::Instance()) + sizeof(PerCpuState::state());
+  const size_t internal_dependencies_size = sizeof(pageheap_lock) +
+                                            sizeof(CacheTopology::Instance()) +
+                                            sizeof(PerCpuState::state());
 
   const size_t allocated =
       arena().allocated() + AddressRegionFactory::InternalBytesAllocated();

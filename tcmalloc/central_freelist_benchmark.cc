@@ -92,7 +92,8 @@ class BenchmarkStaticForwarder
   void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
                          int expected_size_class) {
     for (size_t i = 0; i < batch.size(); ++i) {
-      Span* span = pagemap_->GetDescriptor(PageIdContaining(batch[i]));
+      Span* span =
+          pagemap_->GetExistingDescriptor(PageIdContaining(batch[i])).span();
       span->Prefetch();
       spans[i] = span;
     }
@@ -105,7 +106,7 @@ class BenchmarkStaticForwarder
       Span* span = free_spans_.back();
       free_spans_.pop_back();
       new (span) Span(Range(span->first_page(), pages_per_span));
-      RegisterSpanLocked(span);
+      RegisterSpanLocked(span, size_class);
       return span;
     }
 
@@ -124,7 +125,7 @@ class BenchmarkStaticForwarder
 
     Span* span = new Span(Range(page, pages_per_span));
     allocated_spans_.push_back(span);
-    RegisterSpanLocked(span);
+    RegisterSpanLocked(span, size_class);
     return span;
   }
 
@@ -137,17 +138,18 @@ class BenchmarkStaticForwarder
   }
 
  private:
-  void RegisterSpanLocked(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+  void RegisterSpanLocked(Span* span, int size_class)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     PageId page = span->first_page();
     for (PageId p = page; p <= span->last_page(); ++p) {
-      pagemap_->Set(p, span);
+      pagemap_->SetSmall(p, span, size_class);
     }
   }
 
   void UnregisterSpanLocked(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     PageId page = span->first_page();
     for (PageId p = page; p <= span->last_page(); ++p) {
-      pagemap_->Set(p, nullptr);
+      pagemap_->SetFreed(p);
     }
   }
 

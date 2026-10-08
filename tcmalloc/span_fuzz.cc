@@ -30,7 +30,6 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
@@ -40,16 +39,6 @@ namespace {
 
 auto AnyLength() {
   return fuzztest::ConstructorOf<Length>(fuzztest::Arbitrary<size_t>());
-}
-
-auto AnyPositiveLength() {
-  return fuzztest::ConstructorOf<Length>(
-      fuzztest::InRange<size_t>(1, std::numeric_limits<size_t>::max()));
-}
-
-auto AnyPageId() {
-  return fuzztest::ConstructorOf<PageId>(fuzztest::InRange<size_t>(
-      1, (size_t{1} << (kAddressBits - kPageShift)) - 1));
 }
 
 struct State {
@@ -359,56 +348,6 @@ TEST(SpanTest, Testcase5877384059617280) { FuzzSpan(8, Length(1), 8, 1024); }
 FUZZ_TEST(SpanTest, FuzzSpan)
     .WithDomains(fuzztest::InRange<size_t>(0, kMaxSize), AnyLength(),
                  fuzztest::Arbitrary<size_t>(), fuzztest::Arbitrary<size_t>());
-
-void FuzzSpanSampling(PageId start, Length num_pages) {
-  if (num_pages.raw_num() >=
-      std::numeric_limits<size_t>::max() - start.index()) {
-    GTEST_SKIP() << "Skipping overflow range";
-  }
-
-  // FuzzSpanSampling is a property-based test to ensure sampling does not
-  // impact other parts of the span state.
-  Span span(Range(start, num_pages));
-
-  EXPECT_EQ(span.first_page(), start);
-  EXPECT_EQ(span.num_pages(), num_pages);
-  EXPECT_EQ(span.last_page() + Length(1), start + num_pages);
-  EXPECT_FALSE(span.sampled());
-
-  SampledAllocation alloc;
-
-  span.Sample(&alloc);
-
-  EXPECT_EQ(span.first_page(), start);
-  EXPECT_EQ(span.num_pages(), num_pages);
-  EXPECT_EQ(span.last_page() + Length(1), start + num_pages);
-  EXPECT_TRUE(span.sampled());
-
-  SampledAllocation* ptr = span.Unsample();
-
-  EXPECT_EQ(ptr, &alloc);
-  EXPECT_EQ(span.first_page(), start);
-  EXPECT_EQ(span.num_pages(), num_pages);
-  EXPECT_EQ(span.last_page() + Length(1), start + num_pages);
-  EXPECT_FALSE(span.sampled());
-
-  // Unsampling again should not produce the pointer again.
-  ptr = span.Unsample();
-
-  EXPECT_EQ(ptr, nullptr);
-  EXPECT_EQ(span.first_page(), start);
-  EXPECT_EQ(span.num_pages(), num_pages);
-  EXPECT_EQ(span.last_page() + Length(1), start + num_pages);
-  EXPECT_FALSE(span.sampled());
-}
-
-FUZZ_TEST(SpanTest, FuzzSpanSampling)
-    .WithDomains(AnyPageId(), AnyPositiveLength());
-
-TEST(SpanTest, FuzzSpanSamplingRegression) {
-  FuzzSpanSampling(PageId(34359738367), Length(1));
-  FuzzSpanSampling(PageId(1), Length(18446744073709551614ull));
-}
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

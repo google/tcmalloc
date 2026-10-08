@@ -72,13 +72,13 @@ Length StaticForwarder::class_to_pages(int size_class) {
 }
 
 [[noreturn]] ABSL_ATTRIBUTE_NOINLINE static void HandleDetectedUB(
-    void* ptr, Span* span, int page_size_class, int expected_size_class) {
-  if (span == nullptr) {
-    ReportCorruptedFree(tc_globals, ptr);
-  } else if (span == &tc_globals.invalid_span()) {
+    void* ptr, PageMeta meta, int expected_size_class) {
+  if (meta.freed()) {
     ReportDoubleFree(tc_globals, ptr);
+  } else if (!meta.valid()) {
+    ReportCorruptedFree(tc_globals, ptr);
   }
-  ReportMismatchedSizeClass(tc_globals, ptr, page_size_class,
+  ReportMismatchedSizeClass(tc_globals, ptr, meta.sizeclass(),
                             expected_size_class);
 }
 
@@ -88,14 +88,14 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
   for (int i = 0; i < batch.size(); ++i) {
     void* ptr = batch[i];
     const PageId p = PageIdContaining(ptr);
-    auto [span, page_size_class] =
-        tc_globals.pagemap().GetDescriptorAndSizeClass(p);
+    const PageMeta meta = tc_globals.pagemap().GetDescriptor(p);
     // If we have a missing span/invalid span, we expect to retrieve
-    // page_size_class=0 causing us to take this overloaded branch since
+    // meta.sizeclass()=0 causing us to take this overloaded branch since
     // expected_size_class>0.
-    if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
-      HandleDetectedUB(ptr, span, page_size_class, expected_size_class);
+    if (ABSL_PREDICT_FALSE(meta.sizeclass() != expected_size_class)) {
+      HandleDetectedUB(ptr, meta, expected_size_class);
     }
+    Span* span = meta.span();
     span->Prefetch();
     spans[i] = span;
   }
@@ -116,7 +116,8 @@ Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
   if (ABSL_PREDICT_FALSE(!res)) {
     return nullptr;
   }
-  Span* span = tc_globals.AllocAndSetSpan(res.r, res.donated);
+  Span* span = Span::New(res.r);
+  span->set_donated(res.donated);
   TC_ASSERT_EQ(tag, GetMemoryTag(res.r.start_addr()));
   TC_ASSERT_EQ(res.r.n, pages_per_span);
 
@@ -165,8 +166,6 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
     TC_ASSERT_EQ(tag, GetMemoryTag(s->start_address()));
     allocs[i].r = Range(s->first_page(), s->num_pages());
     allocs[i].donated = s->donated();
-    tc_globals.pagemap().Set(s->first_page(),
-                             const_cast<Span*>(&tc_globals.invalid_span()));
     Span::Delete(s);
   }
   const AccessDensityPrediction density = AccessDensity(objects_per_span);

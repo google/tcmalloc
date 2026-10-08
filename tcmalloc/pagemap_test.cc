@@ -43,7 +43,7 @@ namespace {
 Span* span(intptr_t i) { return reinterpret_cast<Span*>(i + 1); }
 
 // Pick sizeclass to use for page numbered i
-uint8_t sc(intptr_t i) { return i % 16; }
+uint8_t sc(intptr_t i) { return (i % 15) + 1; }
 
 class PageMapTest : public ::testing::TestWithParam<int> {
  public:
@@ -86,23 +86,24 @@ TEST_P(PageMapTest, Sequential) {
 
   for (intptr_t i = 0; i < limit; i++) {
     ASSERT_TRUE(map->Ensure(Range(PageId(i), Length(1))));
-    map->Set(PageId(i), span(i));
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
-    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)), span(i));
+    map->SetLarge(PageId(i), Length(i + 1), (i & 1) != 0);
+    ASSERT_TRUE(map->GetDescriptor(PageId(i)).valid());
+    ASSERT_FALSE(map->GetDescriptor(PageId(i)).sampled());
+    ASSERT_FALSE(map->GetDescriptor(PageId(i)).freed());
+    ASSERT_EQ(map->GetDescriptor(PageId(i)).size(), Length(i + 1));
+    ASSERT_EQ(map->GetDescriptor(PageId(i)).donated(), (i & 1) != 0);
+    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)).size(), Length(i + 1));
 
     // Test size class handling
     ASSERT_EQ(0, map->sizeclass(PageId(i)));
-    ASSERT_EQ(map->GetDescriptorAndSizeClass(PageId(i)),
-              (std::pair<Span*, CompactSizeClass>(span(i), 0)));
-    map->Set(PageId(i), span(i), sc(i));
+    map->SetSmall(PageId(i), span(i), sc(i));
     ASSERT_EQ(sc(i), map->sizeclass(PageId(i)));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
-    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)), span(i));
+    ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
+    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)).span(), span(i));
     ASSERT_EQ(map->sizeclass(PageId(i)), sc(i));
-    ASSERT_EQ(map->GetDescriptorAndSizeClass(PageId(i)),
-              (std::pair<Span*, CompactSizeClass>(span(i), sc(i))));
+    ASSERT_EQ(map->GetDescriptor(PageId(i)).sizeclass(), sc(i));
   }
 }
 
@@ -111,11 +112,11 @@ TEST_P(PageMapTest, Bulk) {
 
   ASSERT_TRUE(map->Ensure(Range(PageId(0), Length(limit))));
   for (intptr_t i = 0; i < limit; i++) {
-    map->Set(PageId(i), span(i));
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    map->SetSmall(PageId(i), span(i), sc(i));
+    ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
   }
 }
 
@@ -135,11 +136,12 @@ TEST_P(PageMapTest, RandomAccess) {
 
   for (intptr_t i = 0; i < limit; i++) {
     ASSERT_TRUE(map->Ensure(Range(PageId(elements[i]), Length(1))));
-    map->Set(PageId(elements[i]), span(elements[i]));
-    ASSERT_EQ(map->GetDescriptor(PageId(elements[i])), span(elements[i]));
+    map->SetSmall(PageId(elements[i]), span(elements[i]), sc(elements[i]));
+    ASSERT_EQ(map->GetDescriptor(PageId(elements[i])).span(),
+              span(elements[i]));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)), span(i));
+    ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
   }
 }
 

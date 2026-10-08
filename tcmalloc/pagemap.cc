@@ -16,6 +16,7 @@
 
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -43,25 +44,30 @@ GOOGLE_MALLOC_SECTION int PageMap<BITS, Allocator>::GetAllocatedSpans(
   int allocated_span_count = 0;
   for (std::optional<PageId> p = PageId{0}; p.has_value();
        p = get_next_set_page(p.value())) {
-    Span* s = GetDescriptor(p.value());
-    if (s == nullptr || s == &tc_globals.invalid_span()) {
+    PageMeta meta = GetDescriptor(p.value());
+    if (!meta.valid()) {
       continue;
     }
-    // Free'd up Span that's not yet removed from PageMap.
-    if (p.value() < s->first_page() || s->last_page() < p.value()) continue;
-    CompactSizeClass size_class = sizeclass(p.value());
-    TC_ASSERT_EQ(s->first_page(), p.value());
+    CompactSizeClass size_class = meta.sizeclass();
+    Length num_pages;
+    if (size_class != 0) {
+      Span* s = meta.span();
+      if (p.value() != s->first_page()) continue;
+      num_pages = s->num_pages();
+    } else {
+      num_pages = meta.size();
+    }
     // As documented, GetAllocatedSpans wants to avoid allocating more memory
     // for the output vector while holding the pageheap_lock. So, we stop
     // adding more entries after we reach its existing capacity. Note that the
     // count returned will still be the total number of allocated Spans.
     if (allocated_spans.capacity() > allocated_spans.size()) {
       allocated_spans.push_back(
-          {s->first_page().start_uintptr(), s->bytes_in_span(),
+          {p->start_uintptr(), num_pages.in_bytes(),
            tc_globals.sizemap().class_to_size(size_class)});
     }
     ++allocated_span_count;
-    p = s->last_page();
+    p = *p + num_pages - Length(1);
   }
   return allocated_span_count;
 }

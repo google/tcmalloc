@@ -89,10 +89,10 @@ ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
 // stacktrace struct, this function simply cheats and returns original
 // object. As if no sampling was requested.
 template <typename Policy>
-[[nodiscard]] ABSL_ATTRIBUTE_NOINLINE sized_ptr_t SampleifyAllocation(
-    Static& state, Policy policy, size_t requested_size, size_t weight,
-    size_t size_class, Span* absl_nullable span) {
-  TC_CHECK_EQ(size_class != 0, span == nullptr);
+[[nodiscard]] ABSL_ATTRIBUTE_NOINLINE sized_ptr_t
+SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
+                    size_t weight, size_t size_class, Range r, bool donated) {
+  TC_CHECK_EQ(size_class != 0, r.n == Length(0));
 
   StackTrace stack_trace;
   stack_trace.requested_size = requested_size;
@@ -125,6 +125,7 @@ template <typename Policy>
           : MemoryTag::kSampled;
   size_t capacity = 0;
   if (size_class != 0) {
+    TC_ASSERT(!donated);
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
     stack_trace.cold_allocated = IsColdSizeClass(size_class);
 
@@ -134,9 +135,8 @@ template <typename Policy>
         requested_size, sample_alignment, num_pages, stack_trace);
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       TC_ASSERT(!IsNormalMemory(alloc_with_status.alloc));
-      const PageId p = PageIdContaining(alloc_with_status.alloc);
-      span = Span::New(Range(p, num_pages));
-      state.pagemap().Set(p, span);
+      r = Range(PageIdContaining(alloc_with_status.alloc), num_pages);
+      donated = false;
       // If we report capacity back from a size returning allocation, we can not
       // report the stack_trace.allocated_size, as we guard the size to
       // 'requested_size', and we maintain the invariant that GetAllocatedSize()
@@ -149,7 +149,8 @@ template <typename Policy>
       capacity = requested_size;
     } else if (auto res = state.page_allocator().New(
                    num_pages, {1, AccessDensityPrediction::kSparse}, tag)) {
-      span = state.AllocAndSetSpan(res.r, res.donated);
+      r = res.r;
+      donated = res.donated;
       capacity = stack_trace.allocated_size;
     } else {
       return {};
@@ -162,14 +163,13 @@ template <typename Policy>
     // for page allocations, then we need to revisit do_malloc_pages as
     // the current assumption is that only class sized allocs are sampled
     // for gwp-asan.
-    stack_trace.allocated_size = span->bytes_in_span();
+    stack_trace.allocated_size = r.in_bytes();
     stack_trace.cold_allocated =
-        GetMemoryTag(span->start_address()) == MemoryTag::kCold;
+        GetMemoryTag(r.start_addr()) == MemoryTag::kCold;
     capacity = stack_trace.allocated_size;
   }
 
-  // A span must be provided or created by this point.
-  TC_ASSERT_NE(span, nullptr);
+  TC_ASSERT_GT(r.n, Length(0));
 
   // Do not madvise guarded (GWP-ASan) allocations: GWP-ASan initializes magic
   // canary bytes in the allocated page to detect buffer overflows on
@@ -177,7 +177,7 @@ template <typename Policy>
   if (Parameters::madvise_sampled_allocations() ==
           MadviseSampledAllocations::kEnabled &&
       alloc_with_status.status != Profile::Sample::GuardedStatus::Guarded) {
-    switch (GetMemoryTag(span->start_address())) {
+    switch (GetMemoryTag(r.start_addr())) {
       case MemoryTag::kSampled:
       case MemoryTag::kSampledP1:
       case MemoryTag::kCold: {
@@ -186,12 +186,12 @@ template <typename Policy>
             (stack_trace.allocated_size + hardware_page_size - 1) &
             ~(hardware_page_size - 1);
         const size_t limit =
-            std::min<size_t>(span->bytes_in_span(), allocated_size_rounded);
+            std::min<size_t>(r.in_bytes(), allocated_size_rounded);
         if (limit <= hardware_page_size) {
           break;
         }
-        uintptr_t start = reinterpret_cast<uintptr_t>(span->start_address()) +
-                          hardware_page_size;
+        uintptr_t start =
+            reinterpret_cast<uintptr_t>(r.start_addr()) + hardware_page_size;
         uintptr_t length = limit - hardware_page_size;
 
         (void)state.system_allocator().Release(reinterpret_cast<void*>(start),
@@ -210,12 +210,12 @@ template <typename Policy>
       AllocHandle(state.sampled_alloc_handle_generator.fetch_add(
                       1, std::memory_order_relaxed) +
                   1);
-  // For guarded allocations under large page sizes, span->start_address()
+  // For guarded allocations under large page sizes, r.start_addr()
   // rounds down to a PROT_NONE guard page; record the object address instead
   // so residency queries (e.g. mincore) inspect the accessible page.
   stack_trace.span_start_address = (alloc_with_status.alloc != nullptr)
                                        ? alloc_with_status.alloc
-                                       : span->start_address();
+                                       : r.start_addr();
   stack_trace.allocation_time = absl::Now();
   stack_trace.guarded_status = alloc_with_status.status;
   stack_trace.allocation_type = policy.allocation_type();
@@ -248,13 +248,13 @@ template <typename Policy>
 
   // The SampledAllocation object is visible to readers after this. Readers only
   // care about its various metadata (e.g. stack trace, weight) to generate the
-  // heap profile, and won't need any information from Span::Sample() next.
+  // heap profile.
   SampledAllocation* sampled_allocation =
       state.sampled_allocation_recorder().Register(std::move(stack_trace));
 
-  // No pageheap_lock required. The span is freshly allocated and no one else
+  // No pageheap_lock required. The page is freshly allocated and no one else
   // can access it. It is visible after we return from this allocation path.
-  span->Sample(sampled_allocation);
+  state.pagemap().SetSampled(r.p, sampled_allocation, donated);
 
   // The cast to value matches MaybeUnsampleAllocation.
   StatsCounter::Value allocated_bytes = static_cast<StatsCounter::Value>(
@@ -264,9 +264,9 @@ template <typename Policy>
 
   state.peak_heap_tracker().MaybeSaveSample();
 
-  TC_ASSERT_EQ(state.pagemap().sizeclass(span->first_page()), 0);
+  TC_ASSERT_EQ(state.pagemap().sizeclass(r.p), 0);
   return {(alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
-                                               : span->start_address(),
+                                               : r.start_addr(),
           capacity};
 }
 
@@ -274,9 +274,10 @@ template <typename Policy>
 [[nodiscard]] static sized_ptr_t SampleLargeAllocation(Static& state,
                                                        Policy policy,
                                                        size_t requested_size,
-                                                       size_t weight,
-                                                       Span* span) {
-  return SampleifyAllocation(state, policy, requested_size, weight, 0, span);
+                                                       size_t weight, Range r,
+                                                       bool donated) {
+  return SampleifyAllocation(state, policy, requested_size, weight, 0, r,
+                             donated);
 }
 
 template <typename Policy>
@@ -286,7 +287,7 @@ template <typename Policy>
                                                        size_t weight,
                                                        size_t size_class) {
   return SampleifyAllocation(state, policy, requested_size, weight, size_class,
-                             nullptr);
+                             Range(), false);
 }
 
 // Rewrite type so that the allocation type falls into one of the categories we
@@ -308,14 +309,10 @@ template <typename Policy>
 template <typename Policy>
 void MaybeUnsampleAllocation(Static& state, Policy policy,
                              void* absl_nonnull ptr, std::optional<size_t> size,
-                             Span& span) {
-  // No pageheap_lock required. The sampled span should be unmarked and have its
-  // state cleared only once. External synchronization when freeing is required;
-  // otherwise, concurrent writes here would likely report a double-free.
-  SampledAllocation* sampled_allocation = span.Unsample();
-  if (sampled_allocation == nullptr) {
+                             PageId p, PageMeta meta) {
+  if (!meta.sampled()) {
     if (ABSL_PREDICT_TRUE(size.has_value())) {
-      const size_t maximum_size = span.bytes_in_span();
+      const size_t maximum_size = meta.size().in_bytes();
       const size_t minimum_size = maximum_size - (kPageSize - 1u);
 
       // *size should fall in [minimum_size, maximum_size], but a size of 0
@@ -336,6 +333,7 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
     return;
   }
 
+  SampledAllocation* sampled_allocation = meta.sampled_allocation();
   TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContainingTagged(ptr)), 0);
 
   // The cast to Value ensures no funny business happens during the negation if
@@ -377,7 +375,7 @@ void MaybeUnsampleAllocation(Static& state, Policy policy,
   //
   // TODO(ckennelly): Eliminate redundant guarded check with
   // InvokeHooksAndFreePages.
-  if (ABSL_PREDICT_FALSE(ptr != span.start_address()) &&
+  if (ABSL_PREDICT_FALSE(ptr != p.start_addr()) &&
       sampled_allocation->sampled_stack.guarded_status !=
           Profile::Sample::GuardedStatus::Guarded) {
     ReportCorruptedFree(

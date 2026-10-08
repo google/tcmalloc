@@ -150,13 +150,6 @@ class Static final {
     return span_allocator_;
   }
 
-  [[nodiscard]] Span* AllocAndSetSpan(Range r, bool donated) {
-    Span* span = span_allocator().New(r);
-    span->set_donated(donated);
-    pagemap().Set(r.p, span);
-    return span;
-  }
-
   [[nodiscard]] MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>&
   threadcache_allocator() {
     return threadcache_allocator_;
@@ -223,8 +216,6 @@ class Static final {
 
   [[nodiscard]] static SizeClassConfiguration size_class_configuration();
 
-  [[nodiscard]] static const Span& invalid_span() { return kInvalidSpan; }
-
  private:
 #if defined(__clang__)
   __attribute__((preserve_most))
@@ -270,7 +261,6 @@ class Static final {
   SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
                   kNormalPartitions>
       system_allocator_;
-  static ABSL_ATTRIBUTE_SECTION_VARIABLE(.data.rel.ro) const Span kInvalidSpan;
   SampledAllocationRecorder sampled_allocation_recorder_;
 };
 
