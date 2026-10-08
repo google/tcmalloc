@@ -22,19 +22,15 @@
 #include <utility>
 #include <vector>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
