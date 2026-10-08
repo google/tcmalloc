@@ -53,33 +53,33 @@ namespace tcmalloc_internal {
 typedef void* (*PagemapAllocator)(size_t);
 [[nodiscard]] void* MetaDataAlloc(size_t bytes);
 
-// Convenience wrapper around a uintptr that packs a Span pointer and its
-// size class into a single word.
-class PackedSpanAndSizeclass {
+// Per-page metadata kept in the PageMap.
+class PageMeta {
  public:
   void set(Span* absl_nullable span, CompactSizeClass sizeclass) {
-    packed_value_ = (static_cast<uintptr_t>(sizeclass) << kSizeclassShift) |
-                    reinterpret_cast<uintptr_t>(span);
+    sizeclass_ = static_cast<uint64_t>(sizeclass);
+    unused_ = 0;
+    span_ = reinterpret_cast<uint64_t>(span);
+    TC_ASSERT_EQ(this->span(), span);
   }
 
   [[nodiscard]] Span* absl_nullable span() const {
-    return reinterpret_cast<Span*>(packed_value_ & kSpanMask);
-  }
-  [[nodiscard]] CompactSizeClass sizeclass() const {
-    // Load the size class byte directly so `PageMap::sizeclass` emits a 1-byte
-    // load.
-    return reinterpret_cast<const CompactSizeClass*>(
-        &packed_value_)[kSizeclassShift / 8];
+    return reinterpret_cast<Span*>(span_);
   }
 
+  [[nodiscard]] CompactSizeClass sizeclass() const { return sizeclass_; }
+
  private:
-  uintptr_t packed_value_;
-  static constexpr uintptr_t kSizeclassShift = 56;
-  static_assert(kSizeclassShift >= kAddressBits);
-  static_assert(sizeof(CompactSizeClass) * 8 <=
-                sizeof(uintptr_t) * 8 - kSizeclassShift);
-  static constexpr uintptr_t kSpanMask = (uintptr_t{1} << kSizeclassShift) - 1;
+  // Place sizeclass_ in the low bits and span_ in the high bits with explicit
+  // padding in between, so that sizeclass_ can be loaded without shifting,
+  // span_ can be extracted with a single shift, and the whole 64-bit word can
+  // be written at once without preserving unmentioned padding bits.
+  uint64_t sizeclass_ : sizeof(CompactSizeClass) * 8;
+  uint64_t unused_ : 64 - kAddressBits - sizeof(CompactSizeClass) * 8;
+  uint64_t span_ : kAddressBits;
 };
+
+static_assert(sizeof(PageMeta) == 8);
 
 // Three-level radix tree
 template <int BITS, PagemapAllocator Allocator>
@@ -110,12 +110,8 @@ class PageMap {
     // Span pointers, with the most significant byte used to also store the
     // sizeclass. This allows us to avoid two separate memory loads when
     // fetching both the span and the sizeclass.
-    PackedSpanAndSizeclass span_and_sizeclass[kLeafLength];
+    PageMeta page[kLeafLength];
     void* hugepage[kLeafHugepages];
-
-    [[nodiscard]] Span* absl_nullable span(int i) const {
-      return span_and_sizeclass[i].span();
-    }
   };
 
   struct Node {
@@ -174,7 +170,7 @@ class PageMap {
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return nullptr;
     }
-    return leaf->span(i3);
+    return leaf->page[i3].span();
   }
 
   // Return the descriptor for the specified page.
@@ -183,7 +179,7 @@ class PageMap {
   [[nodiscard]] Span* absl_nullable GetExistingDescriptor(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
     auto [leaf, i3] = MustIndex(p);
-    return leaf->span(i3);
+    return leaf->page[i3].span();
   }
 
   // Return the descriptor and sizeclass for the specified page.
@@ -204,7 +200,7 @@ class PageMap {
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return std::make_pair(nullptr, 0);
     }
-    PackedSpanAndSizeclass span_and_sizeclass = leaf->span_and_sizeclass[i3];
+    PageMeta span_and_sizeclass = leaf->page[i3];
     return std::make_pair(span_and_sizeclass.span(),
                           span_and_sizeclass.sizeclass());
   }
@@ -221,7 +217,7 @@ class PageMap {
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return 0;
     }
-    return leaf->span_and_sizeclass[i3].sizeclass();
+    return leaf->page[i3].sizeclass();
   }
 
   void Set(PageId p, Span* span) {
@@ -230,13 +226,13 @@ class PageMap {
     // in that case, the sizeclass should have been left at zero when the
     // old span was deallocated/unregistered (or it would have been zero
     // at initialization time.)
-    TC_ASSERT_EQ(leaf->span_and_sizeclass[i3].sizeclass(), 0);
-    leaf->span_and_sizeclass[i3].set(span, 0);
+    TC_ASSERT_EQ(leaf->page[i3].sizeclass(), 0);
+    leaf->page[i3].set(span, 0);
   }
 
   void Set(PageId p, Span* span, CompactSizeClass sc) {
     auto [leaf, i3] = MustIndex(p);
-    leaf->span_and_sizeclass[i3].set(span, sc);
+    leaf->page[i3].set(span, sc);
   }
 
   [[nodiscard]] void* GetHugepage(PageId p) const {
@@ -262,7 +258,7 @@ class PageMap {
       for (; i2 < kMidLength; ++i2, i3 = 0) {
         if (root_[i1]->leafs[i2] == nullptr) continue;
         for (; i3 < kLeafLength; ++i3) {
-          if (root_[i1]->leafs[i2]->span(i3) != nullptr)
+          if (root_[i1]->leafs[i2]->page[i3].span() != nullptr)
             return PageId((i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) |
                           i3);
         }
@@ -333,7 +329,7 @@ class PageMap {
     TC_ASSERT_EQ(GetDescriptor(first), span);
     for (PageId p = first; p <= last; ++p) {
       auto [leaf, i3] = MustIndex(p);
-      leaf->span_and_sizeclass[i3].set(span, 0);
+      leaf->page[i3].set(span, 0);
     }
   }
 
