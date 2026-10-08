@@ -401,13 +401,15 @@ class TcmallocSlab {
     // The end offset of the currently occupied slots.
     // 0xffff is an invalid value, because it would disturb our overflow logic.
     uint16_t current;
+    static constexpr uint16_t kReservedIndexValue = 0xffff;
+
     // The amount of elements left we can allocate before hitting our
     // class capacity. May be changed by Grow() or Shrink(), up until
     // storage limits in the slab.
     uint16_t remaining_capacity;
 
     void set_current(uint16_t val) {
-      TC_ASSERT_NE(val, 0xffff);
+      TC_ASSERT_NE(val, kReservedIndexValue);
       current = val;
     }
     [[nodiscard]] uint16_t capacity(uint16_t begin) const {
@@ -974,6 +976,9 @@ inline size_t TcmallocSlab<NumClasses>::Grow(
   }
   uint16_t n = std::min<uint16_t>(len, have);
   hdr.remaining_capacity += n;
+  // 0xffff is an invalid value, so we must not be able to grow to or past that.
+  TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
+               Header::kReservedIndexValue);
   return StoreCurrentCpu(hdrp, hdr) ? n : 0;
 }
 
@@ -1410,6 +1415,9 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
   uint16_t to_grow = std::min<uint16_t>(len, max_cap - hdr.capacity(begin));
   hdr.remaining_capacity += to_grow;
+  // 0xffff is an invalid value, so we must not be able to grow to or past that.
+  TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
+               Header::kReservedIndexValue);
   StoreHeader(hdrp, hdr);
   return to_grow;
 }
