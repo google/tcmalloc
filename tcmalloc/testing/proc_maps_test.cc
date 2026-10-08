@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -41,10 +42,6 @@ using ::testing::IsSupersetOf;
 using ::testing::Not;
 
 TEST(ProcMapsTest, InspectMappings) {
-  const bool heap_partitioning_active =
-      tcmalloc::MallocExtension::GetNumericProperty(
-          "tcmalloc.security_partitioning_active")
-          .value_or(0);
   const bool numa_aware = tc_globals.numa_topology().numa_aware();
 
   std::vector<void*> ptrs;
@@ -56,13 +53,21 @@ TEST(ProcMapsTest, InspectMappings) {
   }
 
   {
-    // Allocate something to ensure SAMPLED region.
+    // Allocate something to ensure sampled SAMPLED_OR_COLD region.  Guarded
+    // allocations have their own GUARDED region, so disable them.
+    //
+    // The size must be <= kMaxSize (8 KiB for small-but-slow).  Larger sampled
+    // allocations take the do_malloc_pages path and are carved from the NORMAL
+    // region instead.
+    constexpr size_t kSampledSize = 4 << 10;
+    static_assert(kSampledSize <= kMaxSize);
     ScopedAlwaysSample always_sample;
-    ptrs.push_back(::operator new(10 << 10));
+    ScopedGuardedSamplingInterval never_guard(-1);
+    ptrs.push_back(::operator new(kSampledSize));
   }
 
   if (ColdFeatureActive()) {
-    // Allocate something to ensure COLD region.
+    // Allocate something to ensure cold SAMPLED_OR_COLD region.
     ScopedNeverSample never_sample;
     ptrs.push_back(::operator new(1 << 20, tcmalloc::hot_cold_t{0}));
   }
@@ -95,7 +100,6 @@ TEST(ProcMapsTest, InspectMappings) {
   absl::flat_hash_set<std::string> expected = {
       "[anon:absl]",
       "[anon:tcmalloc_region_METADATA]",
-      "[anon:tcmalloc_region_SAMPLED]",
   };
 
   const bool numa_or_partitioned =
@@ -105,10 +109,6 @@ TEST(ProcMapsTest, InspectMappings) {
 
   if (!numa_or_partitioned) {
     expected.insert("[anon:tcmalloc_region_NORMAL]");
-  }
-
-  if (ColdFeatureActive() && !heap_partitioning_active) {
-    expected.insert("[anon:tcmalloc_region_COLD]");
   }
 
   if (kSanitizerPresent || !tcmalloc::NamedVMAsSupported()) {
@@ -122,6 +122,11 @@ TEST(ProcMapsTest, InspectMappings) {
                 AnyOf(Contains("[anon:tcmalloc_region_NORMAL]"),
                       Contains("[anon:tcmalloc_region_NORMAL_P1]")));
   }
+  // The sampled span may come from either partition.  (This used to be
+  // guaranteed by the GWP-ASan pool, which now has its own GUARDED region.)
+  EXPECT_THAT(tcmalloc_regions,
+              AnyOf(Contains("[anon:tcmalloc_region_SAMPLED_OR_COLD]"),
+                    Contains("[anon:tcmalloc_region_SAMPLED_OR_COLD_P1]")));
 
   if (UsePerCpuCache(tc_globals)) {
     auto slab_matcher = Contains(AnyOf(

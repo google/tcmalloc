@@ -2232,7 +2232,7 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
   };
   constexpr Length kAllocPages = kPagesPerHugePage / 2;
 
-  for (MemoryTag tag : {MemoryTag::kCold, MemoryTag::kNormal}) {
+  for (MemoryTag tag : {MemoryTag::kSampledOrCold, MemoryTag::kNormal}) {
     FakeHugePageAwareAllocator allocator({.tag = tag});
     allocator.forwarder().set_filler_skip_subrelease_short_interval(
         absl::ZeroDuration());
@@ -2256,7 +2256,7 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
           kAllocPages, PageReleaseReason::kReleaseMemoryToSystem);
     }
 
-    if (tag == MemoryTag::kCold) {
+    if (tag == MemoryTag::kSampledOrCold) {
       EXPECT_EQ(released, 2 * kAllocPages);
     } else {
       EXPECT_EQ(released, kAllocPages);
@@ -2274,16 +2274,16 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxSampledPages) {
   };
   constexpr Length kAllocPages = kPagesPerHugePage / 2;
 
-  for (MemoryTag tag :
-       {MemoryTag::kSampled, MemoryTag::kSampledP1, MemoryTag::kNormal}) {
-    // Under sanitizers the tag is narrower and kSampledP1 cannot be encoded in
-    // an address.
+  for (MemoryTag tag : {MemoryTag::kSampledOrCold, MemoryTag::kSampledOrColdP1,
+                        MemoryTag::kNormal}) {
+    // Under sanitizers the tag is narrower and kSampledOrColdP1 cannot be
+    // encoded in an address.
     if (((static_cast<uintptr_t>(tag) << kTagShift) & kTagMask) >> kTagShift !=
         static_cast<uintptr_t>(tag)) {
       continue;
     }
     const bool is_sampled =
-        tag == MemoryTag::kSampled || tag == MemoryTag::kSampledP1;
+        tag == MemoryTag::kSampledOrCold || tag == MemoryTag::kSampledOrColdP1;
     // PageAllocator releases from the sampled heap last, so it is commonly
     // asked for zero pages.
     for (Length requested : {Length(0), kAllocPages}) {

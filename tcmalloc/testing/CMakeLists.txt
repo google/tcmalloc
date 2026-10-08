@@ -565,6 +565,7 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_config"
     "tcmalloc::internal_declarations"
     "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
   TIMEOUT
@@ -1103,6 +1104,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_binary(
@@ -1118,6 +1120,7 @@ tcmalloc_cc_binary(
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
     "tcmalloc::tcmalloc_enable_heap_partitioning_default_on"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_binary(
@@ -1133,6 +1136,7 @@ tcmalloc_cc_binary(
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc_enable_heap_partitioning_default_on"
     "tcmalloc::tcmalloc_numa_aware"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_binary(
@@ -1147,6 +1151,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc_numa_aware"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test_variants(

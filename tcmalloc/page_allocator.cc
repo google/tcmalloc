@@ -44,11 +44,10 @@ namespace tcmalloc_internal {
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
 PageAllocator::PageAllocator() {
-  has_cold_impl_ = ColdFeatureActive();
   sampled_partition_active_ =
       Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
-  size_t part = 0;
 
+  size_t part = 0;
   normal_impl_[0] = new (&choices_[part++].hpaa)
       HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
   if (tc_globals.active_partitions() > 1) {
@@ -57,30 +56,22 @@ PageAllocator::PageAllocator() {
         HugePageAwareAllocator(
             HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
-  sampled_impl_[0] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-      HugePageAwareAllocatorOptions{MemoryTag::kSampled});
+  sampled_or_cold_impl_[0] =
+      new (&choices_[part++].hpaa) HugePageAwareAllocator(
+          HugePageAwareAllocatorOptions{MemoryTag::kSampledOrCold});
   if (sampled_partition_active_) {
     // this is not the case for NUMA partitions, hence, we can't use the
     // active_partitions() check.
-    sampled_impl_[1] = new (tc_globals.arena().Alloc(
+    sampled_or_cold_impl_[1] = new (tc_globals.arena().Alloc(
         ArenaAlloc::kPageAllocator, sizeof(HugePageAwareAllocator)))
         HugePageAwareAllocator(
-            HugePageAwareAllocatorOptions{MemoryTag::kSampledP1});
-  }
-  if (has_cold_impl_) {
-    cold_impl_ = new (&choices_[part++].hpaa)
-        HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kCold});
-  } else {
-    cold_impl_ = normal_impl_[0];
+            HugePageAwareAllocatorOptions{MemoryTag::kSampledOrColdP1});
   }
 
   size_t total_heaps = 0;
-  all_heaps_[total_heaps++] = sampled_impl_[0];
+  all_heaps_[total_heaps++] = sampled_or_cold_impl_[0];
   if (sampled_partition_active_) {
-    all_heaps_[total_heaps++] = sampled_impl_[1];
-  }
-  if (has_cold_impl_) {
-    all_heaps_[total_heaps++] = cold_impl_;
+    all_heaps_[total_heaps++] = sampled_or_cold_impl_[1];
   }
   for (size_t partition = 0; partition < active_partitions(); ++partition) {
     all_heaps_[total_heaps++] = normal_impl_[partition];

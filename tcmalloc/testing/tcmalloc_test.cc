@@ -1345,7 +1345,7 @@ TYPED_TEST(HotColdTest, HotColdNew) {
     ptrs.emplace_back(SizedPtr{ptr, size});
 
     if (!kSanitizerPresent) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold) << ptr;
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold) << ptr;
     }
   }
 
@@ -1376,7 +1376,7 @@ TYPED_TEST(HotColdTest, HotColdNew) {
 
   for (SizedPtr s : ptrs) {
     if (!kSanitizerPresent && expectColdTags &&
-        GetMemoryTag(s.ptr) == MemoryTag::kCold) {
+        GetMemoryTag(s.ptr) == MemoryTag::kSampledOrCold) {
       EXPECT_TRUE(cold.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
     }
 
@@ -1434,7 +1434,7 @@ TYPED_TEST(HotColdTest, NothrowHotColdNew) {
     }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
@@ -1485,7 +1485,7 @@ TYPED_TEST(HotColdTest, AlignedNothrowHotColdNew) {
     }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else if (expectColdTags) {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
@@ -1532,7 +1532,7 @@ TYPED_TEST(HotColdTest, ArrayNothrowHotColdNew) {
     }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
@@ -1583,7 +1583,7 @@ TYPED_TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
     }
 
     if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
@@ -1627,7 +1627,7 @@ TYPED_TEST(HotColdTest, SizeReturningHotColdNew) {
 
     if (!kSanitizerPresent) {
       if (IsHot<TypeParam>(label, MinHotAccessHint())) {
-        EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+        EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
       } else {
         EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;
       }
@@ -1701,7 +1701,7 @@ TYPED_TEST(HotColdTest, HotColdNewMinHotFlag) {
     // The hotness threshold should have been set to kNonDefaultMinHotAccessHint
     // above via SetFlag.
     if (IsHot<TypeParam>(label, /*threshold=*/kNonDefaultMinHotAccessHint)) {
-      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kSampledOrCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }

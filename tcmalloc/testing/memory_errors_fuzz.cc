@@ -135,14 +135,17 @@ void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
     return;
   }
 
-  // The pointer must either be sampled/metadata or larger than kMaxSize.  We
-  // don't expect to have lightweight checks otherwise: normal and cold memory
-  // with a size <= kMaxSize take the fast sized-delete path that derives the
-  // size class from `size` without consulting the pagemap, so a wild pointer is
-  // not detected.
+  // The pointer must either be sampled/guarded/metadata or larger than
+  // kMaxSize.  We don't expect to have lightweight checks otherwise: normal
+  // memory, and sampled/cold memory that is aligned but not page aligned
+  // (which can only be a cold object), with a size <= kMaxSize take the fast
+  // sized-delete path that derives the size class from `size` without
+  // consulting the pagemap, so a wild pointer is not detected.
   if (auto tag = GetMemoryTag(p);
-      (tag == MemoryTag::kNormal || tag == MemoryTag::kNormalP1 ||
-       tag == MemoryTag::kCold) &&
+      ((tag == MemoryTag::kNormal || tag == MemoryTag::kNormalP1) ||
+       (tag == MemoryTag::kSampledOrCold &&
+        (ptr & (static_cast<uintptr_t>(kAlignment) - 1)) == 0 &&
+        (ptr & (kPageSize - 1)) != 0)) &&
       size <= kMaxSize) {
     return;
   }
@@ -160,11 +163,14 @@ TEST(MemoryErrorsFuzzTest, WildPointerSizedDeleteRegression) {
   WildPointerSizedDelete(18446744073709551615ull, 18446744073709551615ull);
   WildPointerSizedDelete(0, 18446744073709551615ull);
   WildPointerSizedDelete(17592186048512ull, 0);
-  // Cold-tagged wild pointers with a size <= kMaxSize take the same
-  // non-validating fast sized-delete path as normal memory and are not caught.
+  // Without sanitizers, 1 << 43 has the kGuarded tag.  Such wild pointers are
+  // rejected by InvokeHooksAndFreePages(), as the pagemap has no span for them.
   WildPointerSizedDelete(8796093022208ull, 0);
   WildPointerSizedDelete(8796093022208ull, 131072);
   WildPointerSizedDelete(8796093022216ull, 131073);
+  // A misaligned sampled/cold wild pointer also reaches
+  // InvokeHooksAndFreePages() and is rejected there for having no span.
+  WildPointerSizedDelete((uintptr_t{1} << 41) + 1, 8);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerSizedDelete);
@@ -178,8 +184,8 @@ void MismatchedSizedDelete(size_t allocated, size_t deallocated) {
   }
 
   // The pointer needs to be sampled or large for us to detect the error.
-  const bool sampled = IsSampledMemory(ptr);
-  if (!sampled && deallocated <= kMaxSize) {
+  if (!IsSampledOrColdMemory(ptr) && !IsGuardedMemory(ptr) &&
+      deallocated <= kMaxSize) {
     TCMallocInternalDeleteSized(ptr, allocated);
     return;
   }
@@ -202,7 +208,7 @@ void MismatchedSizedDelete(size_t allocated, size_t deallocated) {
   // size and require an exact match.  Unsampled large allocations only know
   // the page-rounded span size, so any size that rounds to the same number of
   // pages is accepted.
-  if (sampled) {
+  if (IsSampledOrColdMemory(ptr)) {
     CHECK_EQ(deallocated, allocated);
   } else {
     CHECK_EQ(TCMalloc_Internal_GetEstimatedAllocatedSize(deallocated),
@@ -253,7 +259,7 @@ void MismatchedAlignedDelete(
   // delete fast path for unsampled memory recomputes the size class from the
   // provided size and alignment without consulting metadata, so a mismatch is
   // not detected (outside of debug assertions).
-  if (!IsSampledMemory(ptr)) {
+  if (!IsSampledOrColdMemory(ptr)) {
     if (allocated_alignment.has_value()) {
       TCMallocInternalDeleteSizedAligned(ptr, size, *allocated_alignment);
     } else {
@@ -315,7 +321,7 @@ void MismatchedAlignedFree(size_t size,
   }
 
   // As with MismatchedAlignedDelete, only sampled allocations can detect this.
-  if (!IsSampledMemory(ptr)) {
+  if (!IsSampledOrColdMemory(ptr)) {
     if (allocated_alignment.has_value()) {
       TCMallocInternalFreeAlignedSized(ptr, *allocated_alignment, size);
     } else {
@@ -424,7 +430,7 @@ void MisalignedPointer(size_t size, std::optional<hot_cold_t> hot_cold,
       static_cast<size_t>(alignment.value_or(std::align_val_t{1})) <= kPageSize;
   if (static_cast<size_t>(misalignment) % static_cast<size_t>(kAlignment) ==
           0 &&
-      size_classful && !IsSampledMemory(ptr)) {
+      size_classful && !IsSampledOrColdMemory(ptr)) {
     if (alignment.has_value()) {
       TCMallocInternalDeleteSizedAligned(ptr, size, *alignment);
     } else {

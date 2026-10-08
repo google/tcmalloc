@@ -616,6 +616,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:memory_tag",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
@@ -1186,6 +1187,7 @@ cc_binary(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:parameter_accessors",
@@ -1201,6 +1203,7 @@ cc_binary(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:tcmalloc_enable_heap_partitioning_default_on",
         "//tcmalloc/internal:memory_tag",
@@ -1217,6 +1220,7 @@ cc_binary(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_numa_aware",
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:tcmalloc_enable_heap_partitioning_default_on",
         "//tcmalloc/internal:memory_tag",
@@ -1233,6 +1237,7 @@ cc_binary(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_numa_aware",
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:parameter_accessors",

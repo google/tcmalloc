@@ -78,13 +78,15 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
     SCOPED_TRACE(absl::StrFormat("size = %u, alignment = %u", size, alignment));
 
     for (MemoryTag tag :
-         {MemoryTag::kNormal, MemoryTag::kSampled, MemoryTag::kCold}) {
+         {MemoryTag::kNormal, MemoryTag::kSampledOrCold, MemoryTag::kGuarded}) {
       SCOPED_TRACE(static_cast<unsigned int>(tag));
 
       void* p = allocator_.MmapAligned(size, alignment, tag);
       EXPECT_NE(p, nullptr);
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % alignment, 0);
       EXPECT_EQ(IsNormalMemory(p), tag == MemoryTag::kNormal);
+      EXPECT_EQ(IsSampledOrColdMemory(p), tag == MemoryTag::kSampledOrCold);
+      EXPECT_EQ(IsGuardedMemory(p), tag == MemoryTag::kGuarded);
       EXPECT_EQ(GetMemoryTag(p), tag);
       EXPECT_EQ(GetMemoryTag(static_cast<char*>(p) + size - 1), tag);
       if (tcmalloc::NamedVMAsSupported()) {

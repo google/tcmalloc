@@ -555,11 +555,12 @@ void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation) {
     if (tc_globals.active_partitions() > 1) {
       tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1, pageflags);
     }
-    tc_globals.page_allocator().Print(out, MemoryTag::kSampled, pageflags);
+    tc_globals.page_allocator().Print(out, MemoryTag::kSampledOrCold,
+                                      pageflags);
     if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
-      tc_globals.page_allocator().Print(out, MemoryTag::kSampledP1, pageflags);
+      tc_globals.page_allocator().Print(out, MemoryTag::kSampledOrColdP1,
+                                        pageflags);
     }
-    tc_globals.page_allocator().Print(out, MemoryTag::kCold, pageflags);
     tc_globals.guardedpage_allocator().Print(out);
 
     out.printf("------------------------------------------------\n");
@@ -860,13 +861,12 @@ void DumpStatsInPbtxt(Printer& out, int level) {
     tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormalP1,
                                              pageflags);
   }
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled,
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampledOrCold,
                                            pageflags);
   if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
-    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampledP1,
-                                             pageflags);
+    tc_globals.page_allocator().PrintInPbtxt(
+        region, MemoryTag::kSampledOrColdP1, pageflags);
   }
-  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold, pageflags);
   // We do not collect tracking information in pbtxt.
 
   size_t soft_limit_bytes =

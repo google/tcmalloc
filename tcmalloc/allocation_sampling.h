@@ -121,8 +121,8 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
   const MemoryTag tag =
       Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull &&
               policy.partition() == 1
-          ? MemoryTag::kSampledP1
-          : MemoryTag::kSampled;
+          ? MemoryTag::kSampledOrColdP1
+          : MemoryTag::kSampledOrCold;
   size_t capacity = 0;
   if (size_class != 0) {
     TC_ASSERT(!donated);
@@ -165,7 +165,7 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
     // for gwp-asan.
     stack_trace.allocated_size = r.in_bytes();
     stack_trace.cold_allocated =
-        GetMemoryTag(r.start_addr()) == MemoryTag::kCold;
+        GetMemoryTag(r.start_addr()) == MemoryTag::kSampledOrCold;
     capacity = stack_trace.allocated_size;
   }
 
@@ -178,9 +178,8 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
           MadviseSampledAllocations::kEnabled &&
       alloc_with_status.status != Profile::Sample::GuardedStatus::Guarded) {
     switch (GetMemoryTag(r.start_addr())) {
-      case MemoryTag::kSampled:
-      case MemoryTag::kSampledP1:
-      case MemoryTag::kCold: {
+      case MemoryTag::kSampledOrCold:
+      case MemoryTag::kSampledOrColdP1: {
         const uintptr_t hardware_page_size = GetPageSize();
         const size_t allocated_size_rounded =
             (stack_trace.allocated_size + hardware_page_size - 1) &
@@ -200,6 +199,7 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
       }
       case MemoryTag::kNormal:
       case MemoryTag::kNormalP1:
+      case MemoryTag::kGuarded:
       case MemoryTag::kMetadata:
         break;
     }

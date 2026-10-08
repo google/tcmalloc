@@ -178,7 +178,7 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
   AllocationState normal =
       New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
   AllocationState sampled =
-      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
 
   BackingStats stats;
   {
@@ -200,7 +200,7 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
       0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, kSpanInfo, MemoryTag::kNormal);
-  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
@@ -214,7 +214,7 @@ TEST_F(PageAllocatorTest, b270916852) {
   AllocationState normal =
       New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
   AllocationState sampled =
-      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
 
   BackingStats stats;
   {
@@ -245,7 +245,7 @@ TEST_F(PageAllocatorTest, b270916852) {
       1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, kSpanInfo, MemoryTag::kNormal);
-  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
@@ -261,7 +261,7 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
   AllocationState normal2 =
       New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
   AllocationState sampled =
-      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
 
   BackingStats stats;
   {
@@ -308,7 +308,7 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
       1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal2, kSpanInfo, MemoryTag::kNormal);
-  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
@@ -401,7 +401,7 @@ TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
   AllocationState normal =
       New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
   AllocationState sampled =
-      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampled);
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
 
   BackingStats stats;
   {
@@ -457,7 +457,7 @@ TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
   ASSERT_TRUE(
       page_allocator_release_hooks.Remove(&ReleaseDuringHardLimitShrinkHook));
   shrink_hook_allocator = nullptr;
-  Delete(sampled, kSpanInfo, MemoryTag::kSampled);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
@@ -529,14 +529,9 @@ TEST_F(PageAllocatorTest, Hooks) {
 TEST_F(PageAllocatorTest, ReleasePriority) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
                                        AccessDensityPrediction::kSparse};
-  const bool has_cold = ColdFeatureActive();
-
-  std::vector<MemoryTag> order = {MemoryTag::kSampled};
+  std::vector<MemoryTag> order = {MemoryTag::kSampledOrCold};
   if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
-    order.push_back(MemoryTag::kSampledP1);
-  }
-  if (has_cold) {
-    order.push_back(MemoryTag::kCold);
+    order.push_back(MemoryTag::kSampledOrColdP1);
   }
   order.push_back(MemoryTag::kNormal);
   if (tc_globals.active_partitions() > 1) {

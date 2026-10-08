@@ -1356,14 +1356,14 @@ TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {
 TEST(HugeRegionNamedVmaTest, NamedVmaCold) {
   MockMemoryTagFunction mock_set_anon_vma_name;
   NilUnback nil_unback;
-  HugePage p = HugePageContaining(MakeTaggedAddress(MemoryTag::kCold));
+  HugePage p = HugePageContaining(MakeTaggedAddress(MemoryTag::kSampledOrCold));
 
   Range expected_range{p.first_page(), HugeRegion::size().in_pages()};
-  EXPECT_CALL(
-      mock_set_anon_vma_name,
-      Call(testing::AllOf(testing::Field(&Range::p, expected_range.p),
-                          testing::Field(&Range::n, expected_range.n)),
-           std::optional<absl::string_view>("tcmalloc_huge_region_COLD")))
+  EXPECT_CALL(mock_set_anon_vma_name,
+              Call(testing::AllOf(testing::Field(&Range::p, expected_range.p),
+                                  testing::Field(&Range::n, expected_range.n)),
+                   std::optional<absl::string_view>(
+                       "tcmalloc_huge_region_SAMPLED_OR_COLD")))
       .Times(1);
 
   HugeRegion region({p, HugeRegion::size()}, nil_unback,
