@@ -195,6 +195,7 @@ namespace tcmalloc_internal {
 // [buffer, buffer+result] will contain NUL-terminated output string.
 //
 // REQUIRES: buffer_length > 0.
+//
 extern "C" [[maybe_unused]] int MallocExtension_Internal_GetStatsInPbtxt(
     char* buffer, int buffer_length) {
   TC_ASSERT_GT(buffer_length, 0);
