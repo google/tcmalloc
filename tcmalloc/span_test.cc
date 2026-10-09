@@ -143,71 +143,8 @@ TEST_P(SpanTest, FreelistBasic) {
     for (size_t idx = 0; idx < objects_per_span_ - 1; ++idx) {
       EXPECT_TRUE(objects[idx]);
       void* ptr = start + idx * size_;
-      bool ok =
-          span_.FreelistPushBatch(absl::MakeSpan(&ptr, 1), size_, reciprocal_);
-      EXPECT_TRUE(ok);
-      EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
-      objects[idx] = false;
-      --popped;
-    }
-    // On the last iteration we can actually push the last object.
-    if (x == 1) {
-      void* ptr = start + (objects_per_span_ - 1) * size_;
-      bool ok =
-          span_.FreelistPushBatch(absl::MakeSpan(&ptr, 1), size_, reciprocal_);
-      EXPECT_FALSE(ok);
-    }
-  }
-}
-
-TEST_P(SpanTest, FreelistBasicObjIdx) {
-  Span& span_ = raw_span_.span();
-
-  EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
-  void* batch[kMaxObjectsToMove];
-  size_t popped = 0;
-  size_t want = 1;
-  char* start = static_cast<char*>(span_.start_address());
-  std::vector<bool> objects(objects_per_span_);
-  for (size_t x = 0; x < 2; ++x) {
-    // Pop all objects in batches of varying size and ensure that we've got
-    // all objects.
-    for (;;) {
-      size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
-      popped += n;
-      EXPECT_EQ(span_.FreelistEmpty(objects_per_span_),
-                popped == objects_per_span_);
-      for (size_t i = 0; i < n; ++i) {
-        void* p = batch[i];
-        uintptr_t off = reinterpret_cast<char*>(p) - start;
-        EXPECT_LT(off, npages_.in_bytes());
-        EXPECT_EQ(off % size_, 0);
-        size_t idx = off / size_;
-        EXPECT_FALSE(objects[idx]);
-        objects[idx] = true;
-      }
-      if (n < want) {
-        break;
-      }
-      ++want;
-      if (want > batch_size_) {
-        want = 1;
-      }
-    }
-    EXPECT_TRUE(span_.FreelistEmpty(objects_per_span_));
-    EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
-    EXPECT_EQ(popped, objects_per_span_);
-
-    // Push all objects back except the last one (which would not be pushed).
-    for (size_t idx = 0; idx < objects_per_span_ - 1; ++idx) {
-      EXPECT_TRUE(objects[idx]);
-      void* ptr = start + idx * size_;
       Span::ObjIdx objidx;
-      if (Span::UseBitmapForSize(size_)) {
-        objidx = span_.BitmapPtrToIdx(ptr, size_, reciprocal_);
-      } else {
-        objidx = span_.PtrToIdx(ptr, size_);
-      }
+      Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx);
       bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
                                         reciprocal_);
       EXPECT_TRUE(ok);
@@ -219,11 +156,7 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
     if (x == 1) {
       void* ptr = start + (objects_per_span_ - 1) * size_;
       Span::ObjIdx objidx;
-      if (Span::UseBitmapForSize(size_)) {
-        objidx = span_.BitmapPtrToIdx(ptr, size_, reciprocal_);
-      } else {
-        objidx = span_.PtrToIdx(ptr, size_);
-      }
+      Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx);
       bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
                                         reciprocal_);
       EXPECT_FALSE(ok);

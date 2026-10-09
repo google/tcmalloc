@@ -515,15 +515,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   const uint32_t size_reciprocal = size_reciprocal_;
   const uint32_t objects_per_span = objects_per_span_;
   Span::ObjIdx idx[kMaxObjectsToMove];
-  if (Span::UseBitmapForSize(object_size)) {
-    for (int i = 0; i < batch.size(); ++i) {
-      idx[i] = spans[i]->BitmapPtrToIdx(batch[i], object_size, size_reciprocal);
-    }
-  } else {
-    for (int i = 0; i < batch.size(); ++i) {
-      idx[i] = spans[i]->PtrToIdx(batch[i], object_size);
-    }
-  }
+  Span::ObjectsToIdx(batch, spans, object_size, size_reciprocal, idx);
   int runs = 0;
 
   // Safe to store free spans into freed up space in span array.

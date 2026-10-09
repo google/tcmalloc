@@ -72,8 +72,11 @@ struct State {
   ~State() {
     for (size_t i = 0; i < live_ptrs.size();) {
       size_t limit = std::min<size_t>(live_ptrs.size() - i, num_to_move);
-      (void)span->FreelistPushBatch(absl::MakeSpan(live_ptrs.data() + i, limit),
-                                    object_size, size_reciprocal);
+      Span::ObjIdx idx[kMaxObjectsToMove];
+      Span::ObjectsToIdx({&live_ptrs[i], limit}, span.get(), object_size,
+                         size_reciprocal, idx);
+      (void)span->FreelistPushBatch(absl::MakeSpan(idx, limit), object_size,
+                                    size_reciprocal);
       i += limit;
     }
     free(mem);
@@ -115,6 +118,7 @@ struct Shuffle {
   }
 };
 
+// Pushes objects into the Span using the ObjIdx interface.
 struct Dealloc {
   uint8_t count;
 
@@ -132,42 +136,10 @@ struct Dealloc {
 
     absl::Span<void*> ptrs =
         absl::MakeSpan(state.live_ptrs.data() + state.live_ptrs.size() - n, n);
-    (void)state.span->FreelistPushBatch(ptrs, state.object_size,
-                                        state.size_reciprocal);
-    state.live_ptrs.resize(state.live_ptrs.size() - n);
-  }
-};
-
-// Pushes objects into the Span using the ObjIdx interface.
-struct DeallocIndex {
-  uint8_t count;
-
-  template <typename Sink>
-  friend void AbslStringify(Sink& sink, const DeallocIndex& d) {
-    absl::Format(&sink, "DeallocIndex{.count=%v}", d.count);
-  }
-
-  void Perform(State& state) const {
-    size_t n = std::min<size_t>(count, state.num_to_move);
-    n = std::min(n, state.live_ptrs.size());
-    if (n == 0) {
-      return;
-    }
-
-    absl::Span<void*> ptrs =
-        absl::MakeSpan(state.live_ptrs.data() + state.live_ptrs.size() - n, n);
 
     Span::ObjIdx idx[kMaxObjectsToMove];
-    if (Span::UseBitmapForSize(state.object_size)) {
-      for (size_t i = 0; i < ptrs.size(); ++i) {
-        idx[i] = state.span->BitmapPtrToIdx(ptrs[i], state.object_size,
-                                            state.size_reciprocal);
-      }
-    } else {
-      for (size_t i = 0; i < ptrs.size(); ++i) {
-        idx[i] = state.span->PtrToIdx(ptrs[i], state.object_size);
-      }
-    }
+    Span::ObjectsToIdx(ptrs, state.span.get(), state.object_size,
+                       state.size_reciprocal, idx);
 
     (void)state.span->FreelistPushBatch(
         absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
@@ -202,8 +174,8 @@ struct Prefetch {
   void Perform(State& state) const { state.span->Prefetch(); }
 };
 
-using Instruction = std::variant<Alloc, Shuffle, Dealloc, DeallocIndex,
-                                 SetBitpackedAttributes, Prefetch>;
+using Instruction =
+    std::variant<Alloc, Shuffle, Dealloc, SetBitpackedAttributes, Prefetch>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {
@@ -294,7 +266,10 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   TC_CHECK_EQ(ptrs.size(), span->Allocated());
 
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
-    bool ok = span->FreelistPushBatch(absl::MakeSpan(&ptrs[i], 1), object_size,
+    Span::ObjIdx idx;
+    Span::ObjectsToIdx({&ptrs[i], 1}, span.get(), object_size, size_reciprocal,
+                       &idx);
+    bool ok = span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
                                       size_reciprocal);
     TC_CHECK_EQ(ok, i != popped - 1);
     // If the freelist becomes full, then the span does not actually push the

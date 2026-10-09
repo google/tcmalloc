@@ -78,7 +78,6 @@ int FindSizeClass(size_t target_size) {
 }
 
 // Generalized PopPush benchmark
-template <typename BatchType>
 void BM_SpanPopPush(benchmark::State& state) {
   const size_t target_size = state.range(0);
   size_t batch_size = state.range(1);
@@ -129,23 +128,13 @@ void BM_SpanPopPush(benchmark::State& state) {
     seq_idx = (seq_idx + 1) % seq.size();
 
     // Push
-    if constexpr (std::is_same_v<BatchType, void*>) {
-      bool ok = spans[current_span].span().FreelistPushBatch(
-          absl::MakeSpan(active_batches[current_span]), size, reciprocal);
-      TC_CHECK(ok);
-    } else {
-      Span::ObjIdx idx_batch[kMaxObjectsToMove];
-      for (size_t j = 0; j < batch_size; j++) {
-        void* p = active_batches[current_span][j];
-        idx_batch[j] =
-            Span::UseBitmapForSize(size)
-                ? spans[current_span].span().BitmapPtrToIdx(p, size, reciprocal)
-                : spans[current_span].span().PtrToIdx(p, size);
-      }
-      bool ok = spans[current_span].span().FreelistPushBatch(
-          absl::MakeSpan(idx_batch, batch_size), size, reciprocal);
-      TC_CHECK(ok);
-    }
+    Span::ObjIdx idx_batch[kMaxObjectsToMove];
+    Span::ObjectsToIdx(active_batches[current_span],
+                       &spans[current_span].span(), size, reciprocal,
+                       idx_batch);
+    bool ok = spans[current_span].span().FreelistPushBatch(
+        absl::MakeSpan(idx_batch, batch_size), size, reciprocal);
+    TC_CHECK(ok);
 
     // Pop
     int n = spans[current_span].span().FreelistPopBatch(
@@ -156,7 +145,6 @@ void BM_SpanPopPush(benchmark::State& state) {
 }
 
 // Generalized DrainFill benchmark
-template <typename BatchType>
 void BM_SpanDrainFill(benchmark::State& state) {
   const size_t target_size = state.range(0);
   size_t batch_size = state.range(1);
@@ -238,24 +226,13 @@ void BM_SpanDrainFill(benchmark::State& state) {
           size_t to_push = std::min(batch_size, oindex);
           size_t start_idx = oindex - to_push;
 
-          if constexpr (std::is_same_v<BatchType, void*>) {
-            bool ok = spans[span_idx].span().FreelistPushBatch(
-                absl::MakeSpan(&all_objects[span_idx][start_idx], to_push),
-                size, reciprocal);
-            TC_CHECK(ok);
-          } else {
-            Span::ObjIdx idx_batch[kMaxObjectsToMove];
-            for (size_t j = 0; j < to_push; j++) {
-              void* p = all_objects[span_idx][start_idx + j];
-              idx_batch[j] = Span::UseBitmapForSize(size)
-                                 ? spans[span_idx].span().BitmapPtrToIdx(
-                                       p, size, reciprocal)
-                                 : spans[span_idx].span().PtrToIdx(p, size);
-            }
-            bool ok = spans[span_idx].span().FreelistPushBatch(
-                absl::MakeSpan(idx_batch, to_push), size, reciprocal);
-            TC_CHECK(ok);
-          }
+          Span::ObjIdx idx_batch[kMaxObjectsToMove];
+          Span::ObjectsToIdx({&all_objects[span_idx][start_idx], to_push},
+                             &spans[span_idx].span(), size, reciprocal,
+                             idx_batch);
+          bool ok = spans[span_idx].span().FreelistPushBatch(
+              absl::MakeSpan(idx_batch, to_push), size, reciprocal);
+          TC_CHECK(ok);
           push_offsets[span_idx] = start_idx;
           active = true;
         }
@@ -291,37 +268,17 @@ class BenchmarkRegistrar {
  public:
   BenchmarkRegistrar() {
     tc_globals.InitIfNecessary();
-    // PopPush void*
+    // PopPush
     ForEachConfig([](size_t size, size_t batch, size_t spans) {
-      benchmark::RegisterBenchmark("BM_SpanPopPush/void*",
-                                   BM_SpanPopPush<void*>)
+      benchmark::RegisterBenchmark("BM_SpanPopPush", BM_SpanPopPush)
           ->Args({static_cast<int64_t>(size), static_cast<int64_t>(batch),
                   static_cast<int64_t>(spans)})
           ->ArgNames({"size", "batch", "spans"});
     });
 
-    // PopPush ObjIdx
+    // DrainFill
     ForEachConfig([](size_t size, size_t batch, size_t spans) {
-      benchmark::RegisterBenchmark("BM_SpanPopPush/Span::ObjIdx",
-                                   BM_SpanPopPush<Span::ObjIdx>)
-          ->Args({static_cast<int64_t>(size), static_cast<int64_t>(batch),
-                  static_cast<int64_t>(spans)})
-          ->ArgNames({"size", "batch", "spans"});
-    });
-
-    // DrainFill void*
-    ForEachConfig([](size_t size, size_t batch, size_t spans) {
-      benchmark::RegisterBenchmark("BM_SpanDrainFill/void*",
-                                   BM_SpanDrainFill<void*>)
-          ->Args({static_cast<int64_t>(size), static_cast<int64_t>(batch),
-                  static_cast<int64_t>(spans)})
-          ->ArgNames({"size", "batch", "spans"});
-    });
-
-    // DrainFill ObjIdx
-    ForEachConfig([](size_t size, size_t batch, size_t spans) {
-      benchmark::RegisterBenchmark("BM_SpanDrainFill/Span::ObjIdx",
-                                   BM_SpanDrainFill<Span::ObjIdx>)
+      benchmark::RegisterBenchmark("BM_SpanDrainFill", BM_SpanDrainFill)
           ->Args({static_cast<int64_t>(size), static_cast<int64_t>(batch),
                   static_cast<int64_t>(spans)})
           ->ArgNames({"size", "batch", "spans"});

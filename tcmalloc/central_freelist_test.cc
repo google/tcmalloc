@@ -125,7 +125,9 @@ TEST_P(StaticForwarderTest, Simple) {
   }
 
   for (void* ptr : batch) {
-    EXPECT_EQ(span->FreelistPushBatch(absl::MakeSpan(&ptr, 1), object_size_,
+    Span::ObjIdx idx;
+    Span::ObjectsToIdx({&ptr, 1}, span, object_size_, size_reciprocal_, &idx);
+    EXPECT_EQ(span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size_,
                                       size_reciprocal_),
               ptr != batch.back());
   }
@@ -164,7 +166,9 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
       "Attempted to free corrupted pointer");
 
   for (void* p : batch) {
-    (void)span->FreelistPushBatch(absl::MakeSpan(&p, 1), object_size,
+    Span::ObjIdx idx;
+    Span::ObjectsToIdx({&p, 1}, span, object_size, size_reciprocal, &idx);
+    (void)span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
                                   size_reciprocal);
   }
   StaticForwarder::DeallocateSpans(objects_per_span, pages_per_span,

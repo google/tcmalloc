@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 
@@ -139,6 +140,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // These methods REQUIRE a SMALL_OBJECT span.
   // ---------------------------------------------------------------------------
 
+  using ObjIdx = uint16_t;
+
   // Indicate whether the Span is empty.
   [[nodiscard]] bool FreelistEmpty(uint32_t objects_per_span) const;
 
@@ -146,8 +149,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // just return false.
   //
   // If the freelist becomes full, we do not push the object onto the freelist.
-  template <typename T>
-  [[nodiscard]] bool FreelistPushBatch(absl::Span<T> batch, size_t size,
+  [[nodiscard]] bool FreelistPushBatch(absl::Span<ObjIdx> batch, size_t size,
                                        uint32_t reciprocal) __restrict__;
 
   // Pops up to N objects from the freelist and returns them in the batch array.
@@ -178,7 +180,13 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Returns true if Span will use bitmap for objects of size <size>.
   [[nodiscard]] static bool UseBitmapForSize(size_t size);
 
-  typedef uint16_t ObjIdx;
+  static void ObjectsToIdx(absl::Span<void* const> batch,
+                           const Span* const* spans, size_t size,
+                           uint32_t reciprocal, ObjIdx* idx);
+  // Test-only helper that converts objects to indexes for a single span.
+  static void ObjectsToIdx(absl::Span<void* const> batch, const Span* span,
+                           size_t size, uint32_t reciprocal, ObjIdx* idx);
+
   // Convert object pointer <-> freelist index.
   [[nodiscard]] ObjIdx PtrToIdx(void* ptr, size_t size) const;
   [[nodiscard]] ObjIdx* IdxToPtr(ObjIdx idx, size_t size,
@@ -251,17 +259,9 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] size_t ListPopBatch(void** __restrict batch, size_t N,
                                     size_t size) __restrict__;
 
-  [[nodiscard]] bool ListPushBatch(absl::Span<void*> batch,
-                                   size_t size) __restrict__;
-  [[nodiscard]] bool ListPushBatch(absl::Span<ObjIdx> batch,
-                                   size_t size) __restrict__;
-
-  // For spans containing 64 or fewer objects, indicate that the object at the
-  // index has been returned. Always returns true.
-  [[nodiscard]] bool BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                                     uint32_t reciprocal) __restrict__;
-  [[nodiscard]] bool BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
-                                     uint32_t reciprocal) __restrict__;
+  void ListPushBatch(absl::Span<ObjIdx> batch, size_t size) __restrict__;
+  void BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
+                       uint32_t reciprocal) __restrict__;
 
   // A bitmap is used to indicate object availability for spans containing
   // 64 or fewer objects.
@@ -275,6 +275,27 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[noreturn]] void ReportDoubleFree(const void* ptr);
 };
 
+inline void Span::ObjectsToIdx(absl::Span<void* const> batch,
+                               const Span* const* spans, size_t size,
+                               uint32_t reciprocal, ObjIdx* idx) {
+  if (Span::UseBitmapForSize(size)) {
+    for (int i = 0; i < batch.size(); ++i) {
+      idx[i] = spans[i]->BitmapPtrToIdx(batch[i], size, reciprocal);
+    }
+  } else {
+    for (int i = 0; i < batch.size(); ++i) {
+      idx[i] = spans[i]->PtrToIdx(batch[i], size);
+    }
+  }
+}
+
+inline void Span::ObjectsToIdx(absl::Span<void* const> batch, const Span* span,
+                               size_t size, uint32_t reciprocal, ObjIdx* idx) {
+  TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
+  const Span* spans[kMaxObjectsToMove];
+  std::fill_n(spans, batch.size(), span);
+  ObjectsToIdx(batch, spans, size, reciprocal, idx);
+}
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {
@@ -301,8 +322,7 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   return idx;
 }
 
-template <typename T>
-inline bool Span::FreelistPushBatch(absl::Span<T> batch, size_t size,
+inline bool Span::FreelistPushBatch(absl::Span<ObjIdx> batch, size_t size,
                                     uint32_t reciprocal) __restrict__ {
   const uint16_t allocated = allocated_;
   TC_ASSERT_GE(allocated, batch.size());
@@ -313,82 +333,14 @@ inline bool Span::FreelistPushBatch(absl::Span<T> batch, size_t size,
   // Bitmaps are used to record object availability when there are no more than
   // kBitmapSize objects in a span.
   if (ABSL_PREDICT_TRUE(UseBitmapForSize(size))) {
-    return BitmapPushBatch(batch, size, reciprocal);
-  }
-  return ListPushBatch(batch, size);
-}
-
-inline bool Span::ListPushBatch(absl::Span<void*> batch,
-                                size_t size) __restrict__ {
-  if (cache_size_ < kCacheSize) {
-    auto cache_writes = std::min(kCacheSize - cache_size_, batch.size());
-    for (int i = 0; i < cache_writes; ++i) {
-      // Have empty space in the cache, push there.
-      const ObjIdx idx = PtrToIdx(batch[i], size);
-      list_.cache[cache_size_ + i] = idx;
-    }
-    cache_size_ += cache_writes;
-    batch.remove_prefix(cache_writes);
-  }
-
-  if (batch.empty()) {
+    BitmapPushBatch(batch, size, reciprocal);
     return true;
   }
-
-  // Avoid loading first_page_, since we can infer it from the pointer.  It is
-  // uniform across all objects in batch.
-  const uintptr_t start =
-      reinterpret_cast<uintptr_t>(batch[0]) & ~(kPageSize - 1);
-#ifndef NDEBUG
-  for (int i = 1; i < batch.size(); ++i) {
-    TC_ASSERT_EQ(start,
-                 reinterpret_cast<uintptr_t>(batch[i]) & ~(kPageSize - 1));
-  }
-#endif
-
-  ObjIdx freelist = freelist_;
-  uint16_t embed_count = embed_count_;
-
-  ObjIdx* __restrict host;
-  if (ABSL_PREDICT_TRUE(freelist != kListEnd)) {
-    host = IdxToPtr(freelist, size, start);
-  } else {
-    void* ptr = batch[0];
-    batch.remove_prefix(1);
-
-    host = reinterpret_cast<ObjIdx*>(ptr);
-    *host = kListEnd;
-    freelist = PtrToIdx(ptr, size);
-    embed_count = 0;
-  }
-
-  TC_ASSERT_NE(freelist, kListEnd);
-
-  // -1 because the first slot is used by freelist link.
-  const size_t limit = size / sizeof(ObjIdx) - 1;
-
-  for (void* ptr : batch) {
-    const ObjIdx idx = PtrToIdx(ptr, size);
-
-    if (ABSL_PREDICT_TRUE(embed_count != limit)) {
-      // Push onto the first object on freelist.
-      embed_count++;
-      host[embed_count] = idx;
-    } else {
-      // Push onto freelist.
-      ObjIdx* __restrict new_host = reinterpret_cast<ObjIdx*>(ptr);
-      *new_host = freelist;
-      freelist = idx;
-      embed_count = 0;
-      host = new_host;
-    }
-  }
-  freelist_ = freelist;
-  embed_count_ = embed_count;
+  ListPushBatch(batch, size);
   return true;
 }
 
-inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
+inline void Span::ListPushBatch(absl::Span<ObjIdx> batch,
                                 size_t size) __restrict__ {
   if (cache_size_ < kCacheSize) {
     auto cache_writes = std::min(kCacheSize - cache_size_, batch.size());
@@ -402,7 +354,7 @@ inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
   }
 
   if (batch.empty()) {
-    return true;
+    return;
   }
 
   const uintptr_t start = absl::bit_cast<uintptr_t>(start_address());
@@ -444,7 +396,6 @@ inline bool Span::ListPushBatch(absl::Span<Span::ObjIdx> batch,
   }
   freelist_ = freelist;
   embed_count_ = embed_count;
-  return true;
 }
 
 inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size,
@@ -467,26 +418,7 @@ inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
   return idx;
 }
 
-inline bool Span::BitmapPushBatch(absl::Span<void*> batch, size_t size,
-                                  uint32_t reciprocal) __restrict__ {
-  size_t before = bitmap_.CountBits();
-  for (void* ptr : batch) {
-    ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
-    // Set the bit indicating where the object was returned.
-    bool prior = bitmap_.SetBit(idx);
-    // Check that the object is not already returned.
-    (void)prior;
-#if !defined(NDEBUG)
-    if (ABSL_PREDICT_FALSE(prior)) {
-      ReportDoubleFree(ptr);
-    }
-#endif
-  }
-  TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
-  return true;
-}
-
-inline bool Span::BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
+inline void Span::BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
                                   uint32_t reciprocal) __restrict__ {
   size_t before = bitmap_.CountBits();
   for (const ObjIdx idx : batch) {
@@ -496,7 +428,6 @@ inline bool Span::BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
     bitmap_.SetBit(idx);
   }
   TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
-  return true;
 }
 
 inline PageId Span::first_page() const { return PageId(first_page_); }
