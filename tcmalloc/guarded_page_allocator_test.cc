@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <new>
+#include <ostream>
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
@@ -33,6 +34,7 @@
 #include "absl/base/casts.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/numeric/bits.h"
+#include "absl/strings/str_cat.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
@@ -225,33 +227,63 @@ TEST_F(GuardedPageAllocatorTest, AllocDeallocAligned) {
   EXPECT_EQ(gpa_.successful_allocations(), (32 - __builtin_clz(PageSize())));
 }
 
-TEST_F(GuardedPageAllocatorTest, MismatchedAlignment) {
+struct MisalignedFree {
+  size_t align;
+  size_t misalign;
+};
+
+std::ostream& operator<<(std::ostream& os, const MisalignedFree& p) {
+  return os << "{align=" << p.align << ", misalign=" << p.misalign << "}";
+}
+
+// Every power-of-two alignment up to the page size, paired with every
+// power-of-two offset up to that alignment.
+std::vector<MisalignedFree> MisalignedFreeCases() {
+  std::vector<MisalignedFree> cases;
+  for (size_t align = 1; align <= PageSize(); align <<= 1) {
+    for (size_t misalign = 1; misalign <= align; misalign <<= 1) {
+      cases.push_back({align, misalign});
+    }
+  }
+  return cases;
+}
+
+class GuardedPageAllocatorMisalignedFreeTest
+    : public GuardedPageAllocatorTest,
+      public testing::WithParamInterface<MisalignedFree> {};
+
+// One death test per (align, misalign) pair, rather than a single test looping
+// over all of them, so that test sharding spreads the sweep across shards.
+TEST_P(GuardedPageAllocatorMisalignedFreeTest, MismatchedAlignment) {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
   GTEST_SKIP() << "Skipping slow death test under ASan";
 #endif
-  for (size_t align = 1; align <= PageSize(); align <<= 1) {
-    for (size_t misalign = 1; misalign <= align; misalign <<= 1) {
-      constexpr size_t alloc_size = 1;
-      auto alloc_with_status = gpa_.Allocate(
-          alloc_size, static_cast<std::align_val_t>(align), GetStackTrace());
-      EXPECT_EQ(alloc_with_status.status,
-                Profile::Sample::GuardedStatus::Guarded);
-      EXPECT_NE(alloc_with_status.alloc, nullptr);
-      EXPECT_TRUE(gpa_.PointerIsMine(alloc_with_status.alloc));
-      EXPECT_EQ(reinterpret_cast<uintptr_t>(alloc_with_status.alloc) % align,
-                0);
+  const auto [align, misalign] = GetParam();
+  constexpr size_t alloc_size = 1;
+  auto alloc_with_status = gpa_.Allocate(
+      alloc_size, static_cast<std::align_val_t>(align), GetStackTrace());
+  EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  EXPECT_NE(alloc_with_status.alloc, nullptr);
+  EXPECT_TRUE(gpa_.PointerIsMine(alloc_with_status.alloc));
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(alloc_with_status.alloc) % align, 0);
 
-      EXPECT_DEATH(
-          {
-            gpa_.Deallocate(absl::bit_cast<void*>(
-                absl::bit_cast<uintptr_t>(alloc_with_status.alloc) + misalign));
-          },
-          "CHECK in AddrToSlot|Attempted to free corrupted pointer");
+  EXPECT_DEATH(
+      {
+        gpa_.Deallocate(absl::bit_cast<void*>(
+            absl::bit_cast<uintptr_t>(alloc_with_status.alloc) + misalign));
+      },
+      "CHECK in AddrToSlot|Attempted to free corrupted pointer");
 
-      gpa_.Deallocate(alloc_with_status.alloc);
-    }
-  }
+  gpa_.Deallocate(alloc_with_status.alloc);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    VaryAlignment, GuardedPageAllocatorMisalignedFreeTest,
+    testing::ValuesIn(MisalignedFreeCases()),
+    [](const testing::TestParamInfo<MisalignedFree>& info) {
+      return absl::StrCat("Align", info.param.align, "Misalign",
+                          info.param.misalign);
+    });
 
 TEST_P(GuardedPageAllocatorParamTest, AllocDeallocAllPages) {
   size_t num_pages = GetParam();
