@@ -17,7 +17,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -26,7 +25,6 @@
 #include "fuzztest/fuzztest.h"
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
@@ -39,6 +37,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mock_metadata_allocator.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/mock_virtual_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"

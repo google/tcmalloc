@@ -27,6 +27,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
