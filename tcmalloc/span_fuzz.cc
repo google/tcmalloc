@@ -52,7 +52,6 @@ struct State {
   std::vector<void*> live_ptrs;
   std::vector<void*> batch;
   std::mt19937 rng;
-  bool donated = false;
   uint8_t nonempty_index = 0;
 
   State(size_t object_size, Length pages, size_t num_to_move)
@@ -63,7 +62,7 @@ struct State {
         size_reciprocal(Span::CalcReciprocal(object_size)) {
     TC_CHECK_EQ(posix_memalign(&mem, kPageSize, pages.in_bytes()), 0);
 
-    span = std::make_unique<Span>(Range(PageIdContaining(mem), pages));
+    span = std::make_unique<Span>(PageIdContaining(mem));
     TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {}), 0);
 
     live_ptrs.reserve(objects_per_span);
@@ -179,13 +178,11 @@ struct DeallocIndex {
 
 struct SetBitpackedAttributes {
   uint8_t nonempty_index;
-  bool donated;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const SetBitpackedAttributes& s) {
-    absl::Format(&sink,
-                 "SetBitpackedAttributes{.nonempty_index=%v, .donated=%v}",
-                 s.nonempty_index, s.donated);
+    absl::Format(&sink, "SetBitpackedAttributes{.nonempty_index=%v}",
+                 s.nonempty_index);
   }
 
   void Perform(State& state) const {
@@ -193,11 +190,6 @@ struct SetBitpackedAttributes {
     state.nonempty_index = nonempty_index % (1 << Span::kNonemptyIndexBits);
     state.span->set_nonempty_index(state.nonempty_index);
     EXPECT_EQ(state.span->nonempty_index(), state.nonempty_index);
-
-    EXPECT_EQ(state.donated, state.span->donated());
-    state.donated = donated;
-    state.span->set_donated(donated);
-    EXPECT_EQ(state.span->donated(), donated);
   }
 };
 
@@ -273,7 +265,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
 
   // Heap allocated, despite not being moved, to aid sanitizers in detecting
   // out-of-bound accesses.
-  auto span = std::make_unique<Span>(Range(PageIdContaining(mem), pages));
+  auto span = std::make_unique<Span>(PageIdContaining(mem));
 
   std::vector<void*> ptrs;
   ptrs.resize(initial_objects_at_build);

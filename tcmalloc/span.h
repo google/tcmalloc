@@ -26,7 +26,6 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/casts.h"
-#include "absl/base/macros.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
@@ -38,9 +37,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/range_tracker.h"
-#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/sizemap.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -91,26 +88,16 @@ typedef TList<Span> SpanList;
 
 class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
  public:
-  constexpr Span()
-      : embed_count_(0),
-        freelist_(0),
-        allocated_(std::numeric_limits<uint16_t>::max()),
-        cache_size_(0),
-        nonempty_index_(0),
-        first_page_(0),
-        list_{} {}
-
-  explicit Span(Range r)
+  explicit Span(PageId first_page)
       : embed_count_(0),
         freelist_(0),
         allocated_(0),
         cache_size_(0),
         nonempty_index_(0),
-        first_page_(r.p.index()),
+        first_page_(first_page.index()),
         list_{} {
-    TC_ASSERT_GT(r.p, PageId{0});
-    TC_CHECK_LT(r.p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
-    set_num_pages(r.n);
+    TC_ASSERT_GT(first_page, PageId{0});
+    TC_CHECK_LT(first_page.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
   }
 
   Span(const Span&) = delete;
@@ -118,12 +105,9 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   // Allocator/deallocator for spans. Note that these functions are defined
   // in static_vars.h, which is weird: see there for why.
-  [[nodiscard]] static Span* absl_nonnull New(Range r)
+  [[nodiscard]] static Span* absl_nonnull New(PageId first_page)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
   static void Delete(Span* absl_nonnull span);
-
-  [[nodiscard]] bool donated() const { return is_donated_; }
-  void set_donated(bool value) { is_donated_ = value; }
 
   // ---------------------------------------------------------------------------
   // Span memory range.
@@ -132,23 +116,11 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Returns first page of the span.
   [[nodiscard]] PageId first_page() const;
 
-  // Returns the last page in the span.
-  [[nodiscard]] PageId last_page() const;
-
   // Sets span first page.
   void set_first_page(PageId p);
 
   // Returns start address of the span.
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL void* start_address() const;
-
-  // Returns number of pages in the span.
-  [[nodiscard]] Length num_pages() const;
-
-  // Sets number of pages in the span.
-  void set_num_pages(Length len);
-
-  // Total memory bytes in the span.
-  [[nodiscard]] size_t bytes_in_span() const;
 
   // Returns number of objects allocated in the span.
   [[nodiscard]] uint16_t Allocated() const { return allocated_; }
@@ -203,13 +175,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     return tcmalloc_internal::CalcReciprocal(size);
   }
 
-  // When central freelist tracks a span, that span is assured to consist of <
-  // kLargeSpanLength number of pages. This allows us to record number of pages
-  // in that span in fewer (i.e. kMaxNumPageBits) bits.
-  static constexpr size_t kMaxNumPageBits = 6;
-  static constexpr Length kLargeSpanLength = Length((1 << kMaxNumPageBits) - 1);
-  static_assert(kMaxSize <= kLargeSpanLength.in_bytes());
-
   // Returns true if Span will use bitmap for objects of size <size>.
   [[nodiscard]] static bool UseBitmapForSize(size_t size);
 
@@ -262,15 +227,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
   uint64_t first_page_ : kMaxPageIdBits;  // Starting page number.
 
-  // Has this span allocation resulted in a donation to the filler in the page
-  // heap? This is used by page heap to compute abandoned pages.
-  uint8_t is_donated_ : 1 = 0;
-
-  // When a span consists of < kLargeSpanLength number of pages, we can record
-  // the number of pages in kMaxNumPageBits number of bits.
-  uint64_t small_num_pages_ : kMaxNumPageBits = 0;
-  uint64_t reserved_ : 64 - kMaxNumPageBits = 0;
-
   struct ListSpanState {
     // Embed cache of free objects.
     ObjIdx cache[Span::kCacheSize];
@@ -322,7 +278,6 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {
-  TC_ASSERT_EQ(small_num_pages_, 1u);
   TC_ASSERT_EQ(start, first_page().start_uintptr());
   TC_ASSERT_NE(idx, kListEnd);
   uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
@@ -336,7 +291,6 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   // Classes that use freelist must also use 1 page per span,
   // so don't load first_page_ (may be on a different cache line).
-  TC_ASSERT_EQ(small_num_pages_, 1u);
   TC_ASSERT_EQ(PageIdContaining(ptr), first_page());
   uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
   ObjIdx idx = static_cast<ObjIdx>(off);
@@ -547,10 +501,6 @@ inline bool Span::BitmapPushBatch(absl::Span<ObjIdx> batch, size_t size,
 
 inline PageId Span::first_page() const { return PageId(first_page_); }
 
-inline PageId Span::last_page() const {
-  return first_page() + Length(small_num_pages_) - Length(1);
-}
-
 inline void Span::set_first_page(PageId p) {
   TC_ASSERT_GT(p, PageId{0});
   TC_CHECK_LT(p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
@@ -563,18 +513,6 @@ inline void* Span::start_address() const {
   return first_page().start_addr();
 }
 
-inline Length Span::num_pages() const { return Length(small_num_pages_); }
-
-inline void Span::set_num_pages(Length len) {
-  TC_ASSERT_GT(len, Length(0));
-  TC_ASSERT_LE(len, kLargeSpanLength);
-  small_num_pages_ = len.raw_num();
-}
-
-inline size_t Span::bytes_in_span() const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-  return Length(small_num_pages_).in_bytes();
-}
-
 inline bool Span::FreelistEmpty(uint32_t objects_per_span) const {
   return allocated_ == objects_per_span;
 }
@@ -582,7 +520,6 @@ inline bool Span::FreelistEmpty(uint32_t objects_per_span) const {
 inline void Span::Prefetch() { PrefetchW(this); }
 
 inline bool Span::IsValidSizeClass(size_t size, Length pages) {
-  if (pages > kLargeSpanLength) return false;
   if (Span::UseBitmapForSize(size)) {
     size_t objects = pages.in_bytes() / size;
     return objects <= kBitmapSize;

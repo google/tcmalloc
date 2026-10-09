@@ -96,7 +96,7 @@ TEST_P(PageMapTest, Sequential) {
 
     // Test size class handling
     ASSERT_EQ(0, map->sizeclass(PageId(i)));
-    map->SetSmall(PageId(i), span(i), sc(i));
+    map->SetSmall(PageId(i), span(i), sc(i), false);
     ASSERT_EQ(sc(i), map->sizeclass(PageId(i)));
   }
   for (intptr_t i = 0; i < limit; i++) {
@@ -112,7 +112,7 @@ TEST_P(PageMapTest, Bulk) {
 
   ASSERT_TRUE(map->Ensure(Range(PageId(0), Length(limit))));
   for (intptr_t i = 0; i < limit; i++) {
-    map->SetSmall(PageId(i), span(i), sc(i));
+    map->SetSmall(PageId(i), span(i), sc(i), false);
     ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
   }
   for (intptr_t i = 0; i < limit; i++) {
@@ -136,7 +136,8 @@ TEST_P(PageMapTest, RandomAccess) {
 
   for (intptr_t i = 0; i < limit; i++) {
     ASSERT_TRUE(map->Ensure(Range(PageId(elements[i]), Length(1))));
-    map->SetSmall(PageId(elements[i]), span(elements[i]), sc(elements[i]));
+    map->SetSmall(PageId(elements[i]), span(elements[i]), sc(elements[i]),
+                  false);
     ASSERT_EQ(map->GetDescriptor(PageId(elements[i])).span(),
               span(elements[i]));
   }

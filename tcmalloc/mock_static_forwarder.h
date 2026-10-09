@@ -85,7 +85,7 @@ class FakeStaticForwarder {
       --it;
     }
 
-    if (it->first <= page && page <= it->second.span->last_page()) {
+    if (it->first <= page && page < it->first + it->second.pages_per_span) {
       return it->second.span;
     }
 
@@ -98,11 +98,12 @@ class FakeStaticForwarder {
                                    std::align_val_t(page_size_));
     PageId page = PageIdContaining(backing);
 
-    auto* span = new Span(Range(page, pages_per_span));
+    auto* span = new Span(page);
 
     absl::MutexLock l(mu_);
     SpanInfo info;
     info.span = span;
+    info.pages_per_span = pages_per_span;
     SpanAllocInfo span_alloc_info = {
         .objects_per_span = objects_per_span,
         .density = AccessDensityPrediction::kSparse};
@@ -111,7 +112,7 @@ class FakeStaticForwarder {
     return span;
   }
 
-  void DeallocateSpans(size_t, absl::Span<Span*> free_spans) {
+  void DeallocateSpans(size_t, Length, absl::Span<Span*> free_spans) {
     {
       absl::MutexLock l(mu_);
       for (Span* span : free_spans) {
@@ -136,6 +137,7 @@ class FakeStaticForwarder {
  private:
   struct SpanInfo {
     Span* span;
+    Length pages_per_span;
     SpanAllocInfo span_alloc_info;
   };
 
@@ -175,9 +177,10 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
                                                    pages_per_span);
         });
     ON_CALL(*this, DeallocateSpans)
-        .WillByDefault([this](size_t objects_per_span,
+        .WillByDefault([this](size_t objects_per_span, Length pages_per_span,
                               absl::Span<Span*> free_spans) {
-          FakeStaticForwarder::DeallocateSpans(objects_per_span, free_spans);
+          FakeStaticForwarder::DeallocateSpans(objects_per_span, pages_per_span,
+                                               free_spans);
         });
   }
 
@@ -191,7 +194,8 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(Span*, AllocateSpan,
               (int size_class, size_t objects_per_span, Length pages_per_span));
   MOCK_METHOD(void, DeallocateSpans,
-              (size_t object_per_span, absl::Span<Span*> free_spans));
+              (size_t object_per_span, Length pages_per_span,
+               absl::Span<Span*> free_spans));
 };
 
 using MockStaticForwarder = testing::NiceMock<RawMockStaticForwarder>;

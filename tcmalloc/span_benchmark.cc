@@ -52,7 +52,7 @@ class RawSpan {
     void* mem;
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
-    span_.emplace(Range(PageIdContaining(mem), npages));
+    span_.emplace(PageIdContaining(mem));
     TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}), 0);
   }
 

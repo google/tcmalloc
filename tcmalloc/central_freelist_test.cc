@@ -113,7 +113,8 @@ TEST_P(StaticForwarderTest, Simple) {
   ASSERT_EQ(allocated, objects_per_span_);
 
   EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
-  EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->last_page()));
+  EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(
+                             span->first_page() + pages_per_span_ - Length(1)));
 
   // span_test.cc provides test coverage for Span, but we need to obtain several
   // objects to confirm we can map back to the Span pointer from the PageMap.
@@ -129,7 +130,8 @@ TEST_P(StaticForwarderTest, Simple) {
               ptr != batch.back());
   }
 
-  StaticForwarder::DeallocateSpans(objects_per_span_, absl::MakeSpan(&span, 1));
+  StaticForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
+                                   absl::MakeSpan(&span, 1));
 }
 
 TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
@@ -165,7 +167,8 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
     (void)span->FreelistPushBatch(absl::MakeSpan(&p, 1), object_size,
                                   size_reciprocal);
   }
-  StaticForwarder::DeallocateSpans(objects_per_span, absl::MakeSpan(&span, 1));
+  StaticForwarder::DeallocateSpans(objects_per_span, pages_per_span,
+                                   absl::MakeSpan(&span, 1));
 
   // Double free (after deallocation, span descriptor is invalid)
   EXPECT_DEATH(StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class),
@@ -224,7 +227,8 @@ class StaticForwarderEnvironment {
       EXPECT_EQ(size_class_,
                 tc_globals.pagemap().sizeclass(data->span->first_page()));
       EXPECT_EQ(size_class_,
-                tc_globals.pagemap().sizeclass(data->span->last_page()));
+                tc_globals.pagemap().sizeclass(data->span->first_page() +
+                                               pages_per_span_ - Length(1)));
       // Confirm we can map at least one object back.
       Span* got;
       StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got,
@@ -236,7 +240,7 @@ class StaticForwarderEnvironment {
 
     auto span_span = absl::MakeSpan(free_spans);
     for (int i = 0; i < spans.size(); i += kMaxObjectsToMove) {
-      StaticForwarder::DeallocateSpans(objects_per_span_,
+      StaticForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
                                        span_span.subspan(i, kMaxObjectsToMove));
     }
   }
@@ -255,7 +259,9 @@ class StaticForwarderEnvironment {
     EXPECT_LE(allocated, objects_per_span_);
 
     EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
-    EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->last_page()));
+    EXPECT_EQ(size_class_,
+              tc_globals.pagemap().sizeclass(span->first_page() +
+                                             pages_per_span_ - Length(1)));
     // Confirm we can map at least one object back.
     Span* got;
     StaticForwarder::MapObjectsToSpans({&d->batch[0], 1}, &got, size_class_);
@@ -291,7 +297,8 @@ class StaticForwarderEnvironment {
       EXPECT_EQ(size_class_,
                 tc_globals.pagemap().sizeclass(data->span->first_page()));
       EXPECT_EQ(size_class_,
-                tc_globals.pagemap().sizeclass(data->span->last_page()));
+                tc_globals.pagemap().sizeclass(data->span->first_page() +
+                                               pages_per_span_ - Length(1)));
       // Confirm we can map at least one object back.
       Span* got;
       StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got,
@@ -303,7 +310,7 @@ class StaticForwarderEnvironment {
 
     auto span_span = absl::MakeSpan(free_spans);
     for (int i = 0; i < spans.size(); i += kMaxObjectsToMove) {
-      StaticForwarder::DeallocateSpans(objects_per_span_,
+      StaticForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
                                        span_span.subspan(i, kMaxObjectsToMove));
     }
   }
@@ -1238,7 +1245,8 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
         e.central_freelist().RemoveRange(absl::MakeSpan(&objects[0], to_fetch));
     size_t returned = 0;
     while (returned < fetched) {
-      EXPECT_CALL(e.forwarder(), DeallocateSpans(testing::_, testing::_))
+      EXPECT_CALL(e.forwarder(),
+                  DeallocateSpans(testing::_, testing::_, testing::_))
           .Times(1);
       const size_t to_return = std::min(fetched - returned, e.batch_size());
       e.central_freelist().InsertRange({&objects[returned], to_return});

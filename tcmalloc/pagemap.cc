@@ -53,7 +53,7 @@ GOOGLE_MALLOC_SECTION int PageMap<BITS, Allocator>::GetAllocatedSpans(
     if (size_class != 0) {
       Span* s = meta.span();
       if (p.value() != s->first_page()) continue;
-      num_pages = s->num_pages();
+      num_pages = tc_globals.sizemap().class_to_pages(size_class);
     } else {
       num_pages = meta.size();
     }

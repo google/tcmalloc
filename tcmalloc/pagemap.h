@@ -66,12 +66,13 @@ class PageMeta {
         unused_(0),
         span_or_size_(0) {}
 
-  void set_small(Span* absl_nonnull span, CompactSizeClass sizeclass) {
+  void set_small(Span* absl_nonnull span, CompactSizeClass sizeclass,
+                 bool donated) {
     TC_ASSERT_NE(span, nullptr);
     TC_ASSERT_NE(sizeclass, 0);
     sizeclass_ = static_cast<uint64_t>(sizeclass);
     sampled_ = 0;
-    donated_ = 0;
+    donated_ = donated;
     freed_ = 0;
     unused_ = 0;
     span_or_size_ = reinterpret_cast<uint64_t>(span);
@@ -281,9 +282,10 @@ class PageMap {
     return leaf->page[i3].sizeclass();
   }
 
-  void SetSmall(PageId p, Span* absl_nonnull span, CompactSizeClass sc) {
+  void SetSmall(PageId p, Span* absl_nonnull span, CompactSizeClass sc,
+                bool donated) {
     auto [leaf, i3] = MustIndex(p);
-    leaf->page[i3].set_small(span, sc);
+    leaf->page[i3].set_small(span, sc, donated);
   }
 
   void SetLarge(PageId p, Length size, bool donated) {
@@ -380,26 +382,31 @@ class PageMap {
   // REQUIRES: span was returned by an earlier call to PageAllocator::New()
   //           and has not yet been deleted.
   // Concurrent calls to this method are safe unless they mark the same span.
-  void RegisterSizeClass(Span* span, size_t sc) {
+  void RegisterSizeClass(Span* span, Length num_pages, size_t sc,
+                         bool donated) {
     const PageId first = span->first_page();
-    const PageId last = span->last_page();
+    const PageId last = first + num_pages - Length(1);
     for (PageId p = first; p <= last; ++p) {
-      SetSmall(p, span, sc);
+      SetSmall(p, span, sc, donated);
     }
   }
 
   // Mark an allocated span as being not used for any size-class.
+  // Returns whether the span was donated.
   // REQUIRES: span was returned by an earlier call to PageAllocator::New()
   //           and has not yet been deleted.
   // Concurrent calls to this method are safe unless they mark the same span.
-  void UnregisterSizeClass(Span* span) {
+  [[nodiscard]] bool UnregisterSizeClass(Span* span, Length num_pages) {
     const PageId first = span->first_page();
-    const PageId last = span->last_page();
-    TC_ASSERT_EQ(GetDescriptor(first).span(), span);
+    const PageId last = first + num_pages - Length(1);
+    const PageMeta first_meta = GetExistingDescriptor(first);
+    TC_ASSERT_EQ(first_meta.span(), span);
+    const bool donated = first_meta.donated();
     for (PageId p = first; p <= last; ++p) {
       auto [leaf, i3] = MustIndex(p);
       leaf->page[i3].set_freed();
     }
+    return donated;
   }
 
   // Returns the count of the currently allocated Spans and also adds details

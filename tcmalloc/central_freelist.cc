@@ -116,12 +116,12 @@ Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
   if (ABSL_PREDICT_FALSE(!res)) {
     return nullptr;
   }
-  Span* span = Span::New(res.r);
-  span->set_donated(res.donated);
+  Span* span = Span::New(res.r.p);
   TC_ASSERT_EQ(tag, GetMemoryTag(res.r.start_addr()));
   TC_ASSERT_EQ(res.r.n, pages_per_span);
 
-  tc_globals.pagemap().RegisterSizeClass(span, size_class);
+  tc_globals.pagemap().RegisterSizeClass(span, pages_per_span, size_class,
+                                         res.donated);
   return span;
 }
 
@@ -136,16 +136,20 @@ static void ReturnAllocsToPageHeap(
 }
 
 void StaticForwarder::DeallocateSpans(size_t objects_per_span,
+                                      Length pages_per_span,
                                       absl::Span<Span*> free_spans) {
   TC_ASSERT_NE(free_spans.size(), 0);
   TC_ASSERT_LE(free_spans.size(), kMaxObjectsToMove);
   const MemoryTag tag = GetMemoryTag(free_spans[0]->start_address());
+  PageAllocatorInterface::AllocationState allocs[kMaxObjectsToMove];
   // Unregister size class doesn't require holding any locks.
-  for (Span* const free_span : free_spans) {
+  for (int i = 0, n = free_spans.size(); i < n; ++i) {
+    Span* const free_span = free_spans[i];
     TC_ASSERT_EQ(GetMemoryTag(free_span->start_address()), tag);
     TC_ASSERT(
         !tc_globals.pagemap().GetDescriptor(free_span->first_page()).sampled());
-    tc_globals.pagemap().UnregisterSizeClass(free_span);
+    const bool donated =
+        tc_globals.pagemap().UnregisterSizeClass(free_span, pages_per_span);
 
     // Before taking pageheap_lock, prefetch the PageTrackers these spans are
     // on.
@@ -159,15 +163,10 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
     PrefetchW(pt);
     PrefetchW(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
                                       ABSL_CACHELINE_SIZE));
-  }
 
-  PageAllocatorInterface::AllocationState allocs[kMaxObjectsToMove];
-  for (int i = 0, n = free_spans.size(); i < n; ++i) {
-    Span* s = free_spans[i];
-    TC_ASSERT_EQ(tag, GetMemoryTag(s->start_address()));
-    allocs[i].r = Range(s->first_page(), s->num_pages());
-    allocs[i].donated = s->donated();
-    Span::Delete(s);
+    allocs[i].r = Range(p, pages_per_span);
+    allocs[i].donated = donated;
+    Span::Delete(free_span);
   }
   const AccessDensityPrediction density = AccessDensity(objects_per_span);
   SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,

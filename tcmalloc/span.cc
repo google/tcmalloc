@@ -160,7 +160,9 @@ int Span::BuildFreelist(size_t size, size_t count,
   return result;
 }
 
-Span* Span::New(Range r) { return tc_globals.span_allocator().New(r); }
+Span* Span::New(PageId first_page) {
+  return tc_globals.span_allocator().New(first_page);
+}
 
 void Span::Delete(Span* span) {
 #ifndef NDEBUG

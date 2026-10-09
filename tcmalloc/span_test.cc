@@ -52,7 +52,7 @@ class RawSpan {
     TC_CHECK_EQ(res, 0);
 
     // Dynamically allocate so ASan can flag if we run out of bounds.
-    span_ = std::make_unique<Span>(Range(PageIdContaining(mem_), npages));
+    span_ = std::make_unique<Span>(PageIdContaining(mem_));
     TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}), 0);
   }
 
@@ -121,7 +121,7 @@ TEST_P(SpanTest, FreelistBasic) {
       for (size_t i = 0; i < n; ++i) {
         void* p = batch[i];
         uintptr_t off = reinterpret_cast<char*>(p) - start;
-        EXPECT_LT(off, span_.bytes_in_span());
+        EXPECT_LT(off, npages_.in_bytes());
         EXPECT_EQ(off % size_, 0);
         size_t idx = off / size_;
         EXPECT_FALSE(objects[idx]);
@@ -180,7 +180,7 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
       for (size_t i = 0; i < n; ++i) {
         void* p = batch[i];
         uintptr_t off = reinterpret_cast<char*>(p) - start;
-        EXPECT_LT(off, span_.bytes_in_span());
+        EXPECT_LT(off, npages_.in_bytes());
         EXPECT_EQ(off % size_, 0);
         size_t idx = off / size_;
         EXPECT_FALSE(objects[idx]);
@@ -235,14 +235,12 @@ TEST_P(SpanTest, FreelistBasicObjIdx) {
 INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
 
 TEST(SpanAllocatorTest, Alignment) {
-  Range r(PageId{1}, Length{2});
-
   constexpr int kNumSpans = 1000;
   std::vector<Span*> spans;
   spans.reserve(kNumSpans);
 
   for (int i = 0; i < kNumSpans; ++i) {
-    spans.push_back(Span::New(r));
+    spans.push_back(Span::New(PageId{1}));
   }
 
   absl::flat_hash_map<uintptr_t, int> address_mod_cacheline;
