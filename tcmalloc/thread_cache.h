@@ -81,12 +81,12 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   // without padding.
   class FreeList : public LinkedList {
    private:
-    uint32_t lowater_;     // Low water mark for list length.
-    uint32_t max_length_;  // Dynamic max list length based on usage.
+    uint16_t lowater_;     // Low water mark for list length.
+    uint16_t max_length_;  // Dynamic max list length based on usage.
     // Tracks the number of times a deallocation has caused
     // length_ > max_length_.  After the kMaxOverages'th time, max_length_
     // shrinks and length_overages_ is reset to zero.
-    uint32_t length_overages_;
+    uint16_t length_overages_;
 
    public:
     void Init() {
