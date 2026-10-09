@@ -35,12 +35,12 @@ namespace tcmalloc_internal {
 namespace {
 
 // From fs/proc/task_mmu.c:
-#define PM_SWAP 1ULL << 62
-#define PM_PRESENT 1ULL << 63
+#define PM_GUARD_REGION (1ULL << 58)
+#define PM_SWAP (1ULL << 62)
+#define PM_PRESENT (1ULL << 63)
 
 constexpr bool PageSwapped(uint64_t flags) {
-  constexpr uint64_t kSwap = PM_SWAP;
-  return (flags & kSwap) == kSwap;
+  return (flags & (PM_SWAP | PM_GUARD_REGION)) == PM_SWAP;
 }
 
 constexpr bool PagePresent(uint64_t flags) {

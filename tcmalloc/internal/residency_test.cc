@@ -21,6 +21,10 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#ifndef MADV_GUARD_INSTALL
+#define MADV_GUARD_INSTALL 102
+#endif
+
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -70,6 +74,7 @@ using ::testing::_;
 using ::testing::FieldsAre;
 using ::testing::Optional;
 
+constexpr uint64_t kPageGuardRegion = (1ULL << 58);
 constexpr uint64_t kPageSwapped = (1ULL << 62);
 constexpr uint64_t kPagePresent = (1ULL << 63);
 
@@ -166,6 +171,31 @@ TEST(ResidenceTest, CannotSeek) {
   EXPECT_FALSE(r.Get(&r, 1).has_value());
 }
 
+TEST(ResidenceTest, GuardPagesNotCountedAsSwapped) {
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/guard_pages_residency");
+  int write_fd = signal_safe_open(
+      file_path.c_str(), O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
+  ASSERT_NE(write_fd, -1) << errno;
+  const uint64_t entries[3] = {
+      kPageSwapped | kPageGuardRegion,
+      kPagePresent,
+      kPageSwapped,
+  };
+  ASSERT_EQ(write(write_fd, entries, sizeof(entries)), sizeof(entries));
+  ASSERT_EQ(close(write_fd), 0);
+
+  const size_t kHardwarePageSize = GetPageSize();
+  ResidencySpouse r(file_path);
+  auto info = r.Get(nullptr, 3 * kHardwarePageSize);
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->bytes_resident, kHardwarePageSize);
+  EXPECT_EQ(info->bytes_swapped, kHardwarePageSize);
+  EXPECT_FALSE(info->page_is_resident.GetBit(0));
+  EXPECT_TRUE(info->page_is_resident.GetBit(1));
+  EXPECT_FALSE(info->page_is_resident.GetBit(2));
+}
+
 // Method that can write a region with a single hugepage
 // a region with a single missing page, a region with every other page missing,
 // a region with all missing pages, or a region with a hugepage in the middle.
@@ -211,6 +241,16 @@ void GenerateHolesInSinglePage(absl::string_view filename, int case_num,
           buf[i] = kPageSwapped;
         } else if (i % 2 == 1) {
           buf[i] = 0;
+        }
+        break;
+      case 6:
+        // Every other page is a MADV_GUARD_INSTALL guard page (PM_SWAP |
+        // PM_GUARD_REGION), rest are present. Guard pages must be treated as
+        // unbacked rather than swapped.
+        if (i % 2 == 0) {
+          buf[i] = kPageSwapped | kPageGuardRegion;
+        } else {
+          buf[i] = kPagePresent;
         }
         break;
     }
@@ -265,6 +305,12 @@ Residency::SinglePageBitmaps GenerateExpectedSinglePageBitmaps(int case_num) {
         }
       }
       break;
+    case 6:
+      // Every other page is a MADV_GUARD_INSTALL guard page, rest are present.
+      for (int idx = 0; idx < 512; idx += 2) {
+        expected_unbacked.SetBit(idx);
+      }
+      break;
   }
   return Residency::SinglePageBitmaps{expected_unbacked, expected_swapped,
                                       absl::StatusCode::kOk};
@@ -281,7 +327,7 @@ bool BitmapsAreEqual(const Bitmap<512>& bitmap1, const Bitmap<512>& bitmap2) {
 }
 
 TEST(PageMapTest, GetUnbackedAndSwappedBitmaps) {
-  constexpr int kNumCases = 6;
+  constexpr int kNumCases = 7;
   std::array<Residency::SinglePageBitmaps, kNumCases> expected;
   for (int i = 0; i < kNumCases; ++i) {
     expected[i] = GenerateExpectedSinglePageBitmaps(i);
@@ -379,6 +425,41 @@ TEST(PageMapIntegrationTest, WorksOnActualData) {
   res.unbacked.ClearLowestBit();
   EXPECT_TRUE(res.unbacked.IsZero());
   EXPECT_TRUE(res.swapped.IsZero());
+}
+
+TEST(PageMapIntegrationTest, GuardPages) {
+  const size_t kHardwarePageSize = GetPageSize();
+  void* raw = mmap(nullptr, 2 * kHugePageSize, PROT_READ | PROT_WRITE,
+                   MAP_ANONYMOUS | MAP_POPULATE | MAP_PRIVATE, -1, 0);
+  ASSERT_NE(raw, MAP_FAILED) << errno;
+
+  uint8_t* addr = reinterpret_cast<uint8_t*>(
+      (reinterpret_cast<uintptr_t>(raw) + kHugePageSize - 1) &
+      ~(kHugePageSize - 1));
+  if (madvise(addr + kHardwarePageSize, kHardwarePageSize,
+              MADV_GUARD_INSTALL) != 0) {
+    ASSERT_EQ(munmap(raw, 2 * kHugePageSize), 0) << errno;
+    GTEST_SKIP() << "MADV_GUARD_INSTALL not supported by kernel";
+  }
+
+  std::optional<AllocationGuard> g;
+  g.emplace();
+  ResidencyPageMap r;
+  std::optional<Residency::Info> info = r.Get(addr, kHugePageSize);
+  Residency::SinglePageBitmaps res = r.GetUnbackedAndSwappedBitmaps(addr);
+  g.reset();
+
+  ASSERT_THAT(info,
+              Optional(FieldsAre(kHugePageSize - kHardwarePageSize, 0, _)));
+  EXPECT_TRUE(info->page_is_resident.GetBit(0));
+  EXPECT_FALSE(info->page_is_resident.GetBit(1));
+
+  ASSERT_EQ(res.status, absl::StatusCode::kOk);
+  EXPECT_EQ(res.unbacked.CountBits(), 1);
+  EXPECT_TRUE(res.unbacked.GetBit(1));
+  EXPECT_TRUE(res.swapped.IsZero());
+
+  ASSERT_EQ(munmap(raw, 2 * kHugePageSize), 0) << errno;
 }
 
 }  // namespace
