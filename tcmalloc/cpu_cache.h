@@ -773,6 +773,8 @@ class CpuCache {
   // single <cpu>.
   void ResizeCpuSizeClasses(int cpu);
 
+  uint64_t DrainLocksHeld(int cpu);
+
   // <shift_offset> is the offset of the shift in slabs_by_shift_. Note that we
   // can't calculate this from `shift` directly due to numa shift.
   // Returns the allocated slabs and the number of reused bytes.
@@ -1802,12 +1804,12 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
               return a.misses > b.misses;
             });
 
-  size_t available =
-      resize_[cpu].available.exchange(0, std::memory_order_relaxed);
   size_t num_resizes = 0;
   {
     AllocationGuardSpinLockHolder h(resize_[cpu].lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
+    size_t available =
+        resize_[cpu].available.exchange(0, std::memory_order_relaxed);
     const auto max_capacity = GetMaxCapacityFunctor();
     size_t size_classes_to_resize = 5;
     TC_ASSERT_LT(size_classes_to_resize, kNumClasses);
@@ -1855,8 +1857,8 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
         available -= got * size;
       }
     }
+    resize_[cpu].available.fetch_add(available, std::memory_order_relaxed);
   }
-  resize_[cpu].available.fetch_add(available, std::memory_order_relaxed);
   resize_[cpu].num_size_class_resizes.fetch_add(num_resizes,
                                                 std::memory_order_relaxed);
 }
@@ -2032,8 +2034,8 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
   // Increment the capacity of the destination cpu cache by the amount of bytes
   // acquired from source caches.
   if (acquired) {
-    resize_[cpu].available.fetch_add(acquired, std::memory_order_relaxed);
     resize_[cpu].capacity.fetch_add(acquired, std::memory_order_relaxed);
+    resize_[cpu].available.fetch_add(acquired, std::memory_order_relaxed);
   }
 }
 
@@ -2285,6 +2287,12 @@ struct DrainHandler {
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::Drain(int cpu) {
   AllocationGuardSpinLockHolder h(resize_[cpu].lock);
+  return DrainLocksHeld(cpu);
+}
+
+template <class Forwarder>
+inline uint64_t CpuCache<Forwarder>::DrainLocksHeld(int cpu) {
+  TC_ASSERT(resize_[cpu].lock.IsHeld());
 
   // If we haven't populated this core, freelist_.Drain() will touch the memory
   // (for writing) as part of its locking process.  Avoid faulting new pages as
