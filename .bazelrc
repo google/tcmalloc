@@ -39,6 +39,9 @@ build --define='absl=1'
 # Use thread-safe death tests in Google Test.
 build --copt=-DGTEST_DEFAULT_DEATH_TEST_STYLE='\"threadsafe\"' --host_copt=-DGTEST_DEFAULT_DEATH_TEST_STYLE='\"threadsafe\"'
 
+# https://github.com/bazelbuild/bazel/pull/26294
+build --experimental_cc_static_library
+
 # AllocationGuard.CooperativeDeathTest checks for "SIGABRT received"
 # message printed by this signal handler.
 test --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1"
