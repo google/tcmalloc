@@ -1504,10 +1504,17 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
     }
 
     // Consider popping the worst candidate from our list.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     if (CompareForSubrelease(candidates[0], &pt)) {
       // pt is worse than the current worst.
       return;
     }
+#else
+    if (!CompareForSubrelease(&pt, candidates[0])) {
+      // pt is no better than the current worst.
+      return;
+    }
+#endif
 
     std::pop_heap(candidates.begin(), candidates.begin() + current_candidates,
                   CompareForSubrelease);

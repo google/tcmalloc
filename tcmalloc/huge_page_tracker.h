@@ -274,7 +274,8 @@ class PageTracker : public TList<PageTracker>::Elem {
     // This records the trackers that are currently being collapsed. This is
     // used to avoid subreleasing the pages that are being collapsed.
     bool being_collapsed = false;
-    // Records whether collapse was skipped due to threshold constraints.
+    // Records whether collapse was skipped (due to threshold constraints or
+    // backoff).
     bool collapse_skipped = false;
     // Records whether collapse was skipped due to backoff.
     bool collapse_skipped_due_to_backoff = false;
