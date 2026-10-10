@@ -40,10 +40,14 @@ namespace tcmalloc_internal {
 
 static void RemoveInitialHooksAndCallInitializers();
 
-static void InitialNewHook(const MallocHook::NewInfo& info) {
+void InitAtFirstAllocation() {
   ABSL_CONST_INIT static absl::once_flag once;
   absl::base_internal::LowLevelCallOnce(&once,
                                         RemoveInitialHooksAndCallInitializers);
+}
+
+static void InitialNewHook(const MallocHook::NewInfo& info) {
+  InitAtFirstAllocation();
   MallocHook::InvokeNewHook(info);
 }
 

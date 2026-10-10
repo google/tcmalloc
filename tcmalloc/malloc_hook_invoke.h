@@ -30,6 +30,8 @@ extern HookList<MallocHook::DeleteHook> delete_hooks_;
 extern HookList<MallocHook::SampledNewHook> sampled_new_hooks_;
 extern HookList<MallocHook::SampledDeleteHook> sampled_delete_hooks_;
 
+void InitAtFirstAllocation();
+
 }  // namespace tcmalloc_internal
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void MallocHook::InvokeNewHook(
