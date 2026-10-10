@@ -132,6 +132,13 @@ class CpuCachePeer {
                                size_t slab_size) {
     cpu_cache.MadviseAwaySlabs(slab_addr, slab_size);
   }
+
+  template <typename CpuCache>
+  static void CheckResizeLockInvariants(CpuCache& cpu_cache, int cpu) {
+    AllocationGuardSpinLockHolder h(cpu_cache.resize_[cpu].lock);
+    EXPECT_EQ(cpu_cache.Allocated(cpu) + cpu_cache.Unallocated(cpu),
+              cpu_cache.Capacity(cpu));
+  }
 };
 
 namespace {
@@ -1637,6 +1644,38 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
             2 * max_cpu_cache_size);
 
   // Drain caches.
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, ResizeCpuSizeClassesHoldsLockForAvailable) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  constexpr size_t kLimit = 64 << 10;
+  cache.SetCacheLimit(kLimit);
+  cache.Activate();
+
+  constexpr int kCpuId = 0;
+  ColdCacheOperations(cache, kCpuId, /*size_class=*/1);
+  ASSERT_TRUE(cache.HasPopulated(kCpuId));
+  ASSERT_GT(cache.Unallocated(kCpuId), 0);
+
+  std::atomic<bool> stop{false};
+  std::thread resizer([&]() {
+    while (!stop.load(std::memory_order_relaxed)) {
+      cache.ResizeSizeClasses();
+    }
+  });
+
+  for (int i = 0; i < 1000; ++i) {
+    CpuCachePeer::CheckResizeLockInvariants(cache, kCpuId);
+  }
+
+  stop.store(true, std::memory_order_relaxed);
+  resizer.join();
   cache.Deactivate();
 }
 

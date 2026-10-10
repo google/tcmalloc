@@ -1802,12 +1802,12 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
               return a.misses > b.misses;
             });
 
-  size_t available =
-      resize_[cpu].available.exchange(0, std::memory_order_relaxed);
   size_t num_resizes = 0;
   {
     AllocationGuardSpinLockHolder h(resize_[cpu].lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
+    size_t available =
+        resize_[cpu].available.exchange(0, std::memory_order_relaxed);
     const auto max_capacity = GetMaxCapacityFunctor();
     size_t size_classes_to_resize = 5;
     TC_ASSERT_LT(size_classes_to_resize, kNumClasses);
@@ -1855,8 +1855,8 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
         available -= got * size;
       }
     }
+    resize_[cpu].available.fetch_add(available, std::memory_order_relaxed);
   }
-  resize_[cpu].available.fetch_add(available, std::memory_order_relaxed);
   resize_[cpu].num_size_class_resizes.fetch_add(num_resizes,
                                                 std::memory_order_relaxed);
 }
@@ -2032,8 +2032,8 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
   // Increment the capacity of the destination cpu cache by the amount of bytes
   // acquired from source caches.
   if (acquired) {
-    resize_[cpu].available.fetch_add(acquired, std::memory_order_relaxed);
     resize_[cpu].capacity.fetch_add(acquired, std::memory_order_relaxed);
+    resize_[cpu].available.fetch_add(acquired, std::memory_order_relaxed);
   }
 }
 
