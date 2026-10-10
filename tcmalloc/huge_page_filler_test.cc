@@ -2668,8 +2668,7 @@ TEST_F(FillerTest, SetAnonVmaName) {
   p.pt->SetTagState({.sampled_for_tagging = true});
   pageflags.MarkHugePageBacked(p.pt->location().start_addr(), true);
   set_anon_vma_name_.SetExpectedName(
-      "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_nobjects_256_dense_1_"
-      "released_0");
+      "tcmalloc_region_NORMAL_pg_8192_lfr_240_na_0_no_256_d_1_r_0");
 
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
@@ -2690,8 +2689,7 @@ TEST_F(FillerTest, SetAnonVmaName) {
   PAlloc p2 = AllocateWithSpanAllocInfo(Length(1), info);
 
   set_anon_vma_name_.SetExpectedName(
-      "tcmalloc_region_NORMAL_page_8192_lfr_240_nallocs_0_nobjects_512_dense_1_"
-      "released_0");
+      "tcmalloc_region_NORMAL_pg_8192_lfr_240_na_0_no_512_d_1_r_0");
 
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
