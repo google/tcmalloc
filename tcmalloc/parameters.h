@@ -143,6 +143,12 @@ class Parameters {
     TCMalloc_Internal_SetReleaseMaxFillerPages(value);
   }
 
+  [[nodiscard]] static bool prefer_backed_filler_pages();
+
+  static void set_prefer_backed_filler_pages(bool value) {
+    TCMalloc_Internal_SetPreferBackedFillerPages(value);
+  }
+
   [[nodiscard]] static MadviseRegionsNoHugepage
   madvise_cold_regions_nohugepage();
 
