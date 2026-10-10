@@ -765,8 +765,15 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer& out) {
   }
   out.printf("\n");
   out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  size_t spans_in_list[kNumLists];
+  {
+    CentralFreeListLockHolder h(lock_);
+    for (size_t i = 0; i < kNumLists; ++i) {
+      spans_in_list[i] = nonempty_.SizeOfList(i);
+    }
+  }
   for (size_t i = 0; i < kNumLists; ++i) {
-    out.printf("%6zu: %zu", i, NumSpansInList(i));
+    out.printf("%6zu: %zu", i, spans_in_list[i]);
     if (i < kNumLists - 1) {
       out.printf(",");
     }
@@ -800,11 +807,18 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
     histogram.PrintI64("value", NumSpansWith(i));
   }
 
+  size_t spans_in_list[kNumLists];
+  {
+    CentralFreeListLockHolder h(lock_);
+    for (size_t i = 0; i < kNumLists; ++i) {
+      spans_in_list[i] = nonempty_.SizeOfList(i);
+    }
+  }
   for (size_t i = 0; i < kNumLists; ++i) {
     PbtxtRegion occupancy =
         region.CreateSubRegion("prioritization_list_occupancy");
     occupancy.PrintI64("list_index", i);
-    occupancy.PrintI64("value", NumSpansInList(i));
+    occupancy.PrintI64("value", spans_in_list[i]);
   }
 }
 
