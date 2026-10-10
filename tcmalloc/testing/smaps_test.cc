@@ -14,13 +14,14 @@
 
 #include "tcmalloc/testing/smaps.h"
 
+#include <cstring>
+
 #ifdef __linux__
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
 
 #include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <vector>
 
