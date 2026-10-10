@@ -208,6 +208,7 @@ tcmalloc_cc_library_variants(
     "guarded_allocations.h"
     "guarded_page_allocator.h"
     "hinted_tracker_lists.h"
+    "histogram.h"
     "huge_address_map.h"
     "huge_allocator.h"
     "huge_cache.h"
@@ -259,6 +260,7 @@ tcmalloc_cc_library_variants(
     "guarded_page_allocator.cc"
     "guarded_page_allocator.h"
     "hinted_tracker_lists.h"
+    "histogram.h"
     "huge_address_map.cc"
     "huge_allocator.cc"
     "huge_allocator.h"
@@ -334,7 +336,6 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_cpu_utils"
     "tcmalloc::internal_delay_injection"
     "tcmalloc::internal_environment"
-    "tcmalloc::internal_explicitly_constructed"
     "tcmalloc::internal_exponential_biased"
     "tcmalloc::internal_gwp_asan_state"
     "tcmalloc::internal_hardware_pages"
@@ -348,7 +349,6 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_mincore"
     "tcmalloc::internal_numa"
     "tcmalloc::internal_optimization"
-    "tcmalloc::internal_page_allocation_status"
     "tcmalloc::internal_page_allocator_hooks"
     "tcmalloc::internal_page_size"
     "tcmalloc::internal_pageflags"
@@ -1122,6 +1122,22 @@ tcmalloc_cc_binary(
     "tcmalloc::mock_central_freelist"
     "tcmalloc::mock_transfer_cache"
     "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_histogram_test
+  SRCS
+    "histogram_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::time"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_logging"
+    "tcmalloc::tcmalloc"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test(
