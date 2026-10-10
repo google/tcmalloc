@@ -1076,7 +1076,9 @@ inline void CpuCache<Forwarder>::Activate() {
   for (uint8_t shift = shift_bounds_.initial_shift;
        shift <= shift_bounds_.max_shift; ++shift) {
     CalculateMaxCapacityForAllClasses(shift, max_capacity_);
-    const size_t bytes_available = 1 << shift;
+
+    const size_t bytes_available =
+        Freelist::GetBytesAvailable(subtle::percpu::ToShiftType(shift));
     const size_t bytes_required = EstimateSlabBytes(
         GetMaxCapacityFunctor(), Freelist::GetTotalClassHeaderSize());
     // We may make certain size classes no-ops by selecting "0" at runtime, so

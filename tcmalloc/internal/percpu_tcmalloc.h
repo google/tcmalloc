@@ -349,6 +349,14 @@ class TcmallocSlab {
            sizeof(void*);
   }
 
+  [[nodiscard]] constexpr static size_t GetBytesAvailable(Shift shift) {
+    // Using the entire slab would cause overflow in the "current" field
+    // and the last represnetable value (0xffff) is reserved, so our slab
+    // should never grow to exactly 512 kB.
+    return std::min<size_t>(1 << ToUint8(shift),
+                            (Header::kReservedIndexValue - 1) * sizeof(void*));
+  }
+
  private:
   // In order to support dynamic slab metadata sizes, we need to be able to
   // atomically update both the slabs pointer and the shift value so we store
@@ -1147,12 +1155,14 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
     StoreHeader(GetHeader(slabs, shift, cpu, size_class), hdr);
 
     elems += cap;
-    const size_t bytes_used_on_curr_slab =
-        reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
-    if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
-      TC_BUG("per-CPU memory exceeded, have %v, need %v", 1 << ToUint8(shift),
-             bytes_used_on_curr_slab);
-    }
+  }
+
+  const size_t bytes_available = GetBytesAvailable(shift);
+  const size_t bytes_used_on_curr_slab =
+      reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
+  if (bytes_used_on_curr_slab > bytes_available) {
+    TC_BUG("per-CPU memory exceeded, have %v, need %v", bytes_available,
+           bytes_used_on_curr_slab);
   }
 }
 
