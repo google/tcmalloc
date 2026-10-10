@@ -240,7 +240,9 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   // Attempts to collapse memory tracked by this tracker. Returns true if the
   // collapse was successful.
-  [[nodiscard]] MemoryModifyStatus Collapse(MemoryModifyFunction& collapse);
+  [[nodiscard]] MemoryModifyStatus Collapse(
+      MemoryModifyFunction& collapse,
+      CollapseReleasedHugePages collapse_released);
 
   void AddSpanStats(SmallSpanStats* absl_nullable small,
                     LargeSpanStats* absl_nullable large) const;
@@ -280,20 +282,17 @@ class PageTracker : public TList<PageTracker>::Elem {
     bool collapse_skipped_due_to_backoff = false;
   };
 
+  [[nodiscard]] Length ClearReleasedPages()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
+    const Length count = Length(released_count_);
+    released_by_page_.Clear();
+    released_count_ = 0;
+    return count;
+  }
+
   void SetHugePageResidencyState(const HugePageResidencyState& state) {
     hugepage_residency_state_ = state;
-    // TODO(b/435718337):  As of July 2025, we primarily scan "normal"
-    // (non-released) page lists and avoid collapsing released huge pages.
-    //
-    // If released() && state.maybe_hugepage_backed, then we should:
-    // * was_released_ = false
-    // * unbroken_ = true
-    // * release_count_ = 0
-    // * released_by_page.Clear()
-    // * RemoveFromFillerList/AddToFillerList *this in the filler to reposition
-    //   it to the appropriate freelist.
-    //
-    // since the tracker has transitioned from broken/no hugepage to hugepage'd.
   }
 
   [[nodiscard]] HugePageResidencyState GetHugePageResidencyState() const {
@@ -608,14 +607,17 @@ inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
 }
 
 inline MemoryModifyStatus PageTracker::Collapse(
-    MemoryModifyFunction& collapse) {
+    MemoryModifyFunction& collapse,
+    CollapseReleasedHugePages collapse_released) {
   // TODO(b/287498389): Consider using an atomic variable instead of a lock to
   // store the being_collapsed state.
   {
     PageHeapSpinLockHolder l;
-    // If the tracker is in the released state, or about to be, we do not want
-    // to collapse it.
-    if (released() || BeingReleased()) {
+    // If the tracker is in the released state (unless collapsing released
+    // hugepages is enabled), or about to be released, do not collapse it.
+    if (BeingReleased() ||
+        (collapse_released == CollapseReleasedHugePages::kDisabled &&
+         released())) {
       return {.success = false, .error_number = 0};
     }
     TC_ASSERT(!BeingCollapsed());
@@ -627,7 +629,9 @@ inline MemoryModifyStatus PageTracker::Collapse(
 
   {
     PageHeapSpinLockHolder l;
-    TC_ASSERT(!released());
+    if (collapse_released == CollapseReleasedHugePages::kDisabled) {
+      TC_ASSERT(!released());
+    }
     SetBeingCollapsed(/*value=*/false);
   }
 

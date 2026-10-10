@@ -160,6 +160,12 @@ TEST_F(GetStatsTest, Pbtxt) {
   } else {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_filler_pages: false"));
   }
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES)) {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_collapse_released_hugepages: true"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_collapse_released_hugepages: false"));
+  }
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
   if (MallocExtension::PerCpuCachesActive()) {
@@ -298,6 +304,16 @@ TEST_F(GetStatsTest, Parameters) {
       EXPECT_THAT(
           buf, HasSubstr(R"(PARAMETER tcmalloc_release_max_filler_pages 0)"));
     }
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES)) {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_collapse_released_hugepages 1)"));
+    } else {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_collapse_released_hugepages 0)"));
+    }
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 0)"));
     if (using_hpaa(buf)) {
@@ -314,6 +330,14 @@ TEST_F(GetStatsTest, Parameters) {
     } else {
       EXPECT_THAT(pbtxt,
                   HasSubstr(R"(tcmalloc_release_max_filler_pages: false)"));
+    }
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES)) {
+      EXPECT_THAT(pbtxt,
+                  HasSubstr(R"(tcmalloc_collapse_released_hugepages: true)"));
+    } else {
+      EXPECT_THAT(pbtxt,
+                  HasSubstr(R"(tcmalloc_collapse_released_hugepages: false)"));
     }
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));

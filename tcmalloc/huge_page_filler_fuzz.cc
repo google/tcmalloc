@@ -300,6 +300,7 @@ struct GatherSpanStats {
 struct TreatTrackers {
   bool enable_collapse;
   bool enable_unfiltered_collapse;
+  bool collapse_released;
   bool enable_release_stale_pages;
 
   void Perform(State& state) const;
@@ -309,9 +310,10 @@ struct TreatTrackers {
     absl::Format(&sink,
                  "TreatTrackers{.enable_collapse=%v, "
                  ".enable_unfiltered_collapse=%v, "
+                 ".collapse_released=%v, "
                  ".enable_release_stale_pages=%v}",
                  t.enable_collapse, t.enable_unfiltered_collapse,
-                 t.enable_release_stale_pages);
+                 t.collapse_released, t.enable_release_stale_pages);
   }
 };
 
@@ -1016,6 +1018,8 @@ void TreatTrackers::Perform(State& state) const {
                                  : EnableUnfilteredCollapse::kDisabled,
       enable_release_stale_pages ? ReleaseStalePages::kEnabled
                                  : ReleaseStalePages::kDisabled,
+      collapse_released ? CollapseReleasedHugePages::kEnabled
+                        : CollapseReleasedHugePages::kDisabled,
       &pageflags, &residency);
   state.treating_trackers = false;
   state.DrainFullyFreedTrackers();
@@ -1646,12 +1650,13 @@ TEST(HugePageFillerTest, InstructionStringify) {
   {
     Instruction inst = TreatTrackers{.enable_collapse = true,
                                      .enable_unfiltered_collapse = false,
+                                     .collapse_released = false,
                                      .enable_release_stale_pages = true};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(
-        s,
-        "TreatTrackers{.enable_collapse=true, "
-        ".enable_unfiltered_collapse=false, .enable_release_stale_pages=true}");
+    EXPECT_EQ(s,
+              "TreatTrackers{.enable_collapse=true, "
+              ".enable_unfiltered_collapse=false, .collapse_released=false, "
+              ".enable_release_stale_pages=true}");
   }
   {
     Instruction inst = UpdateBitmaps{.hugepage_backed_set = true,

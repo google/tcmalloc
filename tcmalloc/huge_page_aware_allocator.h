@@ -66,6 +66,7 @@ namespace huge_page_allocator_internal {
 class StaticForwarder : private Parameters {
  public:
   using Parameters::background_release_rate;
+  using Parameters::collapse_released_hugepages;
   using Parameters::enable_unfiltered_collapse;
   using Parameters::filler_skip_subrelease_long_interval;
   using Parameters::filler_skip_subrelease_short_interval;
@@ -1015,9 +1016,12 @@ inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
       forwarder_.enable_unfiltered_collapse();
   const ReleaseStalePages release_stale_pages =
       forwarder_.release_stale_pages();
+  const CollapseReleasedHugePages collapse_released =
+      forwarder_.collapse_released_hugepages();
   PageHeapSpinLockHolder l;
   filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                release_stale_pages, pageflags, residency);
+                                release_stale_pages, collapse_released,
+                                pageflags, residency);
   DrainFreedTrackers();
 }
 
