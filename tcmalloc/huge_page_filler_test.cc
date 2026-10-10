@@ -3176,16 +3176,94 @@ TEST_F(FillerTest, CollapseFailure) {
               /*error_count=*/1);
 
   FakeClock::Advance(absl::Minutes(10));
-  collapse_.SetErrorNumber(0);
+  collapse_.SetErrorNumber(EACCES);
   TreatHugepageTrackers(EnableCollapse::kEnabled,
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
   check_stats(/*expected_eligible=*/NHugePages(5),
               /*expected_attempted=*/NHugePages(5),
+              /*expected_succeeded=*/NHugePages(0), CollapseErrorType::kEAcces,
+              /*error_count=*/1);
+
+  FakeClock::Advance(absl::Minutes(10));
+  collapse_.SetErrorNumber(EFAULT);
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  check_stats(/*expected_eligible=*/NHugePages(6),
+              /*expected_attempted=*/NHugePages(6),
+              /*expected_succeeded=*/NHugePages(0), CollapseErrorType::kEFault,
+              /*error_count=*/1);
+
+  FakeClock::Advance(absl::Minutes(10));
+  collapse_.SetErrorNumber(0);
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  check_stats(/*expected_eligible=*/NHugePages(7),
+              /*expected_attempted=*/NHugePages(7),
+              /*expected_succeeded=*/NHugePages(0),
+              CollapseErrorType::kRejected, /*error_count=*/1);
+
+  FakeClock::Advance(absl::Minutes(10));
+  collapse_.SetErrorNumber(ENOSYS);
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  check_stats(/*expected_eligible=*/NHugePages(8),
+              /*expected_attempted=*/NHugePages(8),
               /*expected_succeeded=*/NHugePages(0), CollapseErrorType::kOther,
               /*error_count=*/1);
 
   DeleteVector(p1);
+}
+
+TEST_F(FillerTest, CollapseFailureOnReleasedTrackerReportsRejected) {
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc p_keep = AllocateWithSpanAllocInfo(Length(1), info);
+  PAlloc p_release = AllocateWithSpanAllocInfo(Length(1), info);
+  PAlloc p_free_backed = AllocateWithSpanAllocInfo(Length(1), info);
+  HugePage hp = HugePageContaining(p_keep.p);
+  ASSERT_EQ(HugePageContaining(p_release.p), hp);
+  ASSERT_EQ(HugePageContaining(p_free_backed.p), hp);
+
+  // Free a span, subrelease it, and then free a second span so the tracker has
+  // both released and backed free pages (entering
+  // regular_alloc_partial_released_).
+  Delete(p_release);
+  ReleasePages(p_release.n);
+  Delete(p_free_backed);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(hp.start_addr(), /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  unbacked.SetRange(/*index=*/0, 1);
+  residency.SetUnbackedAndSwappedBitmaps(hp.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(hp.start_addr(), {});
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_FALSE(collapse_.TriedCollapse(hp.start_addr()));
+
+  HugePageTreatmentStats treatment_stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(treatment_stats.collapse_attempted, NHugePages(1));
+  EXPECT_EQ(treatment_stats.collapse_succeeded, NHugePages(0));
+  EXPECT_EQ(
+      treatment_stats
+          .collapse_errors[static_cast<size_t>(CollapseErrorType::kRejected)],
+      1);
+  EXPECT_EQ(
+      treatment_stats
+          .collapse_errors[static_cast<size_t>(CollapseErrorType::kEBusy)],
+      0);
+  EXPECT_EQ(
+      treatment_stats
+          .collapse_errors[static_cast<size_t>(CollapseErrorType::kOther)],
+      0);
+
+  Delete(p_keep);
 }
 
 // Tests that the pages are revisited periodically (after the clock threshold
@@ -6661,7 +6739,7 @@ HugePageFiller: 5 hugepages partially released, 0.0297 released
 HugePageFiller: 0.6498 of used pages hugepageable
 HugePageFiller: Since startup, 306 pages subreleased, 6 hugepages broken, (0 pages, 0 hugepages due to reaching tcmalloc limit)
 HugePageFiller: Out of 0 eligible hugepages, 0 were attempted, and 0 were collapsed.
-HugePageFiller: Of the failed collapse operations, number of operations that failed per error type, ETYPE_NOMEM: 0, ETYPE_BUSY: 0, ETYPE_INVAL: 0, ETYPE_AGAIN: 0, ETYPE_INTR: 0, ETYPE_OTHER: 0
+HugePageFiller: Of the failed collapse operations, number of operations that failed per error type, ETYPE_NOMEM: 0, ETYPE_BUSY: 0, ETYPE_INVAL: 0, ETYPE_AGAIN: 0, ETYPE_INTR: 0, ETYPE_ACCES: 0, ETYPE_FAULT: 0, ETYPE_REJECTED: 0, ETYPE_OTHER: 0
 HugePageFiller: Latency of collapse operations: 0.000000 ms (total), 0.000000 us (maximum)
 HugePageFiller: Backoff delay for collapse currently is 1 interval(s), number of intervals skipped due to backoff is 0
 HugePageFiller: In the previous treatment interval, subreleased 0 pages.
