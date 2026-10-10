@@ -134,7 +134,7 @@ class SizeMap {
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
   // parameter idx and returning true. Otherwise return false.
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE static bool ClassIndexMaybe(
       size_t s, size_t& idx) {
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
       idx = (s + kSmallSizeAlignment - 1) / kSmallSizeAlignment;
@@ -163,7 +163,7 @@ class SizeMap {
     return false;
   }
 
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE static size_t ClassIndex(
       size_t s) {
     size_t ret;
     TC_CHECK(ClassIndexMaybe(s, ret));
@@ -323,8 +323,8 @@ class SizeMap {
   }
 
   // Mapping from size class to number of pages to allocate at a time
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline Length class_to_pages(
-      size_t size_class) const {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE Length
+  class_to_pages(size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return Length(class_to_pages_[size_class]);
   }
@@ -354,7 +354,7 @@ class SizeMap {
   // amortize the lock overhead for accessing the central list.  Making
   // it too big may temporarily cause unnecessary memory wastage in the
   // per-thread free list until the scavenger cleans up the list.
-  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMap::BatchSize
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE SizeMap::BatchSize
   num_objects_to_move(size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return num_objects_to_move_[size_class];
