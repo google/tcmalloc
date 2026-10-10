@@ -1892,6 +1892,57 @@ TEST(HugePageAwareAllocatorTest, ReleaseNestedInAllocation) {
   EXPECT_GE(stats.soft_limit_exceeded, Length(64));
 }
 
+// HugePageAwareAllocator only adds a HugeRegion once large allocations have
+// left at least 64 MiB of slack.  Build that up, allocate two spans from a
+// region, drain the filler's slack, free the second region span, and release.
+TEST(HugePageAwareAllocatorTest, ReleaseFromHugeRegion) {
+  const size_t hp = kPagesPerHugePage.raw_num();
+  auto alloc = [](size_t length) {
+    return Instruction{Alloc{.length = length,
+                             .num_objects = 1,
+                             .alignment = 1,
+                             .use_aligned = false,
+                             .dense = false}};
+  };
+  // Each raw allocation of hp + 1 pages leaves hp - 1 pages of slack.
+  const size_t raw = HLFromBytes(64 << 20).in_pages().raw_num() / (hp - 1) + 1;
+
+  for (HugeRegionUsageOption usage :
+       {HugeRegionUsageOption::kDefault,
+        HugeRegionUsageOption::kUseForAllLargeAllocs}) {
+    SCOPED_TRACE(testing::Message() << "usage=" << static_cast<int>(usage));
+    std::vector<Instruction> program(raw, alloc(hp + 1));
+    // These land in a new region, on hugepages 0-3 and 3-6.
+    program.push_back(alloc(3 * hp + 1));
+    program.push_back(alloc(3 * hp + 1));
+    // Drain the filler's donated slack pages under kSoftLimitExceeded so the
+    // kHardLimitExceeded release below measures only the region.
+    program.push_back(Instruction{ReleasePagesBreakingHugepages{
+        .desired = raw * hp, .soft_limit_exceeded = true}});
+    // Queue a reentrant allocate-then-free of a region-sized span for when
+    // HugeRegion drops pageheap_lock to unback (b/73749855):
+    // - Under kDefault, Dealloc unbacks hugepages 4-6 right away.
+    // - Under kUseForAllLargeAllocs, Dealloc leaves hugepages 4-6 free and
+    //   backed, and ReleasePagesBreakingHugepages unbacks them.
+    // In either case the subprogram allocates hugepages 7-9 while 4-6 are in
+    // flight and frees them again.
+    program.push_back(Instruction{ChangeParam{ReentrantSubprogram{
+        {alloc(3 * hp + 1), Instruction{Dealloc{.index = raw + 1}}}}}});
+    program.push_back(Instruction{Dealloc{.index = raw + 1}});
+    program.push_back(Instruction{ReleasePagesBreakingHugepages{
+        .desired = 3 * hp, .soft_limit_exceeded = false}});
+
+    const PageReleaseStats stats = RunHPAA(
+        FuzzHugePageAwareAllocatorOptions{.tag = MemoryTag::kNormal,
+                                          .use_huge_region_more_often = usage},
+        program);
+    EXPECT_EQ(stats.hard_limit_exceeded,
+              usage == HugeRegionUsageOption::kUseForAllLargeAllocs
+                  ? NHugePages(3).in_pages()
+                  : Length(0));
+  }
+}
+
 TEST(HugePageAwareAllocatorTest, PrinterTest) {
   Alloc a{.length = 15576967129319913528ULL,
           .num_objects = 1,
