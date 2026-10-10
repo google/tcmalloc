@@ -68,6 +68,14 @@ class FakeStaticForwarder : private Parameters {
   [[nodiscard]] absl::Duration filler_skip_subrelease_long_interval() const {
     return long_interval_;
   }
+  [[nodiscard]] absl::Duration filler_skip_subrelease_cold_short_interval()
+      const {
+    return cold_short_interval_;
+  }
+  [[nodiscard]] absl::Duration filler_skip_subrelease_cold_long_interval()
+      const {
+    return cold_long_interval_;
+  }
   [[nodiscard]] bool release_partial_alloc_pages() const {
     return release_partial_alloc_pages_;
   }
@@ -81,6 +89,12 @@ class FakeStaticForwarder : private Parameters {
   }
   void set_filler_skip_subrelease_long_interval(absl::Duration value) {
     long_interval_ = value;
+  }
+  void set_filler_skip_subrelease_cold_short_interval(absl::Duration value) {
+    cold_short_interval_ = value;
+  }
+  void set_filler_skip_subrelease_cold_long_interval(absl::Duration value) {
+    cold_long_interval_ = value;
   }
   void set_release_partial_alloc_pages(bool value) {
     release_partial_alloc_pages_ = value;
@@ -129,9 +143,13 @@ class FakeStaticForwarder : private Parameters {
     madvise_cold_regions_nohugepage_ = value;
   }
 
-  // Real time by default; forwarders derived for fuzzing shadow this with a
-  // clock they control.
-  [[nodiscard]] Clock clock() const { return Clock{}; }
+  [[nodiscard]] Clock clock() const {
+    return Clock{.now = FakeClock, .freq = FakeClockFrequency};
+  }
+  static void AdvanceClock(absl::Duration d) {
+    clock_.fetch_add(absl::ToInt64Nanoseconds(d), std::memory_order_relaxed);
+  }
+  static void ResetClock() { clock_.store(0, std::memory_order_relaxed); }
 
   [[nodiscard]] bool BackAllocations() const { return back_allocations_; }
   void SetBackAllocations(bool value) { back_allocations_ = value; }
@@ -266,6 +284,10 @@ class FakeStaticForwarder : private Parameters {
       Parameters::filler_skip_subrelease_short_interval();
   absl::Duration long_interval_ =
       Parameters::filler_skip_subrelease_long_interval();
+  absl::Duration cold_short_interval_ =
+      Parameters::filler_skip_subrelease_cold_short_interval();
+  absl::Duration cold_long_interval_ =
+      Parameters::filler_skip_subrelease_cold_long_interval();
   bool release_partial_alloc_pages_ = Parameters::release_partial_alloc_pages();
   bool hpaa_subrelease_ = Parameters::hpaa_subrelease();
   SubreleaseUnbackedMode subrelease_unbacked_hugepages_ =
@@ -288,7 +310,11 @@ class FakeStaticForwarder : private Parameters {
   MadviseRegionsNoHugepage madvise_cold_regions_nohugepage_ =
       Parameters::madvise_cold_regions_nohugepage();
 
+  static int64_t FakeClock() { return clock_.load(std::memory_order_relaxed); }
+  static double FakeClockFrequency() { return 1e9; }
+
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;
+  static inline std::atomic<int64_t> clock_{0};
 
   // Not final: libstdc++'s std::map derives from its allocator.
   template <typename T>

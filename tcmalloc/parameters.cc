@@ -147,6 +147,50 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   return v;
 }
 
+static std::atomic<int64_t>& skip_subrelease_cold_short_interval_ns() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::Duration interval;
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+  interval = absl::ZeroDuration();
+#else
+  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
+    interval = absl::Seconds(60);
+  } else {
+    interval = absl::Seconds(10);
+  }
+#endif
+
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    // clang-format off
+    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
+    // clang-format on
+  });
+  return v;
+}
+
+static std::atomic<int64_t>& skip_subrelease_cold_long_interval_ns() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::Duration interval;
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+  interval = absl::ZeroDuration();
+#else
+  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
+    interval = absl::Seconds(300);
+  } else {
+    interval = absl::Seconds(120);
+  }
+#endif
+
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    // clang-format off
+    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
+    // clang-format on
+  });
+  return v;
+}
+
 uint64_t Parameters::heap_size_hard_limit() {
   return tc_globals.page_allocator().limit(PageAllocator::kHard);
 }
@@ -334,6 +378,16 @@ absl::Duration Parameters::filler_skip_subrelease_short_interval() {
 absl::Duration Parameters::filler_skip_subrelease_long_interval() {
   return absl::Nanoseconds(
       skip_subrelease_long_interval_ns().load(std::memory_order_relaxed));
+}
+
+absl::Duration Parameters::filler_skip_subrelease_cold_short_interval() {
+  return absl::Nanoseconds(
+      skip_subrelease_cold_short_interval_ns().load(std::memory_order_relaxed));
+}
+
+absl::Duration Parameters::filler_skip_subrelease_cold_long_interval() {
+  return absl::Nanoseconds(
+      skip_subrelease_cold_long_interval_ns().load(std::memory_order_relaxed));
 }
 
 EnableCollapse Parameters::usermode_hugepage_collapse() {
@@ -650,6 +704,28 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration v) {
   tcmalloc::tcmalloc_internal::skip_subrelease_long_interval_ns().store(
+      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdShortInterval(
+    absl::Duration* v) {
+  *v = Parameters::filler_skip_subrelease_cold_short_interval();
+}
+
+void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
+    absl::Duration v) {
+  tcmalloc::tcmalloc_internal::skip_subrelease_cold_short_interval_ns().store(
+      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdLongInterval(
+    absl::Duration* v) {
+  *v = Parameters::filler_skip_subrelease_cold_long_interval();
+}
+
+void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
+    absl::Duration v) {
+  tcmalloc::tcmalloc_internal::skip_subrelease_cold_long_interval_ns().store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 

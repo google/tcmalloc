@@ -203,6 +203,22 @@ class Parameters {
 
   [[nodiscard]] static absl::Duration filler_skip_subrelease_long_interval();
 
+  static void set_filler_skip_subrelease_cold_short_interval(
+      absl::Duration value) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(value);
+  }
+
+  [[nodiscard]] static absl::Duration
+  filler_skip_subrelease_cold_short_interval();
+
+  static void set_filler_skip_subrelease_cold_long_interval(
+      absl::Duration value) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(value);
+  }
+
+  [[nodiscard]] static absl::Duration
+  filler_skip_subrelease_cold_long_interval();
+
   [[nodiscard]] static bool per_cpu_caches_dynamic_slab_enabled() {
     return per_cpu_caches_dynamic_slab_.load(std::memory_order_relaxed);
   }
@@ -263,6 +279,12 @@ class Parameters {
       absl::Duration v);
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
       absl::Duration v);
+  friend void ::
+      TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
+          absl::Duration v);
+  friend void ::
+      TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
+          absl::Duration v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v);
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(

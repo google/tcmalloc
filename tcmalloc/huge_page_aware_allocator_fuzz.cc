@@ -96,17 +96,8 @@ struct FuzzHugePageAwareAllocatorOptions {
   }
 };
 
-// Fake clock in nanoseconds, advanced only by the AdvanceClock instruction so
-// the filler's time-based treatments (sampled-tracker naming after
-// kRecordInterval, skip-subrelease windows) are reachable and deterministic.
-int64_t fake_clock = 0;
-int64_t mock_clock() { return fake_clock; }
-double freq() { return 1e9; }
-
 class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
  public:
-  Clock clock() const { return Clock{.now = mock_clock, .freq = freq}; }
-
   AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
     if (!allocate_succeeds_) {
       return AddressRange{nullptr, 0};
@@ -365,6 +356,34 @@ struct SetFillerSkipSubreleaseLongInterval {
   }
 };
 
+struct SetFillerSkipSubreleaseColdShortInterval {
+  int64_t duration_ns;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const SetFillerSkipSubreleaseColdShortInterval& s) {
+    absl::Format(&sink,
+                 "SetFillerSkipSubreleaseColdShortInterval{.duration_ns = %v}",
+                 s.duration_ns);
+  }
+};
+
+struct SetFillerSkipSubreleaseColdLongInterval {
+  int64_t duration_ns;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const SetFillerSkipSubreleaseColdLongInterval& s) {
+    absl::Format(&sink,
+                 "SetFillerSkipSubreleaseColdLongInterval{.duration_ns = %v}",
+                 s.duration_ns);
+  }
+};
+
 struct SetReleasePartialAllocPages {
   bool value;
 
@@ -568,7 +587,9 @@ struct ReentrantSubprogram {
 
 using ParamOp = std::variant<
     ResetSubreleaseIntervals, SetFillerSkipSubreleaseShortInterval,
-    SetFillerSkipSubreleaseLongInterval, SetReleasePartialAllocPages,
+    SetFillerSkipSubreleaseLongInterval,
+    SetFillerSkipSubreleaseColdShortInterval,
+    SetFillerSkipSubreleaseColdLongInterval, SetReleasePartialAllocPages,
     SetHpaaSubrelease, SetSubreleaseUnbackedHugepages, SetReleaseSucceeds,
     SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
@@ -1075,7 +1096,7 @@ void GatherSpanStats::Perform(State& state) const {
 }
 
 void AdvanceClock::Perform(State& state) const {
-  fake_clock += absl::ToInt64Nanoseconds(
+  state.allocator.forwarder().AdvanceClock(
       std::clamp(amount, absl::ZeroDuration(), absl::Hours(1)));
 }
 
@@ -1099,6 +1120,9 @@ void ResetSubreleaseIntervals::Perform(State& state) const {
   auto& forwarder = state.allocator.forwarder();
   forwarder.set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
   forwarder.set_filler_skip_subrelease_long_interval(absl::ZeroDuration());
+  forwarder.set_filler_skip_subrelease_cold_short_interval(
+      absl::ZeroDuration());
+  forwarder.set_filler_skip_subrelease_cold_long_interval(absl::ZeroDuration());
 }
 
 void SetFillerSkipSubreleaseShortInterval::Perform(State& state) const {
@@ -1108,6 +1132,16 @@ void SetFillerSkipSubreleaseShortInterval::Perform(State& state) const {
 
 void SetFillerSkipSubreleaseLongInterval::Perform(State& state) const {
   state.allocator.forwarder().set_filler_skip_subrelease_long_interval(
+      absl::Nanoseconds(duration_ns));
+}
+
+void SetFillerSkipSubreleaseColdShortInterval::Perform(State& state) const {
+  state.allocator.forwarder().set_filler_skip_subrelease_cold_short_interval(
+      absl::Nanoseconds(duration_ns));
+}
+
+void SetFillerSkipSubreleaseColdLongInterval::Perform(State& state) const {
+  state.allocator.forwarder().set_filler_skip_subrelease_cold_long_interval(
       absl::Nanoseconds(duration_ns));
 }
 
@@ -1204,7 +1238,7 @@ PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
     options.tag = MemoryTag::kNormalP0;
   }
 
-  fake_clock = 0;
+  FakeStaticForwarder::ResetClock();
   State state(options);
   state.CheckInvariants();
   state.RunInstructions(instructions);
@@ -1275,6 +1309,16 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
       fuzztest::Map(
           [](int64_t d) {
             return ChangeParam{SetFillerSkipSubreleaseLongInterval{d}};
+          },
+          AnyDuration()),
+      fuzztest::Map(
+          [](int64_t d) {
+            return ChangeParam{SetFillerSkipSubreleaseColdShortInterval{d}};
+          },
+          AnyDuration()),
+      fuzztest::Map(
+          [](int64_t d) {
+            return ChangeParam{SetFillerSkipSubreleaseColdLongInterval{d}};
           },
           AnyDuration()),
       fuzztest::Map(

@@ -2238,6 +2238,10 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
         absl::ZeroDuration());
     allocator.forwarder().set_filler_skip_subrelease_long_interval(
         absl::ZeroDuration());
+    allocator.forwarder().set_filler_skip_subrelease_cold_short_interval(
+        absl::ZeroDuration());
+    allocator.forwarder().set_filler_skip_subrelease_cold_long_interval(
+        absl::ZeroDuration());
     allocator.forwarder().set_release_max_filler_pages(false);
 
     AllocationState s1 = allocator.New(kAllocPages, kAllocInfo);
@@ -2293,6 +2297,10 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxSampledPages) {
       allocator.forwarder().set_filler_skip_subrelease_short_interval(
           absl::ZeroDuration());
       allocator.forwarder().set_filler_skip_subrelease_long_interval(
+          absl::ZeroDuration());
+      allocator.forwarder().set_filler_skip_subrelease_cold_short_interval(
+          absl::ZeroDuration());
+      allocator.forwarder().set_filler_skip_subrelease_cold_long_interval(
           absl::ZeroDuration());
       allocator.forwarder().set_release_max_filler_pages(false);
 
@@ -2405,6 +2413,79 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
 
     deleter(s2);
     deleter(s3);
+  }
+}
+
+TEST(HugePageAwareAllocatorTest, ColdHeapSkipSubreleaseIntervals) {
+  constexpr SpanAllocInfo kAllocInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr Length kAllocPages = kPagesPerHugePage / 2;
+
+  for (MemoryTag tag :
+       {MemoryTag::kSampledOrCold, MemoryTag::kSampledOrColdP1}) {
+    if (((static_cast<uintptr_t>(tag) << kTagShift) & kTagMask) >> kTagShift !=
+        static_cast<uintptr_t>(tag)) {
+      continue;
+    }
+    for (bool enable_cold_smoothing : {false, true}) {
+      for (absl::Duration elapsed : {absl::ZeroDuration(), absl::Seconds(45)}) {
+        SCOPED_TRACE(absl::StrCat(
+            "tag=", static_cast<int>(tag), " enable_cold_smoothing=",
+            enable_cold_smoothing, " elapsed=", absl::FormatDuration(elapsed)));
+        FakeHugePageAwareAllocator allocator({.tag = tag});
+        allocator.forwarder().ResetClock();
+        allocator.forwarder().set_hpaa_subrelease(true);
+        // Set hot intervals to (60s, 180s) so that both elapsed=0s and
+        // elapsed=45s fall inside the hot window, whereas cold smoothing uses
+        // (10s, 30s) when enabled (so elapsed=0s is inside and elapsed=45s is
+        // past the cold window).
+        allocator.forwarder().set_filler_skip_subrelease_short_interval(
+            absl::Seconds(60));
+        allocator.forwarder().set_filler_skip_subrelease_long_interval(
+            absl::Seconds(180));
+        allocator.forwarder().set_filler_skip_subrelease_cold_short_interval(
+            enable_cold_smoothing ? absl::Seconds(10) : absl::ZeroDuration());
+        allocator.forwarder().set_filler_skip_subrelease_cold_long_interval(
+            enable_cold_smoothing ? absl::Seconds(30) : absl::ZeroDuration());
+
+        AllocationState s1 = allocator.New(kAllocPages, kAllocInfo);
+        AllocationState s2 = allocator.New(kAllocPages, kAllocInfo);
+        AllocationState s3 = allocator.New(kAllocPages, kAllocInfo);
+
+        SpanDeleter deleter(&allocator);
+        deleter(s1);
+
+        allocator.forwarder().AdvanceClock(elapsed);
+
+        Length released;
+        {
+          PageHeapSpinLockHolder l;
+          released = allocator.ReleaseAtLeastNPages(
+              Length(0), PageReleaseReason::kReleaseMemoryToSystem);
+        }
+
+        const bool expect_skipped =
+            enable_cold_smoothing && elapsed == absl::ZeroDuration();
+        EXPECT_EQ(released, expect_skipped ? kAllocPages : 2 * kAllocPages);
+
+        const std::string stats = PrintToString(1 << 20, [&](Printer& p) {
+          PageFlags pageflags;
+          allocator.Print(p, pageflags);
+        });
+        EXPECT_THAT(
+            stats,
+            HasSubstr(enable_cold_smoothing
+                          ? "short-term (10s) fluctuations and long-term (30s) "
+                            "trends"
+                          : "short-term (0s) fluctuations and long-term (0s) "
+                            "trends"));
+
+        deleter(s2);
+        deleter(s3);
+      }
+    }
   }
 }
 
