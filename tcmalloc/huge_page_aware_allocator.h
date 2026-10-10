@@ -499,7 +499,9 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
   if (pt->was_donated()) {
     pt->set_abandoned_count(n);
   }
-  PageId page = pt->Get(n, span_alloc_info).page;
+  // A fresh hugepage is either entirely backed or entirely unbacked, so
+  // preferring backed pages has no effect here.
+  PageId page = pt->Get(n, span_alloc_info, PreferBackedPages::kDisabled).page;
   TC_ASSERT_EQ(page, p.first_page());
   SetTracker(
       p, pt,
@@ -543,7 +545,8 @@ inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
                                               SpanAllocInfo span_alloc_info,
                                               bool* from_released) {
-  auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
+  auto [pt, page, released] = filler_.TryGet(
+      n, span_alloc_info, forwarder_.prefer_backed_filler_pages());
   *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     return Finalize(Range(page, n), *from_released);
@@ -570,7 +573,8 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
   PageId page;
   // If we fit in a single hugepage, try the Filler.p.
   if (n < kPagesPerHugePage) {
-    auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
+    auto [pt, page, released] = filler_.TryGet(
+        n, span_alloc_info, forwarder_.prefer_backed_filler_pages());
     *from_released = released;
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
       return Finalize(Range(page, n), *from_released);

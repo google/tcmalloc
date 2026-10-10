@@ -74,6 +74,11 @@ enum class PreserveDonatedOnCollapse : bool {
   kEnabled = true,
 };
 
+enum class PreferBackedPages : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 enum class HugeRegionUsageOption : bool {
   // This is a default behavior. We use slack to determine when to use
   // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
