@@ -1127,7 +1127,34 @@ class HugePageFiller {
   MemoryTagFunction& set_anon_vma_name_;
   int max_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 1;
   int current_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 0;
-  uintptr_t rng_ = 0;
+  // Decide whether to sample a newly contributed tracker for tagging.
+  //
+  // Base sampling rate is 1% (`100 * rnd < 2^32`). As `size_` grows, adapt
+  // the sampling probability to spend at most half of our remaining capacity
+  // per heap doubling:
+  //   P(sample) = min(1%, (kMaxSampled - num_sampled_trackers_) / (2 * N))
+  // so monotonic growth from small to multi-hundred-GiB heaps retains sampling
+  // slots for later allocations without unnaming live trackers under
+  // pageheap_lock.
+  [[nodiscard]] bool ShouldSampleTracker() {
+    constexpr size_t kMaxSampled =
+        huge_page_filler_internal::UsageInfo::kMaxSampledTrackers;
+    rng_ = ExponentialBiased::NextRandom(rng_);
+    if (num_sampled_trackers_ >= kMaxSampled) {
+      return false;
+    }
+    const uint64_t rnd = ExponentialBiased::GetRandom(rng_);
+    const uint64_t remaining = kMaxSampled - num_sampled_trackers_;
+    const uint64_t next_size = size_.raw_num() + 1;
+    return 100 * rnd < (uint64_t{1} << 32) &&
+           2 * next_size * rnd < (remaining << 32);
+  }
+
+  // PRNG state stepped via `ExponentialBiased::NextRandom` / `GetRandom` when
+  // sampling trackers in `Contribute()`, seeded with the 64-bit golden-ratio
+  // fractional constant (`floor(2^64 / phi)`).
+  uint64_t rng_ = 0x9e3779b97f4a7c15ULL;
+  size_t num_sampled_trackers_ = 0;
   SubreleaseUnbackedMode subrelease_unbacked_mode_;
 };
 
@@ -1439,6 +1466,9 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     return nullptr;
   }
   if (pt->GetTagState().sampled_for_tagging) {
+    if (num_sampled_trackers_ > 0) {
+      --num_sampled_trackers_;
+    }
     // Set the default region name if the tracked was sampled.
     pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
   }
@@ -1453,9 +1483,11 @@ inline void HugePageFiller<TrackerType>::Contribute(
 
   const AccessDensityPrediction type = span_alloc_info.density;
 
-  // Decide whether to sample this tracker for tagging.
-  rng_ = ExponentialBiased::NextRandom(rng_);
-  pt->SetTagState({.sampled_for_tagging = (rng_ % 100 == 0)});
+  const bool sample = ShouldSampleTracker();
+  if (sample) {
+    ++num_sampled_trackers_;
+  }
+  pt->SetTagState({.sampled_for_tagging = sample});
 
   pages_allocated_[type] += pt->used_pages();
   TC_ASSERT(!(type == AccessDensityPrediction::kDense && donated));
@@ -2611,6 +2643,9 @@ HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
     }
     fully_freed_trackers_.remove(pt);
     if (pt->GetTagState().sampled_for_tagging) {
+      if (num_sampled_trackers_ > 0) {
+        --num_sampled_trackers_;
+      }
       // Set the default region name if the tracker was sampled.  No pin
       // remains, so no treatment can name it again.
       pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
