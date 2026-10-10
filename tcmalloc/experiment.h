@@ -63,8 +63,12 @@ void SelectExperiments(bool* absl_nonnull buffer, absl::string_view test_target,
 [[nodiscard]] std::optional<uint64_t> CalculateRolloutBucket(
     absl::string_view hostname, absl::string_view salt);
 
-[[nodiscard]] bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
-                                              absl::string_view hostname);
+// Returns whether config's rollout selects hostname.  For an inverted config,
+// hosts in the treatment slot of any other entry of experiments sharing its
+// salt are excluded, so that entry's treatment arm is unchanged.
+[[nodiscard]] bool IsExperimentRolloutEnabled(
+    const ExperimentConfig& config, absl::string_view hostname,
+    absl::Span<const ExperimentConfig> experiments);
 
 }  // namespace tcmalloc_internal
 

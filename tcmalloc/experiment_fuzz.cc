@@ -15,9 +15,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <set>
+#include <vector>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
+#include "absl/algorithm/container.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
@@ -67,7 +71,8 @@ TEST(ExperimentTest, FuzzSelectExperiments_b395212979) {
 
 void FuzzRolloutEnabled(const ExperimentConfig& config,
                         absl::string_view hostname) {
-  (void)IsExperimentRolloutEnabled(config, hostname);
+  (void)IsExperimentRolloutEnabled(config, hostname,
+                                   absl::MakeConstSpan(&config, 1));
 }
 
 FUZZ_TEST(ExperimentTest, FuzzRolloutEnabled);
@@ -77,6 +82,65 @@ TEST(ExperimentTest, FuzzRolloutEnabledRegression) {
       tcmalloc::ExperimentConfig{tcmalloc::Experiment{12}, "", true, false, -1.,
                                  1.7976931348623157e+308, ""},
       "\344\327\344");
+}
+
+// Property-based test for asserting that for all hostname/salt pairs,
+// experiments are mutually exclusive in the presence of an inverted experiment.
+void FuzzInvertedNonoverlap(absl::string_view hostname, absl::string_view salt,
+                            std::set<absl::string_view> experiments) {
+  if (experiments.empty()) {
+    return;
+  }
+  // If salt is empty, the experiments use their own names, so concurrent
+  // experiments are entirely permissible.
+  if (salt.empty()) {
+    return;
+  }
+
+  // Convert inputs to experiment config with fake rollout ranges, leaving space
+  // for the implicit control.
+  std::vector<ExperimentConfig> arms;
+  int exp_id = 0;
+  const double stride = 1. / (2 * experiments.size());
+  for (absl::string_view exp : experiments) {
+    arms.emplace_back(ExperimentConfig{
+        static_cast<Experiment>(exp_id),
+        exp,
+        /*brittle=*/false,
+        /*force_disable=*/false,
+        /*rollout_lower_bound=*/stride * exp_id,
+        /*rollout_upper_bound=*/stride * (exp_id + 1),
+        /*rollout_salt=*/salt,
+        /*rollout_inverted=*/false,
+    });
+    exp_id++;
+
+    if (static_cast<Experiment>(exp_id) == Experiment::kMaxExperimentID) {
+      break;
+    }
+  }
+
+  bool buffer[kNumExperiments] = {false};
+  SelectExperiments(buffer, "", "", "", /*unset=*/false, hostname, arms);
+  // At most 1 experiment is selected.
+  EXPECT_LE(absl::c_count(buffer, true), 1);
+
+  // Reset and invert one experiment.  At most 1 experiment should continue to
+  // be selected.
+  absl::c_fill(buffer, false);
+  arms[0].rollout_inverted = true;
+  SelectExperiments(buffer, "", "", "", /*unset=*/false, hostname, arms);
+  EXPECT_LE(absl::c_count(buffer, true), 1);
+}
+
+FUZZ_TEST(ExperimentTest, FuzzInvertedNonoverlap);
+
+TEST(ExperimentTest, FuzzInvertedNonoverlapRegression) {
+  FuzzInvertedNonoverlap("", "\370", {});
+}
+
+TEST(ExperimentTest, FuzzInvertedNonoverlapEmptySaltRegression) {
+  FuzzInvertedNonoverlap("p}}", "", {"\346", "\210"});
 }
 
 }  // namespace

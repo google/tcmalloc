@@ -1741,6 +1741,9 @@ tcmalloc_cc_test(
   DEPS
     "GTest::gtest"
     "GTest::gmock"
+    "absl::flat_hash_map"
+    "absl::flat_hash_set"
+    "absl::inlined_vector"
     "absl::strings"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"

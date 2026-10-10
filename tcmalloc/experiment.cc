@@ -120,8 +120,9 @@ std::optional<uint64_t> CalculateRolloutBucket(absl::string_view hostname,
   return std::nullopt;
 }
 
-bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
-                                absl::string_view hostname) {
+bool IsExperimentRolloutEnabled(
+    const ExperimentConfig& config, absl::string_view hostname,
+    absl::Span<const ExperimentConfig> experiments) {
   if (hostname.empty()) {
     // Without a hostname there is no rollout bucket.  Non-inverted rollouts
     // stay off; inverted (holdback) rollouts fall back to the enabled
@@ -147,13 +148,41 @@ bool IsExperimentRolloutEnabled(const ExperimentConfig& config,
     return target >= lower && target < upper;
   }
 
-  // Inverted: the ablation arm is the top slice [1 - (upper - lower), 1.0),
-  // sized to match [lower, upper).  Every other host, including the original
-  // treatment slot, has the experiment enabled.  Anchoring the ablation arm at
-  // 1.0 lets several equally sized arms that share a salt (multi-arm
-  // experiments) share a single ablation arm.
-  const double ablation_lower = 1.0 - (upper - lower);
-  return target < ablation_lower;
+  // Inverted: the ablation arm is the top slice [1 - max_width, 1.0), where
+  // max_width is the maximum (upper-lower) distance across all experiment arms
+  // sharing the salt.
+  //
+  // Every other host, including the original treatment slot but excluding other
+  // experiments with the same salt, has the experiment enabled.  Anchoring the
+  // ablation arm at 1.0 lets several equally sized arms that share a salt
+  // (multi-arm experiments) share a single ablation arm.
+  double max_width = upper - lower;
+
+  for (const auto& other : experiments) {
+    if (other.name == config.name) {
+      continue;
+    }
+
+    const absl::string_view other_salt =
+        other.rollout_salt.empty() ? other.name : other.rollout_salt;
+    if (other_salt != salt) {
+      continue;
+    }
+
+    max_width = std::max(max_width,
+                         other.rollout_upper_bound - other.rollout_lower_bound);
+
+    if (target >= other.rollout_lower_bound &&
+        target < other.rollout_upper_bound) {
+      return false;
+    }
+  }
+
+  const double ablation_lower = 1.0 - max_width;
+  if (target >= ablation_lower) {
+    return false;
+  }
+  return true;
 }
 
 void SelectExperiments(bool* buffer, absl::string_view test_target,
@@ -168,7 +197,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
 
   for (const auto& config : experiments) {
     if (config.rollout_upper_bound > 0) {
-      if (IsExperimentRolloutEnabled(config, hostname)) {
+      if (IsExperimentRolloutEnabled(config, hostname, experiments)) {
         buffer[static_cast<int>(config.id)] = true;
       }
     }
