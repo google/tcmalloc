@@ -94,7 +94,11 @@ function(tcmalloc_cc_library_variants)
 endfunction()
 
 function(tcmalloc_cc_test_variants)
-  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS;TIMEOUT" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV;ARGS" ${ARGN})
+  cmake_parse_arguments(TCMALLOC "BINARY" "NAME;ALIAS;TIMEOUT" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV;ARGS" ${ARGN})
+  set(RULE_FUNC tcmalloc_cc_test)
+  if(TCMALLOC_BINARY)
+    set(RULE_FUNC tcmalloc_cc_binary)
+  endif()
   set(EXTRA_ARGS)
   if(TCMALLOC_TIMEOUT)
     set(EXTRA_ARGS TIMEOUT ${TCMALLOC_TIMEOUT})
@@ -102,242 +106,242 @@ function(tcmalloc_cc_test_variants)
   if(TCMALLOC_ARGS)
     list(APPEND EXTRA_ARGS ARGS ${TCMALLOC_ARGS})
   endif()
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_8k_pages
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_8k_pages
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_32k_pages
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_32k_pages
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_32K_PAGES
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_large_pages,tcmalloc::common_large_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_large_pages tcmalloc::common_large_pages
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_256k_pages
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_256k_pages tcmalloc::common_256k_pages
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_small_but_slow
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_small_but_slow
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_SMALL_BUT_SLOW
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_small_but_slow,tcmalloc::common_small_but_slow>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_small_but_slow tcmalloc::common_small_but_slow
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_pow2
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_256k_pages_pow2
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_256k_pages tcmalloc::common_256k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_POW2_SIZECLASS"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_sharded_transfer_cache
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_256k_pages_sharded_transfer_cache
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_256k_pages tcmalloc::common_256k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_sonic_sharded_transfer_cache
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_sonic_sharded_transfer_cache
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_numa_aware
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_NUMA_AWARE
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_numa_aware,tcmalloc::common_numa_aware,tcmalloc::want_numa_aware>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_numa_aware tcmalloc::common_numa_aware tcmalloc::want_numa_aware
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware_enabled_runtime
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_numa_aware_enabled_runtime
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_NUMA_AWARE
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_numa_aware,tcmalloc::common_numa_aware>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_numa_aware tcmalloc::common_numa_aware
     ENV ${TCMALLOC_ENV} "TCMALLOC_NUMA_AWARE=1"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_partitioned_enabled_runtime
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_partitioned_enabled_runtime
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "TCMALLOC_HEAP_PARTITIONING=true"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_partitioned_light_runtime
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_partitioned_light_runtime
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "TCMALLOC_HEAP_PARTITIONING=light"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware_disabled
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_numa_aware_disabled
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_NUMA_AWARE
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_numa_aware,tcmalloc::common_numa_aware,tcmalloc::want_numa_aware>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_numa_aware tcmalloc::common_numa_aware tcmalloc::want_numa_aware
     ENV ${TCMALLOC_ENV} "TCMALLOC_NUMA_AWARE=0"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_numa_aware
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_256k_pages_numa_aware
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES -DTCMALLOC_INTERNAL_NUMA_AWARE
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages_numa_aware,tcmalloc::common_256k_pages_numa_aware,tcmalloc::want_numa_aware>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_256k_pages_numa_aware tcmalloc::common_256k_pages_numa_aware tcmalloc::want_numa_aware
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_256k_pages_pow2_sharded_transfer_cache
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_256k_pages_pow2_sharded_transfer_cache
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_256K_PAGES
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_256k_pages,tcmalloc::common_256k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_256k_pages tcmalloc::common_256k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_POW2_SIZECLASS,TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_hpaa
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_hpaa
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages,tcmalloc::want_hpaa>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages tcmalloc::want_hpaa
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_deprecated_perthread
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_deprecated_perthread
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_DEPRECATED_PERTHREAD
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_deprecated_perthread,tcmalloc::common_deprecated_perthread>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_deprecated_perthread tcmalloc::common_deprecated_perthread
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_pgho_experiment
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_pgho_experiment
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_PGHO_EXPERIMENT"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_flat_cpu_caches
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_flat_cpu_caches
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "PERCPU_VCPU_MODE=flat"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_real_cpu_caches
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_real_cpu_caches
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "PERCPU_VCPU_MODE=none"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_no_glibc_rseq
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_no_glibc_rseq
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "GLIBC_TUNABLES=glibc.pthread.rseq=0"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_mm_vcpu_cpu_caches
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_mm_vcpu_cpu_caches
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_MM_VCPU" "GLIBC_TUNABLES=glibc.pthread.rseq=0"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_latency_injection
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_latency_injection
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LATENCY_INJECTION
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc_latency_injection,tcmalloc::common_latency_injection>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_latency_injection tcmalloc::common_latency_injection
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_free_stale
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_tcmalloc_release_free_stale
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_RELEASE_FREE_STALE"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_madv_nohugepage_regions
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_tcmalloc_madv_nohugepage_regions
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_page_heap_gardening
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_tcmalloc_page_heap_gardening
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_PAGE_HEAP_GARDENING"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_prioritization_ablation
+  cmake_language(CALL ${RULE_FUNC} NAME ${TCMALLOC_NAME}_tcmalloc_cfl_prioritization_ablation
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} $<LINK_LIBRARY:WHOLE_ARCHIVE,tcmalloc::tcmalloc,tcmalloc::common_8k_pages>
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_CFL_PRIORITIZATION_ABLATION"
   )
 endfunction()
 
 function(tcmalloc_cc_binary_variants)
-  tcmalloc_cc_test_variants(${ARGN})
+  tcmalloc_cc_test_variants(BINARY ${ARGN})
 endfunction()
