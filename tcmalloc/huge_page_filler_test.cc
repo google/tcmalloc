@@ -7399,6 +7399,14 @@ HugePageFiller: # of sparsely-accessed hps with completed lifetime a <= # hps < 
 HugePageFiller: <   0 ms <=      1 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
 
+HugePageFiller: # of broken hps with a <= # of freed pages < b
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     1 <  5<=     1 <  6<=     1
+HugePageFiller: <  7<=     1 <  8<=     0 <  9<=     0 < 17<=     1 < 33<=     0 < 49<=     0
+HugePageFiller: < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0 <129<=     0 <145<=     0
+HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0 <241<=     0
+HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
+HugePageFiller: <255<=     1 <256<=     0
+
 HugePageFiller: time series over 5 min interval
 
 HugePageFiller: realized fragmentation: 0.0 MiB
@@ -7484,6 +7492,39 @@ TEST_F(FillerTest, StaleHistograms) {
   Delete(b);
   Delete(c);
   Delete(d);
+}
+
+TEST_F(FillerTest, BrokenHugePageFreedPagesTextHistogram) {
+  randomize_density_ = false;
+  const SpanAllocInfo sparse = {1, AccessDensityPrediction::kSparse};
+
+  // Allocate kPagesPerHugePage - 2 pages on one hugepage so breaking it frees
+  // 2 pages ([2, 2]).
+  PAlloc keep =
+      AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(3), sparse);
+  PAlloc free_later = AllocateWithSpanAllocInfo(Length(1), sparse);
+  ASSERT_EQ(keep.pt, free_later.pt);
+
+  ASSERT_EQ(ReleasePages(Length(2)), Length(2));
+  EXPECT_FALSE(keep.pt->unbroken());
+
+  // Subsequent release on an already-broken tracker must not increment bucket
+  // [1, 1].
+  Delete(free_later);
+  ASSERT_EQ(ReleasePages(Length(1)), Length(1));
+
+  FakePageFlags pageflags;
+  std::string text = PrintToString(1024 * 1024, [&](Printer& printer) {
+    PageHeapSpinLockHolder l;
+    filler_.Print(printer, /*everything=*/true, pageflags);
+  });
+  EXPECT_THAT(
+      text,
+      testing::HasSubstr(
+          "HugePageFiller: # of broken hps with a <= # of freed pages < b\n"
+          "HugePageFiller: <  1<=     0 <  2<=     1"));
+
+  Delete(keep);
 }
 
 // Test Get and Put operations on the filler work correctly when number of
