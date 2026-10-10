@@ -542,6 +542,16 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
 #define TCMALLOC_RSEQ_CS_INPUT [rseq_cs_addr] "m"(__rseq_abi.rseq_cs)
 #endif
 
+#ifdef __GCC_HAVE_DWARF2_CFI_ASM
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_START \
+  ".cfi_startproc\n"                       \
+  ".cfi_def_cfa_offset 8\n"
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_END ".cfi_endproc\n"
+#else
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_START
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_END
+#endif
+
 #elif defined(__aarch64__)
 // The trampoline uses a non-local branch to restart critical sections.
 // The trampoline is located in the .text.unlikely section, and the maximum
@@ -570,7 +580,19 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
   "add %[scratch], %[scratch], :lo12:__rseq_cs_" #name \
   "_%=\n"                                              \
   "str %[scratch], %[rseq_cs_addr]\n"
+#ifdef __GCC_HAVE_DWARF2_CFI_ASM
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_START ".cfi_startproc\n"
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_END ".cfi_endproc\n"
+#else
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_START
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_END
+#endif
 #endif  // defined(__aarch64__)
+
+#ifndef TCMALLOC_RSEQ_TRAMPOLINE_CFI_START
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_START
+#define TCMALLOC_RSEQ_TRAMPOLINE_CFI_END
+#endif
 
 #if !defined(__clang_major__) || __clang_major__ >= 9
 #define TCMALLOC_RSEQ_RELOC ".reloc 0, " TCMALLOC_RSEQ_RELOC_TYPE ", 1f\n"
@@ -621,10 +643,12 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
   "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=\n"               \
   ".type " #name                                                              \
   "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=,@function\n"     \
-  "" #name                                                                    \
+  #name                                                                       \
   "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=:\n"              \
+  TCMALLOC_RSEQ_TRAMPOLINE_CFI_START                                          \
   "2:\n" TCMALLOC_RSEQ_JUMP                                                   \
   " 3f\n"                                                                     \
+  TCMALLOC_RSEQ_TRAMPOLINE_CFI_END                                            \
   ".size " #name                                                              \
   "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=, . - " #name     \
   "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=\n"               \
