@@ -7844,6 +7844,107 @@ TEST_F(FillerTest, ConcurrentTreatmentInterferenceStress) {
   CheckStats();
 }
 
+TEST_F(FillerTest, ContributeAdaptsSamplingAcrossHeapGrowthAndReopensOnFree) {
+  randomize_density_ = false;
+  set_anon_vma_name_.SetIgnoreName(true);
+
+  const Length kAlloc = kPagesPerHugePage / 2 + Length(1);
+  SpanAllocInfo sparse_info = {1, AccessDensityPrediction::kSparse};
+  constexpr size_t kMaxSampled =
+      huge_page_filler_internal::UsageInfo::kMaxSampledTrackers;
+
+  std::vector<PAlloc> sampled_allocs;
+  std::vector<PAlloc> unsampled_allocs;
+
+  // Phase 1: Contribute 6,400 hugepages (~12.5 GiB). With unadapted 1%
+  // sampling this would exhaust all 64 slots; adaptive headroom preservation
+  // must leave open capacity (`< kMaxSampled`) for later heap growth.
+  for (int i = 0; i < 6400; ++i) {
+    PAlloc p = AllocateWithSpanAllocInfo(kAlloc, sparse_info);
+    if (p.pt->GetTagState().sampled_for_tagging) {
+      sampled_allocs.push_back(p);
+    } else {
+      unsampled_allocs.push_back(p);
+    }
+  }
+  const size_t phase1_sampled = sampled_allocs.size();
+  EXPECT_GT(phase1_sampled, 0);
+  EXPECT_LT(phase1_sampled, kMaxSampled);
+
+  // Phase 2: Continue growing the heap monotonically to 30,000 hugepages
+  // without freeing Phase 1 allocations. Later contributions must continue to
+  // sample additional trackers while never exceeding kMaxSampled.
+  for (int i = 6400; i < 30000; ++i) {
+    PAlloc p = AllocateWithSpanAllocInfo(kAlloc, sparse_info);
+    if (p.pt->GetTagState().sampled_for_tagging) {
+      sampled_allocs.push_back(p);
+    } else {
+      unsampled_allocs.push_back(p);
+    }
+  }
+  EXPECT_GT(sampled_allocs.size(), phase1_sampled);
+  EXPECT_LE(sampled_allocs.size(), kMaxSampled);
+
+  // Pin one sampled tracker before freeing it so it retires through
+  // FetchFullyFreedTracker() (DrainFreedTrackers) rather than immediately in
+  // HandleFullyFreedTracker().
+  sampled_allocs[0].pt->PinForRelease();
+  for (PAlloc& p : sampled_allocs) {
+    DeleteRaw(p);
+  }
+  sampled_allocs[0].pt->UnpinForRelease();
+  DrainFreedTrackers();
+  sampled_allocs.clear();
+
+  // Now that all previously sampled trackers have retired, contributing new
+  // hugepages must sample new trackers again (still <= kMaxSampled).
+  for (int i = 0; i < 30000; ++i) {
+    PAlloc p = AllocateWithSpanAllocInfo(kAlloc, sparse_info);
+    if (p.pt->GetTagState().sampled_for_tagging) {
+      sampled_allocs.push_back(p);
+    } else {
+      unsampled_allocs.push_back(p);
+    }
+  }
+  EXPECT_GT(sampled_allocs.size(), 0);
+  EXPECT_LE(sampled_allocs.size(), kMaxSampled);
+
+  for (PAlloc& p : sampled_allocs) {
+    DeleteRaw(p);
+  }
+  for (PAlloc& p : unsampled_allocs) {
+    DeleteRaw(p);
+  }
+  DrainFreedTrackers();
+  CheckStats();
+}
+
+TEST_F(FillerTest, ContributeSamplesAcrossModuloFourResidues) {
+  randomize_density_ = false;
+  set_anon_vma_name_.SetIgnoreName(true);
+
+  const Length kAlloc = kPagesPerHugePage / 2 + Length(1);
+  SpanAllocInfo sparse_info = {1, AccessDensityPrediction::kSparse};
+
+  // Raw NextRandom(rng_) % 100 == 0 could only ever sample contributions with
+  // index % 4 == 3 because 100 % 4 == 0 and the 48-bit LCG low 2 bits cycle
+  // with period 4. Verify all four mod-4 residues are sampled (freeing
+  // immediately so active sampled trackers remain below kMaxSampledTrackers).
+  std::array<int, 4> residue_counts = {0, 0, 0, 0};
+  for (int i = 0; i < 4000; ++i) {
+    PAlloc p = AllocateWithSpanAllocInfo(kAlloc, sparse_info);
+    if (p.pt->GetTagState().sampled_for_tagging) {
+      ++residue_counts[i % 4];
+    }
+    DeleteRaw(p);
+  }
+  for (int r = 0; r < 4; ++r) {
+    EXPECT_GT(residue_counts[r], 0) << "residue " << r;
+  }
+  DrainFreedTrackers();
+  CheckStats();
+}
+
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the
   // filler. Make sure it doesn't signal that we should skip the limit.
