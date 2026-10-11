@@ -1154,7 +1154,9 @@ void ReentrantSubprogram::Perform(State& state) const {
 }
 
 void SetEnableUnfilteredCollapse::Perform(State& state) const {
-  state.allocator.forwarder().set_enable_unfiltered_collapse(value);
+  state.allocator.forwarder().set_enable_unfiltered_collapse(
+      value ? EnableUnfilteredCollapse::kEnabled
+            : EnableUnfilteredCollapse::kDisabled);
 }
 
 void SetReleaseMaxFillerPages::Perform(State& state) const {

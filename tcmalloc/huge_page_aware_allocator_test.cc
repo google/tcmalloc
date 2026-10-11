@@ -1788,7 +1788,8 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
       }
 
       allocator_->forwarder().set_enable_unfiltered_collapse(
-          absl::Bernoulli(rng, 0.5));
+          absl::Bernoulli(rng, 0.5) ? EnableUnfilteredCollapse::kEnabled
+                                    : EnableUnfilteredCollapse::kDisabled);
       allocator_->forwarder().set_release_stale_pages(
           absl::Bernoulli(rng, 0.5) ? ReleaseStalePages::kEnabled
                                     : ReleaseStalePages::kDisabled);
