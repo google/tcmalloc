@@ -18,7 +18,6 @@
 #include <optional>
 
 #include "absl/base/attributes.h"
-#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/error_reporting.h"
@@ -31,7 +30,6 @@
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
