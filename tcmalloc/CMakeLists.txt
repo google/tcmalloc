@@ -1289,11 +1289,13 @@ tcmalloc_cc_test(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_numa"
     "tcmalloc::internal_pageflags"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::internal_residency"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_smaps"
     "tcmalloc::testing_testutil"
   TIMEOUT
     900

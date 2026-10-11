@@ -143,6 +143,12 @@ class Parameters {
     TCMalloc_Internal_SetReleaseMaxFillerPages(value);
   }
 
+  [[nodiscard]] static CollapseReleasedHugePages collapse_released_hugepages();
+
+  static void set_collapse_released_hugepages(bool value) {
+    TCMalloc_Internal_SetCollapseReleasedHugepages(value);
+  }
+
   [[nodiscard]] static MadviseRegionsNoHugepage
   madvise_cold_regions_nohugepage();
 

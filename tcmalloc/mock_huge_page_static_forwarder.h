@@ -28,6 +28,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/hash/hash.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
@@ -152,6 +153,12 @@ class FakeStaticForwarder : private Parameters {
   void set_enable_unfiltered_collapse(EnableUnfilteredCollapse value) {
     enable_unfiltered_collapse_ = value;
   }
+  [[nodiscard]] CollapseReleasedHugePages collapse_released_hugepages() const {
+    return collapse_released_hugepages_;
+  }
+  void set_collapse_released_hugepages(CollapseReleasedHugePages value) {
+    collapse_released_hugepages_ = value;
+  }
 
   // Arena state.
   [[nodiscard]] Arena& arena() { return arena_; }
@@ -186,7 +193,6 @@ class FakeStaticForwarder : private Parameters {
   }
   void SetHugepage(HugePage p, void* pt) { trackers_[p] = pt; }
 
-
   // SystemAlloc state.
   [[nodiscard]] AddressRange AllocatePages(size_t bytes, size_t align,
                                            MemoryTag tag) {
@@ -205,11 +211,41 @@ class FakeStaticForwarder : private Parameters {
     return AddressRange{ptr, bytes};
   }
 
+  void MarkPagesResident(Range r) {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    for (PageId p = r.p, end = r.p + r.n; p != end; ++p) {
+      non_resident_pages_.erase(p);
+    }
+  }
+
+  void MarkPagesNonResident(Range r) {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    for (PageId p = r.p, end = r.p + r.n; p != end; ++p) {
+      non_resident_pages_.insert(p);
+    }
+  }
+
+  [[nodiscard]] bool IsPageResident(PageId p) const {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    return !non_resident_pages_.contains(p);
+  }
+
+  template <typename Fn>
+  void ForEachTracker(Fn&& fn) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    for (const auto& [hp, pt] : trackers_) {
+      if (pt != nullptr) {
+        fn(hp, pt);
+      }
+    }
+  }
+
   void Back(Range r) {
     const uintptr_t start =
         reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
     const uintptr_t end = start + r.n.in_bytes();
     TC_CHECK_LE(end, fake_allocation_);
+    MarkPagesResident(r);
   }
 
   [[nodiscard]] MemoryModifyStatus ReleasePages(Range r) {
@@ -218,7 +254,9 @@ class FakeStaticForwarder : private Parameters {
     const uintptr_t end = start + r.n.in_bytes();
     TC_CHECK_LE(end, fake_allocation_);
     CheckNotLive(r);
-
+    if (release_succeeds_) {
+      MarkPagesNonResident(r);
+    }
     return {.success = release_succeeds_, .error_number = 0};
   }
 
@@ -226,6 +264,9 @@ class FakeStaticForwarder : private Parameters {
     TC_BUG("Double free of %p", ptr);
   }
   [[nodiscard]] MemoryModifyStatus CollapsePages(Range r) {
+    if (collapse_succeeds_) {
+      MarkPagesResident(r);
+    }
     return {.success = collapse_succeeds_, .error_number = error_number_};
   }
   void SetAnonVmaName(
@@ -283,6 +324,8 @@ class FakeStaticForwarder : private Parameters {
   int32_t back_size_threshold_bytes_ = Parameters::back_size_threshold_bytes();
   EnableUnfilteredCollapse enable_unfiltered_collapse_ =
       Parameters::enable_unfiltered_collapse();
+  CollapseReleasedHugePages collapse_released_hugepages_ =
+      Parameters::collapse_released_hugepages();
   Arena arena_;
   ReleaseStalePages release_stale_pages_ = Parameters::release_stale_pages();
   MadviseRegionsNoHugepage madvise_cold_regions_nohugepage_ =
@@ -328,11 +371,14 @@ class FakeStaticForwarder : private Parameters {
   // release across threads and may hide the interleavings that dropping
   // pageheap_lock during unback introduces.  If injected bugs show that it
   // does, replace the map with a structure that needs no lock.
-  absl::base_internal::SpinLock live_spans_lock_{
+  mutable absl::base_internal::SpinLock live_spans_lock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
   std::map<PageId, Length, std::less<PageId>,
            AllocAdaptor<std::pair<const PageId, Length>>>
       live_spans_ ABSL_GUARDED_BY(live_spans_lock_);
+  absl::flat_hash_set<PageId, absl::Hash<PageId>, std::equal_to<PageId>,
+                      AllocAdaptor<PageId>>
+      non_resident_pages_ ABSL_GUARDED_BY(live_spans_lock_);
   bool last_may_have_grown_{false};
 };
 

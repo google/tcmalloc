@@ -644,6 +644,11 @@ void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation) {
                    : 0);
     out.printf("PARAMETER tcmalloc_release_max_filler_pages %d\n",
                Parameters::release_max_filler_pages() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_collapse_released_hugepages %d\n",
+               Parameters::collapse_released_hugepages() ==
+                       CollapseReleasedHugePages::kEnabled
+                   ? 1
+                   : 0);
     out.printf("PARAMETER tcmalloc_madvise_sampled_allocations %d\n",
                Parameters::madvise_sampled_allocations() ==
                    MadviseSampledAllocations::kEnabled);
@@ -934,6 +939,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                        MadviseRegionsNoHugepage::kEnabled);
   region.PrintBool("tcmalloc_release_max_filler_pages",
                    Parameters::release_max_filler_pages());
+  region.PrintBool("tcmalloc_collapse_released_hugepages",
+                   Parameters::collapse_released_hugepages() ==
+                       CollapseReleasedHugePages::kEnabled);
   region.PrintI64("profile_sampling_interval",
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",

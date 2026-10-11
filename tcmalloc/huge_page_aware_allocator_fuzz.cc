@@ -303,7 +303,6 @@ struct PrintStats {
   }
 };
 
-
 struct GatherSpanStats {
   void Perform(State& state) const;
 
@@ -507,6 +506,17 @@ struct SetEnableReleaseStalePages {
   }
 };
 
+struct SetCollapseReleasedHugepages {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetCollapseReleasedHugepages& s) {
+    absl::Format(&sink, "SetCollapseReleasedHugepages{.value=%v}", s.value);
+  }
+};
+
 struct SetMadvNoHugepageHugeRegions {
   bool value;
 
@@ -573,8 +583,8 @@ using ParamOp = std::variant<
     SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxFillerPages,
-    SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions, UpdateBitmaps,
-    SetUsageLimitPressure>;
+    SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
+    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -769,6 +779,19 @@ struct State {
     // takes a hugepage it is retiring off the free and unmapped counts before
     // it drops the lock to unback the remainder.
     const bool mid_operation = depth > 0 || lock_drops > 0;
+    if (!mid_operation) {
+      PageHeapSpinLockHolder l;
+      allocator.forwarder().ForEachTracker(
+          [&](HugePage hp,
+              const void* raw_pt) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+            const auto* pt = static_cast<const PageTracker*>(raw_pt);
+            const PageId first = hp.first_page();
+            pt->released_by_page().ForEachSet(0, [&](size_t i) {
+              TC_CHECK(!allocator.forwarder().IsPageResident(first + Length(i)),
+                       "%v", first + Length(i));
+            });
+          });
+    }
     auto parked_only = [&](size_t over) {
       return over == 0 || (mid_operation && over % kHugePageSize == 0);
     };
@@ -874,6 +897,14 @@ std::optional<bool> FakePageFlags::IsHugepageBacked(const void* addr) {
 Residency::SinglePageBitmaps FakeResidency::GetUnbackedAndSwappedBitmaps(
     const void* addr) {
   state_.OnLockDropped();
+  const HugePage hp = HugePageContaining(PageIdContaining(addr));
+  const size_t pages_per_huge_page = kHugePageSize / GetPageSize();
+  const PageBitmap scaled = Scale<kPagesPerHugePage.raw_num()>(
+      state_.unbacked_bitmap, pages_per_huge_page, ReductionOp::kAll);
+  scaled.ForEachSet(0, [&](size_t i) {
+    state_.allocator.forwarder().MarkPagesNonResident(
+        Range(hp.first_page() + Length(i), Length(1)));
+  });
   return {state_.unbacked_bitmap, state_.swapped_bitmap, absl::StatusCode::kOk};
 }
 
@@ -1166,6 +1197,12 @@ void SetEnableReleaseStalePages::Perform(State& state) const {
       value ? ReleaseStalePages::kEnabled : ReleaseStalePages::kDisabled);
 }
 
+void SetCollapseReleasedHugepages::Perform(State& state) const {
+  state.allocator.forwarder().set_collapse_released_hugepages(
+      value ? CollapseReleasedHugePages::kEnabled
+            : CollapseReleasedHugePages::kDisabled);
+}
+
 void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
   state.allocator.forwarder().set_madvise_cold_regions_nohugepage(
       value ? MadviseRegionsNoHugepage::kEnabled
@@ -1305,6 +1342,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                     fuzztest::Arbitrary<SetReleaseMaxFillerPages>()),
       fuzztest::Map([](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
+      fuzztest::Map(
+          [](SetCollapseReleasedHugepages s) { return ChangeParam{s}; },
+          fuzztest::Arbitrary<SetCollapseReleasedHugepages>()),
       fuzztest::Map(
           [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()),
@@ -1932,6 +1972,103 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
             "SetSubreleaseUnbackedHugepages{.value=false}");
   EXPECT_EQ(absl::StrCat(SetUsageLimitPressure{.pages = 3}),
             "SetUsageLimitPressure{.pages=3}");
+}
+
+// Regression tests for the three lock-drop interleavings while collapsing a
+// partially released tracker with SetCollapseReleasedHugepages{.value = true}:
+//   1. ReleasePages between tracker selection and Collapse()
+//   2. ReleasePages after Collapse() succeeds and before Restore()
+//   3. Dealloc emptying and parking the tracker during Collapse()
+TEST(HugePageAwareAllocatorTest,
+     CollapseReleasedInterleavedReleaseBeforeCollapse) {
+  const Alloc alloc{.length = 4, .num_objects = 1};
+  RunHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{ChangeParam{SetCollapseReleasedHugepages{.value = true}}},
+       Instruction{ChangeParam{UpdateBitmaps{.hugepage_backed_set = true,
+                                             .hugepage_backed_val = false,
+                                             .unbacked_bitmap_val = 0,
+                                             .swapped_bitmap_val = 0,
+                                             .stale_bitmap_val = 0}}},
+       Instruction{alloc}, Instruction{alloc}, Instruction{alloc},
+       Instruction{Dealloc{.index = 1}},
+       Instruction{ReleasePagesBreakingHugepages{.desired = 4,
+                                                 .soft_limit_exceeded = true}},
+       Instruction{Dealloc{.index = 1}},
+       // First lock drop in Treat() is IsHugepageBacked() before Collapse():
+       // release the remaining free pages before Collapse() re-backs the whole
+       // hugepage.
+       Instruction{ChangeParam{
+           ReentrantSubprogram{{Instruction{ReleasePagesBreakingHugepages{
+               .desired = 4, .soft_limit_exceeded = true}}}}}},
+       Instruction{TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}},
+       Instruction{Dealloc{.index = 0}}});
+}
+
+TEST(HugePageAwareAllocatorTest,
+     CollapseReleasedInterleavedReleaseAfterCollapse) {
+  const Alloc alloc{.length = 4, .num_objects = 1};
+  const Alloc large{.length = 200, .num_objects = 1};
+  RunHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{ChangeParam{SetCollapseReleasedHugepages{.value = true}}},
+       Instruction{ChangeParam{UpdateBitmaps{.hugepage_backed_set = true,
+                                             .hugepage_backed_val = false,
+                                             .unbacked_bitmap_val = 0,
+                                             .swapped_bitmap_val = 0,
+                                             .stale_bitmap_val = 0}}},
+       // First tracker on regular_alloc_partial_released_ (scanned first),
+       // second tracker on regular_alloc_ (scanned second).
+       Instruction{alloc}, Instruction{alloc}, Instruction{alloc},
+       Instruction{large}, Instruction{Dealloc{.index = 1}},
+       Instruction{ReleasePagesBreakingHugepages{.desired = 4,
+                                                 .soft_limit_exceeded = true}},
+       Instruction{Dealloc{.index = 1}},
+       // Pop empty subprograms across tracker 0's 4 lock drops
+       // (IsHugepageBacked, GetUnbackedAndSwappedBitmaps, GetSinglePageBitmaps,
+       // CollapsePages), then fire ReleasePagesBreakingHugepages on tracker 1's
+       // IsHugepageBacked drop after tracker 0's Collapse() has returned and
+       // before Restore() runs.  (reentrant_stack is LIFO.)
+       Instruction{ChangeParam{
+           ReentrantSubprogram{{Instruction{ReleasePagesBreakingHugepages{
+               .desired = 4, .soft_limit_exceeded = true}}}}}},
+       Instruction{ChangeParam{ReentrantSubprogram{{}}}},
+       Instruction{ChangeParam{ReentrantSubprogram{{}}}},
+       Instruction{ChangeParam{ReentrantSubprogram{{}}}},
+       Instruction{ChangeParam{ReentrantSubprogram{{}}}},
+       Instruction{TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}},
+       Instruction{Dealloc{.index = 0}}, Instruction{Dealloc{.index = 0}}});
+}
+
+TEST(HugePageAwareAllocatorTest,
+     CollapseReleasedInterleavedDeallocDuringCollapse) {
+  const Alloc alloc{.length = 4, .num_objects = 1};
+  RunHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{ChangeParam{SetCollapseReleasedHugepages{.value = true}}},
+       Instruction{ChangeParam{UpdateBitmaps{.hugepage_backed_set = true,
+                                             .hugepage_backed_val = false,
+                                             .unbacked_bitmap_val = 0,
+                                             .swapped_bitmap_val = 0,
+                                             .stale_bitmap_val = 0}}},
+       Instruction{alloc}, Instruction{alloc}, Instruction{Dealloc{.index = 1}},
+       Instruction{ReleasePagesBreakingHugepages{.desired = 4,
+                                                 .soft_limit_exceeded = true}},
+       // LIFO: empty on IsHugepageBacked, GetUnbackedAndSwappedBitmaps,
+       // GetSinglePageBitmaps; then Dealloc{.index = 0} inside CollapsePages()!
+       Instruction{ChangeParam{
+           ReentrantSubprogram{{Instruction{Dealloc{.index = 0}}}}}},
+       Instruction{ChangeParam{ReentrantSubprogram{{}}}},
+       Instruction{ChangeParam{ReentrantSubprogram{{}}}},
+       Instruction{ChangeParam{ReentrantSubprogram{{}}}},
+       Instruction{
+           TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}}});
 }
 
 }  // namespace
