@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
@@ -119,6 +120,18 @@ static size_t SanitizerStackSizeMultiplier() { return 1; }
 
 #else
 #define TCMALLOC_UNDER_SANITIZERS 0
+#endif
+
+#if defined(__APPLE__) && !TCMALLOC_UNDER_SANITIZERS
+#include <TargetConditionals.h>
+#if (!defined(TARGET_OS_RTKIT) || !TARGET_OS_RTKIT) && \
+    (!defined(TARGET_OS_DRIVERKIT) || !TARGET_OS_DRIVERKIT)
+#include <malloc/malloc.h>
+#define TCMALLOC_INTERNAL_HAS_MALLOC_ZONE_PRESSURE_RELIEF 1
+#endif
+#endif
+#ifndef TCMALLOC_INTERNAL_HAS_MALLOC_ZONE_PRESSURE_RELIEF
+#define TCMALLOC_INTERNAL_HAS_MALLOC_ZONE_PRESSURE_RELIEF 0
 #endif
 
 namespace tcmalloc {
@@ -237,6 +250,17 @@ void MallocExtension::ReleaseMemoryToSystem(size_t num_bytes) {
   if (&MallocExtension_Internal_ReleaseMemoryToSystem != nullptr) {
     MallocExtension_Internal_ReleaseMemoryToSystem(num_bytes);
   }
+#elif TCMALLOC_INTERNAL_HAS_MALLOC_ZONE_PRESSURE_RELIEF
+  if (num_bytes == 0) {
+    return;
+  }
+  // In Apple's libmalloc, goal == 0 requests maximal pressure relief across
+  // all zones, whereas values near SIZE_MAX can overflow page rounding.
+  const size_t goal =
+      num_bytes >= std::numeric_limits<size_t>::max() / 2 ? 0 : num_bytes;
+  malloc_zone_pressure_relief(nullptr, goal);
+#else
+  static_cast<void>(num_bytes);
 #endif
 }
 
