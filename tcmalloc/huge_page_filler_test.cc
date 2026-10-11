@@ -666,6 +666,9 @@ class FillerTest : public testing::Test {
                                 /*hit_limit=*/true);
   }
 
+  CollapseReleasedHugePages collapse_released_ =
+      CollapseReleasedHugePages::kDisabled;
+
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
@@ -677,7 +680,8 @@ class FillerTest : public testing::Test {
     // allocates, so we use manual lock and unlock here.
     pageheap_lock.lock();
     filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                  release_stale_pages, pageflags, residency);
+                                  release_stale_pages, collapse_released_,
+                                  pageflags, residency);
     pageheap_lock.unlock();
   }
 
@@ -4107,14 +4111,15 @@ TEST_F(FillerTestWithSubreleaseUnbacked, GardenReleasedTrackers) {
   EXPECT_EQ(pa.pt->released_pages(), N - Length(15));
   EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(10));
 
-  // Mark the 5 free pages (TCMalloc pages 10 to 14) as unbacked.
+  // Mark the 5 free pages (TCMalloc pages 10 to 14) and the already-released
+  // tail pages (TCMalloc pages 15 to N-1) as unbacked in the kernel.
   FakePageFlags pageflags;
   FakeResidency residency;
   pageflags.MarkHugePageBacked(pa.p.start_addr(), /*is_hugepage_backed=*/false);
   Bitmap<kMaxResidencyBits> unbacked, swapped;
-  // TCMalloc page 10 corresponds to native page 20 (assuming 2 native pages per
-  // TCMalloc page).
-  unbacked.SetRange(20, 10);
+  const size_t native_per_page = std::max<size_t>(1, kPageSize / GetPageSize());
+  unbacked.SetRange(10 * native_per_page,
+                    (N - Length(10)).raw_num() * native_per_page);
   residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked, swapped);
   pageflags.SetStaleBitmap(pa.p.start_addr(), {});
 
@@ -4722,10 +4727,11 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_TRUE(collapse_.TriedCollapse(pa.p.start_addr()));
   EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
 
-  // In our design, successful collapse should flip unbroken_ to true.
-  // So it should move from regular_alloc_released_ to regular_alloc_.
+  // In our design, successful collapse should flip unbroken_ to true and clear
+  // was_released. So it should move from regular_alloc_released_ to
+  // regular_alloc_.
   EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
-  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
   // Mark it as hugepage backed in fake pageflags for stats.
   pageflags.MarkHugePageBacked(pa.p.start_addr(), /*is_hugepage_backed=*/true);
@@ -4735,13 +4741,177 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
     filler_.Print(printer, true, pageflags);
   });
   EXPECT_THAT(buffer,
-              testing::HasSubstr("HugePageFiller: 1 hugepages became full "
+              testing::HasSubstr("HugePageFiller: 0 hugepages became full "
                                  "after being previously released, "
-                                 "out of which 1 pages are hugepage backed."));
+                                 "out of which 0 pages are hugepage backed."));
 
   // Cleanup.
   DeleteVector(half);
   DeleteVector(half2);
+}
+
+TEST_F(FillerTest, CollapseSubreleasedTrackerClearsReleasedState) {
+  randomize_density_ = false;
+  const Length N = kPagesPerHugePage;
+  ASSERT_GE(N, Length(16));
+
+  // Allocate N - 8 pages, allocate 4 pages, allocate 4 pages, then free one
+  // 4-page chunk and release it, and free the other 4-page chunk without
+  // releasing so the tracker sits on regular_alloc_partial_released_ with
+  // released_pages() == 4 and free_pages() == 8.
+  std::vector<PAlloc> kept = AllocateVector(N - Length(8));
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  PAlloc pa = kept.front();
+  PAlloc rel = AllocateWithSpanAllocInfo(Length(4), pa.span_alloc_info);
+  PAlloc free_unreleased =
+      AllocateWithSpanAllocInfo(Length(4), pa.span_alloc_info);
+  ASSERT_EQ(rel.pt, pa.pt);
+  ASSERT_EQ(free_unreleased.pt, pa.pt);
+
+  Delete(rel);
+  ASSERT_EQ(ReleasePages(Length(4)), Length(4));
+  Delete(free_unreleased);
+
+  EXPECT_TRUE(pa.pt->released());
+  EXPECT_EQ(pa.pt->released_pages(), Length(4));
+  EXPECT_FALSE(pa.pt->unbroken());
+  EXPECT_EQ(filler_.unmapped_pages(), Length(4));
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), N - Length(8));
+  EXPECT_EQ(filler_.GetStats()
+                .n_partial_released[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(1));
+
+  // Mark the 4 released TCMalloc pages as unbacked in residency (well below
+  // kMaxUnbackedPagesForCollapse = 64 native pages on 8K/4K).
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(pa.p.start_addr(), /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  unbacked.SetRange(0, 4);
+  residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(pa.p.start_addr(), {});
+
+  // With CollapseReleasedHugePages::kDisabled, released trackers are skipped.
+  collapse_released_ = CollapseReleasedHugePages::kDisabled;
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(0));
+  EXPECT_TRUE(pa.pt->released());
+  EXPECT_EQ(pa.pt->released_pages(), Length(4));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(4));
+
+  // With CollapseReleasedHugePages::kEnabled (after advancing clock past
+  // kRecordInterval), collapse succeeds and clears released pages and unmapped
+  // accounting.
+  FakeClock::Advance(absl::Hours(7));
+  collapse_released_ = CollapseReleasedHugePages::kEnabled;
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(1));
+  EXPECT_EQ(pa.pt->released_pages(), Length(0));
+  EXPECT_FALSE(pa.pt->released());
+  EXPECT_TRUE(pa.pt->unbroken());
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(0));
+  EXPECT_EQ(filler_.GetStats()
+                .n_partial_released[AccessDensityPrediction::kPredictionCounts],
+            NHugePages(0));
+
+  DeleteVector(kept);
+}
+
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       ConcurrentSubreleaseDuringCollapseSkipsOnCollapseSuccess) {
+  randomize_density_ = false;
+  collapse_released_ = CollapseReleasedHugePages::kEnabled;
+  const Length N = kPagesPerHugePage;
+  ASSERT_GE(N, Length(16));
+
+  // Target tracker `pa` sits on regular_alloc_partial_released_ with 4 pages
+  // already released and 4 pages free-unreleased (scanned first by
+  // TreatHugepageTrackers).
+  std::vector<PAlloc> kept = AllocateVector(N - Length(8));
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  PAlloc pa = kept.front();
+
+  PAlloc rel = AllocateWithSpanAllocInfo(Length(4), pa.span_alloc_info);
+  PAlloc free_unreleased =
+      AllocateWithSpanAllocInfo(Length(4), pa.span_alloc_info);
+  ASSERT_EQ(rel.pt, pa.pt);
+  ASSERT_EQ(free_unreleased.pt, pa.pt);
+
+  // Control tracker `pa2` sits on regular_alloc_ (scanned second by
+  // TreatHugepageTrackers) so its collapse runs strictly after
+  // `pa.pt->Collapse` has completed and cleared BeingCollapsed().
+  std::vector<PAlloc> kept2 = AllocateVector(N - Length(1));
+  ASSERT_EQ(filler_.size(), NHugePages(2));
+  PAlloc pa2 = kept2.front();
+  ASSERT_NE(pa2.pt, pa.pt);
+
+  Delete(rel);
+  ASSERT_EQ(ReleasePages(Length(4)), Length(4));
+  Delete(free_unreleased);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(pa.p.start_addr(), /*is_hugepage_backed=*/false);
+  pageflags.MarkHugePageBacked(pa2.p.start_addr(),
+                               /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> unbacked, empty_bitmap;
+  unbacked.SetRange(0, 4);
+  residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                         empty_bitmap);
+  residency.SetUnbackedAndSwappedBitmaps(pa2.p.start_addr(), empty_bitmap,
+                                         empty_bitmap);
+  pageflags.SetStaleBitmap(pa.p.start_addr(), {});
+  pageflags.SetStaleBitmap(pa2.p.start_addr(), {});
+
+  // While collapsing `pa2` (with pageheap_lock dropped, after `pa.pt->Collapse`
+  // succeeded and cleared BeingCollapsed), subrelease the remaining 4 free
+  // pages of `pa.pt` so `pa.pt`'s released_since_selected flips to true right
+  // before Restore() runs.
+  collapse_.unlocked_hook_ = [&](Range r) {
+    if (r.p == pa2.p) {
+      EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+      EXPECT_FALSE(pa.pt->BeingCollapsed());
+      EXPECT_EQ(ReleasePages(Length(4)), Length(4));
+      EXPECT_TRUE(pa.pt->GetHugePageResidencyState().released_since_selected);
+    }
+  };
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  collapse_.unlocked_hook_ = nullptr;
+
+  // Both userspace collapses succeeded:
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(2));
+  EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
+  EXPECT_EQ(collapse_.TimesCollapsed(pa2.p.start_addr()), 1);
+
+  // Control tracker `pa2.pt` had no concurrent subrelease, so Restore() kept
+  // maybe_hugepage_backed = true and called OnCollapseSuccess (unbroken =
+  // true).
+  EXPECT_TRUE(pa2.pt->GetHugePageResidencyState().maybe_hugepage_backed);
+  EXPECT_TRUE(pa2.pt->unbroken());
+
+  // Target tracker `pa.pt` was concurrently subreleased after its collapse
+  // succeeded: Restore() observed released_since_selected == true, reset
+  // maybe_hugepage_backed to false (unlike `pa2.pt`), and skipped
+  // OnCollapseSuccess so all 8 released pages remain unmapped and unbroken()
+  // stays false.
+  EXPECT_FALSE(pa.pt->GetHugePageResidencyState().maybe_hugepage_backed);
+  EXPECT_FALSE(pa.pt->unbroken());
+  EXPECT_TRUE(pa.pt->released());
+  EXPECT_EQ(pa.pt->released_pages(), Length(8));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(8));
+  EXPECT_EQ(filler_.used_pages_in_released(), N - Length(8));
+
+  DeleteVector(kept);
+  DeleteVector(kept2);
+  DrainFreedTrackers();
 }
 
 TEST_F(FillerTest, AvoidArbitraryQuarantineVMGrowth) {

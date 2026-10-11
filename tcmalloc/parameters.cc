@@ -272,6 +272,20 @@ madvise_cold_regions_nohugepage_enabled() {
   return v;
 }
 
+static std::atomic<CollapseReleasedHugePages>&
+collapse_released_hugepages_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<CollapseReleasedHugePages> v{
+      CollapseReleasedHugePages::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES)) {
+      v.store(CollapseReleasedHugePages::kEnabled, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 static std::atomic<HeapPartitioningMode>& heap_partitioning_mode_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<HeapPartitioningMode> v{
@@ -349,6 +363,10 @@ bool Parameters::release_max_filler_pages() {
 MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
   return madvise_cold_regions_nohugepage_enabled().load(
       std::memory_order_relaxed);
+}
+
+CollapseReleasedHugePages Parameters::collapse_released_hugepages() {
+  return collapse_released_hugepages_enabled().load(std::memory_order_relaxed);
 }
 
 HeapPartitioningMode Parameters::heap_partitioning_mode() {
@@ -705,6 +723,18 @@ bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
 void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
   tcmalloc::tcmalloc_internal::release_max_filler_pages_enabled().store(
       v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetCollapseReleasedHugepages() {
+  return Parameters::collapse_released_hugepages() ==
+         tcmalloc::tcmalloc_internal::CollapseReleasedHugePages::kEnabled;
+}
+
+void TCMalloc_Internal_SetCollapseReleasedHugepages(bool v) {
+  tcmalloc::tcmalloc_internal::collapse_released_hugepages_enabled().store(
+      v ? tcmalloc::tcmalloc_internal::CollapseReleasedHugePages::kEnabled
+        : tcmalloc::tcmalloc_internal::CollapseReleasedHugePages::kDisabled,
+      std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {

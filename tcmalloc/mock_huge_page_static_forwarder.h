@@ -152,6 +152,12 @@ class FakeStaticForwarder : private Parameters {
   void set_enable_unfiltered_collapse(EnableUnfilteredCollapse value) {
     enable_unfiltered_collapse_ = value;
   }
+  [[nodiscard]] CollapseReleasedHugePages collapse_released_hugepages() const {
+    return collapse_released_hugepages_;
+  }
+  void set_collapse_released_hugepages(CollapseReleasedHugePages value) {
+    collapse_released_hugepages_ = value;
+  }
 
   // Arena state.
   [[nodiscard]] Arena& arena() { return arena_; }
@@ -283,6 +289,8 @@ class FakeStaticForwarder : private Parameters {
   int32_t back_size_threshold_bytes_ = Parameters::back_size_threshold_bytes();
   EnableUnfilteredCollapse enable_unfiltered_collapse_ =
       Parameters::enable_unfiltered_collapse();
+  CollapseReleasedHugePages collapse_released_hugepages_ =
+      Parameters::collapse_released_hugepages();
   Arena arena_;
   ReleaseStalePages release_stale_pages_ = Parameters::release_stale_pages();
   MadviseRegionsNoHugepage madvise_cold_regions_nohugepage_ =

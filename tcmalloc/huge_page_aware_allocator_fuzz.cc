@@ -507,6 +507,17 @@ struct SetEnableReleaseStalePages {
   }
 };
 
+struct SetCollapseReleasedHugepages {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetCollapseReleasedHugepages& s) {
+    absl::Format(&sink, "SetCollapseReleasedHugepages{.value=%v}", s.value);
+  }
+};
+
 struct SetMadvNoHugepageHugeRegions {
   bool value;
 
@@ -573,8 +584,8 @@ using ParamOp = std::variant<
     SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
     SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
     SetEnableUnfilteredCollapse, SetReleaseMaxFillerPages,
-    SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions, UpdateBitmaps,
-    SetUsageLimitPressure>;
+    SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
+    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -1166,6 +1177,12 @@ void SetEnableReleaseStalePages::Perform(State& state) const {
       value ? ReleaseStalePages::kEnabled : ReleaseStalePages::kDisabled);
 }
 
+void SetCollapseReleasedHugepages::Perform(State& state) const {
+  state.allocator.forwarder().set_collapse_released_hugepages(
+      value ? CollapseReleasedHugePages::kEnabled
+            : CollapseReleasedHugePages::kDisabled);
+}
+
 void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
   state.allocator.forwarder().set_madvise_cold_regions_nohugepage(
       value ? MadviseRegionsNoHugepage::kEnabled
@@ -1305,6 +1322,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                     fuzztest::Arbitrary<SetReleaseMaxFillerPages>()),
       fuzztest::Map([](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
+      fuzztest::Map(
+          [](SetCollapseReleasedHugepages s) { return ChangeParam{s}; },
+          fuzztest::Arbitrary<SetCollapseReleasedHugepages>()),
       fuzztest::Map(
           [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()),

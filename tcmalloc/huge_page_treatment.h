@@ -311,7 +311,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       EnableCollapse enable_collapse,
       SubreleaseUnbackedMode subrelease_unbacked_mode,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      ReleaseStalePages release_stale_pages)
+      ReleaseStalePages release_stale_pages,
+      CollapseReleasedHugePages collapse_released)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
@@ -321,6 +322,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         subrelease_unbacked_mode_(subrelease_unbacked_mode),
         enable_unfiltered_collapse_(enable_unfiltered_collapse),
         release_stale_pages_(release_stale_pages),
+        collapse_released_(collapse_released),
         clock_now_(clock.now()),
         record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
                                 clock.freq()) {}
@@ -513,8 +515,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       }
       tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
       if (residency_states_[i].tracker_state.maybe_hugepage_backed) {
-        if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
-          page_filler_.OnCollapseSuccess(tracker);
+        if (collapse_released_ == CollapseReleasedHugePages::kEnabled ||
+            subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
+          page_filler_.OnCollapseSuccess(tracker, collapse_released_);
         }
         tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
@@ -576,7 +579,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
  private:
   [[nodiscard]] bool TryUserspaceCollapse(PageTracker* tracker) {
     double before = clock_.now();
-    MemoryModifyStatus ret = tracker->Collapse(collapse_);
+    MemoryModifyStatus ret = tracker->Collapse(collapse_, collapse_released_);
     double after = clock_.now();
     double elapsed = std::max<double>(after - before, 0);
     treatment_stats_.collapse_time_total_cycles += elapsed;
@@ -617,6 +620,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
   ReleaseStalePages release_stale_pages_;
+  CollapseReleasedHugePages collapse_released_;
 
   // Clock state cached at construction time, so that we do not read the
   // hardware clock nor recompute the record interval threshold for every
