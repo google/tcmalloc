@@ -301,6 +301,7 @@ struct TreatTrackers {
   bool enable_collapse;
   bool enable_unfiltered_collapse;
   bool enable_release_stale_pages;
+  bool preserve_donated_on_collapse;
 
   void Perform(State& state) const;
 
@@ -309,9 +310,10 @@ struct TreatTrackers {
     absl::Format(&sink,
                  "TreatTrackers{.enable_collapse=%v, "
                  ".enable_unfiltered_collapse=%v, "
-                 ".enable_release_stale_pages=%v}",
+                 ".enable_release_stale_pages=%v, "
+                 ".preserve_donated_on_collapse=%v}",
                  t.enable_collapse, t.enable_unfiltered_collapse,
-                 t.enable_release_stale_pages);
+                 t.enable_release_stale_pages, t.preserve_donated_on_collapse);
   }
 };
 
@@ -1016,6 +1018,8 @@ void TreatTrackers::Perform(State& state) const {
                                  : EnableUnfilteredCollapse::kDisabled,
       enable_release_stale_pages ? ReleaseStalePages::kEnabled
                                  : ReleaseStalePages::kDisabled,
+      preserve_donated_on_collapse ? PreserveDonatedOnCollapse::kEnabled
+                                   : PreserveDonatedOnCollapse::kDisabled,
       &pageflags, &residency);
   state.treating_trackers = false;
   state.DrainFullyFreedTrackers();
@@ -1646,12 +1650,14 @@ TEST(HugePageFillerTest, InstructionStringify) {
   {
     Instruction inst = TreatTrackers{.enable_collapse = true,
                                      .enable_unfiltered_collapse = false,
-                                     .enable_release_stale_pages = true};
+                                     .enable_release_stale_pages = true,
+                                     .preserve_donated_on_collapse = true};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(
-        s,
-        "TreatTrackers{.enable_collapse=true, "
-        ".enable_unfiltered_collapse=false, .enable_release_stale_pages=true}");
+    EXPECT_EQ(s,
+              "TreatTrackers{.enable_collapse=true, "
+              ".enable_unfiltered_collapse=false, "
+              ".enable_release_stale_pages=true, "
+              ".preserve_donated_on_collapse=true}");
   }
   {
     Instruction inst = UpdateBitmaps{.hugepage_backed_set = true,

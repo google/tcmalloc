@@ -108,6 +108,8 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::back_size_threshold_bytes()};
   FakeParameter<EnableUnfilteredCollapse> enable_unfiltered_collapse{
       Parameters::enable_unfiltered_collapse()};
+  FakeParameter<PreserveDonatedOnCollapse> preserve_donated_on_collapse{
+      Parameters::preserve_donated_on_collapse()};
   // NOLINTEND(readability-identifier-naming)
 
   [[nodiscard]] bool release_succeeds() const { return release_succeeds_; }

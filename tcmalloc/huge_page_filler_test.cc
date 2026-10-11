@@ -530,6 +530,8 @@ class FillerTest : public testing::Test {
   // where the output is hardcoded, we disable randomization through the
   // variable below.
   bool randomize_density_ = true;
+  PreserveDonatedOnCollapse preserve_donated_on_collapse_ =
+      PreserveDonatedOnCollapse::kDisabled;
 
   void CheckStats() {
     EXPECT_EQ(filler_.size(), hp_contained_);
@@ -676,8 +678,9 @@ class FillerTest : public testing::Test {
     // scoped lock doesn't recognize the manual unlock. In tests, collapse
     // allocates, so we use manual lock and unlock here.
     pageheap_lock.lock();
-    filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                  release_stale_pages, pageflags, residency);
+    filler_.TreatHugepageTrackers(
+        enable_collapse, enable_unfiltered_collapse, release_stale_pages,
+        preserve_donated_on_collapse_, pageflags, residency);
     pageheap_lock.unlock();
   }
 
@@ -6736,7 +6739,7 @@ HugePageFiller: 1242 used pages in subreleased hugepages (0 of them in partially
 HugePageFiller: 5 hugepages partially released, 0.0297 released
 HugePageFiller: 0.6498 of used pages hugepageable
 HugePageFiller: Since startup, 306 pages subreleased, 6 hugepages broken, (0 pages, 0 hugepages due to reaching tcmalloc limit)
-HugePageFiller: Out of 0 eligible hugepages, 0 were attempted, and 0 were collapsed.
+HugePageFiller: Out of 0 eligible hugepages, 0 were attempted, and 0 were collapsed (0 donated).
 HugePageFiller: Of the failed collapse operations, number of operations that failed per error type, ETYPE_NOMEM: 0, ETYPE_BUSY: 0, ETYPE_INVAL: 0, ETYPE_AGAIN: 0, ETYPE_INTR: 0, ETYPE_ACCES: 0, ETYPE_FAULT: 0, ETYPE_REJECTED: 0, ETYPE_OTHER: 0
 HugePageFiller: Latency of collapse operations: 0.000000 ms (total), 0.000000 us (maximum)
 HugePageFiller: Backoff delay for collapse currently is 1 interval(s), number of intervals skipped due to backoff is 0
@@ -8003,6 +8006,95 @@ TEST_F(FillerTest, TryGetReturnsPerPagePreviouslyUnbackedState) {
   DeleteRaw(a1);
   DeleteRaw(a2);
   DeleteRaw(a3);
+}
+
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       OnCollapseSuccessCountsDonatedTracker) {
+  randomize_density_ = false;
+  const Length kDonatedAlloc = kPagesPerHugePage - Length(10);
+  PAlloc regular = Allocate(Length(2), /*donated=*/false);
+  PAlloc donated = Allocate(kDonatedAlloc, /*donated=*/true);
+  ASSERT_TRUE(donated.pt->donated());
+  ASSERT_FALSE(regular.pt->donated());
+
+  donated.pt->set_unbroken(/*status=*/false);
+  ASSERT_FALSE(donated.pt->unbroken());
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_donated_succeeded,
+            NHugePages(0));
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(regular.p.start_addr(),
+                               /*is_hugepage_backed=*/true);
+  pageflags.MarkHugePageBacked(donated.p.start_addr(),
+                               /*is_hugepage_backed=*/false);
+  residency.SetUnbackedAndSwappedBitmaps(donated.p.start_addr(), {}, {});
+  pageflags.SetStaleBitmap(donated.p.start_addr(), {});
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(1));
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_donated_succeeded,
+            NHugePages(1));
+  EXPECT_TRUE(donated.pt->unbroken());
+  EXPECT_FALSE(donated.pt->donated());
+
+  EXPECT_TRUE(Delete(donated));
+  EXPECT_TRUE(Delete(regular));
+}
+
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       OnCollapseSuccessPreservesDonatedTracker) {
+  randomize_density_ = false;
+  preserve_donated_on_collapse_ = PreserveDonatedOnCollapse::kEnabled;
+  // Contribute a regular hugepage with 254 free pages first, then contribute
+  // tail slack from a live multi-hugepage allocation (`donated=true`, 10 slack
+  // pages) onto `donated_alloc_`.
+  const Length kDonatedAlloc = kPagesPerHugePage - Length(10);
+  PAlloc regular = Allocate(Length(2), /*donated=*/false);
+  PAlloc donated = Allocate(kDonatedAlloc, /*donated=*/true);
+  ASSERT_TRUE(donated.pt->donated());
+  ASSERT_FALSE(regular.pt->donated());
+
+  // Model a donated tracker originating from a reused broken hugepage
+  // (`!unbroken()`) that is collapsed by userspace collapse treatment.
+  donated.pt->set_unbroken(/*status=*/false);
+  ASSERT_FALSE(donated.pt->unbroken());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(regular.p.start_addr(),
+                               /*is_hugepage_backed=*/true);
+  pageflags.MarkHugePageBacked(donated.p.start_addr(),
+                               /*is_hugepage_backed=*/false);
+  residency.SetUnbackedAndSwappedBitmaps(donated.p.start_addr(), {}, {});
+  pageflags.SetStaleBitmap(donated.p.start_addr(), {});
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(1));
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_donated_succeeded,
+            NHugePages(1));
+  EXPECT_TRUE(donated.pt->unbroken());
+  // When `PreserveDonatedOnCollapse::kEnabled` is set, `OnCollapseSuccess`
+  // re-inserts a donated tracker via `DonateToFillerList` so it remains on
+  // `donated_alloc_` (`donated() == true`) rather than moving to
+  // `regular_alloc_`, where its shorter free range (10 pages vs. 254 on
+  // `regular`) would cause small allocations to prefer it and abandon the tail
+  // when `donated` is freed.
+  EXPECT_TRUE(donated.pt->donated());
+
+  PAlloc small = Allocate(Length(1), /*donated=*/false);
+  EXPECT_EQ(small.pt, regular.pt);
+  EXPECT_TRUE(donated.pt->donated());
+
+  EXPECT_TRUE(Delete(donated));
+  Delete(small);
+  EXPECT_TRUE(Delete(regular));
 }
 
 }  // namespace

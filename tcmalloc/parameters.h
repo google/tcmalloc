@@ -137,6 +137,11 @@ class Parameters {
     return enable_unfiltered_collapse_.load(std::memory_order_relaxed);
   }
 
+  [[nodiscard]] static PreserveDonatedOnCollapse
+  preserve_donated_on_collapse() {
+    return preserve_donated_on_collapse_.load(std::memory_order_relaxed);
+  }
+
   [[nodiscard]] static bool huge_region_adaptive_release() {
     return huge_region_adaptive_release_.load(std::memory_order_relaxed);
   }
@@ -324,6 +329,7 @@ class Parameters {
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<EnableUnfilteredCollapse> enable_unfiltered_collapse_;
+  static std::atomic<PreserveDonatedOnCollapse> preserve_donated_on_collapse_;
   static std::atomic<MadviseSampledAllocations> madvise_sampled_allocations_;
   static std::atomic<int64_t> event_trace_memory_limit_;
   static std::atomic<bool> release_drained_slab_metadata_;
