@@ -113,6 +113,12 @@ class FakeStaticForwarder : private Parameters {
   void set_release_max_filler_pages(bool value) {
     release_max_filler_pages_ = value;
   }
+  [[nodiscard]] bool prefer_backed_filler_pages() const {
+    return prefer_backed_filler_pages_;
+  }
+  void set_prefer_backed_filler_pages(bool value) {
+    prefer_backed_filler_pages_ = value;
+  }
   [[nodiscard]] ReleaseStalePages release_stale_pages() const {
     return release_stale_pages_;
   }
@@ -278,6 +284,7 @@ class FakeStaticForwarder : private Parameters {
   MallocExtension::BytesPerSecond background_release_rate_ =
       Parameters::background_release_rate();
   bool release_max_filler_pages_ = Parameters::release_max_filler_pages();
+  bool prefer_backed_filler_pages_ = Parameters::prefer_backed_filler_pages();
 
   bool back_allocations_ = Parameters::back_small_allocations();
   int32_t back_size_threshold_bytes_ = Parameters::back_size_threshold_bytes();

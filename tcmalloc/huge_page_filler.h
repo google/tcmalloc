@@ -735,7 +735,8 @@ class HugePageFiller {
   // number of individual objects that would be allocated on these n pages.
   //
   // On failure, returns nullptr/PageId{0}.
-  [[nodiscard]] TryGetResult TryGet(Length n, SpanAllocInfo span_alloc_info)
+  [[nodiscard]] TryGetResult TryGet(Length n, SpanAllocInfo span_alloc_info,
+                                    PreferBackedPages prefer_backed)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks r as usable by new allocations into *pt; returns pt if that hugepage
@@ -1160,7 +1161,8 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
-HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
+HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
+                                    PreferBackedPages prefer_backed) {
   TC_ASSERT_GT(n, Length(0));
   TC_ASSERT(span_alloc_info.density == AccessDensityPrediction::kSparse ||
             n == Length(1));
@@ -1281,7 +1283,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     pt->RecordFeatures();
     pt->SetLastAllocationTime(now);
   }
-  const auto page_allocation = pt->Get(n, span_alloc_info);
+  const auto page_allocation = pt->Get(n, span_alloc_info, prefer_backed);
   AddToFillerList(pt);
   pages_allocated_[type] += n;
 

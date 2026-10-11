@@ -72,6 +72,7 @@ class StaticForwarder : private Parameters {
   using Parameters::hpaa_subrelease;
   using Parameters::huge_region_adaptive_release;
   using Parameters::madvise_cold_regions_nohugepage;
+  using Parameters::prefer_backed_filler_pages;
   using Parameters::release_max_filler_pages;
   using Parameters::release_partial_alloc_pages;
   using Parameters::release_stale_pages;
@@ -519,7 +520,7 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
   if (pt->was_donated()) {
     pt->set_abandoned_count(n);
   }
-  PageId page = pt->Get(n, span_alloc_info).page;
+  PageId page = pt->Get(n, span_alloc_info, PreferBackedPages::kDisabled).page;
   TC_ASSERT_EQ(page, p.first_page());
   SetTracker(p, pt);
   filler_.Contribute(pt, donated, span_alloc_info);
@@ -561,7 +562,10 @@ inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
                                               SpanAllocInfo span_alloc_info,
                                               bool* from_released) {
-  auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
+  auto [pt, page, released] = filler_.TryGet(
+      n, span_alloc_info,
+      forwarder_.prefer_backed_filler_pages() ? PreferBackedPages::kEnabled
+                                              : PreferBackedPages::kDisabled);
   *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     return Finalize(Range(page, n), *from_released);
@@ -588,7 +592,10 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
   PageId page;
   // If we fit in a single hugepage, try the Filler.p.
   if (n < kPagesPerHugePage) {
-    auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
+    auto [pt, page, released] = filler_.TryGet(
+        n, span_alloc_info,
+        forwarder_.prefer_backed_filler_pages() ? PreferBackedPages::kEnabled
+                                                : PreferBackedPages::kDisabled);
     *from_released = released;
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
       return Finalize(Range(page, n), *from_released);

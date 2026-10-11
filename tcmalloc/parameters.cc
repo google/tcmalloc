@@ -258,6 +258,18 @@ static std::atomic<bool>& release_max_filler_pages_enabled() {
   return v;
 }
 
+static std::atomic<bool>& prefer_backed_filler_pages_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_PREFER_BACKED_FILLER_PAGES)) {
+      v.store(true, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 static std::atomic<MadviseRegionsNoHugepage>&
 madvise_cold_regions_nohugepage_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -344,6 +356,10 @@ EnableCollapse Parameters::usermode_hugepage_collapse() {
 
 bool Parameters::release_max_filler_pages() {
   return release_max_filler_pages_enabled().load(std::memory_order_relaxed);
+}
+
+bool Parameters::prefer_backed_filler_pages() {
+  return prefer_backed_filler_pages_enabled().load(std::memory_order_relaxed);
 }
 
 MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
@@ -704,6 +720,15 @@ bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
 
 void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
   tcmalloc::tcmalloc_internal::release_max_filler_pages_enabled().store(
+      v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetPreferBackedFillerPages() {
+  return Parameters::prefer_backed_filler_pages();
+}
+
+void TCMalloc_Internal_SetPreferBackedFillerPages(bool v) {
+  tcmalloc::tcmalloc_internal::prefer_backed_filler_pages_enabled().store(
       v, std::memory_order_relaxed);
 }
 

@@ -263,7 +263,8 @@ class PageTrackerTest : public testing::Test {
 
   PAlloc Get(Length n, SpanAllocInfo span_alloc_info) {
     PageHeapSpinLockHolder l;
-    PageId p = tracker_.Get(n, span_alloc_info).page;
+    PageId p =
+        tracker_.Get(n, span_alloc_info, PreferBackedPages::kDisabled).page;
     return {p, n, span_alloc_info};
   }
 
@@ -878,6 +879,103 @@ TEST_F(PageTrackerTest, b151915873) {
   EXPECT_THAT(0,
               testing::AllOfArray(&small.normal_length[2],
                                   &small.normal_length[kMaxPages.raw_num()]));
+}
+
+TEST_F(PageTrackerTest, PreferBackedFreePages) {
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+
+  // Partition the hugepage into contiguous allocations:
+  //   sep0 [0, 1), unbacked_hole [1, 3), sep1 [3, 4),
+  //   backed_large [4, 9), sep2 [9, 10),
+  //   backed_small_first [10, 13), sep3 [13, 14),
+  //   backed_small_second [14, 17), tail [17, kPagesPerHugePage)
+  PAlloc sep0 = Get(Length(1), info);
+  PAlloc unbacked_hole = Get(Length(2), info);
+  PAlloc sep1 = Get(Length(1), info);
+  PAlloc backed_large = Get(Length(5), info);
+  PAlloc sep2 = Get(Length(1), info);
+  PAlloc backed_small_first = Get(Length(3), info);
+  PAlloc sep3 = Get(Length(1), info);
+  PAlloc backed_small_second = Get(Length(3), info);
+  PAlloc tail = Get(kPagesPerHugePage - Length(17), info);
+
+  ASSERT_EQ(sep0.p, huge_.first_page() + Length(0));
+  ASSERT_EQ(unbacked_hole.p, huge_.first_page() + Length(1));
+  ASSERT_EQ(sep1.p, huge_.first_page() + Length(3));
+  ASSERT_EQ(backed_large.p, huge_.first_page() + Length(4));
+  ASSERT_EQ(sep2.p, huge_.first_page() + Length(9));
+  ASSERT_EQ(backed_small_first.p, huge_.first_page() + Length(10));
+  ASSERT_EQ(sep3.p, huge_.first_page() + Length(13));
+  ASSERT_EQ(backed_small_second.p, huge_.first_page() + Length(14));
+  ASSERT_EQ(tail.p, huge_.first_page() + Length(17));
+
+  // Subrelease only [1, 3) so it becomes a 2-page unbacked hole.
+  Put(unbacked_hole);
+  ExpectUnbackPages(unbacked_hole);
+  EXPECT_EQ(ReleaseFree(), Length(2));
+  EXPECT_EQ(tracker_.released_pages(), Length(2));
+
+  // Free the three backed holes after ReleaseFree() so they remain backed.
+  Put(backed_large);
+  Put(backed_small_first);
+  Put(backed_small_second);
+
+  // With PreferBackedPages::kDisabled, global best-fit prefers the exact 2-page
+  // unbacked hole over the larger 3-page and 5-page backed holes.
+  {
+    PageHeapSpinLockHolder l;
+    PageTracker::PageAllocation alloc =
+        tracker_.Get(Length(2), info, PreferBackedPages::kDisabled);
+    EXPECT_EQ(alloc.page, unbacked_hole.p);
+    EXPECT_EQ(alloc.previously_unbacked, Length(2));
+  }
+  EXPECT_EQ(tracker_.released_pages(), Length(0));
+
+  // Re-subrelease only [1, 3) back into a 2-page unbacked hole while keeping
+  // the three larger free holes backed.
+  Put(unbacked_hole);
+  {
+    PageHeapSpinLockHolder l;
+    PageBitmap unbacked_bits;
+    unbacked_bits.SetRange(1, 2);
+    EXPECT_EQ(tracker_.MarkSubreleased(unbacked_bits), Length(2));
+  }
+  EXPECT_EQ(tracker_.released_pages(), Length(2));
+
+  // With PreferBackedPages::kEnabled, Get(Length(2)) selects the shortest
+  // backed hole >= 2 pages (length 3), breaking ties by lowest page index
+  // ([10, 13) before [14, 17)), without faulting in the exact-fit unbacked hole
+  // [1, 3).
+  {
+    PageHeapSpinLockHolder l;
+    PageTracker::PageAllocation alloc1 =
+        tracker_.Get(Length(2), info, PreferBackedPages::kEnabled);
+    EXPECT_EQ(alloc1.page, backed_small_first.p);
+    EXPECT_EQ(alloc1.previously_unbacked, Length(0));
+    EXPECT_EQ(tracker_.released_pages(), Length(2));
+
+    PageTracker::PageAllocation alloc2 =
+        tracker_.Get(Length(2), info, PreferBackedPages::kEnabled);
+    EXPECT_EQ(alloc2.page, backed_small_second.p);
+    EXPECT_EQ(alloc2.previously_unbacked, Length(0));
+    EXPECT_EQ(tracker_.released_pages(), Length(2));
+
+    // Requesting Length(4) fits only in backed_large [4, 9).
+    PageTracker::PageAllocation alloc3 =
+        tracker_.Get(Length(4), info, PreferBackedPages::kEnabled);
+    EXPECT_EQ(alloc3.page, backed_large.p);
+    EXPECT_EQ(alloc3.previously_unbacked, Length(0));
+    EXPECT_EQ(tracker_.released_pages(), Length(2));
+
+    // Now the remaining backed holes all have length 1 ([8, 9), [12, 13),
+    // [16, 17)). Requesting Length(2) with PreferBackedPages::kEnabled has no
+    // backed hole >= 2 pages and falls back to FindAndMark(), using [1, 3).
+    PageTracker::PageAllocation fallback =
+        tracker_.Get(Length(2), info, PreferBackedPages::kEnabled);
+    EXPECT_EQ(fallback.page, unbacked_hole.p);
+    EXPECT_EQ(fallback.previously_unbacked, Length(2));
+    EXPECT_EQ(tracker_.released_pages(), Length(0));
+  }
 }
 
 }  // namespace
