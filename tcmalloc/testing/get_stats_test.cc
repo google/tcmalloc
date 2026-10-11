@@ -108,6 +108,10 @@ TEST_F(GetStatsTest, Pbtxt) {
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
+  EXPECT_THAT(buf,
+              HasSubstr("tcmalloc_skip_subrelease_cold_short_interval_ns: 0"));
+  EXPECT_THAT(buf,
+              HasSubstr("tcmalloc_skip_subrelease_cold_long_interval_ns: 0"));
 #else
   if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
     EXPECT_THAT(
@@ -116,6 +120,14 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(
         buf,
         HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            "tcmalloc_skip_subrelease_cold_short_interval_ns: 60000000000"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            "tcmalloc_skip_subrelease_cold_long_interval_ns: 300000000000"));
   } else {
     EXPECT_THAT(
         buf,
@@ -123,6 +135,14 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(
         buf,
         HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 120000000000"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            "tcmalloc_skip_subrelease_cold_short_interval_ns: 10000000000"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            "tcmalloc_skip_subrelease_cold_long_interval_ns: 120000000000"));
   }
 #endif
 
@@ -224,6 +244,12 @@ TEST_F(GetStatsTest, Parameters) {
   const absl::Duration old_skip_subrelease_long =
       Parameters::filler_skip_subrelease_long_interval();
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
+  const absl::Duration old_skip_subrelease_cold_short =
+      Parameters::filler_skip_subrelease_cold_short_interval();
+  Parameters::set_filler_skip_subrelease_cold_short_interval(absl::Seconds(4));
+  const absl::Duration old_skip_subrelease_cold_long =
+      Parameters::filler_skip_subrelease_cold_long_interval();
+  Parameters::set_filler_skip_subrelease_cold_long_interval(absl::Seconds(5));
   ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
 
   auto using_hpaa = [](absl::string_view sv) {
@@ -253,6 +279,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3s)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_skip_subrelease_cold_short_interval 4s)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_skip_subrelease_cold_long_interval 5s)"));
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
@@ -327,6 +361,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_skip_subrelease_long_interval_ns: 3000000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_skip_subrelease_cold_short_interval_ns: 4000000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_skip_subrelease_cold_long_interval_ns: 5000000000)"));
     if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
     ) {
       EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 2)"));
@@ -373,6 +415,10 @@ TEST_F(GetStatsTest, Parameters) {
       absl::Milliseconds(120250));
   Parameters::set_filler_skip_subrelease_long_interval(
       absl::Milliseconds(180375));
+  Parameters::set_filler_skip_subrelease_cold_short_interval(
+      absl::Milliseconds(240500));
+  Parameters::set_filler_skip_subrelease_cold_long_interval(
+      absl::Milliseconds(300625));
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
   Parameters::set_madvise_sampled_allocations(
       MadviseSampledAllocations::kEnabled);
@@ -405,6 +451,14 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(
             R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3m0.375s)"));
     EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_skip_subrelease_cold_short_interval 4m0.5s)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_skip_subrelease_cold_long_interval 5m0.625s)"));
+    EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 1)"));
 
     if (using_hpaa(buf)) {
@@ -426,6 +480,14 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_skip_subrelease_long_interval_ns: 180375000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_skip_subrelease_cold_short_interval_ns: 240500000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_skip_subrelease_cold_long_interval_ns: 300625000000)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: true)"));
@@ -441,6 +503,10 @@ TEST_F(GetStatsTest, Parameters) {
       old_skip_subrelease_short);
   Parameters::set_filler_skip_subrelease_long_interval(
       old_skip_subrelease_long);
+  Parameters::set_filler_skip_subrelease_cold_short_interval(
+      old_skip_subrelease_cold_short);
+  Parameters::set_filler_skip_subrelease_cold_long_interval(
+      old_skip_subrelease_cold_long);
 }
 
 TEST_F(GetStatsTest, StackDepth) {
