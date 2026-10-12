@@ -267,6 +267,12 @@ test_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_CFL_PRIORITIZATION_ABLATION"},
     },
+    {
+        "name": "tcmalloc_release_drained_metadata_ablation",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"},
+    },
 ]
 
 def create_tcmalloc_library(

@@ -196,7 +196,13 @@ TEST_F(GetStatsTest, Pbtxt) {
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: false"));
 #else
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: true"));
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
+    EXPECT_THAT(buf,
+                HasSubstr("tcmalloc_release_drained_slab_metadata: false"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: true"));
+  }
 #endif
 
   if (IsExperimentActive(Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION)) {
@@ -389,9 +395,16 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 0)"));
 #else
-    EXPECT_THAT(
-        buf,
-        HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 1)"));
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 0)"));
+    } else {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 1)"));
+    }
 #endif
 
     if (IsExperimentActive(Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION)) {
