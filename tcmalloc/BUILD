@@ -835,6 +835,23 @@ cc_test(
 )
 
 cc_test(
+    name = "huge_page_treatment_fuzz",
+    srcs = ["huge_page_treatment_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    deps = [
+        ":common_8k_pages",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:memory_tag",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_test(
     name = "span_fuzz",
     srcs = ["span_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,

@@ -169,6 +169,22 @@ class HugePageFiller;
   return metric & ~(align - 1);
 }
 
+inline constexpr size_t kMaxAnonVmaNameSize = 80;
+
+inline size_t FormatSampledTrackerVmaName(absl::Span<char> buffer,
+                                          MemoryTag tag, size_t page_size,
+                                          Length lfr, size_t nallocs,
+                                          size_t nobjects, bool has_dense_spans,
+                                          bool released) {
+  TC_ASSERT_GE(buffer.size(), kMaxAnonVmaNameSize);
+  return absl::SNPrintF(
+      buffer.data(), std::min(buffer.size(), kMaxAnonVmaNameSize),
+      "tcmalloc_region_%s_pg_%zu_lfr_%zu_na_%zu_no_%zu_d_%d_r_%d",
+      MemoryTagToLabel(tag), page_size, RoundDown(lfr.raw_num(), /*align=*/16),
+      RoundDown(nallocs, /*align=*/16),
+      nobjects == 0 ? 0 : absl::bit_ceil(nobjects), has_dense_spans, released);
+}
+
 // TODO: b/425749361 - Add unit tests for subclasses.
 class HugePageTreatment {
  public:
@@ -258,15 +274,9 @@ class SampledTrackerTreatment final : public HugePageTreatment {
       const bool has_dense_spans = selected_trackers_[i].has_dense_spans;
       const bool released = selected_trackers_[i].released;
 
-      char name[256];
-      absl::SNPrintF(
-          name, sizeof(name),
-          "tcmalloc_region_%s_page_%d_lfr_%d_nallocs_%d_nobjects_%d_dense_%d_"
-          "released_%d",
-          MemoryTagToLabel(tag_), kPageSize,
-          RoundDown(lfr.raw_num(), /*align=*/16),
-          RoundDown(nallocs, /*align=*/16), absl::bit_ceil(nobjects),
-          has_dense_spans, released);
+      char name[kMaxAnonVmaNameSize];
+      FormatSampledTrackerVmaName(absl::MakeSpan(name), tag_, kPageSize, lfr,
+                                  nallocs, nobjects, has_dense_spans, released);
       tracker->SetAnonVmaName(set_anon_vma_name_, name);
     }
   }
