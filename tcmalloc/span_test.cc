@@ -189,9 +189,7 @@ TEST(SpanAllocatorTest, Alignment) {
     EXPECT_EQ(alignment % alignof(Span), 0);
   }
 
-  for (Span* s : spans) {
-    Span::Delete(s);
-  }
+  Span::Delete(absl::MakeSpan(spans));
 }
 
 }  // namespace

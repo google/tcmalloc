@@ -82,7 +82,8 @@ Length StaticForwarder::class_to_pages(int size_class) {
                             expected_size_class);
 }
 
-void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
+void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch,
+                                        Span** absl_nonnull spans,
                                         int expected_size_class) {
   // Prefetch Span objects to reduce cache misses.
   for (int i = 0; i < batch.size(); ++i) {
@@ -101,8 +102,9 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
   }
 }
 
-Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
-                                    Length pages_per_span) {
+Span* absl_nullable StaticForwarder::AllocateSpan(int size_class,
+                                                  size_t objects_per_span,
+                                                  Length pages_per_span) {
   const MemoryTag tag = MemoryTagFromSizeClass(size_class);
   const AccessDensityPrediction density = AccessDensity(objects_per_span);
 
@@ -166,8 +168,8 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
 
     allocs[i].r = Range(p, pages_per_span);
     allocs[i].donated = donated;
-    Span::Delete(free_span);
   }
+  Span::Delete(free_spans);
   const AccessDensityPrediction density = AccessDensity(objects_per_span);
   SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,
                                    .density = density};

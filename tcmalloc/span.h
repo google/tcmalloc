@@ -109,6 +109,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] static Span* absl_nonnull New(PageId first_page)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
   static void Delete(Span* absl_nonnull span);
+  static void Delete(absl::Span<Span* absl_nonnull> spans);
 
   // ---------------------------------------------------------------------------
   // Span memory range.
@@ -481,7 +482,7 @@ inline size_t Span::BitmapPopBatch(absl::Span<void*> batch,
   return popped;
 }
 
-inline size_t Span::FreelistPopBatch(const absl::Span<void*> batch,
+inline size_t Span::FreelistPopBatch(const absl::Span<void* absl_nonnull> batch,
                                      size_t size) __restrict__ {
   // Handle spans with bitmap.size() or fewer objects using a bitmap. We expect
   // spans to frequently hold smaller objects.
