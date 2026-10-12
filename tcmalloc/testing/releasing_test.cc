@@ -76,6 +76,16 @@ int main() {
       absl::ZeroDuration());
   tcmalloc::MallocExtension::SetSkipSubreleaseLongInterval(
       absl::ZeroDuration());
+  if (TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval !=
+      nullptr) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
+        absl::ZeroDuration());
+  }
+  if (TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval !=
+      nullptr) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
+        absl::ZeroDuration());
+  }
   tcmalloc::MallocExtension::ReleaseMemoryToSystem(
       std::numeric_limits<size_t>::max());
 

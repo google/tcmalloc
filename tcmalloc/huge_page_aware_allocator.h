@@ -67,6 +67,8 @@ class StaticForwarder : private Parameters {
  public:
   using Parameters::background_release_rate;
   using Parameters::enable_unfiltered_collapse;
+  using Parameters::filler_skip_subrelease_cold_long_interval;
+  using Parameters::filler_skip_subrelease_cold_short_interval;
   using Parameters::filler_skip_subrelease_long_interval;
   using Parameters::filler_skip_subrelease_short_interval;
   using Parameters::hpaa_subrelease;
@@ -982,13 +984,18 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
          static_cast<size_t>(forwarder_.background_release_rate()) > 0);
     if (released < num_pages || release_max) {
       Length desired = release_max ? Length::max() : num_pages - released;
+      const absl::Duration short_interval =
+          IsSampledOrColdMemory(tag_)
+              ? forwarder_.filler_skip_subrelease_cold_short_interval()
+              : forwarder_.filler_skip_subrelease_short_interval();
+      const absl::Duration long_interval =
+          IsSampledOrColdMemory(tag_)
+              ? forwarder_.filler_skip_subrelease_cold_long_interval()
+              : forwarder_.filler_skip_subrelease_long_interval();
       released += filler_.ReleasePages(
           desired,
-          SkipSubreleaseIntervals{
-              .short_interval =
-                  forwarder_.filler_skip_subrelease_short_interval(),
-              .long_interval =
-                  forwarder_.filler_skip_subrelease_long_interval()},
+          SkipSubreleaseIntervals{.short_interval = short_interval,
+                                  .long_interval = long_interval},
           forwarder_.release_partial_alloc_pages(),
           /*hit_limit*/ false);
       DrainFreedTrackers();
