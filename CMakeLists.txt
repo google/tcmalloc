@@ -42,7 +42,6 @@ FetchContent_Declare(
   googletest
   GIT_REPOSITORY https://github.com/google/googletest.git
   GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES GTest
 )
 FetchContent_MakeAvailable(googletest)
 
@@ -69,6 +68,18 @@ FetchContent_Declare(
   FIND_PACKAGE_ARGS NAMES re2
 )
 FetchContent_MakeAvailable(re2)
+
+target_compile_definitions(gtest PUBLIC GTEST_HAS_ABSL=1)
+target_link_libraries(gtest PUBLIC
+  absl::failure_signal_handler
+  absl::stacktrace
+  absl::symbolize
+  absl::flags_parse
+  absl::flags_reflection
+  absl::flags_usage
+  absl::strings
+  re2::re2
+)
 
 FetchContent_Declare(
   benchmark
