@@ -835,6 +835,31 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_packed_ptr
+  ALIAS
+    tcmalloc::internal_packed_ptr
+  HDRS
+    "packed_ptr.h"
+  DEPS
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_packed_ptr_test
+  SRCS
+    "packed_ptr_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_packed_ptr"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_page_size
   ALIAS
     tcmalloc::internal_page_size

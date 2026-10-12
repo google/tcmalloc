@@ -821,6 +821,29 @@ cc_library(
 )
 
 cc_library(
+    name = "packed_ptr",
+    hdrs = ["packed_ptr.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+    ],
+)
+
+cc_test(
+    name = "packed_ptr_test",
+    srcs = ["packed_ptr_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":packed_ptr",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "page_size",
     srcs = ["page_size.cc"],
     hdrs = ["page_size.h"],
