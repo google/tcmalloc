@@ -18,21 +18,18 @@ project(tcmalloc CXX C ASM)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+add_compile_options(-fno-omit-frame-pointer)
 
 set(CMAKE_SKIP_INSTALL_RULES ON)
 set(ABSL_PROPAGATE_CXX_STD ON)
-set(protobuf_ABSL_PROVIDER "package" CACHE STRING "" FORCE)
-set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
-set(ABSL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
-set(RE2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(utf8_range_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(protobuf_INSTALL OFF)
+set(BENCHMARK_ENABLE_INSTALL OFF)
+set(BENCHMARK_ENABLE_TESTING OFF)
+set(ANTLR_BUILD_CPP_TESTS OFF)
 
-set(ABSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(ABSL_BUILD_TEST_HELPERS ON CACHE BOOL "" FORCE)
-set(ABSL_USE_EXTERNAL_GOOGLETEST ON CACHE BOOL "" FORCE)
-set(ABSL_FIND_GOOGLETEST OFF CACHE BOOL "" FORCE)
+set(ABSL_BUILD_TEST_HELPERS ON)
+set(ABSL_USE_EXTERNAL_GOOGLETEST ON)
+set(ABSL_FIND_GOOGLETEST OFF)
 
 enable_testing()
 
@@ -42,7 +39,6 @@ FetchContent_Declare(
   googletest
   GIT_REPOSITORY https://github.com/google/googletest.git
   GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES GTest
 )
 FetchContent_MakeAvailable(googletest)
 
@@ -50,7 +46,6 @@ FetchContent_Declare(
   abseil-cpp
   GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
   GIT_TAG        master
-  FIND_PACKAGE_ARGS NAMES absl
 )
 FetchContent_MakeAvailable(abseil-cpp)
 
@@ -58,7 +53,6 @@ FetchContent_Declare(
   protobuf
   GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
   GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES Protobuf
 )
 FetchContent_MakeAvailable(protobuf)
 
@@ -66,15 +60,25 @@ FetchContent_Declare(
   re2
   GIT_REPOSITORY https://github.com/google/re2.git
   GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES re2
 )
 FetchContent_MakeAvailable(re2)
+
+target_compile_definitions(gtest PUBLIC GTEST_HAS_ABSL=1)
+target_link_libraries(gtest PUBLIC
+  absl::failure_signal_handler
+  absl::stacktrace
+  absl::symbolize
+  absl::flags_parse
+  absl::flags_reflection
+  absl::flags_usage
+  absl::strings
+  re2::re2
+)
 
 FetchContent_Declare(
   benchmark
   GIT_REPOSITORY https://github.com/google/benchmark.git
   GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES benchmark
 )
 FetchContent_MakeAvailable(benchmark)
 
@@ -82,7 +86,6 @@ FetchContent_Declare(
   fuzztest
   GIT_REPOSITORY https://github.com/google/fuzztest.git
   GIT_TAG        main
-  FIND_PACKAGE_ARGS NAMES fuzztest
 )
 FetchContent_MakeAvailable(fuzztest)
 
