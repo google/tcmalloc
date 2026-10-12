@@ -145,10 +145,6 @@ class FakeStaticForwarder : private Parameters {
   [[nodiscard]] EnableUnfilteredCollapse enable_unfiltered_collapse() const {
     return enable_unfiltered_collapse_;
   }
-  void set_enable_unfiltered_collapse(bool value) {
-    enable_unfiltered_collapse_ = value ? EnableUnfilteredCollapse::kEnabled
-                                        : EnableUnfilteredCollapse::kDisabled;
-  }
   void set_enable_unfiltered_collapse(EnableUnfilteredCollapse value) {
     enable_unfiltered_collapse_ = value;
   }

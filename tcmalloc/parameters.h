@@ -128,9 +128,7 @@ class Parameters {
   }
 
   [[nodiscard]] static EnableUnfilteredCollapse enable_unfiltered_collapse() {
-    return enable_unfiltered_collapse_.load(std::memory_order_relaxed)
-               ? EnableUnfilteredCollapse::kEnabled
-               : EnableUnfilteredCollapse::kDisabled;
+    return enable_unfiltered_collapse_.load(std::memory_order_relaxed);
   }
 
   [[nodiscard]] static bool huge_region_adaptive_release() {
@@ -294,11 +292,11 @@ class Parameters {
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
-  static std::atomic<bool> subrelease_unbacked_hugepages_;
-  static std::atomic<bool> usermode_hugepage_collapse_enabled_;
+  static std::atomic<SubreleaseUnbackedMode> subrelease_unbacked_hugepages_;
+  static std::atomic<EnableCollapse> usermode_hugepage_collapse_enabled_;
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
-  static std::atomic<bool> enable_unfiltered_collapse_;
+  static std::atomic<EnableUnfilteredCollapse> enable_unfiltered_collapse_;
   static std::atomic<MadviseSampledAllocations> madvise_sampled_allocations_;
   static std::atomic<int64_t> event_trace_memory_limit_;
   static std::atomic<bool> release_drained_slab_metadata_;
