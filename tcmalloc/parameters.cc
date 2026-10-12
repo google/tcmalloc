@@ -284,10 +284,20 @@ ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
         MadviseSampledAllocations::kDisabled);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
     16 << 20);
-ABSL_CONST_INIT
-std::atomic<bool> Parameters::release_drained_slab_metadata_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
     true);
+
+static std::atomic<bool>& release_drained_slab_metadata_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{true};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
+      v.store(false, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
 
 static std::atomic<bool>& release_max_filler_pages_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -392,6 +402,17 @@ EnableCollapse Parameters::usermode_hugepage_collapse() {
 
 bool Parameters::release_max_filler_pages() {
   return release_max_filler_pages_enabled().load(std::memory_order_relaxed);
+}
+
+bool Parameters::release_drained_slab_metadata() {
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+  // The small-but-slow configuration does not align the slab metadata
+  // on huge pages, which we need to release them.
+  return false;
+#else
+  return release_drained_slab_metadata_enabled().load(
+      std::memory_order_relaxed);
+#endif
 }
 
 MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
@@ -812,13 +833,13 @@ void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v) {
 }
 
 bool TCMalloc_Internal_GetReleaseDrainedSlabMetadata() {
-  return Parameters::release_drained_slab_metadata_.load(
-      std::memory_order_relaxed);
+  return tcmalloc::tcmalloc_internal::release_drained_slab_metadata_enabled()
+      .load(std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v) {
-  Parameters::release_drained_slab_metadata_.store(v,
-                                                   std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::release_drained_slab_metadata_enabled().store(
+      v, std::memory_order_relaxed);
 }
 }  // extern "C"
 
