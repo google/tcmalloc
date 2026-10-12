@@ -895,8 +895,9 @@ class HugePageFiller {
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags = nullptr,
-      Residency* residency = nullptr)
+      ReleaseStalePages release_stale_pages,
+      CollapseReleasedHugePages collapse_released,
+      PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to release free pages from a given `page_tracker`
@@ -904,7 +905,12 @@ class HugePageFiller {
   Length HandleReleaseFree(PageTracker* page_tracker)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void OnCollapseSuccess(TrackerType* absl_nonnull pt)
+  [[nodiscard]] MemoryModifyStatus Collapse(
+      TrackerType* absl_nonnull pt, CollapseReleasedHugePages collapse_released)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+
+  void OnCollapseSuccess(TrackerType* absl_nonnull pt,
+                         CollapseReleasedHugePages collapse_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to handle a non-hugepage backed `page_tracker` and
@@ -1155,8 +1161,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
       unback_without_lock_(unback_without_lock),
       collapse_(collapse),
       set_anon_vma_name_(set_anon_vma_name),
-      subrelease_unbacked_mode_(subrelease_unbacked_mode) {
-}
+      subrelease_unbacked_mode_(subrelease_unbacked_mode) {}
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
@@ -1940,7 +1945,8 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     EnableCollapse enable_collapse,
     EnableUnfilteredCollapse enable_unfiltered_collapse,
-    ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags,
+    ReleaseStalePages release_stale_pages,
+    CollapseReleasedHugePages collapse_released, PageFlagsBase* pageflags,
     Residency* residency) {
   if (enable_collapse == EnableCollapse::kEnabled &&
       ShouldBackoffFromCollapse()) {
@@ -1955,7 +1961,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
       subrelease_unbacked_mode_, enable_unfiltered_collapse,
-      release_stale_pages);
+      release_stale_pages, collapse_released);
 
   // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_.sparse.Iter(
@@ -2047,11 +2053,73 @@ inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
+inline MemoryModifyStatus HugePageFiller<TrackerType>::Collapse(
+    TrackerType* pt, CollapseReleasedHugePages collapse_released) {
+  {
+    PageHeapSpinLockHolder l;
+    if (pt->fully_freed() || pt->BeingReleased() ||
+        (collapse_released == CollapseReleasedHugePages::kDisabled &&
+         pt->released())) {
+      return {.success = false, .error_number = 0};
+    }
+    TC_ASSERT(!pt->BeingCollapsed());
+    pt->SetBeingCollapsed(/*value=*/true);
+  }
+
+  MemoryModifyStatus status =
+      collapse_(Range(pt->location().first_page(), kPagesPerHugePage));
+
+  {
+    PageHeapSpinLockHolder l;
+    if (collapse_released == CollapseReleasedHugePages::kDisabled) {
+      TC_ASSERT(!pt->released());
+    }
+    if (status.success) {
+      // MADV_COLLAPSE re-backs the whole hugepage, holes included, so clear any
+      // released state under pageheap_lock before dropping BeingCollapsed:
+      //   1. Any ReleasePages between selection and Collapse() was superseded
+      //      by this collapse; clear its released pages and
+      //      released_since_selected bit.
+      //   2. Any ReleasePages after BeingCollapsed is cleared (before
+      //      Restore()) sees released_by_page_ empty and unbacks all free pages
+      //      rather than skipping re-backed pages, while setting
+      //      released_since_selected anew so Restore() records
+      //      maybe_hugepage_backed = false.
+      //   3. If a concurrent Put emptied and parked pt during the syscall,
+      //      clearing released_by_page_ lets ReleaseHugepage see
+      //      !pt->released() and return the re-backed hugepage to
+      //      cache_.Release() instead of cache_.ReleaseUnbacked().
+      pt->ClearReleasedSinceSelected();
+      if (pt->fully_freed()) {
+        (void)pt->ClearReleasedPages();
+      } else {
+        TC_ASSERT(!pt->BeingReleased());
+        OnCollapseSuccess(pt, collapse_released);
+      }
+    }
+    pt->SetBeingCollapsed(/*value=*/false);
+  }
+
+  return status;
+}
+
+template <class TrackerType>
+inline void HugePageFiller<TrackerType>::OnCollapseSuccess(
+    TrackerType* pt, CollapseReleasedHugePages collapse_released) {
   TC_ASSERT(!pt->fully_freed());
   TC_ASSERT(!pt->BeingReleased());
-  if (pt->unbroken()) return;
+  if (collapse_released == CollapseReleasedHugePages::kDisabled) {
+    TC_ASSERT(!pt->released());
+  }
+  if (pt->unbroken()) {
+    TC_ASSERT(!pt->released());
+    return;
+  }
   RemoveFromFillerList(pt);
+  const Length previously_released = pt->ClearReleasedPages();
+  TC_ASSERT_GE(unmapped_, previously_released);
+  unmapped_ -= previously_released;
+  ClearWasReleased(pt);
   pt->set_unbroken(/*status=*/true);
   AddToFillerList(pt);
 }
