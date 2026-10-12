@@ -64,6 +64,11 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
+enum class PreferBackedPages : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 // PageTracker keeps track of the allocation status of every page in a HugePage.
 // It allows allocation and deallocation of a contiguous run of pages.
 //
@@ -140,7 +145,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   //
   // Returns a PageId i and a count of previously unbacked pages in the range
   // [i, i+n) in previously_unbacked.
-  [[nodiscard]] PageAllocation Get(Length n, SpanAllocInfo span_alloc_info)
+  [[nodiscard]] PageAllocation Get(Length n, SpanAllocInfo span_alloc_info,
+                                   PreferBackedPages prefer_backed)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: r was the result of a previous call to Get(n)
@@ -463,8 +469,32 @@ class PageTracker : public TList<PageTracker>::Elem {
 };
 
 inline typename PageTracker::PageAllocation PageTracker::Get(
-    Length n, SpanAllocInfo span_alloc_info) {
-  Length index = Length(tracker_.FindAndMark(n.raw_num()));
+    Length n, SpanAllocInfo span_alloc_info, PreferBackedPages prefer_backed) {
+  Length index;
+  if (ABSL_PREDICT_FALSE(prefer_backed == PreferBackedPages::kEnabled &&
+                         released_count_ > 0)) {
+    PageBitmap unavailable_backed = tracker_.bits() | released_by_page_;
+    size_t best_pos = 0;
+    size_t best_len = std::numeric_limits<size_t>::max();
+    size_t idx = 0;
+    size_t pos;
+    size_t len;
+    while (unavailable_backed.NextFreeRange(idx, &pos, &len)) {
+      if (len >= n.raw_num() && len < best_len) {
+        best_pos = pos;
+        best_len = len;
+      }
+      idx = pos + len;
+    }
+    if (best_len != std::numeric_limits<size_t>::max()) {
+      tracker_.Mark(best_pos, n.raw_num());
+      index = Length(best_pos);
+    } else {
+      index = Length(tracker_.FindAndMark(n.raw_num()));
+    }
+  } else {
+    index = Length(tracker_.FindAndMark(n.raw_num()));
+  }
   num_objects_ += span_alloc_info.objects_per_span;
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);

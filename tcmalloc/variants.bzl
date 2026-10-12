@@ -250,6 +250,14 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_FREE_STALE"},
     },
     {
+        "name": "tcmalloc_prefer_backed_filler_pages",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {
+            "BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_PREFER_BACKED_FILLER_PAGES",
+        },
+    },
+    {
         "name": "tcmalloc_madv_nohugepage_regions",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

@@ -755,7 +755,7 @@ void Allocate::Perform(State& state) const {
   HugePageFiller<PageTracker>::TryGetResult result;
   {
     PageHeapSpinLockHolder l;
-    result = state.filler.TryGet(n, alloc_info);
+    result = state.filler.TryGet(n, alloc_info, PreferBackedPages::kDisabled);
   }
 
   if (result.pt == nullptr) {
@@ -767,7 +767,8 @@ void Allocate::Perform(State& state) const {
     state.next_hugepage++;
     {
       PageHeapSpinLockHolder l;
-      result.page = result.pt->Get(n, alloc_info).page;
+      result.page =
+          result.pt->Get(n, alloc_info, PreferBackedPages::kDisabled).page;
       state.filler.Contribute(result.pt, donated, alloc_info);
     }
     state.trackers.push_back(result.pt);
@@ -937,7 +938,9 @@ void ModelTail::Perform(State& state) const {
   PageId start;
   {
     PageHeapSpinLockHolder l;
-    start = pt->Get(n, {1, AccessDensityPrediction::kSparse}).page;
+    start = pt->Get(n, {1, AccessDensityPrediction::kSparse},
+                    PreferBackedPages::kDisabled)
+                .page;
     state.filler.Contribute(pt, /*donated=*/true,
                             {1, AccessDensityPrediction::kSparse});
   }
