@@ -85,6 +85,18 @@ class SmapsParser {
       }
       return;
     }
+    if (absl::ConsumePrefix(&line, "AnonHugePages:")) {
+      line = absl::StripAsciiWhitespace(line);
+      if (!absl::ConsumeSuffix(&line, "kB")) {
+        return;
+      }
+      line = absl::StripTrailingAsciiWhitespace(line);
+      size_t anon_huge_kib;
+      if (absl::SimpleAtoi(line, &anon_huge_kib)) {
+        current_.anon_huge_pages_bytes = anon_huge_kib * 1024;
+      }
+      return;
+    }
     if (absl::ConsumePrefix(&line, "VmFlags:")) {
       line = absl::StripAsciiWhitespace(line);
       const size_t len = std::min(line.size(), sizeof(current_.vm_flags));

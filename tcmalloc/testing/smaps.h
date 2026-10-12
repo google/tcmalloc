@@ -27,6 +27,7 @@ struct SmapEntry {
   uintptr_t start = 0;
   uintptr_t end = 0;
   size_t rss_bytes = 0;
+  size_t anon_huge_pages_bytes = 0;
   char vm_flags[128] = {};
   size_t vm_flags_len = 0;
 

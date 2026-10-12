@@ -35,10 +35,12 @@ TEST(SmapsTest, ParseSmapsEntries) {
       "00400000-00452000 r-xp 00000000 08:02 173521      /usr/bin/foo\n"
       "Size:                328 kB\n"
       "Rss:                 132 kB\n"
+      "AnonHugePages:         0 kB\n"
       "VmFlags: rd ex mr mw me dw sd\n"
       "7f8a00000000-7f8a00200000 rw-p 00000000 00:00 0   [anon:slab]\n"
       "Size:               2048 kB\n"
       "Rss:                  64 kB\n"
+      "AnonHugePages:      2048 kB\n"
       "VmFlags: rd wr mr mw me ac sd nh\n";
 
   std::vector<SmapEntry> entries;
@@ -49,6 +51,7 @@ TEST(SmapsTest, ParseSmapsEntries) {
   EXPECT_EQ(entries[0].start, 0x00400000u);
   EXPECT_EQ(entries[0].end, 0x00452000u);
   EXPECT_EQ(entries[0].rss_bytes, 132u * 1024u);
+  EXPECT_EQ(entries[0].anon_huge_pages_bytes, 0u);
   EXPECT_TRUE(entries[0].HasVmFlag("rd"));
   EXPECT_TRUE(entries[0].HasVmFlag("ex"));
   EXPECT_FALSE(entries[0].HasVmFlag("nh"));
@@ -56,6 +59,7 @@ TEST(SmapsTest, ParseSmapsEntries) {
   EXPECT_EQ(entries[1].start, 0x7f8a00000000u);
   EXPECT_EQ(entries[1].end, 0x7f8a00200000u);
   EXPECT_EQ(entries[1].rss_bytes, 64u * 1024u);
+  EXPECT_EQ(entries[1].anon_huge_pages_bytes, 2048u * 1024u);
   EXPECT_TRUE(entries[1].HasVmFlag("nh"));
   EXPECT_FALSE(entries[1].HasVmFlag("ex"));
 }

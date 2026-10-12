@@ -284,7 +284,9 @@ class PageTrackerTest : public testing::Test {
   HugePage huge_;
   PageTracker tracker_;
 
-  MemoryModifyStatus Collapse() { return tracker_.Collapse(mock_collapse_); }
+  MemoryModifyStatus Collapse(CollapseReleasedHugePages collapse_released) {
+    return tracker_.Collapse(mock_collapse_, collapse_released);
+  }
 };
 
 class FakePageFlags : public PageFlagsBase {
@@ -391,17 +393,17 @@ TEST_F(PageTrackerTest, Collapse) {
 
   PAlloc first_page_alloc = PAlloc(huge_.first_page(), kPagesPerHugePage, info);
   ExpectCollapsedPages(first_page_alloc, /*success=*/true);
-  Collapse();
+  Collapse(CollapseReleasedHugePages::kDisabled);
   mock_collapse_.VerifyAndClear();
 
   Put(a2);
   ExpectCollapsedPages(first_page_alloc, /*success=*/false);
-  Collapse();
+  Collapse(CollapseReleasedHugePages::kDisabled);
   mock_collapse_.VerifyAndClear();
 
   Put(a4);
   ExpectCollapsedPages(first_page_alloc, /*success=*/true);
-  Collapse();
+  Collapse(CollapseReleasedHugePages::kDisabled);
   mock_collapse_.VerifyAndClear();
 
   Put(a1);
@@ -416,14 +418,14 @@ TEST_F(PageTrackerTest, CollapseErrorNumber) {
 
   PAlloc first_page_alloc = PAlloc(huge_.first_page(), kPagesPerHugePage, info);
   ExpectCollapsedPages(first_page_alloc, /*success=*/true, /*error_number=*/0);
-  MemoryModifyStatus ret = Collapse();
+  MemoryModifyStatus ret = Collapse(CollapseReleasedHugePages::kDisabled);
   EXPECT_TRUE(ret.success);
   EXPECT_EQ(ret.error_number, 0);
   mock_collapse_.VerifyAndClear();
 
   Put(a2);
   ExpectCollapsedPages(first_page_alloc, /*success=*/false, /*error_number=*/1);
-  ret = Collapse();
+  ret = Collapse(CollapseReleasedHugePages::kDisabled);
   EXPECT_FALSE(ret.success);
   EXPECT_EQ(ret.error_number, 1);
   mock_collapse_.VerifyAndClear();
@@ -441,7 +443,7 @@ TEST_F(PageTrackerTest, CollapseReleasedPage) {
 
   PAlloc first_page_alloc = PAlloc(huge_.first_page(), kPagesPerHugePage, info);
   ExpectCollapsedPages(first_page_alloc, /*success=*/true);
-  Collapse();
+  Collapse(CollapseReleasedHugePages::kDisabled);
   mock_collapse_.VerifyAndClear();
 
   Put(a2);
@@ -449,15 +451,27 @@ TEST_F(PageTrackerTest, CollapseReleasedPage) {
   ReleaseFree();
   mock_unback_.VerifyAndClear();
 
-  // The page was released, so we should not be able to collapse it.
+  // When CollapseReleasedHugePages::kDisabled, released trackers are rejected.
   ASSERT_TRUE(tracker_.released());
-  EXPECT_FALSE(Collapse().success);
+  EXPECT_FALSE(Collapse(CollapseReleasedHugePages::kDisabled).success);
 
-  a2 = Get(kAllocSize, info);
-  ASSERT_FALSE(tracker_.released());
+  // While an unback is in flight (BeingReleased), Collapse rejects the tracker
+  // even when CollapseReleasedHugePages::kEnabled.
+  tracker_.SetBeingReleased(true);
+  EXPECT_FALSE(Collapse(CollapseReleasedHugePages::kEnabled).success);
+  tracker_.SetBeingReleased(false);
+
+  // A settled released tracker can be collapsed when enabled;
+  // ClearReleasedPages then clears released accounting under pageheap_lock.
   ExpectCollapsedPages(first_page_alloc, /*success=*/true);
-  Collapse();
+  EXPECT_TRUE(Collapse(CollapseReleasedHugePages::kEnabled).success);
   mock_collapse_.VerifyAndClear();
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(tracker_.ClearReleasedPages(), kAllocSize);
+  }
+  EXPECT_FALSE(tracker_.released());
+  EXPECT_EQ(tracker_.released_pages(), Length(0));
 
   Put(a1);
   Put(a3);
