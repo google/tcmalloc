@@ -670,11 +670,15 @@ class CpuCache {
     std::atomic<size_t> num_unpopulates;
   };
 
+  // false if the size class can be skipped for sizing purposes
+  // (i.e., it doesn't actually exist).
+  [[nodiscard]] bool IsActive(size_t size_class) const;
+
   // Determines how we distribute memory in the per-cpu cache to the various
   // class sizes (initial value of max_capacity_[]). Note that the distribution
   // can be changed after initial activation. We will also recompute it
   // whenever we change the slab size.
-  [[nodiscard]] size_t MaxCapacity(size_t size_class) const;
+  [[nodiscard]] size_t MaxCapacity(size_t size_class, uint8_t shift) const;
 
   // Populates new_max_capacity for filling out a (ideally exactly) a per-CPU
   // slab of the given size (i.e., (1 << shift) bytes).
@@ -684,6 +688,14 @@ class CpuCache {
   // same time, e.g. by stopping all CPUs.
   void CalculateMaxCapacityForAllClasses(
       int shift, std::atomic<uint16_t>* new_max_capacity) const;
+
+  // Used internally in MaxCapacity(), to divide a capacity equally among
+  // all size classes where is_relevant() is true, without any overall loss
+  // from rounding.
+  template <class Func>
+  inline size_t DistributeCapacityEquallyAmongSizeClasses(
+      size_t total_capacity, size_t size_class, size_t begin_range_idx,
+      size_t end_range_idx, Func&& is_relevant) const;
 
   // Updates maximum capacity for the <size_class> to <cap>.
   void UpdateMaxCapacity(int size_class, uint16_t cap);
@@ -890,87 +902,148 @@ static CpuSet FillActiveCpuMask() {
 }
 
 template <class Forwarder>
-inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
-  // The number of size classes that are commonly used and thus should be
-  // allocated more slots in the per-cpu cache.
-  static constexpr size_t kNumSmall = 10;
+inline bool CpuCache<Forwarder>::IsActive(size_t size_class) const {
+  return size_class > 0 && size_class < kNumClasses &&
+         !BypassCpuCache(size_class) &&
+         forwarder_.class_to_size(size_class) != 0 &&
+         (IsColdSizeClass(size_class) ||
+          size_class < forwarder_.active_partitions() * kNumBaseClasses);
+}
 
+template <class Forwarder>
+template <class Func>
+inline size_t CpuCache<Forwarder>::DistributeCapacityEquallyAmongSizeClasses(
+    size_t total_capacity, size_t size_class, size_t begin_range_idx,
+    size_t end_range_idx, Func&& is_relevant) const {
+  unsigned num_candidates = 0;
+  for (int i = begin_range_idx; i < end_range_idx; ++i) {
+    if (is_relevant(i)) {
+      num_candidates++;
+    }
+  }
+  size_t this_class_depth = total_capacity / num_candidates;
+
+  // Distribute the rounding onto the first classes.
+  size_t leftover_rounding = total_capacity % num_candidates;
+  for (int i = begin_range_idx; i < size_class && leftover_rounding > 0; ++i) {
+    if (is_relevant(i)) {
+      --leftover_rounding;
+    }
+  }
+  if (leftover_rounding > 0) {
+    // This class is one of those that get an extra element from rounding.
+    ++this_class_depth;
+  }
+  return this_class_depth;
+}
+
+template <class Forwarder>
+inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
+                                               uint8_t shift) const {
+  if (!IsActive(size_class)) {
+    return 0;
+  }
+
+  int relative_shift = shift_bounds_.max_shift - shift;
+
+#if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   // When we use wider slabs, we also want to double the maximum capacities for
   // size classes to use that slab.
   const size_t kWiderSlabMultiplier = UseWiderSlabs() ? 2 : 1;
+#endif
 
   // The memory used for each per-CPU slab is the sum of:
   //   sizeof(std::atomic<int64_t>) * kNumClasses
   //   sizeof(void*) * (kSmallObjectDepth + 1) * kNumSmall
   //   sizeof(void*) * (kLargeObjectDepth + 1) * kNumLarge
   //
-  // Class size 0 has MaxCapacity() == 0, which is the reason for using
-  // kNumClasses - 1 above instead of kNumClasses.
-  //
   // Each Size class region in the slab is preceded by one padding pointer that
   // points to itself, because prefetch instructions of invalid pointers are
   // slow. That is accounted for by the +1 for object depths.
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  // With SMALL_BUT_SLOW we have 4KiB of per-cpu slab and 46 class sizes we
-  // allocate:
-  //   == 8 * 46 + 8 * ((16 + 1) * 10 + (6 + 1) * 35) = 4038 bytes of 4096
-  static const uint16_t kSmallObjectDepth = 16;
-  static const uint16_t kLargeObjectDepth = 6;
-#else
-  // We allocate 256KiB per-cpu for pointers to cached per-cpu memory.
-  // Max(kNumClasses) is 89, so the maximum footprint per CPU for a 256KiB
-  // slab is:
-  //   89 * 8 + 8 * ((2000 + 1) * 10 + (144 + 1) * 78) = 245 KiB
-  // For 512KiB slab, with a multiplier of 2, maximum footprint is:
-  //   89 * 8 + 8 * ((4000 + 1) * 10 + (288 + 1) * 78) = 489 KiB
   //
-  // Note that this computes slab capacity for normal size classes alone.
-  // Additionally, we reserve capacity for cold size classes below.
-  const uint16_t kSmallObjectDepth = 2000 * kWiderSlabMultiplier;
-  const uint16_t kLargeObjectDepth = 144 * kWiderSlabMultiplier;
+  // Small object sizes are very heavily used and need very deep caches for
+  // good performance (well over 90% of malloc calls are for size_class
+  // <= 10). Thus, we give them a fixed, larger capacity than the rest.
+  static constexpr size_t kNumSmall = 10;
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+  const uint16_t kSmallObjectDepth = 16 >> relative_shift;
+#else
+  const uint16_t kSmallObjectDepth =
+      (2000 * kWiderSlabMultiplier) >> relative_shift;
 #endif
-  if (size_class == 0 || size_class >= kNumClasses ||
-      forwarder_.class_to_size(size_class) == 0 ||
-      (!IsColdSizeClass(size_class) &&
-       size_class >= forwarder_.active_partitions() * kNumBaseClasses)) {
-    return 0;
-  }
-
-  if (BypassCpuCache(size_class)) {
-    return 0;
-  }
 
   if (!IsColdSizeClass(size_class) &&
       (size_class % kNumBaseClasses) <= kNumSmall) {
-    // Small object sizes are very heavily used and need very deep caches for
-    // good performance (well over 90% of malloc calls are for size_class
-    // <= 10.)
-    return kSmallObjectDepth;
+    // Subtract one pointer for the guard pointer.
+    return kSmallObjectDepth - 1;
   }
 
-  if (!ColdFeatureActive()) {
-    return kLargeObjectDepth;
+  // We allocate the remaining space in the slab equally among the remaining
+  // large classes. If there's support for cold objects, we allocate 20%
+  // of the space for them (including small cold objects); otherwise,
+  // everything goes to the remaining large hot objects.
+  int64_t pointers_left_in_slab = (1 << shift) / sizeof(void*);
+
+  // Subtract space used for the small classes, although we need to check them
+  // one by one in case they are inactive (e.g. because they are bypassed).
+  for (unsigned partition_idx = 0;
+       partition_idx < forwarder_.active_partitions(); ++partition_idx) {
+    for (size_t size_class = 1; size_class <= kNumSmall; ++size_class) {
+      if (IsActive(size_class + partition_idx * kNumBaseClasses)) {
+        pointers_left_in_slab -= kSmallObjectDepth;
+      }
+    }
   }
 
-  // We reduce the number of cached objects for some sizes to fit into the slab.
-  //
-  // We use fewer number of size classes when using reuse size classes. So,
-  // we may use larger capacity for some sizes.
-  const uint16_t kLargeHotObjectDepth = forwarder_.reuse_size_classes()
-                                            ? 246 * kWiderSlabMultiplier
-                                            : 123 * kWiderSlabMultiplier;
-  const uint16_t kColdObjectDepth = forwarder_.reuse_size_classes()
-                                        ? 52 * kWiderSlabMultiplier
-                                        : 36 * kWiderSlabMultiplier;
-  return IsColdSizeClass(size_class) ? kColdObjectDepth : kLargeHotObjectDepth;
+  // Subtract space for headers (4 bytes per class, whether activated or not).
+  pointers_left_in_slab -= Freelist::GetTotalClassHeaderSize() / sizeof(void*);
+
+  // If we end with one or more zero-capacity classes, InitSlabs() needs
+  // one extra pointer for its guard pointer. For simplicity, always subtract
+  // it here.
+  --pointers_left_in_slab;
+
+  TC_CHECK_GT(pointers_left_in_slab, 0);
+
+  size_t pointers_for_cold_objects =
+      ColdFeatureActive() ? pointers_left_in_slab / 5 : 0;
+  size_t pointers_for_large_hot_objects =
+      pointers_left_in_slab - pointers_for_cold_objects;
+  int capacity;
+  if (IsColdSizeClass(size_class)) {
+    capacity = DistributeCapacityEquallyAmongSizeClasses(
+        pointers_for_cold_objects, size_class, kColdClassesStart, kNumClasses,
+        [&](size_t other_size_class) { return IsActive(other_size_class); });
+  } else {
+    capacity = DistributeCapacityEquallyAmongSizeClasses(
+        pointers_for_large_hot_objects, size_class, 0,
+        forwarder_.active_partitions() * kNumBaseClasses,
+        [&](size_t other_size_class) {
+          return (other_size_class % kNumBaseClasses) > kNumSmall &&
+                 IsActive(other_size_class);
+        });
+  }
+
+  // We cannot make completely empty size classes; we could try to grow it from
+  // 0 a higher value later (due to the repeated misses), which we're not ready
+  // for, in particular since we'd need to also allocate a guard pointer. If
+  // this check triggers, allocate less memory for the small size classes (or
+  // just have fewer size classes).
+  TC_CHECK_GT(capacity, 1);
+
+  // Subtract one pointer for the guard pointer.
+  return std::max(capacity - 1, 0);
 }
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::CalculateMaxCapacityForAllClasses(
     int shift, std::atomic<uint16_t>* new_max_capacity) const {
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   int relative_shift = shift_bounds_.max_shift - shift;
+#endif
+
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    int capacity = MaxCapacity(size_class) >> relative_shift;
+    int capacity = MaxCapacity(size_class, shift);
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     // Check that the capacity is greater than the batch size.
     if (capacity > 0) {
@@ -978,12 +1051,6 @@ inline void CpuCache<Forwarder>::CalculateMaxCapacityForAllClasses(
                   forwarder_.num_objects_to_move(size_class) >> relative_shift);
     }
 #endif
-    // We decrement by 3 because of (1) cost of per-size-class header, (2) cost
-    // of per-size-class padding pointer, (3) there are a lot of empty size
-    // classes that have headers and whose max capacities can't be decremented.
-    if (relative_shift != 0) {
-      capacity = std::max(capacity - 3, 0);
-    }
     new_max_capacity[size_class].store(capacity, std::memory_order_relaxed);
   }
 }
