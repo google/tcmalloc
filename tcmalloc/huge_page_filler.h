@@ -1155,8 +1155,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
       unback_without_lock_(unback_without_lock),
       collapse_(collapse),
       set_anon_vma_name_(set_anon_vma_name),
-      subrelease_unbacked_mode_(subrelease_unbacked_mode) {
-}
+      subrelease_unbacked_mode_(subrelease_unbacked_mode) {}
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
@@ -1292,14 +1291,15 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     pt->set_was_released(/*status=*/true);
     ++n_was_released_[type];
   }
-  TC_ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
   TC_ASSERT_GE(unmapped_, page_allocation.previously_unbacked);
   unmapped_ -= page_allocation.previously_unbacked;
   // We're being used for an allocation, so we are no longer considered
   // donated by this point.
   TC_ASSERT(!pt->donated());
   UpdateFillerStatsTracker(now);
-  return {pt, page_allocation.page, was_released};
+  TC_ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
+  return {pt, page_allocation.page,
+          page_allocation.previously_unbacked > Length(0)};
 }
 
 template <class TrackerType>

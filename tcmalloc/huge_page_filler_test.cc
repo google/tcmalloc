@@ -7926,6 +7926,44 @@ TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   EXPECT_FALSE(SkipSubreleaseIntervals{}.SkipSubreleaseEnabled());
 }
 
+TEST_F(FillerTest, TryGetReturnsPerPagePreviouslyUnbackedState) {
+  const SpanAllocInfo kSparseInfo = {1, AccessDensityPrediction::kSparse};
+  // Allocate pages 0, 1, 2 on a single hugepage, leaving [3, kPagesPerHugePage)
+  // free, and subrelease the free tail so pages [0, 2] remain backed while
+  // [3, kPagesPerHugePage) become unbacked (`released_by_page_`).
+  PAlloc a0 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+  PAlloc a1 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+  PAlloc a2 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+  ASSERT_EQ(a0.pt, a1.pt);
+  ASSERT_EQ(a1.pt, a2.pt);
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage - Length(3)),
+            kPagesPerHugePage - Length(3));
+  ASSERT_EQ(a0.pt->released_pages(), kPagesPerHugePage - Length(3));
+
+  // Free page 0 (`a0`): page 0 is still backed (`released_by_page_[0] == 0`),
+  // while pages [3, kPagesPerHugePage) are unbacked. The tracker moves to
+  // `regular_alloc_partial_released_`.
+  DeleteRaw(a0);
+  ASSERT_EQ(a1.pt->released_pages(), kPagesPerHugePage - Length(3));
+
+  // Re-allocating 1 page pops page 0 (`previously_unbacked == Length(0)`), so
+  // `TryGet` must report `from_released == false` rather than list-level
+  // `true`.
+  PAlloc re_a0 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+  EXPECT_EQ(re_a0.p, a0.p);
+  EXPECT_FALSE(re_a0.from_released);
+
+  // The next 1-page allocation pops page 3 (`previously_unbacked ==
+  // Length(1)`), which was unbacked and must report `from_released == true`.
+  PAlloc a3 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+  EXPECT_TRUE(a3.from_released);
+
+  DeleteRaw(re_a0);
+  DeleteRaw(a1);
+  DeleteRaw(a2);
+  DeleteRaw(a3);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
