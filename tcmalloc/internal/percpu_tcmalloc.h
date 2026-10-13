@@ -354,6 +354,14 @@ class TcmallocSlab {
            sizeof(void*);
   }
 
+  [[nodiscard]] constexpr static size_t GetBytesAvailable(Shift shift) {
+    // Using the entire slab would cause overflow in the "current" field
+    // and the last representable value (0xffff) is reserved, so our slab
+    // should never grow to exactly 512 kB.
+    return std::min<size_t>(1 << ToUint8(shift),
+                            (Header::kReservedIndexValue - 1) * sizeof(void*));
+  }
+
  private:
   // In order to support dynamic slab metadata sizes, we need to be able to
   // atomically update both the slabs pointer and the shift value so we store
