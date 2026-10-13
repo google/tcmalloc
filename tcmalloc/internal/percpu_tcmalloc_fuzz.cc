@@ -530,10 +530,14 @@ struct ReleasePerCPUSlabMetadata {
 
 struct ResizeSlabs {
   uint8_t shift_index;
+  MaxCapacities max_capacities;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const ResizeSlabs& r) {
-    absl::Format(&sink, "ResizeSlabs{.shift_index=%v}", r.shift_index);
+    absl::Format(
+        &sink, "ResizeSlabs{.shift_index=%v, .max_capacities={%v, %v, %v, %v}}",
+        r.shift_index, r.max_capacities[0], r.max_capacities[1],
+        r.max_capacities[2], r.max_capacities[3]);
   }
 
   void Perform(State& state) const {
@@ -553,8 +557,9 @@ struct ResizeSlabs {
     std::array<size_t, kNumClasses> new_max_capacity;
 
     // TODO: We could consider actually scaling this by the slab size.
-    for (size_t sc = 0; sc < kNumClasses; ++sc) {
-      new_max_capacity[sc] = (sc == 0) ? 0 : kMaxCapacity;
+    new_max_capacity[0] = 0;
+    for (size_t sc = 1; sc < kNumClasses; ++sc) {
+      new_max_capacity[sc] = max_capacities[sc - 1] % (kMaxCapacity + 1);
     }
 
     const auto [old_slabs, old_slabs_size] = state.slab.ResizeSlabs(
@@ -754,10 +759,22 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
   FuzzPercpuTcmalloc(
       {GrowOtherClass{.cpu_index = 0, .size_class = 1, .len = 5},
        ShrinkOtherCache{.cpu_index = 0, .size_class = 1, .len = 2},
-       Drain{.cpu_index = 0}, ResizeSlabs{.shift_index = 1},
+       Drain{.cpu_index = 0},
+       ResizeSlabs{.shift_index = 1,
+                   .max_capacities = {kMaxCapacity, kMaxCapacity, kMaxCapacity,
+                                      kMaxCapacity}},
        UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
        UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
        StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}},
+      {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
+}
+
+TEST(PercpuTcmallocTest, ResizeSlabsMaxCapacities) {
+  FuzzPercpuTcmalloc(
+      {ResizeSlabs{.shift_index = 1, .max_capacities = {0, 5, 0, 0}},
+       Grow{.size_class = 0, .len = 1}, Pop{.size_class = 0},
+       Push{.size_class = 0}, Grow{.size_class = 1, .len = kMaxCapacity - 1},
+       Pop{.size_class = 1}, Push{.size_class = 1}},
       {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
 }
 
