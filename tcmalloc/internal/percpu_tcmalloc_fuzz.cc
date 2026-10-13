@@ -55,15 +55,60 @@ constexpr size_t kNumClasses = 5;
 constexpr size_t kMaxCapacity = 16;
 constexpr size_t kMaxBatchSize = 16;
 constexpr uint8_t kMinShift = 14;
-constexpr uint8_t kMaxShift = 18;
+constexpr uint8_t kMaxShift = 19;
 constexpr Shift kShift{kMaxShift};
 
 using SlabsType = TcmallocSlab<kNumClasses>;
-using MaxCapacities = std::array<uint8_t, kNumClasses - 1>;
+using MaxCapacities = std::array<uint16_t, kNumClasses - 1>;
+
+constexpr size_t MaxSlabBytes(Shift shift) {
+  // Slot index 0xffff is reserved in TcmallocSlab::Header, so at most 0xfffe
+  // pointer slots are usable even in a 512 KiB (shift=19) slab.
+  constexpr size_t kMaxUsableSlots = 0xfffe;
+  return std::min<size_t>(size_t{1} << ToUint8(shift),
+                          kMaxUsableSlots * sizeof(void*));
+}
 
 static_assert(SlabsType::GetTotalClassHeaderSize() +
                   (kNumClasses - 1) * (kMaxCapacity + 1) * sizeof(void*) <=
-              (size_t{1} << kMinShift));
+              MaxSlabBytes(Shift{kMinShift}));
+
+std::array<size_t, kNumClasses> ComputeMaxCapacities(MaxCapacities raw,
+                                                     Shift shift) {
+  const size_t kInitCapacity =
+      (MaxSlabBytes(shift) - SlabsType::GetTotalClassHeaderSize()) /
+          ((kNumClasses - 1) * sizeof(void*)) -
+      1;
+  std::array<size_t, kNumClasses> result;
+  result[0] = 0;
+  size_t total_weight = 0;
+  size_t first_non_zero = 0;
+  for (size_t sc = 1; sc < kNumClasses; ++sc) {
+    result[sc] = raw[sc - 1] % (kInitCapacity + 1);
+    total_weight += result[sc];
+    if (result[sc] > 0 && first_non_zero == 0) {
+      first_non_zero = sc;
+    }
+  }
+  if (total_weight > 0) {
+    const size_t used_bytes =
+        SlabsType::EstimateSlabBytes([&](size_t sc) { return result[sc]; });
+    const size_t max_bytes = MaxSlabBytes(shift);
+    TC_CHECK_LE(used_bytes, max_bytes);
+    const size_t extra_slots = (max_bytes - used_bytes) / sizeof(void*);
+    size_t distributed = 0;
+    for (size_t sc = 1; sc < kNumClasses; ++sc) {
+      const size_t share = (extra_slots * result[sc]) / total_weight;
+      result[sc] += share;
+      distributed += share;
+    }
+    result[first_non_zero] += extra_slots - distributed;
+    TC_CHECK_EQ(
+        SlabsType::EstimateSlabBytes([&](size_t sc) { return result[sc]; }),
+        max_bytes);
+  }
+  return result;
+}
 
 void* Malloc(size_t size, std::align_val_t alignment) {
   void* ptr = ::operator new(size, alignment);
@@ -91,11 +136,8 @@ struct State {
         active_cpu(current_cpu),
         cpu_initialized(num_cpus, false),
         cpu_stopped(num_cpus, false),
+        max_capacity(ComputeMaxCapacities(initial_max_capacity, kShift)),
         expected_capacity(num_cpus) {
-    max_capacity[0] = 0;
-    for (size_t sc = 1; sc < kNumClasses; ++sc) {
-      max_capacity[sc] = initial_max_capacity[sc - 1] % (kMaxCapacity + 1);
-    }
     for (auto& caps : expected_capacity) {
       caps.fill(0);
     }
@@ -164,6 +206,10 @@ bool State::IsDrained(int cpu) const {
 }
 
 void State::CheckInvariants() {
+  const Shift shift = ToShiftType(slab.GetShift());
+  TC_CHECK_LE(SlabsType::EstimateSlabBytes(
+                  [this](size_t sc) { return MaxCapacity(sc); }),
+              MaxSlabBytes(shift));
   for (size_t sc = 1; sc < kNumClasses; ++sc) {
     size_t total_in_slabs = 0;
     const size_t max_cap = MaxCapacity(sc);
@@ -530,10 +576,14 @@ struct ReleasePerCPUSlabMetadata {
 
 struct ResizeSlabs {
   uint8_t shift_index;
+  MaxCapacities max_capacities;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const ResizeSlabs& r) {
-    absl::Format(&sink, "ResizeSlabs{.shift_index=%v}", r.shift_index);
+    absl::Format(
+        &sink, "ResizeSlabs{.shift_index=%v, .max_capacities={%v, %v, %v, %v}}",
+        r.shift_index, r.max_capacities[0], r.max_capacities[1],
+        r.max_capacities[2], r.max_capacities[3]);
   }
 
   void Perform(State& state) const {
@@ -550,12 +600,8 @@ struct ResizeSlabs {
     const Shift new_shift = ToShiftType(target_shift);
     const size_t new_slabs_size = GetSlabsAllocSize(new_shift, state.num_cpus);
     void* new_slabs = Malloc(new_slabs_size, SlabAlignment(new_shift));
-    std::array<size_t, kNumClasses> new_max_capacity;
-
-    // TODO: We could consider actually scaling this by the slab size.
-    for (size_t sc = 0; sc < kNumClasses; ++sc) {
-      new_max_capacity[sc] = (sc == 0) ? 0 : kMaxCapacity;
-    }
+    const std::array<size_t, kNumClasses> new_max_capacity =
+        ComputeMaxCapacities(max_capacities, new_shift);
 
     const auto [old_slabs, old_slabs_size] = state.slab.ResizeSlabs(
         new_shift, new_slabs,
@@ -597,20 +643,23 @@ struct UpdateMaxCapacities {
     }
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
     const size_t target_cap = new_max_capacity % (kMaxCapacity + 1);
+    const Shift shift = ToShiftType(state.slab.GetShift());
+    auto capacity_fn = [&state, sc, target_cap](size_t size_class) {
+      // Return the new max capacity for the size class we want to grow.
+      if (size_class == sc) return target_cap;
+      // Since other size classes' max capacities are not changed, we can
+      // just return their current max capacities.
+      return state.MaxCapacity(size_class);
+    };
+    if (SlabsType::EstimateSlabBytes(capacity_fn) > MaxSlabBytes(shift)) {
+      return;
+    }
     PerSizeClassMaxCapacity new_caps[1] = {
         {.size_class = sc, .max_capacity = target_cap}};
-    const Shift shift = ToShiftType(state.slab.GetShift());
     const size_t slabs_size = GetSlabsAllocSize(shift, state.num_cpus);
     void* new_slabs = Malloc(slabs_size, SlabAlignment(shift));
     const auto [old_slabs, old_slabs_size] = state.slab.UpdateMaxCapacities(
-        new_slabs,
-        [&state, sc, target_cap](size_t size_class) {
-          // Return the new max capacity for the size class we want to grow.
-          if (size_class == sc) return target_cap;
-          // Since other size classes' max capacities are not changed, we can
-          // just return their current max capacities.
-          return state.MaxCapacity(size_class);
-        },
+        new_slabs, capacity_fn,
         [&state](int size_class, uint16_t cap) {
           state.max_capacity[size_class] = cap;
         },
@@ -754,11 +803,37 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
   FuzzPercpuTcmalloc(
       {GrowOtherClass{.cpu_index = 0, .size_class = 1, .len = 5},
        ShrinkOtherCache{.cpu_index = 0, .size_class = 1, .len = 2},
-       Drain{.cpu_index = 0}, ResizeSlabs{.shift_index = 1},
+       Drain{.cpu_index = 0},
+       ResizeSlabs{.shift_index = 1,
+                   .max_capacities = {kMaxCapacity, kMaxCapacity, kMaxCapacity,
+                                      kMaxCapacity}},
        UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
        UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
        StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}},
       {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
+}
+
+TEST(PercpuTcmallocTest, ResizeSlabsMaxCapacities) {
+  FuzzPercpuTcmalloc(
+      {ResizeSlabs{.shift_index = 1, .max_capacities = {0, 5, 0, 0}},
+       Grow{.size_class = 0, .len = 1}, Pop{.size_class = 0},
+       Push{.size_class = 0}, Grow{.size_class = 1, .len = kMaxCapacity - 1},
+       Pop{.size_class = 1}, Push{.size_class = 1}},
+      {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
+}
+
+TEST(PercpuTcmallocTest, PackSlabAtMaxShift) {
+  FuzzPercpuTcmalloc(
+      {CacheCpuSlab{}, Grow{.size_class = 3, .len = 3}, Push{.size_class = 3},
+       Push{.size_class = 3}, Push{.size_class = 3}, Push{.size_class = 3},
+       Push{.size_class = 3}, Pop{.size_class = 3}, Pop{.size_class = 3},
+       Pop{.size_class = 3}, Pop{.size_class = 3}, Pop{.size_class = 3},
+       UpdateMaxCapacities{.size_class = 3, .new_max_capacity = 2},
+       UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 2},
+       ResizeSlabs{.shift_index = 0, .max_capacities = {509, 509, 509, 4}},
+       ResizeSlabs{.shift_index = kMaxShift - kMinShift,
+                   .max_capacities = {16381, 16381, 16381, 16381}}},
+      {16381, 16381, 16381, 4});
 }
 
 TEST(PercpuTcmallocTest, UpdateMaxCapacitiesToZero) {
