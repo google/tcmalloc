@@ -110,8 +110,8 @@ class CpuCachePeer {
 
       cpu_cache.CalculateMaxCapacityForAllClasses(shift, max_capacity);
       const size_t bytes_available = 1 << shift;
-      const size_t bytes_required = EstimateSlabBytes(
-          {max_capacity}, CpuCache::Freelist::GetTotalClassHeaderSize());
+      const size_t bytes_required = CpuCache::Freelist::EstimateSlabBytes(
+          MaxCapacityFunctor{max_capacity});
       EXPECT_GT(bytes_required * 20, bytes_available * 17);
       EXPECT_LE(bytes_required, bytes_available);
     }

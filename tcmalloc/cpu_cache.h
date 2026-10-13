@@ -870,23 +870,6 @@ inline void CpuCache<Forwarder>::CalculateMaxCapacityForAllClasses(
   }
 }
 
-// Returns estimated bytes required.
-inline size_t EstimateSlabBytes(MaxCapacityFunctor get_capacity,
-                                size_t header_bytes) {
-  size_t bytes_required = header_bytes;
-
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    // Each non-empty size class region in the slab is preceded by one padding
-    // pointer that points to itself. (We do this because prefetches of invalid
-    // pointers are slow.)
-    size_t num_pointers = get_capacity(size_class);
-    if (num_pointers > 0) ++num_pointers;
-    bytes_required += sizeof(void*) * num_pointers;
-  }
-
-  return bytes_required;
-}
-
 template <class Forwarder>
 inline uint16_t CpuCache<Forwarder>::GetMaxCapacity(int size_class) const {
   return max_capacity_[size_class].load(std::memory_order_relaxed);
@@ -959,8 +942,9 @@ inline void CpuCache<Forwarder>::Activate() {
        shift <= shift_bounds_.max_shift; ++shift) {
     CalculateMaxCapacityForAllClasses(shift, max_capacity_);
     const size_t bytes_available = 1 << shift;
-    const size_t bytes_required = EstimateSlabBytes(
-        GetMaxCapacityFunctor(), Freelist::GetTotalClassHeaderSize());
+    const size_t bytes_required =
+        Freelist::EstimateSlabBytes(GetMaxCapacityFunctor());
+
     // We may make certain size classes no-ops by selecting "0" at runtime, so
     // using a compile-time calculation overestimates worst-case memory usage.
     if (ABSL_PREDICT_FALSE(bytes_required > bytes_available)) {

@@ -334,6 +334,11 @@ class TcmallocSlab {
 
   [[nodiscard]] PerCPUMetadataState MetadataMemoryUsage() const;
 
+  // Estimate how many bytes would be needed for a per-CPU slab with the given
+  // class capacities. Used in asserts and tests to verify we don't overflow.
+  [[nodiscard]] static size_t EstimateSlabBytes(
+      absl::FunctionRef<size_t(size_t)> capacity);
+
   // Gets the current shift of the slabs. Intended for use by the thread that
   // calls ResizeSlabs().
   [[nodiscard]] uint8_t GetShift() const {
@@ -1095,11 +1100,15 @@ void TcmallocSlab<NumClasses>::InitSlabs(
     begins_[size_class].store(consumed_bytes / sizeof(void*),
                               std::memory_order_relaxed);
     consumed_bytes += cap * sizeof(void*);
-    if (consumed_bytes > (1 << ToUint8(shift))) {
-      TC_BUG("per-CPU memory exceeded, have %v, need %v, size_class %v",
-             1 << ToUint8(shift), consumed_bytes, size_class);
-    }
   }
+
+  if (consumed_bytes > (1 << ToUint8(shift))) {
+    TC_BUG("per-CPU memory exceeded, have %v, need %v", 1 << ToUint8(shift),
+           consumed_bytes);
+  }
+
+  // Verify that EstimateSlabBytes() is correct.
+  TC_ASSERT_EQ(consumed_bytes, EstimateSlabBytes(capacity));
 }
 
 template <size_t NumClasses>
@@ -1110,6 +1119,7 @@ void TcmallocSlab<NumClasses>::InitCpu(
   InitCpuImpl(slabs, shift, cpu, capacity);
 }
 
+// Keep EstimateSlabBytes() below in sync with this.
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpuImpl(
     void* slabs, Shift shift, int cpu,
@@ -1147,13 +1157,48 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
     StoreHeader(GetHeader(slabs, shift, cpu, size_class), hdr);
 
     elems += cap;
-    const size_t bytes_used_on_curr_slab =
-        reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
-    if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
-      TC_BUG("per-CPU memory exceeded, have %v, need %v", 1 << ToUint8(shift),
-             bytes_used_on_curr_slab);
-    }
   }
+
+  const size_t bytes_used_on_curr_slab =
+      reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
+  if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
+    TC_BUG("per-CPU memory exceeded, have %v, need %v", 1 << ToUint8(shift),
+           bytes_used_on_curr_slab);
+  }
+
+  // Verify that EstimateSlabBytes() is correct.
+  TC_ASSERT_EQ(bytes_used_on_curr_slab, EstimateSlabBytes(capacity));
+}
+
+// A dry-run variant of InitCpuImpl() that tracks its logic closely but does not
+// write anything (nor form invalid pointers).
+template <size_t NumClasses>
+size_t TcmallocSlab<NumClasses>::EstimateSlabBytes(
+    absl::FunctionRef<size_t(size_t)> capacity) {
+  // Follows the same increment logic as elems, above. (We could compute the
+  // initial value here using GetHeader() instead of GetTotalClassHeaderSize(),
+  // but we'd then need to invent fake shift and cpu values, which doesn't make
+  // a lot of sense.)
+  size_t bytes_used_on_curr_slab = GetTotalClassHeaderSize();
+
+  bool prev_empty = false;
+  for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
+    size_t cap = capacity(size_class);
+    TC_CHECK_EQ(static_cast<uint16_t>(cap), cap);
+
+    // This item serves both as the marker of slab begin (Pop checks for low bit
+    // set to understand that it reached begin), and as prefetching stub
+    // (Pop prefetches the previous element and prefetching an invalid pointer
+    // is slow, this is a valid pointer for prefetching).
+    if (!prev_empty) {
+      bytes_used_on_curr_slab += sizeof(void*);
+    }
+    prev_empty = cap == 0;
+
+    bytes_used_on_curr_slab += cap * sizeof(void*);
+  }
+
+  return bytes_used_on_curr_slab;
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ

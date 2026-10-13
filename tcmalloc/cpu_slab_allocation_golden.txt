@@ -149,7 +149,7 @@ Initial max capacity each size class for 8 kB pages, 16 kB slabs:
  - 147:     0 element(s)
  - 148:     0 element(s)
  - 149:     0 element(s)
-Total: 14496 bytes used, 1888 bytes unused.
+Total: 14504 bytes used, 1880 bytes unused.
 
 Initial max capacity each size class for 8 kB pages, 32 kB slabs:
  -   0:     0 element(s)

@@ -96,9 +96,9 @@ void DumpMaxCapacityForTest() {
     // Note that bytes_used includes Header metadata and guard pointers,
     // so it will be larger than just adding together all max_capacity[]
     // and multiplying by sizeof(void*).
-    int bytes_used = EstimateSlabBytes(
-        get_capacity,
-        subtle::percpu::TcmallocSlab<kNumClasses>::GetTotalClassHeaderSize());
+    int bytes_used =
+        subtle::percpu::TcmallocSlab<kNumClasses>::EstimateSlabBytes(
+            get_capacity);
     printf("Total: %d bytes used, %d bytes unused.\n", bytes_used,
            (1 << shift) - bytes_used);
     printf("\n");
