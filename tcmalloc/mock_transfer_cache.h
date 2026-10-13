@@ -43,10 +43,10 @@ inline constexpr size_t kClassSize = 8;
 inline constexpr size_t kNumToMove = 32;
 inline constexpr int kSizeClass = 1;
 
-// TransferCacheManager with basic stubs for everything.
+// TransferCache forwarder with basic stubs for everything.
 //
 // Useful for benchmarks where you want to unrelated expensive operations.
-class FakeTransferCacheManager {
+class FakeTransferCacheForwarder {
  public:
   [[nodiscard]] constexpr static size_t class_to_size(int size_class) {
     return kClassSize;
@@ -74,12 +74,12 @@ class FakeTransferCacheManager {
   std::vector<std::unique_ptr<AlignedPtr>> memory_;
 };
 
-// A transfer cache manager which wraps malloc.
+// A transfer cache forwarder which wraps malloc.
 //
 // TODO(b/175334169): Remove this once the locks are no longer used.
-class ArenaBasedFakeTransferCacheManager {
+class ArenaBasedFakeTransferCacheForwarder {
  public:
-  ArenaBasedFakeTransferCacheManager() = default;
+  ArenaBasedFakeTransferCacheForwarder() = default;
   [[nodiscard]] constexpr static size_t class_to_size(int size_class) {
     // Chosen >= min size for the sharded transfer cache to kick in.
     if (size_class == kSizeClass) return 4096;
@@ -103,19 +103,14 @@ class ArenaBasedFakeTransferCacheManager {
   }
   [[nodiscard]] static size_t used() { return used_; }
 
-  static void SetPartialLegacyTransferCache(bool value) {
-    partial_legacy_transfer_cache_ = value;
-  }
-
  private:
   static size_t used_;
-  static bool partial_legacy_transfer_cache_;
 };
 
-// A manager that may provide different configurations of sharded transfer
+// A forwarder that may provide different configurations of sharded transfer
 // cache.
-class FakeShardedTransferCacheManager
-    : public ArenaBasedFakeTransferCacheManager {
+class FakeShardedTransferCacheForwarder
+    : public ArenaBasedFakeTransferCacheForwarder {
  public:
   [[nodiscard]] static bool UseGenericShardedCache() {
     return enable_generic_cache_;
@@ -228,7 +223,7 @@ class FakeTransferCacheEnvironment {
 // A fake transfer cache manager class which supports two size classes instead
 // of just the one. To make this work, we have to store the transfer caches
 // inside the cache manager, like in production code.
-class ThreeSizeClassForwarder : public FakeTransferCacheManager {
+class ThreeSizeClassForwarder : public FakeTransferCacheForwarder {
  public:
   // This is 3 instead of 2 because we hard code size_class == 0 to be invalid
   // in many places. We only use size_class 1 and 2 here.
@@ -421,16 +416,16 @@ class MultiSizeClassTransferCacheEnvironment {
 
 class FakeShardedTransferCacheEnvironment {
  public:
-  using Manager = FakeShardedTransferCacheManager;
+  using Forwarder = FakeShardedTransferCacheForwarder;
   using ShardedManager =
-      ShardedTransferCacheManagerBase<Manager, FakeCpuLayout,
+      ShardedTransferCacheManagerBase<Forwarder, FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
 
   explicit FakeShardedTransferCacheEnvironment(int num_shards,
                                                bool use_generic_cache)
       : sharded_manager_(&cpu_layout_) {
-    Manager::SetGenericShardedCache(use_generic_cache);
-    Manager::SetShardedCacheForLargeClassesOnly(!use_generic_cache);
+    Forwarder::SetGenericShardedCache(use_generic_cache);
+    Forwarder::SetShardedCacheForLargeClassesOnly(!use_generic_cache);
 
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
@@ -438,8 +433,8 @@ class FakeShardedTransferCacheEnvironment {
 
   ~FakeShardedTransferCacheEnvironment() {
     Drain();
-    Manager::SetGenericShardedCache(false);
-    Manager::SetShardedCacheForLargeClassesOnly(false);
+    Forwarder::SetGenericShardedCache(false);
+    Forwarder::SetShardedCacheForLargeClassesOnly(false);
   }
 
   void Remove(int cpu, int n) {
@@ -460,14 +455,11 @@ class FakeShardedTransferCacheEnvironment {
   }
 
   [[nodiscard]] ShardedManager& sharded_manager() { return sharded_manager_; }
-  [[nodiscard]] Manager& transfer_cache_manager() {
-    return sharded_manager_.forwarder();
-  }
   [[nodiscard]] MinimalFakeCentralFreeList& central_freelist() {
     return freelist_;
   }
   void SetCurrentCpu(int cpu) { cpu_layout_.SetCurrentCpu(cpu); }
-  [[nodiscard]] size_t MetadataAllocated() const { return Manager::used(); }
+  [[nodiscard]] size_t MetadataAllocated() const { return Forwarder::used(); }
 
  private:
   MinimalFakeCentralFreeList freelist_;

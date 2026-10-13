@@ -33,10 +33,10 @@ namespace {
 
 using TransferCacheWithRealCFLEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-        RealCentralFreeListForTesting, FakeTransferCacheManager>>;
+        RealCentralFreeListForTesting, FakeTransferCacheForwarder>>;
 using TransferCacheEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-        MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
+        MinimalFakeCentralFreeList, FakeTransferCacheForwarder>>;
 static constexpr int kSizeClass = 0;
 
 template <typename Env>

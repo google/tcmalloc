@@ -47,7 +47,7 @@ class DumpForwarder {
     return numa_topology_;
   }
   using ShardedManager =
-      ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
+      ShardedTransferCacheManagerBase<FakeShardedTransferCacheForwarder,
                                       FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
   const ShardedManager& sharded_transfer_cache() const {

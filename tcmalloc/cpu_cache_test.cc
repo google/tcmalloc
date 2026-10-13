@@ -319,7 +319,7 @@ class TestStaticForwarder : private Parameters {
   bool UseWiderSlabs() const { return true; }
 
   using ShardedManager =
-      ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
+      ShardedTransferCacheManagerBase<FakeShardedTransferCacheForwarder,
                                       FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
 
