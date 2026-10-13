@@ -40,7 +40,7 @@ class DumpForwarder {
  public:
   DumpForwarder() { numa_topology_.Init(); }
 
-  static void* Alloc(size_t size, std::align_val_t alignment) {
+  static void* AllocCpuCache(size_t size, std::align_val_t alignment) {
     return new char[size];
   }
   const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {

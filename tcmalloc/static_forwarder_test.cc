@@ -38,6 +38,8 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
@@ -108,6 +110,91 @@ TEST(StaticForwarderTest, AllocWithPageHeapLockHeld) {
   EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % static_cast<size_t>(kAlignment),
             0);
   EXPECT_GE(TestBytes(tc_globals.arena().stats()) - before, kSize);
+}
+
+TEST(StaticForwarderTest, AllocCpuCache) {
+  tc_globals.InitIfNecessary();
+  constexpr size_t kSize = 64;
+  const ArenaStats before = tc_globals.arena().stats();
+
+  void* p = ProdForwarder::AllocCpuCache(kSize, kAlignment);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % static_cast<size_t>(kAlignment),
+            0);
+
+  const ArenaStats after = tc_globals.arena().stats();
+  constexpr size_t kCpuCache = static_cast<size_t>(ArenaAlloc::kCpuCache);
+  EXPECT_GE(after.bytes_allocated_per_type[kCpuCache] -
+                before.bytes_allocated_per_type[kCpuCache],
+            kSize);
+}
+
+TEST(StaticForwarderTest, AllocReportedImpending) {
+  tc_globals.InitIfNecessary();
+  constexpr size_t kSize = 64;
+  const ArenaStats before = tc_globals.arena().stats();
+
+  void* p = ProdForwarder::AllocReportedImpending(kSize, kAlignment);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % static_cast<size_t>(kAlignment),
+            0);
+
+  // The allocation is accounted to kCpuCache, but bytes_allocated excludes
+  // kSize, which the caller already reported via
+  // ArenaUpdateAllocatedAndNonresident.
+  const ArenaStats after = tc_globals.arena().stats();
+  constexpr size_t kCpuCache = static_cast<size_t>(ArenaAlloc::kCpuCache);
+  const size_t cpu_cache_bytes = after.bytes_allocated_per_type[kCpuCache] -
+                                 before.bytes_allocated_per_type[kCpuCache];
+  EXPECT_GE(cpu_cache_bytes, kSize);
+  EXPECT_EQ(after.bytes_allocated - before.bytes_allocated,
+            cpu_cache_bytes - kSize);
+}
+
+TEST(StaticForwarderTest, ArenaUpdateAllocatedAndNonresident) {
+  tc_globals.InitIfNecessary();
+  constexpr int64_t kBytes = 1 << 20;
+  const ArenaStats before = tc_globals.arena().stats();
+
+  ProdForwarder::ArenaUpdateAllocatedAndNonresident(kBytes, kBytes);
+  ArenaStats stats = tc_globals.arena().stats();
+  EXPECT_EQ(stats.bytes_allocated - before.bytes_allocated, kBytes);
+  EXPECT_EQ(stats.bytes_nonresident - before.bytes_nonresident, kBytes);
+
+  ProdForwarder::ArenaUpdateAllocatedAndNonresident(-kBytes, -kBytes);
+  stats = tc_globals.arena().stats();
+  EXPECT_EQ(stats.bytes_allocated, before.bytes_allocated);
+  EXPECT_EQ(stats.bytes_nonresident, before.bytes_nonresident);
+}
+
+TEST(StaticForwarderTest, Accessors) {
+  tc_globals.InitIfNecessary();
+  EXPECT_EQ(ProdForwarder::reuse_size_classes(),
+            Static::size_class_configuration() ==
+                SizeClassConfiguration::kReuseRelaxedBelow64);
+  EXPECT_EQ(&ProdForwarder::numa_topology(), &tc_globals.numa_topology());
+  EXPECT_EQ(&ProdForwarder::sharded_transfer_cache(),
+            &tc_globals.sharded_transfer_cache());
+  EXPECT_EQ(&ProdForwarder::transfer_cache(), &tc_globals.transfer_cache());
+  EXPECT_EQ(ProdForwarder::UseGenericShardedCache(),
+            tc_globals.sharded_transfer_cache().UseGenericCache());
+  EXPECT_EQ(ProdForwarder::UseShardedCacheForLargeClassesOnly(),
+            tc_globals.sharded_transfer_cache().UseCacheForLargeClassesOnly());
+  EXPECT_EQ(ProdForwarder::active_partitions(), tc_globals.active_partitions());
+  EXPECT_EQ(ProdForwarder::UseWiderSlabs(),
+            tc_globals.active_partitions() == 1);
+  EXPECT_EQ(ProdForwarder::multiple_non_numa_partitions(),
+            Static::multiple_non_numa_partitions());
+  EXPECT_EQ(ProdForwarder::HaveHooks(), Static::HaveHooks());
+}
+
+TEST(StaticForwarderTest, Parameters) {
+  EXPECT_EQ(ProdForwarder::per_cpu_caches_dynamic_slab_enabled(),
+            Parameters::per_cpu_caches_dynamic_slab_enabled());
+  EXPECT_EQ(ProdForwarder::per_cpu_caches_dynamic_slab_grow_threshold(),
+            Parameters::per_cpu_caches_dynamic_slab_grow_threshold());
+  EXPECT_EQ(ProdForwarder::per_cpu_caches_dynamic_slab_shrink_threshold(),
+            Parameters::per_cpu_caches_dynamic_slab_shrink_threshold());
+  EXPECT_EQ(ProdForwarder::release_drained_slab_metadata(),
+            Parameters::release_drained_slab_metadata());
 }
 
 }  // namespace
