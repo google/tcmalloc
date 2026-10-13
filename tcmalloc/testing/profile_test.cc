@@ -176,6 +176,7 @@ TEST(DeallocationSampleTest, RaceToClaim) {
 }
 
 TEST(AllocationSampleTest, SampleAccuracy) {
+  ScopedBackgroundProcessActionsEnabled disable_background_actions(false);
   // Disable GWP-ASan, since it allocates different sizes than normal samples.
   MallocExtension::SetGuardedSamplingInterval(-1);
 
@@ -256,6 +257,9 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   }
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& e) {
+    if (e.type != AllocationType::New) {
+      return;
+    }
     // Skip unexpected sizes.  They may have been triggered by a background
     // thread.
     if (sizes_expected.find(e.requested_size) == sizes_expected.end()) {
