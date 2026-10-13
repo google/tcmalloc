@@ -1933,37 +1933,6 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
 )
 
-tcmalloc_cc_library(
-  NAME
-    tcmalloc_want_legacy_size_classes
-  ALIAS
-    tcmalloc::want_legacy_size_classes
-  ALWAYSLINK
-  SRCS
-    "want_legacy_size_classes.cc"
-  COPTS
-    "-g0"
-  DEPS
-    "absl::core_headers"
-)
-
-tcmalloc_cc_test(
-  NAME
-    tcmalloc_want_legacy_size_classes_test
-  SRCS
-    "want_legacy_size_classes_test.cc"
-  DEPS
-    "GTest::gtest_main"
-    "GTest::gmock_main"
-    "GTest::gmock"
-    "absl::span"
-    "tcmalloc::common_8k_pages"
-    "tcmalloc::tcmalloc"
-    "tcmalloc::want_legacy_size_classes"
-  ENV
-    "BORG_DISABLE_EXPERIMENTS=all"
-)
-
 tcmalloc_cc_test_variants(
   NAME
     tcmalloc_allocation_sample_test
