@@ -289,12 +289,12 @@ collection of one or more "[TCMalloc pages](#tcmalloc-page-sizes)" of memory.
 These terms will be explained in the next couple of sections.
 
 A request for one or more objects is satisfied by the central free list by
-[extracting](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc)
+[extracting](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.h)
 objects from spans until the request is satisfied. If there are insufficient
 available objects in the spans, more spans are requested from the back-end.
 
 When objects are
-[returned to the central free list](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc),
+[returned to the central free list](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.h),
 each object is mapped to the span to which it belongs (using the
 [pagemap](#pagemap-and-spans)) and then released into that span. If all the
 objects that reside in a particular span are returned to it, the entire span
@@ -344,9 +344,9 @@ capacity in the span itself to
 [cache four objects](https://github.com/google/tcmalloc/blob/master/tcmalloc/span.h).
 
 When we have
-[no available objects](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc)
+[no available objects](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.h)
 for a size-class, we need to fetch a new span from the pageheap and
-[populate](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc)
+[populate](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.h)
 it.
 
 ## TCMalloc Page Sizes

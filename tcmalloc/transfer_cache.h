@@ -561,15 +561,18 @@ using TransferCacheManager =
 #else
 
 // For the small memory model, the transfer cache is not used.
-class TransferCacheManager {
+template <typename Forwarder>
+class TransferCacheManagerBase {
+  using FreeList = central_freelist_internal::CentralFreeList<Forwarder>;
+
  public:
-  constexpr TransferCacheManager() = default;
-  TransferCacheManager(const TransferCacheManager&) = delete;
-  TransferCacheManager& operator=(const TransferCacheManager&) = delete;
+  constexpr TransferCacheManagerBase() = default;
+  TransferCacheManagerBase(const TransferCacheManagerBase&) = delete;
+  TransferCacheManagerBase& operator=(const TransferCacheManagerBase&) = delete;
 
   void Init() {
     for (int i = 0; i < kNumClasses; ++i) {
-      new (&cache_[i].freelist) CentralFreeList();
+      new (&cache_[i].freelist) FreeList();
       cache_[i].freelist.Init(i, Parameters::cfl_subbucket_prioritization());
     }
   }
@@ -588,11 +591,11 @@ class TransferCacheManager {
     return {};
   }
 
-  [[nodiscard]] const CentralFreeList& central_freelist(int size_class) const {
+  [[nodiscard]] const FreeList& central_freelist(int size_class) const {
     return cache_[size_class].freelist;
   }
 
-  [[nodiscard]] CentralFreeList& central_freelist(int size_class) {
+  [[nodiscard]] FreeList& central_freelist(int size_class) {
     return cache_[size_class].freelist;
   }
 
@@ -605,11 +608,14 @@ class TransferCacheManager {
     constexpr Cache() : dummy(false) {}
     ~Cache() {}
 
-    CentralFreeList freelist;
+    FreeList freelist;
     bool dummy;
   };
   Cache cache_[kNumClasses];
 } ABSL_CACHELINE_ALIGNED;
+
+using TransferCacheManager =
+    TransferCacheManagerBase<StaticForwarder<Static, tc_globals>>;
 
 // A trivial no-op implementation.
 struct ShardedTransferCacheManager {

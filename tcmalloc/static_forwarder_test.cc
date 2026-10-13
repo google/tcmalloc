@@ -33,7 +33,6 @@
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/arena.h"
-#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
@@ -203,15 +202,13 @@ TEST(StaticForwarderTest, Accessors) {
 }
 
 TEST(StaticForwarderTest, PageMap) {
-  // Spans come from CentralFreeList's forwarder until it is folded in.
-  using CflForwarder = central_freelist_internal::StaticForwarder;
   tc_globals.InitIfNecessary();
   constexpr int kSizeClass = 1;
-  const Length pages_per_span = CflForwarder::class_to_pages(kSizeClass);
+  const Length pages_per_span = ProdForwarder::class_to_pages(kSizeClass);
   const size_t objects_per_span =
-      pages_per_span.in_bytes() / CflForwarder::class_to_size(kSizeClass);
+      pages_per_span.in_bytes() / ProdForwarder::class_to_size(kSizeClass);
   Span* span =
-      CflForwarder::AllocateSpan(kSizeClass, objects_per_span, pages_per_span);
+      ProdForwarder::AllocateSpan(kSizeClass, objects_per_span, pages_per_span);
   ASSERT_NE(span, nullptr);
   const PageId p = span->first_page();
   const HugePage hp = HugePageContaining(p);
@@ -223,8 +220,8 @@ TEST(StaticForwarderTest, PageMap) {
     EXPECT_TRUE(ProdForwarder::Ensure(Range(p, pages_per_span)));
   }
 
-  CflForwarder::DeallocateSpans(objects_per_span, pages_per_span,
-                                absl::MakeSpan(&span, 1));
+  ProdForwarder::DeallocateSpans(objects_per_span, pages_per_span,
+                                 absl::MakeSpan(&span, 1));
 }
 
 TEST(StaticForwarderTest, Parameters) {
@@ -267,10 +264,6 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::back_size_threshold_bytes());
 }
 
-}  // namespace
-
-namespace central_freelist_internal {
-
 class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {
  protected:
   size_t size_class_;
@@ -308,8 +301,8 @@ class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {
 };
 
 TEST_P(StaticForwarderSpanTest, Simple) {
-  Span* span = StaticForwarder::AllocateSpan(size_class_, objects_per_span_,
-                                             pages_per_span_);
+  Span* span = ProdForwarder::AllocateSpan(size_class_, objects_per_span_,
+                                           pages_per_span_);
   ASSERT_NE(span, nullptr);
 
   absl::FixedArray<void*> batch(objects_per_span_);
@@ -325,7 +318,7 @@ TEST_P(StaticForwarderSpanTest, Simple) {
   // objects to confirm we can map back to the Span pointer from the PageMap.
   for (void* ptr : batch) {
     Span* got;
-    StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class_);
+    ProdForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class_);
     EXPECT_EQ(span, got);
   }
 
@@ -337,8 +330,8 @@ TEST_P(StaticForwarderSpanTest, Simple) {
               ptr != batch.back());
   }
 
-  StaticForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
-                                   absl::MakeSpan(&span, 1));
+  ProdForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
+                                 absl::MakeSpan(&span, 1));
 }
 
 TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
@@ -348,8 +341,8 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
   const size_t objects_per_span = pages_per_span.in_bytes() / object_size;
   const size_t size_reciprocal = CalcReciprocal(object_size);
 
-  Span* span = StaticForwarder::AllocateSpan(size_class, objects_per_span,
-                                             pages_per_span);
+  Span* span =
+      ProdForwarder::AllocateSpan(size_class, objects_per_span, pages_per_span);
   ASSERT_NE(span, nullptr);
 
   absl::FixedArray<void*> batch(objects_per_span);
@@ -360,14 +353,14 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
   // Mismatched size class
   void* ptr = batch[0];
   Span* got = nullptr;
-  EXPECT_DEATH(StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got,
-                                                  /*expected_size_class=*/2),
+  EXPECT_DEATH(ProdForwarder::MapObjectsToSpans({&ptr, 1}, &got,
+                                                /*expected_size_class=*/2),
                "Mismatched-size-class");
 
   // Corrupted / unallocated pointer
   void* invalid_ptr = nullptr;
   EXPECT_DEATH(
-      StaticForwarder::MapObjectsToSpans({&invalid_ptr, 1}, &got, size_class),
+      ProdForwarder::MapObjectsToSpans({&invalid_ptr, 1}, &got, size_class),
       "Attempted to free corrupted pointer");
 
   for (void* p : batch) {
@@ -376,11 +369,11 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
     (void)span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
                                   size_reciprocal);
   }
-  StaticForwarder::DeallocateSpans(objects_per_span, pages_per_span,
-                                   absl::MakeSpan(&span, 1));
+  ProdForwarder::DeallocateSpans(objects_per_span, pages_per_span,
+                                 absl::MakeSpan(&span, 1));
 
   // Double free (after deallocation, span descriptor is invalid)
-  EXPECT_DEATH(StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class),
+  EXPECT_DEATH(ProdForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class),
                "Possible double free detected|Mismatched-size-class");
 }
 
@@ -440,8 +433,7 @@ class StaticForwarderEnvironment {
                                                pages_per_span_ - Length(1)));
       // Confirm we can map at least one object back.
       Span* got;
-      StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got,
-                                         size_class_);
+      ProdForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got, size_class_);
       EXPECT_EQ(data->span, got);
 
       free_spans.push_back(data->span);
@@ -449,15 +441,15 @@ class StaticForwarderEnvironment {
 
     auto span_span = absl::MakeSpan(free_spans);
     for (int i = 0; i < spans.size(); i += kMaxObjectsToMove) {
-      StaticForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
-                                       span_span.subspan(i, kMaxObjectsToMove));
+      ProdForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
+                                     span_span.subspan(i, kMaxObjectsToMove));
     }
   }
 
   void Grow() {
     // Allocate a Span
-    Span* span = StaticForwarder::AllocateSpan(size_class_, objects_per_span_,
-                                               pages_per_span_);
+    Span* span = ProdForwarder::AllocateSpan(size_class_, objects_per_span_,
+                                             pages_per_span_);
     ASSERT_NE(span, nullptr);
 
     auto d = std::make_unique<SpanData>();
@@ -473,7 +465,7 @@ class StaticForwarderEnvironment {
                                              pages_per_span_ - Length(1)));
     // Confirm we can map at least one object back.
     Span* got;
-    StaticForwarder::MapObjectsToSpans({&d->batch[0], 1}, &got, size_class_);
+    ProdForwarder::MapObjectsToSpans({&d->batch[0], 1}, &got, size_class_);
     EXPECT_EQ(span, got);
 
     absl::MutexLock l(mu_);
@@ -510,8 +502,7 @@ class StaticForwarderEnvironment {
                                                pages_per_span_ - Length(1)));
       // Confirm we can map at least one object back.
       Span* got;
-      StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got,
-                                         size_class_);
+      ProdForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got, size_class_);
       EXPECT_EQ(data->span, got);
 
       free_spans.push_back(data->span);
@@ -519,8 +510,8 @@ class StaticForwarderEnvironment {
 
     auto span_span = absl::MakeSpan(free_spans);
     for (int i = 0; i < spans.size(); i += kMaxObjectsToMove) {
-      StaticForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
-                                       span_span.subspan(i, kMaxObjectsToMove));
+      ProdForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
+                                     span_span.subspan(i, kMaxObjectsToMove));
     }
   }
 
@@ -587,6 +578,6 @@ TEST_P(StaticForwarderSpanTest, Fuzz) {
 INSTANTIATE_TEST_SUITE_P(All, StaticForwarderSpanTest,
                          testing::Range(size_t(1), kNumClasses));
 
-}  // namespace central_freelist_internal
+}  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

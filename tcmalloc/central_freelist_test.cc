@@ -56,6 +56,7 @@
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
+#include "tcmalloc/static_forwarder.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"

@@ -193,7 +193,6 @@ create_tcmalloc_libraries(
         "arena.cc",
         "arena.h",
         "background.cc",
-        "central_freelist.cc",
         "central_freelist.h",
         "common.cc",
         "common.h",

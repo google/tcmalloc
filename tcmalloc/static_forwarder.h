@@ -21,24 +21,33 @@
 #include <new>
 #include <optional>
 
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "tcmalloc/arena.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/central_freelist_hooks.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/system_allocator.h"
+#include "tcmalloc/page_allocator_interface.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sizemap.h"
+#include "tcmalloc/span.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -82,6 +91,10 @@ class StaticForwarder : private Parameters {
 
   [[nodiscard]] static size_t num_objects_to_move(int size_class) {
     return state.sizemap().num_objects_to_move(size_class);
+  }
+
+  [[nodiscard]] static Length class_to_pages(int size_class) {
+    return Length(state.sizemap().class_to_pages(size_class));
   }
 
   [[nodiscard]] static bool reuse_size_classes() {
@@ -186,6 +199,107 @@ class StaticForwarder : private Parameters {
     return state.multiple_non_numa_partitions();
   }
 
+  static void InvokeInsertRangeHook(size_t size_class,
+                                    absl::Span<void*> batch) {
+    if (ABSL_PREDICT_TRUE(central_freelist_insert_range_hooks.empty())) {
+      return;
+    }
+    InvokeInsertRangeHookSlow(size_class, batch);
+  }
+
+  static void InvokeRemoveRangeHook(size_t size_class,
+                                    absl::Span<void*> batch) {
+    if (ABSL_PREDICT_TRUE(central_freelist_remove_range_hooks.empty())) {
+      return;
+    }
+    InvokeRemoveRangeHookSlow(size_class, batch);
+  }
+
+  static void MapObjectsToSpans(absl::Span<void*> batch,
+                                Span** absl_nonnull spans,
+                                int expected_size_class) {
+    // Prefetch Span objects to reduce cache misses.
+    for (int i = 0; i < batch.size(); ++i) {
+      void* ptr = batch[i];
+      const PageId p = PageIdContaining(ptr);
+      const PageMeta meta = state.pagemap().GetDescriptor(p);
+      // If we have a missing span/invalid span, we expect to retrieve
+      // meta.sizeclass()=0 causing us to take this overloaded branch since
+      // expected_size_class>0.
+      if (ABSL_PREDICT_FALSE(meta.sizeclass() != expected_size_class)) {
+        HandleDetectedUB(ptr, meta, expected_size_class);
+      }
+      Span* span = meta.span();
+      span->Prefetch();
+      spans[i] = span;
+    }
+  }
+
+  [[nodiscard]] static Span* absl_nullable AllocateSpan(int size_class,
+                                                        size_t objects_per_span,
+                                                        Length pages_per_span)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    const MemoryTag tag = MemoryTagFromSizeClass(size_class);
+    const AccessDensityPrediction density = AccessDensity(objects_per_span);
+
+    SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,
+                                     .density = density};
+    TC_ASSERT(density == AccessDensityPrediction::kSparse ||
+              (density == AccessDensityPrediction::kDense &&
+               pages_per_span == Length(1)));
+    auto res = state.page_allocator().New(pages_per_span, span_alloc_info, tag);
+    if (ABSL_PREDICT_FALSE(!res)) {
+      return nullptr;
+    }
+    Span* span = Span::New(res.r.p);
+    TC_ASSERT_EQ(tag, GetMemoryTag(res.r.start_addr()));
+    TC_ASSERT_EQ(res.r.n, pages_per_span);
+
+    state.pagemap().RegisterSizeClass(span, pages_per_span, size_class,
+                                      res.donated);
+    return span;
+  }
+
+  static void DeallocateSpans(size_t objects_per_span, Length pages_per_span,
+                              absl::Span<Span*> free_spans)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    TC_ASSERT_NE(free_spans.size(), 0);
+    TC_ASSERT_LE(free_spans.size(), kMaxObjectsToMove);
+    const MemoryTag tag = GetMemoryTag(free_spans[0]->start_address());
+    PageAllocatorInterface::AllocationState allocs[kMaxObjectsToMove];
+    // Unregister size class doesn't require holding any locks.
+    for (int i = 0, n = free_spans.size(); i < n; ++i) {
+      Span* const free_span = free_spans[i];
+      TC_ASSERT_EQ(GetMemoryTag(free_span->start_address()), tag);
+      TC_ASSERT(
+          !state.pagemap().GetDescriptor(free_span->first_page()).sampled());
+      const bool donated =
+          state.pagemap().UnregisterSizeClass(free_span, pages_per_span);
+
+      // Before taking pageheap_lock, prefetch the PageTrackers these spans are
+      // on.
+      const PageId p = free_span->first_page();
+
+      // In huge_page_filler.h, we static_assert that PageTracker's key elements
+      // for deallocation are within the first two cachelines.
+      void* pt = state.pagemap().GetHugepage(p);
+      // Prefetch for writing, as we will issue stores to the PageTracker
+      // instance.
+      PrefetchW(pt);
+      PrefetchW(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
+                                        ABSL_CACHELINE_SIZE));
+
+      allocs[i].r = Range(p, pages_per_span);
+      allocs[i].donated = donated;
+    }
+    Span::Delete(free_spans);
+    const AccessDensityPrediction density = AccessDensity(objects_per_span);
+    SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,
+                                     .density = density};
+    ReturnAllocsToPageHeap(tag, absl::MakeSpan(allocs, free_spans.size()),
+                           span_alloc_info);
+  }
+
   // Clock consumed by the filler and huge cache.  Tests substitute a fake so
   // they can advance time deterministically.
   [[nodiscard]] static Clock clock() { return Clock{}; }
@@ -248,6 +362,60 @@ class StaticForwarder : private Parameters {
   }
   static void SetAnonVmaName(Range r, std::optional<absl::string_view> name) {
     state.system_allocator().SetAnonVmaName(r.start_addr(), r.in_bytes(), name);
+  }
+
+ private:
+  ABSL_ATTRIBUTE_NOINLINE static void InvokeInsertRangeHookSlow(
+      size_t size_class, absl::Span<void*> batch) {
+    central_freelist_insert_range_hooks.Invoke(size_class, batch);
+  }
+
+  ABSL_ATTRIBUTE_NOINLINE static void InvokeRemoveRangeHookSlow(
+      size_t size_class, absl::Span<void*> batch) {
+    central_freelist_remove_range_hooks.Invoke(size_class, batch);
+  }
+
+  [[nodiscard]] static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
+    if (IsColdSizeClass(size_class)) {
+      return MemoryTag::kSampledOrCold;
+    }
+    if (state.active_partitions() == 1) {
+      return MemoryTag::kNormal;
+    }
+    return MultiNormalTag(size_class / kNumBaseClasses);
+  }
+
+  [[nodiscard]] static AccessDensityPrediction AccessDensity(
+      int objects_per_span) {
+    // Use number of objects per span as a proxy for estimating access density
+    // of the span. If number of objects per span is higher than
+    // kFewObjectsAllocMaxLimit threshold, we assume that the span would be
+    // long-lived.
+    return objects_per_span >
+                   central_freelist_internal::kFewObjectsAllocMaxLimit
+               ? AccessDensityPrediction::kDense
+               : AccessDensityPrediction::kSparse;
+  }
+
+  [[noreturn]] ABSL_ATTRIBUTE_NOINLINE static void HandleDetectedUB(
+      void* ptr, PageMeta meta, int expected_size_class) {
+    if (meta.freed()) {
+      tcmalloc_internal::ReportDoubleFree(state, ptr);
+    } else if (!meta.valid()) {
+      tcmalloc_internal::ReportCorruptedFree(state, ptr);
+    }
+    tcmalloc_internal::ReportMismatchedSizeClass(state, ptr, meta.sizeclass(),
+                                                 expected_size_class);
+  }
+
+  static void ReturnAllocsToPageHeap(
+      MemoryTag tag,
+      absl::Span<PageAllocatorInterface::AllocationState> free_allocs,
+      SpanAllocInfo span_alloc_info) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    PageHeapSpinLockHolder l;
+    for (const auto& alloc : free_allocs) {
+      state.page_allocator().Delete(alloc, tag, span_alloc_info);
+    }
   }
 };
 

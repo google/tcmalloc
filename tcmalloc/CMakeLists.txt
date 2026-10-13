@@ -246,7 +246,6 @@ tcmalloc_cc_library_variants(
     "arena.cc"
     "arena.h"
     "background.cc"
-    "central_freelist.cc"
     "central_freelist.h"
     "common.cc"
     "common.h"
