@@ -325,8 +325,7 @@ TEST_P(StaticForwarderSpanTest, Simple) {
   for (void* ptr : batch) {
     Span::ObjIdx idx;
     Span::ObjectsToIdx({&ptr, 1}, span, object_size_, size_reciprocal_, &idx);
-    EXPECT_EQ(span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size_,
-                                      size_reciprocal_),
+    EXPECT_EQ(span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size_),
               ptr != batch.back());
   }
 
@@ -366,8 +365,7 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
   for (void* p : batch) {
     Span::ObjIdx idx;
     Span::ObjectsToIdx({&p, 1}, span, object_size, size_reciprocal, &idx);
-    (void)span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
-                                  size_reciprocal);
+    (void)span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size);
   }
   ProdForwarder::DeallocateSpans(objects_per_span, pages_per_span,
                                  absl::MakeSpan(&span, 1));

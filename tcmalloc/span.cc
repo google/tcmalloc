@@ -176,10 +176,6 @@ void Span::Delete(absl::Span<Span* absl_nonnull> spans) {
   tc_globals.span_allocator().Delete(spans);
 }
 
-[[noreturn]] void Span::ReportDoubleFree(const void* ptr) {
-  ::tcmalloc::tcmalloc_internal::ReportDoubleFree(tc_globals, ptr);
-}
-
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

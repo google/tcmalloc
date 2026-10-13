@@ -145,8 +145,7 @@ TEST_P(SpanTest, FreelistBasic) {
       void* ptr = start + idx * size_;
       Span::ObjIdx objidx;
       Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx);
-      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
-                                        reciprocal_);
+      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_);
       EXPECT_TRUE(ok);
       EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
       objects[idx] = false;
@@ -157,8 +156,7 @@ TEST_P(SpanTest, FreelistBasic) {
       void* ptr = start + (objects_per_span_ - 1) * size_;
       Span::ObjIdx objidx;
       Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx);
-      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
-                                        reciprocal_);
+      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_);
       EXPECT_FALSE(ok);
     }
   }

@@ -75,8 +75,7 @@ struct State {
       Span::ObjIdx idx[kMaxObjectsToMove];
       Span::ObjectsToIdx({&live_ptrs[i], limit}, span.get(), object_size,
                          size_reciprocal, idx);
-      (void)span->FreelistPushBatch(absl::MakeSpan(idx, limit), object_size,
-                                    size_reciprocal);
+      (void)span->FreelistPushBatch(absl::MakeSpan(idx, limit), object_size);
       i += limit;
     }
     free(mem);
@@ -142,8 +141,7 @@ struct Dealloc {
                        state.size_reciprocal, idx);
 
     (void)state.span->FreelistPushBatch(
-        absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
-        state.size_reciprocal);
+        absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size);
     state.live_ptrs.resize(state.live_ptrs.size() - n);
   }
 };
@@ -269,8 +267,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     Span::ObjIdx idx;
     Span::ObjectsToIdx({&ptrs[i], 1}, span.get(), object_size, size_reciprocal,
                        &idx);
-    bool ok = span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
-                                      size_reciprocal);
+    bool ok = span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size);
     TC_CHECK_EQ(ok, i != popped - 1);
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.

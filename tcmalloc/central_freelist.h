@@ -168,7 +168,6 @@ class CentralFreeList {
   [[nodiscard]] Span* absl_nullable ReleaseToSpans(absl::Span<T> batch,
                                                    Span* absl_nonnull span,
                                                    size_t object_size,
-                                                   uint32_t size_reciprocal,
                                                    uint32_t objects_per_span)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
@@ -331,7 +330,7 @@ template <class Forwarder>
 template <typename T>
 inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     absl::Span<T> batch, Span* span, size_t object_size,
-    uint32_t size_reciprocal, uint32_t objects_per_span) {
+    uint32_t objects_per_span) {
   // By default, we prepend (AddFront) to the nonempty_ list. When the
   // CflSubbucketPrioritization feature is enabled, we append (AddBack).
   const bool use_prepend =
@@ -342,8 +341,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth =
       absl::bit_width(static_cast<unsigned>(prev_allocated));
-  if (ABSL_PREDICT_FALSE(
-          !span->FreelistPushBatch(batch, object_size, size_reciprocal))) {
+  if (ABSL_PREDICT_FALSE(!span->FreelistPushBatch(batch, object_size))) {
     // Update the histogram as the span is full and will be removed from the
     // nonempty_ list.
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
@@ -481,8 +479,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       const absl::Span<Span::ObjIdx> b{&idx[i], step};
       ++runs;
 
-      Span* span = ReleaseToSpans(b, spans[i], object_size, size_reciprocal,
-                                  objects_per_span);
+      Span* span = ReleaseToSpans(b, spans[i], object_size, objects_per_span);
       if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
         free_count++;

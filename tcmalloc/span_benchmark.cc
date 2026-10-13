@@ -133,7 +133,7 @@ void BM_SpanPopPush(benchmark::State& state) {
                        &spans[current_span].span(), size, reciprocal,
                        idx_batch);
     bool ok = spans[current_span].span().FreelistPushBatch(
-        absl::MakeSpan(idx_batch, batch_size), size, reciprocal);
+        absl::MakeSpan(idx_batch, batch_size), size);
     TC_CHECK(ok);
 
     // Pop
@@ -231,7 +231,7 @@ void BM_SpanDrainFill(benchmark::State& state) {
                              &spans[span_idx].span(), size, reciprocal,
                              idx_batch);
           bool ok = spans[span_idx].span().FreelistPushBatch(
-              absl::MakeSpan(idx_batch, to_push), size, reciprocal);
+              absl::MakeSpan(idx_batch, to_push), size);
           TC_CHECK(ok);
           push_offsets[span_idx] = start_idx;
           active = true;
