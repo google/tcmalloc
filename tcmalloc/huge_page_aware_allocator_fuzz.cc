@@ -62,7 +62,7 @@ namespace tcmalloc::tcmalloc_internal {
 
 namespace {
 
-using huge_page_allocator_internal::FakeStaticForwarder;
+using huge_page_allocator_internal::FakeHugePageStaticForwarder;
 using huge_page_allocator_internal::HugePageAwareAllocator;
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 using AllocationState = PageAllocatorInterface::AllocationState;
@@ -96,13 +96,13 @@ struct FuzzHugePageAwareAllocatorOptions {
   }
 };
 
-class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
+class FakeStaticForwarderWithUnback : public FakeHugePageStaticForwarder {
  public:
   AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
     if (!allocate_succeeds_) {
       return AddressRange{nullptr, 0};
     }
-    return FakeStaticForwarder::AllocatePages(bytes, align, tag);
+    return FakeHugePageStaticForwarder::AllocatePages(bytes, align, tag);
   }
 
   // The allocator drops pageheap_lock around the system calls below.  Each
@@ -123,17 +123,17 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
       pending_release_ -= r.n;
     }
 
-    return FakeStaticForwarder::ReleasePages(r);
+    return FakeHugePageStaticForwarder::ReleasePages(r);
   }
 
   MemoryModifyStatus CollapsePages(Range r) {
     lock_dropped_callback_();
-    return FakeStaticForwarder::CollapsePages(r);
+    return FakeHugePageStaticForwarder::CollapsePages(r);
   }
 
   void SetAnonVmaName(Range r, std::optional<absl::string_view> name) {
     lock_dropped_callback_();
-    FakeStaticForwarder::SetAnonVmaName(r, name);
+    FakeHugePageStaticForwarder::SetAnonVmaName(r, name);
   }
 
   // New and NewAligned back the span after LockAndAlloc has released
@@ -145,7 +145,7 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
     pending_back_ += r.n;
     lock_dropped_callback_();
     pending_back_ -= r.n;
-    return FakeStaticForwarder::Back(r);
+    return FakeHugePageStaticForwarder::Back(r);
   }
 
   // Production's ShrinkToUsageLimit releases memory, breaking hugepages, when
@@ -155,7 +155,7 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
   // shrink_callback_ lets the fuzzer do the same.
   void ShrinkToUsageLimit(Length n, bool may_have_grown)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    FakeStaticForwarder::ShrinkToUsageLimit(n, may_have_grown);
+    FakeHugePageStaticForwarder::ShrinkToUsageLimit(n, may_have_grown);
     if (shrink_callback_) {
       shrink_callback_(n);
     }
@@ -1240,7 +1240,7 @@ PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
     options.tag = MemoryTag::kNormalP0;
   }
 
-  FakeStaticForwarder::ResetClock();
+  FakeHugePageStaticForwarder::ResetClock();
   State state(options);
   state.CheckInvariants();
   state.RunInstructions(instructions);

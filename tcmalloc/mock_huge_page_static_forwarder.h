@@ -52,9 +52,9 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
-class FakeStaticForwarder : private Parameters {
+class FakeHugePageStaticForwarder : private Parameters {
  public:
-  FakeStaticForwarder() {
+  FakeHugePageStaticForwarder() {
     // Arena allocates its blocks from tc_globals.system_allocator(), which is
     // only initialized by Static::SlowInitIfNecessary().  If this test is not
     // linked against TCMalloc as its malloc, nothing else triggers that.
