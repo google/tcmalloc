@@ -117,13 +117,16 @@ class ArenaBasedFakeTransferCacheManager {
 class FakeShardedTransferCacheManager
     : public ArenaBasedFakeTransferCacheManager {
  public:
-  static void Init() {}
-  [[nodiscard]] static bool UseGenericCache() { return enable_generic_cache_; }
-  static void SetGenericCache(bool value) { enable_generic_cache_ = value; }
-  [[nodiscard]] static bool EnableCacheForLargeClassesOnly() {
+  [[nodiscard]] static bool UseGenericShardedCache() {
+    return enable_generic_cache_;
+  }
+  static void SetGenericShardedCache(bool value) {
+    enable_generic_cache_ = value;
+  }
+  [[nodiscard]] static bool UseShardedCacheForLargeClassesOnly() {
     return enable_cache_for_large_classes_only_;
   }
-  static void SetCacheForLargeClassesOnly(bool value) {
+  static void SetShardedCacheForLargeClassesOnly(bool value) {
     enable_cache_for_large_classes_only_ = value;
   }
 
@@ -426,8 +429,8 @@ class FakeShardedTransferCacheEnvironment {
   explicit FakeShardedTransferCacheEnvironment(int num_shards,
                                                bool use_generic_cache)
       : sharded_manager_(&cpu_layout_) {
-    Manager::SetGenericCache(use_generic_cache);
-    Manager::SetCacheForLargeClassesOnly(!use_generic_cache);
+    Manager::SetGenericShardedCache(use_generic_cache);
+    Manager::SetShardedCacheForLargeClassesOnly(!use_generic_cache);
 
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
@@ -435,8 +438,8 @@ class FakeShardedTransferCacheEnvironment {
 
   ~FakeShardedTransferCacheEnvironment() {
     Drain();
-    Manager::SetGenericCache(false);
-    Manager::SetCacheForLargeClassesOnly(false);
+    Manager::SetGenericShardedCache(false);
+    Manager::SetShardedCacheForLargeClassesOnly(false);
   }
 
   void Remove(int cpu, int n) {

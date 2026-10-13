@@ -2024,6 +2024,7 @@ tcmalloc_cc_test_variants(
     "absl::span"
     "absl::synchronization"
     "absl::time"
+    "tcmalloc::experiment"
     "tcmalloc::internal_logging"
     "tcmalloc::testing_thread_manager"
 )

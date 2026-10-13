@@ -1788,6 +1788,7 @@ create_tcmalloc_testsuite(
     tags = [
     ],
     deps = [
+        ":experiment",
         "//tcmalloc/internal:logging",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/algorithm:container",

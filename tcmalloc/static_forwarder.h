@@ -26,6 +26,8 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
@@ -136,11 +138,17 @@ class StaticForwarder : private Parameters {
   [[nodiscard]] static auto& transfer_cache() { return state.transfer_cache(); }
 
   [[nodiscard]] static bool UseGenericShardedCache() {
-    return state.sharded_transfer_cache().UseGenericCache();
+    return IsExperimentActive(
+               Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE) &&
+           !IsExperimentActive(
+               Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
   }
 
   [[nodiscard]] static bool UseShardedCacheForLargeClassesOnly() {
-    return state.sharded_transfer_cache().UseCacheForLargeClassesOnly();
+    // Traditionally, we enable sharded transfer cache for large size
+    // classes alone.
+    return IsExperimentActive(
+        Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
   }
 
   [[nodiscard]] static bool UseWiderSlabs() {

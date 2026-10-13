@@ -35,6 +35,8 @@
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
@@ -174,10 +176,22 @@ TEST(StaticForwarderTest, Accessors) {
   EXPECT_EQ(&ProdForwarder::sharded_transfer_cache(),
             &tc_globals.sharded_transfer_cache());
   EXPECT_EQ(&ProdForwarder::transfer_cache(), &tc_globals.transfer_cache());
+  EXPECT_EQ(
+      ProdForwarder::UseGenericShardedCache(),
+      IsExperimentActive(Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE) &&
+          !IsExperimentActive(
+              Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE));
+  EXPECT_EQ(ProdForwarder::UseShardedCacheForLargeClassesOnly(),
+            IsExperimentActive(
+                Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE));
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+  // The sharded transfer cache captures its configuration during Init.  The
+  // small-but-slow build has no sharded transfer cache.
   EXPECT_EQ(ProdForwarder::UseGenericShardedCache(),
             tc_globals.sharded_transfer_cache().UseGenericCache());
   EXPECT_EQ(ProdForwarder::UseShardedCacheForLargeClassesOnly(),
             tc_globals.sharded_transfer_cache().UseCacheForLargeClassesOnly());
+#endif  // TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_EQ(ProdForwarder::active_partitions(), tc_globals.active_partitions());
   EXPECT_EQ(ProdForwarder::UseWiderSlabs(),
             tc_globals.active_partitions() == 1);

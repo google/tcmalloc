@@ -335,17 +335,11 @@ class TestStaticForwarder : private Parameters {
     return transfer_cache_;
   }
 
-  bool UseGenericShardedCache() const {
-    return sharded_manager_.forwarder().UseGenericCache();
-  }
   void SetGenericShardedCache(bool value) {
-    sharded_manager_.forwarder().SetGenericCache(value);
-  }
-  bool UseShardedCacheForLargeClassesOnly() const {
-    return sharded_manager_.forwarder().EnableCacheForLargeClassesOnly();
+    sharded_manager_.forwarder().SetGenericShardedCache(value);
   }
   void SetShardedCacheForLargeClassesOnly(bool value) {
-    sharded_manager_.forwarder().SetCacheForLargeClassesOnly(value);
+    sharded_manager_.forwarder().SetShardedCacheForLargeClassesOnly(value);
   }
 
   bool HaveHooks() const {

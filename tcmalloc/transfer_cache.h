@@ -53,30 +53,6 @@ namespace tcmalloc_internal {
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 
-class ShardedStaticForwarder : public StaticForwarder<Static, tc_globals> {
- public:
-  static void Init() {
-    use_generic_cache_ =
-        IsExperimentActive(Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE) &&
-        !IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
-    // Traditionally, we enable sharded transfer cache for large size
-    // classes alone.
-    enable_cache_for_large_classes_only_ = IsExperimentActive(
-        Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
-  }
-
-  [[nodiscard]] static bool UseGenericCache() { return use_generic_cache_; }
-
-  [[nodiscard]] static bool EnableCacheForLargeClassesOnly() {
-    return enable_cache_for_large_classes_only_;
-  }
-
- private:
-  static bool use_generic_cache_;
-  static bool enable_cache_for_large_classes_only_;
-};
-
 class ProdCpuLayout {
  public:
   [[nodiscard]] static unsigned NumShards() {
@@ -123,7 +99,9 @@ class ShardedTransferCacheManagerBase {
   static constexpr int kMinShardsAllowed = 3;
 
   void Init() {
-    forwarder_.Init();
+    use_generic_cache_ = forwarder_.UseGenericShardedCache();
+    use_cache_for_large_classes_only_ =
+        forwarder_.UseShardedCacheForLargeClassesOnly();
     num_shards_ = cpu_layout_->NumShards();
     shards_ = reinterpret_cast<Shard*>(forwarder_.Alloc(
         ArenaAlloc::kTransferCache, sizeof(Shard) * num_shards_,
@@ -317,12 +295,10 @@ class ShardedTransferCacheManagerBase {
   }
 
   [[nodiscard]] bool UseCacheForLargeClassesOnly() const {
-    return forwarder_.EnableCacheForLargeClassesOnly();
+    return use_cache_for_large_classes_only_;
   }
 
-  [[nodiscard]] bool UseGenericCache() const {
-    return forwarder_.UseGenericCache();
-  }
+  [[nodiscard]] bool UseGenericCache() const { return use_generic_cache_; }
 
   [[nodiscard]] Forwarder& forwarder() { return forwarder_; }
   [[nodiscard]] const Forwarder& forwarder() const { return forwarder_; }
@@ -405,13 +381,15 @@ class ShardedTransferCacheManagerBase {
   int num_shards_ = 0;
   std::atomic<int> active_shards_ = 0;
   bool active_for_class_[kNumClasses] = {false};
+  bool use_generic_cache_ = false;
+  bool use_cache_for_large_classes_only_ = false;
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
   CpuLayout* const cpu_layout_;
 };
 
 using ShardedTransferCacheManager =
-    ShardedTransferCacheManagerBase<ShardedStaticForwarder, ProdCpuLayout,
-                                    BackingTransferCache>;
+    ShardedTransferCacheManagerBase<StaticForwarder<Static, tc_globals>,
+                                    ProdCpuLayout, BackingTransferCache>;
 
 template <typename Forwarder>
 class TransferCacheManagerBase {

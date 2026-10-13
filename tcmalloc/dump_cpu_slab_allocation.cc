@@ -50,12 +50,13 @@ class DumpForwarder {
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
                                       FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
-  ShardedManager& sharded_transfer_cache() const { abort(); }
+  const ShardedManager& sharded_transfer_cache() const {
+    return sharded_transfer_cache_;
+  }
   size_t active_partitions() const { return 1; }
   size_t num_objects_to_move(size_t size_class) const { return 1; }
   size_t class_to_size(size_t size_class) const { return size_class * 8; }
   bool IsActive(size_t size_class) { return true; }
-  size_t UseShardedCacheForLargeClassesOnly() const { return false; }
   bool per_cpu_caches_dynamic_slab_enabled() const { return false; }
   bool multiple_non_numa_partitions() const { return false; }
   void SetAnonVmaName(void* addr, size_t size, absl::string_view name) {}
@@ -64,6 +65,7 @@ class DumpForwarder {
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
+  ShardedManager sharded_transfer_cache_{nullptr};
 };
 
 void DumpMaxCapacityForTest() {

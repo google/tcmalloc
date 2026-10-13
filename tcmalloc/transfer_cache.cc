@@ -30,10 +30,6 @@ namespace tcmalloc_internal {
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 
-ABSL_CONST_INIT bool ShardedStaticForwarder::use_generic_cache_(false);
-ABSL_CONST_INIT bool
-    ShardedStaticForwarder::enable_cache_for_large_classes_only_(false);
-
 void BackingTransferCache::InsertRange(absl::Span<void*> batch) const {
   tc_globals.transfer_cache().InsertRange(size_class_, batch);
 }

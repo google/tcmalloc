@@ -1118,7 +1118,7 @@ inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
   // We bypass per-cpu cache when sharded transfer cache is enabled for large
   // size classes (i.e. when we use the traditional configuration of the sharded
   // transfer cache).
-  return forwarder_.UseShardedCacheForLargeClassesOnly() &&
+  return forwarder_.sharded_transfer_cache().UseCacheForLargeClassesOnly() &&
          forwarder_.sharded_transfer_cache().should_use(size_class);
 }
 
@@ -1128,7 +1128,7 @@ inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
   // We enable sharded cache as a backing cache for all size classes when
   // generic configuration is enabled and the thread is registered with rseq.
   return subtle::percpu::IsFastNoInit() &&
-         forwarder_.UseGenericShardedCache() &&
+         forwarder_.sharded_transfer_cache().UseGenericCache() &&
          forwarder_.sharded_transfer_cache().should_use(size_class);
 }
 

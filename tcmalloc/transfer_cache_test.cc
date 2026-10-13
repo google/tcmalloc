@@ -81,8 +81,8 @@ TEST(TransferCacheLayoutTest, HotFieldsDoNotShareCachelines) {
       internal_transfer_cache::TransferCache<
           CentralFreeList, StaticForwarder<Static, tc_globals>>>();
   internal_transfer_cache::TransferCacheTestPeer::VerifyLayout<
-      internal_transfer_cache::TransferCache<BackingTransferCache,
-                                             ShardedStaticForwarder>>();
+      internal_transfer_cache::TransferCache<
+          BackingTransferCache, StaticForwarder<Static, tc_globals>>>();
 }
 
 template <typename Env>
