@@ -26,11 +26,16 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
+#include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sizemap.h"
@@ -53,10 +58,23 @@ extern Static tc_globals;
 template <typename State, State& state>
 class StaticForwarder : private Parameters {
  public:
+  using Parameters::background_release_rate;
+  using Parameters::enable_unfiltered_collapse;
+  using Parameters::filler_skip_subrelease_cold_long_interval;
+  using Parameters::filler_skip_subrelease_cold_short_interval;
+  using Parameters::filler_skip_subrelease_long_interval;
+  using Parameters::filler_skip_subrelease_short_interval;
+  using Parameters::hpaa_subrelease;
+  using Parameters::huge_region_adaptive_release;
+  using Parameters::madvise_cold_regions_nohugepage;
   using Parameters::per_cpu_caches_dynamic_slab_enabled;
   using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
   using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
   using Parameters::release_drained_slab_metadata;
+  using Parameters::release_max_filler_pages;
+  using Parameters::release_partial_alloc_pages;
+  using Parameters::release_stale_pages;
+  using Parameters::subrelease_unbacked_hugepages;
 
   [[nodiscard]] static size_t class_to_size(int size_class) {
     return state.sizemap().class_to_size(size_class);
@@ -166,6 +184,70 @@ class StaticForwarder : private Parameters {
 
   [[nodiscard]] static bool multiple_non_numa_partitions() {
     return state.multiple_non_numa_partitions();
+  }
+
+  // Clock consumed by the filler and huge cache.  Tests substitute a fake so
+  // they can advance time deterministically.
+  [[nodiscard]] static Clock clock() { return Clock{}; }
+
+  // Arena state.
+  [[nodiscard]] static Arena& arena() { return state.arena(); }
+
+  // PageAllocator state.
+
+  // Check page heap memory limit.  `n` indicates the size of the allocation
+  // currently being made, which will not be included in the sampled memory heap
+  // for realized fragmentation estimation.
+  //
+  // `may_have_grown` provides a hint to elide statistics checks when the heap
+  // did not grow above previously accounted for memory usage (for example,
+  // reusing part of an already mapped hugepage, etc.).  This argument is always
+  // checked in debug builds, and incorrect values in optimized builds may break
+  // limit enforcement.
+  static void ShrinkToUsageLimit(Length n, bool may_have_grown)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    state.page_allocator().ShrinkToUsageLimit(n, may_have_grown);
+  }
+
+  // PageMap state.
+  [[nodiscard]] static void* GetHugepage(HugePage p) {
+    return state.pagemap().GetHugepage(p.first_page());
+  }
+  [[nodiscard]] static bool Ensure(Range r)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return state.pagemap().Ensure(r);
+  }
+  static void SetHugepage(HugePage p, void* pt) {
+    state.pagemap().SetHugepage(p.first_page(), pt);
+  }
+
+  // Error reporting
+  [[noreturn]] static void ReportDoubleFree(void* ptr) {
+    tcmalloc_internal::ReportDoubleFree(state, ptr);
+  }
+
+  // SystemAlloc state.
+  [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
+                                                  MemoryTag tag) {
+    return state.system_allocator().Allocate(bytes, align, tag);
+  }
+  [[nodiscard]] static bool BackAllocations() {
+    return back_small_allocations();
+  }
+  [[nodiscard]] static int32_t BackSizeThresholdBytes() {
+    return back_size_threshold_bytes();
+  }
+  static void Back(Range r) {
+    state.system_allocator().Back(r.start_addr(), r.in_bytes());
+  }
+  [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r) {
+    return state.system_allocator().Release(r.start_addr(), r.in_bytes());
+  }
+  [[nodiscard]] static MemoryModifyStatus CollapsePages(Range r) {
+    return state.system_allocator().Collapse(r.start_addr(), r.in_bytes());
+  }
+  static void SetAnonVmaName(Range r, std::optional<absl::string_view> name) {
+    state.system_allocator().SetAnonVmaName(r.start_addr(), r.in_bytes(), name);
   }
 };
 

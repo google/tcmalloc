@@ -37,6 +37,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
@@ -198,9 +199,52 @@ TEST(StaticForwarderTest, Accessors) {
   EXPECT_EQ(ProdForwarder::multiple_non_numa_partitions(),
             Static::multiple_non_numa_partitions());
   EXPECT_EQ(ProdForwarder::HaveHooks(), Static::HaveHooks());
+  EXPECT_EQ(&ProdForwarder::arena(), &tc_globals.arena());
+}
+
+TEST(StaticForwarderTest, PageMap) {
+  // Spans come from CentralFreeList's forwarder until it is folded in.
+  using CflForwarder = central_freelist_internal::StaticForwarder;
+  tc_globals.InitIfNecessary();
+  constexpr int kSizeClass = 1;
+  const Length pages_per_span = CflForwarder::class_to_pages(kSizeClass);
+  const size_t objects_per_span =
+      pages_per_span.in_bytes() / CflForwarder::class_to_size(kSizeClass);
+  Span* span =
+      CflForwarder::AllocateSpan(kSizeClass, objects_per_span, pages_per_span);
+  ASSERT_NE(span, nullptr);
+  const PageId p = span->first_page();
+  const HugePage hp = HugePageContaining(p);
+
+  EXPECT_EQ(ProdForwarder::GetHugepage(hp),
+            tc_globals.pagemap().GetHugepage(hp.first_page()));
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(ProdForwarder::Ensure(Range(p, pages_per_span)));
+  }
+
+  CflForwarder::DeallocateSpans(objects_per_span, pages_per_span,
+                                absl::MakeSpan(&span, 1));
 }
 
 TEST(StaticForwarderTest, Parameters) {
+  EXPECT_EQ(ProdForwarder::background_release_rate(),
+            Parameters::background_release_rate());
+  EXPECT_EQ(ProdForwarder::enable_unfiltered_collapse(),
+            Parameters::enable_unfiltered_collapse());
+  EXPECT_EQ(ProdForwarder::filler_skip_subrelease_cold_long_interval(),
+            Parameters::filler_skip_subrelease_cold_long_interval());
+  EXPECT_EQ(ProdForwarder::filler_skip_subrelease_cold_short_interval(),
+            Parameters::filler_skip_subrelease_cold_short_interval());
+  EXPECT_EQ(ProdForwarder::filler_skip_subrelease_long_interval(),
+            Parameters::filler_skip_subrelease_long_interval());
+  EXPECT_EQ(ProdForwarder::filler_skip_subrelease_short_interval(),
+            Parameters::filler_skip_subrelease_short_interval());
+  EXPECT_EQ(ProdForwarder::hpaa_subrelease(), Parameters::hpaa_subrelease());
+  EXPECT_EQ(ProdForwarder::huge_region_adaptive_release(),
+            Parameters::huge_region_adaptive_release());
+  EXPECT_EQ(ProdForwarder::madvise_cold_regions_nohugepage(),
+            Parameters::madvise_cold_regions_nohugepage());
   EXPECT_EQ(ProdForwarder::per_cpu_caches_dynamic_slab_enabled(),
             Parameters::per_cpu_caches_dynamic_slab_enabled());
   EXPECT_EQ(ProdForwarder::per_cpu_caches_dynamic_slab_grow_threshold(),
@@ -209,6 +253,18 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::per_cpu_caches_dynamic_slab_shrink_threshold());
   EXPECT_EQ(ProdForwarder::release_drained_slab_metadata(),
             Parameters::release_drained_slab_metadata());
+  EXPECT_EQ(ProdForwarder::release_max_filler_pages(),
+            Parameters::release_max_filler_pages());
+  EXPECT_EQ(ProdForwarder::release_partial_alloc_pages(),
+            Parameters::release_partial_alloc_pages());
+  EXPECT_EQ(ProdForwarder::release_stale_pages(),
+            Parameters::release_stale_pages());
+  EXPECT_EQ(ProdForwarder::subrelease_unbacked_hugepages(),
+            Parameters::subrelease_unbacked_hugepages());
+  EXPECT_EQ(ProdForwarder::BackAllocations(),
+            Parameters::back_small_allocations());
+  EXPECT_EQ(ProdForwarder::BackSizeThresholdBytes(),
+            Parameters::back_size_threshold_bytes());
 }
 
 }  // namespace

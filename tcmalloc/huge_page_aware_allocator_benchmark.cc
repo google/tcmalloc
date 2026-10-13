@@ -39,6 +39,7 @@
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"  // IWYU pragma: keep
 #include "tcmalloc/stats.h"
 
 ABSL_FLAG(uint64_t, growth_bytes, 1024 * 1024 * 1024,
