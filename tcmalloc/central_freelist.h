@@ -76,9 +76,6 @@ namespace central_freelist_internal {
 //
 // This is a class, rather than namespaced globals, so that it can be mocked for
 // testing.
-using InsertRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
-using RemoveRangeHook = void (*)(size_t size_class, absl::Span<void*> batch);
-
 class StaticForwarder {
  public:
   static void InvokeInsertRangeHook(size_t size_class,

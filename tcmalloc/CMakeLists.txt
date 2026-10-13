@@ -786,6 +786,7 @@ tcmalloc_cc_library_variants(
     "absl::strings"
     "absl::synchronization"
     "absl::time"
+    "tcmalloc::internal_central_freelist_hooks"
     "tcmalloc::internal_config"
     "tcmalloc::internal_hook_list"
 )

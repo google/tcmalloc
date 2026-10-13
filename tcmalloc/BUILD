@@ -638,6 +638,7 @@ create_tcmalloc_libraries(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        "//tcmalloc/internal:central_freelist_hooks",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:hook_list",
         "@com_google_absl//absl/base:core_headers",
