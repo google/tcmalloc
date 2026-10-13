@@ -590,7 +590,7 @@ struct UpdateMaxCapacities {
       return;
     }
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
-    const size_t target_cap = 1 + (new_max_capacity % kMaxCapacity);
+    const size_t target_cap = new_max_capacity % (kMaxCapacity + 1);
     PerSizeClassMaxCapacity new_caps[1] = {
         {.size_class = sc, .max_capacity = target_cap}};
     const Shift shift = ToShiftType(state.slab.GetShift());
@@ -749,6 +749,13 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
        UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
        UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
        StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}});
+}
+
+TEST(PercpuTcmallocTest, UpdateMaxCapacitiesToZero) {
+  FuzzPercpuTcmalloc(
+      {UpdateMaxCapacities{.size_class = 0, .new_max_capacity = 0},
+       Grow{.size_class = 0, .len = 1}, Pop{.size_class = 0},
+       Push{.size_class = 0}});
 }
 
 TEST(PercpuTcmallocTest, ShrinkOtherCacheStringify) {
