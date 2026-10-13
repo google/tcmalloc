@@ -54,9 +54,16 @@ namespace {
 constexpr size_t kNumClasses = 5;
 constexpr size_t kMaxCapacity = 16;
 constexpr size_t kMaxBatchSize = 16;
-constexpr Shift kShift{18};
+constexpr uint8_t kMinShift = 14;
+constexpr uint8_t kMaxShift = 18;
+constexpr Shift kShift{kMaxShift};
 
 using SlabsType = TcmallocSlab<kNumClasses>;
+using MaxCapacities = std::array<uint8_t, kNumClasses - 1>;
+
+static_assert(SlabsType::GetTotalClassHeaderSize() +
+                  (kNumClasses - 1) * (kMaxCapacity + 1) * sizeof(void*) <=
+              (size_t{1} << kMinShift));
 
 void* Malloc(size_t size, std::align_val_t alignment) {
   void* ptr = ::operator new(size, alignment);
@@ -79,14 +86,15 @@ struct State {
   absl::flat_hash_set<void*> allocated_objects[kNumClasses];
   std::vector<void*> available_objects[kNumClasses];
 
-  State()
+  explicit State(MaxCapacities initial_max_capacity)
       : num_cpus(NumCPUs()),
         active_cpu(current_cpu),
         cpu_initialized(num_cpus, false),
         cpu_stopped(num_cpus, false),
         expected_capacity(num_cpus) {
-    for (size_t sc = 0; sc < kNumClasses; ++sc) {
-      max_capacity[sc] = (sc == 0) ? 0 : kMaxCapacity;
+    max_capacity[0] = 0;
+    for (size_t sc = 1; sc < kNumClasses; ++sc) {
+      max_capacity[sc] = initial_max_capacity[sc - 1] % (kMaxCapacity + 1);
     }
     for (auto& caps : expected_capacity) {
       caps.fill(0);
@@ -533,8 +541,6 @@ struct ResizeSlabs {
       return;
     }
     const uint8_t current_shift = state.slab.GetShift();
-    constexpr uint8_t kMinShift = 14;
-    constexpr uint8_t kMaxShift = 18;
     uint8_t target_shift =
         kMinShift + (shift_index % (kMaxShift - kMinShift + 1));
     if (target_shift == current_shift) {
@@ -717,7 +723,8 @@ void AbslStringify(Sink& sink, const Instruction& i) {
   std::visit([&](auto&& arg) { absl::Format(&sink, "%v", arg); }, i);
 }
 
-void FuzzPercpuTcmalloc(const std::vector<Instruction>& instructions) {
+void FuzzPercpuTcmalloc(const std::vector<Instruction>& instructions,
+                        MaxCapacities initial_max_capacity) {
   if (MallocExtension::PerCpuCachesActive()) {
     return;
   }
@@ -727,7 +734,7 @@ void FuzzPercpuTcmalloc(const std::vector<Instruction>& instructions) {
     return;
   }
 
-  State state;
+  State state(initial_max_capacity);
 
   for (const auto& instruction : instructions) {
     std::visit([&](auto&& arg) { arg.Perform(state); }, instruction);
@@ -736,11 +743,13 @@ void FuzzPercpuTcmalloc(const std::vector<Instruction>& instructions) {
 }
 
 TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
-  FuzzPercpuTcmalloc({Pop{.size_class = 127}});
+  FuzzPercpuTcmalloc({Pop{.size_class = 127}},
+                     {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
 
-  FuzzPercpuTcmalloc({Grow{.size_class = 2147483647, .len = 185},
-                      Push{.size_class = 0},
-                      PushBatch{.size_class = 0, .count = 56}});
+  FuzzPercpuTcmalloc(
+      {Grow{.size_class = 2147483647, .len = 185}, Push{.size_class = 0},
+       PushBatch{.size_class = 0, .count = 56}},
+      {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
 
   FuzzPercpuTcmalloc(
       {GrowOtherClass{.cpu_index = 0, .size_class = 1, .len = 5},
@@ -748,14 +757,23 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
        Drain{.cpu_index = 0}, ResizeSlabs{.shift_index = 1},
        UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 8},
        UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
-       StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}});
+       StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}},
+      {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
 }
 
 TEST(PercpuTcmallocTest, UpdateMaxCapacitiesToZero) {
   FuzzPercpuTcmalloc(
       {UpdateMaxCapacities{.size_class = 0, .new_max_capacity = 0},
        Grow{.size_class = 0, .len = 1}, Pop{.size_class = 0},
-       Push{.size_class = 0}});
+       Push{.size_class = 0}},
+      {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
+}
+
+TEST(PercpuTcmallocTest, InitialMaxCapacitiesZero) {
+  FuzzPercpuTcmalloc({Grow{.size_class = 0, .len = 1}, Pop{.size_class = 0},
+                      Push{.size_class = 0}, Grow{.size_class = 1, .len = 1},
+                      Pop{.size_class = 1}, Push{.size_class = 1}},
+                     {0, kMaxCapacity, 0, 0});
 }
 
 TEST(PercpuTcmallocTest, ShrinkOtherCacheStringify) {
@@ -766,7 +784,8 @@ TEST(PercpuTcmallocTest, ShrinkOtherCacheStringify) {
 }
 
 FUZZ_TEST(PercpuTcmallocTest, FuzzPercpuTcmalloc)
-    .WithDomains(fuzztest::Arbitrary<std::vector<Instruction>>());
+    .WithDomains(fuzztest::Arbitrary<std::vector<Instruction>>(),
+                 fuzztest::Arbitrary<MaxCapacities>());
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal::subtle::percpu
