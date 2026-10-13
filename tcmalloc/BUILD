@@ -1385,9 +1385,9 @@ cc_test(
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:memory_stats",
         "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/testing:smaps",
+        "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",

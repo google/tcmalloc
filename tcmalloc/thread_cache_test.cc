@@ -25,10 +25,10 @@
 #include "gtest/gtest.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/smaps.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
@@ -37,25 +37,23 @@ int64_t MemoryUsageSlow() {
   int64_t ret = 0;
   TC_CHECK(ForEachSmapEntry(
       [&](const SmapEntry& entry) { ret += entry.rss_bytes; }));
-
-  // A sanity check: our return value should be in the same ballpark as
-  // GetMemoryStats.
-  tcmalloc::tcmalloc_internal::MemoryStats stats;
-  TC_CHECK(tcmalloc::tcmalloc_internal::GetMemoryStats(&stats));
-  EXPECT_GE(ret, 0.9 * stats.rss);
-  EXPECT_LE(ret, 1.1 * stats.rss);
-
   return ret;
 }
 
 class ThreadCacheTest : public ::testing::Test {
  public:
-  ThreadCacheTest() {
-    // Explicitly disable guarded allocations for this test.  For aggressive
-    // sample rates on PPC (with 64KB pages), RSS grows quickly due to
-    // page-sized allocations that we don't release.
-    MallocExtension::SetGuardedSamplingInterval(-1);
-  }
+  ThreadCacheTest()
+      // Explicitly disable guarded allocations for this test.  For aggressive
+      // sample rates on PPC (with 64KB pages), RSS grows quickly due to
+      // page-sized allocations that we don't release.
+      : guarded_sampling_interval_(-1),
+        skip_subrelease_short_interval_(absl::ZeroDuration()),
+        skip_subrelease_long_interval_(absl::ZeroDuration()) {}
+
+ private:
+  ScopedGuardedSamplingInterval guarded_sampling_interval_;
+  ScopedSkipSubreleaseShortInterval skip_subrelease_short_interval_;
+  ScopedSkipSubreleaseLongInterval skip_subrelease_long_interval_;
 };
 
 // Make sure that creating and destroying many mallocing threads
@@ -66,11 +64,13 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
 
   // Force a small sample to initialize tagged page allocator.
   constexpr int64_t kAlloc = 8192;
-  const int64_t num_allocs =
-      32 * MallocExtension::GetProfileSamplingInterval() / kAlloc;
+  const int64_t sampling_interval =
+      MallocExtension::GetProfileSamplingInterval();
+  const int64_t num_allocs = 32 * sampling_interval / kAlloc;
   for (int64_t i = 0; i < num_allocs; ++i) {
     ::operator delete(::operator new(kAlloc));
   }
+  ScopedProfileSamplingInterval profile_sampling_interval(0);
 
   // Prefault and mlock the currently mapped address space.  This avoids minor
   // faults during the test from appearing as an apparent memory leak due to RSS

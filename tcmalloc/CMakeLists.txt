@@ -1582,11 +1582,11 @@ tcmalloc_cc_test(
     "absl::time"
     "benchmark::benchmark"
     "tcmalloc::internal_logging"
-    "tcmalloc::internal_memory_stats"
     "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc_deprecated_perthread"
     "tcmalloc::testing_smaps"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test_variants(

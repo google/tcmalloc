@@ -157,6 +157,36 @@ class ScopedBackgroundProcessSleepInterval {
   absl::Duration previous_;
 };
 
+class ScopedSkipSubreleaseShortInterval {
+ public:
+  explicit ScopedSkipSubreleaseShortInterval(absl::Duration interval)
+      : previous_(MallocExtension::GetSkipSubreleaseShortInterval()) {
+    MallocExtension::SetSkipSubreleaseShortInterval(interval);
+  }
+
+  ~ScopedSkipSubreleaseShortInterval() {
+    MallocExtension::SetSkipSubreleaseShortInterval(previous_);
+  }
+
+ private:
+  absl::Duration previous_;
+};
+
+class ScopedSkipSubreleaseLongInterval {
+ public:
+  explicit ScopedSkipSubreleaseLongInterval(absl::Duration interval)
+      : previous_(MallocExtension::GetSkipSubreleaseLongInterval()) {
+    MallocExtension::SetSkipSubreleaseLongInterval(interval);
+  }
+
+  ~ScopedSkipSubreleaseLongInterval() {
+    MallocExtension::SetSkipSubreleaseLongInterval(previous_);
+  }
+
+ private:
+  absl::Duration previous_;
+};
+
 // Sets a custom resource limit when in scope.
 class ScopedResourceLimit {
  public:
