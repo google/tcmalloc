@@ -22,7 +22,9 @@
 #include <cstdio>
 #include <cstring>
 
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
@@ -67,6 +69,28 @@ ProcMapsIterator::~ProcMapsIterator() {
 
 bool ProcMapsIterator::Valid() const { return fd_ != -1; }
 
+#if defined __linux__
+namespace {
+
+absl::string_view ConsumeToken(absl::string_view& line, char delim) {
+  const size_t start = line.find_first_not_of(' ');
+  if (start == absl::string_view::npos) return {};
+  line.remove_prefix(start);
+  const size_t end = line.find(delim);
+  if (end == absl::string_view::npos) {
+    if (delim != ' ') return {};
+    absl::string_view token = line;
+    line.remove_prefix(line.size());
+    return token;
+  }
+  absl::string_view token = line.substr(0, end);
+  line.remove_prefix(end + 1);
+  return token;
+}
+
+}  // namespace
+#endif
+
 bool ProcMapsIterator::NextExt(uint64_t* start, uint64_t* end, char** flags,
                                uint64_t* offset, int64_t* inode,
                                char** filename, dev_t* dev) {
@@ -104,40 +128,35 @@ bool ProcMapsIterator::NextExt(uint64_t* start, uint64_t* end, char** flags,
       *etext_ = '\n';  // sentinel; safe because ibuf extends 1 char beyond ebuf
       nextline_ = static_cast<char*>(memchr(stext_, '\n', etext_ + 1 - stext_));
     }
+    absl::string_view line(stext_, nextline_ - stext_);
     *nextline_ = 0;                               // turn newline into nul
     nextline_ += ((nextline_ < etext_) ? 1 : 0);  // skip nul if not end of text
     // stext_ now points at a nul-terminated line
-    unsigned long long tmpstart, tmpend, tmpoffset;           // NOLINT
-    long long tmpinode, local_inode;                          // NOLINT
-    unsigned long long local_start, local_end, local_offset;  // NOLINT
-    int major, minor;
-    unsigned filename_offset = 0;
-    // for now, assume all linuxes have the same format
-    int para_num =
-        sscanf(stext_, "%llx-%llx %4s %llx %x:%x %lld %n",
-               start ? &local_start : &tmpstart, end ? &local_end : &tmpend,
-               flags_, offset ? &local_offset : &tmpoffset, &major, &minor,
-               inode ? &local_inode : &tmpinode, &filename_offset);
-
-    if (para_num != 7) continue;
+    uint64_t local_start, local_end, local_offset;
+    uint32_t major, minor;
+    int64_t local_inode;
+    if (!absl::SimpleHexAtoi(ConsumeToken(line, '-'), &local_start)) continue;
+    if (!absl::SimpleHexAtoi(ConsumeToken(line, ' '), &local_end)) continue;
+    absl::string_view flags_tok = ConsumeToken(line, ' ');
+    if (flags_tok.empty() || flags_tok.size() > 4) continue;
+    memcpy(flags_, flags_tok.data(), flags_tok.size());
+    flags_[flags_tok.size()] = '\0';
+    if (!absl::SimpleHexAtoi(ConsumeToken(line, ' '), &local_offset)) continue;
+    if (!absl::SimpleHexAtoi(ConsumeToken(line, ':'), &major)) continue;
+    if (!absl::SimpleHexAtoi(ConsumeToken(line, ' '), &minor)) continue;
+    if (!absl::SimpleAtoi(ConsumeToken(line, ' '), &local_inode)) continue;
+    const size_t filename_offset = line.find_first_not_of(' ');
+    line.remove_prefix(filename_offset == absl::string_view::npos
+                           ? line.size()
+                           : filename_offset);
 
     if (start) *start = local_start;
     if (end) *end = local_end;
     if (offset) *offset = local_offset;
     if (inode) *inode = local_inode;
-    // Depending on the Linux kernel being used, there may or may not be a space
-    // after the inode if there is no filename.  sscanf will in such situations
-    // nondeterministically either fill in filename_offset or not (the results
-    // differ on multiple calls in the same run even with identical arguments).
-    // We don't want to wander off somewhere beyond the end of the string.
-    size_t stext_length = strlen(stext_);
-    if (filename_offset == 0 || filename_offset > stext_length)
-      filename_offset = stext_length;
-
-    // We found an entry
     if (flags) *flags = flags_;
-    if (filename) *filename = stext_ + filename_offset;
-    if (dev) *dev = makedev(major, minor);
+    if (filename) *filename = const_cast<char*>(line.data());
+    if (dev) *dev = makedev(static_cast<int>(major), static_cast<int>(minor));
 
     return true;
   } while (etext_ > ibuf_);
