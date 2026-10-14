@@ -206,6 +206,7 @@ create_tcmalloc_libraries(
         "guarded_page_allocator.cc",
         "guarded_page_allocator.h",
         "hinted_tracker_lists.h",
+        "histogram.h",
         "huge_address_map.cc",
         "huge_allocator.cc",
         "huge_allocator.h",
@@ -264,6 +265,7 @@ create_tcmalloc_libraries(
         "guarded_allocations.h",
         "guarded_page_allocator.h",
         "hinted_tracker_lists.h",
+        "histogram.h",
         "huge_address_map.h",
         "huge_allocator.h",
         "huge_cache.h",
@@ -315,7 +317,6 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:cpu_utils",
         "//tcmalloc/internal:delay_injection",
         "//tcmalloc/internal:environment",
-        "//tcmalloc/internal:explicitly_constructed",
         "//tcmalloc/internal:exponential_biased",
         "//tcmalloc/internal:gwp_asan_state",
         "//tcmalloc/internal:hardware_pages",
@@ -329,7 +330,6 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:mincore",
         "//tcmalloc/internal:numa",
         "//tcmalloc/internal:optimization",
-        "//tcmalloc/internal:page_allocation_status",
         "//tcmalloc/internal:page_allocator_hooks",
         "//tcmalloc/internal:page_size",
         "//tcmalloc/internal:pageflags",
@@ -975,6 +975,19 @@ create_tcmalloc_benchmark(
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:distributions",
         "@com_google_absl//absl/types:optional",
+    ],
+)
+
+cc_test(
+    name = "histogram_test",
+    srcs = ["histogram_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common_8k_pages",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/testing:testutil",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
