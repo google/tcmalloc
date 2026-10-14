@@ -158,8 +158,13 @@ void SampleRecorder<T, Allocator>::PushNew(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::PushDead(T* sample) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   AllocationGuardSpinLockHolder sample_lock(sample->lock);
+#else
+  AllocationGuardSpinLockHolder sample_lock(sample->lock);
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
+#endif
   sample->dead = graveyard_.dead;
   graveyard_.dead = sample;
 }
