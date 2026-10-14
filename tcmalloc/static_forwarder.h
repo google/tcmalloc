@@ -28,7 +28,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "tcmalloc/arena.h"
-#include "tcmalloc/central_freelist_options.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/experiment.h"

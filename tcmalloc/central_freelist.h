@@ -33,7 +33,6 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/numeric/bits.h"
 #include "absl/types/span.h"
-#include "tcmalloc/central_freelist_options.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
@@ -44,7 +43,6 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
-#include "tcmalloc/static_forwarder.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -74,10 +72,18 @@ namespace central_freelist_internal {
 // Specifies number of nonempty_ lists that keep track of non-empty spans.
 static constexpr size_t kNumLists = 8;
 static_assert(1 << Span::kNonemptyIndexBits >= kNumLists);
+// Specifies the threshold for number of objects per span. The threshold is
+// used to consider a span sparsely- vs. densely-accessed.
+static constexpr size_t kFewObjectsAllocMaxLimit = 16;
 // Specifies the number of buckets in the histogram that tracks the number of
 // spans used to fill a batch.
 static constexpr size_t kSpansUsedStatBuckets =
     absl::bit_width(kMaxObjectsToMove);
+
+enum class CflSubbucketPrioritization : bool {
+  kDisabled = false,
+  kEnabled = true
+};
 
 // Data kept per size-class in central cache.
 template <typename ForwarderT>
@@ -783,6 +789,13 @@ inline void CentralFreeList<Forwarder>::PrintNumSpansUsedInPbtxt(
 
 
 }  // namespace central_freelist_internal
+
+class Static;
+extern Static tc_globals;
+
+// Defined in static_forwarder.h, which depends on this header.
+template <typename State, State& state>
+class StaticForwarder;
 
 using CentralFreeList = central_freelist_internal::CentralFreeList<
     StaticForwarder<Static, tc_globals>>;
