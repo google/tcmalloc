@@ -25,7 +25,6 @@ enum class Experiment : int {
   // go/keep-sorted start
   TCMALLOC_CFL_PRIORITIZATION_ABLATION,  // TODO: b/567166830 - Complete experiment.
   TCMALLOC_DEMAND_CYCLE_120S,  // TODO: b/540987155 - Complete experiment.
-  TCMALLOC_PAGE_HEAP_GARDENING,  // TODO: b/525422238 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_RELEASE_FREE_STALE,  // TODO: b/527473378 - Complete experiment.
   TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS,  // TODO: b/527907199 - Complete experiment.
@@ -34,7 +33,6 @@ enum class Experiment : int {
   TEST_ONLY_TCMALLOC_HEAP_PARTITIONING,  // TODO: b/446814339 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
   TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE,
-  TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES,  // TODO: b/525422238 - Complete experiment.
   // go/keep-sorted end
   kMaxExperimentID,
   // clang-format on
@@ -56,7 +54,6 @@ inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION, "TCMALLOC_CFL_PRIORITIZATION_ABLATION"},
     {Experiment::TCMALLOC_DEMAND_CYCLE_120S, "TCMALLOC_DEMAND_CYCLE_120S"},
-    {Experiment::TCMALLOC_PAGE_HEAP_GARDENING, "TCMALLOC_PAGE_HEAP_GARDENING"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_RELEASE_FREE_STALE, "TCMALLOC_RELEASE_FREE_STALE"},
     {Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS, "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"", /*rollout_inverted=*/true},
@@ -65,7 +62,6 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TEST_ONLY_TCMALLOC_HEAP_PARTITIONING, "TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"},
     {Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS, "TEST_ONLY_TCMALLOC_POW2_SIZECLASS", /*brittle=*/true},
     {Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE, "TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE", /*brittle=*/true},
-    {Experiment::TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES, "TEST_ONLY_TCMALLOC_SUBRELEASE_UNBACKED_PAGES"},
     // go/keep-sorted end
 };
 // clang-format on

@@ -318,15 +318,6 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_page_heap_gardening
-    ${EXTRA_ARGS}
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS}
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_PAGE_HEAP_GARDENING"
-  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_prioritization_ablation
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}

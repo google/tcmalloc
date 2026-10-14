@@ -162,6 +162,7 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_huge_region_adaptive_release: true"));
+  EXPECT_THAT(buf, HasSubstr("subrelease_unbacked_hugepages: false"));
   if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
   ) {
     EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
@@ -316,6 +317,10 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(R"(PARAMETER tcmalloc_release_pages_from_huge_region 1)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_huge_region_adaptive_release 1)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_subrelease_unbacked_hugepages 0)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(subrelease_unbacked_hugepages: false)"));
     if (IsExperimentActive(
             Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
       EXPECT_THAT(buf,
