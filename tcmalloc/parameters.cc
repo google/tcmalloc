@@ -200,8 +200,36 @@ bool Parameters::hpaa_subrelease() {
 void Parameters::set_hpaa_subrelease(bool value) {
   TCMalloc_Internal_SetHPAASubrelease(value);
 }
+extern "C" ABSL_ATTRIBUTE_WEAK bool
+default_want_disable_subrelease_unbacked_hugepages();
+
+static SubreleaseUnbackedMode want_subrelease_unbacked_hugepages() {
+  if (default_want_disable_subrelease_unbacked_hugepages != nullptr) {
+    return SubreleaseUnbackedMode::kDisabled;
+  }
+  const char* e =
+      thread_safe_getenv("TCMALLOC_DISABLE_SUBRELEASE_UNBACKED_HUGEPAGES");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        return SubreleaseUnbackedMode::kEnabled;
+      case '1':
+        return SubreleaseUnbackedMode::kDisabled;
+      default:
+        TC_BUG("bad env var '%s'", e);
+    }
+  }
+  return SubreleaseUnbackedMode::kDisabled;
+}
+
 SubreleaseUnbackedMode Parameters::subrelease_unbacked_hugepages() {
-  return subrelease_unbacked_hugepages_.load(std::memory_order_relaxed);
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<SubreleaseUnbackedMode> v{
+      SubreleaseUnbackedMode::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(want_subrelease_unbacked_hugepages(), std::memory_order_relaxed);
+  });
+  return v.load(std::memory_order_relaxed);
 }
 
 std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
@@ -258,10 +286,6 @@ ABSL_CONST_INIT std::atomic<double>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
-
-ABSL_CONST_INIT std::atomic<SubreleaseUnbackedMode>
-    Parameters::subrelease_unbacked_hugepages_(
-        SubreleaseUnbackedMode::kDisabled);
 
 // TODO: b/134694141 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);

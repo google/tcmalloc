@@ -314,7 +314,6 @@ class Parameters {
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
-  static std::atomic<SubreleaseUnbackedMode> subrelease_unbacked_hugepages_;
   static std::atomic<EnableCollapse> usermode_hugepage_collapse_enabled_;
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;
