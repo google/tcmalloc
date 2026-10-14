@@ -67,6 +67,8 @@ extern Static tc_globals;
 template <typename State, State& state>
 class StaticForwarder : private Parameters {
  public:
+  using Parameters::back_size_threshold_bytes;
+  using Parameters::back_small_allocations;
   using Parameters::background_release_rate;
   using Parameters::enable_unfiltered_collapse;
   using Parameters::filler_skip_subrelease_cold_long_interval;
@@ -344,12 +346,6 @@ class StaticForwarder : private Parameters {
   [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
                                                   MemoryTag tag) {
     return state.system_allocator().Allocate(bytes, align, tag);
-  }
-  [[nodiscard]] static bool BackAllocations() {
-    return back_small_allocations();
-  }
-  [[nodiscard]] static int32_t BackSizeThresholdBytes() {
-    return back_size_threshold_bytes();
   }
   static void Back(Range r) {
     state.system_allocator().Back(r.start_addr(), r.in_bytes());

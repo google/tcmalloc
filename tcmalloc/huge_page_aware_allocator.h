@@ -704,8 +704,8 @@ inline bool HugePageAwareAllocator<Forwarder>::ShouldBack(
     const Range& r) const {
   // TODO(b/134694141): Experiment with the size threshold used for deciding
   // whether to back or not.
-  return forwarder_.BackAllocations() &&
-         r.in_bytes() <= forwarder_.BackSizeThresholdBytes();
+  return forwarder_.back_small_allocations() &&
+         r.in_bytes() <= forwarder_.back_size_threshold_bytes();
 }
 
 template <class Forwarder>

@@ -52,6 +52,19 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
+// Stands in for a Parameters getter in a test forwarder: callable like the
+// static it replaces, so templated callers (forwarder_.x()) are unchanged.
+template <typename T>
+class FakeParameter {
+ public:
+  explicit FakeParameter(T value) : value_(value) {}
+  [[nodiscard]] T operator()() const { return value_; }
+  void set(T value) { value_ = value; }
+
+ private:
+  T value_;
+};
+
 class FakeHugePageStaticForwarder : private Parameters {
  public:
   FakeHugePageStaticForwarder() {
@@ -62,86 +75,42 @@ class FakeHugePageStaticForwarder : private Parameters {
   }
 
   // Runtime parameters.  This can change between calls.
-  [[nodiscard]] absl::Duration filler_skip_subrelease_short_interval() const {
-    return short_interval_;
-  }
-  [[nodiscard]] absl::Duration filler_skip_subrelease_long_interval() const {
-    return long_interval_;
-  }
-  [[nodiscard]] absl::Duration filler_skip_subrelease_cold_short_interval()
-      const {
-    return cold_short_interval_;
-  }
-  [[nodiscard]] absl::Duration filler_skip_subrelease_cold_long_interval()
-      const {
-    return cold_long_interval_;
-  }
-  [[nodiscard]] bool release_partial_alloc_pages() const {
-    return release_partial_alloc_pages_;
-  }
-  [[nodiscard]] bool hpaa_subrelease() const { return hpaa_subrelease_; }
-  [[nodiscard]] SubreleaseUnbackedMode subrelease_unbacked_hugepages() const {
-    return subrelease_unbacked_hugepages_;
-  }
+  // NOLINTBEGIN(readability-identifier-naming)
+  FakeParameter<absl::Duration> filler_skip_subrelease_short_interval{
+      Parameters::filler_skip_subrelease_short_interval()};
+  FakeParameter<absl::Duration> filler_skip_subrelease_long_interval{
+      Parameters::filler_skip_subrelease_long_interval()};
+  FakeParameter<absl::Duration> filler_skip_subrelease_cold_short_interval{
+      Parameters::filler_skip_subrelease_cold_short_interval()};
+  FakeParameter<absl::Duration> filler_skip_subrelease_cold_long_interval{
+      Parameters::filler_skip_subrelease_cold_long_interval()};
+  FakeParameter<bool> release_partial_alloc_pages{
+      Parameters::release_partial_alloc_pages()};
+  FakeParameter<bool> hpaa_subrelease{Parameters::hpaa_subrelease()};
+  FakeParameter<SubreleaseUnbackedMode> subrelease_unbacked_hugepages{
+      Parameters::subrelease_unbacked_hugepages()};
+  FakeParameter<bool> huge_region_adaptive_release{
+      Parameters::huge_region_adaptive_release()};
+  FakeParameter<MallocExtension::BytesPerSecond> background_release_rate{
+      Parameters::background_release_rate()};
+  FakeParameter<bool> release_max_filler_pages{
+      Parameters::release_max_filler_pages()};
+  FakeParameter<ReleaseStalePages> release_stale_pages{
+      Parameters::release_stale_pages()};
+  FakeParameter<MadviseRegionsNoHugepage> madvise_cold_regions_nohugepage{
+      Parameters::madvise_cold_regions_nohugepage()};
+  FakeParameter<bool> back_small_allocations{
+      Parameters::back_small_allocations()};
+  FakeParameter<int32_t> back_size_threshold_bytes{
+      Parameters::back_size_threshold_bytes()};
+  FakeParameter<EnableUnfilteredCollapse> enable_unfiltered_collapse{
+      Parameters::enable_unfiltered_collapse()};
+  // NOLINTEND(readability-identifier-naming)
 
-  void set_filler_skip_subrelease_short_interval(absl::Duration value) {
-    short_interval_ = value;
-  }
-  void set_filler_skip_subrelease_long_interval(absl::Duration value) {
-    long_interval_ = value;
-  }
-  void set_filler_skip_subrelease_cold_short_interval(absl::Duration value) {
-    cold_short_interval_ = value;
-  }
-  void set_filler_skip_subrelease_cold_long_interval(absl::Duration value) {
-    cold_long_interval_ = value;
-  }
-  void set_release_partial_alloc_pages(bool value) {
-    release_partial_alloc_pages_ = value;
-  }
-  void set_hpaa_subrelease(bool value) { hpaa_subrelease_ = value; }
-  void set_subrelease_unbacked_hugepages(SubreleaseUnbackedMode value) {
-    subrelease_unbacked_hugepages_ = value;
-  }
   [[nodiscard]] bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool value) { release_succeeds_ = value; }
   void set_collapse_succeeds(bool value) { collapse_succeeds_ = value; }
   void set_error_number(int value) { error_number_ = value; }
-
-  [[nodiscard]] bool huge_region_adaptive_release() const {
-    return huge_region_adaptive_release_;
-  }
-  void set_huge_region_adaptive_release(bool value) {
-    huge_region_adaptive_release_ = value;
-  }
-  [[nodiscard]] MallocExtension::BytesPerSecond background_release_rate()
-      const {
-    return background_release_rate_;
-  }
-  void set_background_release_rate(MallocExtension::BytesPerSecond value) {
-    background_release_rate_ = value;
-  }
-  [[nodiscard]] bool release_max_filler_pages() const {
-    return release_max_filler_pages_;
-  }
-  void set_release_max_filler_pages(bool value) {
-    release_max_filler_pages_ = value;
-  }
-  [[nodiscard]] ReleaseStalePages release_stale_pages() const {
-    return release_stale_pages_;
-  }
-  void set_release_stale_pages(ReleaseStalePages value) {
-    release_stale_pages_ = value;
-  }
-
-  [[nodiscard]] MadviseRegionsNoHugepage madvise_cold_regions_nohugepage()
-      const {
-    return madvise_cold_regions_nohugepage_;
-  }
-
-  void set_madvise_cold_regions_nohugepage(MadviseRegionsNoHugepage value) {
-    madvise_cold_regions_nohugepage_ = value;
-  }
 
   [[nodiscard]] Clock clock() const {
     return Clock{.now = FakeClock, .freq = FakeClockFrequency};
@@ -150,22 +119,6 @@ class FakeHugePageStaticForwarder : private Parameters {
     clock_.fetch_add(absl::ToInt64Nanoseconds(d), std::memory_order_relaxed);
   }
   static void ResetClock() { clock_.store(0, std::memory_order_relaxed); }
-
-  [[nodiscard]] bool BackAllocations() const { return back_allocations_; }
-  void SetBackAllocations(bool value) { back_allocations_ = value; }
-  [[nodiscard]] int32_t BackSizeThresholdBytes() const {
-    return back_size_threshold_bytes_;
-  }
-  void SetBackSizeThresholdBytes(int32_t value) {
-    back_size_threshold_bytes_ = value;
-  }
-
-  [[nodiscard]] EnableUnfilteredCollapse enable_unfiltered_collapse() const {
-    return enable_unfiltered_collapse_;
-  }
-  void set_enable_unfiltered_collapse(EnableUnfilteredCollapse value) {
-    enable_unfiltered_collapse_ = value;
-  }
 
   // Arena state.
   [[nodiscard]] Arena& arena() { return arena_; }
@@ -276,35 +229,10 @@ class FakeHugePageStaticForwarder : private Parameters {
     });
     return a;
   }
-  absl::Duration short_interval_ =
-      Parameters::filler_skip_subrelease_short_interval();
-  absl::Duration long_interval_ =
-      Parameters::filler_skip_subrelease_long_interval();
-  absl::Duration cold_short_interval_ =
-      Parameters::filler_skip_subrelease_cold_short_interval();
-  absl::Duration cold_long_interval_ =
-      Parameters::filler_skip_subrelease_cold_long_interval();
-  bool release_partial_alloc_pages_ = Parameters::release_partial_alloc_pages();
-  bool hpaa_subrelease_ = Parameters::hpaa_subrelease();
-  SubreleaseUnbackedMode subrelease_unbacked_hugepages_ =
-      Parameters::subrelease_unbacked_hugepages();
   bool release_succeeds_ = true;
   bool collapse_succeeds_ = true;
   int error_number_ = 0;
-  bool huge_region_adaptive_release_ =
-      Parameters::huge_region_adaptive_release();
-  MallocExtension::BytesPerSecond background_release_rate_ =
-      Parameters::background_release_rate();
-  bool release_max_filler_pages_ = Parameters::release_max_filler_pages();
-
-  bool back_allocations_ = Parameters::back_small_allocations();
-  int32_t back_size_threshold_bytes_ = Parameters::back_size_threshold_bytes();
-  EnableUnfilteredCollapse enable_unfiltered_collapse_ =
-      Parameters::enable_unfiltered_collapse();
   Arena arena_;
-  ReleaseStalePages release_stale_pages_ = Parameters::release_stale_pages();
-  MadviseRegionsNoHugepage madvise_cold_regions_nohugepage_ =
-      Parameters::madvise_cold_regions_nohugepage();
 
   static int64_t FakeClock() { return clock_.load(std::memory_order_relaxed); }
   static double FakeClockFrequency() { return 1e9; }

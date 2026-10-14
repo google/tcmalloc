@@ -225,6 +225,10 @@ TEST(StaticForwarderTest, PageMap) {
 }
 
 TEST(StaticForwarderTest, Parameters) {
+  EXPECT_EQ(ProdForwarder::back_size_threshold_bytes(),
+            Parameters::back_size_threshold_bytes());
+  EXPECT_EQ(ProdForwarder::back_small_allocations(),
+            Parameters::back_small_allocations());
   EXPECT_EQ(ProdForwarder::background_release_rate(),
             Parameters::background_release_rate());
   EXPECT_EQ(ProdForwarder::enable_unfiltered_collapse(),
@@ -258,10 +262,6 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::release_stale_pages());
   EXPECT_EQ(ProdForwarder::subrelease_unbacked_hugepages(),
             Parameters::subrelease_unbacked_hugepages());
-  EXPECT_EQ(ProdForwarder::BackAllocations(),
-            Parameters::back_small_allocations());
-  EXPECT_EQ(ProdForwarder::BackSizeThresholdBytes(),
-            Parameters::back_size_threshold_bytes());
 }
 
 class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {

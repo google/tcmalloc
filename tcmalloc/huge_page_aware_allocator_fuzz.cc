@@ -140,8 +140,8 @@ class FakeStaticForwarderWithUnback : public FakeHugePageStaticForwarder {
   // pageheap_lock, so the span is already accounted as used by the allocator
   // but not yet recorded by the fuzzer.
   void Back(Range r) {
-    ASSERT_TRUE(BackAllocations());
-    TC_CHECK_LE(r.in_bytes(), BackSizeThresholdBytes());
+    ASSERT_TRUE(back_small_allocations());
+    TC_CHECK_LE(r.in_bytes(), back_size_threshold_bytes());
     pending_back_ += r.n;
     lock_dropped_callback_();
     pending_back_ -= r.n;
@@ -1118,43 +1118,43 @@ void TreatTrackers::Perform(State& state) const {
 
 void ResetSubreleaseIntervals::Perform(State& state) const {
   auto& forwarder = state.allocator.forwarder();
-  forwarder.set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
-  forwarder.set_filler_skip_subrelease_long_interval(absl::ZeroDuration());
-  forwarder.set_filler_skip_subrelease_cold_short_interval(
+  forwarder.filler_skip_subrelease_short_interval.set(absl::ZeroDuration());
+  forwarder.filler_skip_subrelease_long_interval.set(absl::ZeroDuration());
+  forwarder.filler_skip_subrelease_cold_short_interval.set(
       absl::ZeroDuration());
-  forwarder.set_filler_skip_subrelease_cold_long_interval(absl::ZeroDuration());
+  forwarder.filler_skip_subrelease_cold_long_interval.set(absl::ZeroDuration());
 }
 
 void SetFillerSkipSubreleaseShortInterval::Perform(State& state) const {
-  state.allocator.forwarder().set_filler_skip_subrelease_short_interval(
+  state.allocator.forwarder().filler_skip_subrelease_short_interval.set(
       absl::Nanoseconds(duration_ns));
 }
 
 void SetFillerSkipSubreleaseLongInterval::Perform(State& state) const {
-  state.allocator.forwarder().set_filler_skip_subrelease_long_interval(
+  state.allocator.forwarder().filler_skip_subrelease_long_interval.set(
       absl::Nanoseconds(duration_ns));
 }
 
 void SetFillerSkipSubreleaseColdShortInterval::Perform(State& state) const {
-  state.allocator.forwarder().set_filler_skip_subrelease_cold_short_interval(
+  state.allocator.forwarder().filler_skip_subrelease_cold_short_interval.set(
       absl::Nanoseconds(duration_ns));
 }
 
 void SetFillerSkipSubreleaseColdLongInterval::Perform(State& state) const {
-  state.allocator.forwarder().set_filler_skip_subrelease_cold_long_interval(
+  state.allocator.forwarder().filler_skip_subrelease_cold_long_interval.set(
       absl::Nanoseconds(duration_ns));
 }
 
 void SetReleasePartialAllocPages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_partial_alloc_pages(value);
+  state.allocator.forwarder().release_partial_alloc_pages.set(value);
 }
 
 void SetHpaaSubrelease::Perform(State& state) const {
-  state.allocator.forwarder().set_hpaa_subrelease(value);
+  state.allocator.forwarder().hpaa_subrelease.set(value);
 }
 
 void SetSubreleaseUnbackedHugepages::Perform(State& state) const {
-  state.allocator.forwarder().set_subrelease_unbacked_hugepages(
+  state.allocator.forwarder().subrelease_unbacked_hugepages.set(
       value ? SubreleaseUnbackedMode::kEnabled
             : SubreleaseUnbackedMode::kDisabled);
 }
@@ -1168,7 +1168,7 @@ void SetCollapseSucceeds::Perform(State& state) const {
 }
 
 void SetHugeRegionAdaptiveRelease::Perform(State& state) const {
-  state.allocator.forwarder().set_huge_region_adaptive_release(value);
+  state.allocator.forwarder().huge_region_adaptive_release.set(value);
 }
 
 void SetAllocateSucceeds::Perform(State& state) const {
@@ -1176,11 +1176,11 @@ void SetAllocateSucceeds::Perform(State& state) const {
 }
 
 void SetBackAllocations::Perform(State& state) const {
-  state.allocator.forwarder().SetBackAllocations(value);
+  state.allocator.forwarder().back_small_allocations.set(value);
 }
 
 void SetBackSizeThresholdBytes::Perform(State& state) const {
-  state.allocator.forwarder().SetBackSizeThresholdBytes(value);
+  state.allocator.forwarder().back_size_threshold_bytes.set(value);
 }
 
 void ReentrantSubprogram::Perform(State& state) const {
@@ -1188,22 +1188,22 @@ void ReentrantSubprogram::Perform(State& state) const {
 }
 
 void SetEnableUnfilteredCollapse::Perform(State& state) const {
-  state.allocator.forwarder().set_enable_unfiltered_collapse(
+  state.allocator.forwarder().enable_unfiltered_collapse.set(
       value ? EnableUnfilteredCollapse::kEnabled
             : EnableUnfilteredCollapse::kDisabled);
 }
 
 void SetReleaseMaxFillerPages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_max_filler_pages(value);
+  state.allocator.forwarder().release_max_filler_pages.set(value);
 }
 
 void SetEnableReleaseStalePages::Perform(State& state) const {
-  state.allocator.forwarder().set_release_stale_pages(
+  state.allocator.forwarder().release_stale_pages.set(
       value ? ReleaseStalePages::kEnabled : ReleaseStalePages::kDisabled);
 }
 
 void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
-  state.allocator.forwarder().set_madvise_cold_regions_nohugepage(
+  state.allocator.forwarder().madvise_cold_regions_nohugepage.set(
       value ? MadviseRegionsNoHugepage::kEnabled
             : MadviseRegionsNoHugepage::kDisabled);
 }

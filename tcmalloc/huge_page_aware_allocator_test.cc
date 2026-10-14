@@ -113,8 +113,8 @@ class HugePageAwareAllocatorTest
     }
 
     void Back(Range r) {
-      ASSERT_TRUE(BackAllocations());
-      TC_CHECK_LE(r.in_bytes(), BackSizeThresholdBytes());
+      ASSERT_TRUE(back_small_allocations());
+      TC_CHECK_LE(r.in_bytes(), back_size_threshold_bytes());
       huge_page_allocator_internal::FakeHugePageStaticForwarder::Back(r);
     }
 
@@ -153,9 +153,9 @@ class HugePageAwareAllocatorTest
     // TODO(b/242550501): Parameterize other parts of the options.
     options.use_huge_region_more_often = std::get<0>(GetParam());
     allocator_.emplace(options);
-    allocator_->forwarder().SetBackAllocations(std::get<1>(GetParam()));
+    allocator_->forwarder().back_small_allocations.set(std::get<1>(GetParam()));
     absl::BitGen rng;
-    allocator_->forwarder().SetBackSizeThresholdBytes(
+    allocator_->forwarder().back_size_threshold_bytes.set(
         absl::Uniform<int32_t>(rng, 0, kHugePageSize));
   }
 
@@ -411,16 +411,16 @@ TEST_P(HugePageAwareAllocatorTest, Multithreaded) {
 
 TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
   const bool old_subrelease = allocator_->forwarder().hpaa_subrelease();
-  allocator_->forwarder().set_hpaa_subrelease(/*value=*/true);
+  allocator_->forwarder().hpaa_subrelease.set(/*value=*/true);
 
   absl::Duration old_skip_subrelease_short_interval =
       allocator_->forwarder().filler_skip_subrelease_short_interval();
-  allocator_->forwarder().set_filler_skip_subrelease_short_interval(
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
       absl::ZeroDuration());
 
   absl::Duration old_skip_subrelease_long_interval =
       allocator_->forwarder().filler_skip_subrelease_long_interval();
-  allocator_->forwarder().set_filler_skip_subrelease_long_interval(
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
       absl::ZeroDuration());
 
   std::vector<AllocationState> live, dead;
@@ -445,10 +445,10 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
     Delete(l, kSpanInfo.objects_per_span);
   }
 
-  allocator_->forwarder().set_hpaa_subrelease(old_subrelease);
-  allocator_->forwarder().set_filler_skip_subrelease_short_interval(
+  allocator_->forwarder().hpaa_subrelease.set(old_subrelease);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
       old_skip_subrelease_short_interval);
-  allocator_->forwarder().set_filler_skip_subrelease_long_interval(
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
       old_skip_subrelease_long_interval);
 }
 
@@ -649,7 +649,7 @@ TEST_P(HugePageAwareAllocatorTest, ReleaseFromHugeRegionWhenCacheSatisfies) {
   }
 
   // Disable adaptive release for huge region.
-  allocator_->forwarder().set_huge_region_adaptive_release(false);
+  allocator_->forwarder().huge_region_adaptive_release.set(false);
 
   static constexpr Length kSlack = kPagesPerHugePage / 2 - Length(2);
   static constexpr Length kSmallSize = kSlack;
@@ -1789,10 +1789,10 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
           break;
       }
 
-      allocator_->forwarder().set_enable_unfiltered_collapse(
+      allocator_->forwarder().enable_unfiltered_collapse.set(
           absl::Bernoulli(rng, 0.5) ? EnableUnfilteredCollapse::kEnabled
                                     : EnableUnfilteredCollapse::kDisabled);
-      allocator_->forwarder().set_release_stale_pages(
+      allocator_->forwarder().release_stale_pages.set(
           absl::Bernoulli(rng, 0.5) ? ReleaseStalePages::kEnabled
                                     : ReleaseStalePages::kDisabled);
       TreatHugepageTrackers(EnableCollapse::kEnabled);
@@ -1942,10 +1942,10 @@ class GetReleaseStatsTest : public testing::Test {
     allocator_ = new (allocator_storage_.data())
         FakeHugePageAwareAllocator({.tag = MemoryTag::kNormal});
 
-    allocator_->forwarder().set_hpaa_subrelease(/*value=*/false);
-    allocator_->forwarder().set_filler_skip_subrelease_short_interval(
+    allocator_->forwarder().hpaa_subrelease.set(/*value=*/false);
+    allocator_->forwarder().filler_skip_subrelease_short_interval.set(
         absl::ZeroDuration());
-    allocator_->forwarder().set_filler_skip_subrelease_long_interval(
+    allocator_->forwarder().filler_skip_subrelease_long_interval.set(
         absl::ZeroDuration());
 
     ASSERT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
@@ -2237,15 +2237,15 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxColdPages) {
 
   for (MemoryTag tag : {MemoryTag::kSampledOrCold, MemoryTag::kNormal}) {
     FakeHugePageAwareAllocator allocator({.tag = tag});
-    allocator.forwarder().set_filler_skip_subrelease_short_interval(
+    allocator.forwarder().filler_skip_subrelease_short_interval.set(
         absl::ZeroDuration());
-    allocator.forwarder().set_filler_skip_subrelease_long_interval(
+    allocator.forwarder().filler_skip_subrelease_long_interval.set(
         absl::ZeroDuration());
-    allocator.forwarder().set_filler_skip_subrelease_cold_short_interval(
+    allocator.forwarder().filler_skip_subrelease_cold_short_interval.set(
         absl::ZeroDuration());
-    allocator.forwarder().set_filler_skip_subrelease_cold_long_interval(
+    allocator.forwarder().filler_skip_subrelease_cold_long_interval.set(
         absl::ZeroDuration());
-    allocator.forwarder().set_release_max_filler_pages(false);
+    allocator.forwarder().release_max_filler_pages.set(false);
 
     AllocationState s1 = allocator.New(kAllocPages, kAllocInfo);
     AllocationState s2 = allocator.New(kAllocPages, kAllocInfo);
@@ -2297,15 +2297,15 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxSampledPages) {
       SCOPED_TRACE(absl::StrCat("tag=", static_cast<int>(tag),
                                 " requested=", requested.raw_num()));
       FakeHugePageAwareAllocator allocator({.tag = tag});
-      allocator.forwarder().set_filler_skip_subrelease_short_interval(
+      allocator.forwarder().filler_skip_subrelease_short_interval.set(
           absl::ZeroDuration());
-      allocator.forwarder().set_filler_skip_subrelease_long_interval(
+      allocator.forwarder().filler_skip_subrelease_long_interval.set(
           absl::ZeroDuration());
-      allocator.forwarder().set_filler_skip_subrelease_cold_short_interval(
+      allocator.forwarder().filler_skip_subrelease_cold_short_interval.set(
           absl::ZeroDuration());
-      allocator.forwarder().set_filler_skip_subrelease_cold_long_interval(
+      allocator.forwarder().filler_skip_subrelease_cold_long_interval.set(
           absl::ZeroDuration());
-      allocator.forwarder().set_release_max_filler_pages(false);
+      allocator.forwarder().release_max_filler_pages.set(false);
 
       AllocationState s1 = allocator.New(kAllocPages, kAllocInfo);
       AllocationState s2 = allocator.New(kAllocPages, kAllocInfo);
@@ -2389,13 +2389,13 @@ TEST(HugePageAwareAllocatorTest, ReleaseMaxFillerPages) {
 
   for (const auto& test_case : kTestCases) {
     FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
-    allocator.forwarder().set_filler_skip_subrelease_short_interval(
+    allocator.forwarder().filler_skip_subrelease_short_interval.set(
         test_case.enable_smoothing ? absl::Minutes(1) : absl::ZeroDuration());
-    allocator.forwarder().set_filler_skip_subrelease_long_interval(
+    allocator.forwarder().filler_skip_subrelease_long_interval.set(
         test_case.enable_smoothing ? absl::Minutes(5) : absl::ZeroDuration());
-    allocator.forwarder().set_background_release_rate(
+    allocator.forwarder().background_release_rate.set(
         test_case.background_release_rate);
-    allocator.forwarder().set_release_max_filler_pages(
+    allocator.forwarder().release_max_filler_pages.set(
         test_case.release_max_filler_pages);
 
     AllocationState s1 = allocator.New(kAllocPages, kAllocInfo);
@@ -2439,18 +2439,18 @@ TEST(HugePageAwareAllocatorTest, ColdHeapSkipSubreleaseIntervals) {
             enable_cold_smoothing, " elapsed=", absl::FormatDuration(elapsed)));
         FakeHugePageAwareAllocator allocator({.tag = tag});
         allocator.forwarder().ResetClock();
-        allocator.forwarder().set_hpaa_subrelease(true);
+        allocator.forwarder().hpaa_subrelease.set(true);
         // Set hot intervals to (60s, 180s) so that both elapsed=0s and
         // elapsed=45s fall inside the hot window, whereas cold smoothing uses
         // (10s, 30s) when enabled (so elapsed=0s is inside and elapsed=45s is
         // past the cold window).
-        allocator.forwarder().set_filler_skip_subrelease_short_interval(
+        allocator.forwarder().filler_skip_subrelease_short_interval.set(
             absl::Seconds(60));
-        allocator.forwarder().set_filler_skip_subrelease_long_interval(
+        allocator.forwarder().filler_skip_subrelease_long_interval.set(
             absl::Seconds(180));
-        allocator.forwarder().set_filler_skip_subrelease_cold_short_interval(
+        allocator.forwarder().filler_skip_subrelease_cold_short_interval.set(
             enable_cold_smoothing ? absl::Seconds(10) : absl::ZeroDuration());
-        allocator.forwarder().set_filler_skip_subrelease_cold_long_interval(
+        allocator.forwarder().filler_skip_subrelease_cold_long_interval.set(
             enable_cold_smoothing ? absl::Seconds(30) : absl::ZeroDuration());
 
         AllocationState s1 = allocator.New(kAllocPages, kAllocInfo);
