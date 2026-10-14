@@ -329,7 +329,6 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:mincore",
         "//tcmalloc/internal:numa",
         "//tcmalloc/internal:optimization",
-        "//tcmalloc/internal:page_allocation_status",
         "//tcmalloc/internal:page_allocator_hooks",
         "//tcmalloc/internal:page_size",
         "//tcmalloc/internal:pageflags",
