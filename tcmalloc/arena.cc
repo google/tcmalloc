@@ -155,6 +155,40 @@ void* Arena::Alloc(ArenaAlloc type, size_t bytes, std::align_val_t alignment) {
   return reinterpret_cast<void*>(result);
 }
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+void* Arena::AllocReportedImpending(ArenaAlloc type, size_t bytes,
+                                    std::align_val_t alignment) {
+  size_t align = static_cast<size_t>(alignment);
+  TC_ASSERT_GT(align, 0);
+
+  AllocationGuardSpinLockHolder l(arena_lock_);
+  TC_ASSERT_GE(bytes_allocated_.load(std::memory_order_relaxed), bytes);
+
+  size_t alignment_bytes = AlignmentBytes(free_area_, align);
+  if (ABSL_PREDICT_FALSE(free_avail_ < alignment_bytes + bytes)) {
+    AllocSlow(bytes, align);
+    alignment_bytes = AlignmentBytes(free_area_, align);
+  }
+
+  TC_ASSERT_GE(free_avail_, alignment_bytes + bytes);
+  free_area_ += alignment_bytes;
+  free_avail_ -= alignment_bytes;
+
+  TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(free_area_) % align, 0);
+  char* result = free_area_;
+  free_area_ += bytes;
+  free_avail_ -= bytes;
+
+  size_t total_alloc = alignment_bytes + bytes;
+  bytes_allocated_.store(
+      bytes_allocated_.load(std::memory_order_relaxed) + alignment_bytes,
+      std::memory_order_relaxed);
+  TC_ASSERT_LT(static_cast<size_t>(type), kNumArenaAllocs);
+  bytes_allocated_per_type_[static_cast<size_t>(type)] += total_alloc;
+  return reinterpret_cast<void*>(result);
+}
+#endif
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

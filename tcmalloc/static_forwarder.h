@@ -117,21 +117,28 @@ class StaticForwarder : private Parameters {
       size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(state.IsInited());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
+#endif
     return state.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
   }
   [[nodiscard]] static void* absl_nonnull AllocReportedImpending(
       size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(state.IsInited());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     // Negate previous update to allocated that accounted for this allocation.
     state.arena().UpdateAllocatedAndNonresident(-static_cast<int64_t>(size), 0);
     return state.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
+#else
+    return state.arena().AllocReportedImpending(ArenaAlloc::kCpuCache, size,
+                                                alignment);
+#endif
   }
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
@@ -142,6 +149,7 @@ class StaticForwarder : private Parameters {
                                                  int64_t nonresident)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(state.IsInited());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
@@ -151,6 +159,15 @@ class StaticForwarder : private Parameters {
           /*may_have_grown=*/allocated > nonresident);
     }
     state.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
+#else
+    if (allocated > 0) {
+      PageHeapSpinLockHolder l;
+      state.page_allocator().ShrinkToUsageLimit(
+          BytesToLengthCeil(allocated),
+          /*may_have_grown=*/allocated > nonresident);
+    }
+    state.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
+#endif
   }
 
   static void SetAnonVmaName(void* ptr, size_t size,
