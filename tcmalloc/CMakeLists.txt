@@ -432,6 +432,20 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_want_disable_subrelease_unbacked_hugepages
+  ALIAS
+    tcmalloc::want_disable_subrelease_unbacked_hugepages
+  ALWAYSLINK
+  SRCS
+    "want_disable_subrelease_unbacked_hugepages.cc"
+  COPTS
+    "-g0"
+  DEPS
+    "absl::core_headers"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_want_numa_aware
   ALIAS
     tcmalloc::want_numa_aware
