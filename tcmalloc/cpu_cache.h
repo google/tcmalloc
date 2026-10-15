@@ -862,8 +862,9 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
 
   // We allocate the remaining space in the slab equally among the remaining
   // large classes. If there's support for cold objects, we allocate 20%
-  // of the space for them (including small cold objects); otherwise,
-  // everything goes to the remaining large hot objects.
+  // of the space for them (including small cold objects), or at least
+  // two for each class; otherwise, everything goes to the remaining
+  // large hot objects.
   int64_t pointers_left_in_slab =
       Freelist::GetBytesAvailable(subtle::percpu::ToShiftType(shift)) /
       sizeof(void*);
@@ -891,8 +892,17 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
 
   TC_CHECK_GT(pointers_left_in_slab, 0);
 
+  size_t num_cold_classes = 0;
+  for (size_t other_size_class = kColdClassesStart;
+       other_size_class < kNumClasses; ++other_size_class) {
+    num_cold_classes += IsActive(other_size_class);
+  }
+
   size_t pointers_for_cold_objects =
-      ColdFeatureActive() ? pointers_left_in_slab / 5 : 0;
+      ColdFeatureActive()
+          ? std::max<size_t>(pointers_left_in_slab / 5, num_cold_classes * 2)
+          : 0;
+  TC_CHECK_LT(pointers_for_cold_objects, pointers_left_in_slab);
   size_t pointers_for_large_hot_objects =
       pointers_left_in_slab - pointers_for_cold_objects;
   int capacity;
