@@ -39,6 +39,18 @@
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/malloc_extension.h"
 
+// Loops over `experiments` must not be unrolled or otherwise specialized on
+// the number of experiments: adding or retiring an experiment should not
+// change the size of the generated code, since that perturbs the layout of
+// unrelated (hot) code and data in the final binary. See b/562930846.
+// TODO(b/573695160): Try to get rid of this pragma.
+#if defined(__clang__)
+#define TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL \
+  _Pragma("clang loop unroll(disable) vectorize(disable) interleave(disable)")
+#else
+#define TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
+#endif
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -60,6 +72,7 @@ bool IsCompilerExperiment(Experiment exp [[maybe_unused]]) {
 
 bool LookupExperimentID(absl::string_view label, Experiment* exp,
                         absl::Span<const ExperimentConfig> experiments) {
+  TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
   for (auto config : experiments) {
     if (config.name == label) {
       *exp = config.id;
@@ -158,6 +171,7 @@ bool IsExperimentRolloutEnabled(
   // (multi-arm experiments) share a single ablation arm.
   double max_width = upper - lower;
 
+  TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
   for (const auto& other : experiments) {
     if (other.name == config.name) {
       continue;
@@ -195,6 +209,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
     std::fill(buffer, buffer + kNumExperiments, true);
   }
 
+  TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
   for (const auto& config : experiments) {
     if (config.rollout_upper_bound > 0) {
       if (IsExperimentRolloutEnabled(config, hostname, experiments)) {
@@ -226,6 +241,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
 #endif
 
   if (disabled == kDisableAll) {
+    TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
     for (auto config : experiments) {
       // Exclude compile-time experiments
       if (!IsCompilerExperiment(config.id)) {
@@ -265,6 +281,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
     if ((target_hash % kVanillaOneOf) != 0) {
       int num_enabled_experiments = 0;
       Experiment experiment_id = Experiment::kMaxExperimentID;
+      TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
       for (auto config : experiments) {
         if (IsCompilerExperiment(config.id) || config.brittle) {
           continue;
@@ -288,6 +305,7 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
   }
 
   // Ensure unsafe experiments are disabled.
+  TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
   for (const auto& config : experiments) {
     if (config.force_disable) {
       buffer[static_cast<int>(config.id)] = false;
@@ -326,6 +344,7 @@ bool IsExperimentActive(Experiment exp) {
 }
 
 std::optional<Experiment> FindExperimentByName(absl::string_view name) {
+  TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
   for (const auto& config : experiments) {
     if (name == config.name) {
       return config.id;
@@ -337,6 +356,7 @@ std::optional<Experiment> FindExperimentByName(absl::string_view name) {
 
 void WalkExperiments(
     absl::FunctionRef<void(absl::string_view name, bool active)> callback) {
+  TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
   for (const auto& config : experiments) {
     callback(config.name, IsExperimentActive(config.id));
   }
