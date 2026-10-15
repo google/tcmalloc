@@ -202,6 +202,7 @@ create_tcmalloc_libraries(
         "deallocation_profiler.cc",
         "error_reporting.cc",
         "experimental_pow2_size_class.cc",
+        "flexible_no_reuse_no_40_56_size_classes.cc",
         "flexible_no_reuse_size_classes.cc",
         "flexible_size_classes.cc",
         "global_stats.cc",

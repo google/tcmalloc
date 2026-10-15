@@ -88,6 +88,7 @@ const SizeClasses* const kAllSizeClassesConfigs[] = {
     &kExperimentalPow2SizeClasses,
     &kFlexibleSizeClasses,
     &kFlexibleNoReuseSizeClasses,
+    &kFlexibleNoReuseNo4056SizeClasses,
 };
 
 TEST(SizeMapTest, NumBaseClasses) {
