@@ -898,6 +898,8 @@ class HugePageFiller {
 
   // Lifetime tracking for completely-freed hugepages
   LifetimeHistogram lifetime_histo_[AccessDensityPrediction::kPredictionCounts];
+  PageHistogram<uint64_t, /*kOffset=*/1> broken_hugepage_freed_pages_histo_
+      ABSL_GUARDED_BY(pageheap_lock);
 
   Clock clock_;
   const double ms_per_cycle_;
@@ -1290,6 +1292,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseFreeFromTracker(
   // than as backed free memory it must release again.  ReleaseFree may return
   // a different count: less if unback fails, more if a page freed into pt
   // ahead of its scan is picked up.
+  const bool was_unbroken = pt->unbroken();
   const Length to_release = pt->free_pages() - pt->released_pages();
   unmapped_ += to_release;
   const Length ret = pt->ReleaseFree(unback_without_lock_);
@@ -1297,6 +1300,9 @@ inline Length HugePageFiller<TrackerType>::ReleaseFreeFromTracker(
   unmapped_ -= to_release;
   unmapped_ += ret;
   TC_ASSERT_GE(unmapped_, pt->released_pages());
+  if (was_unbroken && !pt->unbroken() && ret > Length(0)) {
+    broken_hugepage_freed_pages_histo_.Record(ret.raw_num());
+  }
 
   RemoveFromFillerList(pt);
   pt->SetBeingReleased(false);
@@ -2035,6 +2041,8 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
       out, "densely-accessed", "hps with completed lifetime a <= # hps < b");
   lifetime_histo_[AccessDensityPrediction::kSparse].Print(
       out, "sparsely-accessed", "hps with completed lifetime a <= # hps < b");
+  broken_hugepage_freed_pages_histo_.Print(
+      out, "broken hps with a <= # of freed pages < b");
   out.printf("\n");
   fillerstats_tracker_.Print(out, "HugePageFiller");
 }
@@ -2236,6 +2244,8 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
       hpaa, "densely_accessed_completed_lifetime_histogram");
   lifetime_histo_[AccessDensityPrediction::kSparse].PrintInPbtxt(
       hpaa, "sparsely_accessed_completed_lifetime_histogram");
+  broken_hugepage_freed_pages_histo_.PrintInPbtxt(
+      hpaa, "broken_hugepage_freed_pages_histogram");
   fillerstats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
                                                    "filler_skipped_subrelease");
   fillerstats_tracker_.PrintTimeseriesStatsInPbtxt(hpaa,
