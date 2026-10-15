@@ -681,6 +681,7 @@ tcmalloc_cc_test_variants(
   DEPS
     "absl::str_format"
     "absl::time"
+    "tcmalloc::experiment"
     "tcmalloc::malloc_extension"
   ENV
     "BORG_EXPERIMENTS="

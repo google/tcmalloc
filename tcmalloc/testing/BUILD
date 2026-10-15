@@ -740,6 +740,7 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     env = {"BORG_EXPERIMENTS": ""},
     deps = [
+        "//tcmalloc:experiment",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
