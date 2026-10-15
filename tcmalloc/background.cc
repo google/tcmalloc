@@ -156,7 +156,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       }
 
       if (now - last_size_class_resize >= size_class_resize_period) {
-        tc_globals.cpu_cache().ResizeSizeClasses();
+        tc_globals.cpu_cache().ResizeSizeClasses(now - last_size_class_resize);
         last_size_class_resize = now;
       }
 

@@ -672,6 +672,8 @@ void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation) {
     out.printf("PARAMETER madvise %s\n", MadviseString());
     out.printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
                Parameters::resize_size_class_max_capacity() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_per_cpu_caches_miss_density_resize %d\n",
+               Parameters::per_cpu_caches_miss_density_resize() ? 1 : 0);
     out.printf(
         "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1\n");
     out.printf("PARAMETER min_hot_access_hint %d\n",
@@ -985,6 +987,8 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintRaw("madvise", MadviseString());
   region.PrintBool("tcmalloc_resize_size_class_max_capacity",
                    Parameters::resize_size_class_max_capacity());
+  region.PrintBool("tcmalloc_per_cpu_caches_miss_density_resize",
+                   Parameters::per_cpu_caches_miss_density_resize());
 
   region.PrintI64("background_process_sleep_interval_ns",
                   absl::ToInt64Nanoseconds(

@@ -261,6 +261,9 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
 // TODO(b/123345734): Remove the flag when experimentation is done.
 ABSL_CONST_INIT std::atomic<bool> Parameters::resize_size_class_max_capacity_(
     true);
+// TODO(b/191972591): Remove the flag when experimentation is done.
+ABSL_CONST_INIT std::atomic<bool>
+    Parameters::per_cpu_caches_miss_density_resize_(false);
 // TODO(b/199203282):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
     true);
@@ -601,6 +604,10 @@ bool TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled() {
   return Parameters::resize_size_class_max_capacity();
 }
 
+bool TCMalloc_Internal_GetPerCpuCachesMissDensityResizeEnabled() {
+  return Parameters::per_cpu_caches_miss_density_resize();
+}
+
 double TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction() {
   return Parameters::peak_sampling_heap_growth_fraction();
 }
@@ -657,6 +664,11 @@ void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v) {
 void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v) {
   Parameters::resize_size_class_max_capacity_.store(v,
                                                     std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetPerCpuCachesMissDensityResizeEnabled(bool v) {
+  Parameters::per_cpu_caches_miss_density_resize_.store(
+      v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {

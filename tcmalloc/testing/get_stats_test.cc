@@ -292,6 +292,9 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
     EXPECT_THAT(
+        buf, HasSubstr(
+                 R"(PARAMETER tcmalloc_per_cpu_caches_miss_density_resize 0)"));
+    EXPECT_THAT(
         buf,
         HasSubstr(
             R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -137,6 +138,28 @@ class CpuCachePeer {
     AllocationGuardSpinLockHolder h(cpu_cache.resize_[cpu].lock);
     EXPECT_EQ(cpu_cache.Allocated(cpu) + cpu_cache.Unallocated(cpu),
               cpu_cache.Capacity(cpu));
+  }
+
+  // Stops and restarts <cpu>'s slab, as a remote resize does.  A stopped CPU
+  // cannot be stopped again: TcmallocSlab::StopCpu checks for it.
+  template <typename CpuCache>
+  static void StopCpu(CpuCache& cpu_cache, int cpu) {
+    cpu_cache.freelist_.StopCpu(cpu);
+  }
+  template <typename CpuCache>
+  static void StartCpu(CpuCache& cpu_cache, int cpu) {
+    cpu_cache.freelist_.StartCpu(cpu);
+  }
+
+  template <typename CpuCache>
+  static typename CpuCache::ReleaseBuffer MakeReleaseBuffer(
+      CpuCache& cpu_cache) {
+    return typename CpuCache::ReleaseBuffer(cpu_cache);
+  }
+
+  template <typename CpuCache>
+  static constexpr size_t ReleaseBufferMaxObjects() {
+    return CpuCache::ReleaseBuffer::kMaxObjects;
   }
 };
 
@@ -265,6 +288,8 @@ class TestStaticForwarder : private Parameters {
 
   bool per_cpu_caches_dynamic_slab_enabled() { return dynamic_slab_enabled_; }
 
+  bool per_cpu_caches_miss_density_resize() { return miss_density_resize_; }
+
   double per_cpu_caches_dynamic_slab_grow_threshold() {
     if (dynamic_slab_grow_threshold_ >= 0) return dynamic_slab_grow_threshold_;
     return dynamic_slab_ == DynamicSlab::kGrow
@@ -364,6 +389,7 @@ class TestStaticForwarder : private Parameters {
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;
   bool dynamic_slab_enabled_ = false;
+  bool miss_density_resize_ = false;
   double dynamic_slab_grow_threshold_ = -1;
   double dynamic_slab_shrink_threshold_ = -1;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
@@ -1286,6 +1312,320 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   EXPECT_EQ(cache.Unallocated(kCpuId), 0);
   EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
   EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), batch_size_small);
+
+  // Drain caches.
+  cache.Deactivate();
+}
+
+// A resize pass does not stop a CPU whose size classes took no capacity
+// misses during the interval, as the resize policy would have nothing to do.
+// The test stops the CPU itself: a second stop would fail
+// TcmallocSlab::StopCpu's check.
+TEST(CpuCacheTest, ResizeSizeClassesSkipsCachesWithoutCapacityMisses) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  const size_t max_cpu_cache_size = 128 << 10;
+  cache.SetCacheLimit(max_cpu_cache_size);
+  cache.Activate();
+
+  constexpr int kCpuId = 0;
+  constexpr int kCpuId1 = 1;
+  constexpr int kSmallClass = 1;
+  constexpr int kLargeClass = 2;
+  constexpr int kMaxCapacity = 2048;
+  const size_t batch_size_small =
+      cache.forwarder().num_objects_to_move(kSmallClass);
+  const size_t batch_size_large =
+      cache.forwarder().num_objects_to_move(kLargeClass);
+  const int num_resizes = (NumCPUs() + CpuCache::kNumCpuCachesToResize - 1) /
+                          CpuCache::kNumCpuCachesToResize;
+
+  // Fill the cache to its limit, so that resize passes no longer early out on
+  // its unallocated bytes.
+  size_t ops = 0;
+  while (true) {
+    ops += batch_size_large;
+    if (ops > kMaxCapacity || cache.Allocated(kCpuId) == max_cpu_cache_size)
+      break;
+    AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
+  }
+  ASSERT_EQ(cache.Unallocated(kCpuId), 0);
+  ASSERT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+
+  // Consume the capacity misses of the fill and start a new interval.
+  {
+    ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
+    for (int i = 0; i < num_resizes; ++i) {
+      cache.ResizeSizeClasses();
+    }
+  }
+  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+    ASSERT_EQ(cache.GetIntervalSizeClassMisses(
+                  kCpuId, size_class, PerClassMissType::kCapacityTotal,
+                  PerClassMissType::kCapacityResize),
+              0);
+  }
+  const uint64_t num_size_class_resizes = cache.GetNumResizes(kCpuId);
+
+  // Without capacity misses, the resize passes leave the CPU alone.
+  CpuCachePeer::StopCpu(cache, kCpuId);
+  {
+    ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
+    for (int i = 0; i < num_resizes; ++i) {
+      cache.ResizeSizeClasses();
+    }
+  }
+  CpuCachePeer::StartCpu(cache, kCpuId);
+  EXPECT_EQ(cache.GetNumResizes(kCpuId), num_size_class_resizes);
+
+  // With capacity misses, they resize.
+  AllocateThenDeallocate(cache, kCpuId, kSmallClass, batch_size_small);
+  ASSERT_GT(cache.GetIntervalSizeClassMisses(kCpuId, kSmallClass,
+                                             PerClassMissType::kCapacityTotal,
+                                             PerClassMissType::kCapacityResize),
+            0);
+  {
+    ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
+    for (int i = 0; i < num_resizes; ++i) {
+      cache.ResizeSizeClasses();
+    }
+  }
+  EXPECT_GT(cache.GetNumResizes(kCpuId), num_size_class_resizes);
+
+  cache.Deactivate();
+}
+
+// Objects evicted by a shrink are held in a ReleaseBuffer until the flush, and
+// then released to the transfer cache in whole batches where possible.
+TEST(CpuCacheTest, ReleaseBufferDefersReleaseUntilFlush) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+  TestStaticForwarder& forwarder = cache.forwarder();
+
+  constexpr int kCpuId = 0;
+  constexpr size_t kSizeClass = 1;
+  ScopedFakeCpuId fake_cpu_id(kCpuId);
+  const size_t batch_length = forwarder.num_objects_to_move(kSizeClass);
+  ASSERT_GT(batch_length, 1);
+
+  // Two batches and a remainder, added in two uneven pieces.
+  std::vector<void*> objects(2 * batch_length + 1);
+  for (void*& object : objects) {
+    object = cache.Allocate(kSizeClass);
+  }
+  const TransferCacheStats before =
+      forwarder.transfer_cache().GetStats(kSizeClass);
+  ASSERT_EQ(before.used, 0);
+
+  auto released = CpuCachePeer::MakeReleaseBuffer(cache);
+  const size_t first = batch_length / 2;
+  released.Add(kSizeClass, objects.data(), first);
+  released.Add(kSizeClass, objects.data() + first, objects.size() - first);
+
+  // Nothing reaches the backing cache before the flush.
+  TransferCacheStats stats = forwarder.transfer_cache().GetStats(kSizeClass);
+  EXPECT_EQ(stats.insert_hits, before.insert_hits);
+  EXPECT_EQ(stats.insert_misses, before.insert_misses);
+  EXPECT_EQ(stats.used, 0);
+
+  // The flush inserts two whole batches and the remainder.
+  released.Flush();
+  stats = forwarder.transfer_cache().GetStats(kSizeClass);
+  EXPECT_EQ(stats.insert_hits - before.insert_hits, 3);
+  EXPECT_EQ(stats.insert_misses, before.insert_misses);
+  EXPECT_EQ(stats.used, objects.size());
+
+  cache.Deactivate();
+}
+
+// A full ReleaseBuffer releases what it holds to make room.
+TEST(CpuCacheTest, ReleaseBufferReleasesWhenFull) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+  TestStaticForwarder& forwarder = cache.forwarder();
+
+  constexpr int kCpuId = 0;
+  constexpr size_t kSizeClass = 1;
+  ScopedFakeCpuId fake_cpu_id(kCpuId);
+  const size_t max_objects = CpuCachePeer::ReleaseBufferMaxObjects<CpuCache>();
+
+  std::vector<void*> objects(max_objects + 1);
+  for (void*& object : objects) {
+    object = cache.Allocate(kSizeClass);
+  }
+  const TransferCacheStats before =
+      forwarder.transfer_cache().GetStats(kSizeClass);
+  // Objects inserted into the transfer cache or passed on to the central free
+  // list since <before>.
+  auto inserted = [&]() {
+    const TransferCacheStats stats =
+        forwarder.transfer_cache().GetStats(kSizeClass);
+    return stats.used - before.used + stats.insert_object_misses -
+           before.insert_object_misses;
+  };
+
+  auto released = CpuCachePeer::MakeReleaseBuffer(cache);
+  released.Add(kSizeClass, objects.data(), max_objects);
+  EXPECT_EQ(inserted(), 0);
+  // The buffer is full: the next object evicts the buffered ones.
+  released.Add(kSizeClass, objects.data() + max_objects, 1);
+  EXPECT_EQ(inserted(), max_objects);
+  released.Flush();
+  EXPECT_EQ(inserted(), max_objects + 1);
+
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, MissDensityResizeSizeClassesTest) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.miss_density_resize_ = true;
+  cache.Init();
+  // Reduce cache capacity so that it will see need in stealing and rebalancing.
+  const size_t max_cpu_cache_size = 512 << 10;
+  cache.SetCacheLimit(max_cpu_cache_size);
+  cache.Activate();
+
+  // Temporarily fake being on the given CPU.
+  constexpr int kCpuId = 0;
+  constexpr int kCpuId1 = 1;
+
+  constexpr int kSmallClass = 1;
+  constexpr int kLargeClass = 2;
+  constexpr int kMaxCapacity = 2048;
+  const absl::Duration kInterval = absl::Seconds(2);
+
+  const size_t small_class_size = cache.forwarder().class_to_size(kSmallClass);
+  const size_t large_class_size = cache.forwarder().class_to_size(kLargeClass);
+  ASSERT_GT(large_class_size * kMaxCapacity, max_cpu_cache_size);
+
+  const size_t batch_size_small =
+      cache.forwarder().num_objects_to_move(kSmallClass);
+  const size_t batch_size_large =
+      cache.forwarder().num_objects_to_move(kLargeClass);
+
+  auto resize = [&] {
+    ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
+    cache.ResizeSizeClasses(kInterval);
+  };
+  auto interval_misses = [&](int size_class) {
+    return cache.GetIntervalSizeClassMisses(kCpuId, size_class,
+                                            PerClassMissType::kMissTotal,
+                                            PerClassMissType::kMissResize);
+  };
+
+  // Fill the cache with the large class, as ResizeSizeClassesTest does.
+  size_t ops = 0;
+  while (true) {
+    ops += batch_size_large;
+    if (ops > kMaxCapacity || cache.Allocated(kCpuId) == max_cpu_cache_size)
+      break;
+
+    AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
+  }
+  EXPECT_EQ(cache.Unallocated(kCpuId), 0);
+  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+  EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kSmallClass), 0);
+  const size_t large_capacity_full =
+      cache.GetCapacityOfSizeClass(kCpuId, kLargeClass);
+  EXPECT_EQ(large_capacity_full * large_class_size, max_cpu_cache_size);
+
+  // The first call after enabling the policy only starts a miss interval.
+  resize();
+  EXPECT_EQ(interval_misses(kLargeClass), 0);
+  EXPECT_EQ(cache.Unallocated(kCpuId), 0);
+  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+  EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
+            large_capacity_full);
+
+  // The small class misses while empty and the large class misses often
+  // enough to be worth its capacity: at least kTargetMissDensity misses per
+  // second per KiB over the interval.
+  AllocateThenDeallocate(cache, kCpuId, kSmallClass, batch_size_small);
+  EXPECT_GT(interval_misses(kSmallClass), 0);
+  const size_t misses_to_hold = static_cast<size_t>(std::ceil(
+      MissDensityResizePolicy<kNumClasses>::kTargetMissDensity *
+      absl::ToDoubleSeconds(kInterval) * max_cpu_cache_size / 1024.0));
+  while (interval_misses(kLargeClass) < misses_to_hold) {
+    AllocateThenDeallocate(cache, kCpuId, kLargeClass, large_capacity_full + 1);
+  }
+  resize();
+
+  // The small class is funded first, to two batches, with the fewest objects
+  // of the large class that cover them; the large class keeps the rest.
+  const size_t small_capacity = 2 * batch_size_small;
+  const size_t objects_for_small =
+      (small_capacity * small_class_size + large_class_size - 1) /
+      large_class_size;
+  EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kSmallClass), small_capacity);
+  const size_t large_capacity_after_funding =
+      cache.GetCapacityOfSizeClass(kCpuId, kLargeClass);
+  EXPECT_EQ(large_capacity_after_funding,
+            large_capacity_full - objects_for_small);
+  EXPECT_EQ(cache.Unallocated(kCpuId), objects_for_small * large_class_size -
+                                           small_capacity * small_class_size);
+  EXPECT_EQ(interval_misses(kSmallClass), 0);
+  EXPECT_EQ(interval_misses(kLargeClass), 0);
+
+  // Idle, the large class halves each interval, down to two batches, and
+  // returns the capacity to the unallocated pool; the small class, already at
+  // two batches, holds.
+  size_t expected_large_capacity = large_capacity_after_funding;
+  while (expected_large_capacity > 2 * batch_size_large) {
+    expected_large_capacity =
+        std::max(expected_large_capacity / 2, 2 * batch_size_large);
+    resize();
+    EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
+              expected_large_capacity);
+    EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kSmallClass),
+              small_capacity);
+    EXPECT_EQ(cache.Allocated(kCpuId) + cache.Unallocated(kCpuId),
+              max_cpu_cache_size);
+  }
+  resize();
+  const size_t large_capacity_floor =
+      cache.GetCapacityOfSizeClass(kCpuId, kLargeClass);
+  EXPECT_EQ(large_capacity_floor, 2 * batch_size_large);
+  EXPECT_EQ(cache.Unallocated(kCpuId),
+            max_cpu_cache_size - large_capacity_floor * large_class_size -
+                small_capacity * small_class_size);
+
+  // A class whose density fell below the target may not grow by a batch on
+  // the fast path, even with unallocated bytes at hand.
+  AllocateThenDeallocate(cache, kCpuId, kLargeClass, large_capacity_floor + 1);
+  AllocateThenDeallocate(cache, kCpuId, kLargeClass, large_capacity_floor + 1);
+  EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
+            large_capacity_floor);
+
+  // Switching back to the round-robin policy reopens the gate.
+  forwarder.miss_density_resize_ = false;
+  resize();
+  const size_t large_capacity_before_growth =
+      cache.GetCapacityOfSizeClass(kCpuId, kLargeClass);
+  AllocateThenDeallocate(cache, kCpuId, kLargeClass,
+                         large_capacity_before_growth + 1);
+  AllocateThenDeallocate(cache, kCpuId, kLargeClass,
+                         large_capacity_before_growth + 1);
+  EXPECT_GT(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
+            large_capacity_before_growth);
 
   // Drain caches.
   cache.Deactivate();

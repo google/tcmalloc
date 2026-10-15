@@ -224,6 +224,12 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(value);
   }
 
+  // Whether per-CPU cache size classes are resized by miss density
+  // (MissDensityResizePolicy) rather than by capacity miss counts.
+  [[nodiscard]] static bool per_cpu_caches_miss_density_resize() {
+    return per_cpu_caches_miss_density_resize_.load(std::memory_order_relaxed);
+  }
+
   [[nodiscard]] static double per_cpu_caches_dynamic_slab_grow_threshold() {
     return per_cpu_caches_dynamic_slab_grow_threshold_.load(
         std::memory_order_relaxed);
@@ -265,6 +271,8 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v);
   friend void ::TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v);
   friend void ::TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v);
+  friend void ::TCMalloc_Internal_SetPerCpuCachesMissDensityResizeEnabled(
+      bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
   friend void ::TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v);
@@ -311,6 +319,7 @@ class Parameters {
   static std::atomic<bool> resize_size_class_max_capacity_;
   static std::atomic<int64_t> profile_sampling_interval_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
+  static std::atomic<bool> per_cpu_caches_miss_density_resize_;
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
