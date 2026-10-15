@@ -1615,6 +1615,31 @@ cc_library(
 )
 
 cc_library(
+    name = "cpu_cache_resize_policy",
+    hdrs = ["cpu_cache_resize_policy.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "cpu_cache_resize_policy_test",
+    srcs = ["cpu_cache_resize_policy_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":cpu_cache_resize_policy",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "cpu_utils",
     hdrs = ["cpu_utils.h"],
     copts = TCMALLOC_DEFAULT_COPTS,

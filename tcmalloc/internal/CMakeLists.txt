@@ -1640,6 +1640,33 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_cpu_cache_resize_policy
+  ALIAS
+    tcmalloc::internal_cpu_cache_resize_policy
+  HDRS
+    "cpu_cache_resize_policy.h"
+  DEPS
+    "absl::span"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_cpu_cache_resize_policy_test
+  SRCS
+    "cpu_cache_resize_policy_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::span"
+    "tcmalloc::internal_cpu_cache_resize_policy"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_cpu_utils
   ALIAS
     tcmalloc::internal_cpu_utils

@@ -319,6 +319,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:central_freelist_hooks",
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:cpu_cache_resize_policy",
         "//tcmalloc/internal:cpu_utils",
         "//tcmalloc/internal:delay_injection",
         "//tcmalloc/internal:environment",
