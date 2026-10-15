@@ -279,6 +279,8 @@ static absl::string_view SizeClassConfigurationString(
       return "SIZE_CLASS_POW2_ONLY";
     case SizeClassConfiguration::kReuseRelaxedBelow64:
       return "SIZE_CLASS_REUSE_RELAXED_BELOW_64";
+    case SizeClassConfiguration::kFlexible:
+      return "SIZE_CLASS_FLEXIBLE";
   }
 
   ASSUME(false);

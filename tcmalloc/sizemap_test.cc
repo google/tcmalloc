@@ -86,6 +86,7 @@ TEST(ColdSizeClassTest, ColdFeatureActivation) {
 const SizeClasses* const kAllSizeClassesConfigs[] = {
     &kSizeClasses,
     &kExperimentalPow2SizeClasses,
+    &kFlexibleSizeClasses,
 };
 
 TEST(SizeMapTest, NumBaseClasses) {
