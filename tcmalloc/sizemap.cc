@@ -49,6 +49,8 @@ const SizeClasses& SizeMap::CurrentClasses() {
       return kSizeClasses;
     case SizeClassConfiguration::kFlexible:
       return kFlexibleSizeClasses;
+    case SizeClassConfiguration::kFlexibleNoReuse:
+      return kFlexibleNoReuseSizeClasses;
   }
   TC_BUG("unreachable");
 }
