@@ -120,7 +120,11 @@ static_assert(sizeof(void*) == 8);
 
 #if TCMALLOC_PAGE_SHIFT == 12
 inline constexpr size_t kPageShift = 12;
-inline constexpr size_t kNumBaseClasses = 26;
+#if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
+inline constexpr size_t kNumBaseClasses = 31;
+#else
+inline constexpr size_t kNumBaseClasses = 29;
+#endif
 inline constexpr bool kHasColdClasses = false;
 inline constexpr size_t kMaxSize = 8 << 10;
 inline constexpr size_t kMinThreadCacheSize = 4 * 1024;
@@ -130,7 +134,11 @@ inline constexpr size_t kDefaultOverallThreadCacheSize = kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = kMinThreadCacheSize;
 #elif TCMALLOC_PAGE_SHIFT == 15
 inline constexpr size_t kPageShift = 15;
-inline constexpr size_t kNumBaseClasses = 48;
+#if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
+inline constexpr size_t kNumBaseClasses = 54;
+#else
+inline constexpr size_t kNumBaseClasses = 52;
+#endif
 inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
@@ -141,7 +149,11 @@ inline constexpr size_t kDefaultOverallThreadCacheSize =
 inline constexpr size_t kStealAmount = 1 << 16;
 #elif TCMALLOC_PAGE_SHIFT == 18
 inline constexpr size_t kPageShift = 18;
-inline constexpr size_t kNumBaseClasses = 51;
+#if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
+inline constexpr size_t kNumBaseClasses = 60;
+#else
+inline constexpr size_t kNumBaseClasses = 57;
+#endif
 inline constexpr bool kHasColdClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
