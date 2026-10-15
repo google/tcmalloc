@@ -26,7 +26,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "benchmark/benchmark.h"
 #include "absl/base/attributes.h"
 #include "absl/strings/match.h"
 #include "absl/time/clock.h"
