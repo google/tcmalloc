@@ -34,6 +34,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_forwarder.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 
@@ -43,29 +44,27 @@ namespace tcmalloc_internal {
 
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
-PageAllocator::PageAllocator() {
+template <typename Forwarder>
+PageAllocatorImpl<Forwarder>::PageAllocatorImpl() {
   sampled_partition_active_ =
       Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull;
 
   size_t part = 0;
   normal_impl_[0] = new (&choices_[part++].hpaa)
-      HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
+      Interface(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
   if (tc_globals.active_partitions() > 1) {
-    normal_impl_[1] = new (tc_globals.arena().Alloc(
-        ArenaAlloc::kPageAllocator, sizeof(HugePageAwareAllocator)))
-        HugePageAwareAllocator(
-            HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
+    normal_impl_[1] = new (
+        tc_globals.arena().Alloc(ArenaAlloc::kPageAllocator, sizeof(Interface)))
+        Interface(HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
-  sampled_or_cold_impl_[0] =
-      new (&choices_[part++].hpaa) HugePageAwareAllocator(
-          HugePageAwareAllocatorOptions{MemoryTag::kSampledOrCold});
+  sampled_or_cold_impl_[0] = new (&choices_[part++].hpaa)
+      Interface(HugePageAwareAllocatorOptions{MemoryTag::kSampledOrCold});
   if (sampled_partition_active_) {
     // this is not the case for NUMA partitions, hence, we can't use the
     // active_partitions() check.
-    sampled_or_cold_impl_[1] = new (tc_globals.arena().Alloc(
-        ArenaAlloc::kPageAllocator, sizeof(HugePageAwareAllocator)))
-        HugePageAwareAllocator(
-            HugePageAwareAllocatorOptions{MemoryTag::kSampledOrColdP1});
+    sampled_or_cold_impl_[1] = new (
+        tc_globals.arena().Alloc(ArenaAlloc::kPageAllocator, sizeof(Interface)))
+        Interface(HugePageAwareAllocatorOptions{MemoryTag::kSampledOrColdP1});
   }
 
   size_t total_heaps = 0;
@@ -81,7 +80,8 @@ PageAllocator::PageAllocator() {
   TC_CHECK_LE(part, std::size(choices_));
 }
 
-void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
+template <typename Forwarder>
+void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
   BackingStats s = stats();
   const size_t backed =
       s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
@@ -180,7 +180,9 @@ void PageAllocator::ShrinkToUsageLimitSlow(Length n) {
          limits_[kSoft]);
 }
 
-bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
+template <typename Forwarder>
+bool PageAllocatorImpl<Forwarder>::ShrinkHardBy(Length pages,
+                                                LimitKind limit_kind) {
   const PageReleaseReason release_reason =
       limit_kind == kHard ? PageReleaseReason::kHardLimitExceeded
                           : PageReleaseReason::kSoftLimitExceeded;
@@ -206,9 +208,9 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
       warned_hugepages = true;
     }
     for (auto* heap : heaps_) {
-      ret += static_cast<HugePageAwareAllocator*>(heap)
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
-                                                         release_reason);
+      ret +=
+          static_cast<Interface*>(heap)->ReleaseAtLeastNPagesBreakingHugepages(
+              pages - ret, release_reason);
       if (ret >= pages) {
         return true;
       }
@@ -218,11 +220,13 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
   return (pages <= ret);
 }
 
-size_t PageAllocator::active_partitions() const {
+template <typename Forwarder>
+size_t PageAllocatorImpl<Forwarder>::active_partitions() const {
   return tc_globals.active_partitions();
 }
 
-ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeNewHookSlow(
+template <typename Forwarder>
+ABSL_ATTRIBUTE_NOINLINE void PageAllocatorImpl<Forwarder>::InvokeNewHookSlow(
     AllocationState res, Length n, Length align, SpanAllocInfo span_alloc_info,
     MemoryTag tag) {
   AllocationGuard g;
@@ -233,7 +237,8 @@ ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeNewHookSlow(
       static_cast<uint8_t>(span_alloc_info.density), tag);
 }
 
-ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeDeleteHookSlow(
+template <typename Forwarder>
+ABSL_ATTRIBUTE_NOINLINE void PageAllocatorImpl<Forwarder>::InvokeDeleteHookSlow(
     PageId start_page, Length n, SpanAllocInfo span_alloc_info, MemoryTag tag) {
   AllocationGuard g;
   page_allocator_delete_hooks.Invoke(
@@ -241,12 +246,17 @@ ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeDeleteHookSlow(
       static_cast<uint8_t>(span_alloc_info.density), tag);
 }
 
-ABSL_ATTRIBUTE_NOINLINE void PageAllocator::InvokeReleaseHookSlow(
-    Length num_pages, Length released, PageReleaseReason reason) {
+template <typename Forwarder>
+ABSL_ATTRIBUTE_NOINLINE void
+PageAllocatorImpl<Forwarder>::InvokeReleaseHookSlow(Length num_pages,
+                                                    Length released,
+                                                    PageReleaseReason reason) {
   AllocationGuard g;
   page_allocator_release_hooks.Invoke(num_pages.raw_num(), released.raw_num(),
                                       reason);
 }
+
+template class PageAllocatorImpl<StaticForwarder<Static, tc_globals>>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

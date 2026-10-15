@@ -49,7 +49,7 @@ struct TCMallocStats {
   size_t pagemap_root_size;            // Size of pagemap root node array
   size_t percpu_metadata_bytes;        // included in metadata bytes
   BackingStats pageheap;               // Stats from page heap
-  PageAllocator::PeakStats peak_stats;
+  PageAllocatorPeakStats peak_stats;
 
   Length num_released_total;
   Length num_released_release_memory_to_system;

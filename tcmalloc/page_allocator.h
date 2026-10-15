@@ -42,16 +42,37 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_forwarder.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-class PageAllocator {
+// Hoisted out of PageAllocatorImpl so that TCMallocStats can name it without
+// instantiating PageAllocatorImpl<StaticForwarder<...>>.
+struct PageAllocatorPeakStats {
+  size_t backed_bytes;
+  size_t sampled_application_bytes;
+};
+
+// PageAllocatorImpl is templated on its Forwarder so that its inline members,
+// which instantiate HugePageAwareAllocator<Forwarder>, are only instantiated
+// where they are used.  StaticForwarder's members dereference Static, which is
+// incomplete in this header.
+//
+// The out-of-line members are explicitly instantiated in page_allocator.cc for
+// StaticForwarder.  Their declarations carry GOOGLE_MALLOC_SECTION:  neither
+// GOOGLE_MALLOC_SECTION_BEGIN's `#pragma clang section` nor a section attribute
+// on the out-of-line definition reaches the explicitly instantiated members.
+// There is deliberately no matching `extern template`:  an explicit
+// instantiation declaration marks HugePageAwareAllocator's vtable used,
+// instantiating its virtual members (and StaticForwarder's) here.
+template <typename Forwarder>
+class PageAllocatorImpl {
  public:
-  PageAllocator();
-  ~PageAllocator() = default;
+  GOOGLE_MALLOC_SECTION PageAllocatorImpl();
+  ~PageAllocatorImpl() = default;
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
@@ -193,10 +214,7 @@ class PageAllocator {
     HPAA = 1,
   };
 
-  struct PeakStats {
-    size_t backed_bytes;
-    size_t sampled_application_bytes;
-  };
+  using PeakStats = PageAllocatorPeakStats;
 
   [[nodiscard]] PeakStats peak_stats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
@@ -204,24 +222,27 @@ class PageAllocator {
   }
 
  private:
-  static void InvokeNewHookSlow(AllocationState res, Length n, Length align,
-                                SpanAllocInfo span_alloc_info, MemoryTag tag);
-  static void InvokeDeleteHookSlow(PageId start_page, Length n,
-                                   SpanAllocInfo span_alloc_info,
-                                   MemoryTag tag);
-  static void InvokeReleaseHookSlow(Length num_pages, Length released,
-                                    PageReleaseReason reason);
-  ABSL_ATTRIBUTE_NOINLINE void ShrinkToUsageLimitSlow(Length n)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  [[nodiscard]] bool ShrinkHardBy(Length page, LimitKind limit_kind)
+  GOOGLE_MALLOC_SECTION static void InvokeNewHookSlow(
+      AllocationState res, Length n, Length align,
+      SpanAllocInfo span_alloc_info, MemoryTag tag);
+  GOOGLE_MALLOC_SECTION static void InvokeDeleteHookSlow(
+      PageId start_page, Length n, SpanAllocInfo span_alloc_info,
+      MemoryTag tag);
+  GOOGLE_MALLOC_SECTION static void InvokeReleaseHookSlow(
+      Length num_pages, Length released, PageReleaseReason reason);
+  GOOGLE_MALLOC_SECTION ABSL_ATTRIBUTE_NOINLINE void ShrinkToUsageLimitSlow(
+      Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] GOOGLE_MALLOC_SECTION bool ShrinkHardBy(Length page,
+                                                        LimitKind limit_kind)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  using Interface = HugePageAwareAllocator;
+  using Interface =
+      huge_page_allocator_internal::HugePageAwareAllocator<Forwarder>;
 
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL Interface* impl(
       MemoryTag tag) const;
 
-  [[nodiscard]] size_t active_partitions() const;
+  [[nodiscard]] GOOGLE_MALLOC_SECTION size_t active_partitions() const;
 
   static constexpr size_t kNumHeaps =
       2;  // 2 heaps: normal, cold (including sampled).
@@ -230,7 +251,7 @@ class PageAllocator {
     Choices() : dummy(0) {}
     ~Choices() {}
     int dummy;
-    HugePageAwareAllocator hpaa;
+    Interface hpaa;
   } choices_[kNumHeaps];
   std::array<Interface*, kNormalPartitions> normal_impl_;
   // Combined sampled and cold heaps to save memory. This works because they're
@@ -267,7 +288,9 @@ class PageAllocator {
   size_t peak_sampled_application_bytes_{0};
 };
 
-inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
+template <typename Forwarder>
+inline typename PageAllocatorImpl<Forwarder>::Interface*
+PageAllocatorImpl<Forwarder>::impl(MemoryTag tag) const {
   switch (tag) {
     case MemoryTag::kNormalP0:
       return normal_impl_[0];
@@ -283,31 +306,38 @@ inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
   }
 }
 
-inline PageAllocatorInterface::AllocationState PageAllocator::New(
-    Length n, SpanAllocInfo span_alloc_info, MemoryTag tag) {
+template <typename Forwarder>
+inline PageAllocatorInterface::AllocationState
+PageAllocatorImpl<Forwarder>::New(Length n, SpanAllocInfo span_alloc_info,
+                                  MemoryTag tag) {
   AllocationState res = impl(tag)->New(n, span_alloc_info);
   // Unaligned page heap allocations are aligned to a 1-page boundary.
   InvokeNewHook(res, n, Length(1), span_alloc_info, tag);
   return res;
 }
 
-inline PageAllocatorInterface::AllocationState PageAllocator::NewAligned(
-    Length n, Length align, SpanAllocInfo span_alloc_info, MemoryTag tag) {
+template <typename Forwarder>
+inline PageAllocatorInterface::AllocationState
+PageAllocatorImpl<Forwarder>::NewAligned(Length n, Length align,
+                                         SpanAllocInfo span_alloc_info,
+                                         MemoryTag tag) {
   AllocationState res = impl(tag)->NewAligned(n, align, span_alloc_info);
   InvokeNewHook(res, n, align, span_alloc_info, tag);
   return res;
 }
 
-inline void PageAllocator::Delete(PageAllocatorInterface::AllocationState s,
-                                  MemoryTag tag,
-                                  SpanAllocInfo span_alloc_info) {
+template <typename Forwarder>
+inline void PageAllocatorImpl<Forwarder>::Delete(
+    PageAllocatorInterface::AllocationState s, MemoryTag tag,
+    SpanAllocInfo span_alloc_info) {
   if (s) {
     InvokeDeleteHook(s.r.p, s.r.n, span_alloc_info, tag);
   }
   impl(tag)->Delete(s, span_alloc_info);
 }
 
-inline BackingStats PageAllocator::stats() const {
+template <typename Forwarder>
+inline BackingStats PageAllocatorImpl<Forwarder>::stats() const {
   BackingStats ret;
   for (const auto* heap : heaps_) {
     ret += heap->stats();
@@ -315,7 +345,9 @@ inline BackingStats PageAllocator::stats() const {
   return ret;
 }
 
-inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) const {
+template <typename Forwarder>
+inline void PageAllocatorImpl<Forwarder>::GetSmallSpanStats(
+    SmallSpanStats* result) const {
   SmallSpanStats stats;
   for (auto* heap : heaps_) {
     SmallSpanStats part_stats;
@@ -325,7 +357,9 @@ inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) const {
   *result = stats;
 }
 
-inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) const {
+template <typename Forwarder>
+inline void PageAllocatorImpl<Forwarder>::GetLargeSpanStats(
+    LargeSpanStats* result) const {
   LargeSpanStats stats;
   for (auto* heap : heaps_) {
     LargeSpanStats part_stats;
@@ -335,9 +369,10 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) const {
   *result = stats;
 }
 
-inline void PageAllocator::TreatHugepageTrackers(EnableCollapse enable_collapse,
-                                                 PageFlagsBase* pageflags,
-                                                 Residency* residency) {
+template <typename Forwarder>
+inline void PageAllocatorImpl<Forwarder>::TreatHugepageTrackers(
+    EnableCollapse enable_collapse, PageFlagsBase* pageflags,
+    Residency* residency) {
   sampled_or_cold_impl_[0]->TreatHugepageTrackers(EnableCollapse::kDisabled,
                                                   pageflags, residency);
 
@@ -347,8 +382,9 @@ inline void PageAllocator::TreatHugepageTrackers(EnableCollapse enable_collapse,
   }
 }
 
-inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
-                                                  PageReleaseReason reason) {
+template <typename Forwarder>
+inline Length PageAllocatorImpl<Forwarder>::ReleaseAtLeastNPages(
+    Length num_pages, PageReleaseReason reason) {
   // TODO(ckennelly): Refine this policy.  Cold data should be the most
   // resilient to not being on huge pages.
   Length released = Length(0);
@@ -361,7 +397,8 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
   return released;
 }
 
-inline PageReleaseStats PageAllocator::GetReleaseStats() const {
+template <typename Forwarder>
+inline PageReleaseStats PageAllocatorImpl<Forwarder>::GetReleaseStats() const {
   PageReleaseStats stats;
   for (const auto* heap : heaps_) {
     stats += heap->GetReleaseStats();
@@ -369,8 +406,9 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
   return stats;
 }
 
-inline void PageAllocator::Print(Printer& out, MemoryTag tag,
-                                 PageFlagsBase& pageflags) {
+template <typename Forwarder>
+inline void PageAllocatorImpl<Forwarder>::Print(Printer& out, MemoryTag tag,
+                                                PageFlagsBase& pageflags) {
   if (tag == MemoryTag::kSampledOrColdP1 && !sampled_partition_active_) {
     return;
   }
@@ -385,8 +423,9 @@ inline void PageAllocator::Print(Printer& out, MemoryTag tag,
   }
 }
 
-inline void PageAllocator::PrintInPbtxt(PbtxtRegion& region, MemoryTag tag,
-                                        PageFlagsBase& pageflags) {
+template <typename Forwarder>
+inline void PageAllocatorImpl<Forwarder>::PrintInPbtxt(
+    PbtxtRegion& region, MemoryTag tag, PageFlagsBase& pageflags) {
   if (tag == MemoryTag::kSampledOrColdP1 && !sampled_partition_active_) {
     return;
   }
@@ -396,7 +435,9 @@ inline void PageAllocator::PrintInPbtxt(PbtxtRegion& region, MemoryTag tag,
   impl(tag)->PrintInPbtxt(pa, pageflags);
 }
 
-inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {
+template <typename Forwarder>
+inline void PageAllocatorImpl<Forwarder>::set_limit(size_t limit,
+                                                    LimitKind limit_kind) {
   PageHeapSpinLockHolder h;
   limits_[limit_kind] = limit;
   if (limits_[kHard] < limits_[kSoft]) {
@@ -407,22 +448,29 @@ inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {
   ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
 }
 
-inline int64_t PageAllocator::limit_hits(LimitKind limit_kind) const {
+template <typename Forwarder>
+inline int64_t PageAllocatorImpl<Forwarder>::limit_hits(
+    LimitKind limit_kind) const {
   TC_ASSERT_LT(limit_kind, kNumLimits);
   PageHeapSpinLockHolder l;
   return limit_hits_[limit_kind];
 }
 
-inline int64_t PageAllocator::successful_shrinks_after_limit_hit(
+template <typename Forwarder>
+inline int64_t PageAllocatorImpl<Forwarder>::successful_shrinks_after_limit_hit(
     LimitKind limit_kind) const {
   TC_ASSERT_LT(limit_kind, kNumLimits);
   PageHeapSpinLockHolder l;
   return successful_shrinks_after_limit_hit_[limit_kind];
 }
 
-inline const PageAllocInfo& PageAllocator::info(MemoryTag tag) const {
+template <typename Forwarder>
+inline const PageAllocInfo& PageAllocatorImpl<Forwarder>::info(
+    MemoryTag tag) const {
   return impl(tag)->info();
 }
+
+using PageAllocator = PageAllocatorImpl<StaticForwarder<Static, tc_globals>>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
