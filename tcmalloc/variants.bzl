@@ -241,6 +241,24 @@ test_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING2"],
         "tags": ["noubsan"],
     },
+    {
+        "name": "tcmalloc_flexible_size_classes_level_1",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE"},
+    },
+    {
+        "name": "tcmalloc_flexible_size_classes_level_2",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE_NO_40_56"},
+    },
+    {
+        "name": "tcmalloc_flexible_size_classes_level_3",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE"},
+    },
 ] + experiment_variants
 
 def create_tcmalloc_library(
