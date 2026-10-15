@@ -165,7 +165,7 @@ TYPED_TEST_P(AlignedNew, ArraySizeCheckSampling) {
   // track of the true size of arrays so that the proper number of destructors
   // can be invoked.
   struct NonTrivial {
-    virtual ~NonTrivial() {}
+    virtual ~NonTrivial() = default;
 
     TypeParam p;
   };

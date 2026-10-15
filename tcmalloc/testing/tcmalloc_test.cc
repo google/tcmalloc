@@ -515,7 +515,7 @@ TEST(TCMallocTest, NothrowSizedDelete) {
 
 TEST(TCMallocTest, NothrowSizedDeleteArray) {
   struct Foo {
-    ~Foo() {}
+    ~Foo() = default;
     double a;
   };
   // Foo should correspond to a size class used by new, but not by malloc,
