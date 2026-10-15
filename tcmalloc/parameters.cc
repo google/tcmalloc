@@ -219,7 +219,7 @@ static SubreleaseUnbackedMode want_subrelease_unbacked_hugepages() {
         TC_BUG("bad env var '%s'", e);
     }
   }
-  return SubreleaseUnbackedMode::kDisabled;
+  return SubreleaseUnbackedMode::kEnabled;
 }
 
 SubreleaseUnbackedMode Parameters::subrelease_unbacked_hugepages() {
