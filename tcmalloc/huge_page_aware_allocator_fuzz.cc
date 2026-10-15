@@ -418,6 +418,17 @@ struct SetSubreleaseUnbackedHugepages {
   }
 };
 
+struct SetTrackBrokenHugepages {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetTrackBrokenHugepages& s) {
+    absl::Format(&sink, "SetTrackBrokenHugepages{.value=%v}", s.value);
+  }
+};
+
 struct SetReleaseSucceeds {
   bool value;
 
@@ -590,10 +601,10 @@ using ParamOp = std::variant<
     SetFillerSkipSubreleaseLongInterval,
     SetFillerSkipSubreleaseColdShortInterval,
     SetFillerSkipSubreleaseColdLongInterval, SetReleasePartialAllocPages,
-    SetHpaaSubrelease, SetSubreleaseUnbackedHugepages, SetReleaseSucceeds,
-    SetCollapseSucceeds, SetHugeRegionAdaptiveRelease, SetAllocateSucceeds,
-    SetBackAllocations, SetBackSizeThresholdBytes, ReentrantSubprogram,
-    SetEnableUnfilteredCollapse, SetReleaseMaxFillerPages,
+    SetHpaaSubrelease, SetSubreleaseUnbackedHugepages, SetTrackBrokenHugepages,
+    SetReleaseSucceeds, SetCollapseSucceeds, SetHugeRegionAdaptiveRelease,
+    SetAllocateSucceeds, SetBackAllocations, SetBackSizeThresholdBytes,
+    ReentrantSubprogram, SetEnableUnfilteredCollapse, SetReleaseMaxFillerPages,
     SetEnableReleaseStalePages, SetMadvNoHugepageHugeRegions, UpdateBitmaps,
     SetUsageLimitPressure>;
 
@@ -1159,6 +1170,11 @@ void SetSubreleaseUnbackedHugepages::Perform(State& state) const {
             : SubreleaseUnbackedMode::kDisabled);
 }
 
+void SetTrackBrokenHugepages::Perform(State& state) const {
+  state.allocator.forwarder().track_broken_hugepages.set(
+      value ? TrackBrokenHugepages::kEnabled : TrackBrokenHugepages::kDisabled);
+}
+
 void SetReleaseSucceeds::Perform(State& state) const {
   state.allocator.forwarder().set_release_succeeds(value);
 }
@@ -1331,6 +1347,8 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
       fuzztest::Map(
           [](SetSubreleaseUnbackedHugepages s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetSubreleaseUnbackedHugepages>()),
+      fuzztest::Map([](SetTrackBrokenHugepages s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetTrackBrokenHugepages>()),
       fuzztest::Map([](SetReleaseSucceeds s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetReleaseSucceeds>()),
       fuzztest::Map([](SetCollapseSucceeds s) { return ChangeParam{s}; },
@@ -1976,6 +1994,8 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
             "SetCollapseSucceeds{.value=true}");
   EXPECT_EQ(absl::StrCat(SetSubreleaseUnbackedHugepages{.value = false}),
             "SetSubreleaseUnbackedHugepages{.value=false}");
+  EXPECT_EQ(absl::StrCat(SetTrackBrokenHugepages{.value = false}),
+            "SetTrackBrokenHugepages{.value=false}");
   EXPECT_EQ(absl::StrCat(SetUsageLimitPressure{.pages = 3}),
             "SetUsageLimitPressure{.pages=3}");
 }

@@ -41,6 +41,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/metadata_allocator.h"
+#include "tcmalloc/internal/packed_ptr.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/prefetch.h"
@@ -332,9 +333,16 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   MetadataObjectAllocator<HugeRegion, ArenaAlloc::kHugeRegion> region_allocator_
       ABSL_GUARDED_BY(pageheap_lock);
 
+  enum class HugePageSplitState : bool {
+    kUnbroken,
+    kBroken,
+  };
+
   [[nodiscard]] FillerType::Tracker* GetTracker(HugePage p) const;
+  [[nodiscard]] bool IsHugepageBroken(HugePage p) const;
 
   void SetTracker(HugePage p, FillerType::Tracker* pt);
+  void ClearTracker(HugePage p, HugePageSplitState split_state);
 
   [[nodiscard]] AddressRange AllocAndReport(size_t bytes, size_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -436,24 +444,45 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
 template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
 HugePageAwareAllocator<Forwarder>::GetTracker(HugePage p) const {
-  void* v = forwarder_.GetHugepage(p);
-  FillerType::Tracker* pt = reinterpret_cast<FillerType::Tracker*>(v);
+  FillerType::Tracker* pt = forwarder_.GetHugepage(p).Get();
   TC_ASSERT(pt == nullptr || pt->location() == p);
   return pt;
 }
 
 template <class Forwarder>
+inline bool HugePageAwareAllocator<Forwarder>::IsHugepageBroken(
+    HugePage p) const {
+  return forwarder_.GetHugepage(p).Bits() != 0;
+}
+
+template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::SetTracker(
     HugePage p, HugePageAwareAllocator<Forwarder>::FillerType::Tracker* pt) {
-  forwarder_.SetHugepage(p, pt);
+  forwarder_.SetHugepage(p, PackedPtr<FillerType::Tracker>(pt));
+}
+
+template <class Forwarder>
+inline void HugePageAwareAllocator<Forwarder>::ClearTracker(
+    HugePage p, HugePageSplitState split_state) {
+  forwarder_.SetHugepage(
+      p,
+      PackedPtr<FillerType::Tracker>(
+          /*ptr=*/nullptr, split_state == HugePageSplitState::kBroken ? 1 : 0));
 }
 
 template <class Forwarder>
 inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
     HugePage p, Length n, SpanAllocInfo span_alloc_info, bool donated) {
   TC_CHECK_NE(p.start_addr(), nullptr);
+  const bool was_broken = IsHugepageBroken(p);
   FillerType::Tracker* pt =
       tracker_allocator_.New(p, donated, forwarder_.clock().now());
+  if (was_broken &&
+      forwarder_.track_broken_hugepages() == TrackBrokenHugepages::kEnabled) {
+    pt->set_unbroken(/*status=*/false);
+  }
+  // TODO(b/572530574): When allocating from an unbacked range (*from_released),
+  // mark the unallocated tail pages [n, kPagesPerHugePage) unbacked in pt.
   TC_ASSERT_GE(pt->longest_free_range(), n);
   TC_ASSERT_EQ(pt->was_donated(), donated);
   // if the page was donated, we track its size so that we can potentially
@@ -839,8 +868,12 @@ inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
   }
 
   HugeRange r = {pt->location(), NHugePages(1)};
-  SetTracker(pt->location(), nullptr);
+  ClearTracker(pt->location(), pt->unbroken() ? HugePageSplitState::kUnbroken
+                                              : HugePageSplitState::kBroken);
 
+  // TODO(b/572530574): Avoid coalescing or preferring broken hugepages ahead of
+  // intact THPs in HugeCache, and evict broken cached pages first in
+  // ShrinkCache.
   if (pt->released()) {
     cache_.ReleaseUnbacked(r);
   } else {

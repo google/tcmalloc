@@ -40,6 +40,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/packed_ptr.h"
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
@@ -86,6 +87,7 @@ class StaticForwarder : private Parameters {
   using Parameters::release_partial_alloc_pages;
   using Parameters::release_stale_pages;
   using Parameters::subrelease_unbacked_hugepages;
+  using Parameters::track_broken_hugepages;
 
   [[nodiscard]] static size_t class_to_size(int size_class) {
     return state.sizemap().class_to_size(size_class);
@@ -326,15 +328,15 @@ class StaticForwarder : private Parameters {
   }
 
   // PageMap state.
-  [[nodiscard]] static void* GetHugepage(HugePage p) {
-    return state.pagemap().GetHugepage(p.first_page());
+  [[nodiscard]] static PackedPtr<PageTracker> GetHugepage(HugePage p) {
+    return PackedPtr<PageTracker>(state.pagemap().GetHugepage(p.first_page()));
   }
   [[nodiscard]] static bool Ensure(Range r)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return state.pagemap().Ensure(r);
   }
-  static void SetHugepage(HugePage p, void* pt) {
-    state.pagemap().SetHugepage(p.first_page(), pt);
+  static void SetHugepage(HugePage p, PackedPtr<PageTracker> pt) {
+    state.pagemap().SetHugepage(p.first_page(), pt.Raw());
   }
 
   // Error reporting

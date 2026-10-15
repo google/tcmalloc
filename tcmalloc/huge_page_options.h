@@ -59,6 +59,11 @@ enum class MadviseRegionsNoHugepage : bool {
   kEnabled = true,
 };
 
+enum class TrackBrokenHugepages : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
 

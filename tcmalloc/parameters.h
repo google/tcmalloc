@@ -107,6 +107,10 @@ class Parameters {
 
   [[nodiscard]] static SubreleaseUnbackedMode subrelease_unbacked_hugepages();
 
+  [[nodiscard]] static TrackBrokenHugepages track_broken_hugepages() {
+    return track_broken_hugepages_.load(std::memory_order_relaxed);
+  }
+
   [[nodiscard]] static bool back_small_allocations() {
     return back_small_allocations_.load(std::memory_order_relaxed);
   }
@@ -314,6 +318,7 @@ class Parameters {
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
+  static std::atomic<TrackBrokenHugepages> track_broken_hugepages_;
   static std::atomic<EnableCollapse> usermode_hugepage_collapse_enabled_;
   static std::atomic<bool> back_small_allocations_;
   static std::atomic<int32_t> back_size_threshold_bytes_;

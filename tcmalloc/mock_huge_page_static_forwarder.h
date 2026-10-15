@@ -41,6 +41,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/packed_ptr.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
@@ -89,6 +90,8 @@ class FakeHugePageStaticForwarder : private Parameters {
   FakeParameter<bool> hpaa_subrelease{Parameters::hpaa_subrelease()};
   FakeParameter<SubreleaseUnbackedMode> subrelease_unbacked_hugepages{
       Parameters::subrelease_unbacked_hugepages()};
+  FakeParameter<TrackBrokenHugepages> track_broken_hugepages{
+      Parameters::track_broken_hugepages()};
   FakeParameter<bool> huge_region_adaptive_release{
       Parameters::huge_region_adaptive_release()};
   FakeParameter<MallocExtension::BytesPerSecond> background_release_rate{
@@ -140,10 +143,10 @@ class FakeHugePageStaticForwarder : private Parameters {
   // TODO(b/242550501): We should just swap out a PageMap instead of doing
   // these things. See the description of cl/169552275 for the original TODO.
   // While we're here, also look into consolidating forwarders.
-  [[nodiscard]] void* GetHugepage(HugePage p) const {
+  [[nodiscard]] PackedPtr<PageTracker> GetHugepage(HugePage p) const {
     auto it = trackers_.find(p);
     if (it == trackers_.end()) {
-      return nullptr;
+      return PackedPtr<PageTracker>();
     }
     return it->second;
   }
@@ -151,8 +154,7 @@ class FakeHugePageStaticForwarder : private Parameters {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return true;
   }
-  void SetHugepage(HugePage p, void* pt) { trackers_[p] = pt; }
-
+  void SetHugepage(HugePage p, PackedPtr<PageTracker> pt) { trackers_[p] = pt; }
 
   // SystemAlloc state.
   [[nodiscard]] AddressRange AllocatePages(size_t bytes, size_t align,
@@ -266,9 +268,9 @@ class FakeHugePageStaticForwarder : private Parameters {
     }
   };
 
-  absl::flat_hash_map<HugePage, void*, absl::Hash<HugePage>,
+  absl::flat_hash_map<HugePage, PackedPtr<PageTracker>, absl::Hash<HugePage>,
                       std::equal_to<HugePage>,
-                      AllocAdaptor<std::pair<HugePage, void*>>>
+                      AllocAdaptor<std::pair<HugePage, PackedPtr<PageTracker>>>>
       trackers_;
   // Live spans by first page, with their length.  SetSpan runs outside
   // pageheap_lock and ReleasePages runs with or without it, so the map has its

@@ -213,7 +213,7 @@ TEST(StaticForwarderTest, PageMap) {
   const PageId p = span->first_page();
   const HugePage hp = HugePageContaining(p);
 
-  EXPECT_EQ(ProdForwarder::GetHugepage(hp),
+  EXPECT_EQ(ProdForwarder::GetHugepage(hp).Raw(),
             tc_globals.pagemap().GetHugepage(hp.first_page()));
   {
     PageHeapSpinLockHolder l;
@@ -262,6 +262,8 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::release_stale_pages());
   EXPECT_EQ(ProdForwarder::subrelease_unbacked_hugepages(),
             Parameters::subrelease_unbacked_hugepages());
+  EXPECT_EQ(ProdForwarder::track_broken_hugepages(),
+            Parameters::track_broken_hugepages());
 }
 
 class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {
