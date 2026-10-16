@@ -2594,6 +2594,10 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
 TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
   allocator_->forwarder().hpaa_subrelease.set(true);
   allocator_->forwarder().release_partial_alloc_pages.set(true);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
 
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   std::vector<AllocationState> keep_alive;
@@ -2644,6 +2648,10 @@ TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
     //    `!pt->unbroken()` iff `track_broken_hugepages` is enabled.
     ReleasePages(kPagesPerHugePage - Length(1),
                  PageReleaseReason::kProcessBackgroundActions);
+    state = GetHugepageState(hp);
+    ASSERT_NE(state.tracker, nullptr);
+    EXPECT_FALSE(state.unbroken);
+    EXPECT_EQ(state.released_pages, kPagesPerHugePage - Length(1));
     Delete(reused_from_cache, 1);
     AllocationState reused_from_allocator = New(Length(1), kSpanInfo);
     ASSERT_TRUE(reused_from_allocator);
@@ -2653,7 +2661,33 @@ TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
     EXPECT_EQ(state.unbroken,
               track_broken_hugepages == TrackBrokenHugepages::kDisabled);
 
-    keep_alive.push_back(reused_from_allocator);
+    // 3. Flip `track_broken_hugepages` at runtime while `hp` is broken and
+    //    verify the next reuse of `hp` reflects the flipped state.
+    ReleasePages(kPagesPerHugePage - Length(1),
+                 PageReleaseReason::kProcessBackgroundActions);
+    state = GetHugepageState(hp);
+    ASSERT_NE(state.tracker, nullptr);
+    EXPECT_FALSE(state.unbroken);
+    EXPECT_EQ(state.released_pages, kPagesPerHugePage - Length(1));
+    Delete(reused_from_allocator, 1);
+    state = GetHugepageState(hp);
+    EXPECT_EQ(state.tracker, nullptr);
+    EXPECT_EQ(state.bits, 1u);
+
+    const TrackBrokenHugepages flipped =
+        track_broken_hugepages == TrackBrokenHugepages::kDisabled
+            ? TrackBrokenHugepages::kEnabled
+            : TrackBrokenHugepages::kDisabled;
+    allocator_->forwarder().track_broken_hugepages.set(flipped);
+
+    AllocationState reused_after_flip = New(Length(1), kSpanInfo);
+    ASSERT_TRUE(reused_after_flip);
+    ASSERT_EQ(HugePageContaining(reused_after_flip.r.p), hp);
+    state = GetHugepageState(hp);
+    ASSERT_NE(state.tracker, nullptr);
+    EXPECT_EQ(state.unbroken, flipped == TrackBrokenHugepages::kDisabled);
+
+    keep_alive.push_back(reused_after_flip);
     keep_alive.push_back(New(kPagesPerHugePage - Length(1), kSpanInfo));
   }
 
