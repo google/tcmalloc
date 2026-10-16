@@ -182,6 +182,13 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return abandoned_pages_;
   }
 
+  // Number of live hugepage trackers in the filler that have been reused and
+  // whose broken state was preserved.
+  [[nodiscard]] HugeLength ReusedBrokenHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return reused_broken_huge_pages_;
+  }
+
   [[nodiscard]] const HugeCache* cache() const { return &cache_; }
 
   [[nodiscard]] const HugeRegionSet<HugeRegion>& region() const
@@ -341,7 +348,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   [[nodiscard]] FillerType::Tracker* GetTracker(HugePage p) const;
   [[nodiscard]] bool IsHugepageBroken(HugePage p) const;
 
-  void SetTracker(HugePage p, FillerType::Tracker* pt);
+  void SetTracker(HugePage p, FillerType::Tracker* pt,
+                  HugePageSplitState split_state);
   void ClearTracker(HugePage p, HugePageSplitState split_state);
 
   [[nodiscard]] AddressRange AllocAndReport(size_t bytes, size_t align)
@@ -362,6 +370,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // a donating allocation is deallocated but the entire huge page has not been
   // reassembled.
   Length abandoned_pages_ ABSL_GUARDED_BY(pageheap_lock);
+  // reused_broken_huge_pages_ tracks the number of live hugepage trackers in
+  // the filler that were allocated from previously broken hugepages.
+  HugeLength reused_broken_huge_pages_ ABSL_GUARDED_BY(pageheap_lock);
 
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -457,17 +468,17 @@ inline bool HugePageAwareAllocator<Forwarder>::IsHugepageBroken(
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::SetTracker(
-    HugePage p, HugePageAwareAllocator<Forwarder>::FillerType::Tracker* pt) {
-  forwarder_.SetHugepage(p, PackedPtr<FillerType::Tracker>(pt));
+    HugePage p, HugePageAwareAllocator<Forwarder>::FillerType::Tracker* pt,
+    HugePageSplitState split_state) {
+  forwarder_.SetHugepage(
+      p, PackedPtr<FillerType::Tracker>(
+             pt, split_state == HugePageSplitState::kBroken ? 1 : 0));
 }
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::ClearTracker(
     HugePage p, HugePageSplitState split_state) {
-  forwarder_.SetHugepage(
-      p,
-      PackedPtr<FillerType::Tracker>(
-          /*ptr=*/nullptr, split_state == HugePageSplitState::kBroken ? 1 : 0));
+  SetTracker(p, /*pt=*/nullptr, split_state);
 }
 
 template <class Forwarder>
@@ -477,9 +488,11 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
   const bool was_broken = IsHugepageBroken(p);
   FillerType::Tracker* pt =
       tracker_allocator_.New(p, donated, forwarder_.clock().now());
-  if (was_broken &&
-      forwarder_.track_broken_hugepages() == TrackBrokenHugepages::kEnabled) {
-    pt->set_unbroken(/*status=*/false);
+  if (was_broken) {
+    ++reused_broken_huge_pages_;
+    if (forwarder_.track_broken_hugepages() == TrackBrokenHugepages::kEnabled) {
+      pt->set_unbroken(/*status=*/false);
+    }
   }
   // TODO(b/572530574): When allocating from an unbacked range (*from_released),
   // mark the unallocated tail pages [n, kPagesPerHugePage) unbacked in pt.
@@ -492,7 +505,9 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
   }
   PageId page = pt->Get(n, span_alloc_info).page;
   TC_ASSERT_EQ(page, p.first_page());
-  SetTracker(p, pt);
+  SetTracker(
+      p, pt,
+      was_broken ? HugePageSplitState::kBroken : HugePageSplitState::kUnbroken);
   filler_.Contribute(pt, donated, span_alloc_info);
   TC_ASSERT_EQ(pt->was_donated(), donated);
   return page;
@@ -635,10 +650,14 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   Length total = hl.in_pages();
   Length slack = total - n;
   HugePage first = r.start();
-  SetTracker(first, nullptr);
+  SetTracker(first, nullptr,
+             IsHugepageBroken(first) ? HugePageSplitState::kBroken
+                                     : HugePageSplitState::kUnbroken);
   HugePage last = first + r.len() - NHugePages(1);
   if (slack == Length(0)) {
-    SetTracker(last, nullptr);
+    SetTracker(last, nullptr,
+               IsHugepageBroken(last) ? HugePageSplitState::kBroken
+                                      : HugePageSplitState::kUnbroken);
     return Finalize(Range(r.start().first_page(), total), *from_released);
   }
 
@@ -867,6 +886,11 @@ inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
     TC_ASSERT_EQ(pt->abandoned_count(), Length(0));
   }
 
+  if (IsHugepageBroken(pt->location())) {
+    TC_ASSERT_GT(reused_broken_huge_pages_, NHugePages(0));
+    --reused_broken_huge_pages_;
+  }
+
   HugeRange r = {pt->location(), NHugePages(1)};
   ClearTracker(pt->location(), pt->unbroken() ? HugePageSplitState::kUnbroken
                                               : HugePageSplitState::kBroken);
@@ -1068,6 +1092,8 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
       "HugePageAware: filler donations %v (%v pages from abandoned "
       "donations)\n",
       donated_huge_pages_, abandoned_pages_);
+  out.printf("HugePageAware: filler reused broken hugepages %v\n",
+             reused_broken_huge_pages_);
 
   // Component debug output
   // Filler is by far the most important; print (some) of it
@@ -1135,6 +1161,8 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
 
     hpaa.PrintI64("filler_donated_huge_pages", donated_huge_pages_.raw_num());
     hpaa.PrintI64("filler_abandoned_pages", abandoned_pages_.raw_num());
+    hpaa.PrintI64("filler_reused_broken_huge_pages",
+                  reused_broken_huge_pages_.raw_num());
   }
 }
 
