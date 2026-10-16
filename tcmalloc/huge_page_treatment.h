@@ -89,6 +89,7 @@ struct HugePageTreatmentStats {
   HugeLength collapse_eligible;
   HugeLength collapse_attempted;
   HugeLength collapse_succeeded;
+  HugeLength collapse_donated_succeeded;
   std::array<size_t, static_cast<size_t>(CollapseErrorType::kErrorTypes)>
       collapse_errors = {0};
   Length treated_pages_subreleased;
@@ -167,6 +168,7 @@ struct HugePageTreatmentStats {
     collapse_eligible += rhs.collapse_eligible;
     collapse_attempted += rhs.collapse_attempted;
     collapse_succeeded += rhs.collapse_succeeded;
+    collapse_donated_succeeded += rhs.collapse_donated_succeeded;
     for (size_t i = 0; i < collapse_errors.size(); ++i) {
       collapse_errors[i] += rhs.collapse_errors[i];
     }
