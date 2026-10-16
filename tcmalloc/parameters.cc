@@ -287,9 +287,6 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
-ABSL_CONST_INIT std::atomic<TrackBrokenHugepages>
-    Parameters::track_broken_hugepages_(TrackBrokenHugepages::kDisabled);
-
 // TODO: b/134694141 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
@@ -311,6 +308,18 @@ static std::atomic<bool>& release_max_filler_pages_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+  });
+  return v;
+}
+
+static std::atomic<TrackBrokenHugepages>& track_broken_hugepages_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<TrackBrokenHugepages> v{
+      TrackBrokenHugepages::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES)) {
+      v.store(TrackBrokenHugepages::kEnabled, std::memory_order_relaxed);
+    }
   });
   return v;
 }
@@ -410,6 +419,10 @@ EnableCollapse Parameters::usermode_hugepage_collapse() {
 
 bool Parameters::release_max_filler_pages() {
   return release_max_filler_pages_enabled().load(std::memory_order_relaxed);
+}
+
+TrackBrokenHugepages Parameters::track_broken_hugepages() {
+  return track_broken_hugepages_enabled().load(std::memory_order_relaxed);
 }
 
 MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
@@ -798,6 +811,18 @@ bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
 void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
   tcmalloc::tcmalloc_internal::release_max_filler_pages_enabled().store(
       v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetTrackBrokenHugepages() {
+  return Parameters::track_broken_hugepages() ==
+         tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kEnabled;
+}
+
+void TCMalloc_Internal_SetTrackBrokenHugepages(bool v) {
+  tcmalloc::tcmalloc_internal::track_broken_hugepages_enabled().store(
+      v ? tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kEnabled
+        : tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kDisabled,
+      std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
