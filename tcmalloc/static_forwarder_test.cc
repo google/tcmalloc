@@ -252,6 +252,8 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::per_cpu_caches_dynamic_slab_grow_threshold());
   EXPECT_EQ(ProdForwarder::per_cpu_caches_dynamic_slab_shrink_threshold(),
             Parameters::per_cpu_caches_dynamic_slab_shrink_threshold());
+  EXPECT_EQ(ProdForwarder::preserve_donated_on_collapse(),
+            Parameters::preserve_donated_on_collapse());
   EXPECT_EQ(ProdForwarder::release_drained_slab_metadata(),
             Parameters::release_drained_slab_metadata());
   EXPECT_EQ(ProdForwarder::release_max_filler_pages(),

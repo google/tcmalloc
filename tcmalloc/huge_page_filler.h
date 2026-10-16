@@ -693,8 +693,9 @@ class HugePageFiller {
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags = nullptr,
-      Residency* residency = nullptr)
+      ReleaseStalePages release_stale_pages,
+      PreserveDonatedOnCollapse preserve_donated_on_collapse,
+      PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to release free pages from a given `page_tracker`
@@ -702,7 +703,8 @@ class HugePageFiller {
   Length HandleReleaseFree(PageTracker* page_tracker)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void OnCollapseSuccess(TrackerType* absl_nonnull pt)
+  void OnCollapseSuccess(TrackerType* absl_nonnull pt,
+                         PreserveDonatedOnCollapse preserve_donated_on_collapse)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to handle a non-hugepage backed `page_tracker` and
@@ -1692,8 +1694,9 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     EnableCollapse enable_collapse,
     EnableUnfilteredCollapse enable_unfiltered_collapse,
-    ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags,
-    Residency* residency) {
+    ReleaseStalePages release_stale_pages,
+    PreserveDonatedOnCollapse preserve_donated_on_collapse,
+    PageFlagsBase* pageflags, Residency* residency) {
   if (enable_collapse == EnableCollapse::kEnabled &&
       ShouldBackoffFromCollapse()) {
     enable_collapse = EnableCollapse::kDisabled;
@@ -1707,7 +1710,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
       subrelease_unbacked_mode_, enable_unfiltered_collapse,
-      release_stale_pages);
+      release_stale_pages, preserve_donated_on_collapse);
 
   // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_.sparse.Iter(
@@ -1802,13 +1805,23 @@ inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
+inline void HugePageFiller<TrackerType>::OnCollapseSuccess(
+    TrackerType* pt, PreserveDonatedOnCollapse preserve_donated_on_collapse) {
   TC_ASSERT(!pt->fully_freed());
   TC_ASSERT(!pt->BeingReleased());
   if (pt->unbroken()) return;
+  const bool was_donated = pt->donated();
+  if (was_donated) {
+    ++treatment_stats_.collapse_donated_succeeded;
+  }
   RemoveFromFillerList(pt);
   pt->set_unbroken(/*status=*/true);
-  AddToFillerList(pt);
+  if (was_donated &&
+      preserve_donated_on_collapse == PreserveDonatedOnCollapse::kEnabled) {
+    DonateToFillerList(pt);
+  } else {
+    AddToFillerList(pt);
+  }
 }
 
 template <class TrackerType>
@@ -1906,9 +1919,10 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
 
   out.printf(
       "HugePageFiller: Out of %v eligible hugepages, %v were "
-      "attempted, and %v were collapsed.\n",
+      "attempted, and %v were collapsed (%v donated).\n",
       treatment_stats_.collapse_eligible, treatment_stats_.collapse_attempted,
-      treatment_stats_.collapse_succeeded);
+      treatment_stats_.collapse_succeeded,
+      treatment_stats_.collapse_donated_succeeded);
 
   out.printf(
       "HugePageFiller: Of the failed collapse operations, number of operations "
@@ -2209,6 +2223,9 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
         "collapse_attempted", treatment_stats_.collapse_attempted.raw_num());
     huge_page_treatment_region.PrintI64(
         "collapse_succeeded", treatment_stats_.collapse_succeeded.raw_num());
+    huge_page_treatment_region.PrintI64(
+        "collapse_donated_succeeded",
+        treatment_stats_.collapse_donated_succeeded.raw_num());
     for (int i = 0; i < treatment_stats_.collapse_errors.size(); ++i) {
       PbtxtRegion collapse_errors_region =
           huge_page_treatment_region.CreateSubRegion("collapse_errors");

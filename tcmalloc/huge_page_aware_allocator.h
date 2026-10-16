@@ -995,9 +995,12 @@ inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
       forwarder_.enable_unfiltered_collapse();
   const ReleaseStalePages release_stale_pages =
       forwarder_.release_stale_pages();
+  const PreserveDonatedOnCollapse preserve_donated_on_collapse =
+      forwarder_.preserve_donated_on_collapse();
   PageHeapSpinLockHolder l;
-  filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                release_stale_pages, pageflags, residency);
+  filler_.TreatHugepageTrackers(
+      enable_collapse, enable_unfiltered_collapse, release_stale_pages,
+      preserve_donated_on_collapse, pageflags, residency);
   DrainFreedTrackers();
 }
 

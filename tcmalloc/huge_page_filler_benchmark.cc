@@ -167,7 +167,8 @@ class FillerHeap {
     pageheap_lock.lock();
     filler_.TreatHugepageTrackers(
         EnableCollapse::kDisabled, EnableUnfilteredCollapse::kDisabled,
-        ReleaseStalePages::kDisabled, &pageflags_, &residency_);
+        ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
+        &pageflags_, &residency_);
     pageheap_lock.unlock();
   }
 
