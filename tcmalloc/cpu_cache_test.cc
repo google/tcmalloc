@@ -133,10 +133,42 @@ class CpuCachePeer {
   }
 
   template <typename CpuCache>
+  static int64_t Available(const CpuCache& cpu_cache, int cpu) {
+    return cpu_cache.resize_[cpu].available.load(std::memory_order_relaxed);
+  }
+
+  template <typename CpuCache>
   static void CheckResizeLockInvariants(CpuCache& cpu_cache, int cpu) {
     AllocationGuardSpinLockHolder h(cpu_cache.resize_[cpu].lock);
+    EXPECT_GE(Available(cpu_cache, cpu), 0);
     EXPECT_EQ(cpu_cache.Allocated(cpu) + cpu_cache.Unallocated(cpu),
               cpu_cache.Capacity(cpu));
+  }
+
+  template <typename CpuCache>
+  static size_t SubtractFromAvailable(CpuCache& cpu_cache, int cpu,
+                                      size_t bytes) {
+    return subtract_at_least(&cpu_cache.resize_[cpu].available, bytes, bytes);
+  }
+
+  template <typename CpuCache>
+  static void AddToAvailable(CpuCache& cpu_cache, int cpu, size_t bytes) {
+    cpu_cache.resize_[cpu].available.fetch_add(bytes,
+                                               std::memory_order_relaxed);
+  }
+
+  template <typename CpuCache>
+  static void HoldResizeLockWithZeroAvailable(CpuCache& cpu_cache, int cpu,
+                                              std::atomic<bool>& ready,
+                                              std::atomic<bool>& release) {
+    AllocationGuardSpinLockHolder h(cpu_cache.resize_[cpu].lock);
+    auto available =
+        cpu_cache.resize_[cpu].available.exchange(0, std::memory_order_relaxed);
+    ready.store(true, std::memory_order_release);
+    while (!release.load(std::memory_order_acquire)) {
+    }
+    cpu_cache.resize_[cpu].available.fetch_add(available,
+                                               std::memory_order_relaxed);
   }
 };
 
@@ -2350,9 +2382,9 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
     // Vary the cache size up and down.  Exclude 1. from the list so that we
     // will always expect to see a nontrivial change after the threads stop
     // work.
-    constexpr double kConversions[] = {0.25, 0.5, 0.75, 1.25, 1.5};
+    constexpr double kConversions[] = {0.0, 0.25, 0.5, 0.75, 1.25, 1.5};
     size_t new_cache_size = initial_size * kConversions[index];
-    index = (index + 1) % 5;
+    index = (index + 1) % std::size(kConversions);
 
     env.cache().SetCacheLimit(new_cache_size);
     last_cache_size = new_cache_size;
@@ -2370,6 +2402,10 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
   size_t allocated = 0;
   size_t unallocated = 0;
   for (int i = 0, n = env.num_cpus(); i < n; i++) {
+    EXPECT_GE(CpuCachePeer::Available(env.cache(), i), 0);
+    EXPECT_EQ(env.cache().Capacity(i), last_cache_size);
+    EXPECT_EQ(env.cache().Allocated(i) + env.cache().Unallocated(i),
+              last_cache_size);
     capacity += env.cache().Capacity(i);
     allocated += env.cache().Allocated(i);
     unallocated += env.cache().Unallocated(i);
@@ -2377,6 +2413,307 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
 
   EXPECT_EQ(allocated + unallocated, capacity);
   EXPECT_EQ(env.num_cpus() * last_cache_size, capacity);
+}
+
+TEST(CpuCacheTest, DISABLED_SetCacheLimitBeforeActivate) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  constexpr size_t kCustomLimit = 64 << 10;
+  cache.SetCacheLimit(kCustomLimit);
+  EXPECT_EQ(cache.CacheLimit(), kCustomLimit);
+
+  cache.Activate();
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), kCustomLimit);
+    EXPECT_EQ(cache.Unallocated(cpu), kCustomLimit);
+  }
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, DISABLED_SetCacheLimitDuringActivate) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+
+  // SetCacheLimit may run between Activate reading the limit and publishing
+  // the per-CPU capacities.
+  constexpr size_t kLimits[] = {64 << 10, 128 << 10};
+  std::atomic<bool> started(false), stop(false);
+  std::thread setter([&]() {
+    for (int i = 0; !stop.load(std::memory_order_acquire); ++i) {
+      cache.SetCacheLimit(kLimits[i % 2]);
+      started.store(true, std::memory_order_release);
+    }
+  });
+  while (!started.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+  cache.Activate();
+  stop.store(true, std::memory_order_release);
+  setter.join();
+
+  const size_t limit = cache.CacheLimit();
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), limit);
+    EXPECT_EQ(cache.Unallocated(cpu), limit);
+  }
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, DISABLED_SetCacheLimitToZeroAndBack) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  // Limits that would overflow signed available bytes are ignored.
+  cache.SetCacheLimit(
+      static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1);
+  EXPECT_EQ(cache.CacheLimit(), kMaxCpuCacheSize);
+
+  {
+    ScopedFakeCpuId fake_cpu_id(0);
+    void* ptr = cache.Allocate(1);
+    cache.Deallocate(ptr, 1);
+    EXPECT_GT(cache.Allocated(0), 0);
+    EXPECT_GT(cache.UsedBytes(0), 0);
+  }
+
+  cache.SetCacheLimit(0);
+  EXPECT_EQ(cache.CacheLimit(), 0);
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), 0);
+    EXPECT_EQ(cache.Allocated(cpu), 0);
+    EXPECT_EQ(CpuCachePeer::Available(cache, cpu), 0);
+    EXPECT_EQ(cache.Unallocated(cpu), 0);
+    EXPECT_EQ(cache.UsedBytes(cpu), 0);
+  }
+
+  {
+    ScopedFakeCpuId fake_cpu_id(0);
+    void* ptr = cache.Allocate(1);
+    EXPECT_NE(ptr, nullptr);
+    cache.Deallocate(ptr, 1);
+    EXPECT_EQ(cache.Allocated(0), 0);
+    EXPECT_EQ(cache.UsedBytes(0), 0);
+  }
+
+  cache.SetCacheLimit(kMaxCpuCacheSize);
+  EXPECT_EQ(cache.CacheLimit(), kMaxCpuCacheSize);
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), kMaxCpuCacheSize);
+    EXPECT_EQ(cache.Unallocated(cpu), kMaxCpuCacheSize);
+  }
+
+  {
+    ScopedFakeCpuId fake_cpu_id(0);
+    void* ptr = cache.Allocate(1);
+    cache.Deallocate(ptr, 1);
+    EXPECT_GT(cache.Allocated(0), 0);
+    EXPECT_GT(cache.UsedBytes(0), 0);
+  }
+
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, DISABLED_SetCacheLimitAfterShuffle) {
+  if (!subtle::percpu::IsFast() || NumCPUs() < 2) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  constexpr size_t kInitialLimit = 1 << 10;
+  cache.SetCacheLimit(kInitialLimit);
+  cache.Activate();
+
+  constexpr int kHotCpu = 0;
+  constexpr int kColdCpu = 1;
+  constexpr size_t kSizeClass = 2;
+
+  for (int i = 0; i < 100 && cache.Capacity(kColdCpu) == kInitialLimit; ++i) {
+    ColdCacheOperations(cache, kColdCpu, kSizeClass);
+    HotCacheOperations(cache, kHotCpu, /*drain=*/true);
+    cache.ShuffleCpuCaches();
+  }
+  const size_t cold_capacity = cache.Capacity(kColdCpu);
+  ASSERT_LT(cold_capacity, kInitialLimit);
+  EXPECT_GT(cache.Capacity(kHotCpu), kInitialLimit);
+
+  // The first limit lies between the cold CPU's capacity and the old limit, so
+  // shrinking must take capacity from the hot CPU and give it to the cold CPU.
+  for (size_t new_limit :
+       {(cold_capacity + kInitialLimit) / 2, kInitialLimit * 2, size_t{0}}) {
+    cache.SetCacheLimit(new_limit);
+    EXPECT_EQ(cache.CacheLimit(), new_limit);
+    for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+      EXPECT_GE(CpuCachePeer::Available(cache, cpu), 0);
+      EXPECT_EQ(cache.Capacity(cpu), new_limit);
+      EXPECT_EQ(cache.Allocated(cpu) + CpuCachePeer::Available(cache, cpu),
+                new_limit);
+      EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu), new_limit);
+    }
+  }
+
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, DISABLED_SetCacheLimitWithInFlightGrow) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  ColdCacheOperations(cache, 0, /*size_class=*/1);
+  ASSERT_GT(cache.Allocated(0), 0);
+
+  // Simulate the interleaving between a concurrent Grow() on CPU 0 and
+  // SetCacheLimit(kNewLimit) when kInFlight > kNewLimit:
+  //
+  //   1. Grow() subtracts kInFlight from resize_[0].available (without holding
+  //      resize_[0].lock) before attempting freelist_.Grow().
+  //   2. SetCacheLimit(kNewLimit) subtracts (capacity - kNewLimit) from
+  //      resize_[0].available and drains CPU 0.  Stopping CPU 0 invalidates its
+  //      cached slab pointer so the in-flight freelist_.Grow() will fail, and
+  //      draining returns Allocated(0) to available, leaving
+  //      available == kNewLimit - kInFlight < 0 while Unallocated(0) clamps to
+  //      0.
+  //   3. Grow() observes that freelist_.Grow() returned 0 and adds the unused
+  //      kInFlight bytes back to resize_[0].available, settling available at
+  //      kNewLimit.
+  constexpr size_t kInFlight = 64 << 10;
+  constexpr size_t kNewLimit = 32 << 10;
+  ASSERT_EQ(CpuCachePeer::SubtractFromAvailable(cache, 0, kInFlight),
+            kInFlight);
+
+  cache.SetCacheLimit(kNewLimit);
+  EXPECT_EQ(cache.Capacity(0), kNewLimit);
+  EXPECT_EQ(cache.Allocated(0), 0);
+  EXPECT_LT(CpuCachePeer::Available(cache, 0), 0);
+  EXPECT_EQ(cache.Unallocated(0), 0);
+
+  CpuCachePeer::AddToAvailable(cache, 0, kInFlight);
+  EXPECT_EQ(cache.Capacity(0), kNewLimit);
+  EXPECT_EQ(CpuCachePeer::Available(cache, 0), kNewLimit);
+  EXPECT_EQ(cache.Unallocated(0), kNewLimit);
+
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, DISABLED_SetCacheLimitRetriesAvailableUnderResizeLock) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  ColdCacheOperations(cache, 0, /*size_class=*/1);
+  const size_t allocated = cache.Allocated(0);
+  ASSERT_GT(allocated, 0);
+  ASSERT_EQ(cache.GetNumDrains(0), 0);
+
+  // ResizeCpuSizeClasses temporarily exchanges available with 0 while holding
+  // resize_[0].lock.  SetCacheLimit should re-check available after acquiring
+  // resize_[0].lock instead of draining CPU 0 when slack covers the shrink.
+  std::atomic<bool> ready(false), release(false);
+  std::thread holder([&]() {
+    CpuCachePeer::HoldResizeLockWithZeroAvailable(cache, 0, ready, release);
+  });
+  while (!ready.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+
+  constexpr size_t kNewLimit = kMaxCpuCacheSize - 64;
+  std::thread resizer([&]() { cache.SetCacheLimit(kNewLimit); });
+  absl::SleepFor(absl::Milliseconds(10));
+  release.store(true, std::memory_order_release);
+  holder.join();
+  resizer.join();
+
+  EXPECT_EQ(cache.Capacity(0), kNewLimit);
+  EXPECT_EQ(cache.Allocated(0), allocated);
+  EXPECT_EQ(cache.Unallocated(0), kNewLimit - allocated);
+  EXPECT_EQ(cache.GetNumDrains(0), 0);
+
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, DISABLED_StressSetCacheLimit) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  constexpr size_t kLimits[] = {0, 512, 1 << 10, 2 << 10, 4 << 10};
+  cache.SetCacheLimit(kLimits[2]);
+  cache.Activate();
+
+  std::atomic<bool> stop(false);
+  std::vector<std::thread> workers;
+  const int n_threads = NumStressThreads();
+  workers.reserve(n_threads);
+  for (int t = 0; t < n_threads; ++t) {
+    workers.emplace_back(StressThread, std::ref(cache), t, std::ref(stop));
+  }
+
+  std::thread background([&]() {
+    while (!stop.load(std::memory_order_acquire)) {
+      cache.ShuffleCpuCaches();
+      cache.ResizeSizeClasses();
+      cache.TryDrainingCaches();
+    }
+  });
+
+  size_t last_limit = kLimits[2];
+  std::thread limiter([&]() {
+    for (size_t i = 0; !stop.load(std::memory_order_acquire); ++i) {
+      last_limit = kLimits[i % std::size(kLimits)];
+      cache.SetCacheLimit(last_limit);
+    }
+  });
+
+  absl::SleepFor(absl::Milliseconds(100));
+  stop.store(true, std::memory_order_release);
+  limiter.join();
+  background.join();
+  for (auto& w : workers) {
+    w.join();
+  }
+
+  EXPECT_EQ(cache.CacheLimit(), last_limit);
+  size_t total_capacity = 0;
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_GE(CpuCachePeer::Available(cache, cpu), 0);
+    EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu),
+              cache.Capacity(cpu));
+    total_capacity += cache.Capacity(cpu);
+  }
+  EXPECT_EQ(total_capacity, NumCPUs() * last_limit);
+
+  cache.SetCacheLimit(0);
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), 0);
+    EXPECT_EQ(cache.Allocated(cpu), 0);
+    EXPECT_EQ(CpuCachePeer::Available(cache, cpu), 0);
+  }
+
+  cache.Deactivate();
 }
 
 TEST(TouchedCpus, SingleThreaded) {
