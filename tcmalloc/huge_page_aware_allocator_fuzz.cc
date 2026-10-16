@@ -774,6 +774,7 @@ struct State {
     BackingStats filler_stats;
     HugeLength donated;
     Length abandoned;
+    HugeLength reused_broken;
     {
       PageHeapSpinLockHolder l;
       stats = allocator.stats();
@@ -781,6 +782,7 @@ struct State {
       filler_stats = allocator.FillerStats();
       donated = allocator.DonatedHugePages();
       abandoned = allocator.AbandonedPages();
+      reused_broken = allocator.ReusedBrokenHugePages();
     }
     TC_CHECK_EQ(release_stats, expected_stats);
     TC_CHECK_EQ(live_ranges.size(), allocs.size());
@@ -841,6 +843,8 @@ struct State {
     const size_t retiring =
         over + allocator.forwarder().pending_release_.in_bytes();
     TC_CHECK_LE(donated.in_bytes(), filler_stats.system_bytes + retiring,
+                "%v %v", filler_stats.system_bytes, retiring);
+    TC_CHECK_LE(reused_broken.in_bytes(), filler_stats.system_bytes + retiring,
                 "%v %v", filler_stats.system_bytes, retiring);
     TC_CHECK_LE(abandoned, donated.in_pages());
     if (pending_alloc == Length(0)) {
@@ -1287,6 +1291,7 @@ PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
   TC_CHECK_EQ(state.allocator.FillerStats().system_bytes, 0);
   TC_CHECK_EQ(state.allocator.DonatedHugePages(), NHugePages(0));
   TC_CHECK_EQ(state.allocator.AbandonedPages(), Length(0));
+  TC_CHECK_EQ(state.allocator.ReusedBrokenHugePages(), NHugePages(0));
   return final_stats;
 }
 
