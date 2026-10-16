@@ -1093,26 +1093,6 @@ cc_test(
     ],
 )
 
-create_tcmalloc_benchmark(
-    name = "huge_page_filler_benchmark",
-    srcs = ["huge_page_filler_benchmark.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":common_8k_pages",
-        "//tcmalloc/internal:clock",
-        "//tcmalloc/internal:config",
-        "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:memory_tag",
-        "//tcmalloc/internal:pageflags",
-        "//tcmalloc/internal:range_tracker",
-        "//tcmalloc/internal:residency",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/strings:string_view",
-        "@com_google_absl//absl/time",
-    ],
-)
-
 cc_test(
     name = "huge_page_filler_test",
     timeout = "long",

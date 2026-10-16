@@ -1290,28 +1290,6 @@ tcmalloc_cc_test(
     900
 )
 
-tcmalloc_cc_binary(
-  NAME
-    tcmalloc_huge_page_filler_benchmark
-  SRCS
-    "huge_page_filler_benchmark.cc"
-  DEPS
-    "absl::core_headers"
-    "absl::string_view"
-    "absl::time"
-    "benchmark::benchmark"
-    "benchmark::benchmark_main"
-    "tcmalloc::common_8k_pages"
-    "tcmalloc::internal_clock"
-    "tcmalloc::internal_config"
-    "tcmalloc::internal_logging"
-    "tcmalloc::internal_memory_tag"
-    "tcmalloc::internal_pageflags"
-    "tcmalloc::internal_range_tracker"
-    "tcmalloc::internal_residency"
-    "tcmalloc::tcmalloc"
-)
-
 tcmalloc_cc_test(
   NAME
     tcmalloc_huge_page_filler_test

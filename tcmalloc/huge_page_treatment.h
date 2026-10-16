@@ -213,13 +213,6 @@ class HugePageTreatment {
   virtual void SelectEligibleTrackers(PageTracker& pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
-  // Called once every tracker has been offered to SelectEligibleTrackers,
-  // still under pageheap_lock.  Pins (DontFreeTracker) the trackers the
-  // treatment settled on, so that a tracker it only considered is never
-  // pinned and unpinned.
-  virtual void FinishSelection()
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
-
   // Returns the number of trackers that have been selected for treatment.
   [[nodiscard]] virtual int num_valid_trackers() const = 0;
 
@@ -275,18 +268,10 @@ class SampledTrackerTreatment final : public HugePageTreatment {
           pt.nobjects(), pt.HasDenseSpans(),      pt.released()};
       pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now_});
       ++num_valid_trackers_;
-    }
-  }
-
-  void FinishSelection() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
-    TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
-    for (int i = 0; i < num_valid_trackers_; ++i) {
-      PageTracker* tracker = selected_trackers_[i].tracker;
-      TC_ASSERT_NE(tracker, nullptr);
       // Setting this bit makes sure that the tracker is not freed under us
       // when the pageheap lock is unlocked and we are in the middle of
       // applying the treatment.
-      tracker->SetDontFreeTracker(HugePageTreatmentType::kSampled);
+      pt.SetDontFreeTracker(HugePageTreatmentType::kSampled);
     }
   }
 
@@ -400,13 +385,13 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
   void SelectEligibleTrackers(PageTracker& pt) override {
-    // Trackers are pinned in FinishSelection, once the set is final:
-    // pinning here and unpinning on eviction would touch a cold tracker per
-    // eviction under pageheap_lock.
+
     auto PushCandidate = [&](PageTracker& pt) GOOGLE_MALLOC_SECTION {
       if (num_valid_trackers_ < kTotalTrackersToScan) {
         selected_trackers_[num_valid_trackers_] = &pt;
         ++num_valid_trackers_;
+        pt.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+        pt.ClearReleasedSinceSelected();
         if (num_valid_trackers_ == kTotalTrackersToScan) {
           std::make_heap(selected_trackers_.begin(),
                          selected_trackers_.begin() + num_valid_trackers_,
@@ -421,6 +406,11 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       std::pop_heap(selected_trackers_.begin(),
                     selected_trackers_.begin() + num_valid_trackers_,
                     CompareForHugePageTreatment);
+      PageTracker* last = selected_trackers_[num_valid_trackers_ - 1];
+      TC_ASSERT_NE(last, nullptr);
+      pt.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+      pt.ClearReleasedSinceSelected();
+      last->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
       selected_trackers_[num_valid_trackers_ - 1] = &pt;
       std::push_heap(selected_trackers_.begin(),
                      selected_trackers_.begin() + num_valid_trackers_,
@@ -440,14 +430,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     double elapsed = std::max<double>(clock_now_ - state.record_time, 0);
     if (elapsed > record_interval_cycles_) {
       PushCandidate(pt);
-    }
-  }
-
-  void FinishSelection() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
-    TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
-    for (int i = 0; i < num_valid_trackers_; ++i) {
-      TC_ASSERT_NE(selected_trackers_[i], nullptr);
-      Pin(*selected_trackers_[i]);
     }
   }
 
@@ -620,14 +602,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
  private:
-  // Keeps tracker from being freed while pageheap_lock is dropped, and starts
-  // tracking releases from it over that window.
-  static void Pin(PageTracker& tracker)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    tracker.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
-    tracker.ClearReleasedSinceSelected();
-  }
-
   [[nodiscard]] bool TryUserspaceCollapse(PageTracker* tracker) {
     double before = clock_.now();
     MemoryModifyStatus ret = tracker->Collapse(collapse_);
