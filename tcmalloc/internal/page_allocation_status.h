@@ -15,14 +15,25 @@
 #ifndef TCMALLOC_INTERNAL_PAGE_ALLOCATION_STATUS_H_
 #define TCMALLOC_INTERNAL_PAGE_ALLOCATION_STATUS_H_
 
+#include <cstddef>
 #include <optional>
 
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/range_tracker.h"
 
 namespace tcmalloc::tcmalloc_internal {
 
 struct PageAllocationStatus {
-  Bitmap<512> allocated;
+  // Granularity of `allocated`: each bit covers kBytesPerBit bytes of the
+  // hugepage.  This is fixed at 4 KiB, independent of TCMalloc's internal page
+  // size and of the hardware page size reported by GetPageSize().
+  static constexpr size_t kBytesPerBit = 4096;
+  static constexpr size_t kNumBits = kHugePageSize / kBytesPerBit;
+  static_assert(kHugePageSize % kBytesPerBit == 0);
+
+  // Bit i is set if any part of
+  // [i * kBytesPerBit, (i + 1) * kBytesPerBit) is allocated.
+  Bitmap<kNumBits> allocated;
 };
 
 // Queries TCMalloc for the page allocation status of the hugepage starting at

@@ -86,7 +86,6 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:page_allocation_status",
-        "//tcmalloc/internal:page_size",
         "//tcmalloc/internal:parameter_accessors",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
