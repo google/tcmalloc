@@ -1295,7 +1295,8 @@ ABSL_ATTRIBUTE_NOINLINE static
   size_t weight = GetThreadSampler().RecordedAllocationFast(size);
   if (ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
-      ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
+      ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals)) ||
+      ABSL_PREDICT_FALSE(size_class == 0)) {
     return alloc_small_sampled_hooks_or_perthread(size, size_class, policy,
                                                   weight);
   }

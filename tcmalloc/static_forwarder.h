@@ -116,7 +116,9 @@ class StaticForwarder : private Parameters {
   [[nodiscard]] static void* absl_nonnull AllocCpuCache(
       size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(state.IsInited());
+    // No IsInited() check: Static::SlowInitIfNecessary calls
+    // CpuCache::Activate after initializing the arena but before setting
+    // IsInited().
     // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
