@@ -1762,6 +1762,9 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       },
       /*start=*/0);
 
+  sampled_tracker_treatment.FinishSelection();
+  unbacked_tracker_treatment.FinishSelection();
+
   pageheap_lock.unlock();
   sampled_tracker_treatment.Treat();
   unbacked_tracker_treatment.Treat();
