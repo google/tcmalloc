@@ -1285,6 +1285,23 @@ TEST_F(TcMallocTest, NeverAllocatedPointer) {
           "(Attempted to free corrupted pointer 0xdeadbee0: It was "
           "never allocated or TCMalloc metadata has been corrupted",
           ")"));
+
+  for (uintptr_t tag : {uintptr_t{0x3}, uintptr_t{0x5}, uintptr_t{0x7}}) {
+    if (tcmalloc_internal::kSanitizerAddressSpace && tag > 0x3) {
+      continue;
+    }
+    void* tagged_ptr =
+        absl::bit_cast<void*>(tag << tcmalloc_internal::kTagShift);
+    EXPECT_DEATH(
+        { ::operator delete(tagged_ptr, 8); },
+        absl::StrCat(
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER)
+            "(attempting free on address which was not malloc)|"
+#endif
+            "(Attempted to free corrupted pointer 0x[0-9a-f]+: It was "
+            "never allocated or TCMalloc metadata has been corrupted",
+            ")"));
+  }
 }
 
 TEST_F(TcMallocTest, NeverAllocatedPointerHighBits) {
