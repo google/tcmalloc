@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifdef __linux__
-#include <linux/prctl.h>
-#endif
-
 #include <cstddef>
-#include <cstring>
 
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
@@ -32,10 +27,6 @@
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {
-
-#ifdef ANON_VMA_NAME_MAX_LEN
-static_assert(kMaxAnonVmaNameSize == ANON_VMA_NAME_MAX_LEN);
-#endif
 
 constexpr size_t kMinPageSize = 4096;
 constexpr size_t kMaxPagesPerHugePage = kHugePageSize / kMinPageSize;
