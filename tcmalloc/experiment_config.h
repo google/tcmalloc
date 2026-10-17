@@ -59,7 +59,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_RELEASE_FREE_STALE, "TCMALLOC_RELEASE_FREE_STALE"},
     {Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS, "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"", /*rollout_inverted=*/true},
     {Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE, "TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
-    {Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES, "TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES"},
+    {Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES, "TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
     {Experiment::TEST_ONLY_TCMALLOC_HEAP_PARTITIONING, "TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"},
     {Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS, "TEST_ONLY_TCMALLOC_POW2_SIZECLASS", /*brittle=*/true},
