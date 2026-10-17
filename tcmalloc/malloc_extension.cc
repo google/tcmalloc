@@ -32,6 +32,7 @@
 #include "absl/base/call_once.h"
 #include "absl/base/internal/low_level_alloc.h"
 #include "absl/functional/function_ref.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
@@ -582,6 +583,15 @@ std::optional<size_t> MallocExtension::GetNumericProperty(
     if (MallocExtension_Internal_GetNumericProperty(property.data(),
                                                     property.size(), &value)) {
       return value;
+    }
+  }
+  if (&MallocExtension_Internal_GetExperiments != nullptr &&
+      absl::StartsWith(property, "tcmalloc.experiment.")) {
+    MallocExtension::PropertyMap properties;
+    MallocExtension_Internal_GetExperiments(&properties);
+    auto it = properties.find(property);
+    if (it != properties.end()) {
+      return it->second.value;
     }
   }
 #endif
