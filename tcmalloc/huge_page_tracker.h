@@ -228,6 +228,11 @@ class PageTracker : public TList<PageTracker>::Elem {
   [[nodiscard]] Length MarkSubreleased(const PageBitmap& unbacked)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  void ResetReleased() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    released_by_page_.Clear();
+    released_count_ = 0;
+  }
+
   [[nodiscard]] const PageBitmap& released_by_page() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return released_by_page_;
