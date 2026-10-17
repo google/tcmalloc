@@ -190,8 +190,13 @@ class UsageInfo {
     }
     ++records.total_hugepages;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::HugePageResidencyState hugepage_residency_state =
         pt.GetHugePageResidencyState();
+#else
+    const PageTracker::HugePageResidencyState& hugepage_residency_state =
+        pt.GetHugePageResidencyState();
+#endif
     if (hugepage_residency_state.entry_valid) {
       TC_ASSERT_GE(free, pt.released_pages());
       ++records.treated_hugepages;
@@ -1744,23 +1749,30 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       },
       /*start=*/0);
 
-  regular_alloc_released_.sparse.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        if (enable_subrelease_unbacked) {
-          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-        }
-      },
-      /*start=*/0);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  if (enable_subrelease_unbacked ||
+      !sampled_tracker_treatment.tracker_list_full()) {
+#endif
+    regular_alloc_released_.sparse.Iter(
+        [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+          sampled_tracker_treatment.SelectEligibleTrackers(pt);
+          if (enable_subrelease_unbacked) {
+            unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+          }
+        },
+        /*start=*/0);
 
-  regular_alloc_released_.dense.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        if (enable_subrelease_unbacked) {
-          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-        }
-      },
-      /*start=*/0);
+    regular_alloc_released_.dense.Iter(
+        [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
+          sampled_tracker_treatment.SelectEligibleTrackers(pt);
+          if (enable_subrelease_unbacked) {
+            unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+          }
+        },
+        /*start=*/0);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  }
+#endif
 
   sampled_tracker_treatment.FinishSelection();
   unbacked_tracker_treatment.FinishSelection();

@@ -40,7 +40,11 @@ using ::testing::UnorderedElementsAre;
 struct Info : public Sample<Info> {
  public:
   Info() { PrepareForSampling(); }
-  void PrepareForSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+  void PrepareForSampling()
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock)
+#endif
+  {
     initialized = true;
   }
   std::atomic<size_t> size;
@@ -217,7 +221,11 @@ struct InfoWithParam : public Sample<InfoWithParam> {
   // Default constructor to initialize |graveyard_|.
   InfoWithParam() = default;
   explicit InfoWithParam(size_t size) { PrepareForSampling(size); }
-  void PrepareForSampling(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+  void PrepareForSampling(size_t size)
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock)
+#endif
+  {
     info_size = size;
     initialized = true;
   }
