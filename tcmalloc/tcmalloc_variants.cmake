@@ -91,6 +91,15 @@ function(tcmalloc_cc_library_variants)
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS}
   )
+  tcmalloc_cc_library(NAME ${TCMALLOC_NAME}_legacy_locking2
+    ALIAS ${TCMALLOC_ALIAS}_legacy_locking2
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LEGACY_LOCKING2
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS}
+  )
 endfunction()
 
 function(tcmalloc_cc_test_variants)
@@ -298,6 +307,15 @@ function(tcmalloc_cc_test_variants)
     COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LATENCY_INJECTION
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_latency_injection tcmalloc::common_latency_injection
+    ENV ${TCMALLOC_ENV}
+  )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_legacy_locking2
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS} -DTCMALLOC_INTERNAL_8K_PAGES -DTCMALLOC_INTERNAL_LEGACY_LOCKING2
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_legacy_locking2 tcmalloc::common_legacy_locking2
     ENV ${TCMALLOC_ENV}
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_free_stale
