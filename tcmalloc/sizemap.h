@@ -261,13 +261,13 @@ class SizeMap {
           class_array_[idx + (policy.security_partition() + kColdRegionsStart) *
                                  kClassArraySize];
     } else {
-      constexpr size_t kTypeOffset =
+      const size_t type_offset =
           IsNew(policy.allocation_type()) ? 0 : kSecurityPartitions;
       TC_ASSERT_LT(
-          idx + (policy.security_partition() + kTypeOffset) * kClassArraySize,
+          idx + (policy.security_partition() + type_offset) * kClassArraySize,
           kTotalClassArraySize);
       size_class =
-          class_array_[idx + (policy.security_partition() + kTypeOffset) *
+          class_array_[idx + (policy.security_partition() + type_offset) *
                                  kClassArraySize] +
           policy.scaled_numa_partition();
     }

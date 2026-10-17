@@ -631,8 +631,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
 
 namespace {
 
-template <typename Policy>
-inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
+ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, size_t weight,
+                                                    DynamicPolicy policy) {
   // Page allocator does not deal well with num_pages = 0.
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
@@ -663,8 +663,9 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
             tag == GetMemoryTag(alloc_res.r.start_addr()));
 
   if (weight != 0) {
-    auto ptr = SampleLargeAllocation(tc_globals, policy, size, weight,
-                                     alloc_res.r, alloc_res.donated);
+    auto ptr =
+        SampleifyAllocation(tc_globals, policy, size, weight,
+                            /*size_class=*/0, alloc_res.r, alloc_res.donated);
     TC_CHECK_EQ(res.p, ptr.p);
   } else {
     tc_globals.pagemap().SetLarge(alloc_res.r.p, num_pages, alloc_res.donated);
@@ -696,9 +697,8 @@ static constexpr uintptr_t kTagOrBadDeallocationMask =
 // is either large or sampled. We explicitly prevent inlining it to
 // keep it out of fast-path. This helps avoid expensive
 // prologue/epilogue for fast-path freeing functions.
-template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
-    void* ptr, std::optional<size_t> size, Policy policy) {
+    void* ptr, std::optional<size_t> size, DynamicPolicy policy) {
   const PageId p = PageIdContaining(ptr);
 
   // We use GetDescriptor rather than GetExistingDescriptor here, since `ptr`
@@ -799,9 +799,8 @@ bool CorrectSize(const void* ptr, size_t size, Policy policy);
 
 bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
-template <typename Policy>
-ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(void* ptr,
-                                                              Policy policy) {
+ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(
+    void* ptr, DynamicPolicy policy) {
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
 
   if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
@@ -844,7 +843,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
       return;
     }
 
-    do_unsized_free_irregular(ptr, policy);
+    do_unsized_free_irregular(ptr, DynamicPolicy(policy));
     return;
   }
   TC_ASSERT_NE(ptr, nullptr);
@@ -858,7 +857,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
     FreeSmall(ptr, std::nullopt, size_class);
   } else {
     SLOW_PATH_BARRIER();
-    InvokeHooksAndFreePages(ptr, std::nullopt, policy);
+    InvokeHooksAndFreePages(ptr, std::nullopt, DynamicPolicy(policy));
   }
 }
 
@@ -900,7 +899,7 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
 
   if (ABSL_PREDICT_TRUE(tag == MemoryTag::kGuarded ||
                         IsSampledOrColdMemory(ptr))) {
-    return InvokeHooksAndFreePages(ptr, size, policy);
+    return InvokeHooksAndFreePages(ptr, size, DynamicPolicy(policy));
   }
   // At this point, the pointer is purely illformed: wrong alignment, corrupted
   // high bits, or illegal tags.
@@ -916,7 +915,7 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
     TC_ASSERT(size > kMaxSize ||
               policy.align() > std::align_val_t{alignof(std::max_align_t)});
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
-    return InvokeHooksAndFreePages(ptr, size, policy);
+    return InvokeHooksAndFreePages(ptr, size, DynamicPolicy(policy));
   }
 
   // >kMaxSize objects may be sampled and this is handled by
@@ -1049,7 +1048,7 @@ inline
             policy.align() > std::align_val_t{alignof(std::max_align_t)});
   static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
   SLOW_PATH_BARRIER();
-  return InvokeHooksAndFreePages(ptr, size, policy);
+  return InvokeHooksAndFreePages(ptr, size, DynamicPolicy(policy));
 }
 
 // Checks that an asserted object size for <ptr> is valid.
@@ -1245,10 +1244,9 @@ using tcmalloc::tcmalloc_internal::UsePerCpuCache;
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-template <typename Policy>
-ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
+ABSL_ATTRIBUTE_NOINLINE static sized_ptr_t
 alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
-                                       Policy policy, size_t weight) {
+                                       DynamicPolicy policy, size_t weight) {
   if (ABSL_PREDICT_FALSE(size_class == 0)) {
     // This happens on the first call then the size class table is not inited.
     TC_ASSERT(tc_globals.IsInited());
@@ -1258,7 +1256,8 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
   }
   __sized_ptr_t ptr;
   if (ABSL_PREDICT_FALSE(weight != 0)) {
-    ptr = SampleSmallAllocation(tc_globals, policy, size, weight, size_class);
+    ptr = SampleifyAllocation(tc_globals, policy, size, weight, size_class,
+                              Range(), /*donated=*/false);
   } else {
     if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
       ptr.p = tc_globals.cpu_cache().AllocateSlow(size_class);
@@ -1268,16 +1267,16 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
     ptr.n = tc_globals.sizemap().class_to_size(size_class);
   }
   if (ABSL_PREDICT_FALSE(ptr.p == nullptr)) {
-    return policy.handle_oom(size);
+    return {nullptr, 0};
   }
-  if (Policy::invoke_hooks()) {
+  if (policy.invoke_hooks()) {
     // Size returning tcmallocs call NewHooks with capacity as requested_size.
     // The callee of the hook has no other way of knowing that writes to [size,
     // ptr.n) are valid.
-    MallocHook::InvokeNewHook({ptr.p, Policy::size_returning() ? ptr.n : size,
+    MallocHook::InvokeNewHook({ptr.p, policy.size_returning() ? ptr.n : size,
                                ptr.n, HookMemoryMutable::kMutable});
   }
-  return Policy::as_pointer(ptr.p, ptr.n);
+  return ptr;
 }
 
 // Slow path implementation.
@@ -1296,8 +1295,10 @@ ABSL_ATTRIBUTE_NOINLINE static
   if (ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
-    return alloc_small_sampled_hooks_or_perthread(size, size_class, policy,
-                                                  weight);
+    __sized_ptr_t res = alloc_small_sampled_hooks_or_perthread(
+        size, size_class, DynamicPolicy(policy), weight);
+    if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
+    return Policy::as_pointer(res.p, res.n);
   }
 
   void* res;
@@ -1311,7 +1312,7 @@ template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
     size_t size, Policy policy) {
   size_t weight = GetThreadSampler().RecordAllocation(size);
-  __sized_ptr_t res = do_malloc_pages(size, weight, policy);
+  __sized_ptr_t res = do_malloc_pages(size, weight, DynamicPolicy(policy));
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
 
   if (Policy::invoke_hooks()) {
