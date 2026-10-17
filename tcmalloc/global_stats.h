@@ -36,18 +36,36 @@ struct TCMallocStats {
   uint64_t thread_bytes;               // Bytes in thread caches
   uint64_t central_bytes;              // Bytes in central cache
   uint64_t transfer_bytes;             // Bytes in central transfer cache
-  uint64_t metadata_bytes;             // Bytes alloced for metadata
+  uint64_t metadata_bytes;             // Bytes alloced for metadata (adjusted
+                                       // to resident bytes of pagemap root and
+                                       // per-CPU slab when report_residence is
+                                       // true; always includes arena-allocated
+                                       // pagemap nodes)
   uint64_t sharded_transfer_bytes;     // Bytes in per-CCX cache
   uint64_t per_cpu_bytes;              // Bytes in per-CPU cache
   uint64_t pagemap_root_bytes_res;     // Resident bytes of pagemap root node
+                                       // (included in metadata_bytes when
+                                       // report_residence is true)
   uint64_t percpu_metadata_bytes_res;  // Resident bytes of the per-CPU metadata
+                                       // (included in metadata_bytes when
+                                       // report_residence is true)
   AllocatorStats tc_stats;             // ThreadCache objects
   AllocatorStats span_stats;           // Span objects
   AllocatorStats stack_stats;          // StackTrace objects
   AllocatorStats linked_sample_stats;  // StackTraceTable::LinkedSample objects
-  size_t pagemap_bytes;                // included in metadata bytes
+  size_t pagemap_bytes;                // Total pagemap bytes (root + arena
+                                       // nodes; root adjusted to
+                                       // pagemap_root_bytes_res in
+                                       // metadata_bytes when report_residence
+                                       // is true)
   size_t pagemap_root_size;            // Size of pagemap root node array
-  size_t percpu_metadata_bytes;        // included in metadata bytes
+                                       // (replaced by pagemap_root_bytes_res in
+                                       // metadata_bytes when report_residence
+                                       // is true)
+  size_t percpu_metadata_bytes;        // Virtual size of per-CPU slab (replaced
+                                       // by percpu_metadata_bytes_res in
+                                       // metadata_bytes when report_residence
+                                       // is true)
   BackingStats pageheap;               // Stats from page heap
   PageAllocatorPeakStats peak_stats;
 
