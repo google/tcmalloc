@@ -801,6 +801,9 @@ struct State {
     // takes a hugepage it is retiring off the free and unmapped counts before
     // it drops the lock to unback the remainder.
     const bool mid_operation = depth > 0 || lock_drops > 0;
+    if (!mid_operation) {
+      CheckReleasedPagesNonResident();
+    }
     auto parked_only = [&](size_t over) {
       return over == 0 || (mid_operation && over % kHugePageSize == 0);
     };
@@ -857,6 +860,36 @@ struct State {
              "%v %v", over, range);
   }
 
+  // Every page marked in a tracker's released_by_page() bitmap must be
+  // non-resident in the forwarder (unbacked by ReleasePages or reported
+  // unbacked by Residency, and not since re-backed by Back or CollapsePages).
+  void CheckReleasedPagesNonResident() {
+    PageHeapSpinLockHolder l;
+    allocator.forwarder().ForEachTracker(
+        [&](HugePage hp, const PageTracker* pt) ABSL_EXCLUSIVE_LOCKS_REQUIRED(
+            pageheap_lock) {
+          const PageId first = hp.first_page();
+          pt->released_by_page().ForEachSet(0, [&](size_t i) {
+            TC_CHECK(!allocator.forwarder().IsPageResident(first + Length(i)),
+                     "%v", first + Length(i));
+          });
+        });
+  }
+
+  // Marks every TCMalloc page whose native pages are all set in
+  // `unbacked_bitmap` as non-resident in the forwarder, matching what
+  // HugePageUnbackedTrackerTreatment::Treat() observes for `addr`.
+  void MarkUnbackedBitmapPagesNonResident(const void* addr) {
+    const HugePage hp = HugePageContaining(PageIdContaining(addr));
+    const size_t pages_per_huge_page = kHugePageSize / GetPageSize();
+    const PageBitmap scaled = Scale<kPagesPerHugePage.raw_num()>(
+        unbacked_bitmap, pages_per_huge_page, ReductionOp::kAll);
+    scaled.ForEachSet(0, [&](size_t i) {
+      allocator.forwarder().MarkPagesNonResident(
+          Range(hp.first_page() + Length(i), Length(1)));
+    });
+  }
+
   HugePageAwareAllocator<FakeStaticForwarderWithUnback> allocator;
   const MemoryTag tag;
   FakePageFlags pageflags{*this};
@@ -906,6 +939,7 @@ std::optional<bool> FakePageFlags::IsHugepageBacked(const void* addr) {
 Residency::SinglePageBitmaps FakeResidency::GetUnbackedAndSwappedBitmaps(
     const void* addr) {
   state_.OnLockDropped();
+  state_.MarkUnbackedBitmapPagesNonResident(addr);
   return {state_.unbacked_bitmap, state_.swapped_bitmap, absl::StatusCode::kOk};
 }
 
