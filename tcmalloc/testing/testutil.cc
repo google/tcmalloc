@@ -182,7 +182,7 @@ double AndersonDarlingTest(absl::Span<const double> random_sample) {
 }
 
 bool NamedVMAsSupported() {
-  static bool pr_set_vma_works = [] {
+  static const bool pr_set_vma_works = [] {
     constexpr size_t kMmapSize = 4096;
     void* addr = mmap(NULL, kMmapSize, PROT_NONE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
