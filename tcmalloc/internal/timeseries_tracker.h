@@ -146,6 +146,7 @@ class TimeSeriesTracker {
 
   const absl::Duration epoch_length_;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   TimeSeriesContent entries_[kSlots]{};
   size_t last_epoch_{0};
   size_t current_slot_{0};
@@ -157,6 +158,19 @@ class TimeSeriesTracker {
   uint8_t div_precision_;
 
   Clock clock_;
+#else
+  size_t last_epoch_{0};
+  size_t current_slot_{0};
+  // How many epochs did it take to collect all valid data points?
+  size_t covered_epochs_{0};
+  // This is the magic constant from
+  // https://ridiculousfish.com/blog/posts/labor-of-division-episode-i.html.
+  uint64_t epoch_ticks_m_;
+  uint8_t div_precision_;
+
+  Clock clock_;
+  TimeSeriesContent entries_[kSlots]{};
+#endif
 };
 
 // Advances the current slot if the clock had advanced >= 1 epoch; sets the

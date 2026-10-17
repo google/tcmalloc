@@ -49,7 +49,11 @@ struct AllocatorStats {
 // Simple allocator for objects of a specified type.  External locking
 // is required before accessing one of these objects.
 template <class T, ArenaAlloc AllocType>
-class MetadataObjectAllocator {
+class
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    ABSL_CACHELINE_ALIGNED
+#endif
+    MetadataObjectAllocator {
  public:
   constexpr MetadataObjectAllocator() = default;
   constexpr explicit MetadataObjectAllocator(
