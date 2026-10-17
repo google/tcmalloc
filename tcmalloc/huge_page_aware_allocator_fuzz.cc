@@ -888,7 +888,6 @@ struct State {
   // Bumped whenever a reentrant subprogram runs, so an operation can tell
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;
-  bool treating_trackers = false;
   std::string output;
 };
 
@@ -1112,19 +1111,8 @@ void AdvanceClock::Perform(State& state) const {
 }
 
 void TreatTrackers::Perform(State& state) const {
-  // Treatment drops pageheap_lock around collapse and VMA naming, so a
-  // reentrant subprogram could start a second treatment.  Production runs
-  // treatment from a single background thread, and nested treatments would
-  // clear each other's DontFreeTracker bits, so never nest them.
-  // TODO(b/565392619): Fuzz concurrent treatments once tracker state survives
-  // multiple treatment threads.
-  if (state.treating_trackers) {
-    return;
-  }
-  state.treating_trackers = true;
   state.allocator.TreatHugepageTrackers(enable_collapse, &state.pageflags,
                                         &state.residency);
-  state.treating_trackers = false;
 }
 
 void ResetSubreleaseIntervals::Perform(State& state) const {
@@ -1998,6 +1986,27 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
             "SetTrackBrokenHugepages{.value=false}");
   EXPECT_EQ(absl::StrCat(SetUsageLimitPressure{.pages = 3}),
             "SetUsageLimitPressure{.pages=3}");
+}
+
+TEST(HugePageAwareAllocatorTest, NestedTreatTrackers) {
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
+      {Instruction{Alloc{.length = 1,
+                         .num_objects = 1,
+                         .alignment = 1,
+                         .use_aligned = false,
+                         .dense = false}},
+       Instruction{ChangeParam{SetTrackBrokenHugepages{.value = true}}},
+       Instruction{ChangeParam{ReentrantSubprogram{
+           {Instruction{
+                TreatTrackers{.enable_collapse = EnableCollapse::kDisabled}},
+            Instruction{
+                TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}},
+            Instruction{Dealloc{.index = 0}}}}}},
+       Instruction{
+           TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}}});
 }
 
 }  // namespace
