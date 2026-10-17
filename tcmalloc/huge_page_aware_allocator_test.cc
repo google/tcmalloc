@@ -2773,7 +2773,7 @@ TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
       return PageStats{};
     }
     PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
-      return {{}, absl::StatusCode::kOk};
+      return {.status = absl::StatusCode::kOk};
     }
     std::optional<bool> IsHugepageBacked(const void* addr) override {
       return false;
