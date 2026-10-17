@@ -688,7 +688,8 @@ static_assert((static_cast<uintptr_t>(MemoryTag::kNormal) &
                static_cast<uintptr_t>(MemoryTag::kNormalP1)) != 0);
 
 static constexpr uintptr_t kNormalOrBadDeallocationMask =
-    kBadDeallocationHighMask | kNormalMask | kBadAlignmentMask;
+    kBadDeallocationHighMask | (kNormalTagMask << kTagShift) |
+    kBadAlignmentMask;
 
 static constexpr uintptr_t kTagOrBadDeallocationMask =
     kBadDeallocationHighMask | kTagMask | kBadAlignmentMask;
@@ -903,7 +904,8 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
   }
   // At this point, the pointer is purely illformed: wrong alignment, corrupted
   // high bits, or illegal tags.
-  if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
+  if (ABSL_PREDICT_FALSE((uptr & kBadDeallocationHighMask) != 0 ||
+                         !IsNormalMemory(ptr))) {
     ReportCorruptedFree(tc_globals, ptr);
   }
 

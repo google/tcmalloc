@@ -171,6 +171,9 @@ TEST(MemoryErrorsFuzzTest, WildPointerSizedDeleteRegression) {
   // A misaligned sampled/cold wild pointer also reaches
   // InvokeHooksAndFreePages() and is rejected there for having no span.
   WildPointerSizedDelete((uintptr_t{1} << 41) + 1, 8);
+  WildPointerSizedDelete(uintptr_t{0x3} << kTagShift, 8);
+  WildPointerSizedDelete(uintptr_t{0x5} << kTagShift, 8);
+  WildPointerSizedDelete(uintptr_t{0x7} << kTagShift, 1);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerSizedDelete);
