@@ -243,6 +243,7 @@ class Static final {
   TransferCacheManager transfer_cache_;
   ShardedTransferCacheManager sharded_transfer_cache_{nullptr};
   GuardedPageAllocator guardedpage_allocator_;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
       sampledallocation_allocator_;
   MetadataObjectAllocator<Span, ArenaAlloc::kSpan> span_allocator_;
@@ -252,6 +253,20 @@ class Static final {
                           ArenaAlloc::kStackTraceTable>
       linked_sample_allocator_;
   std::atomic<bool> inited_ = false;
+#else
+  ABSL_CACHELINE_ALIGNED
+  MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>
+      sampledallocation_allocator_;
+  ABSL_CACHELINE_ALIGNED MetadataObjectAllocator<Span, ArenaAlloc::kSpan>
+      span_allocator_;
+  ABSL_CACHELINE_ALIGNED
+  MetadataObjectAllocator<ThreadCache, ArenaAlloc::kThreadCache>
+      threadcache_allocator_;
+  ABSL_CACHELINE_ALIGNED MetadataObjectAllocator<StackTraceTable::LinkedSample,
+                                                 ArenaAlloc::kStackTraceTable>
+      linked_sample_allocator_;
+  ABSL_CACHELINE_ALIGNED std::atomic<bool> inited_ = false;
+#endif
   std::atomic<bool> cpu_cache_active_ = false;
   PeakHeapTracker peak_heap_tracker_;
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
