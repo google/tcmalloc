@@ -21,8 +21,10 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <mutex>
 #include <new>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -147,6 +149,74 @@ TEST_P(PageMapTest, RandomAccess) {
 }
 
 INSTANTIATE_TEST_SUITE_P(Limits, PageMapTest, ::testing::Values(100, 1 << 16));
+
+TEST_F(PageMapTest, ConcurrentAccess) {
+  constexpr int kNumThreads = 4;
+  constexpr int kIterations = 200;
+  std::mutex pageheap_mu;
+
+  ASSERT_TRUE(map->Ensure(Range(PageId(0), Length(1))));
+
+  std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
+  for (int t = 0; t < kNumThreads; ++t) {
+    threads.emplace_back([&, t]() {
+      const PageId base_p((t + 1) * 256);
+      Span small_span(base_p);
+      auto* sampled_alloc =
+          reinterpret_cast<SampledAllocation*>((uintptr_t(t) + 1) << 6);
+      for (int iter = 0; iter < kIterations; ++iter) {
+        const PageId mid_p(((iter * kNumThreads + t + 1) & 63) << 12);
+        const PageId root_p((uintptr_t(t + 1) << 24) | ((iter & 7) << 12));
+        {
+          std::lock_guard<std::mutex> l(pageheap_mu);
+          ASSERT_TRUE(map->Ensure(Range(base_p, Length(4))));
+          ASSERT_TRUE(map->Ensure(Range(mid_p, Length(1))));
+          ASSERT_TRUE(map->Ensure(Range(root_p, Length(1))));
+          map->SetHugepage(PageId(0),
+                           reinterpret_cast<void*>(uintptr_t(iter + 1)));
+          map->SetHugepage(base_p,
+                           reinterpret_cast<void*>(uintptr_t(iter + 1)));
+        }
+
+        (void)map->GetHugepage(PageId(0));
+        EXPECT_NE(map->GetHugepage(base_p), nullptr);
+
+        const bool donated = (iter & 1) != 0;
+        map->RegisterSizeClass(&small_span, Length(2), sc(t), donated);
+        EXPECT_EQ(map->sizeclass(base_p), sc(t));
+        EXPECT_EQ(map->GetDescriptor(base_p).span(), &small_span);
+        EXPECT_EQ(map->GetExistingDescriptor(base_p + Length(1)).span(),
+                  &small_span);
+        EXPECT_EQ(map->UnregisterSizeClass(&small_span, Length(2)), donated);
+        EXPECT_EQ(map->sizeclass(base_p), 0);
+        EXPECT_TRUE(map->GetDescriptor(base_p).freed());
+
+        const PageId large_p = base_p + Length(2);
+        map->SetLarge(large_p, Length(4), donated);
+        EXPECT_EQ(map->GetDescriptor(large_p).size(), Length(4));
+        EXPECT_EQ(map->GetDescriptor(large_p).donated(), donated);
+        map->SetFreed(large_p);
+        EXPECT_TRUE(map->GetDescriptor(large_p).freed());
+
+        const PageId sampled_p = base_p + Length(3);
+        map->SetSampled(sampled_p, sampled_alloc, donated);
+        EXPECT_TRUE(map->GetDescriptor(sampled_p).sampled());
+        EXPECT_EQ(map->GetDescriptor(sampled_p).sampled_allocation(),
+                  sampled_alloc);
+        map->SetFreed(sampled_p);
+
+        EXPECT_TRUE(map->HasLeaf(mid_p));
+        (void)map->GetDescriptor(mid_p);
+        (void)map->sizeclass(root_p);
+        (void)map->get_next_set_page(base_p);
+      }
+    });
+  }
+  for (auto& th : threads) {
+    th.join();
+  }
+}
 
 // Surround pagemap with unused memory. This isolates it so that it does not
 // share pages with any other structures. This avoids the risk that adjacent
