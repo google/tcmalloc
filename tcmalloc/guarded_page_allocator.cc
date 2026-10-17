@@ -166,7 +166,11 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
       // proportional to pool utilization, with pool utilization of 50% or more
       // resulting in always filtering currently covered allocations.
       const size_t usage_pct = (allocated_pages() * 100) / max_allocated_pages_;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       if (rand_.Next() % 50 <= usage_pct) {
+#else
+      if (usage_pct >= 50 || rand_.Next() % 50 <= usage_pct) {
+#endif
         // Decay even if the current allocation is filtered, so that we keep
         // sampling even if we only see the same allocations over and over.
         stacktrace_filter_.Decay();
@@ -520,8 +524,15 @@ void GuardedPageAllocator::MapPages() {
   initialized_ = true;
 }
 
-// Selects a random slot in O(1) time.
+// Selects a free slot in O(1) time.
 ssize_t GuardedPageAllocator::ReserveFreeSlot() {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  if (ABSL_PREDICT_TRUE(allocated_pages() >= max_allocated_pages_ &&
+                        max_allocated_pages_ > 0)) {
+    skipped_allocations_noslots_.Add(1);
+    return -1;
+  }
+#endif
   AllocationGuardSpinLockHolder h(guarded_page_lock_);
   if (!initialized_ || !allow_allocations_) return -1;
   if (GetNumAvailablePages() == 0) {
@@ -548,6 +559,7 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
 }
 
 size_t GuardedPageAllocator::GetFreeSlot() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   const size_t idx = rand_.Next() % total_pages_;
   // Find the closest adjacent free slot to the random index.
   ssize_t slot = used_pages_.FindClearBackwards(idx);
@@ -555,6 +567,18 @@ size_t GuardedPageAllocator::GetFreeSlot() {
   slot = used_pages_.FindClear(idx);
   TC_ASSERT_LT(slot, total_pages_);
   return slot;
+#else
+  ssize_t slot = used_pages_.FindClear(next_slot_);
+  if (slot < 0 || static_cast<size_t>(slot) >= total_pages_) {
+    slot = used_pages_.FindClear(0);
+  }
+  TC_ASSERT_GE(slot, 0);
+  TC_ASSERT_LT(slot, total_pages_);
+  next_slot_ = (static_cast<size_t>(slot) + 1 == total_pages_)
+                   ? 0
+                   : static_cast<size_t>(slot) + 1;
+  return slot;
+#endif
 }
 
 void GuardedPageAllocator::FreeSlot(size_t slot) {
