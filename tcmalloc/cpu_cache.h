@@ -520,10 +520,35 @@ class CpuCache {
     //   capacity = available + allocated
     //            = available + sum(sizeclass_size * (end - begin))
     //
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // Modify atomically; we don't want to lose space.
     std::atomic<size_t> available;
+#else
+    // Tracks number of underflows on allocate (32B) and overflows on
+    // deallocate (32B) together on their own 64B cacheline, isolated from
+    // resize_[cpu].lock and per-class counters.
+    MissCounts underflows;
+    MissCounts overflows;
+    // Isolate lock-free slack/capacity/populated state onto its own cacheline,
+    // separate from resize_[cpu].lock and next_steal.
+    ABSL_CACHELINE_ALIGNED std::atomic<size_t> available;
+    // Total cache space available on this CPU (see above).
+    // This tracks the total allocated and unallocated bytes on this CPU cache.
+    std::atomic<size_t> capacity;
+    // Track whether we have ever populated this CPU.
+    std::atomic<bool> populated;
+    // Tracks whether we've run on this CPU since the last call to
+    // ClearTouchedCpus.
+    std::atomic<bool> touched;
+    // For cross-cpu operations. We can't allocate while holding one of these so
+    // please use AllocationGuardSpinLockHolder to hold it.
+    ABSL_CACHELINE_ALIGNED absl::base_internal::SpinLock lock
+        ABSL_ACQUIRED_BEFORE(pageheap_lock){
+            absl::base_internal::SCHEDULE_KERNEL_ONLY};
+#endif
     // Size class to steal from for the clock-wise algorithm.
     size_t next_steal = 1;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // Track whether we have ever populated this CPU.
     std::atomic<bool> populated;
     // Tracks whether we've run on this CPU since the last call to
@@ -533,21 +558,26 @@ class CpuCache {
     // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock){
         absl::base_internal::SCHEDULE_KERNEL_ONLY};
+#endif
     PerClassResizeInfo per_class[kNumClasses];
     std::atomic<size_t> num_size_class_resizes;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // Tracks number of underflows on allocate.
     MissCounts underflows;
     // Tracks number of overflows on deallocate.
     MissCounts overflows;
+#endif
     // TODO(b/298229521): Evaluate Cycles32 precision for sizing decisions.
     struct LastMiss {
       Cycles32 last_overflow_cycles;
       Cycles32 last_underflow_cycles;
     };
     LastMiss last_miss[kNumClasses];
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // Total cache space available on this CPU (see above).
     // This tracks the total allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
+#endif
     // Used bytes in the cache as of the end of the last resize interval.
     std::atomic<uint64_t> drain_used_bytes;
     // Tracks number of times this CPU has been drained.
@@ -701,7 +731,11 @@ class CpuCache {
 
   // Provides a hint to StealFromOtherCache() so that we can steal from the
   // caches in a round-robin fashion.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   int next_cpu_cache_steal_ = 0;
+#else
+  ABSL_CACHELINE_ALIGNED int next_cpu_cache_steal_ = 0;
+#endif
 
   // Provides a hint to ResizeSizeClasses() that records the last CPU for which
   // we resized size classes. We use this to resize size classes for CPUs in a
@@ -715,7 +749,11 @@ class CpuCache {
   std::atomic<int> resize_slab_offset_ = 0;
 
   // Per-core cache limit in bytes.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   std::atomic<uint64_t> max_per_cpu_cache_size_ = 0;
+#else
+  ABSL_CACHELINE_ALIGNED std::atomic<uint64_t> max_per_cpu_cache_size_ = 0;
+#endif
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 

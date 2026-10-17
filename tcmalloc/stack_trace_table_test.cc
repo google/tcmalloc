@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/macros.h"
@@ -406,6 +407,32 @@ TEST(StackTraceTableTest, StackTraceTable) {
     CheckTraces(table, {k1, k5});
   }
 }
+
+void BM_PopulateAndTeardown(benchmark::State& state) {
+  tc_globals.InitIfNecessary();
+  const int num_traces = state.range(0);
+  StackTrace t = {};
+  t.requested_size = 32;
+  t.allocated_size = 32;
+  t.weight = 2 << 20;
+  t.depth = 16;
+  for (int i = 0; i < t.depth; ++i) {
+    t.stack[i] = reinterpret_cast<void*>(static_cast<uintptr_t>(i + 1));
+  }
+  for (auto _ : state) {
+    StackTraceTable table(ProfileType::kHeap);
+    for (int i = 0; i < num_traces; ++i) {
+      table.AddTrace(1.0, t);
+    }
+    benchmark::DoNotOptimize(table);
+  }
+  state.SetItemsProcessed(state.iterations() * num_traces);
+}
+BENCHMARK(BM_PopulateAndTeardown)
+    ->Arg(129)
+    ->Arg(1024)
+    ->ThreadRange(1, 8)
+    ->UseRealTime();
 
 }  // namespace
 }  // namespace tcmalloc_internal

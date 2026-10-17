@@ -1664,7 +1664,7 @@ class StatTest : public testing::Test {
     ASSERT_EQ(stats.unmapped_bytes, span_stats_released_bytes);
   }
 
-  char buf_[sizeof(HookedAllocator)];
+  alignas(HookedAllocator) char buf_[sizeof(HookedAllocator)];
   HookedAllocator* alloc_;
 
   Length total_;
