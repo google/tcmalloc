@@ -260,6 +260,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
 
   void SelectEligibleTrackers(PageTracker& pt) override {
     if (num_valid_trackers_ >= kTotalTrackersToScan) return;
+    if (pt.PinnedByTreatment(HugePageTreatmentType::kSampled)) return;
 
     // Collect all the addresses under pageheap lock that are to be sampled for
     // tagging, and that were last scanned more than kRecordInterval ago.
@@ -427,6 +428,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
                      CompareForHugePageTreatment);
     };
 
+    if (pt.PinnedByTreatment(HugePageTreatmentType::kCollapse)) return;
     PageTracker::HugePageResidencyState state = pt.GetHugePageResidencyState();
     if (state.maybe_hugepage_backed) return;
 
