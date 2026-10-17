@@ -487,6 +487,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       i += step;
     }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     const int same_span = batch.size() - runs;
     TC_ASSERT_GE(same_span, 0);
     num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
@@ -495,6 +496,18 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     RecordMultiSpansDeallocated(free_count);
     UpdateObjectCounts(batch.size());
   }
+#else
+    if (ABSL_PREDICT_FALSE(free_count)) {
+      RecordMultiSpansDeallocated(free_count);
+    }
+    UpdateObjectCounts(batch.size());
+  }
+
+  const int same_span = batch.size() - runs;
+  TC_ASSERT_GE(same_span, 0);
+  num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
+      .LossyAdd(1);
+#endif
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
@@ -526,61 +539,70 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
     size_t num_spans = 0;
     size_t objects_per_span = objects_per_span_;
 
-    CentralFreeListLockHolder h(lock_);
+    {
+      CentralFreeListLockHolder h(lock_);
 
-    do {
-      num_spans++;
-      auto [span, prev_index] = FirstNonEmptySpan();
-      if (ABSL_PREDICT_FALSE(!span)) {
-        result += Populate(batch.subspan(result));
-        break;
-      }
-
-      const uint16_t prev_allocated = span->Allocated();
-      ASSUME(prev_allocated > 0);
-      const uint8_t prev_bitwidth =
-          absl::bit_width(static_cast<unsigned>(prev_allocated));
-      TC_ASSERT_EQ(prev_index, span->nonempty_index());
-
-      // Pass pointer + count directly to avoid absl::Span::subspan's defensive
-      // length clamping (std::min) on this hot drain path.  See b/538576012.
-      const size_t size = batch.size();
-      int here = span->FreelistPopBatch(
-          absl::MakeSpan(batch.data() + result, size - result), object_size);
-      ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
-      // As the objects are being popped from the span, its utilization might
-      // change. So, we remove the stale utilization from the histogram here and
-      // add it again once we pop the objects.
-      const uint16_t cur_allocated = prev_allocated + here;
-      TC_ASSERT_EQ(cur_allocated, span->Allocated());
-      const uint8_t cur_bitwidth =
-          absl::bit_width(static_cast<unsigned>(cur_allocated));
-      if (cur_bitwidth != prev_bitwidth) {
-        RecordSpanUtil(prev_bitwidth, /*increase=*/false);
-        RecordSpanUtil(cur_bitwidth, /*increase=*/true);
-      }
-      const bool is_empty = cur_allocated == objects_per_span;
-      TC_ASSERT_EQ(is_empty, span->FreelistEmpty(objects_per_span));
-      if (ABSL_PREDICT_FALSE(is_empty)) {
-        nonempty_.Remove(span, prev_index);
-      } else {
-        // If span allocation changes so that it must be moved to a different
-        // nonempty_ list, we remove it from the previous list and add it to the
-        // desired list indexed by cur_index.
-        const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
-        if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
-          nonempty_.Move(span, prev_index, cur_index, /*prepend=*/true);
-          span->set_nonempty_index(cur_index);
+      do {
+        num_spans++;
+        auto [span, prev_index] = FirstNonEmptySpan();
+        if (ABSL_PREDICT_FALSE(!span)) {
+          result += Populate(batch.subspan(result));
+          break;
         }
-      }
-      result += here;
-    } while (result < batch.size());
 
-    TC_ASSERT_GT(num_spans, 0);
-    TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
-    TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
+        const uint16_t prev_allocated = span->Allocated();
+        ASSUME(prev_allocated > 0);
+        const uint8_t prev_bitwidth =
+            absl::bit_width(static_cast<unsigned>(prev_allocated));
+        TC_ASSERT_EQ(prev_index, span->nonempty_index());
+
+        // Pass pointer + count directly to avoid absl::Span::subspan's
+        // defensive length clamping (std::min) on this hot drain path.  See
+        // b/538576012.
+        const size_t size = batch.size();
+        int here = span->FreelistPopBatch(
+            absl::MakeSpan(batch.data() + result, size - result), object_size);
+        ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
+        // As the objects are being popped from the span, its utilization might
+        // change. So, we remove the stale utilization from the histogram here
+        // and add it again once we pop the objects.
+        const uint16_t cur_allocated = prev_allocated + here;
+        TC_ASSERT_EQ(cur_allocated, span->Allocated());
+        const uint8_t cur_bitwidth =
+            absl::bit_width(static_cast<unsigned>(cur_allocated));
+        if (cur_bitwidth != prev_bitwidth) {
+          RecordSpanUtil(prev_bitwidth, /*increase=*/false);
+          RecordSpanUtil(cur_bitwidth, /*increase=*/true);
+        }
+        const bool is_empty = cur_allocated == objects_per_span;
+        TC_ASSERT_EQ(is_empty, span->FreelistEmpty(objects_per_span));
+        if (ABSL_PREDICT_FALSE(is_empty)) {
+          nonempty_.Remove(span, prev_index);
+        } else {
+          // If span allocation changes so that it must be moved to a different
+          // nonempty_ list, we remove it from the previous list and add it to
+          // the desired list indexed by cur_index.
+          const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+          if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+            nonempty_.Move(span, prev_index, cur_index, /*prepend=*/true);
+            span->set_nonempty_index(cur_index);
+          }
+        }
+        result += here;
+      } while (result < batch.size());
+
+      TC_ASSERT_GT(num_spans, 0);
+      TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
+      TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
+      UpdateObjectCounts(-result);
+    }
+#else
+      UpdateObjectCounts(-result);
+    }
     span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
-    UpdateObjectCounts(-result);
+#endif
   }
 
   // Use ASSUME to elide the bounds check in subspan, per b/538576012#comment3.
