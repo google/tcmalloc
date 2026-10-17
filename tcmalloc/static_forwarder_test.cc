@@ -544,11 +544,9 @@ static BackingStats PageHeapStats() {
 }
 
 TEST_P(StaticForwarderSpanTest, Fuzz) {
-#if ABSL_HAVE_THREAD_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
-  // TODO(b/193887621):  Enable this test under TSan after addressing benign
-  // true positives.
-  GTEST_SKIP() << "Skipping test under Thread Sanitizer.";
-#endif  // ABSL_HAVE_THREAD_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP() << "Skipping test under Sanitizer";
+#endif  // ABSL_HAVE_HWADDRESS_SANITIZER
 
   const auto page_heap_before = PageHeapStats();
 
