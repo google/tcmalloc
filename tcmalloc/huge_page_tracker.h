@@ -248,6 +248,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   void SetHasDenseSpans() { has_dense_spans_ = true; }
 
   struct HugePageResidencyState {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // Records the unbacked bitmap for this hugepage. In terms of TCMalloc
     // pages. scaled via `ReductionOp::kAll`.
     PageBitmap unbacked;
@@ -257,6 +258,7 @@ class PageTracker : public TList<PageTracker>::Elem {
     // Records the stale bitmap for this hugepage. In terms of TCMalloc
     // pages. scaled via `ReductionOp::kAny`.
     PageBitmap stale;
+#endif
     // Records the time (in ticks) when the residency state was last updated.
     // This is used to determine when the tracker may be revisited for
     // collapse.
@@ -278,10 +280,39 @@ class PageTracker : public TList<PageTracker>::Elem {
     bool collapse_skipped = false;
     // Records whether collapse was skipped due to backoff.
     bool collapse_skipped_due_to_backoff = false;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    // Records the unbacked bitmap for this hugepage. In terms of TCMalloc
+    // pages. scaled via `ReductionOp::kAll`.
+    PageBitmap unbacked;
+    // Records the swapped bitmap for this hugepage. In terms of TCMalloc
+    // pages. scaled via `ReductionOp::kAny`.
+    PageBitmap swapped;
+    // Records the stale bitmap for this hugepage. In terms of TCMalloc
+    // pages. scaled via `ReductionOp::kAny`.
+    PageBitmap stale;
+#endif
   };
 
   void SetHugePageResidencyState(const HugePageResidencyState& state) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     hugepage_residency_state_ = state;
+#else
+    hugepage_residency_state_.record_time = state.record_time;
+    hugepage_residency_state_.maybe_hugepage_backed =
+        state.maybe_hugepage_backed;
+    hugepage_residency_state_.released_since_selected =
+        state.released_since_selected;
+    hugepage_residency_state_.entry_valid = state.entry_valid;
+    hugepage_residency_state_.being_collapsed = state.being_collapsed;
+    hugepage_residency_state_.collapse_skipped = state.collapse_skipped;
+    hugepage_residency_state_.collapse_skipped_due_to_backoff =
+        state.collapse_skipped_due_to_backoff;
+    if (!state.maybe_hugepage_backed && state.entry_valid) {
+      hugepage_residency_state_.unbacked = state.unbacked;
+      hugepage_residency_state_.swapped = state.swapped;
+      hugepage_residency_state_.stale = state.stale;
+    }
+#endif
     // TODO(b/435718337):  As of July 2025, we primarily scan "normal"
     // (non-released) page lists and avoid collapsing released huge pages.
     //
@@ -296,9 +327,16 @@ class PageTracker : public TList<PageTracker>::Elem {
     // since the tracker has transitioned from broken/no hugepage to hugepage'd.
   }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   [[nodiscard]] HugePageResidencyState GetHugePageResidencyState() const {
     return hugepage_residency_state_;
   }
+#else
+  [[nodiscard]] const HugePageResidencyState& GetHugePageResidencyState() const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    return hugepage_residency_state_;
+  }
+#endif
   // Called by a treatment pass when it selects this tracker under
   // pageheap_lock; ReleaseFree sets the flag again if it releases pages from
   // the hugepage before the pass restores its findings.
@@ -359,7 +397,14 @@ class PageTracker : public TList<PageTracker>::Elem {
     bool sampled_for_tagging = false;
     double record_time = 0;
   };
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   [[nodiscard]] TagState GetTagState() const { return tagged_state_; }
+#else
+  [[nodiscard]] const TagState& GetTagState() const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    return tagged_state_;
+  }
+#endif
   void SetTagState(const TagState& state) { tagged_state_ = state; }
 
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,

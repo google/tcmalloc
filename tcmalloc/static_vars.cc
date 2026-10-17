@@ -49,8 +49,13 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
 ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
+#else
+ABSL_CACHELINE_ALIGNED ABSL_CONST_INIT absl::base_internal::SpinLock
+    pageheap_lock(absl::base_internal::SCHEDULE_KERNEL_ONLY);
+#endif
 
 // We expect tc_globals to be in a zero-initialized section (.bss). This is
 // important to keep binary size smaller. But there is no easy way to enforce
