@@ -111,8 +111,10 @@ using ::testing::Optional;
 
 constexpr uint64_t kPageHead = (1UL << 15);
 constexpr uint64_t kPageTail = (1UL << 16);
-constexpr uint64_t kPageThp = (1UL << 22);
 constexpr uint64_t kPageHuge = (1UL << 17);
+constexpr uint64_t kPageUnevictable = (1UL << 18);
+constexpr uint64_t kPageThp = (1UL << 22);
+constexpr uint64_t kPageMlocked = (1UL << 33);
 constexpr uint64_t kPageStale = (1UL << 44);
 
 constexpr size_t kPagemapEntrySize = 8;
@@ -427,6 +429,54 @@ TEST(PageFlagsTest, Locked) {
   ASSERT_EQ(res->bytes_locked, kHardwarePageSize * kNumPages);
 
   ASSERT_EQ(munmap(p, kNumPages * kHardwarePageSize), 0) << errno;
+}
+
+TEST(PageFlagsTest, UnevictableWithoutMlockedIsNotLocked) {
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  std::vector<uint64_t> data(3 * kPagesPerHugepage, 0);
+
+  // Hugepage 0: individual native pages with combinations of KPF_UNEVICTABLE
+  // and KPF_MLOCKED.
+  data[0] = kPageUnevictable;
+  data[1] = kPageMlocked;
+  data[2] = kPageMlocked | kPageUnevictable;
+
+  // Hugepage 1: compound THP that is unevictable but not mlocked.
+  data[kPagesPerHugepage] = kPageHead | kPageThp | kPageUnevictable;
+  for (size_t i = 1; i < kPagesPerHugepage; ++i) {
+    data[kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  // Hugepage 2: compound THP that is mlocked (and unevictable).
+  data[2 * kPagesPerHugepage] =
+      kPageHead | kPageThp | kPageMlocked | kPageUnevictable;
+  for (size_t i = 1; i < kPagesPerHugepage; ++i) {
+    data[2 * kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/unevictable-vs-mlocked");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(data[0])));
+
+  PageFlagsFriend s(file_path);
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(0 * kHardwarePageSize), kHardwarePageSize),
+      Optional(FieldsAre(0, 0, 0)));
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(1 * kHardwarePageSize), kHardwarePageSize),
+      Optional(FieldsAre(0, kHardwarePageSize, 0)));
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(2 * kHardwarePageSize), kHardwarePageSize),
+      Optional(FieldsAre(0, kHardwarePageSize, 0)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(0), 3 * kHardwarePageSize),
+              Optional(FieldsAre(0, 2 * kHardwarePageSize, 0)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
+              Optional(FieldsAre(0, 0, 0)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(2 * kHugePageSize), kHugePageSize),
+              Optional(FieldsAre(0, kHugePageSize, 0)));
 }
 
 TEST(PageFlagsTest, OnlyTails) {
