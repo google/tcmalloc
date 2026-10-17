@@ -1623,6 +1623,21 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
+    tcmalloc_error_reporting_test
+  SRCS
+    "error_reporting_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_sampled_allocation"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test(
+  NAME
     tcmalloc_segv_handler_test
   SRCS
     "segv_handler_test.cc"

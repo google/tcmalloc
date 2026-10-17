@@ -41,6 +41,12 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
     size_t requested_size, std::optional<size_t> allocated_size) {
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
   TC_LOG("Error originates from memory allocated at:");
+  // A corrupted pointer or corrupted TCMalloc metadata can yield a bogus
+  // SampledAllocation whose depth exceeds the stack array bound.
+  TC_CHECK_LE(alloc.sampled_stack.depth, kMaxStackDepth,
+              "Corrupted SampledAllocation (ptr=%p, size=%v, "
+              "requested_size=%v, allocated_size=%v)",
+              ptr, size, requested_size, FormatConvert(allocated_size));
   PrintStackTrace(alloc.sampled_stack.stack, alloc.sampled_stack.depth);
 
   size_t maximum_size;

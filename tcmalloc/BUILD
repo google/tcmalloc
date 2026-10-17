@@ -1405,6 +1405,18 @@ cc_test(
 )
 
 cc_test(
+    name = "error_reporting_test",
+    srcs = ["error_reporting_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common_8k_pages",
+        "//tcmalloc/internal:page_size",
+        "//tcmalloc/internal:sampled_allocation",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "segv_handler_test",
     srcs = ["segv_handler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
