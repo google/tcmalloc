@@ -119,49 +119,29 @@ class GwpAsanState {
     minimum_ = minimum;
     maximum_ = maximum;
 
-    if (allocation_stack.has_value()) {
-      size_t allocation_stack_depth =
-          std::min<size_t>(kMaxStackDepth, allocation_stack->size());
-      memcpy(allocation_stack_, allocation_stack->data(),
-             sizeof(void*) * allocation_stack_depth);
-      allocation_stack_depth_ = allocation_stack_depth;
-    } else {
-      allocation_stack_depth_ = std::nullopt;
-    }
-
-    if (deallocation_stack.has_value()) {
-      size_t deallocation_stack_depth =
-          std::min<size_t>(kMaxStackDepth, deallocation_stack->size());
-      memcpy(deallocation_stack_, deallocation_stack->data(),
-             sizeof(void*) * deallocation_stack_depth);
-      deallocation_stack_depth_ = deallocation_stack_depth;
-    } else {
-      deallocation_stack_depth_ = std::nullopt;
-    }
+    CopyStack(allocation_stack, allocation_stack_, allocation_stack_depth_);
+    CopyStack(deallocation_stack, deallocation_stack_,
+              deallocation_stack_depth_);
   }
 
   void RecordDoubleFree(const void* ptr,
                         absl::Span<void* const> deallocation_stack) {
     ptr_ = ptr;
     type_ = Type::kDoubleFree;
-
-    size_t deallocation_stack_depth =
-        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
-    memcpy(deallocation_stack_, deallocation_stack.data(),
-           sizeof(void*) * deallocation_stack_depth);
-    deallocation_stack_depth_ = deallocation_stack_depth;
+    allocation_stack_depth_ = std::nullopt;
+    CopyStack(deallocation_stack, deallocation_stack_,
+              deallocation_stack_depth_);
   }
 
   void RecordInvalidFree(const void* ptr,
                          absl::Span<void* const> deallocation_stack) {
     ptr_ = ptr;
     type_ = Type::kInvalidFree;
-
-    size_t deallocation_stack_depth =
-        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
-    memcpy(deallocation_stack_, deallocation_stack.data(),
-           sizeof(void*) * deallocation_stack_depth);
-    deallocation_stack_depth_ = deallocation_stack_depth;
+    actual_alignment_ = std::nullopt;
+    expected_alignment_ = std::nullopt;
+    allocation_stack_depth_ = std::nullopt;
+    CopyStack(deallocation_stack, deallocation_stack_,
+              deallocation_stack_depth_);
   }
 
   void RecordInvalidFree(
@@ -171,48 +151,22 @@ class GwpAsanState {
       absl::Span<void* const> deallocation_stack) {
     ptr_ = ptr;
     type_ = Type::kInvalidFree;
-
     actual_alignment_ = actual_alignment;
     expected_alignment_ = expected_alignment;
 
-    if (allocation_stack.has_value()) {
-      size_t allocation_stack_depth =
-          std::min<size_t>(kMaxStackDepth, allocation_stack->size());
-      memcpy(allocation_stack_, allocation_stack->data(),
-             sizeof(void*) * allocation_stack_depth);
-      allocation_stack_depth_ = allocation_stack_depth;
-    } else {
-      allocation_stack_depth_ = std::nullopt;
-    }
-
-    size_t deallocation_stack_depth =
-        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
-    memcpy(deallocation_stack_, deallocation_stack.data(),
-           sizeof(void*) * deallocation_stack_depth);
-    deallocation_stack_depth_ = deallocation_stack_depth;
+    CopyStack(allocation_stack, allocation_stack_, allocation_stack_depth_);
+    CopyStack(deallocation_stack, deallocation_stack_,
+              deallocation_stack_depth_);
   }
 
   void RecordInvalidFree(const void* ptr, std::align_val_t actual_alignment,
                          std::align_val_t expected_alignment,
                          absl::Span<void* const> allocation_stack,
                          absl::Span<void* const> deallocation_stack) {
-    ptr_ = ptr;
-    type_ = Type::kInvalidFree;
-
-    actual_alignment_ = actual_alignment;
-    expected_alignment_ = expected_alignment;
-
-    size_t allocation_stack_depth =
-        std::min<size_t>(kMaxStackDepth, allocation_stack.size());
-    memcpy(allocation_stack_, allocation_stack.data(),
-           sizeof(void*) * allocation_stack_depth);
-    allocation_stack_depth_ = allocation_stack_depth;
-
-    size_t deallocation_stack_depth =
-        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
-    memcpy(deallocation_stack_, deallocation_stack.data(),
-           sizeof(void*) * deallocation_stack_depth);
-    deallocation_stack_depth_ = deallocation_stack_depth;
+    RecordInvalidFree(ptr, std::optional<std::align_val_t>(actual_alignment),
+                      std::optional<std::align_val_t>(expected_alignment),
+                      std::optional<absl::Span<void* const>>(allocation_stack),
+                      deallocation_stack);
   }
 
   void RecordMismatchedFree(const void* ptr, AllocationType alloc_type,
@@ -221,24 +175,29 @@ class GwpAsanState {
                             absl::Span<void* const> deallocation_stack) {
     ptr_ = ptr;
     type_ = Type::kMismatchedFree;
-
     alloc_type_ = alloc_type;
     dealloc_type_ = dealloc_type;
 
-    const size_t allocation_stack_depth =
-        std::min<size_t>(kMaxStackDepth, allocation_stack.size());
-    memcpy(allocation_stack_, allocation_stack.data(),
-           sizeof(void*) * allocation_stack_depth);
-    allocation_stack_depth_ = allocation_stack_depth;
-
-    const size_t deallocation_stack_depth =
-        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
-    memcpy(deallocation_stack_, deallocation_stack.data(),
-           sizeof(void*) * deallocation_stack_depth);
-    deallocation_stack_depth_ = deallocation_stack_depth;
+    CopyStack(allocation_stack, allocation_stack_, allocation_stack_depth_);
+    CopyStack(deallocation_stack, deallocation_stack_,
+              deallocation_stack_depth_);
   }
 
  private:
+  static void CopyStack(std::optional<absl::Span<void* const>> src,
+                        void* (&dst)[kMaxStackDepth],
+                        std::optional<size_t>& dst_depth) {
+    if (!src.has_value()) {
+      dst_depth = std::nullopt;
+      return;
+    }
+    const size_t depth = std::min<size_t>(kMaxStackDepth, src->size());
+    if (depth > 0) {
+      memcpy(dst, src->data(), sizeof(void*) * depth);
+    }
+    dst_depth = depth;
+  }
+
   Type type_ = Type::kNone;
   const void* ptr_ = nullptr;
   size_t provided_min_ = 0, provided_max_ = 0, minimum_ = 0, maximum_ = 0;
