@@ -88,8 +88,9 @@ ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
 // In case of out-of-memory condition when allocating span or
 // stacktrace struct, this function simply cheats and returns original
 // object. As if no sampling was requested.
-[[nodiscard]] inline ABSL_ATTRIBUTE_NOINLINE sized_ptr_t
-SampleifyAllocation(Static& state, DynamicPolicy policy, size_t requested_size,
+template <typename Policy>
+[[nodiscard]] ABSL_ATTRIBUTE_NOINLINE sized_ptr_t
+SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
                     size_t weight, size_t size_class, Range r, bool donated) {
   TC_CHECK_EQ(size_class != 0, r.n == Length(0));
 
@@ -269,6 +270,26 @@ SampleifyAllocation(Static& state, DynamicPolicy policy, size_t requested_size,
           capacity};
 }
 
+template <typename Policy>
+[[nodiscard]] static sized_ptr_t SampleLargeAllocation(Static& state,
+                                                       Policy policy,
+                                                       size_t requested_size,
+                                                       size_t weight, Range r,
+                                                       bool donated) {
+  return SampleifyAllocation(state, policy, requested_size, weight, 0, r,
+                             donated);
+}
+
+template <typename Policy>
+[[nodiscard]] static sized_ptr_t SampleSmallAllocation(Static& state,
+                                                       Policy policy,
+                                                       size_t requested_size,
+                                                       size_t weight,
+                                                       size_t size_class) {
+  return SampleifyAllocation(state, policy, requested_size, weight, size_class,
+                             Range(), false);
+}
+
 // Rewrite type so that the allocation type falls into one of the categories we
 // use for deallocations (new or malloc, not aligned malloc or array new).
 [[nodiscard]] static inline AllocationType SimplifyType(AllocationType type) {
@@ -285,10 +306,10 @@ SampleifyAllocation(Static& state, DynamicPolicy policy, size_t requested_size,
   ABSL_UNREACHABLE();
 }
 
-inline void MaybeUnsampleAllocation(Static& state, DynamicPolicy policy,
-                                    void* absl_nonnull ptr,
-                                    std::optional<size_t> size, PageId p,
-                                    PageMeta meta) {
+template <typename Policy>
+void MaybeUnsampleAllocation(Static& state, Policy policy,
+                             void* absl_nonnull ptr, std::optional<size_t> size,
+                             PageId p, PageMeta meta) {
   if (!meta.sampled()) {
     if (ABSL_PREDICT_TRUE(size.has_value())) {
       const size_t maximum_size = meta.size().in_bytes();

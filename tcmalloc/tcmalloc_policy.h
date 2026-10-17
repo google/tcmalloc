@@ -92,7 +92,6 @@
 #include <stddef.h>
 
 #include <cstddef>
-#include <cstdint>
 #include <new>
 #include <type_traits>
 
@@ -598,68 +597,6 @@ class TCMallocPolicy {
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS AccessPolicy access_;
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS NumaPolicy numa_;
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS PartitionPolicy partition_;
-};
-
-// Non-template policy capturing the properties of TCMallocPolicy for slow
-// paths so they are instantiated once per binary rather than per Policy.
-class DynamicPolicy {
- public:
-  template <typename Policy>
-  explicit constexpr DynamicPolicy(Policy policy)
-      : align_(policy.align()),
-        token_id_(policy.token_id()),
-        allocation_type_(policy.allocation_type()),
-        access_(policy.access()),
-        numa_partition_(static_cast<uint8_t>(policy.numa_partition())),
-        security_partition_(policy.security_partition() != 0),
-        is_cold_(policy.is_cold()),
-        has_explicit_alignment_(policy.has_explicit_alignment()),
-        size_returning_(policy.size_returning()),
-        invoke_hooks_(policy.invoke_hooks()) {}
-
-  std::align_val_t align() const { return align_; }
-  size_t scaled_numa_partition() const {
-    return numa_partition_ * kNumBaseClasses;
-  }
-  size_t security_partition() const { return security_partition_; }
-  size_t partition() const {
-    return kSecurityPartitions == 1 ? numa_partition_ : security_partition_;
-  }
-  TokenId token_id() const { return token_id_; }
-  AllocationType allocation_type() const { return allocation_type_; }
-  hot_cold_t access() const { return access_; }
-  bool is_cold() const { return is_cold_; }
-  bool has_explicit_alignment() const { return has_explicit_alignment_; }
-  bool size_returning() const { return size_returning_; }
-  bool invoke_hooks() const { return invoke_hooks_; }
-
- private:
-  // The stateful sub-policies whose values are captured above. A new stateful
-  // sub-policy changes the size of this instantiation and must be added here.
-  struct StatefulPolicies {
-    AlignAsPolicy align;
-    AllocationAccessAsPolicy access;
-    FixedNumaPartitionPolicy numa;
-    SecurityPartitionPolicy partition;
-  };
-  static_assert(
-      sizeof(TCMallocPolicy<NullOomPolicy, AlignAsPolicy, IsArrayPolicy,
-                            AllocationAccessAsPolicy, NoHooksPolicy,
-                            IsSizeReturningPolicy, FixedNumaPartitionPolicy,
-                            SecurityPartitionPolicy>) ==
-          sizeof(StatefulPolicies),
-      "Update DynamicPolicy when adding stateful policies to TCMallocPolicy");
-
-  std::align_val_t align_;
-  TokenId token_id_;
-  AllocationType allocation_type_;
-  hot_cold_t access_;
-  uint8_t numa_partition_;
-  bool security_partition_ : 1;
-  bool is_cold_ : 1;
-  bool has_explicit_alignment_ : 1;
-  bool size_returning_ : 1;
-  bool invoke_hooks_ : 1;
 };
 
 using CppPolicy = TCMallocPolicy<CppOomPolicy, DefaultAlignPolicy>;
