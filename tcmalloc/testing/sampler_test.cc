@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -34,6 +35,9 @@ namespace tcmalloc_internal {
 class SamplerTest {
  public:
   static void Init(Sampler* s, uint64_t seed) { s->Init(seed); }
+  static ssize_t BytesUntilSample(const Sampler& s) {
+    return s.bytes_until_sample_;
+  }
 };
 
 namespace {
@@ -267,6 +271,48 @@ TEST(Sampler, weight_distribution) {
       }
       return weight;
     });
+  }
+}
+
+// Finishes the sampler's lazy initialization: Sampler::Init does not mark the
+// sampler initialized, and the first slow-path call re-picks the counter, so
+// exhaust it once and return the counter the next request will see.
+ssize_t ExhaustCounter(Sampler& sampler) {
+  sampler.RecordAllocation(SamplerTest::BytesUntilSample(sampler));
+  return SamplerTest::BytesUntilSample(sampler);
+}
+
+// A request larger than the largest ssize_t wraps bytes_until_sample_ past
+// zero and back to a non-negative value in TryRecordAllocationFast.  Deriving
+// the sample weight from that wrapped counter overflowed (signed) when the
+// counter landed exactly on numeric_limits<ssize_t>::max().
+TEST(Sampler, HugeRequestDoesNotOverflowWeight) {
+  constexpr ssize_t kMax = std::numeric_limits<ssize_t>::max();
+  constexpr size_t kHalfRange = static_cast<size_t>(kMax) + 1;
+
+  {
+    // With sampling disabled the counter is pinned at 128 MiB, so this is the
+    // fuzzer's counterexample: realloc(nullptr, 2^63 + 2^27).
+    ScopedNeverSample never_sample;
+    Sampler sampler;
+    SamplerTest::Init(&sampler, 1);
+    ASSERT_EQ(ExhaustCounter(sampler), 128 << 20);
+
+    EXPECT_EQ(sampler.RecordAllocation(9223372036988993536ull), 0);
+    EXPECT_GE(SamplerTest::BytesUntilSample(sampler), 0);
+  }
+
+  {
+    // Same construction with sampling enabled: bytes_until_sample - (k + 1)
+    // wraps onto kMax, and the weight is clamped instead of overflowing.
+    Sampler sampler;
+    SamplerTest::Init(&sampler, 1);
+    const ssize_t bytes_until_sample = ExhaustCounter(sampler);
+    ASSERT_GE(bytes_until_sample, 0);
+    const size_t k = static_cast<size_t>(bytes_until_sample) + kHalfRange;
+
+    EXPECT_EQ(sampler.RecordAllocation(k), static_cast<size_t>(kMax));
+    EXPECT_GE(SamplerTest::BytesUntilSample(sampler), 0);
   }
 }
 
