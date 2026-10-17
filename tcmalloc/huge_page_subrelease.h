@@ -237,6 +237,14 @@ struct SubreleaseStats {
 
   void reset() {
     TC_ASSERT_GE(num_pages_subreleased, num_already_counted_pages_subreleased);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    if (ABSL_PREDICT_TRUE(num_pages_subreleased == Length(0) &&
+                          num_hugepages_broken == NHugePages(0))) {
+      TC_ASSERT_EQ(num_already_counted_pages_subreleased, Length(0));
+      TC_ASSERT_EQ(num_partial_alloc_pages_subreleased, Length(0));
+      return;
+    }
+#endif
     total_pages_subreleased +=
         num_pages_subreleased - num_already_counted_pages_subreleased;
     total_partial_alloc_pages_subreleased +=
@@ -441,6 +449,7 @@ class SubreleaseStatsTracker {
     }
 
     void Report(const SubreleaseStats& e) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       if (empty()) {
         for (int i = 0; i < kNumStatsTypes; i++) {
           stats[i] = e;
@@ -461,6 +470,38 @@ class SubreleaseStatsTracker {
 
       // Subrelease stats
       num_pages_subreleased += e.num_pages_subreleased;
+#else
+      if (ABSL_PREDICT_FALSE(empty())) {
+        for (int i = 0; i < kNumStatsTypes; i++) {
+          stats[i] = e;
+        }
+        min_free_pages = e.free_pages + e.unmapped_pages;
+        min_free_backed_pages = e.free_pages;
+        num_pages_subreleased = e.num_pages_subreleased;
+        return;
+      }
+
+      if (ABSL_PREDICT_FALSE(e.num_pages <
+                             stats[kStatsAtMinDemand].num_pages)) {
+        stats[kStatsAtMinDemand] = e;
+      } else if (ABSL_PREDICT_FALSE(e.num_pages >
+                                    stats[kStatsAtMaxDemand].num_pages)) {
+        stats[kStatsAtMaxDemand] = e;
+      }
+
+      const Length total_free = e.free_pages + e.unmapped_pages;
+      if (ABSL_PREDICT_FALSE(total_free < min_free_pages)) {
+        min_free_pages = total_free;
+      }
+      if (ABSL_PREDICT_FALSE(e.free_pages < min_free_backed_pages)) {
+        min_free_backed_pages = e.free_pages;
+      }
+
+      // Subrelease stats
+      if (ABSL_PREDICT_FALSE(e.num_pages_subreleased != Length(0))) {
+        num_pages_subreleased += e.num_pages_subreleased;
+      }
+#endif
     }
 
     [[nodiscard]] bool empty() const { return min_free_pages == kDefaultValue; }
