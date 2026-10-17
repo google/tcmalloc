@@ -1628,20 +1628,18 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
   // going over memory limit.
   forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
 
+  void* new_slabs;
   int64_t reused_bytes;
   ResizeSlabsInfo info;
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
-  uint8_t new_resize_slab_offset =
-      resize_slab_offset_.load(std::memory_order_relaxed) + 1;
-  if (new_resize_slab_offset >= kResizeSlabCopies) {
-    new_resize_slab_offset = 0;
-  }
-  resize_slab_offset_.store(new_resize_slab_offset, std::memory_order_relaxed);
-
-  {
-    // We can't allocate while holding the per-cpu spinlocks.
-    AllocationGuard enforce_no_alloc;
-    void* new_slabs;
+  std::atomic<uint16_t> updated_max_capacities[kNumClasses];
+  auto prepare_slabs = [&]() {
+    uint8_t new_resize_slab_offset =
+        resize_slab_offset_.load(std::memory_order_relaxed) + 1;
+    if (new_resize_slab_offset >= kResizeSlabCopies) {
+      new_resize_slab_offset = 0;
+    }
+    resize_slab_offset_.store(new_resize_slab_offset,
+                              std::memory_order_relaxed);
     std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
         [&](size_t size, std::align_val_t align) {
           return forwarder_.AllocReportedImpending(size, align);
@@ -1650,7 +1648,6 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
         new_resize_slab_offset);
 
-    std::atomic<uint16_t> updated_max_capacities[kNumClasses];
     for (size_t i = 0; i < kNumClasses; ++i) {
       updated_max_capacities[i].store(
           max_capacity_[i].load(std::memory_order_relaxed),
@@ -1661,7 +1658,18 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
       updated_max_capacities[new_max_capacities[i].size_class].store(
           new_max_capacities[i].max_capacity, std::memory_order_relaxed);
     }
+  };
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  prepare_slabs();
+#endif
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
+  {
+    // We can't allocate while holding the per-cpu spinlocks.
+    AllocationGuard enforce_no_alloc;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    prepare_slabs();
+#endif
     info = freelist_.UpdateMaxCapacities(
         new_slabs, MaxCapacityFunctor{updated_max_capacities},
         [this](int size_class, uint16_t cap) {
@@ -2506,22 +2514,30 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   std::atomic<uint16_t> new_max_capacity[kNumClasses] = {0};
   CalculateMaxCapacityForAllClasses(per_cpu_shift, new_max_capacity);
 
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
-  ResizeSlabsInfo info;
-  const uint8_t resize_offset =
-      resize_slab_offset_.load(std::memory_order_relaxed);
+  void* new_slabs;
   int64_t reused_bytes;
-  {
-    // We can't allocate while holding the per-cpu spinlocks.
-    AllocationGuard enforce_no_alloc;
-
-    void* new_slabs;
+  auto prepare_slabs = [&]() {
+    const uint8_t resize_offset =
+        resize_slab_offset_.load(std::memory_order_relaxed);
     std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
         [&](size_t size, std::align_val_t align) {
           return forwarder_.AllocReportedImpending(size, align);
         },
         new_shift, num_cpus,
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift), resize_offset);
+  };
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  prepare_slabs();
+#endif
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
+  ResizeSlabsInfo info;
+  {
+    // We can't allocate while holding the per-cpu spinlocks.
+    AllocationGuard enforce_no_alloc;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    prepare_slabs();
+#endif
     info = freelist_.ResizeSlabs(
         new_shift, new_slabs, MaxCapacityFunctor{new_max_capacity},
         [this, &new_max_capacity]() {
