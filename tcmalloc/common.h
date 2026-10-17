@@ -298,7 +298,11 @@ enum class AllocationAccess {
 // Linker initialized, so this lock can be accessed at any time.
 // Note: `CpuCache::ResizeInfo::lock` must be taken before the `pageheap_lock`
 // if both are going to be held simultaneously.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
 extern absl::base_internal::SpinLock pageheap_lock;
+#else
+ABSL_CACHELINE_ALIGNED extern absl::base_internal::SpinLock pageheap_lock;
+#endif
 
 class ABSL_SCOPED_LOCKABLE PageHeapSpinLockHolder {
  public:

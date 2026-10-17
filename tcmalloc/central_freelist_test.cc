@@ -366,7 +366,11 @@ TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
               std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   if (e.objects_per_span() <= 2 * kNumLists) {
+#else
+  if (e.objects_per_span() <= 16) {
+#endif
     GTEST_SKIP()
         << "Skipping test as one hot encoding used for few object spans.";
   }
@@ -385,7 +389,11 @@ TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
               std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   if (e.objects_per_span() > 2 * kNumLists) {
+#else
+  if (e.objects_per_span() > 16) {
+#endif
     GTEST_SKIP() << "Skipping test as one hot encoding not required.";
   }
   auto direct_indexing = [](int allocated) -> size_t {
@@ -510,7 +518,11 @@ TEST_P(CentralFreeListTest, SpanPriority) {
     for (int i = kNumLists - 2; i >= 0; --i) {
       EXPECT_EQ(e.central_freelist().NumSpansInList(i), 0);
     }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   } else if (e.objects_per_span() <= 2 * kNumLists) {
+#else
+  } else if (e.objects_per_span() <= 16) {
+#endif
     // We should have only one span in the third-last nonempty_ list; this is
     // the span from which we should have allocated the last object.
     EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 3), 1);
@@ -545,7 +557,11 @@ TEST_P(CentralFreeListTest, InsertRangeSameBucketDoesNotChangePriority) {
   if (objects_per_span < 3 || kNumLists < 2) return;
 
   auto index_for = [&](size_t allocated) -> size_t {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     if (objects_per_span <= 2 * kNumLists) {
+#else
+    if (objects_per_span <= 16) {
+#endif
       if (allocated <= kNumLists) return kNumLists - allocated;
       return 0;
     }
