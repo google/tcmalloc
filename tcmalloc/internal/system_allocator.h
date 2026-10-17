@@ -222,6 +222,7 @@ class SystemAllocator {
 
   std::atomic<int> release_errors_{0};
   std::atomic<MadvisePreference> madvise_{MadvisePreference::kNever};
+  std::atomic<bool> has_custom_region_factory_{false};
   bool unlock_vmas_ = false;
 
   void DiscardMappedRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
@@ -390,6 +391,11 @@ void SystemAllocator<Topology, NormalPartitions>::SetRegionFactory(
   AllocationGuardSpinLockHolder lock_holder(spinlock_);
   DiscardMappedRegions();
   region_factory_ = factory;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  if (factory != &mmap_factory_.factory) {
+    has_custom_region_factory_.store(true, std::memory_order_relaxed);
+  }
+#endif
 }
 
 template <typename Topology, size_t NormalPartitions>
@@ -942,7 +948,7 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
     return ReleaseStatus::kFailure;
   }
 
-  int ret;
+  int ret = -1;
   // Note -- ignoring most return codes, because if this fails it
   // doesn't matter...
   // Moreover, MADV_REMOVE *will* fail (with EINVAL) on private memory,
@@ -950,12 +956,18 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
 #ifdef MADV_REMOVE
   // MADV_REMOVE deletes any backing storage for tmpfs or anonymous shared
   // memory.
-  do {
-    ret = madvise(start, length, MADV_REMOVE);
-  } while (ret == -1 && errno == EAGAIN);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  if (ABSL_PREDICT_FALSE(
+          has_custom_region_factory_.load(std::memory_order_relaxed)))
+#endif
+  {
+    do {
+      ret = madvise(start, length, MADV_REMOVE);
+    } while (ret == -1 && errno == EAGAIN);
 
-  if (ret == 0) {
-    return ReleaseStatus::kSuccess;
+    if (ret == 0) {
+      return ReleaseStatus::kSuccess;
+    }
   }
 #endif
 
