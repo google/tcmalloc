@@ -484,7 +484,6 @@ TEST(PageFlagsTest, IsHugepageBacked) {
     for (int page = 0; page < kPagesPerHugepage; ++page) {
       ASSERT_EQ(s.IsHugepageBacked(reinterpret_cast<char*>(page)), expected);
     }
-    CHECK_EQ(signal_safe_close(write_fd), 0) << errno;
   };
 
   test_hugepage_status(kPageHuge, /*expected=*/true);
@@ -560,11 +559,13 @@ TEST(PageFlagsTest, CannotOpen) {
 TEST(PageFlagsTest, CannotRead) {
   PageFlagsFriend s("/dev/null");
   EXPECT_FALSE(s.Get(nullptr, 1).has_value());
+  EXPECT_EQ(s.IsHugepageBacked(nullptr), std::nullopt);
 }
 
 TEST(PageFlagsTest, CannotSeek) {
   PageFlagsFriend s("/dev/null");
   EXPECT_FALSE(s.Get(&s, 1).has_value());
+  EXPECT_EQ(s.IsHugepageBacked(&s), std::nullopt);
 }
 
 // For this and the following tests, the EXPECT_* macros allocate memory so
