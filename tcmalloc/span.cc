@@ -91,12 +91,14 @@ void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
 int Span::BuildFreelist(size_t size, size_t count,
                         absl::Span<void*> batch) __restrict__ {
   TC_ASSERT_GT(count, 0);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   freelist_ = kListEnd;
 
   if (UseBitmapForSize(size)) {
     BuildBitmap(size, count);
     return BitmapPopBatch(batch, size);
   }
+#endif
 
   // First, push as much as we can into the batch.
   const uintptr_t start = first_page().start_uintptr();
@@ -107,6 +109,19 @@ int Span::BuildFreelist(size_t size, size_t count,
     ptr += size;
   }
   allocated_ = result;
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  if (ABSL_PREDICT_TRUE(UseBitmapForSize(size))) {
+    TC_ASSERT_LE(count, bitmap_.size());
+    bitmap_.Clear();  // bitmap can be non-zero from a previous use.
+    if (result < count) {
+      bitmap_.SetRange(result, count - result);
+    }
+    TC_ASSERT_EQ(bitmap_.CountBits(), count - result);
+    return result;
+  }
+  ObjIdx freelist = kListEnd;
+#endif
 
   const ObjIdx idxStep = size / static_cast<size_t>(kAlignment);
   // Valid objects are {0, idxStep, idxStep * 2, ..., idxStep * (count - 1)}.
@@ -129,8 +144,8 @@ int Span::BuildFreelist(size_t size, size_t count,
     list_.cache[cache_size] = idx;
     cache_size++;
   }
-  cache_size_ = cache_size;
-  TC_ASSERT_EQ(cache_size_, cache_size);
+  this->cache_size() = cache_size;
+  TC_ASSERT_EQ(this->cache_size(), cache_size);
 
   // Now, build freelist and stack other objects onto freelist objects.
   // Note: we take freelist objects from the beginning and stacked objects
@@ -150,13 +165,21 @@ int Span::BuildFreelist(size_t size, size_t count,
     } else {
       // The first object is full, push new object onto freelist.
       host = IdxToPtr(idx, size, start);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       host[0] = freelist_;
       freelist_ = idx;
+#else
+      host[0] = freelist;
+      freelist = idx;
+#endif
       embed_count = 0;
       idx += idxStep;
     }
   }
-  embed_count_ = embed_count;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  this->freelist() = freelist;
+#endif
+  this->embed_count() = embed_count;
   return result;
 }
 

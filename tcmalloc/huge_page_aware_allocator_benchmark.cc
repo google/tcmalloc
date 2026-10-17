@@ -74,7 +74,7 @@ void Touch(AllocationState s) {
 
 class BenchmarkAllocator {
  public:
-  char buf_[sizeof(HugePageAwareAllocator)];
+  alignas(HugePageAwareAllocator) char buf_[sizeof(HugePageAwareAllocator)];
   HugePageAwareAllocator* alloc_;
   AllocationState prime_;
   static constexpr size_t kObjectsPerSpan = 1;
