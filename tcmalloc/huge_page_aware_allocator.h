@@ -542,7 +542,11 @@ HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
   if (ABSL_PREDICT_FALSE(page == PageId{0})) {
     return {};
   }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   return Finalize(Range(page, n), *from_released);
+#else
+  return Finalize(Range(page, n), /*may_have_grown=*/false);
+#endif
 }
 
 template <class Forwarder>
