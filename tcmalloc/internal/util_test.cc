@@ -279,8 +279,8 @@ std::string CreateTempFile(absl::string_view contents) {
 
 // Test interaction of EINTR handling with EOF.
 TEST_F(UtilInternalTest, read_interrupt_eof) {
-  static const int kBufLen = 128;
-  static char buf[kBufLen];
+  constexpr int kBufLen = 128;
+  char buf[kBufLen];
   static constexpr absl::string_view kTestStr = "0123456789ABCDEF";
   std::string fname = CreateTempFile(kTestStr);
 
