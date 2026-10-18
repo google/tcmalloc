@@ -20,6 +20,8 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/time/time.h"
+#include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/hardware_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/testing/testutil.h"

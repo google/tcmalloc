@@ -1001,6 +1001,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:hardware_pages",
         "//tcmalloc/internal:logging",
         "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/time",
