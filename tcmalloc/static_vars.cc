@@ -49,6 +49,9 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+ABSL_CACHELINE_ALIGNED
+#endif
 ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
 

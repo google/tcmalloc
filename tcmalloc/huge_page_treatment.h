@@ -261,7 +261,8 @@ class SampledTrackerTreatment final : public HugePageTreatment {
   // 3. Unset the tracking bits using Restore, which is called under
   //    pageheap_lock.
 
-  void SelectEligibleTrackers(PageTracker& pt) override {
+  void SelectEligibleTrackers(PageTracker& pt)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
     if (num_valid_trackers_ >= kTotalTrackersToScan) return;
 
     // Collect all the addresses under pageheap lock that are to be sampled for
@@ -433,7 +434,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     return !b->HasDenseSpans();
   }
 
-  void SelectEligibleTrackers(PageTracker& pt) override {
+  void SelectEligibleTrackers(PageTracker& pt)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
     // Trackers are pinned in FinishSelection, once the set is final:
     // pinning here and unpinning on eviction would touch a cold tracker per
     // eviction under pageheap_lock.
@@ -467,7 +469,12 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
                      CompareForHugePageTreatment);
     };
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::HugePageResidencyState state = pt.GetHugePageResidencyState();
+#else
+    const PageTracker::HugePageResidencyState& state =
+        pt.GetHugePageResidencyState();
+#endif
     if (state.maybe_hugepage_backed) return;
 
     if (!state.entry_valid) {
