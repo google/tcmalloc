@@ -370,6 +370,42 @@ TEST_F(TimeSeriesTrackerTest, ClampedNegativeClock) {
   EXPECT_THAT(all_values, ElementsAre(ElementsAre(1, 2, 3)));
 }
 
+TEST_F(TimeSeriesTrackerTest, PowerOfTwoEpochTicks) {
+  static int64_t pow2_clock = 0;
+  pow2_clock = 0;
+  // 1024 Hz clock with 1s epochs => d = 1024 (a power of two).
+  TimeSeriesTracker<TestEntry, int, 8> tracker(
+      Clock{.now = []() -> int64_t { return pow2_clock; },
+            .freq = []() -> double { return 1024.0; }},
+      absl::Seconds(1));
+
+  tracker.Report(10);
+  pow2_clock += 1024;
+  tracker.Report(20);
+  pow2_clock += 2048;
+  tracker.Report(30);
+
+  std::vector<std::vector<int>> all_values;
+  std::vector<size_t> deltas;
+  tracker.Iter([&](size_t offset, size_t epoch_delta, const TestEntry& e) {
+    deltas.push_back(epoch_delta);
+    all_values.push_back(e.values_);
+  });
+  EXPECT_THAT(all_values,
+              ElementsAre(ElementsAre(10), ElementsAre(20), ElementsAre(30)));
+  EXPECT_THAT(deltas, ElementsAre(1, 1, 2));
+
+  // Sub-tick epoch length (d == 0 before clamping) must not divide by zero.
+  TimeSeriesTracker<TestEntry, int, 8> subtick_tracker(
+      Clock{.now = []() -> int64_t { return pow2_clock; },
+            .freq = []() -> double { return 1.0; }},
+      absl::Milliseconds(100));
+  subtick_tracker.Report(42);
+  pow2_clock += 1;
+  subtick_tracker.UpdateTimeBase();
+  EXPECT_FALSE(subtick_tracker.GetMostRecentRecord().data.empty());
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

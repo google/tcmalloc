@@ -311,6 +311,30 @@ TEST_F(StatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   EXPECT_EQ(tracker_.pending_skipped().count, 0);
 }
 
+TEST_F(StatsTrackerTest, PowerOfTwoEpochTicksAgesOutPeak) {
+  static int64_t pow2_clock = 0;
+  pow2_clock = 0;
+  // 16 slots over 16s => epoch_length = 1s; freq = 1024 Hz => d = 1024 (2^10).
+  SubreleaseStatsTracker<16> tracker(
+      Clock{.now = []() -> int64_t { return pow2_clock; },
+            .freq = []() -> double { return 1024.0; }},
+      absl::Seconds(16), absl::Seconds(8));
+
+  SubreleaseStatsTracker<16>::SubreleaseStats stats{};
+  stats.num_pages = Length(3000);
+  stats.free_pages = Length(100);
+  tracker.Report(stats, pow2_clock);
+  EXPECT_EQ(tracker.GetRecentPeak(absl::Seconds(4)), Length(3000));
+
+  // Advance 8 seconds (8 epochs) with low demand; the 4s recent peak must drop.
+  for (int i = 0; i < 8; ++i) {
+    pow2_clock += 1024;
+    stats.num_pages = Length(200);
+    tracker.Report(stats, pow2_clock);
+  }
+  EXPECT_EQ(tracker.GetRecentPeak(absl::Seconds(4)), Length(200));
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
