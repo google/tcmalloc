@@ -943,6 +943,49 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
+
+TEST(CentralFreeListConcurrencyTest, InsertRangeNeverUnderflowsLength) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(64, Bytes(8192), 32,
+              central_freelist_internal::CflSubbucketPrioritization::kDisabled);
+  ASSERT_GT(e.objects_per_span(), 1u);
+
+  std::atomic<bool> stop{false};
+  std::atomic<size_t> max_observed_length{0};
+  std::thread reader([&]() {
+    size_t local_max = 0;
+    while (!stop.load(std::memory_order_relaxed)) {
+      const size_t len = e.central_freelist().length();
+      if (len > local_max) {
+        local_max = len;
+        if (len > e.objects_per_span()) {
+          break;
+        }
+      }
+    }
+    max_observed_length.store(local_max, std::memory_order_relaxed);
+  });
+
+  void* obj;
+  for (int iter = 0; iter < 5000; ++iter) {
+    int got = e.central_freelist().RemoveRange(absl::MakeSpan(&obj, 1));
+    ASSERT_EQ(got, 1);
+    e.central_freelist().InsertRange(absl::MakeSpan(&obj, 1));
+    if (max_observed_length.load(std::memory_order_relaxed) >
+        e.objects_per_span()) {
+      break;
+    }
+  }
+
+  stop.store(true, std::memory_order_relaxed);
+  reader.join();
+  EXPECT_LE(max_observed_length.load(std::memory_order_relaxed),
+            e.objects_per_span());
+}
 INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
     testing::Combine(

@@ -235,7 +235,6 @@ class CentralFreeList {
 
   void RecordMultiSpansDeallocated(size_t num_spans_returned)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    counter_.LossyAdd(-num_spans_returned * objects_per_span_);
     num_spans_returned_.LossyAdd(num_spans_returned);
   }
 
@@ -492,8 +491,11 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
         .LossyAdd(1);
 
-    RecordMultiSpansDeallocated(free_count);
-    UpdateObjectCounts(batch.size());
+    if (ABSL_PREDICT_FALSE(free_count)) {
+      RecordMultiSpansDeallocated(free_count);
+    }
+    UpdateObjectCounts(static_cast<int>(batch.size()) -
+                       static_cast<int>(free_count * objects_per_span));
   }
 
   // Then, release all free spans into page heap under its mutex.
