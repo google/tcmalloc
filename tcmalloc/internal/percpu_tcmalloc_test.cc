@@ -588,6 +588,72 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
   trigger_resize(kShift);
 }
 
+TEST_F(TcmallocSlabTest, GrowOnUninitializedHeaderAndCapacityUnderflow) {
+  if (MallocExtension::PerCpuCachesActive()) {
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+
+  constexpr int kCpu = 0;
+  constexpr size_t kSizeClass = 2;
+  ScopedFakeCpuId fake_cpu_id(kCpu);
+
+  // 1. Before InitCpu(kCpu), calling Grow or GrowOtherCache must fail rather
+  // than growing an uninitialized header (current == 0) and allowing Push to
+  // overwrite the Header array at index 0.
+  slab_.StopCpu(kCpu);
+  EXPECT_EQ(
+      slab_.GrowOtherCache(kCpu, kSizeClass, 2, []() { return kCapacity; }), 0);
+  EXPECT_EQ(slab_.Capacity(kCpu, kSizeClass), 0);
+  slab_.StartCpu(kCpu);
+
+  ASSERT_THAT(slab_.CacheCpuSlab(), testing::Pair(kCpu, true));
+  EXPECT_EQ(slab_.Grow(kCpu, kSizeClass, 2, []() { return kCapacity; }), 0);
+  void* obj = &obj;
+  EXPECT_FALSE(slab_.Push(kSizeClass, obj));
+  EXPECT_EQ(slab_.Capacity(kCpu, kSizeClass), 0);
+
+  // 2. GrowOtherCache must return 0 when max_capacity < hdr.capacity(begin)
+  // rather than underflowing size_t (max_cap - hdr.capacity(begin)).
+  slab_.InitCpu(kCpu, [](size_t) { return kCapacity; });
+  slab_.StopCpu(kCpu);
+  ASSERT_EQ(
+      slab_.GrowOtherCache(kCpu, kSizeClass, 4, []() { return kCapacity; }), 4);
+  EXPECT_EQ(slab_.GrowOtherCache(kCpu, kSizeClass, 2, []() { return 2; }), 0);
+  EXPECT_EQ(slab_.Capacity(kCpu, kSizeClass), 4);
+  slab_.StartCpu(kCpu);
+
+  // 3. When a slab header has 0 < current < begin (e.g., an unlocked Grow
+  // reader racing with UpdateMaxCapacities/ResizeSlabs), Grow must return 0.
+  PerSizeClassMaxCapacity resize_step1[1] = {
+      {.size_class = 1, .max_capacity = kCapacity}};
+  void* slabs2 = AllocSlabs(allocator, kShift);
+  auto [slabs1, slabs1_size] = slab_.UpdateMaxCapacities(
+      slabs2, [](size_t) { return kCapacity; }, [](int, uint16_t) {},
+      [](size_t cpu) { return cpu == kCpu; },
+      [](int, size_t, void**, size_t, size_t) {}, resize_step1, 1);
+
+  slab_.InitCpu(kCpu, [](size_t sc) { return sc == 1 ? 1 : kCapacity; });
+  auto [old_slabs, old_slabs_size] = slab_.UpdateMaxCapacities(
+      slabs1, [](size_t) { return kCapacity; }, [](int, uint16_t) {},
+      [](size_t) { return false; }, [](int, size_t, void**, size_t, size_t) {},
+      resize_step1, 1);
+  auto [old_slabs2, old_slabs2_size] = slab_.UpdateMaxCapacities(
+      old_slabs, [](size_t) { return kCapacity; }, [](int, uint16_t) {},
+      [](size_t) { return false; }, [](int, size_t, void**, size_t, size_t) {},
+      resize_step1, 1);
+  sized_aligned_delete(old_slabs2, old_slabs2_size,
+                       subtle::percpu::SlabAlignment(ToShiftType(kShift)));
+
+  ASSERT_THAT(slab_.CacheCpuSlab(), testing::Pair(kCpu, true));
+  EXPECT_EQ(
+      slab_.Grow(kCpu, kSizeClass, 2 * kCapacity, []() { return kCapacity; }),
+      0);
+}
+
 struct Context {
   TcmallocSlab* slab;
   std::vector<std::vector<void*>>* blocks;
