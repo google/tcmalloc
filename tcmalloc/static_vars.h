@@ -292,6 +292,7 @@ class ConstantRatePageAllocatorReleaser {
       num_bytes = 0;
     } else {
       num_bytes -= extra_bytes_released_;
+      extra_bytes_released_ = 0;
     }
 
     const Length num_pages = [&] {
@@ -310,15 +311,13 @@ class ConstantRatePageAllocatorReleaser {
     const size_t bytes_released = tc_globals.page_allocator()
                                       .ReleaseAtLeastNPages(num_pages, reason)
                                       .in_bytes();
-    if (bytes_released > num_bytes) {
-      extra_bytes_released_ = bytes_released - num_bytes;
-
-      return num_bytes;
+    if (bytes_released >= num_bytes) {
+      extra_bytes_released_ += bytes_released - num_bytes;
+    } else {
+      // The PageHeap wasn't able to release num_bytes.  Don't try to compensate
+      // with a big release next time.
+      extra_bytes_released_ = 0;
     }
-
-    // The PageHeap wasn't able to release num_bytes.  Don't try to compensate
-    // with a big release next time.
-    extra_bytes_released_ = 0;
 
     return bytes_released;
   }

@@ -1899,5 +1899,83 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
+TEST(TCMallocTest, ReleaseMemoryToSystemPreservesCredit) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  ScopedNeverSample never_sample;
+
+  void* a = ::operator new(kHugePageSize);
+  void* b = ::operator new(kHugePageSize);
+  MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
+  const size_t starting_bytes = GetUnmappedBytes();
+
+  ::operator delete(a, kHugePageSize);
+
+  // Releasing half a hugepage unmaps the full hugepage 'a', leaving
+  // kHugePageSize / 2 of over-release credit in extra_bytes_released_.
+  MallocExtension::ReleaseMemoryToSystem(kHugePageSize / 2);
+  ASSERT_EQ(GetUnmappedBytes(), starting_bytes + kHugePageSize);
+
+  // Consumes kHugePageSize / 4 of the credit; kHugePageSize / 4 credit remains.
+  MallocExtension::ReleaseMemoryToSystem(kHugePageSize / 4);
+  ASSERT_EQ(GetUnmappedBytes(), starting_bytes + kHugePageSize);
+
+  ::operator delete(b, kHugePageSize);
+
+  // The remaining kHugePageSize / 4 credit from 'a' must satisfy this request
+  // without unmapping 'b'.
+  MallocExtension::ReleaseMemoryToSystem(kHugePageSize / 4);
+  ASSERT_EQ(GetUnmappedBytes(), starting_bytes + kHugePageSize);
+
+  // Credit is now exhausted, so the next release unmaps 'b'.
+  MallocExtension::ReleaseMemoryToSystem(kHugePageSize / 4);
+  EXPECT_EQ(GetUnmappedBytes(), starting_bytes + 2 * kHugePageSize);
+}
+
+TEST(TCMallocTest, MallocTrimReturnsOneWhenReleasing) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  const absl::Duration old_short =
+      Parameters::filler_skip_subrelease_cold_short_interval();
+  const absl::Duration old_long =
+      Parameters::filler_skip_subrelease_cold_long_interval();
+  Parameters::set_hpaa_subrelease(true);
+  TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
+      absl::ZeroDuration());
+  TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
+      absl::ZeroDuration());
+
+  std::vector<void*> keep_alive;
+  std::vector<void*> releasables;
+  {
+    ScopedProfileSamplingInterval sample_all(1);
+    ScopedGuardedSamplingInterval gs(-1);
+    MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
+    for (int i = 0; i < 8; ++i) {
+      keep_alive.push_back(::operator new(kMaxSize));
+      releasables.push_back(::operator new(kMaxSize));
+    }
+    for (void* releasable : releasables) {
+      ::operator delete(releasable, kMaxSize);
+    }
+    const size_t before_unmapped = GetUnmappedBytes();
+    const int trim_ret = malloc_trim(0);
+    const size_t after_unmapped = GetUnmappedBytes();
+    for (void* pin : keep_alive) {
+      ::operator delete(pin, kMaxSize);
+    }
+
+    EXPECT_GT(after_unmapped, before_unmapped);
+    EXPECT_EQ(trim_ret, 1);
+  }
+
+  Parameters::set_hpaa_subrelease(old_subrelease);
+  TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(old_short);
+  TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(old_long);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
