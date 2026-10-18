@@ -1287,7 +1287,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
     } else if (!overflow && capacity < batch_length) {
       // On underflow we want to grow to at least batch size, because that's
       // what we want to request from transfer cache.
-      increase = batch_length - capacity;
+      increase = std::min(batch_length, max_capacity) - capacity;
     }
     Grow(cpu, size_class, increase);
     capacity = freelist_.Capacity(cpu, size_class);

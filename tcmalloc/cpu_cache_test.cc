@@ -170,6 +170,18 @@ class CpuCachePeer {
     cpu_cache.resize_[cpu].available.fetch_add(available,
                                                std::memory_order_relaxed);
   }
+
+  template <typename CpuCache>
+  static size_t UpdateCapacity(CpuCache& cpu_cache, int cpu, size_t size_class,
+                               bool overflow) {
+    return cpu_cache.UpdateCapacity(cpu, size_class, overflow);
+  }
+
+  template <typename CpuCache>
+  static void UpdateMaxCapacity(CpuCache& cpu_cache, int size_class,
+                                uint16_t max_capacity) {
+    cpu_cache.UpdateMaxCapacity(size_class, max_capacity);
+  }
 };
 
 namespace {
@@ -2910,6 +2922,48 @@ TEST(CpuCacheTest, NamedVma) {
     }
   }
   EXPECT_TRUE(found_active);
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, UpdateCapacityClampsUnderflowGrowthToMaxCapacity) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  constexpr int kCpuId = 0;
+  constexpr size_t kSizeClass = 1;
+  ColdCacheOperations(cache, kCpuId, kSizeClass);
+  cache.Drain(kCpuId);
+
+  TestStaticForwarder& forwarder = cache.forwarder();
+  const size_t batch_length = forwarder.num_objects_to_move(kSizeClass);
+  ASSERT_GT(batch_length, 2);
+  const uint16_t max_cap = batch_length / 2;
+  CpuCachePeer::UpdateMaxCapacity(cache, kSizeClass, max_cap);
+
+  // Restrict available bytes on CPU 0 to exactly max_cap objects of
+  // kSizeClass (less than batch_length objects). Growing on underflow must
+  // clamp to max_cap and not record a false kCapacityTotal miss.
+  const size_t class_size = forwarder.class_to_size(kSizeClass);
+  const int64_t avail = CpuCachePeer::Available(cache, kCpuId);
+  ASSERT_GT(avail, static_cast<int64_t>(max_cap * class_size));
+  CpuCachePeer::SubtractFromAvailable(cache, kCpuId,
+                                      avail - max_cap * class_size);
+
+  {
+    ScopedFakeCpuId fake_cpu_id(kCpuId);
+    CpuCachePeer::UpdateCapacity(cache, kCpuId, kSizeClass,
+                                 /*overflow=*/false);
+  }
+  EXPECT_EQ(cache.GetIntervalSizeClassMisses(kCpuId, kSizeClass,
+                                             PerClassMissType::kCapacityTotal,
+                                             PerClassMissType::kCapacityResize),
+            0);
+
+  CpuCachePeer::AddToAvailable(cache, kCpuId, avail - max_cap * class_size);
   cache.Deactivate();
 }
 
