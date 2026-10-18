@@ -241,7 +241,13 @@ class SampledTrackerTreatment final : public HugePageTreatment {
         set_anon_vma_name_(set_anon_vma_name),
         clock_now_(clock.now()),
         record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
-                                clock.freq()) {}
+                                clock.freq())
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        ,
+        uninit_selected_trackers_(0)
+#endif
+  {
+  }
   ~SampledTrackerTreatment() override = default;
 
   static void operator delete(void*) { __builtin_trap(); }
@@ -263,7 +269,11 @@ class SampledTrackerTreatment final : public HugePageTreatment {
 
     // Collect all the addresses under pageheap lock that are to be sampled for
     // tagging, and that were last scanned more than kRecordInterval ago.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::TagState tagged_state = pt.GetTagState();
+#else
+    const PageTracker::TagState& tagged_state = pt.GetTagState();
+#endif
     if (!tagged_state.sampled_for_tagging) return;
 
     // Evaluate against the cached clock to avoid repeatedly reading the
@@ -339,7 +349,14 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     bool released;
   };
   using TrackerArray = std::array<TrackerState, kTotalTrackersToScan>;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   TrackerArray selected_trackers_;
+#else
+  union {
+    char uninit_selected_trackers_;
+    TrackerArray selected_trackers_;
+  };
+#endif
   int num_valid_trackers_ = 0;
 };
 
@@ -359,6 +376,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         pageflags_(pageflags),
         residency_(residency),
         collapse_(collapse),
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        uninit_residency_states_(0),
+#endif
         page_filler_(page_filler),
         enable_collapse_(enable_collapse),
         subrelease_unbacked_mode_(subrelease_unbacked_mode),
@@ -366,7 +386,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         release_stale_pages_(release_stale_pages),
         clock_now_(clock.now()),
         record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
-                                clock.freq()) {}
+                                clock.freq()) {
+  }
   ~HugePageUnbackedTrackerTreatment() override = default;
 
   static void operator delete(void*) { __builtin_trap(); }
@@ -415,9 +436,15 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         return;
       }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       if (CompareForHugePageTreatment(selected_trackers_[0], &pt)) {
         return;
       }
+#else
+      if (!CompareForHugePageTreatment(&pt, selected_trackers_[0])) {
+        return;
+      }
+#endif
       std::pop_heap(selected_trackers_.begin(),
                     selected_trackers_.begin() + num_valid_trackers_,
                     CompareForHugePageTreatment);
@@ -427,7 +454,12 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
                      CompareForHugePageTreatment);
     };
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::HugePageResidencyState state = pt.GetHugePageResidencyState();
+#else
+    const PageTracker::HugePageResidencyState& state =
+        pt.GetHugePageResidencyState();
+#endif
     if (state.maybe_hugepage_backed) return;
 
     if (!state.entry_valid) {
@@ -486,19 +518,32 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         absl::ToDoubleSeconds(kMaxCollapseLatencyThreshold) * clock_.freq();
     const size_t pages_per_huge_page = kHugePageSize / GetPageSize();
     for (int i = 0; i < num_valid_trackers_; ++i) {
-      PageTracker::HugePageResidencyState state;
       PageTracker* tracker = selected_trackers_[i];
       TC_ASSERT_NE(tracker, nullptr);
       // Assume element is hugepage if we can't read the value.
       bool is_hugepage =
           pf->IsHugepageBacked(tracker->location().start_addr()).value_or(true);
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      PageTracker::HugePageResidencyState state;
       state.entry_valid = true;
       state.record_time = clock_.now();
 
       // If the address is not hugepage backed, obtain the residency
       // information.
       state.maybe_hugepage_backed = is_hugepage;
+#else
+      residency_states_[i].tracker = tracker;
+      PageTracker::HugePageResidencyState& state =
+          residency_states_[i].tracker_state;
+      state.record_time = clock_.now();
+      state.maybe_hugepage_backed = is_hugepage;
+      state.released_since_selected = false;
+      state.entry_valid = true;
+      state.being_collapsed = false;
+      state.collapse_skipped = false;
+      state.collapse_skipped_due_to_backoff = false;
+#endif
       if (!is_hugepage) {
         auto bitmaps =
             res->GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
@@ -529,8 +574,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           state.collapse_skipped_due_to_backoff = true;
         }
       }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       residency_states_[i].tracker = tracker;
       residency_states_[i].tracker_state = state;
+#endif
     }
   }
 
@@ -556,6 +603,11 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         // broken so that a later pass reexamines it instead of skipping it as
         // hugepage backed, and do not report the stale collapse to the filler.
         residency_states_[i].tracker_state.maybe_hugepage_backed = false;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        residency_states_[i].tracker_state.unbacked = {};
+        residency_states_[i].tracker_state.swapped = {};
+        residency_states_[i].tracker_state.stale = {};
+#endif
       }
       tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
       if (residency_states_[i].tracker_state.maybe_hugepage_backed) {
@@ -663,7 +715,14 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     PageTracker* tracker;
     PageTracker::HugePageResidencyState tracker_state;
   };
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   std::array<ResidencyState, kTotalTrackersToScan> residency_states_;
+#else
+  union {
+    char uninit_residency_states_;
+    std::array<ResidencyState, kTotalTrackersToScan> residency_states_;
+  };
+#endif
   HugePageTreatmentStats treatment_stats_;
   HugePageFiller<TrackerType>& page_filler_;
   EnableCollapse enable_collapse_;
