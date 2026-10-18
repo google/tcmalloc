@@ -1743,6 +1743,22 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_test(
   NAME
+    tcmalloc_global_stats_test
+  SRCS
+    "global_stats_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc_deprecated_perthread"
+    "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_test(
+  NAME
     tcmalloc_huge_address_map_test
   SRCS
     "huge_address_map_test.cc"

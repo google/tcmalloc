@@ -1518,6 +1518,27 @@ cc_test(
 )
 
 cc_test(
+    name = "global_stats_test",
+    srcs = ["global_stats_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+        "noubsan",
+    ],
+    deps = [
+        ":malloc_extension",
+        "//tcmalloc/internal:parameter_accessors",
+        "//tcmalloc/internal:percpu",
+        "//tcmalloc/testing:testutil",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "huge_address_map_test",
     srcs = ["huge_address_map_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
