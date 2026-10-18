@@ -277,6 +277,78 @@ TEST_P(GuardedPageAllocatorMisalignedFreeTest, MismatchedAlignment) {
   gpa_.Deallocate(alloc_with_status.alloc);
 }
 
+TEST_F(GuardedPageAllocatorTest,
+       PagesEndAddrExcludesHugePageRoundingSlackAndPrefersActiveNeighbor) {
+  GuardedPageAllocator local_gpa;
+  {
+    PageHeapSpinLockHolder l;
+    local_gpa.Init(2, 2);
+  }
+  local_gpa.AllowAllocations();
+
+  auto alloc_a =
+      local_gpa.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace());
+  ASSERT_EQ(alloc_a.status, Profile::Sample::GuardedStatus::Guarded);
+  char* a = static_cast<char*>(alloc_a.alloc);
+  ASSERT_NE(a, nullptr);
+
+  // With 2 total slots, `a` is either slot 0 (so slot 1 at a + 2 * PageSize()
+  // is unallocated) or slot 1 (so slot 0 at a - 2 * PageSize() is unallocated).
+  const bool a_is_slot0 = local_gpa.PointerIsMine(a + 2 * PageSize());
+  const char* far_guard_fault =
+      a_is_slot0 ? (a + PageSize() + PageSize() / 2)
+                 : (a - static_cast<ptrdiff_t>(PageSize() / 2) - 1);
+  const auto expected_error =
+      a_is_slot0 ? GuardedAllocationsErrorType::kBufferOverflow
+                 : GuardedAllocationsErrorType::kBufferUnderflow;
+  const off_t expected_offset =
+      a_is_slot0 ? static_cast<off_t>(PageSize() + PageSize() / 2)
+                 : -static_cast<off_t>(PageSize() / 2 + 1);
+
+  // A fault >= 0.5 pages into the inter-slot guard page must be attributed to
+  // the live neighbor `a` rather than the never-allocated neighbor slot.
+  GuardedAllocationsStackTrace* alloc_trace = nullptr;
+  GuardedAllocationsStackTrace* dealloc_trace = nullptr;
+  EXPECT_EQ(
+      local_gpa.GetStackTraces(far_guard_fault, &alloc_trace, &dealloc_trace),
+      expected_error);
+  EXPECT_EQ(local_gpa.GetAllocationOffsetAndSize(far_guard_fault),
+            std::make_pair(expected_offset, PageSize()));
+
+  // Allocate the remaining slot `b` and immediately free it so `b` is
+  // quarantined (dealloc_count == 1) while `a` remains live.
+  auto alloc_b =
+      local_gpa.Allocate(PageSize() / 2, std::align_val_t{0}, GetStackTrace());
+  ASSERT_EQ(alloc_b.status, Profile::Sample::GuardedStatus::Guarded);
+  char* b = static_cast<char*>(alloc_b.alloc);
+  ASSERT_NE(b, nullptr);
+  local_gpa.Deallocate(b);
+
+  // The same guard-page fault closer to quarantined `b` must still be
+  // attributed to live `a` as a buffer overflow/underflow, not misreported as
+  // a use-after-free of `b`.
+  EXPECT_EQ(
+      local_gpa.GetStackTraces(far_guard_fault, &alloc_trace, &dealloc_trace),
+      expected_error);
+  EXPECT_EQ(local_gpa.GetAllocationOffsetAndSize(far_guard_fault),
+            std::make_pair(expected_offset, PageSize()));
+
+  char* slot0_page = reinterpret_cast<char*>(
+      std::min(reinterpret_cast<uintptr_t>(a), reinterpret_cast<uintptr_t>(b)) &
+      ~(PageSize() - 1));
+  char* slot1_page = slot0_page + 2 * PageSize();
+  char* leading_guard = slot0_page - PageSize();
+  char* trailing_guard = slot1_page + PageSize();
+
+  EXPECT_FALSE(local_gpa.PointerIsMine(leading_guard - 1));
+  EXPECT_TRUE(local_gpa.PointerIsMine(leading_guard));
+  EXPECT_TRUE(local_gpa.PointerIsMine(trailing_guard + PageSize() - 1));
+  EXPECT_FALSE(local_gpa.PointerIsMine(trailing_guard + PageSize()));
+
+  local_gpa.Deallocate(a);
+  local_gpa.Destroy();
+}
+
 INSTANTIATE_TEST_SUITE_P(
     VaryAlignment, GuardedPageAllocatorMisalignedFreeTest,
     testing::ValuesIn(MisalignedFreeCases()),

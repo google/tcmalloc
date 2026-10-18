@@ -512,10 +512,10 @@ void GuardedPageAllocator::MapPages() {
   }
 
   pages_base_addr_ = base_addr;
-  pages_end_addr_ = pages_base_addr_ + len;
 
   // Align first page to page_size_.
   first_page_addr_ = GetPageAddr(pages_base_addr_ + page_size_);
+  pages_end_addr_ = first_page_addr_ + total_pages_ * (2 * page_size_);
 
   initialized_ = true;
 }
@@ -581,12 +581,26 @@ uintptr_t GuardedPageAllocator::GetNearestValidPage(uintptr_t addr) const {
   // If addr is already on a valid page, just return addr.
   if ((offset / page_size_) % 2 == 0) return addr;
 
-  // ptr points to a guard page, so get nearest valid page.
+  // ptr points to a guard page between slot_lo and slot_hi, so get nearest
+  // valid page, preferring a live neighbor slot over a quarantined or
+  // unallocated one, and a quarantined neighbor slot over an unallocated one.
+  const size_t slot_lo = (offset / page_size_) / 2;
+  const size_t slot_hi = slot_lo + 1;
   const size_t kHalfPageSize = page_size_ / 2;
-  if ((offset / kHalfPageSize) % 2 == 0) {
-    return addr - kHalfPageSize;  // Round down.
+  const bool closer_to_lo = (offset / kHalfPageSize) % 2 == 0;
+  const size_t near_slot = closer_to_lo ? slot_lo : slot_hi;
+  const size_t far_slot = closer_to_lo ? slot_hi : slot_lo;
+
+  auto slot_priority = [this](size_t slot) -> int {
+    const SlotMetadata& d = data_[slot];
+    if (d.allocation_start == 0) return 0;
+    if (d.dealloc_count.load(std::memory_order_relaxed) == 0) return 2;
+    return 1;
+  };
+  if (slot_priority(far_slot) > slot_priority(near_slot)) {
+    return SlotToAddr(far_slot);
   }
-  return addr + kHalfPageSize;  // Round up.
+  return SlotToAddr(near_slot);
 }
 
 size_t GuardedPageAllocator::GetNearestSlot(uintptr_t addr) const {
