@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <sched.h>
+#include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "benchmark/benchmark.h"
@@ -22,6 +25,8 @@
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/arena.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
@@ -40,6 +45,7 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
     return;
   }
 
+  tc_globals.InitIfNecessary();
   auto& cache = tc_globals.cpu_cache();
 
   absl::Notification done;
@@ -66,13 +72,58 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
     }
   });
 
-  // Trigger initialization of the CpuCache, confirming it was not initialized
-  // at the start of the test and is afterwards.
+  // Trigger initialization of the CpuCache from two concurrent threads,
+  // confirming it was not initialized at the start of the test, is initialized
+  // afterwards, and executes CpuCache::Activate() at most once.
   EXPECT_FALSE(tc_globals.CpuCacheActive());
   ASSERT_NE(&TCMalloc_Internal_ForceCpuCacheActivation, nullptr);
   Parameters::set_per_cpu_caches(true);
-  TCMalloc_Internal_ForceCpuCacheActivation();
+
+  const size_t before_cpu_cache_arena =
+      tc_globals.arena()
+          .stats()
+          .bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kCpuCache)];
+
+  std::atomic<int> activators_ready{0};
+  std::atomic<bool> go{false};
+  auto activator_fn = [&]() {
+    ::operator delete(::operator new(1));
+    activators_ready.fetch_add(1, std::memory_order_release);
+    while (!go.load(std::memory_order_acquire)) {
+    }
+    TCMalloc_Internal_ForceCpuCacheActivation();
+  };
+
+  std::thread a1(activator_fn);
+  std::thread a2(activator_fn);
+  while (activators_ready.load(std::memory_order_acquire) < 2) {
+    sched_yield();
+  }
+  {
+    PageHeapSpinLockHolder l;
+    go.store(true, std::memory_order_release);
+    const absl::Time deadline = absl::Now() + absl::Milliseconds(10);
+    while (absl::Now() < deadline) {
+      sched_yield();
+    }
+  }
+  a1.join();
+  a2.join();
+
   EXPECT_TRUE(tc_globals.CpuCacheActive());
+
+  const size_t after_cpu_cache_arena =
+      tc_globals.arena()
+          .stats()
+          .bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kCpuCache)];
+  const size_t slab_metadata_bytes =
+      tc_globals.cpu_cache().MetadataMemoryUsage().virtual_size;
+  ASSERT_GT(after_cpu_cache_arena,
+            before_cpu_cache_arena + slab_metadata_bytes);
+  const size_t resize_info_arena_bytes =
+      after_cpu_cache_arena - before_cpu_cache_arena - slab_metadata_bytes;
+  EXPECT_LE(resize_info_arena_bytes,
+            52 * kNumClasses * static_cast<size_t>(NumCPUs()) + 1024);
 
   absl::SleepFor(absl::Milliseconds(100));
 
