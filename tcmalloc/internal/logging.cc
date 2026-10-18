@@ -195,7 +195,8 @@ void CrashWithOOM(size_t alloc_size) {
   char buf[512];
   int n = absl::SNPrintF(buf, sizeof(buf),
                          "Unable to allocate %zu (new failed)", alloc_size);
-  Crash("tcmalloc", 0, buf, n, true);
+  Crash("tcmalloc", 0, buf, n < 0 ? 0 : std::min<size_t>(n, sizeof(buf) - 1),
+        true);
 }
 
 void PrintStackTrace(void* const* stack_frames, size_t depth) {

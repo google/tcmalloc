@@ -145,6 +145,10 @@ class GwpAsanState {
     ptr_ = ptr;
     type_ = Type::kDoubleFree;
 
+    actual_alignment_ = std::nullopt;
+    expected_alignment_ = std::nullopt;
+    allocation_stack_depth_ = std::nullopt;
+
     size_t deallocation_stack_depth =
         std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
     memcpy(deallocation_stack_, deallocation_stack.data(),
@@ -156,6 +160,10 @@ class GwpAsanState {
                          absl::Span<void* const> deallocation_stack) {
     ptr_ = ptr;
     type_ = Type::kInvalidFree;
+
+    actual_alignment_ = std::nullopt;
+    expected_alignment_ = std::nullopt;
+    allocation_stack_depth_ = std::nullopt;
 
     size_t deallocation_stack_depth =
         std::min<size_t>(kMaxStackDepth, deallocation_stack.size());

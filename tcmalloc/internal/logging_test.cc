@@ -251,6 +251,17 @@ TEST(Check, Optional) {
   EXPECT_DEATH(TC_CHECK_EQ(opt1, noopt), "opt1 == noopt \\(1 == \\?\\?\\?\\)");
 }
 
+TEST(InternalLogging, RecordCrash) {
+  RecordCrash("GWP-ASan", "mismatched-size-delete");
+  RecordCrash("GWP-ASan", "invalid-free");
+  EXPECT_DEATH(
+      {
+        RecordCrash("GWP-ASan", "invalid-free");
+        TC_BUG("detailed crash message %d", 123);
+      },
+      "detailed crash message 123");
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
