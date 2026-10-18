@@ -91,10 +91,24 @@ class MetadataObjectAllocator {
   }
 
   void Delete(absl::FunctionRef<T* absl_nullable()> callback) {
-    AllocationGuardSpinLockHolder l(metadata_lock_);
-    while (T* p = callback()) {
-      p->~T();
-      DeleteMemory(p);
+    constexpr size_t kBatchSize = 64;
+    T* batch[kBatchSize];
+    while (true) {
+      size_t n = 0;
+      while (n < kBatchSize) {
+        T* p = callback();
+        if (p == nullptr) {
+          break;
+        }
+        batch[n++] = p;
+      }
+      if (n == 0) {
+        break;
+      }
+      Delete(absl::MakeSpan(batch, n));
+      if (n < kBatchSize) {
+        break;
+      }
     }
   }
 

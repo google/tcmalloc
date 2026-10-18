@@ -18,10 +18,12 @@
 #include <stdio.h>
 #include <sys/mman.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 
 #include "tcmalloc/internal/profile.pb.h"
 #include "benchmark/benchmark.h"
