@@ -725,9 +725,18 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
 
   if (ABSL_PREDICT_FALSE(meta.sizeclass() != 0)) {
     // Spans with a size class are never sampled, guarded, or large, so any
-    // pointer into one that reaches here is corrupted.
+    // pointer into one that reaches here was either misaligned, deleted with a
+    // mismatched size (> kMaxSize), or corrupted.
     if (absl::bit_cast<uintptr_t>(ptr) & kBadAlignmentMask) {
       ReportCorruptedFree(tc_globals, kAlignment, ptr);
+    }
+    if (size.has_value()) {
+      auto [minimum_size, maximum_size] =
+          tc_globals.sizemap().class_to_size_range(meta.sizeclass());
+      if (*size < minimum_size || *size > maximum_size) {
+        ReportMismatchedDelete(tc_globals, ptr, *size, minimum_size,
+                               maximum_size);
+      }
     }
     ReportCorruptedFree(tc_globals, ptr);
   }
@@ -741,8 +750,7 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   bool valid_ptr = true;
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
     valid_ptr = gwp_asan.PointerIsCorrectlyAligned(ptr);
-  } else if (ABSL_PREDICT_FALSE(ptr != p.start_addr() ||
-                                meta.sizeclass() != 0)) {
+  } else if (ABSL_PREDICT_FALSE(ptr != p.start_addr())) {
     valid_ptr = false;
   }
 
@@ -753,19 +761,6 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
       ABSL_PREDICT_FALSE(!delete_hooks_.empty())) {
     MallocHook::InvokeDeleteHook(
         {ptr, size, GetLargeSize(ptr, meta), HookMemoryMutable::kMutable});
-  }
-
-  if (ABSL_PREDICT_FALSE(meta.sizeclass() != 0)) {
-    if (size.has_value()) {
-      auto [minimum_size, maximum_size] =
-          tc_globals.sizemap().class_to_size_range(meta.sizeclass());
-      ReportMismatchedDelete(tc_globals, ptr, *size, minimum_size,
-                             maximum_size);
-    }
-    // Single object allocations are given size class 0.
-    //
-    // TODO(b/478294698): Decide whether to retain this check.
-    ReportCorruptedFree(tc_globals, ptr);
   }
 
   const Length num_pages = meta.size();
@@ -779,15 +774,26 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
       ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
                           ptr);
     }
-    tc_globals.pagemap().SetFreed(p);
     PageAllocatorInterface::AllocationState a{
         Range(p, num_pages),
         meta.donated(),
     };
-    PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(
-        a, GetMemoryTag(ptr),
-        {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
+    bool double_free = false;
+    {
+      PageHeapSpinLockHolder l;
+      if (ABSL_PREDICT_FALSE(tc_globals.pagemap().GetDescriptor(p).freed())) {
+        double_free = true;
+      } else {
+        tc_globals.pagemap().SetFreed(p);
+        tc_globals.page_allocator().Delete(
+            a, GetMemoryTag(ptr),
+            {.objects_per_span = 1,
+             .density = AccessDensityPrediction::kSparse});
+      }
+    }
+    if (ABSL_PREDICT_FALSE(double_free)) {
+      ReportDoubleFree(tc_globals, ptr);
+    }
   }
   // We expect to crash in GuardedPageAllocator::Delete or in
   // ReportCorruptedFree if the pointer was invalid.  We shouldn't make it here.
