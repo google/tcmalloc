@@ -144,6 +144,44 @@ TEST(SystemAllocatorTest, ReleaseLockedMemory) {
   EXPECT_EQ(allocator.release_errors(), 0);
 }
 
+TEST(SystemAllocatorTest, ReleaseLockedMemoryWithFreeOnlyPreference) {
+  constexpr size_t kMinMmapAlloc = 1 << 30;
+  NumaTopology<2> topology;
+  topology.Init();
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+
+  const size_t kPageSize = GetPageSize();
+  int fd = memfd_create("tcmalloc_release_never_test", MFD_CLOEXEC);
+  ASSERT_GE(fd, 0);
+  ASSERT_EQ(ftruncate(fd, kPageSize), 0);
+  void* shared_ptr =
+      mmap(nullptr, kPageSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  ASSERT_NE(shared_ptr, MAP_FAILED);
+  memset(shared_ptr, 0x5A, kPageSize);
+
+  allocator.set_madvise_preference(MadvisePreference::kNever);
+  MemoryModifyStatus never_status = allocator.Release(shared_ptr, kPageSize);
+  EXPECT_FALSE(never_status.success);
+  EXPECT_EQ(static_cast<unsigned char*>(shared_ptr)[0], 0x5A);
+  EXPECT_EQ(munmap(shared_ptr, kPageSize), 0);
+  EXPECT_EQ(close(fd), 0);
+
+  SystemAllocator<NumaTopology<2>, 1> free_only_allocator(topology,
+                                                          kMinMmapAlloc);
+  free_only_allocator.set_madvise_preference(MadvisePreference::kFreeOnly);
+  AddressRange res =
+      free_only_allocator.Allocate(kPageSize, kPageSize, MemoryTag::kNormal);
+  ASSERT_NE(res.ptr, nullptr);
+
+  if (madvise(res.ptr, res.bytes, MADV_FREE) == 0 &&
+      mlock(res.ptr, res.bytes) == 0) {
+    memset(res.ptr, 0xAB, res.bytes);
+    MemoryModifyStatus status = free_only_allocator.Release(res.ptr, res.bytes);
+    EXPECT_TRUE(status.success);
+    EXPECT_EQ(free_only_allocator.release_errors(), 0);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

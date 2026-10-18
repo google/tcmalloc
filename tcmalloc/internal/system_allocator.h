@@ -942,7 +942,12 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
     return ReleaseStatus::kFailure;
   }
 
-  int ret;
+  const MadvisePreference preference = madvise_preference();
+  if (preference == MadvisePreference::kNever) {
+    return ReleaseStatus::kFailure;
+  }
+
+  int ret = -1;
   // Note -- ignoring most return codes, because if this fails it
   // doesn't matter...
   // Moreover, MADV_REMOVE *will* fail (with EINVAL) on private memory,
@@ -959,9 +964,10 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
   }
 #endif
 
+  ReleaseStatus status = ReleaseStatus::kFailure;
 #ifdef MADV_FREE
   const bool do_madvfree = [&]() {
-    switch (madvise_preference()) {
+    switch (preference) {
       case MadvisePreference::kFreeAndDontNeed:
       case MadvisePreference::kFreeOnly:
         return true;
@@ -977,12 +983,15 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
     do {
       ret = madvise(start, length, MADV_FREE);
     } while (ret == -1 && errno == EAGAIN);
+
+    if (ret != 0) {
+      status = ReleaseStatus::kRetryAfterMunlock;
+    }
   }
 #endif
-  ReleaseStatus status = ReleaseStatus::kFailure;
 #ifdef MADV_DONTNEED
   const bool do_madvdontneed = [&]() {
-    switch (madvise_preference()) {
+    switch (preference) {
       case MadvisePreference::kDontNeed:
       case MadvisePreference::kFreeAndDontNeed:
         return true;
