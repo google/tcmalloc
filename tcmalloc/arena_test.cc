@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include <cstddef>
+#include <limits>
 #include <new>
 
 #include "gtest/gtest.h"
@@ -431,6 +432,34 @@ TEST(Arena, ArenaAllocInfo) {
   }
   EXPECT_DEATH((void)GetArenaAllocInfo(ArenaAlloc::kNumTypes),
                "Invalid ArenaAlloc type");
+}
+
+TEST(Arena, NonPowerOfTwoAlignedSlowAlloc) {
+  Arena arena;
+  for (int i = 0; i < 3; ++i) {
+    void* p = arena.Alloc(ArenaAlloc::kTest, kHugePageSize, Align(3));
+    EXPECT_NE(p, nullptr);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % 3, 0);
+  }
+  const size_t large_non_pow2_align = kPageSize + 3;
+  void* p2 = arena.Alloc(ArenaAlloc::kTest, 7, Align(large_non_pow2_align));
+  EXPECT_NE(p2, nullptr);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(p2) % large_non_pow2_align, 0);
+}
+
+TEST(Arena, ZeroByteInitialAllocAndOverflow) {
+  Arena empty_arena;
+  void* p0 = empty_arena.Alloc(ArenaAlloc::kTest, 0, Align(8));
+  EXPECT_NE(p0, nullptr);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(p0) % 8, 0);
+
+  Arena arena;
+  void* p1 = arena.Alloc(ArenaAlloc::kTest, 1, Align(8));
+  EXPECT_NE(p1, nullptr);
+  EXPECT_DEATH(
+      (void)arena.Alloc(ArenaAlloc::kTest,
+                        std::numeric_limits<size_t>::max() - 2, Align(8)),
+      "Out of memory");
 }
 
 }  // namespace

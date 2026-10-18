@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <new>
 
 #include "absl/base/optimization.h"
@@ -70,7 +71,7 @@ Arena::Block* Arena::TryPopFromFreelist(size_t bytes, size_t align) {
     char* area = reinterpret_cast<char*>(cur);
     size_t avail = cur->size;
     size_t align_bytes = AlignmentBytes(area, align);
-    if (avail < align_bytes + bytes) {
+    if (avail < align_bytes || avail - align_bytes < bytes) {
       prev = cur;
       cur = cur->next;
       continue;
@@ -103,9 +104,24 @@ void Arena::AllocSlow(size_t bytes, size_t align) {
   // If no block on the freelist can satisfy the request, allocate a new block
   // from the system allocator.
   auto& system_allocator = tc_globals.system_allocator();
-  size_t ask = bytes > kAllocIncrement ? bytes : kAllocIncrement;
-  auto [ptr, actual_size] = system_allocator.Allocate(
-      ask, std::max(kPageSize, align), MemoryTag::kMetadata);
+  size_t ask = bytes;
+  size_t sys_align = kPageSize;
+  if ((align & (align - 1)) == 0) {
+    sys_align = std::max(kPageSize, align);
+  } else {
+    if (ABSL_PREDICT_FALSE(bytes >
+                           std::numeric_limits<size_t>::max() - (align - 1))) {
+      TC_BUG(
+          "FATAL ERROR: Out of memory trying to allocate internal tcmalloc "
+          "data (bytes=%v, object-size=%v); is something preventing mmap from "
+          "succeeding (sandbox, VSS limitations)?",
+          kAllocIncrement, bytes);
+    }
+    ask = bytes + align - 1;
+  }
+  ask = std::max<size_t>(ask, kAllocIncrement);
+  auto [ptr, actual_size] =
+      system_allocator.Allocate(ask, sys_align, MemoryTag::kMetadata);
   free_area_ = reinterpret_cast<char*>(ptr);
   if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
     TC_BUG(
@@ -131,7 +147,9 @@ void* Arena::Alloc(ArenaAlloc type, size_t bytes, std::align_val_t alignment) {
   AllocationGuardSpinLockHolder l(arena_lock_);
 
   size_t alignment_bytes = AlignmentBytes(free_area_, align);
-  if (ABSL_PREDICT_FALSE(free_avail_ < alignment_bytes + bytes)) {
+  if (ABSL_PREDICT_FALSE(free_area_ == nullptr ||
+                         free_avail_ < alignment_bytes ||
+                         free_avail_ - alignment_bytes < bytes)) {
     AllocSlow(bytes, align);
     alignment_bytes = AlignmentBytes(free_area_, align);
   }
