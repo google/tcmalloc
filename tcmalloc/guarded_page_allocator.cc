@@ -278,9 +278,26 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
 
 void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
   TC_ASSERT(PointerIsMine(ptr));
-  const uintptr_t page_addr = GetPageAddr(reinterpret_cast<uintptr_t>(ptr));
-  const size_t slot = AddrToSlot(page_addr);
+  const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+  const size_t slot = GetNearestSlot(addr);
   SlotMetadata& d = data_[slot];
+
+  if (ABSL_PREDICT_FALSE(d.allocation_start == 0)) {
+    ReportCorruptedFree(tc_globals, ptr);
+  }
+  if (ABSL_PREDICT_FALSE(d.allocation_start != addr)) {
+    // TODO(ckennelly): Plumb d.dealloc_trace into this call.
+    const bool left_aligned = SlotToAddr(slot) == d.allocation_start;
+    const std::align_val_t expected_alignment =
+        left_aligned ? static_cast<std::align_val_t>(page_size_)
+                     : d.requested_alignment;
+
+    ReportCorruptedFree(tc_globals, expected_alignment, ptr,
+                        {d.alloc_trace.stack, d.alloc_trace.depth});
+  }
+
+  const uintptr_t page_addr = GetPageAddr(addr);
+  TC_ASSERT_EQ(page_addr, SlotToAddr(slot));
 
   // On double-free, do not overwrite the original deallocation metadata, so
   // that the report produced shows the original deallocation stack trace.
@@ -319,17 +336,6 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
     }
   }
 
-  if (ABSL_PREDICT_FALSE(absl::bit_cast<void*>(d.allocation_start) != ptr)) {
-    // TODO(ckennelly): Plumb d.dealloc_trace into this call.
-    const bool left_aligned = SlotToAddr(slot) == d.allocation_start;
-    const std::align_val_t expected_alignment =
-        left_aligned ? static_cast<std::align_val_t>(page_size_)
-                     : d.requested_alignment;
-
-    ReportCorruptedFree(tc_globals, expected_alignment, ptr,
-                        {d.alloc_trace.stack, d.alloc_trace.depth});
-  }
-
   AllocationGuardSpinLockHolder h(guarded_page_lock_);
   FreeSlot(slot);
 }
@@ -337,7 +343,7 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
 size_t GuardedPageAllocator::GetRequestedSize(
     const void* absl_nonnull ptr) const {
   TC_ASSERT(PointerIsMine(ptr));
-  size_t slot = AddrToSlot(GetPageAddr(reinterpret_cast<uintptr_t>(ptr)));
+  size_t slot = GetNearestSlot(reinterpret_cast<uintptr_t>(ptr));
   return data_[slot].requested_size;
 }
 

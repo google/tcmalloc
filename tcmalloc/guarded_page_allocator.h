@@ -223,9 +223,9 @@ class GuardedPageAllocator {
   struct SlotMetadata {
     GuardedAllocationsStackTrace alloc_trace;
     GuardedAllocationsStackTrace dealloc_trace;
-    size_t requested_size = 0;             // requested allocaton size
-    std::align_val_t requested_alignment;  // requested alignment
-    uintptr_t allocation_start = 0;        // allocation start address
+    size_t requested_size = 0;                // requested allocaton size
+    std::align_val_t requested_alignment{0};  // requested alignment
+    uintptr_t allocation_start = 0;           // allocation start address
     std::atomic<int> dealloc_count = 0;    // deallocation counter
     bool write_overflow_detected = false;  // write overflow detected
     // True when the page is quarantined with mprotect() rather than with a

@@ -272,9 +272,57 @@ TEST_P(GuardedPageAllocatorMisalignedFreeTest, MismatchedAlignment) {
         gpa_.Deallocate(absl::bit_cast<void*>(
             absl::bit_cast<uintptr_t>(alloc_with_status.alloc) + misalign));
       },
-      "CHECK in AddrToSlot|Attempted to free corrupted pointer");
+      "Attempted to free corrupted pointer");
 
   gpa_.Deallocate(alloc_with_status.alloc);
+}
+
+TEST_F(GuardedPageAllocatorTest, InvalidFreeLeavesLiveAllocationIntact) {
+  GuardedPageAllocator local_gpa;
+  {
+    PageHeapSpinLockHolder l;
+    local_gpa.Init(2, 2);
+  }
+  local_gpa.AllowAllocations();
+
+  auto alloc_a =
+      local_gpa.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace());
+  ASSERT_EQ(alloc_a.status, Profile::Sample::GuardedStatus::Guarded);
+  char* a = static_cast<char*>(alloc_a.alloc);
+  ASSERT_NE(a, nullptr);
+
+  auto alloc_b =
+      local_gpa.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace());
+  ASSERT_EQ(alloc_b.status, Profile::Sample::GuardedStatus::Guarded);
+  char* b = static_cast<char*>(alloc_b.alloc);
+  ASSERT_NE(b, nullptr);
+  local_gpa.Deallocate(b);
+
+  char* slot0_page = reinterpret_cast<char*>(
+      std::min(reinterpret_cast<uintptr_t>(a), reinterpret_cast<uintptr_t>(b)) &
+      ~(PageSize() - 1));
+  char* slot1_page = slot0_page + 2 * PageSize();
+  char* leading_guard = slot0_page - PageSize();
+  char* inter_guard = slot0_page + PageSize();
+  char* trailing_guard = slot1_page + PageSize();
+
+  // GetRequestedSize on guard pages must not underflow AddrToSlot or trip
+  // internal assertions.
+  EXPECT_EQ(local_gpa.GetRequestedSize(leading_guard), PageSize());
+  EXPECT_EQ(local_gpa.GetRequestedSize(inter_guard), PageSize());
+  EXPECT_EQ(local_gpa.GetRequestedSize(trailing_guard), PageSize());
+
+#ifndef ABSL_HAVE_ADDRESS_SANITIZER
+  EXPECT_DEATH(local_gpa.Deallocate(leading_guard),
+               "Attempted to free corrupted pointer");
+  EXPECT_DEATH(local_gpa.Deallocate(inter_guard),
+               "Attempted to free corrupted pointer");
+  EXPECT_DEATH(local_gpa.Deallocate(b + 1),
+               "Attempted to free corrupted pointer");
+#endif
+
+  local_gpa.Deallocate(a);
+  local_gpa.Destroy();
 }
 
 INSTANTIATE_TEST_SUITE_P(
