@@ -170,6 +170,17 @@ class CpuCachePeer {
     cpu_cache.resize_[cpu].available.fetch_add(available,
                                                std::memory_order_relaxed);
   }
+
+  template <typename CpuCache>
+  static size_t UpdateCapacity(CpuCache& cpu_cache, int cpu, size_t size_class,
+                               bool overflow) {
+    return cpu_cache.UpdateCapacity(cpu, size_class, overflow);
+  }
+
+  template <typename CpuCache>
+  static uint16_t GetMaxCapacity(const CpuCache& cpu_cache, int size_class) {
+    return cpu_cache.GetMaxCapacity(size_class);
+  }
 };
 
 namespace {
@@ -347,7 +358,7 @@ class TestStaticForwarder : private Parameters {
     return numa_topology_;
   }
 
-  bool UseWiderSlabs() const { return true; }
+  bool UseWiderSlabs() const { return use_wider_slabs_; }
 
   using ShardedManager =
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheForwarder,
@@ -401,6 +412,7 @@ class TestStaticForwarder : private Parameters {
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   std::optional<SizeMap> size_map_;
   bool release_drained_slab_metadata_ = false;
+  bool use_wider_slabs_ = true;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
@@ -2910,6 +2922,76 @@ TEST(CpuCacheTest, NamedVma) {
     }
   }
   EXPECT_TRUE(found_active);
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, ColdClassMaxCapacityAndUpdateCapacity) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.use_wider_slabs_ = false;
+  forwarder.dynamic_slab_enabled_ = true;
+  std::vector<SizeClassInfo> classes(SizeMap::CurrentClasses().classes.begin(),
+                                     SizeMap::CurrentClasses().classes.end());
+  for (size_t c = 1; c < classes.size(); ++c) {
+    classes[c].num_to_move = 32;
+  }
+  SizeMap size_map;
+  ASSERT_TRUE(size_map.Init(classes));
+  forwarder.size_map_ = size_map;
+
+  cache.Activate();
+
+  // Populate CPU 0 first.
+  constexpr int kCpuId = 0;
+  ColdCacheOperations(cache, kCpuId, /*size_class=*/1);
+  cache.Drain(kCpuId);
+
+  if (ColdFeatureActive()) {
+    constexpr size_t kColdClass = kColdClassesStart + 1;
+    const uint16_t max_cap = CpuCachePeer::GetMaxCapacity(cache, kColdClass);
+    const size_t batch_length = forwarder.num_objects_to_move(kColdClass);
+    ASSERT_GT(max_cap, 0);
+    ASSERT_LT(max_cap, batch_length);
+
+    // Restrict available bytes on CPU 0 to exactly max_cap objects of
+    // kColdClass (less than batch_length objects). Growing on underflow must
+    // clamp to max_cap and not record a false kCapacityTotal miss.
+    const size_t class_size = forwarder.class_to_size(kColdClass);
+    const int64_t avail = CpuCachePeer::Available(cache, kCpuId);
+    ASSERT_GT(avail, static_cast<int64_t>(max_cap * class_size));
+    CpuCachePeer::SubtractFromAvailable(cache, kCpuId,
+                                        avail - max_cap * class_size);
+
+    {
+      ScopedFakeCpuId fake_cpu_id(kCpuId);
+      CpuCachePeer::UpdateCapacity(cache, kCpuId, kColdClass,
+                                   /*overflow=*/false);
+    }
+    EXPECT_EQ(cache.GetIntervalSizeClassMisses(
+                  kCpuId, kColdClass, PerClassMissType::kCapacityTotal,
+                  PerClassMissType::kCapacityResize),
+              0);
+    CpuCachePeer::AddToAvailable(cache, kCpuId, avail - max_cap * class_size);
+  }
+
+  // Updating capacity on an inactive class (max_capacity == 0) must not record
+  // a kMaxCapacityTotal miss.
+  constexpr size_t kInactiveClass = kNumBaseClasses;
+  ASSERT_EQ(CpuCachePeer::GetMaxCapacity(cache, kInactiveClass), 0);
+  {
+    ScopedFakeCpuId fake_cpu_id(kCpuId);
+    CpuCachePeer::UpdateCapacity(cache, kCpuId, kInactiveClass,
+                                 /*overflow=*/false);
+  }
+  EXPECT_EQ(cache.GetIntervalSizeClassMisses(
+                kCpuId, kInactiveClass, PerClassMissType::kMaxCapacityTotal,
+                PerClassMissType::kMaxCapacityResize),
+            0);
+
   cache.Deactivate();
 }
 

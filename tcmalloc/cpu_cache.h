@@ -942,7 +942,7 @@ inline void CpuCache<Forwarder>::CalculateMaxCapacityForAllClasses(
     int capacity = MaxCapacity(size_class, shift);
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     // Check that the capacity is greater than the batch size.
-    if (capacity > 0) {
+    if (capacity > 0 && !IsColdSizeClass(size_class)) {
       TC_CHECK_GE(capacity,
                   forwarder_.num_objects_to_move(size_class) >> relative_shift);
     }
@@ -1261,11 +1261,12 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   size_t batch_length = forwarder_.num_objects_to_move(size_class);
   const size_t max_capacity = GetMaxCapacity(size_class);
   size_t capacity = freelist_.Capacity(cpu, size_class);
-  if (capacity > max_capacity) {
-    // The resizer thread shrunk the slab between GetMaxCapacity()
-    // and Capacity(), so just abort as quickly as possible.
-    // The slab in freelist_ is now obsolete and will be drained soon,
-    // so there is no point in maintaining statistics or similar.
+  if (capacity > max_capacity || max_capacity == 0) {
+    // Either max_capacity is zero (inactive/bypassed class) or the resizer
+    // thread shrunk the slab between GetMaxCapacity() and Capacity(), so just
+    // abort as quickly as possible. The slab in freelist_ is now obsolete and
+    // will be drained soon, so there is no point in maintaining statistics or
+    // similar.
     return 1;
   }
 
@@ -1287,7 +1288,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
     } else if (!overflow && capacity < batch_length) {
       // On underflow we want to grow to at least batch size, because that's
       // what we want to request from transfer cache.
-      increase = batch_length - capacity;
+      increase = std::min(batch_length, max_capacity) - capacity;
     }
     Grow(cpu, size_class, increase);
     capacity = freelist_.Capacity(cpu, size_class);
@@ -1295,7 +1296,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // We hit the maximum capacity limit when the size class capacity is equal to
   // its maximum allowed capacity. Record a miss due to that so that we can
   // potentially grow the max capacity for this size class later.
-  if (capacity == max_capacity) {
+  if (max_capacity > 0 && capacity == max_capacity) {
     resize_[cpu].per_class[size_class].RecordMiss(
         PerClassMissType::kMaxCapacityTotal);
   }
