@@ -223,7 +223,10 @@ void HugeCache::Release(HugeRange r) {
   // Shrink the limit, if we're going to do it, before we shrink to
   // the max size.  (This could reduce the number of regions we break
   // in half to avoid overshrinking.)
-  if ((clock_.now() - last_limit_change_) > (cache_time_ticks_ * 2)) {
+  const int64_t now = clock_.now();
+  if (ABSL_PREDICT_FALSE(now < last_limit_change_)) {
+    last_limit_change_ = now;
+  } else if ((now - last_limit_change_) > (cache_time_ticks_ * 2)) {
     total_fast_unbacked_ += MaybeShrinkCacheLimit();
   }
   total_fast_unbacked_ += ShrinkCache(limit());

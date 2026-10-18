@@ -478,6 +478,48 @@ TEST_P(HugeCacheTest, Shrink) {
   ASSERT_GE(NHugePages(25), cache_.limit());
 }
 
+TEST_P(HugeCacheTest, ShrinkAfterClockRegression) {
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(
+          Return(MemoryModifyStatus{.success = true, .error_number = 0}));
+  absl::BitGen rng;
+  std::uniform_int_distribution<size_t> sizes(1, 10);
+  absl::Duration cache_time = GetCacheTime();
+
+  Advance(absl::Hours(10));
+  for (int i = 0; i < 5; ++i) {
+    std::vector<HugeRange> rs;
+    for (int j = 0; j < 200; ++j) {
+      HugeLength n = NHugePages(sizes(rng));
+      bool released;
+      rs.push_back(cache_.Get(n, &released));
+    }
+    for (auto r : rs) {
+      Release(r);
+    }
+  }
+
+  ASSERT_LE(NHugePages(500), cache_.size());
+  ASSERT_LE(NHugePages(500), cache_.limit());
+
+  // Simulate clock regression (e.g. snapshot restore or TSC rollback).
+  Advance(-absl::Hours(9));
+
+  for (int i = 0; i < 30; ++i) {
+    Advance(cache_time * 3);
+    for (int j = 0; j < 20; ++j) {
+      bool released;
+      HugeRange r1 = cache_.Get(NHugePages(sizes(rng)), &released);
+      HugeRange r2 = cache_.Get(NHugePages(sizes(rng)), &released);
+      Release(r1);
+      Release(r2);
+    }
+  }
+
+  EXPECT_GE(NHugePages(25), cache_.size());
+  EXPECT_GE(NHugePages(25), cache_.limit());
+}
+
 TEST_P(HugeCacheTest, Usage) {
   bool released;
 
