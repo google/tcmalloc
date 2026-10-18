@@ -17,6 +17,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <array>
@@ -943,6 +944,60 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
+
+TEST(CentralFreeListDeathTest, CorruptedEmptyFreelistAbortsInRemoveRange) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(
+      /*class_size=*/8, /*span_bytes=*/Bytes{kPageSize},
+      /*num_objects_to_move=*/32,
+      central_freelist_internal::CflSubbucketPrioritization::kDisabled);
+  ASSERT_FALSE(Span::UseBitmapForSize(8));
+
+  const size_t objects_per_span = e.objects_per_span();
+  std::vector<void*> all(objects_per_span);
+  size_t fetched = 0;
+  while (fetched < objects_per_span) {
+    size_t want = std::min(objects_per_span - fetched, e.batch_size());
+    int got =
+        e.central_freelist().RemoveRange(absl::MakeSpan(&all[fetched], want));
+    ASSERT_GT(got, 0);
+    fetched += got;
+  }
+
+  // Return 12 (cache) + 1 (host1) + 3 (embedded in host1) + 1 (host2) = 17
+  // objects so the span is in nonempty_ with 17 free objects.
+  constexpr size_t kToReturn = 17;
+  ASSERT_LT(kToReturn, objects_per_span);
+  e.central_freelist().InsertRange(absl::MakeSpan(all.data(), kToReturn));
+
+  EXPECT_DEATH(
+      {
+        alarm(2);
+        // Simulate a use-after-free overwriting host2[0] with kListEnd (0xFFFF)
+        // so popping the 13th object truncates the freelist while allocated_ <
+        // objects_per_span_.
+        *static_cast<uint16_t*>(all[16]) = 0xffff;
+        void* out[13];
+        ASSERT_EQ(e.central_freelist().RemoveRange(absl::MakeSpan(out, 13)),
+                  13);
+        (void)e.central_freelist().RemoveRange(absl::MakeSpan(out, 1));
+      },
+      "Failed to make progress\\.  Freelist corrupted\\?");
+
+  // Return the remaining allocated objects in the parent process so ~TypeParam
+  // observes an empty cache.
+  size_t returned = kToReturn;
+  while (returned < objects_per_span) {
+    size_t want = std::min(objects_per_span - returned, e.batch_size());
+    e.central_freelist().InsertRange(absl::MakeSpan(&all[returned], want));
+    returned += want;
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
     testing::Combine(

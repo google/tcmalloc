@@ -547,7 +547,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
       const size_t size = batch.size();
       int here = span->FreelistPopBatch(
           absl::MakeSpan(batch.data() + result, size - result), object_size);
-      ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
+      TC_CHECK(here > 0 && "Failed to make progress.  Freelist corrupted?");
       // As the objects are being popped from the span, its utilization might
       // change. So, we remove the stale utilization from the histogram here and
       // add it again once we pop the objects.
