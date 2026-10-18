@@ -226,7 +226,7 @@ void HugeCache::Release(HugeRange r) {
   if ((clock_.now() - last_limit_change_) > (cache_time_ticks_ * 2)) {
     total_fast_unbacked_ += MaybeShrinkCacheLimit();
   }
-  total_fast_unbacked_ += ShrinkCache(limit());
+  total_fast_unbacked_ += ShrinkCache();
   UpdateSize(size());
 }
 
@@ -249,12 +249,19 @@ HugeLength HugeCache::MaybeShrinkCacheLimit() {
   HugeLength drop = std::max(min / 2, NHugePages(1));
   limit_ = std::max(limit() <= drop ? NHugePages(0) : limit() - drop,
                     MinCacheLimit());
-  return ShrinkCache(limit());
+  return ShrinkCache();
 }
 
-HugeLength HugeCache::ShrinkCache(HugeLength target) {
+HugeLength HugeCache::ShrinkCache(HugeLength n) {
   HugeLength removed = NHugePages(0);
-  while (size_ > target) {
+  while (true) {
+    const HugeLength over_limit =
+        size() > limit() ? size() - limit() : NHugePages(0);
+    const HugeLength remaining =
+        n > removed ? std::min(n - removed, size()) : NHugePages(0);
+    const HugeLength delta = std::max(over_limit, remaining);
+    if (delta == NHugePages(0)) break;
+
     // Remove smallest-ish nodes, to avoid fragmentation where possible.
     auto* node = Find(NHugePages(1));
     TC_CHECK_NE(node, nullptr);
@@ -265,7 +272,6 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
     // In particular - this prevents disastrous results if we've decided
     // the cache should be 99 MiB but the actual hot usage is 100 MiB
     // (and it is unfragmented).
-    const HugeLength delta = size() - target;
     if (r.len() > delta) {
       HugeRange to_remove, leftover;
       std::tie(to_remove, leftover) = Split(r, delta);
@@ -296,9 +302,7 @@ HugeLength HugeCache::ReleaseCachedPages(HugeLength n) {
   HugeLength released = MaybeShrinkCacheLimit();
 
   if (released < n) {
-    n -= released;
-    const HugeLength target = n > size() ? NHugePages(0) : size() - n;
-    released += ShrinkCache(target);
+    released += ShrinkCache(n - released);
   }
   UpdateSize(size());
   total_periodic_unbacked_ += released;

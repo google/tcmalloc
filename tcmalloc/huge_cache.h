@@ -216,9 +216,9 @@ class HugeCache {
   // number of pages *evicted* (not the change in limit).
   [[nodiscard]] HugeLength MaybeShrinkCacheLimit();
 
-  // Ensure the cache contains at most <target> hugepages,
-  // returning the number removed.
-  [[nodiscard]] HugeLength ShrinkCache(HugeLength target);
+  // Ensure the cache contains at most limit() hugepages and evict at least <n>
+  // cached hugepages when available, returning the number removed.
+  [[nodiscard]] HugeLength ShrinkCache(HugeLength n = NHugePages(0));
 
   [[nodiscard]] HugeRange DoGet(HugeLength n, bool* from_released);
 

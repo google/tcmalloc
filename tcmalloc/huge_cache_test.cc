@@ -583,6 +583,81 @@ TEST_P(HugeCacheTest, Contains) {
   EXPECT_FALSE(cache_.Contains(r.start() + NHugePages(4)));
 }
 
+TEST_P(HugeCacheTest, ConcurrentMutationDuringShrinkCache) {
+  bool from;
+  // Part 1: ReleaseCachedPages(1) with a concurrent Release(r2) while unback_
+  // drops pageheap_lock must not over-evict r2 using a stale pre-lock-drop
+  // target snapshot when cache_.size() <= cache_.limit().
+  HugeRange alloc = cache_.Get(NHugePages(3), &from);
+  HugeRange r1, spacer, r2;
+  std::tie(r1, spacer) = Split(alloc, NHugePages(1));
+  std::tie(spacer, r2) = Split(spacer, NHugePages(1));
+
+  Release(r1);
+  ASSERT_EQ(cache_.size(), NHugePages(1));
+  ASSERT_GE(cache_.limit(), NHugePages(2));
+
+  EXPECT_CALL(mock_unback_, Unback(r1.start().first_page(), kPagesPerHugePage))
+      .WillOnce(testing::Invoke([&](PageId, Length) {
+        Release(r2);
+        return MemoryModifyStatus{.success = true, .error_number = 0};
+      }));
+
+  EXPECT_EQ(cache_.ReleaseCachedPages(NHugePages(1)), NHugePages(1));
+  EXPECT_EQ(cache_.size(), NHugePages(1));
+  EXPECT_TRUE(cache_.Contains(r2.start()));
+
+  // Clean up r2 and spacer.
+  HugeRange hit = cache_.Get(NHugePages(1), &from);
+  EXPECT_FALSE(from);
+  cache_.ReleaseUnbacked(hit);
+  cache_.ReleaseUnbacked(spacer);
+
+  // Part 2: Release(r) triggering multi-node ShrinkCache where a concurrent
+  // Get miss grows limit_ while unback_ drops pageheap_lock must not continue
+  // evicting down to the stale pre-lock-drop limit snapshot.
+  const HugeLength initial_limit = cache_.limit();
+  HugeRange bulk = cache_.Get(initial_limit + NHugePages(4), &from);
+  HugeRange n1, g1, n2, g2, n3;
+  std::tie(n1, g1) = Split(bulk, initial_limit);
+  std::tie(g1, n2) = Split(g1, NHugePages(1));
+  std::tie(n2, g2) = Split(n2, NHugePages(1));
+  std::tie(g2, n3) = Split(g2, NHugePages(1));
+
+  Release(n1);
+  ASSERT_EQ(cache_.size(), initial_limit);
+
+  // Put n2 (1 HP) into cache_ by temporarily raising limit_ or releasing n2 and
+  // failing unback so cache_ holds {n1 (initial_limit), n2 (1 HP)} without
+  // coalescing.
+  EXPECT_CALL(mock_unback_, Unback(n2.start().first_page(), kPagesPerHugePage))
+      .WillOnce(
+          Return(MemoryModifyStatus{.success = false, .error_number = 0}));
+  Release(n2);
+  ASSERT_EQ(cache_.size(), initial_limit + NHugePages(1));
+
+  // Now releasing n3 (1 HP, non-adjacent to n1 and n2) makes size_ =
+  // initial_limit + 2 HP. ShrinkCache needs 2 HP across two 1-HP nodes (n2,
+  // n3). During the first unback_ call (for 1 HP), a concurrent thread misses
+  // in Get and grows cache_.limit() above initial_limit + 1 HP.
+  int unback_calls = 0;
+  EXPECT_CALL(mock_unback_, Unback(testing::_, kPagesPerHugePage))
+      .WillOnce(testing::Invoke([&](PageId, Length) {
+        ++unback_calls;
+        bool miss_from;
+        HugeRange grow1 = cache_.Get(initial_limit * 2, &miss_from);
+        cache_.ReleaseUnbacked(grow1);
+        HugeRange grow2 = cache_.Get(initial_limit * 2, &miss_from);
+        cache_.ReleaseUnbacked(grow2);
+        return MemoryModifyStatus{.success = true, .error_number = 0};
+      }));
+
+  Release(n3);
+  EXPECT_EQ(unback_calls, 1);
+  EXPECT_GE(cache_.limit(), cache_.size());
+  EXPECT_EQ(cache_.size(), initial_limit + NHugePages(1));
+}
+
 INSTANTIATE_TEST_SUITE_P(All, HugeCacheTest,
                          testing::Values(absl::Seconds(1), absl::Seconds(30)));
 
