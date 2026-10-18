@@ -983,11 +983,19 @@ inline size_t TcmallocSlab<NumClasses>::Grow(
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
+  if (ABSL_PREDICT_FALSE(hdr.current < begin)) {
+    return 0;
+  }
   ssize_t have = static_cast<ssize_t>(max_cap - hdr.capacity(begin));
   if (have <= 0) {
     return 0;
   }
   uint16_t n = std::min<uint16_t>(len, have);
+  if (ABSL_PREDICT_FALSE(static_cast<int>(hdr.current) +
+                             hdr.remaining_capacity + n >=
+                         Header::kReservedIndexValue)) {
+    return 0;
+  }
   hdr.remaining_capacity += n;
   // 0xffff is an invalid value, so we must not be able to grow to or past that.
   TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
@@ -1110,9 +1118,9 @@ void TcmallocSlab<NumClasses>::InitSlabs(
     consumed_bytes += cap * sizeof(void*);
   }
 
-  if (consumed_bytes > (1 << ToUint8(shift))) {
-    TC_BUG("per-CPU memory exceeded, have %v, need %v", 1 << ToUint8(shift),
-           consumed_bytes);
+  if (consumed_bytes > GetBytesAvailable(shift)) {
+    TC_BUG("per-CPU memory exceeded, have %v, need %v",
+           GetBytesAvailable(shift), consumed_bytes);
   }
 
   // Verify that EstimateSlabBytes() is correct.
@@ -1169,9 +1177,9 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
 
   const size_t bytes_used_on_curr_slab =
       reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
-  if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
-    TC_BUG("per-CPU memory exceeded, have %v, need %v", 1 << ToUint8(shift),
-           bytes_used_on_curr_slab);
+  if (bytes_used_on_curr_slab > GetBytesAvailable(shift)) {
+    TC_BUG("per-CPU memory exceeded, have %v, need %v",
+           GetBytesAvailable(shift), bytes_used_on_curr_slab);
   }
 
   // Verify that EstimateSlabBytes() is correct.
@@ -1276,7 +1284,7 @@ void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
     uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
-    if (hdr.current == 0) {
+    if (hdr.current < begin) {
       continue;
     }
     const size_t size = hdr.current - begin;
@@ -1314,7 +1322,7 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
     uint16_t begin = old_begins[size_class];
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
-    if (hdr.current == 0) {
+    if (hdr.current < begin) {
       continue;
     }
     const size_t size = hdr.current - begin;
@@ -1466,7 +1474,19 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  uint16_t to_grow = std::min<uint16_t>(len, max_cap - hdr.capacity(begin));
+  if (ABSL_PREDICT_FALSE(hdr.current < begin)) {
+    return 0;
+  }
+  ssize_t have = static_cast<ssize_t>(max_cap - hdr.capacity(begin));
+  if (have <= 0) {
+    return 0;
+  }
+  uint16_t to_grow = std::min<uint16_t>(len, have);
+  if (ABSL_PREDICT_FALSE(static_cast<int>(hdr.current) +
+                             hdr.remaining_capacity + to_grow >=
+                         Header::kReservedIndexValue)) {
+    return 0;
+  }
   hdr.remaining_capacity += to_grow;
   // 0xffff is an invalid value, so we must not be able to grow to or past that.
   TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
@@ -1489,6 +1509,9 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
   // If we pop items, we also execute callbacks.
   const uint16_t unused = hdr.remaining_capacity;
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
+  if (hdr.current < begin) {
+    return 0;
+  }
   if (unused < len && hdr.current != begin) {
     uint16_t pop = std::min<uint16_t>(len - unused, hdr.current - begin);
     void** batch = reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) +
