@@ -78,6 +78,9 @@ class GuardedPageAllocator {
 
   constexpr GuardedPageAllocator()
       : guarded_page_lock_(absl::base_internal::SCHEDULE_KERNEL_ONLY),
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        next_slot_(0),
+#endif
         allocated_pages_(0),
         high_allocated_pages_(0),
         data_(nullptr),
@@ -321,6 +324,9 @@ class GuardedPageAllocator {
   // Maps each bool to one page.
   // true: reserved. false: freed.
   Bitmap<kGpaMaxPages> used_pages_ ABSL_GUARDED_BY(guarded_page_lock_);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  size_t next_slot_ ABSL_GUARDED_BY(guarded_page_lock_);
+#endif
 
   // Number of currently allocated pages. Atomic so it may be accessed outside
   // the guarded_page_lock_ to calculate heuristics based on pool utilization.

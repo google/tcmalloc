@@ -258,7 +258,8 @@ class SampledTrackerTreatment final : public HugePageTreatment {
   // 3. Unset the tracking bits using Restore, which is called under
   //    pageheap_lock.
 
-  void SelectEligibleTrackers(PageTracker& pt) override {
+  void SelectEligibleTrackers(PageTracker& pt)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
     if (num_valid_trackers_ >= kTotalTrackersToScan) return;
 
     // Collect all the addresses under pageheap lock that are to be sampled for
@@ -293,6 +294,12 @@ class SampledTrackerTreatment final : public HugePageTreatment {
   [[nodiscard]] int num_valid_trackers() const override {
     return num_valid_trackers_;
   }
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  [[nodiscard]] bool tracker_list_full() const {
+    return num_valid_trackers_ >= kTotalTrackersToScan;
+  }
+#endif
 
   void Treat() ABSL_LOCKS_EXCLUDED(pageheap_lock) override {
     TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
@@ -399,7 +406,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     return !b->HasDenseSpans();
   }
 
-  void SelectEligibleTrackers(PageTracker& pt) override {
+  void SelectEligibleTrackers(PageTracker& pt)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
     // Trackers are pinned in FinishSelection, once the set is final:
     // pinning here and unpinning on eviction would touch a cold tracker per
     // eviction under pageheap_lock.
@@ -415,9 +423,15 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         return;
       }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       if (CompareForHugePageTreatment(selected_trackers_[0], &pt)) {
         return;
       }
+#else
+      if (!CompareForHugePageTreatment(&pt, selected_trackers_[0])) {
+        return;
+      }
+#endif
       std::pop_heap(selected_trackers_.begin(),
                     selected_trackers_.begin() + num_valid_trackers_,
                     CompareForHugePageTreatment);
@@ -427,7 +441,12 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
                      CompareForHugePageTreatment);
     };
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::HugePageResidencyState state = pt.GetHugePageResidencyState();
+#else
+    const PageTracker::HugePageResidencyState& state =
+        pt.GetHugePageResidencyState();
+#endif
     if (state.maybe_hugepage_backed) return;
 
     if (!state.entry_valid) {
@@ -486,19 +505,37 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         absl::ToDoubleSeconds(kMaxCollapseLatencyThreshold) * clock_.freq();
     const size_t pages_per_huge_page = kHugePageSize / GetPageSize();
     for (int i = 0; i < num_valid_trackers_; ++i) {
-      PageTracker::HugePageResidencyState state;
       PageTracker* tracker = selected_trackers_[i];
       TC_ASSERT_NE(tracker, nullptr);
       // Assume element is hugepage if we can't read the value.
       bool is_hugepage =
           pf->IsHugepageBacked(tracker->location().start_addr()).value_or(true);
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      PageTracker::HugePageResidencyState state;
       state.entry_valid = true;
       state.record_time = clock_.now();
 
       // If the address is not hugepage backed, obtain the residency
       // information.
       state.maybe_hugepage_backed = is_hugepage;
+#else
+      residency_states_[i].tracker = tracker;
+      PageTracker::HugePageResidencyState& state =
+          residency_states_[i].tracker_state;
+      state.record_time = clock_.now();
+      state.maybe_hugepage_backed = is_hugepage;
+      state.released_since_selected = false;
+      state.entry_valid = true;
+      state.being_collapsed = false;
+      state.collapse_skipped = false;
+      state.collapse_skipped_due_to_backoff = false;
+      if (is_hugepage) {
+        state.unbacked = {};
+        state.swapped = {};
+        state.stale = {};
+      }
+#endif
       if (!is_hugepage) {
         auto bitmaps =
             res->GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
@@ -529,8 +566,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           state.collapse_skipped_due_to_backoff = true;
         }
       }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       residency_states_[i].tracker = tracker;
       residency_states_[i].tracker_state = state;
+#endif
     }
   }
 
