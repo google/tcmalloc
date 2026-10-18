@@ -160,7 +160,7 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
     if (status != kPagemapEntrySize) {
       return absl::StatusCode::kUnavailable;
     }
-    if (ABSL_PREDICT_FALSE(PageTail(flags))) {
+    if (ABSL_PREDICT_FALSE(!PageHead(flags) || !PageThp(flags))) {
       TC_LOG("Somehow still at tail page even after seeking?");
       return absl::StatusCode::kFailedPrecondition;
     }
@@ -177,7 +177,8 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
   return absl::StatusCode::kOk;
 }
 
-absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
+absl::StatusCode PageFlags::ReadMany(uintptr_t vaddr, int64_t num_pages,
+                                     PageStats& output) {
   while (num_pages > 0) {
     const size_t batch_size = std::min<int64_t>(kEntriesInBuf, num_pages);
     const size_t to_read = kPagemapEntrySize * batch_size;
@@ -189,17 +190,31 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
     if (status != to_read) {
       return absl::StatusCode::kUnavailable;
     }
-    for (int i = 0; i < batch_size; ++i) {
+    const uintptr_t batch_end_vaddr = vaddr + batch_size * kHardwarePageSize;
+    for (int i = 0; i < batch_size; ++i, vaddr += kHardwarePageSize) {
+      if (IsAlignedTo(vaddr, kHugePageSize)) {
+        last_head_read_ = -1;
+      }
       uint64_t flags = buf_[i];
+      if (ABSL_PREDICT_FALSE((PageHead(flags) || PageTail(flags)) &&
+                             !PageThp(flags))) {
+        TC_LOG("PageFlags asked for information on non-THP hugepage??");
+        return absl::StatusCode::kFailedPrecondition;
+      }
       if (PageHead(flags)) {
         last_head_read_ = flags;
-      }
-
-      if (PageTail(flags)) {
+      } else if (PageTail(flags)) {
         if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
-          TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
-                 buf_[i]);
-          return absl::StatusCode::kFailedPrecondition;
+          uint64_t head_flags = 0;
+          bool head_is_huge = false;
+          if (MaybeReadOne(vaddr & kHugePageMask, head_flags, head_is_huge) !=
+                  absl::StatusCode::kOk ||
+              !head_is_huge || Seek(batch_end_vaddr) != absl::StatusCode::kOk) {
+            TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
+                   buf_[i]);
+            return absl::StatusCode::kFailedPrecondition;
+          }
+          last_head_read_ = head_flags;
         }
         flags = last_head_read_;
       }
@@ -284,6 +299,7 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
     return std::nullopt;
   }
   size_t firstPageSize = kHardwarePageSize - (uaddr - basePage);
+  uintptr_t nextPage;
   if (is_huge) {
     // The object starts in the middle of a native page, but the entire page
     // might be stale. So the situation looks like, simplifying to four native
@@ -323,17 +339,18 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
     // pages. So the next page that is of interest is one hugepage away -- seek
     // to make sure the next read doesn't double-count the native pages in
     // between the two head pages.
-    if (auto res = Seek((basePage & kHugePageMask) + kHugePageSize);
-        res != absl::StatusCode::kOk) {
+    nextPage = (basePage & kHugePageMask) + kHugePageSize;
+    if (auto res = Seek(nextPage); res != absl::StatusCode::kOk) {
       return std::nullopt;
     }
   } else {
     remainingPages--;
     MaybeAddToStats(ret, result_flags, firstPageSize);
+    nextPage = basePage + kHardwarePageSize;
   }
 
   // Handle all pages but the last page.
-  if (auto res = ReadMany(remainingPages - 1, ret);
+  if (auto res = ReadMany(nextPage, remainingPages - 1, ret);
       res != absl::StatusCode::kOk) {
     return std::nullopt;
   }
@@ -393,13 +410,15 @@ PageFlagsBase::PageFlagsBitmaps PageFlags::GetSinglePageBitmaps(
   for (int i = 0; i < kHardwarePagesInHugePage; ++i) {
     uint64_t flags = buf_[i];
 
+    if (ABSL_PREDICT_FALSE((PageHead(flags) || PageTail(flags)) &&
+                           !PageThp(flags))) {
+      return {.status = absl::StatusCode::kFailedPrecondition};
+    }
     if (PageHead(flags)) {
       last_head_read_ = flags;
-    }
-    if (PageTail(flags)) {
+    } else if (PageTail(flags)) {
       if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
-        ret.status = absl::StatusCode::kFailedPrecondition;
-        return ret;
+        return {.status = absl::StatusCode::kFailedPrecondition};
       }
       flags = last_head_read_;
     }
