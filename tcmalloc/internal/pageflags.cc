@@ -149,7 +149,7 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
     if (status != kPagemapEntrySize) {
       return absl::StatusCode::kUnavailable;
     }
-    if (ABSL_PREDICT_FALSE(PageTail(flags))) {
+    if (ABSL_PREDICT_FALSE(!PageHead(flags))) {
       TC_LOG("Somehow still at tail page even after seeking?");
       return absl::StatusCode::kFailedPrecondition;
     }
@@ -182,15 +182,15 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
       uint64_t flags = buf_[i];
       if (PageHead(flags)) {
         last_head_read_ = flags;
-      }
-
-      if (PageTail(flags)) {
+      } else if (PageTail(flags)) {
         if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
           TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
                  buf_[i]);
           return absl::StatusCode::kFailedPrecondition;
         }
         flags = last_head_read_;
+      } else {
+        last_head_read_ = -1;
       }
       MaybeAddToStats(output, flags, kHardwarePageSize);
     }
@@ -210,7 +210,9 @@ std::optional<bool> PageFlags::IsHugepageBacked(const void* const addr) {
   // corresponding to the span [addr, addr+size).
   uintptr_t basePage = uaddr & ~(kHardwarePageSize - 1);
   // Seek into fd.
-  if (auto res = Seek(basePage); res != absl::StatusCode::kOk) return false;
+  if (auto res = Seek(basePage); res != absl::StatusCode::kOk) {
+    return std::nullopt;
+  }
   // Read entry
   static_assert(sizeof(flags) == kPagemapEntrySize);
   auto status = signal_safe_read(fd_, reinterpret_cast<char*>(&flags),
@@ -382,13 +384,14 @@ PageFlagsBase::PageFlagsBitmaps PageFlags::GetSinglePageBitmaps(
 
     if (PageHead(flags)) {
       last_head_read_ = flags;
-    }
-    if (PageTail(flags)) {
+    } else if (PageTail(flags)) {
       if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
         ret.status = absl::StatusCode::kFailedPrecondition;
         return ret;
       }
       flags = last_head_read_;
+    } else {
+      last_head_read_ = -1;
     }
 
     if (PageStale(flags)) {

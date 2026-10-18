@@ -484,13 +484,39 @@ TEST(PageFlagsTest, IsHugepageBacked) {
     for (int page = 0; page < kPagesPerHugepage; ++page) {
       ASSERT_EQ(s.IsHugepageBacked(reinterpret_cast<char*>(page)), expected);
     }
-    CHECK_EQ(signal_safe_close(write_fd), 0) << errno;
   };
 
   test_hugepage_status(kPageHuge, /*expected=*/true);
   test_hugepage_status(kPageHuge | kPageThp, /*expected=*/true);
   test_hugepage_status(kPageThp, /*expected=*/true);
   test_hugepage_status(/*flags=*/0, /*expected=*/false);
+}
+
+TEST(PageFlagsTest, IsHugepageBackedCannotSeek) {
+  PageFlagsFriend s("/dev/null");
+  EXPECT_EQ(s.IsHugepageBacked(&s), std::nullopt);
+}
+
+TEST(PageFlagsTest, NativePageResetsHeadTracking) {
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kHardwarePagesInHugePage = kHugePageSize / kHardwarePageSize;
+  std::vector<uint64_t> data(kHardwarePagesInHugePage, 0);
+  // A compound head followed by a native non-compound page and then an orphan
+  // compound tail page is invalid and must not inherit the prior head flags.
+  data[1] = kPageHead | kPageThp;
+  data[2] = 0;
+  data[3] = kPageTail | kPageThp;
+
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/native-resets-head");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(uint64_t)));
+
+  PageFlagsFriend s(file_path);
+  EXPECT_EQ(s.Get(nullptr, kHugePageSize), std::nullopt);
+  EXPECT_EQ(s.GetSinglePageBitmaps(nullptr).status,
+            absl::StatusCode::kFailedPrecondition);
 }
 
 TEST(PageFlagsTest, TooManyTails) {
