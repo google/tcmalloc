@@ -1763,7 +1763,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
         resize_[cpu].available.exchange(0, std::memory_order_relaxed);
     const auto max_capacity = GetMaxCapacityFunctor();
     size_t size_classes_to_resize = 5;
-    TC_ASSERT_LT(size_classes_to_resize, kNumClasses);
+    TC_ASSERT_LT(size_classes_to_resize, miss_stats.size());
     for (size_t i = 0; i < size_classes_to_resize; ++i) {
       // If a size class with largest misses is zero, break. Other size classes
       // should also have suffered zero misses as well.
@@ -1780,7 +1780,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
         // If one of the highest miss classes is already at the max capacity,
         // we need to try to grow more classes. Otherwise, if first 5 are at
         // max capacity, resizing will stop working.
-        if (size_classes_to_resize < kNumClasses) {
+        if (size_classes_to_resize < miss_stats.size()) {
           size_classes_to_resize++;
         }
         continue;
