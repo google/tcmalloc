@@ -270,18 +270,9 @@ class StaticForwarder : private Parameters {
     TC_ASSERT_NE(free_spans.size(), 0);
     TC_ASSERT_LE(free_spans.size(), kMaxObjectsToMove);
     const MemoryTag tag = GetMemoryTag(free_spans[0]->start_address());
-    PageAllocatorInterface::AllocationState allocs[kMaxObjectsToMove];
-    // Unregister size class doesn't require holding any locks.
-    for (int i = 0, n = free_spans.size(); i < n; ++i) {
-      Span* const free_span = free_spans[i];
-      TC_ASSERT_EQ(GetMemoryTag(free_span->start_address()), tag);
-      TC_ASSERT(
-          !state.pagemap().GetDescriptor(free_span->first_page()).sampled());
-      const bool donated =
-          state.pagemap().UnregisterSizeClass(free_span, pages_per_span);
-
-      // Before taking pageheap_lock, prefetch the PageTrackers these spans are
-      // on.
+    // Before taking pageheap_lock, prefetch the PageTrackers these spans are
+    // on.
+    for (Span* const free_span : free_spans) {
       const PageId p = free_span->first_page();
 
       // In huge_page_filler.h, we static_assert that PageTracker's key elements
@@ -292,16 +283,12 @@ class StaticForwarder : private Parameters {
       PrefetchW(pt);
       PrefetchW(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
                                         ABSL_CACHELINE_SIZE));
-
-      allocs[i].r = Range(p, pages_per_span);
-      allocs[i].donated = donated;
     }
-    Span::Delete(free_spans);
     const AccessDensityPrediction density = AccessDensity(objects_per_span);
     SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,
                                      .density = density};
-    ReturnAllocsToPageHeap(tag, absl::MakeSpan(allocs, free_spans.size()),
-                           span_alloc_info);
+    ReturnAllocsToPageHeap(tag, pages_per_span, free_spans, span_alloc_info);
+    Span::Delete(free_spans);
   }
 
   // Clock consumed by the filler and huge cache.  Tests substitute a fake so
@@ -406,13 +393,23 @@ class StaticForwarder : private Parameters {
                                                  expected_size_class);
   }
 
-  static void ReturnAllocsToPageHeap(
-      MemoryTag tag,
-      absl::Span<PageAllocatorInterface::AllocationState> free_allocs,
-      SpanAllocInfo span_alloc_info) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  static void ReturnAllocsToPageHeap(MemoryTag tag, Length pages_per_span,
+                                     absl::Span<Span*> free_spans,
+                                     SpanAllocInfo span_alloc_info)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     PageHeapSpinLockHolder l;
-    for (const auto& alloc : free_allocs) {
-      state.page_allocator().Delete(alloc, tag, span_alloc_info);
+    for (Span* const free_span : free_spans) {
+      TC_ASSERT_EQ(GetMemoryTag(free_span->start_address()), tag);
+      TC_ASSERT(
+          !state.pagemap().GetDescriptor(free_span->first_page()).sampled());
+      const bool donated =
+          state.pagemap().UnregisterSizeClass(free_span, pages_per_span);
+      state.page_allocator().Delete(
+          PageAllocatorInterface::AllocationState{
+              .r = Range(free_span->first_page(), pages_per_span),
+              .donated = donated,
+          },
+          tag, span_alloc_info);
     }
   }
 };
