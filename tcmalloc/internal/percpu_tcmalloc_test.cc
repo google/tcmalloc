@@ -588,6 +588,63 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
   trigger_resize(kShift);
 }
 
+TEST_F(TcmallocSlabTest, DrainOldSlabsFailedMadviseClearsHeaders) {
+  if (MallocExtension::PerCpuCachesActive()) {
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+
+  constexpr int kCpu = 0;
+  constexpr size_t kSizeClass = 2;
+  ScopedFakeCpuId fake_cpu_id(kCpu);
+
+  slab_.InitCpu(kCpu, [](size_t) { return kCapacity; });
+  ASSERT_THAT(slab_.CacheCpuSlab(), testing::Pair(kCpu, true));
+  ASSERT_EQ(slab_.Grow(kCpu, kSizeClass, 2, []() { return kCapacity; }), 2);
+  void* obj = &obj;
+  ASSERT_TRUE(slab_.Push(kSizeClass, obj));
+
+  // Step 1: UpdateMaxCapacities drains old_slabs (slabs1) via DrainOldSlabs.
+  // Simulate madvise(MADV_DONTNEED) failing on old_slabs (e.g. under mlockall),
+  // so old_slabs retains whatever headers DrainOldSlabs wrote.
+  PerSizeClassMaxCapacity resize_step1[1] = {
+      {.size_class = 1, .max_capacity = kCapacity}};
+  void* slabs2 = AllocSlabs(allocator, kShift);
+  void* drained_obj = nullptr;
+  auto [slabs1, slabs1_size] = slab_.UpdateMaxCapacities(
+      slabs2, [](size_t) { return kCapacity; }, [](int, uint16_t) {},
+      [](size_t cpu) { return cpu == kCpu; },
+      [&](int, size_t sc, void** batch, size_t size, size_t) {
+        if (sc == kSizeClass && size == 1) drained_obj = batch[0];
+      },
+      resize_step1, 1);
+  ASSERT_EQ(drained_obj, obj);
+
+  // Step 2: CPU 0 is later unpopulated, and slabs1 is reused as new_slabs in a
+  // subsequent UpdateMaxCapacities where size class 1's max_capacity shrinks to
+  // 0 (so begins_[2] moves down from 14 to 3 while unpopulated CPU 0 is
+  // skipped). Unpopulated CPU 0 must have zeroed headers in slabs1 and must not
+  // report phantom Length/Capacity or drain garbage pointers.
+  PerSizeClassMaxCapacity resize_step2[1] = {
+      {.size_class = 1, .max_capacity = 0}};
+  auto [old_slabs, old_slabs_size] = slab_.UpdateMaxCapacities(
+      slabs1, [](size_t sc) { return sc == 1 ? 0 : kCapacity; },
+      [](int, uint16_t) {}, [](size_t) { return false; },
+      [](int, size_t, void**, size_t, size_t) {}, resize_step2, 1);
+  sized_aligned_delete(old_slabs, old_slabs_size,
+                       subtle::percpu::SlabAlignment(ToShiftType(kShift)));
+
+  EXPECT_EQ(slab_.Length(kCpu, kSizeClass), 0);
+  EXPECT_EQ(slab_.Capacity(kCpu, kSizeClass), 0);
+  size_t drained = 0;
+  slab_.Drain(
+      kCpu, [&](int, size_t, void**, size_t size, size_t) { drained += size; });
+  EXPECT_EQ(drained, 0);
+}
+
 struct Context {
   TcmallocSlab* slab;
   std::vector<std::vector<void*>>* blocks;

@@ -1314,7 +1314,7 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
     uint16_t begin = old_begins[size_class];
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
-    if (hdr.current == 0) {
+    if (hdr.current < begin) {
       continue;
     }
     const size_t size = hdr.current - begin;
@@ -1323,10 +1323,9 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
     void** batch =
         reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) + begin;
     TSANAcquireBatch(batch, size);
-    drain_handler(cpu, size_class, batch, size, cap);
-    hdr.set_current(begin);
-    hdr.remaining_capacity = 0;
+    hdr = {};
     StoreHeader(hdrp, hdr);
+    drain_handler(cpu, size_class, batch, size, cap);
   }
 }
 
@@ -1610,15 +1609,18 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
       ++hugepage_idx;
     }
 
-    madvise_away_slabs(hugepage_start, bytes_to_free);
     size_t first_cpu = (reinterpret_cast<uintptr_t>(hugepage_start) -
                         reinterpret_cast<uintptr_t>(slabs)) /
                        slab_size_bytes;
     for (unsigned i = 0; i < bytes_to_free / slab_size_bytes; ++i) {
       if (populated(first_cpu + i)) {
+        for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
+          StoreHeader(GetHeader(slabs, shift, first_cpu + i, size_class), {});
+        }
         unpopulate(first_cpu + i);
       }
     }
+    madvise_away_slabs(hugepage_start, bytes_to_free);
   }
 
   // Restart the CPUs again.
