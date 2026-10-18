@@ -1388,6 +1388,63 @@ TEST_F(FillerTest, CheckAllocationsComeFromIntactHugepage) {
   DeleteVector(p3);
 }
 
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       OnCollapseSuccessDoesNotMarkReleasedTrackerUnbroken) {
+  randomize_density_ = false;
+  SpanAllocInfo info = {2, AccessDensityPrediction::kSparse};
+  PAlloc p1 = AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(3), info);
+  PAlloc p2 = AllocateWithSpanAllocInfo(Length(1), info);
+  PAlloc p3 = AllocateWithSpanAllocInfo(Length(1), info);
+  PAlloc p4 = AllocateWithSpanAllocInfo(Length(1), info);
+  ASSERT_EQ(p1.pt, p2.pt);
+  ASSERT_EQ(p1.pt, p3.pt);
+  ASSERT_EQ(p1.pt, p4.pt);
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+
+  // Free p3 and p4 (2 free pages out of kPagesPerHugePage).
+  Delete(p3);
+  Delete(p4);
+
+  // Release 2 free pages on p1.pt via ReleasePages; p1.pt is now in
+  // regular_alloc_released_ with released() == true and unbroken() == false.
+  EXPECT_EQ(ReleasePages(Length(2)), Length(2));
+  EXPECT_TRUE(p1.pt->released());
+  EXPECT_FALSE(p1.pt->unbroken());
+  EXPECT_EQ(filler_.used_pages_in_released(), kPagesPerHugePage - Length(2));
+  EXPECT_EQ(filler_.subrelease_stats().num_hugepages_broken, NHugePages(1));
+
+  // Run TreatHugepageTrackers when PageFlags::IsHugepageBacked returns nullopt
+  // (e.g., /proc/kpageflags cannot be read) on an already-released tracker.
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBackedUnknown(p1.pt->location().start_addr());
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  // A tracker with unbacked pages (released() == true) cannot be unbroken.
+  EXPECT_TRUE(p1.pt->released());
+  EXPECT_FALSE(p1.pt->unbroken());
+
+  // Reallocate the 2 released pages and free p2 so released() becomes false
+  // while free_pages() == 1; the broken hugepage must transition to
+  // regular_alloc_partial_released_ rather than regular_alloc_, and subsequent
+  // ReleasePages must not double-count num_hugepages_broken.
+  PAlloc r1 = AllocateWithSpanAllocInfo(Length(2), info);
+  ASSERT_EQ(r1.pt, p1.pt);
+  Delete(p2);
+  EXPECT_FALSE(p1.pt->released());
+  EXPECT_FALSE(p1.pt->unbroken());
+  EXPECT_EQ(filler_.used_pages_in_partial_released(),
+            kPagesPerHugePage - Length(1));
+  EXPECT_EQ(filler_.FreePagesInPartialAllocs(), Length(1));
+  EXPECT_EQ(ReleasePages(Length(1)), Length(1));
+  EXPECT_EQ(filler_.subrelease_stats().num_hugepages_broken, NHugePages(0));
+
+  Delete(r1);
+  Delete(p1);
+}
+
 // A tracker emptied while an operation that dropped pageheap_lock still holds
 // a pointer to it is parked, and FetchFullyFreedTracker returns it only once
 // every pin is cleared, regardless of its position among the parked trackers.
