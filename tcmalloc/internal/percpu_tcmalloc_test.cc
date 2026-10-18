@@ -588,6 +588,76 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
   trigger_resize(kShift);
 }
 
+TEST_F(TcmallocSlabTest, ShrinkAndDrainCallbackOrderAndUninitializedShrink) {
+  if (MallocExtension::PerCpuCachesActive()) {
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+
+  constexpr int kCpu = 0;
+  constexpr size_t kSizeClass = 1;
+  ScopedFakeCpuId fake_cpu_id(kCpu);
+
+  // 1. Calling ShrinkOtherCache on an uninitialized CPU (hdr.current == 0) must
+  // return 0 and leave Length/Capacity at 0 rather than underflowing
+  // (hdr.current - begin) to read before CpuMemoryStart.
+  slab_.StopCpu(kCpu);
+  bool shrink_called = false;
+  EXPECT_EQ(slab_.ShrinkOtherCache(
+                kCpu, kSizeClass, /*len=*/1,
+                [&](size_t, void**, size_t) { shrink_called = true; }),
+            0);
+  EXPECT_FALSE(shrink_called);
+  EXPECT_EQ(slab_.Length(kCpu, kSizeClass), 0);
+  EXPECT_EQ(slab_.Capacity(kCpu, kSizeClass), 0);
+  slab_.StartCpu(kCpu);
+
+  // 2. When Drain(kCpu) or ShrinkOtherCache(kCpu) runs on kCpu itself while
+  // tcmalloc_slabs is cached on the calling thread, the header must be updated
+  // before invoking drain_handler / shrink_handler so a reentrant Pop/Push
+  // during the callback cannot double-pop the drained/shrunk batch or have its
+  // header update overwritten.
+  slab_.InitCpu(kCpu, [](size_t) { return kCapacity; });
+  ASSERT_THAT(slab_.CacheCpuSlab(), testing::Pair(kCpu, true));
+  ASSERT_EQ(slab_.Grow(kCpu, kSizeClass, 2, []() { return kCapacity; }), 2);
+
+  void* obj1 = &obj1;
+  void* obj2 = &obj2;
+  ASSERT_TRUE(slab_.Push(kSizeClass, obj1));
+  ASSERT_TRUE(slab_.Push(kSizeClass, obj2));
+
+  slab_.StopCpu(kCpu);
+  EXPECT_EQ(slab_.ShrinkOtherCache(kCpu, kSizeClass, /*len=*/2,
+                                   [&](size_t sc_arg, void** batch, size_t n) {
+                                     ASSERT_EQ(sc_arg, kSizeClass);
+                                     ASSERT_EQ(n, 2);
+                                     // Both objects are being shrunk and
+                                     // capacity is now 0; a reentrant Pop or
+                                     // Push must not succeed.
+                                     EXPECT_EQ(slab_.Pop(kSizeClass), nullptr);
+                                     EXPECT_FALSE(slab_.Push(kSizeClass, obj1));
+                                   }),
+            2);
+  slab_.StartCpu(kCpu);
+
+  ASSERT_EQ(slab_.Grow(kCpu, kSizeClass, 2, []() { return kCapacity; }), 2);
+  ASSERT_TRUE(slab_.Push(kSizeClass, obj1));
+  slab_.Drain(kCpu, [&](int cpu_arg, size_t sc_arg, void** batch, size_t size,
+                        size_t cap) {
+    if (sc_arg == kSizeClass) {
+      EXPECT_EQ(size, 1);
+      EXPECT_EQ(cap, 2);
+      EXPECT_EQ(slab_.Pop(kSizeClass), nullptr);
+      EXPECT_FALSE(slab_.Push(kSizeClass, obj2));
+    }
+  });
+  EXPECT_EQ(slab_.Length(kCpu, kSizeClass), 0);
+  EXPECT_EQ(slab_.Capacity(kCpu, kSizeClass), 0);
+}
+
 struct Context {
   TcmallocSlab* slab;
   std::vector<std::vector<void*>>* blocks;

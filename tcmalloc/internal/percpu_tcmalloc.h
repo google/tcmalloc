@@ -1276,7 +1276,7 @@ void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
     uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
     auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
-    if (hdr.current == 0) {
+    if (hdr.current < begin) {
       continue;
     }
     const size_t size = hdr.current - begin;
@@ -1285,10 +1285,10 @@ void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
     void** batch =
         reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) + begin;
     TSANAcquireBatch(batch, size);
-    drain_handler(cpu, size_class, batch, size, cap);
     hdr.set_current(begin);
     hdr.remaining_capacity = 0;
     StoreHeader(hdrp, hdr);
+    drain_handler(cpu, size_class, batch, size, cap);
   }
 }
 
@@ -1489,14 +1489,21 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
   // If we pop items, we also execute callbacks.
   const uint16_t unused = hdr.remaining_capacity;
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
+  if (hdr.current < begin) {
+    return 0;
+  }
   if (unused < len && hdr.current != begin) {
     uint16_t pop = std::min<uint16_t>(len - unused, hdr.current - begin);
     void** batch = reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) +
                    hdr.current - pop;
     TSANAcquireBatch(batch, pop);
-    shrink_handler(size_class, batch, pop);
     hdr.current -= pop;
     hdr.remaining_capacity += pop;
+    const uint16_t to_shrink = std::min<uint16_t>(len, hdr.remaining_capacity);
+    hdr.remaining_capacity -= to_shrink;
+    StoreHeader(hdrp, hdr);
+    shrink_handler(size_class, batch, pop);
+    return to_shrink;
   }
 
   // Shrink the capacity.
