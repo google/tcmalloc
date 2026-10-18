@@ -2457,12 +2457,15 @@ TEST_F(FillerTestWithSubreleaseUnbacked, ReleaseAfterCollapseBeforeRestore) {
 
   // The first hugepage is broken again and must be eligible for another
   // collapse; the second one stays collapsed.
-  EXPECT_TRUE(first->released());
-  EXPECT_FALSE(first->unbroken());
-  EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
-  EXPECT_FALSE(second->released());
-  EXPECT_TRUE(second->unbroken());
-  EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(first->released());
+    EXPECT_FALSE(first->unbroken());
+    EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
+    EXPECT_FALSE(second->released());
+    EXPECT_TRUE(second->unbroken());
+    EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  }
   CheckStats();
 
   EXPECT_TRUE(Delete(a));
@@ -2519,11 +2522,14 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_EQ(stats.collapse_attempted, NHugePages(2));
   EXPECT_EQ(stats.collapse_succeeded, NHugePages(2));
 
-  EXPECT_FALSE(first->released());
-  EXPECT_FALSE(first->unbroken());
-  EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
-  EXPECT_TRUE(second->unbroken());
-  EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_FALSE(first->released());
+    EXPECT_FALSE(first->unbroken());
+    EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
+    EXPECT_TRUE(second->unbroken());
+    EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  }
   CheckStats();
 
   DeleteVector(refill);
@@ -4077,8 +4083,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_EQ(a.pt->released_pages(), Length(0));
 
   // Verify that entry_valid remains true.
-  PageTracker::HugePageResidencyState state = a.pt->GetHugePageResidencyState();
-  EXPECT_TRUE(state.entry_valid);
+  {
+    PageHeapSpinLockHolder l;
+    PageTracker::HugePageResidencyState state =
+        a.pt->GetHugePageResidencyState();
+    EXPECT_TRUE(state.entry_valid);
+  }
 
   // Advance the clock to exceed kRecordInterval (5 minutes) so that the tracker
   // is revisited for collapse.
