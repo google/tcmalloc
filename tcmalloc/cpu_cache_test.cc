@@ -95,6 +95,35 @@ class CpuCachePeer {
     cpu_cache.RecordCacheMissStat(/*cpu=*/0, /*is_alloc=*/false);
   }
 
+  template <typename CpuCache>
+  static void SimulateRaceUnpopulateBeforeResizeCpuSizeClasses(
+      CpuCache& cpu_cache, int cpu) {
+    if (!cpu_cache.HasPopulated(cpu)) {
+      cpu_cache.Populate(cpu);
+    }
+    const size_t budget = 64 << 10;
+    cpu_cache.Drain(cpu);
+    cpu_cache.resize_[cpu].available.store(budget, std::memory_order_relaxed);
+    cpu_cache.resize_[cpu].capacity.store(budget, std::memory_order_relaxed);
+    cpu_cache.resize_[cpu].per_class[1].RecordMiss(
+        CpuCache::PerClassMissType::kCapacityTotal);
+
+    {
+      AllocationGuardSpinLockHolder h(cpu_cache.resize_[cpu].lock);
+      const uint8_t shift = cpu_cache.freelist_.GetShift();
+      TC_ASSERT_EQ(cpu, 0);
+      void* slab_start = cpu_cache.slabs_by_shift_[0];
+      cpu_cache.MadviseAwaySlabs(slab_start, size_t{1} << shift,
+                                 /*skip_nohugepage=*/true);
+      cpu_cache.resize_[cpu].populated.store(false, std::memory_order_release);
+      cpu_cache.resize_[cpu].num_unpopulates.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+    ASSERT_FALSE(cpu_cache.HasPopulated(cpu));
+
+    cpu_cache.ResizeCpuSizeClasses(cpu);
+  }
+
   // Validate that we're using >99% of the available slab bytes.
   template <typename CpuCache>
   static void ValidateSlabBytes(CpuCache& cpu_cache) {
@@ -2910,6 +2939,21 @@ TEST(CpuCacheTest, NamedVma) {
     }
   }
   EXPECT_TRUE(found_active);
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, ResizeCpuSizeClassesUnpopulatedCpuPreservesCapacity) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  CpuCachePeer::SimulateRaceUnpopulateBeforeResizeCpuSizeClasses(cache,
+                                                                 /*cpu=*/0);
+  CpuCachePeer::CheckResizeLockInvariants(cache, /*cpu=*/0);
+
   cache.Deactivate();
 }
 

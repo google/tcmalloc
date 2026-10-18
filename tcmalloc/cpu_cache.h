@@ -1753,6 +1753,9 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   size_t num_resizes = 0;
   {
     AllocationGuardSpinLockHolder h(resize_[cpu].lock);
+    if (!HasPopulated(cpu)) {
+      return;
+    }
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
     size_t available =
         resize_[cpu].available.exchange(0, std::memory_order_relaxed);
@@ -1957,6 +1960,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
     }
 
     AllocationGuardSpinLockHolder h(resize_[src_cpu].lock);
+    if (!HasPopulated(src_cpu)) continue;
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, src_cpu);
     size_t source_size_class = resize_[src_cpu].next_steal;
     for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
