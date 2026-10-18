@@ -307,4 +307,26 @@ TEST(SizeMapTest, SpecificClassRanges) {
 
 }
 
+TEST(SizeMapTest, ReinitClearsUnusedSizeClasses) {
+  SizeMap size_map;
+  ASSERT_TRUE(size_map.Init(kSizeClasses.classes));
+  ASSERT_TRUE(size_map.Init(kExperimentalPow2SizeClasses.classes));
+
+  for (size_t c = kExperimentalPow2SizeClasses.classes.size();
+       c < kNumBaseClasses; ++c) {
+    EXPECT_EQ(size_map.class_to_size(c), 0) << c;
+    EXPECT_EQ(size_map.class_to_pages(c), Length(0)) << c;
+    EXPECT_EQ(size_map.num_objects_to_move(c), 0) << c;
+    EXPECT_THAT(size_map.class_to_size_range(c), Pair(0, 0)) << c;
+
+    if (kPageShift > 12) {
+      const size_t cold_c = c + kColdClassesStart;
+      EXPECT_EQ(size_map.class_to_size(cold_c), 0) << cold_c;
+      EXPECT_EQ(size_map.class_to_pages(cold_c), Length(0)) << cold_c;
+      EXPECT_EQ(size_map.num_objects_to_move(cold_c), 0) << cold_c;
+      EXPECT_THAT(size_map.class_to_size_range(cold_c), Pair(0, 0)) << cold_c;
+    }
+  }
+}
+
 }  // namespace tcmalloc::tcmalloc_internal

@@ -156,6 +156,10 @@ bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
     return false;
   }
 
+  memset(class_to_size_, 0, sizeof(class_to_size_));
+  memset(class_to_pages_, 0, sizeof(class_to_pages_));
+  memset(num_objects_to_move_, 0, sizeof(num_objects_to_move_));
+
   int curr = 1;
   for (int c = 1; c < num_classes; c++) {
     class_to_size_[curr] = size_classes[c].size;
