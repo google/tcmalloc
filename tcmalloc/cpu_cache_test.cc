@@ -170,6 +170,18 @@ class CpuCachePeer {
     cpu_cache.resize_[cpu].available.fetch_add(available,
                                                std::memory_order_relaxed);
   }
+
+  template <typename CpuCache>
+  static void RecordMaxCapacityMiss(CpuCache& cpu_cache, int cpu,
+                                    size_t size_class) {
+    cpu_cache.resize_[cpu].per_class[size_class].RecordMiss(
+        CpuCache::PerClassMissType::kMaxCapacityTotal);
+  }
+
+  template <typename CpuCache>
+  static uint16_t GetMaxCapacity(const CpuCache& cpu_cache, int size_class) {
+    return cpu_cache.GetMaxCapacity(size_class);
+  }
 };
 
 namespace {
@@ -2910,6 +2922,57 @@ TEST(CpuCacheTest, NamedVma) {
     }
   }
   EXPECT_TRUE(found_active);
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, ResizeSizeClassMaxCapacitiesSkipsZeroCapacityClass) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.dynamic_slab_enabled_ = true;
+
+  using ShardedManager = TestStaticForwarder::ShardedManager;
+  forwarder.SetShardedCacheForLargeClassesOnly(true);
+  forwarder.SetGenericShardedCache(false);
+  forwarder.InitializeShardedManager(ShardedManager::kMinShardsAllowed);
+
+  cache.Activate();
+
+  // Populate CPU 0 so GetUpdatedMaxCapacities inspects its per-class misses.
+  ColdCacheOperations(cache, /*cpu_id=*/0, /*size_class=*/2);
+  cache.Drain(0);
+
+  // Size class 1 is bypassed when UseCacheForLargeClassesOnly is enabled in
+  // FakeShardedTransferCacheForwarder, so its max_capacity is 0 while its
+  // num_objects_to_move is non-zero.
+  ASSERT_EQ(CpuCachePeer::GetMaxCapacity(cache, 1), 0);
+  ASSERT_GT(forwarder.num_objects_to_move(1), 0);
+  ASSERT_GT(CpuCachePeer::GetMaxCapacity(cache, 2),
+            forwarder.num_objects_to_move(2));
+
+  // Inject kMaxCapacityTotal misses on the zero-capacity class and verify that
+  // ResizeSizeClassMaxCapacities does not grow it from 0 to > 0.
+  CpuCachePeer::RecordMaxCapacityMiss(cache, /*cpu=*/0, /*size_class=*/1);
+  cache.ResizeSizeClassMaxCapacities();
+  EXPECT_EQ(CpuCachePeer::GetMaxCapacity(cache, 1), 0);
+
+  // Also verify that an active class (size_class = 2) can grow by shrinking
+  // another active class whose num_objects_to_move >> relative_shift == 0,
+  // while retaining at least 1 object of max capacity on the shrunk class.
+  const uint16_t before_cap2 = CpuCachePeer::GetMaxCapacity(cache, 2);
+  CpuCachePeer::RecordMaxCapacityMiss(cache, /*cpu=*/0, /*size_class=*/2);
+  cache.ResizeSizeClassMaxCapacities();
+  EXPECT_GT(CpuCachePeer::GetMaxCapacity(cache, 2), before_cap2);
+  if (ColdFeatureActive()) {
+    EXPECT_GE(CpuCachePeer::GetMaxCapacity(
+                  cache, ThreeSizeClassForwarder::kColdSizeClass),
+              1);
+  }
+
+  forwarder.SetShardedCacheForLargeClassesOnly(false);
   cache.Deactivate();
 }
 

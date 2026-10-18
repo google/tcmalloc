@@ -1505,7 +1505,11 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
     // capacities of other size classes by the same amount. We shrink each
     // size classes' max capacity by its batch size too.
     const size_t size_class_to_grow = miss_stats[grow_index].size_class;
+    const size_t grow_cap =
+        max_capacity_[size_class_to_grow].load(std::memory_order_relaxed);
+    if (grow_cap == 0) continue;
     const int to_grow = forwarder_.num_objects_to_move(size_class_to_grow);
+    if (to_grow == 0) continue;
 
     // max_capacity_index keeps track of number of entries in max_capacity
     // that are valid. If we do not find enough size classes to shrink, we
@@ -1513,15 +1517,16 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
     // once we find enough size classes to shrink max capacities equal to the
     // target. next_capacity_index records a temporary index in max_capacity.
     int next_capacity_index = max_capacity_index;
-    int target = (to_grow * growth_factor) >> relative_shift;
+    int target = std::max<int>(1, (to_grow * growth_factor) >> relative_shift);
     int shrunk = 0;
 
     // Loop until we found enough capacity from other size classes, or if we run
     // out of size classes to shrink.
     while (shrink_index > grow_index && target > 0) {
       size_t size_class_to_shrink = miss_stats[shrink_index].size_class;
-      int batch_size = forwarder_.num_objects_to_move(size_class_to_shrink) >>
-                       relative_shift;
+      int batch_size = std::max<int>(
+          1, forwarder_.num_objects_to_move(size_class_to_shrink) >>
+                 relative_shift);
       size_t cap =
           max_capacity_[size_class_to_shrink].load(std::memory_order_relaxed);
       --shrink_index;
@@ -1549,11 +1554,9 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 
     // Update maximum capacity for the size class we intend to grow by the
     // amount we shrunk from other size classes.
-    size_t cap =
-        max_capacity_[size_class_to_grow].load(std::memory_order_relaxed);
     TC_ASSERT_LT(next_capacity_index, kNumClasses);
     max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
-        .size_class = size_class_to_grow, .max_capacity = cap + shrunk};
+        .size_class = size_class_to_grow, .max_capacity = grow_cap + shrunk};
     ++next_capacity_index;
     max_capacity_index = next_capacity_index;
 
