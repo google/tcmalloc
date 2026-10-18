@@ -321,9 +321,7 @@ struct HugeRange {
 
   [[nodiscard]] void* start_addr() const { return first.start_addr(); }
   [[nodiscard]] void* end_addr() const { return (first + n).start_addr(); }
-  [[nodiscard]] size_t byte_len() const {
-    return static_cast<char*>(end_addr()) - static_cast<char*>(start_addr());
-  }
+  [[nodiscard]] size_t byte_len() const { return n.in_bytes(); }
 
   // Assume any range starting at 0 is bogus.
   [[nodiscard]] bool valid() const { return first.start_addr() != nullptr; }
@@ -346,17 +344,19 @@ struct HugeRange {
     return p >= first && (p - first) < n;
   }
   [[nodiscard]] bool contains(HugeRange r) const {
-    return r.first >= first && (r.first + r.n) <= (first + n);
+    return r.first >= first && (r.first - first) <= n &&
+           r.n <= n - (r.first - first);
   }
 
   [[nodiscard]] bool intersects(HugeRange r) const {
-    return r.contains(start()) || contains(r.start());
+    return n > NHugePages(0) && r.n > NHugePages(0) &&
+           (r.contains(start()) || contains(r.start()));
   }
 
   // True iff r is our immediate successor (i.e. this + r is one large
   // (non-overlapping) range.)
   [[nodiscard]] bool precedes(HugeRange r) const {
-    return end_addr() == r.start_addr();
+    return r.first >= first && (r.first - first) == n;
   }
 
   [[nodiscard]] static HugeRange Nil() {
