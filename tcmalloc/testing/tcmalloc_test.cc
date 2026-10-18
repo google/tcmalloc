@@ -1899,5 +1899,18 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
+TEST(TCMallocTest, NegativeMaxTotalThreadCacheBytesClamped) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  const int64_t old_limit = Parameters::max_total_thread_cache_bytes();
+  Parameters::set_max_total_thread_cache_bytes(-1);
+  std::optional<size_t> prop = MallocExtension::GetNumericProperty(
+      "tcmalloc.max_total_thread_cache_bytes");
+  ASSERT_TRUE(prop.has_value());
+  EXPECT_EQ(*prop, kMinThreadCacheSize);
+  Parameters::set_max_total_thread_cache_bytes(old_limit);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
