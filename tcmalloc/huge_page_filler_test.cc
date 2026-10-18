@@ -2531,6 +2531,33 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_TRUE(Delete(b));
 }
 
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       CollapseBrokenDonatedTrackerPreservesDonated) {
+  randomize_density_ = false;
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_TRUE(b.pt->donated());
+  {
+    PageHeapSpinLockHolder l;
+    b.pt->set_unbroken(false);
+  }
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(b.p.start_addr(), /*is_hugepage_backed=*/false);
+  pageflags.SetStaleBitmap(b.p.start_addr(), {});
+  residency.SetUnbackedAndSwappedBitmaps(b.p.start_addr(), {}, {});
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  EXPECT_TRUE(b.pt->unbroken());
+  EXPECT_TRUE(b.pt->donated());
+  CheckStats();
+
+  EXPECT_TRUE(Delete(b));
+}
+
 // Makes sure that we do not collapse the pages that are already hugepage
 // backed.
 TEST_F(FillerTest, DontCollapseAlreadyHugepages) {

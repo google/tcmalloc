@@ -1806,6 +1806,10 @@ inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
   TC_ASSERT(!pt->fully_freed());
   TC_ASSERT(!pt->BeingReleased());
   if (pt->unbroken()) return;
+  if (pt->donated()) {
+    pt->set_unbroken(/*status=*/true);
+    return;
+  }
   RemoveFromFillerList(pt);
   pt->set_unbroken(/*status=*/true);
   AddToFillerList(pt);
