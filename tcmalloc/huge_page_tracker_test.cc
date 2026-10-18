@@ -880,6 +880,31 @@ TEST_F(PageTrackerTest, b151915873) {
                                   &small.normal_length[kMaxPages.raw_num()]));
 }
 
+TEST_F(PageTrackerTest, CollapseSkipsFullyFreedTracker) {
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a = Get(Length(1), info);
+  {
+    PageHeapSpinLockHolder l;
+    tracker_.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+  }
+  // Free the last allocation while pinned by kCollapse, simulating a
+  // concurrent Put that parks the empty tracker on fully_freed_trackers_
+  // before Collapse() acquires pageheap_lock.
+  Put(a);
+  ASSERT_TRUE(tracker_.fully_freed());
+  ASSERT_FALSE(tracker_.released());
+  ASSERT_FALSE(tracker_.BeingReleased());
+
+  MemoryModifyStatus status = Collapse();
+  EXPECT_FALSE(status.success);
+  mock_collapse_.VerifyAndClear();
+
+  {
+    PageHeapSpinLockHolder l;
+    tracker_.ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
