@@ -285,6 +285,66 @@ INSTANTIATE_TEST_SUITE_P(
                           info.param.misalign);
     });
 
+TEST_F(GuardedPageAllocatorTest, MisalignedFreeAcrossGuardPageAndPostFree) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Skipping slow death test under ASan";
+#endif
+  // Allocate all slots to obtain slot 0 (lowest address, at first_page_addr_).
+  std::vector<char*> bufs;
+  bufs.reserve(kMaxGpaPages);
+  for (size_t i = 0; i < kMaxGpaPages; ++i) {
+    auto alloc =
+        gpa_.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace());
+    ASSERT_EQ(alloc.status, Profile::Sample::GuardedStatus::Guarded);
+    ASSERT_NE(alloc.alloc, nullptr);
+    bufs.push_back(static_cast<char*>(alloc.alloc));
+  }
+  std::sort(bufs.begin(), bufs.end());
+  char* slot0_buf = bufs[0];
+
+  // 1. Underflow pointer in the leading guard page [pages_base_addr_,
+  // first_page_addr_) before slot 0 must resolve to slot 0 without AddrToSlot
+  // assertion failure (!NDEBUG) or unsigned underflow / data_[-1] OOB (NDEBUG).
+  char* leading_guard_ptr = slot0_buf - 1;
+  ASSERT_TRUE(gpa_.PointerIsMine(leading_guard_ptr));
+  EXPECT_FALSE(gpa_.PointerIsCorrectlyAligned(leading_guard_ptr));
+  EXPECT_EQ(gpa_.GetRequestedSize(leading_guard_ptr), PageSize());
+  EXPECT_DEATH(gpa_.Deallocate(leading_guard_ptr),
+               "Attempted to free corrupted pointer");
+
+  for (char* b : bufs) {
+    gpa_.Deallocate(b);
+  }
+
+  // 2. Corrupted pointer passed to Deallocate after the slot has been freed
+  // must still report a corrupted free rather than triggering ForceTouchPage
+  // double-free or mutating slot metadata.
+  EXPECT_DEATH(gpa_.Deallocate(slot0_buf + 1),
+               "Attempted to free corrupted pointer");
+
+  // 3. Right-aligned allocation where alloc + 1 crosses onto the following
+  // guard page must report a corrupted free rather than crashing in AddrToSlot.
+  char* right_aligned = nullptr;
+  std::vector<void*> held;
+  for (size_t i = 0; i < kMaxGpaPages; ++i) {
+    auto alloc = gpa_.Allocate(1, std::align_val_t{1}, GetStackTrace());
+    ASSERT_NE(alloc.alloc, nullptr);
+    if (reinterpret_cast<uintptr_t>(alloc.alloc) % PageSize() ==
+        PageSize() - 1) {
+      right_aligned = static_cast<char*>(alloc.alloc);
+      break;
+    }
+    held.push_back(alloc.alloc);
+  }
+  ASSERT_NE(right_aligned, nullptr);
+  EXPECT_DEATH(gpa_.Deallocate(right_aligned + 1),
+               "Attempted to free corrupted pointer");
+  gpa_.Deallocate(right_aligned);
+  for (void* p : held) {
+    gpa_.Deallocate(p);
+  }
+}
+
 TEST_P(GuardedPageAllocatorParamTest, AllocDeallocAllPages) {
   size_t num_pages = GetParam();
   char* bufs[kMaxGpaPages];
