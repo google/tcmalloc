@@ -52,6 +52,10 @@ build_variants = [
         "name": "latency_injection",
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LATENCY_INJECTION"],
     },
+    {
+        "name": "legacy_locking2",
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING2"],
+    },
 ]
 
 test_variants = [
@@ -241,6 +245,13 @@ test_variants = [
         "malloc": "//tcmalloc:tcmalloc_latency_injection",
         "deps": ["//tcmalloc:common_latency_injection"],
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LATENCY_INJECTION"],
+        "tags": ["noubsan"],
+    },
+    {
+        "name": "legacy_locking2",
+        "malloc": "//tcmalloc:tcmalloc_legacy_locking2",
+        "deps": ["//tcmalloc:common_legacy_locking2"],
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING2"],
         "tags": ["noubsan"],
     },
     {
