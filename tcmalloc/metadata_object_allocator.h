@@ -81,6 +81,7 @@ class MetadataObjectAllocator {
   }
 
   void Delete(absl::Span<T* absl_nonnull> ptrs) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     for (T* p : ptrs) {
       p->~T();
     }
@@ -88,14 +89,63 @@ class MetadataObjectAllocator {
     for (T* p : ptrs) {
       DeleteMemory(p);
     }
+#else
+    if (ABSL_PREDICT_FALSE(ptrs.empty())) {
+      return;
+    }
+    for (size_t i = 0; i < ptrs.size(); ++i) {
+      ptrs[i]->~T();
+      if (i > 0) {
+        *(reinterpret_cast<void**>(ptrs[i])) = ptrs[i - 1];
+      }
+    }
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+    for (size_t i = 1; i < ptrs.size(); ++i) {
+      ASAN_POISON_MEMORY_REGION(ptrs[i], sizeof(*ptrs[i]));
+    }
+#endif
+    AllocationGuardSpinLockHolder l(metadata_lock_);
+    *(reinterpret_cast<void**>(ptrs[0])) = free_list_;
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+    ASAN_POISON_MEMORY_REGION(ptrs[0], sizeof(*ptrs[0]));
+#endif
+    free_list_ = ptrs.back();
+    stats_.in_use -= ptrs.size();
+#endif
   }
 
   void Delete(absl::FunctionRef<T* absl_nullable()> callback) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     AllocationGuardSpinLockHolder l(metadata_lock_);
     while (T* p = callback()) {
       p->~T();
       DeleteMemory(p);
     }
+#else
+    T* first = callback();
+    if (ABSL_PREDICT_FALSE(first == nullptr)) {
+      return;
+    }
+    first->~T();
+    T* last = first;
+    size_t count = 1;
+    while (T* p = callback()) {
+      p->~T();
+      *(reinterpret_cast<void**>(p)) = last;
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+      ASAN_POISON_MEMORY_REGION(p, sizeof(*p));
+#endif
+      last = p;
+      ++count;
+    }
+    AllocationGuardSpinLockHolder l(metadata_lock_);
+    *(reinterpret_cast<void**>(first)) = free_list_;
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+    ASAN_POISON_MEMORY_REGION(first, sizeof(*first));
+#endif
+    free_list_ = last;
+    stats_.in_use -= count;
+#endif
   }
 
   [[nodiscard]] AllocatorStats stats() const {
@@ -118,6 +168,7 @@ class MetadataObjectAllocator {
       size_t size, std::align_val_t align) {
     TC_ASSERT_GE(static_cast<size_t>(align), alignof(T));
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     AllocationGuardSpinLockHolder l(metadata_lock_);
 
     // Consult free list
@@ -137,6 +188,28 @@ class MetadataObjectAllocator {
     free_list_ = *(reinterpret_cast<T**>(free_list_));
     ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
     return result;
+#else
+    {
+      AllocationGuardSpinLockHolder l(metadata_lock_);
+
+      // Consult free list
+      T* result = free_list_;
+      stats_.in_use++;
+      if (ABSL_PREDICT_TRUE(result != nullptr)) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+        // Unpoison the object on the freelist.
+        ASAN_UNPOISON_MEMORY_REGION(result, size);
+#endif
+        free_list_ = *(reinterpret_cast<T**>(free_list_));
+        ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
+        return result;
+      }
+      stats_.total++;
+    }
+    T* result = reinterpret_cast<T*>(arena_->Alloc(AllocType, size, align));
+    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
+    return result;
+#endif
   }
 
   void DeleteMemory(T* absl_nonnull p)
@@ -161,6 +234,11 @@ class MetadataObjectAllocator {
   T* free_list_ ABSL_GUARDED_BY(metadata_lock_) = nullptr;
 
   AllocatorStats stats_ ABSL_GUARDED_BY(metadata_lock_) = {};
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  ABSL_ATTRIBUTE_UNUSED char
+      pad_[ABSL_CACHELINE_SIZE - (3 * sizeof(void*) + sizeof(AllocatorStats))] =
+          {};
+#endif
 };
 
 }  // namespace tcmalloc_internal
