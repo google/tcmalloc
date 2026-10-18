@@ -488,7 +488,10 @@ TEST_F(RangeTrackerTest, Trivial) {
   EXPECT_EQ(kBits, range_.longest_free());
   EXPECT_THAT(FreeRanges(), ElementsAre(Pair(0, kBits)));
   EXPECT_THAT(FreeRangesBackwards(), ElementsAre(Pair(0, kBits)));
-  ASSERT_EQ(0, range_.FindAndMark(kBits));
+  ASSERT_EQ(0, range_.FindAndMark(100));
+  ASSERT_EQ(100, range_.FindAndMark(100));
+  ASSERT_EQ(200, range_.FindAndMark(100));
+  ASSERT_EQ(300, range_.FindAndMark(kBits - 300));
   EXPECT_EQ(0, range_.longest_free());
   EXPECT_EQ(kBits, range_.used());
   EXPECT_THAT(FreeRanges(), ElementsAre());
@@ -509,6 +512,33 @@ TEST_F(RangeTrackerTest, Trivial) {
   EXPECT_EQ(kBits - 300, range_.used());
   EXPECT_THAT(FreeRanges(), ElementsAre(Pair(0, 300)));
   EXPECT_THAT(FreeRangesBackwards(), ElementsAre(Pair(0, 300)));
+}
+
+TEST_F(RangeTrackerTest, UnmarkValidationDeathTest) {
+  // Unmarking on an empty tracker must fail immediately.
+  EXPECT_DEATH(range_.Unmark(0, 1), "");
+
+  ASSERT_EQ(0, range_.FindAndMark(4));
+  // Zero-length unmark must fail immediately rather than decrementing nallocs_.
+  EXPECT_DEATH(range_.Unmark(0, 0), "");
+  // Out-of-bounds index or length must fail immediately.
+  EXPECT_DEATH(range_.Unmark(kBits, 1), "");
+  EXPECT_DEATH(range_.Unmark(0, kBits + 1), "");
+  // Range extending into clear bits must fail immediately.
+  EXPECT_DEATH(range_.Unmark(0, 5), "");
+  EXPECT_DEATH(range_.Unmark(2, 4), "");
+
+  // Splitting a single allocation across multiple Unmark calls underflows
+  // nallocs_ and must fail on the extra Unmark even when bits are still set.
+  range_.Unmark(0, 2);
+  EXPECT_DEATH(range_.Unmark(2, 2), "");
+
+  // Duplicate unmark of an already-cleared range must fail immediately.
+  RangeTracker<kBits> dup_tracker;
+  ASSERT_EQ(0, dup_tracker.FindAndMark(2));
+  ASSERT_EQ(2, dup_tracker.FindAndMark(2));
+  dup_tracker.Unmark(0, 2);
+  EXPECT_DEATH(dup_tracker.Unmark(0, 2), "");
 }
 
 TEST_F(RangeTrackerTest, Mark) {

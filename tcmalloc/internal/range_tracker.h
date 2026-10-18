@@ -345,7 +345,12 @@ inline void RangeTracker<N>::Mark(size_t index, size_t n) {
 // Unmarks it.
 template <size_t N>
 inline void RangeTracker<N>::Unmark(size_t index, size_t n) {
-  TC_ASSERT(bits_.FindClear(index) >= index + n);
+  TC_CHECK_GT(n, 0);
+  TC_CHECK_LT(index, N);
+  TC_CHECK_LE(n, N - index);
+  TC_CHECK_GE(bits_.FindClear(index), index + n);
+  TC_CHECK_GE(nused_, n);
+  TC_CHECK_GT(nallocs_, 0);
   bits_.ClearRange(index, n);
   nused_ -= n;
   nallocs_--;
