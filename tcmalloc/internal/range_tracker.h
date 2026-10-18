@@ -320,6 +320,7 @@ inline size_t RangeTracker<N>::FindAndMark(size_t n) {
 // Marks it.
 template <size_t N>
 inline void RangeTracker<N>::Mark(size_t index, size_t n) {
+  TC_ASSERT_GT(n, 0);
   TC_ASSERT_GE(bits_.FindSet(index), index + n);
   bits_.SetRange(index, n);
   nused_ += n;
@@ -345,6 +346,7 @@ inline void RangeTracker<N>::Mark(size_t index, size_t n) {
 // Unmarks it.
 template <size_t N>
 inline void RangeTracker<N>::Unmark(size_t index, size_t n) {
+  TC_ASSERT_GT(n, 0);
   TC_ASSERT(bits_.FindClear(index) >= index + n);
   bits_.ClearRange(index, n);
   nused_ -= n;
@@ -462,7 +464,8 @@ inline size_t Bitmap<N>::CountBits() const {
 
 template <size_t N>
 inline size_t Bitmap<N>::CountBits(size_t index, size_t n) const {
-  ASSUME(index + n <= N);
+  TC_ASSERT_LE(index, N);
+  TC_ASSERT_LE(n, N - index);
   size_t count = 0;
   if (n == 0) {
     return count;
@@ -516,7 +519,11 @@ inline void Bitmap<N>::ClearLowestBit() {
 template <size_t N>
 template <bool Value>
 inline void Bitmap<N>::SetRangeValue(size_t index, size_t n) {
-  TC_ASSERT_LE(index + n, N);
+  TC_ASSERT_LE(index, N);
+  TC_ASSERT_LE(n, N - index);
+  if (n == 0) {
+    return;
+  }
   size_t word = index / kWordSize;
   size_t offset = index % kWordSize;
   size_t k = offset + n;

@@ -744,6 +744,27 @@ TEST(BitmapCopyBitsTest, DeadBitsPreserved) {
   EXPECT_TRUE(inverted.IsZero());
 }
 
+TEST_F(BitmapTest, ZeroLengthSetAndClearRange) {
+  Bitmap<100> map;
+  map.SetRange(0, 0);
+  map.SetRange(70, 0);
+  map.SetRange(100, 0);
+  EXPECT_TRUE(map.IsZero());
+  EXPECT_EQ(map.CountBits(), 0);
+  EXPECT_EQ(map.FindSet(0), 100);
+
+  map.SetRange(0, 100);
+  map.ClearRange(0, 0);
+  map.ClearRange(70, 0);
+  map.ClearRange(100, 0);
+  EXPECT_EQ(map.CountBits(), 100);
+
+  Bitmap<64> aligned;
+  aligned.SetRange(64, 0);
+  aligned.ClearRange(64, 0);
+  EXPECT_TRUE(aligned.IsZero());
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
