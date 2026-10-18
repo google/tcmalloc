@@ -54,9 +54,11 @@ class TimeSeriesTracker {
       : epoch_length_(epoch_length), clock_(clock) {
     TC_ASSERT_GT(epoch_length, absl::ZeroDuration());
     // See comment in GetCurrentEpoch().
-    auto d = static_cast<uint64_t>(absl::ToDoubleSeconds(epoch_length_) *
-                                   clock.freq());
-    div_precision_ = 63 + absl::bit_width(d);
+    const double epoch_ticks =
+        absl::ToDoubleSeconds(epoch_length_) * clock.freq();
+    const uint64_t d =
+        epoch_ticks >= 1.0 ? static_cast<uint64_t>(epoch_ticks) : 1;
+    div_precision_ = 63 + absl::bit_width(d - 1);
     epoch_ticks_m_ =
         static_cast<uint64_t>(
             (static_cast<absl::uint128>(1) << div_precision_) / d) +
