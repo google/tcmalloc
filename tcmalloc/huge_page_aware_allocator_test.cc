@@ -2696,6 +2696,63 @@ TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest,
+       BrokenHugepagePreservedAcrossAllocRawHugepages) {
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().release_partial_alloc_pages.set(true);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().track_broken_hugepages.set(
+      TrackBrokenHugepages::kEnabled);
+
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  // Subrelease free pages on `hp`, refill it so `released_pages() == 0` while
+  // `!pt->unbroken()`, and drain it into `HugeCache`.
+  AllocationState a0 = New(Length(1), kSpanInfo);
+  ASSERT_TRUE(a0);
+  const HugePage hp = HugePageContaining(a0.r.p);
+  ReleasePages(kPagesPerHugePage - Length(1),
+               PageReleaseReason::kProcessBackgroundActions);
+  AllocationState fill_rest = New(kPagesPerHugePage - Length(1), kSpanInfo);
+  ASSERT_TRUE(fill_rest);
+  ASSERT_EQ(HugePageContaining(fill_rest.r.p), hp);
+  Delete(a0, 1);
+  Delete(fill_rest, 1);
+
+  HugepageEntryState state = GetHugepageState(hp);
+  ASSERT_EQ(state.tracker, nullptr);
+  ASSERT_EQ(state.bits, 1u);
+
+  // 1. Exact hugepage allocation (`slack == Length(0)`) via AllocRawHugepages
+  //    must preserve the `kBroken` bit in PageMap.
+  AllocationState raw_exact = New(kPagesPerHugePage, kSpanInfo);
+  ASSERT_TRUE(raw_exact);
+  ASSERT_EQ(HugePageContaining(raw_exact.r.p), hp);
+  EXPECT_EQ(GetHugepageState(hp).bits, 1u);
+  Delete(raw_exact, 1);
+  EXPECT_EQ(GetHugepageState(hp).bits, 1u);
+
+  // 2. Single-hugepage donated allocation (`first == last == hp`, `slack > 0`)
+  //    via AllocRawHugepages must preserve `kBroken` into `AllocAndContribute`.
+  AllocationState donated_1hp =
+      allocator_->NewAligned(kPagesPerHugePage / 2, Length(2), kSpanInfo);
+  ASSERT_TRUE(donated_1hp);
+  ASSERT_TRUE(donated_1hp.donated);
+  ASSERT_EQ(HugePageContaining(donated_1hp.r.p), hp);
+  state = GetHugepageState(hp);
+  ASSERT_NE(state.tracker, nullptr);
+  EXPECT_FALSE(state.unbroken);
+
+  {
+    PageHeapSpinLockHolder l;
+    allocator_->Delete(donated_1hp, kSpanInfo);
+  }
+  EXPECT_EQ(GetHugepageState(hp).bits, 1u);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

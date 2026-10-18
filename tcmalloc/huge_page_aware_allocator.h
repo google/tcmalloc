@@ -635,10 +635,10 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   Length total = hl.in_pages();
   Length slack = total - n;
   HugePage first = r.start();
-  SetTracker(first, nullptr);
+  TC_ASSERT_EQ(GetTracker(first), nullptr);
   HugePage last = first + r.len() - NHugePages(1);
   if (slack == Length(0)) {
-    SetTracker(last, nullptr);
+    TC_ASSERT_EQ(GetTracker(last), nullptr);
     return Finalize(Range(r.start().first_page(), total), *from_released);
   }
 
