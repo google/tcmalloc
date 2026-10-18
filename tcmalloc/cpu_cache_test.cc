@@ -170,6 +170,17 @@ class CpuCachePeer {
     cpu_cache.resize_[cpu].available.fetch_add(available,
                                                std::memory_order_relaxed);
   }
+
+  template <typename CpuCache>
+  static size_t UpdateCapacity(CpuCache& cpu_cache, int cpu, size_t size_class,
+                               bool overflow) {
+    return cpu_cache.UpdateCapacity(cpu, size_class, overflow);
+  }
+
+  template <typename CpuCache>
+  static uint16_t GetMaxCapacity(const CpuCache& cpu_cache, int size_class) {
+    return cpu_cache.GetMaxCapacity(size_class);
+  }
 };
 
 namespace {
@@ -2910,6 +2921,36 @@ TEST(CpuCacheTest, NamedVma) {
     }
   }
   EXPECT_TRUE(found_active);
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, UpdateCapacityZeroMaxCapacity) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  constexpr int kCpuId = 0;
+  ColdCacheOperations(cache, kCpuId, /*size_class=*/1);
+  cache.Drain(kCpuId);
+
+  // Updating capacity on an inactive class (max_capacity == 0) must return 1
+  // without recording a kMaxCapacityTotal miss.
+  constexpr size_t kInactiveClass = kNumBaseClasses;
+  ASSERT_EQ(CpuCachePeer::GetMaxCapacity(cache, kInactiveClass), 0);
+  {
+    ScopedFakeCpuId fake_cpu_id(kCpuId);
+    EXPECT_EQ(CpuCachePeer::UpdateCapacity(cache, kCpuId, kInactiveClass,
+                                           /*overflow=*/false),
+              1);
+  }
+  EXPECT_EQ(cache.GetIntervalSizeClassMisses(
+                kCpuId, kInactiveClass, PerClassMissType::kMaxCapacityTotal,
+                PerClassMissType::kMaxCapacityResize),
+            0);
+
   cache.Deactivate();
 }
 

@@ -1261,11 +1261,12 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   size_t batch_length = forwarder_.num_objects_to_move(size_class);
   const size_t max_capacity = GetMaxCapacity(size_class);
   size_t capacity = freelist_.Capacity(cpu, size_class);
-  if (capacity > max_capacity) {
-    // The resizer thread shrunk the slab between GetMaxCapacity()
-    // and Capacity(), so just abort as quickly as possible.
-    // The slab in freelist_ is now obsolete and will be drained soon,
-    // so there is no point in maintaining statistics or similar.
+  if (capacity > max_capacity || max_capacity == 0) {
+    // Either max_capacity is zero (inactive/bypassed class) or the resizer
+    // thread shrunk the slab between GetMaxCapacity() and Capacity(), so just
+    // abort as quickly as possible. The slab in freelist_ is now obsolete and
+    // will be drained soon, so there is no point in maintaining statistics or
+    // similar.
     return 1;
   }
 
