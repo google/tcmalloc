@@ -24,6 +24,7 @@
 #include <cstring>
 #include <new>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -271,6 +272,42 @@ TEST(CompressibilityTest, MisalignedAllocationWithResidencyGap) {
   const size_t unbacked_bytes = page_size;
   const size_t expected_zeroes = unbacked_bytes + 1300;
   EXPECT_EQ(res->zero_bytes, expected_zeroes);
+}
+
+TEST(CompressibilityTest, BackedBytesExceedingAllocationSizeAreClamped) {
+  CompressionAnalyzer analyzer;
+  std::vector<char> buf(100);
+  std::minstd_rand rng(12345);
+  std::generate(buf.begin(), buf.end(),
+                [&]() { return static_cast<char>(rng() | 1); });
+
+  Residency::Info info;
+  info.bytes_resident = GetPageSize();
+  info.bytes_swapped = GetPageSize();
+  info.page_is_resident.SetBit(0);
+
+  auto res = analyzer.Analyze(absl::MakeConstSpan(buf), info);
+  ABSL_ASSERT_OK(res);
+  EXPECT_LE(res->zero_bytes, buf.size());
+}
+
+TEST(CompressibilityTest,
+     ResidentPagesBeyondMaxResidencyBitsWithUnbackedPrefix) {
+  const size_t num_pages = kMaxResidencyBits + 8;
+  PageAlignedBuffer buffer(num_pages);
+  std::memset(buffer.ptr, 0, buffer.size);
+
+  std::string pattern(num_pages, 'U');
+  for (size_t i = kMaxResidencyBits; i < num_pages; ++i) {
+    pattern[i] = 'R';
+  }
+
+  CompressionAnalyzer analyzer;
+  auto res =
+      analyzer.Analyze(absl::MakeConstSpan(buffer.ptr, buffer.size),
+                       MakeResidencyInfo(buffer.ptr, buffer.size, pattern));
+  ABSL_ASSERT_OK(res);
+  EXPECT_EQ(res->zero_bytes, buffer.size);
 }
 
 }  // namespace

@@ -17,9 +17,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "absl/container/fixed_array.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/residency.h"
 
@@ -51,6 +53,7 @@ class CompressionAnalyzer {
 
  private:
   absl::FixedArray<char> local_copy_;
+  std::vector<absl::string_view> remote_chunks_;
 };
 
 }  // namespace tcmalloc_internal
