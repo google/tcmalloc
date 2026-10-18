@@ -91,6 +91,32 @@ void BM_AllocDealloc(benchmark::State& state) {
 BENCHMARK(BM_AllocDealloc)->Range(1, GetGpaPageSize());
 BENCHMARK(BM_AllocDealloc)->Arg(1)->ThreadRange(1, kMaxGpaPages);
 
+void BM_GuardedAllocDealloc_Contended(benchmark::State& state) {
+  auto* gpa = GetGuardedPageAllocator().release();
+  constexpr size_t kRing = 4, kSizes[kRing] = {32, 64, 32, 256};
+  void* ring[kRing] = {};
+  for (size_t i = 0; i < kRing; ++i) {
+    ring[i] =
+        gpa->Allocate(kSizes[i], std::align_val_t{0}, GetStackTrace(i)).alloc;
+  }
+  size_t idx = 0;
+  for (auto _ : state) {
+    gpa->Deallocate(ring[idx]);
+    ring[idx] =
+        gpa->Allocate(kSizes[idx], std::align_val_t{0}, GetStackTrace(idx))
+            .alloc;
+    benchmark::DoNotOptimize(ring[idx]);
+    idx = (idx + 1) & (kRing - 1);
+  }
+  for (void* p : ring) gpa->Deallocate(p);
+}
+BENCHMARK(BM_GuardedAllocDealloc_Contended)
+    ->ThreadRange(1, 16)
+    ->UseRealTime()
+    ->Teardown([](const benchmark::State&) {
+      GetGuardedPageAllocator()->Reset();
+    });
+
 auto& GetReserved() {
   static auto* ret =
       new std::vector<std::unique_ptr<void, std::function<void(void*)>>>;

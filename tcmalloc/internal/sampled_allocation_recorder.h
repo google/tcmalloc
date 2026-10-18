@@ -180,10 +180,15 @@ T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
 
     graveyard_.dead = sample->dead;
   }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   absl::base_internal::SpinLockHolder sample_lock(sample->lock);
+#endif
   // TODO(b/73749855): This could be moved out but requires updating our lock
   // annotations.
   sample->PrepareForSampling(std::forward<Targs>(args)...);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  absl::base_internal::SpinLockHolder sample_lock(sample->lock);
+#endif
   sample->dead = nullptr;
   return sample;
 }
@@ -208,6 +213,7 @@ void SampleRecorder<T, Allocator>::Unregister(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::UnregisterAll() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   T* sample = all_.load(std::memory_order_acquire);
   while (sample != nullptr) {
@@ -220,6 +226,20 @@ void SampleRecorder<T, Allocator>::UnregisterAll() {
     }
     sample = sample->next;
   }
+#else
+  T* sample = all_.load(std::memory_order_acquire);
+  while (sample != nullptr) {
+    {
+      AllocationGuardSpinLockHolder sample_lock(sample->lock);
+      if (sample->dead == nullptr) {
+        AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
+        sample->dead = graveyard_.dead;
+        graveyard_.dead = sample;
+      }
+    }
+    sample = sample->next;
+  }
+#endif
 }
 
 template <typename T, typename Allocator>

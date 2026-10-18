@@ -21,6 +21,7 @@
 #include <atomic>
 #include <iterator>
 #include <new>
+#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
@@ -138,6 +139,15 @@ class ABSL_CACHELINE_ALIGNED Arena {
   // allocation fails.
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(
       ArenaAlloc type, size_t bytes, std::align_val_t alignment = kAlignment);
+
+  // Allocates and constructs an object of type T on the arena with alignment
+  // alignof(T).
+  template <typename T, typename... Args>
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* New(ArenaAlloc type,
+                                                      Args&&... args) {
+    return new (Alloc(type, sizeof(T), std::align_val_t(alignof(T))))
+        T(std::forward<Args>(args)...);
+  }
 
   // Updates the stats for allocated and non-resident bytes.
   void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident) {

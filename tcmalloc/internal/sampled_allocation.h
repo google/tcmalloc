@@ -48,7 +48,10 @@ struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
   // Prepares the state of the object. It is invoked when either a new sampled
   // allocation is constructed or when an object is revived from the freelist.
   void PrepareForSampling(StackTrace&& stack_trace)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock)
+#endif
+  {
     sampled_stack = std::move(stack_trace);
   }
 
