@@ -234,6 +234,9 @@ void ThreadCache::IncreaseCacheLimitLocked() {
     max_size_ += kStealAmount;
     return;
   }
+  if (thread_heaps_ == nullptr) {
+    return;
+  }
   // Don't hold pageheap_lock too long.  Try to steal from 10 other
   // threads before giving up.  The i < 10 condition also prevents an
   // infinite loop in case none of the existing thread heaps are
@@ -424,8 +427,11 @@ AllocatorStats ThreadCache::GetStats(uint64_t* total_bytes,
 }
 
 void ThreadCache::set_overall_thread_cache_size(size_t new_size) {
-  // Clip the value to a reasonable minimum
-  if (new_size < kMinThreadCacheSize) new_size = kMinThreadCacheSize;
+  // Clip the value to a reasonable minimum.
+  if (static_cast<int64_t>(new_size) <
+      static_cast<int64_t>(kMinThreadCacheSize)) {
+    new_size = kMinThreadCacheSize;
+  }
 
   AllocationGuardSpinLockHolder l(threadcache_lock_);
   overall_thread_cache_size_.store(new_size, std::memory_order_relaxed);

@@ -18,6 +18,7 @@
 #include <sys/mman.h>
 
 #include <limits>
+#include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 
@@ -55,6 +56,37 @@ class ThreadCacheTest : public ::testing::Test {
   ScopedSkipSubreleaseShortInterval skip_subrelease_short_interval_;
   ScopedSkipSubreleaseLongInterval skip_subrelease_long_interval_;
 };
+
+TEST_F(ThreadCacheTest, NegativeMaxTotalThreadCacheBytes) {
+  ASSERT_FALSE(MallocExtension::PerCpuCachesActive());
+
+  const std::optional<size_t> orig_max = MallocExtension::GetNumericProperty(
+      "tcmalloc.max_total_thread_cache_bytes");
+  ASSERT_TRUE(orig_max.has_value());
+
+  MallocExtension::MarkThreadIdle();
+  MallocExtension::SetMaxTotalThreadCacheBytes(-1);
+
+  const std::optional<size_t> clamped_neg_one =
+      MallocExtension::GetNumericProperty(
+          "tcmalloc.max_total_thread_cache_bytes");
+  ASSERT_TRUE(clamped_neg_one.has_value());
+  EXPECT_LE(*clamped_neg_one, *orig_max);
+  EXPECT_GT(*clamped_neg_one, 0u);
+
+  constexpr int64_t kNearInt64Min =
+      std::numeric_limits<int64_t>::min() + (512 << 10);
+  MallocExtension::SetMaxTotalThreadCacheBytes(kNearInt64Min);
+
+  std::thread t([]() {
+    void* p = ::operator new(8);
+    benchmark::DoNotOptimize(p);
+    ::operator delete(p);
+  });
+  t.join();
+
+  MallocExtension::SetMaxTotalThreadCacheBytes(static_cast<int64_t>(*orig_max));
+}
 
 // Make sure that creating and destroying many mallocing threads
 // does not leak memory.
