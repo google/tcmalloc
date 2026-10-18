@@ -92,14 +92,20 @@ static const char* GetSoName(const dl_phdr_info* const info) {
       dt_strsz = dyn;
     }
   }
-  if (dt_soname == nullptr) {
+  if (dt_soname == nullptr || dt_strtab == nullptr) {
     return nullptr;
   }
-  TC_CHECK_NE(dt_strtab, nullptr);
-  TC_CHECK_NE(dt_strsz, nullptr);
-  const char* const strtab =
-      reinterpret_cast<char*>(info->dlpi_addr + dt_strtab->d_un.d_val);
-  TC_CHECK_LT(dt_soname->d_un.d_val, dt_strsz->d_un.d_val);
+  if (dt_strsz != nullptr && dt_soname->d_un.d_val >= dt_strsz->d_un.d_val) {
+    return nullptr;
+  }
+  const ElfW(Addr) strtab_addr =
+      (dt_strtab->d_un.d_ptr >= info->dlpi_addr)
+          ? dt_strtab->d_un.d_ptr
+          : (info->dlpi_addr + dt_strtab->d_un.d_val);
+  if (strtab_addr == 0) {
+    return nullptr;
+  }
+  const char* const strtab = reinterpret_cast<const char*>(strtab_addr);
   return strtab + dt_soname->d_un.d_val;
 }
 #endif  // defined(__linux__)
@@ -253,7 +259,10 @@ std::string GetBuildId(const dl_phdr_info* const info) {
     const char* note =
         reinterpret_cast<char*>(info->dlpi_addr + pt_note->p_vaddr);
     const char* const last = note + pt_note->p_filesz;
-    const ElfW(Word) align = pt_note->p_align;
+    ElfW(Word) align = pt_note->p_align;
+    if (align < 4 || (align & (align - 1)) != 0) {
+      align = 4;
+    }
     while (note < last) {
       const ElfW(Nhdr)* const nhdr = reinterpret_cast<const ElfW(Nhdr)*>(note);
       if (note + sizeof(*nhdr) > last) {
@@ -452,14 +461,20 @@ void ProfileBuilder::InternCallstack(absl::Span<const void* const> stack,
 
 void ProfileBuilder::AddCurrentMappings() {
 #if defined(__linux__)
+  struct DlIterateData {
+    ProfileBuilder* builder;
+    int count = 0;
+  };
+  DlIterateData callback_data{this, 0};
   auto dl_iterate_callback = +[](dl_phdr_info* info, size_t size, void* data) {
     // Skip dummy entry introduced since glibc 2.18.
     if (info->dlpi_phdr == nullptr && info->dlpi_phnum == 0) {
       return 0;
     }
 
-    ProfileBuilder& builder = *static_cast<ProfileBuilder*>(data);
-    const bool is_main_executable = builder.profile_->mapping_size() == 0;
+    DlIterateData& callback_data = *static_cast<DlIterateData*>(data);
+    ProfileBuilder& builder = *callback_data.builder;
+    const bool is_main_executable = (callback_data.count++ == 0);
 
     // Storage for path to executable as dlpi_name isn't populated for the
     // main executable.  +1 to allow for the null terminator that readlink
@@ -482,10 +497,13 @@ void ProfileBuilder::AddCurrentMappings() {
         filename = GetSoName(info);
       }
     }
+    if (filename == nullptr) {
+      filename = "";
+    }
 
     char resolved_path[PATH_MAX];
     absl::string_view resolved_filename;
-    if (realpath(filename, resolved_path)) {
+    if (filename[0] != '\0' && realpath(filename, resolved_path) != nullptr) {
       resolved_filename = resolved_path;
     } else {
       resolved_filename = filename;
@@ -515,7 +533,7 @@ void ProfileBuilder::AddCurrentMappings() {
     return 0;
   };
 
-  dl_iterate_phdr(dl_iterate_callback, this);
+  dl_iterate_phdr(dl_iterate_callback, &callback_data);
 #endif  // defined(__linux__)
 }
 

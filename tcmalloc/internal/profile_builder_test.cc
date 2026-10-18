@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <optional>
@@ -1561,6 +1562,61 @@ TEST(ProfileConverterTest, NoCompressibilityColumnsWithoutMeasurements) {
     EXPECT_EQ(s.value_size(), types.size());
   }
 }
+
+#if defined(__linux__)
+TEST(ProfileBuilderTest, BuildIdNonStandardAlignment) {
+  struct AlignedNotes {
+    ElfW(Nhdr) dummy_hdr;
+    char dummy_name[4];
+    char dummy_desc[4];
+    ElfW(Nhdr) build_id_hdr;
+    char build_id_name[4];
+    unsigned char build_id_desc[4];
+  };
+  static_assert(sizeof(AlignedNotes) == 2 * sizeof(ElfW(Nhdr)) + 16);
+
+  AlignedNotes notes = {};
+  notes.dummy_hdr.n_namesz = 1;
+  notes.dummy_hdr.n_descsz = 1;
+  notes.dummy_hdr.n_type = 1;
+  notes.dummy_name[0] = '\0';
+  notes.dummy_desc[0] = 0x42;
+
+  notes.build_id_hdr.n_namesz = 4;
+  notes.build_id_hdr.n_descsz = 4;
+  notes.build_id_hdr.n_type = NT_GNU_BUILD_ID;
+  memcpy(notes.build_id_name, "GNU", 4);
+  notes.build_id_desc[0] = 0xde;
+  notes.build_id_desc[1] = 0xad;
+  notes.build_id_desc[2] = 0xbe;
+  notes.build_id_desc[3] = 0xef;
+
+  for (ElfW(Word) align : {ElfW(Word){0}, ElfW(Word){1}, ElfW(Word){3}}) {
+    ElfW(Phdr) phdr = {};
+    phdr.p_type = PT_NOTE;
+    phdr.p_vaddr = 0;
+    phdr.p_filesz = sizeof(notes);
+    phdr.p_memsz = sizeof(notes);
+    phdr.p_align = align;
+
+    dl_phdr_info info = {};
+    info.dlpi_name = "test.so";
+    info.dlpi_addr = reinterpret_cast<ElfW(Addr)>(&notes);
+    info.dlpi_phdr = &phdr;
+    info.dlpi_phnum = 1;
+
+    EXPECT_EQ(GetBuildId(&info), "deadbeef") << "align=" << align;
+  }
+}
+
+TEST(ProfileBuilderTest, AddCurrentMappingsAfterCustomMapping) {
+  ProfileBuilder builder;
+  builder.AddMapping(0x1000, 0x2000, 0, "/custom/mapping", "deadbeef");
+  builder.AddCurrentMappings();
+  const auto profile = std::move(builder).Finalize();
+  EXPECT_GT(profile->mapping_size(), 1);
+}
+#endif  // defined(__linux__)
 
 }  // namespace
 }  // namespace tcmalloc_internal
