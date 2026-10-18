@@ -783,6 +783,59 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_tcmalloc_legacy_locking2
+  ALIAS
+    tcmalloc::tcmalloc_legacy_locking2
+  ALWAYSLINK
+  SRCS
+    "libc_override.h"
+    "tcmalloc.cc"
+    "tcmalloc.h"
+  COPTS
+    "-DTCMALLOC_INTERNAL_8K_PAGES"
+    "-DTCMALLOC_INTERNAL_LEGACY_LOCKING2"
+  DEPS
+    "absl::base"
+    "absl::bits"
+    "absl::config"
+    "absl::core_headers"
+    "absl::dynamic_annotations"
+    "absl::memory"
+    "absl::span"
+    "absl::stacktrace"
+    "absl::status"
+    "absl::statusor"
+    "absl::str_format"
+    "absl::strings"
+    "absl::symbolize"
+    "absl::time"
+    "tcmalloc::alloc_at_least"
+    "tcmalloc::common_legacy_locking2"
+    "tcmalloc::experiment"
+    "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_central_freelist_hooks"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_declarations"
+    "tcmalloc::internal_is_aligned_to"
+    "tcmalloc::internal_linked_list"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_memory_tag"
+    "tcmalloc::internal_optimization"
+    "tcmalloc::internal_overflow"
+    "tcmalloc::internal_packed_ptr"
+    "tcmalloc::internal_page_allocation_status"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::internal_range_tracker"
+    "tcmalloc::internal_sampled_allocation"
+    "tcmalloc::internal_system_allocator"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
+    "tcmalloc::malloc_tracing_extension"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_mock_central_freelist
   ALIAS
     tcmalloc::mock_central_freelist
