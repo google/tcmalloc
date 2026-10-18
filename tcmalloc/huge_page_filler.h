@@ -161,7 +161,8 @@ class UsageInfo {
   template <class TrackerType>
   void Record(const TrackerType& pt, PageFlagsBase& pageflags, double clock_now,
               double clock_frequency, UsageInfoRecords& records,
-              size_t& num_selected) {
+              size_t& num_selected)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     const Length free = kPagesPerHugePage - pt.used_pages();
     const Length lf = pt.longest_free_range();
     const size_t nalloc = pt.nallocs();
@@ -190,8 +191,13 @@ class UsageInfo {
     }
     ++records.total_hugepages;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::HugePageResidencyState hugepage_residency_state =
         pt.GetHugePageResidencyState();
+#else
+    const PageTracker::HugePageResidencyState& hugepage_residency_state =
+        pt.GetHugePageResidencyState();
+#endif
     if (hugepage_residency_state.entry_valid) {
       TC_ASSERT_GE(free, pt.released_pages());
       ++records.treated_hugepages;
@@ -1723,56 +1729,70 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
 
   // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_.sparse.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-      },
+      [&](TrackerType& pt)
+          GOOGLE_MALLOC_SECTION ABSL_NO_THREAD_SAFETY_ANALYSIS {
+            sampled_tracker_treatment.SelectEligibleTrackers(pt);
+            unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+          },
       /*start=*/0);
 
   regular_alloc_partial_released_.dense.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-      },
+      [&](TrackerType& pt)
+          GOOGLE_MALLOC_SECTION ABSL_NO_THREAD_SAFETY_ANALYSIS {
+            sampled_tracker_treatment.SelectEligibleTrackers(pt);
+            unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+          },
       /*start=*/0);
 
   donated_alloc_.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-      },
+      [&](TrackerType& pt)
+          GOOGLE_MALLOC_SECTION ABSL_NO_THREAD_SAFETY_ANALYSIS {
+            unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+          },
       /*start=*/0);
 
   regular_alloc_.dense.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-      },
+      [&](TrackerType& pt)
+          GOOGLE_MALLOC_SECTION ABSL_NO_THREAD_SAFETY_ANALYSIS {
+            sampled_tracker_treatment.SelectEligibleTrackers(pt);
+            unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+          },
       /*start=*/0);
 
   regular_alloc_.sparse.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-      },
+      [&](TrackerType& pt)
+          GOOGLE_MALLOC_SECTION ABSL_NO_THREAD_SAFETY_ANALYSIS {
+            sampled_tracker_treatment.SelectEligibleTrackers(pt);
+            unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+          },
       /*start=*/0);
 
-  regular_alloc_released_.sparse.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        if (enable_subrelease_unbacked) {
-          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-        }
-      },
-      /*start=*/0);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  if (enable_subrelease_unbacked ||
+      !sampled_tracker_treatment.tracker_list_full()) {
+#endif
+    regular_alloc_released_.sparse.Iter(
+        [&](TrackerType& pt)
+            GOOGLE_MALLOC_SECTION ABSL_NO_THREAD_SAFETY_ANALYSIS {
+              sampled_tracker_treatment.SelectEligibleTrackers(pt);
+              if (enable_subrelease_unbacked) {
+                unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+              }
+            },
+        /*start=*/0);
 
-  regular_alloc_released_.dense.Iter(
-      [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
-        sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        if (enable_subrelease_unbacked) {
-          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-        }
-      },
-      /*start=*/0);
+    regular_alloc_released_.dense.Iter(
+        [&](TrackerType& pt)
+            GOOGLE_MALLOC_SECTION ABSL_NO_THREAD_SAFETY_ANALYSIS {
+              sampled_tracker_treatment.SelectEligibleTrackers(pt);
+              if (enable_subrelease_unbacked) {
+                unbacked_tracker_treatment.SelectEligibleTrackers(pt);
+              }
+            },
+        /*start=*/0);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  }
+#endif
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   if (sampled_tracker_treatment.num_valid_trackers() == 0 &&
@@ -1990,7 +2010,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
     size_t num_selected = 0;
     UsageInfo::UsageInfoRecords records;
     regular_alloc_.sparse.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2002,7 +2022,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
     size_t num_selected = 0;
     UsageInfo::UsageInfoRecords records;
     regular_alloc_.dense.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2013,7 +2033,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
     size_t num_selected = 0;
     UsageInfo::UsageInfoRecords records;
     donated_alloc_.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2024,7 +2044,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
     size_t num_selected = 0;
     UsageInfo::UsageInfoRecords records;
     regular_alloc_partial_released_.sparse.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2035,7 +2055,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
     size_t num_selected = 0;
     UsageInfo::UsageInfoRecords records;
     regular_alloc_partial_released_.dense.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2046,7 +2066,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
     size_t num_selected = 0;
     UsageInfo::UsageInfoRecords records;
     regular_alloc_released_.sparse.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2057,7 +2077,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
     size_t num_selected = 0;
     UsageInfo::UsageInfoRecords records;
     regular_alloc_released_.dense.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2156,7 +2176,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     UsageInfo::UsageInfoRecords records;
     size_t num_selected = 0;
     regular_alloc_.sparse.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2167,7 +2187,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     UsageInfo::UsageInfoRecords records;
     size_t num_selected = 0;
     regular_alloc_.dense.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2178,7 +2198,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     UsageInfo::UsageInfoRecords records;
     size_t num_selected = 0;
     donated_alloc_.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2189,7 +2209,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     UsageInfo::UsageInfoRecords records;
     size_t num_selected = 0;
     regular_alloc_partial_released_.sparse.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2200,7 +2220,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     UsageInfo::UsageInfoRecords records;
     size_t num_selected = 0;
     regular_alloc_partial_released_.dense.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2211,7 +2231,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     UsageInfo::UsageInfoRecords records;
     size_t num_selected = 0;
     regular_alloc_released_.sparse.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
@@ -2222,7 +2242,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     UsageInfo::UsageInfoRecords records;
     size_t num_selected = 0;
     regular_alloc_released_.dense.Iter(
-        [&](const TrackerType& pt) {
+        [&](const TrackerType& pt) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           usage.Record(pt, pageflags, now, frequency, records, num_selected);
         },
         0);
