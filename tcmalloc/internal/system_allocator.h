@@ -546,6 +546,7 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
   // Allocation failed so we need to reserve more memory.
   // Reserve new region and try allocation again.
   size_t region_size = min_mmap_size_;
+  bool exact_size_fallback = false;
   void* ptr = MmapAlignedLocked(region_size, region_size, tag);
   if (!ptr) {
     // Reserving a full min_mmap_size_ region may fail under constrained virtual
@@ -556,15 +557,21 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
     ptr =
         MmapAlignedLocked(region_size, std::max(alignment, kHugePageSize), tag);
     if (!ptr) return {nullptr, 0};
+    exact_size_fallback = true;
   }
 
   const auto region_type = TagToHint(tag);
-  region = region_factory_->Create(ptr, region_size, region_type);
-  if (!region) {
+  AddressRegion* new_region =
+      region_factory_->Create(ptr, region_size, region_type);
+  if (!new_region) {
     munmap(ptr, region_size);
     return {nullptr, 0};
   }
-  return region->Alloc(request_size, alignment);
+  std::pair<void*, size_t> result = new_region->Alloc(request_size, alignment);
+  if (result.first != nullptr && (!exact_size_fallback || region == nullptr)) {
+    region = new_region;
+  }
+  return result;
 }
 
 template <typename Topology, size_t NormalPartitions>
