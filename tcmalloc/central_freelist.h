@@ -228,8 +228,9 @@ class CentralFreeList {
     return (requested - returned);
   }
 
-  void RecordSpanAllocated() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    counter_.LossyAdd(objects_per_span_);
+  void RecordSpanAllocated(size_t allocated)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+    counter_.LossyAdd(objects_per_span_ - allocated);
     num_spans_requested_.LossyAdd(1);
   }
 
@@ -529,13 +530,20 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
     CentralFreeListLockHolder h(lock_);
 
     do {
-      num_spans++;
       auto [span, prev_index] = FirstNonEmptySpan();
       if (ABSL_PREDICT_FALSE(!span)) {
-        result += Populate(batch.subspan(result));
+        if (result > 0) {
+          UpdateObjectCounts(-result);
+        }
+        const int populated = Populate(batch.subspan(result));
+        if (ABSL_PREDICT_TRUE(populated > 0)) {
+          ++num_spans;
+          result += populated;
+        }
         break;
       }
 
+      ++num_spans;
       const uint16_t prev_allocated = span->Allocated();
       ASSUME(prev_allocated > 0);
       const uint8_t prev_bitwidth =
@@ -574,21 +582,28 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         }
       }
       result += here;
-    } while (result < batch.size());
+      if (result == batch.size()) {
+        UpdateObjectCounts(-result);
+        break;
+      }
+    } while (true);
 
-    TC_ASSERT_GT(num_spans, 0);
-    TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
-    TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
-    span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
-    UpdateObjectCounts(-result);
+    if (ABSL_PREDICT_TRUE(num_spans > 0)) {
+      TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
+      TC_ASSERT_LE(num_spans, kMaxObjectsToMove);
+      span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
+    }
   }
 
-  // Use ASSUME to elide the bounds check in subspan, per b/538576012#comment3.
-  //
-  // TODO(b/538576012): Use a recommended API for this.
-  size_t size = batch.size();
-  ASSUME(result <= size);
-  forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
+  if (ABSL_PREDICT_TRUE(result > 0)) {
+    // Use ASSUME to elide the bounds check in subspan, per
+    // b/538576012#comment3.
+    //
+    // TODO(b/538576012): Use a recommended API for this.
+    size_t size = batch.size();
+    ASSUME(result <= size);
+    forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
+  }
   return result;
 }
 
@@ -627,7 +642,7 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
   if (!span_empty) {
     nonempty_.Add(span, index, /*prepend=*/true);
   }
-  RecordSpanAllocated();
+  RecordSpanAllocated(allocated);
   return result;
 }
 

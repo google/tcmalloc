@@ -74,6 +74,12 @@ class CentralFreeListTestPeer {
                                size_t index) {
     return cfl.num_same_spans_[absl::bit_width(index)].value();
   }
+
+  template <typename Forwarder>
+  static size_t num_spans_allocated_bucket(
+      const CentralFreeList<Forwarder>& cfl, size_t bucket) {
+    return cfl.span_allocations_tracker_[bucket].value();
+  }
 };
 }  // namespace central_freelist_internal
 
@@ -942,6 +948,97 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   };
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
+}
+
+std::atomic<size_t> g_empty_remove_hook_calls{0};
+std::atomic<size_t> g_total_remove_hook_calls{0};
+
+void RecordRemoveRangeHook(size_t /*size_class*/, absl::Span<void*> batch) {
+  g_total_remove_hook_calls.fetch_add(1, std::memory_order_relaxed);
+  if (batch.empty()) {
+    g_empty_remove_hook_calls.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+TEST_P(CentralFreeListTest, PopulateFailureAndLockDropAccounting) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  g_empty_remove_hook_calls.store(0, std::memory_order_relaxed);
+  g_total_remove_hook_calls.store(0, std::memory_order_relaxed);
+  ASSERT_TRUE(e.forwarder().remove_range_hooks_.Add(&RecordRemoveRangeHook));
+
+  absl::FixedArray<void*> batch(e.batch_size());
+
+  // 1. When AllocateSpan fails on an empty CentralFreeList, RemoveRange returns
+  // 0, must not invoke remove_range_hooks_ with an empty batch, and must not
+  // record a 1-span allocation in span_allocations_tracker_.
+  EXPECT_CALL(e.forwarder(), AllocateSpan).WillOnce(testing::Return(nullptr));
+  int got = e.central_freelist().RemoveRange(
+      absl::MakeSpan(&batch[0], e.batch_size()));
+  testing::Mock::VerifyAndClearExpectations(&e.forwarder());
+  EXPECT_EQ(got, 0);
+  EXPECT_EQ(g_empty_remove_hook_calls.load(std::memory_order_relaxed), 0u);
+  EXPECT_EQ(g_total_remove_hook_calls.load(std::memory_order_relaxed), 0u);
+  if (e.objects_per_span() > 1) {
+    EXPECT_EQ(central_freelist_internal::CentralFreeListTestPeer::
+                  num_spans_allocated_bucket(e.central_freelist(), 0),
+              0u);
+  }
+
+  // 2. When nonempty_ has 1 remaining free object from an existing span and a
+  // RemoveRange of 2 objects drains that span and then calls Populate:
+  // - While lock_ is unlocked inside Populate (during AllocateSpan), length()
+  //   must be 0 (matching the 0 free objects in nonempty_).
+  // - If AllocateSpan returns nullptr, span_allocations_tracker_ must record 1
+  //   span used (bucket 0), not 2 spans (bucket 1).
+  if (e.objects_per_span() > 1 && e.batch_size() > 1) {
+    std::vector<void*> held;
+    held.reserve(e.objects_per_span());
+    while (held.size() < e.objects_per_span() - 1) {
+      size_t want =
+          std::min(e.objects_per_span() - 1 - held.size(), e.batch_size());
+      int n = e.central_freelist().RemoveRange(absl::MakeSpan(&batch[0], want));
+      ASSERT_GT(n, 0);
+      held.insert(held.end(), &batch[0], &batch[0] + n);
+    }
+    ASSERT_EQ(e.central_freelist().length(), 1u);
+
+    size_t length_during_lock_drop = 999;
+    size_t capacity_during_lock_drop = 0;
+    EXPECT_CALL(e.forwarder(), AllocateSpan)
+        .WillOnce([&](int, size_t, Length) -> Span* {
+          length_during_lock_drop = e.central_freelist().length();
+          capacity_during_lock_drop =
+              e.central_freelist().GetSpanStats().obj_capacity;
+          return nullptr;
+        });
+
+    int partial =
+        e.central_freelist().RemoveRange(absl::MakeSpan(&batch[0], 2));
+    ASSERT_EQ(partial, 1);
+    held.push_back(batch[0]);
+
+    EXPECT_EQ(length_during_lock_drop, 0u);
+    EXPECT_EQ(length_during_lock_drop + held.size(), capacity_during_lock_drop);
+    EXPECT_EQ(e.central_freelist().length(), 0u);
+    EXPECT_EQ(central_freelist_internal::CentralFreeListTestPeer::
+                  num_spans_allocated_bucket(e.central_freelist(), 1),
+              0u);
+
+    size_t returned = 0;
+    while (returned < held.size()) {
+      size_t n = std::min(held.size() - returned, e.batch_size());
+      e.central_freelist().InsertRange(absl::MakeSpan(&held[returned], n));
+      returned += n;
+    }
+  }
+
+  ASSERT_TRUE(e.forwarder().remove_range_hooks_.Remove(&RecordRemoveRangeHook));
 }
 INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
