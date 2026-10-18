@@ -63,6 +63,7 @@
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -879,6 +880,22 @@ TEST_F(PageTrackerTest, b151915873) {
               testing::AllOfArray(&small.normal_length[2],
                                   &small.normal_length[kMaxPages.raw_num()]));
 }
+
+#ifndef NDEBUG
+TEST(StatsCountersDeathTest, OutOfBoundsIndexDies) {
+  StatsCounters<4> counters;
+  counters[0].Add(1);
+  counters[3].Add(2);
+  EXPECT_EQ(counters[0].value(), 1);
+  EXPECT_EQ(counters[3].value(), 2);
+
+  const StatsCounters<4>& const_counters = counters;
+  EXPECT_DEATH((void)counters[-1], "i >= 0");
+  EXPECT_DEATH((void)const_counters[-1], "i >= 0");
+  EXPECT_DEATH((void)counters[4], "i < N");
+  EXPECT_DEATH((void)const_counters[4], "i < N");
+}
+#endif
 
 }  // namespace
 }  // namespace tcmalloc_internal

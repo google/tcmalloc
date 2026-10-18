@@ -77,13 +77,15 @@ class StatsCounters {
   constexpr StatsCounters() = default;
 
   [[nodiscard]] StatsCounter& operator[](int i) ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    TC_ASSERT(i < N);
+    TC_ASSERT_GE(i, 0);
+    TC_ASSERT_LT(i, N);
     return counters_[i];
   }
 
   [[nodiscard]] const StatsCounter& operator[](int i) const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    TC_ASSERT(i < N);
+    TC_ASSERT_GE(i, 0);
+    TC_ASSERT_LT(i, N);
     return counters_[i];
   }
 
