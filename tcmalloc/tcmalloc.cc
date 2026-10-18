@@ -1292,7 +1292,7 @@ ABSL_ATTRIBUTE_NOINLINE static
                                                    uint32_t size_class,
                                                    Policy policy) {
   size_t weight = GetThreadSampler().RecordedAllocationFast(size);
-  if (ABSL_PREDICT_FALSE(weight != 0) ||
+  if (ABSL_PREDICT_FALSE(size_class == 0) || ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
     __sized_ptr_t res = alloc_small_sampled_hooks_or_perthread(
