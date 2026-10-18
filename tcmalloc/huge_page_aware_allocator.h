@@ -349,6 +349,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   VirtualMemoryAllocator vm_allocator_ ABSL_GUARDED_BY(pageheap_lock);
   ArenaMetadataAllocator metadata_allocator_ ABSL_GUARDED_BY(pageheap_lock);
+  HugeAddressMap system_ranges_ ABSL_GUARDED_BY(pageheap_lock);
   HugeAllocator alloc_ ABSL_GUARDED_BY(pageheap_lock);
   HugeCache cache_ ABSL_GUARDED_BY(pageheap_lock);
 
@@ -437,6 +438,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       region_allocator_(forwarder_.arena()),
       vm_allocator_(*this),
       metadata_allocator_(*this),
+      system_ranges_(metadata_allocator_),
       alloc_(vm_allocator_, metadata_allocator_),
       cache_(HugeCache{alloc_, metadata_allocator_, unback_without_lock_,
                        absl::Seconds(1), forwarder_.clock()}) {}
@@ -1148,6 +1150,8 @@ inline AddressRange HugePageAwareAllocator<Forwarder>::AllocAndReport(
   const Length page_len = BytesToLengthFloor(ret.bytes);
   TC_CHECK(forwarder_.Ensure(Range(page, page_len)),
            "Is something limiting virtual address space?");
+  system_ranges_.Insert(
+      HugeRange::Make(HugePageContaining(ret.ptr), HLFromBytes(ret.bytes)));
   return ret;
 }
 
@@ -1231,8 +1235,15 @@ inline bool HugePageAwareAllocator<Forwarder>::GetPageAllocationStatus(
     return true;
   }
 
-  // 4. If the pagemap leaf exists, the hugepage was allocated to TCMalloc and
-  // is in active use (e.g. allocated via AllocRawHugepages).
+  // 4. A PageMap leaf covers kLeafHugepages (16) hugepages (32 MiB), so leaf
+  // existence alone does not imply `hp` was allocated by this allocator.
+  // Verify that `hp` lies within a range obtained by AllocAndReport; if so,
+  // and it is not in filler_, regions_, cache_, or alloc_, it is in active
+  // use via AllocRawHugepages.
+  const HugeAddressMap::Node* node = system_ranges_.Predecessor(hp);
+  if (node == nullptr || !node->range().contains(hp)) {
+    return false;
+  }
   pages.SetRange(0, kPagesPerHugePage.raw_num());
   return true;
 }
