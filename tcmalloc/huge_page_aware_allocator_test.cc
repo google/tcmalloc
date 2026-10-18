@@ -2696,6 +2696,74 @@ TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest,
+       BrokenHugepageStatePersistsAcrossRawHugepages) {
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().release_partial_alloc_pages.set(true);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().track_broken_hugepages.set(
+      TrackBrokenHugepages::kEnabled);
+
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  // 1. Subrelease free pages on `hp`, refill it so `released_pages() == 0`
+  //    while `!pt->unbroken()`, and drain it into `HugeCache`.
+  AllocationState a0 = New(Length(1), kSpanInfo);
+  ASSERT_TRUE(a0);
+  const HugePage hp = HugePageContaining(a0.r.p);
+  ReleasePages(kPagesPerHugePage - Length(1),
+               PageReleaseReason::kProcessBackgroundActions);
+  AllocationState fill_rest = New(kPagesPerHugePage - Length(1), kSpanInfo);
+  ASSERT_TRUE(fill_rest);
+  ASSERT_EQ(HugePageContaining(fill_rest.r.p), hp);
+  Delete(a0, 1);
+  Delete(fill_rest, 1);
+
+  HugepageEntryState state = GetHugepageState(hp);
+  EXPECT_EQ(state.tracker, nullptr);
+  EXPECT_EQ(state.bits, 1u);
+
+  // 2. Reusing `hp` via a single-hugepage `AllocRawHugepages` donation
+  //    (`r.len() == NHugePages(1)` with `slack > 0`, so `first == last == hp`)
+  //    must preserve the broken bit into `AllocAndContribute` and restore
+  //    `!pt->unbroken()`.
+  AllocationState donated_single =
+      New(kPagesPerHugePage / 2 + Length(1), kSpanInfo);
+  ASSERT_TRUE(donated_single);
+  ASSERT_EQ(HugePageContaining(donated_single.r.p), hp);
+  state = GetHugepageState(hp);
+  ASSERT_NE(state.tracker, nullptr);
+  EXPECT_FALSE(state.unbroken);
+
+  Delete(donated_single, 1);
+  state = GetHugepageState(hp);
+  EXPECT_EQ(state.tracker, nullptr);
+  EXPECT_EQ(state.bits, 1u);
+
+  // 3. Reusing `hp` via an exact-hugepage `AllocRawHugepages` allocation
+  //    (`slack == Length(0)`) and freeing it must preserve the broken bit in
+  //    PageMap for subsequent filler reuse.
+  AllocationState raw_exact = New(kPagesPerHugePage, kSpanInfo);
+  ASSERT_TRUE(raw_exact);
+  ASSERT_EQ(HugePageContaining(raw_exact.r.p), hp);
+  state = GetHugepageState(hp);
+  EXPECT_EQ(state.tracker, nullptr);
+  EXPECT_EQ(state.bits, 1u);
+
+  Delete(raw_exact, 1);
+  AllocationState reused_small = New(Length(1), kSpanInfo);
+  ASSERT_TRUE(reused_small);
+  ASSERT_EQ(HugePageContaining(reused_small.r.p), hp);
+  state = GetHugepageState(hp);
+  ASSERT_NE(state.tracker, nullptr);
+  EXPECT_FALSE(state.unbroken);
+
+  Delete(reused_small, 1);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
