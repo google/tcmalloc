@@ -170,6 +170,16 @@ class CpuCachePeer {
     cpu_cache.resize_[cpu].available.fetch_add(available,
                                                std::memory_order_relaxed);
   }
+
+  template <typename CpuCache>
+  static bool BypassCpuCache(const CpuCache& cpu_cache, size_t size_class) {
+    return cpu_cache.BypassCpuCache(size_class);
+  }
+
+  template <typename CpuCache>
+  static bool IsActive(const CpuCache& cpu_cache, size_t size_class) {
+    return cpu_cache.IsActive(size_class);
+  }
 };
 
 namespace {
@@ -2910,6 +2920,36 @@ TEST(CpuCacheTest, NamedVma) {
     }
   }
   EXPECT_TRUE(found_active);
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, BypassCpuCacheUnregisteredThread) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  TestStaticForwarder& forwarder = cache.forwarder();
+
+  using ShardedManager = TestStaticForwarder::ShardedManager;
+  forwarder.SetShardedCacheForLargeClassesOnly(true);
+  forwarder.SetGenericShardedCache(false);
+  forwarder.InitializeShardedManager(ShardedManager::kMinShardsAllowed);
+
+  cache.Activate();
+
+  ASSERT_TRUE(subtle::percpu::IsFastNoInit());
+  EXPECT_TRUE(CpuCachePeer::BypassCpuCache(cache, 1));
+  EXPECT_FALSE(CpuCachePeer::IsActive(cache, 1));
+
+  {
+    ScopedUnregisterRseq unregister_rseq;
+    ASSERT_FALSE(subtle::percpu::IsFastNoInit());
+    EXPECT_FALSE(CpuCachePeer::BypassCpuCache(cache, 1));
+    EXPECT_FALSE(CpuCachePeer::IsActive(cache, 1));
+  }
+
+  forwarder.SetShardedCacheForLargeClassesOnly(false);
   cache.Deactivate();
 }
 

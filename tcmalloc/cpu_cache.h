@@ -786,7 +786,8 @@ static CpuSet FillActiveCpuMask() {
 template <class Forwarder>
 inline bool CpuCache<Forwarder>::IsActive(size_t size_class) const {
   return size_class > 0 && size_class < kNumClasses &&
-         !BypassCpuCache(size_class) &&
+         !(forwarder_.sharded_transfer_cache().UseCacheForLargeClassesOnly() &&
+           forwarder_.sharded_transfer_cache().should_use(size_class)) &&
          forwarder_.class_to_size(size_class) != 0 &&
          (IsColdSizeClass(size_class) ||
           size_class < forwarder_.active_partitions() * kNumBaseClasses);
@@ -1184,7 +1185,8 @@ inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
   // We bypass per-cpu cache when sharded transfer cache is enabled for large
   // size classes (i.e. when we use the traditional configuration of the sharded
   // transfer cache).
-  return forwarder_.sharded_transfer_cache().UseCacheForLargeClassesOnly() &&
+  return subtle::percpu::IsFastNoInit() &&
+         forwarder_.sharded_transfer_cache().UseCacheForLargeClassesOnly() &&
          forwarder_.sharded_transfer_cache().should_use(size_class);
 }
 
