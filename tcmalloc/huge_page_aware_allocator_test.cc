@@ -2696,6 +2696,58 @@ TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
   }
 }
 
+class ShrinkCountingForwarder
+    : public huge_page_allocator_internal::FakeHugePageStaticForwarder {
+ public:
+  using Allocator = huge_page_allocator_internal::HugePageAwareAllocator<
+      ShrinkCountingForwarder>;
+
+  void ShrinkToUsageLimit(Length n, bool may_have_grown)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    huge_page_allocator_internal::FakeHugePageStaticForwarder::
+        ShrinkToUsageLimit(n, may_have_grown);
+    ++shrink_calls_;
+    if (hpaa_ != nullptr && !in_shrink_) {
+      in_shrink_ = true;
+      (void)hpaa_->ReleaseAtLeastNPagesBreakingHugepages(
+          Length(1), PageReleaseReason::kSoftLimitExceeded);
+      in_shrink_ = false;
+    }
+  }
+
+  void set_hpaa(Allocator* hpaa) { hpaa_ = hpaa; }
+  int shrink_calls() const { return shrink_calls_; }
+
+ private:
+  Allocator* hpaa_ = nullptr;
+  int shrink_calls_ = 0;
+  bool in_shrink_ = false;
+};
+
+TEST(HugePageAwareAllocatorTest, AllocSmallRefillShrinksToUsageLimitOnce) {
+  ShrinkCountingForwarder::Allocator allocator({.tag = MemoryTag::kNormal});
+  allocator.forwarder().set_hpaa(&allocator);
+  constexpr SpanAllocInfo kSpanInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+
+  AllocationState s = allocator.New(Length(1), kSpanInfo);
+  ASSERT_TRUE(s);
+  EXPECT_EQ(allocator.forwarder().shrink_calls(), 1);
+
+  PageReleaseStats release_stats;
+  {
+    PageHeapSpinLockHolder l;
+    release_stats = allocator.GetReleaseStats();
+    allocator.Delete(s, kSpanInfo);
+  }
+  // Because ShrinkToUsageLimit ran only in RefillFiller (before contributing
+  // the new hugepage to the filler) and not a second time in Finalize, the
+  // newly refilled hugepage was not broken up.
+  EXPECT_EQ(release_stats.soft_limit_exceeded, Length(0));
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

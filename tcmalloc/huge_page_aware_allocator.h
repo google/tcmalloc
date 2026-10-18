@@ -413,7 +413,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  [[nodiscard]] AllocationState Finalize(Range r, bool may_have_grown);
+  [[nodiscard]] AllocationState Finalize(Range r, bool may_have_grown,
+                                         bool shrink_to_usage_limit = true);
 
   [[nodiscard]] bool ShouldBack(const Range& r) const;
 
@@ -503,25 +504,27 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
     Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
   HugeRange r = cache_.Get(NHugePages(1), from_released);
   if (!r.valid()) return PageId{0};
-  // This is duplicate to Finalize, but if we need to break up
-  // hugepages to get to our usage limit it would be very bad to break
-  // up what's left of r after we allocate from there--while r is
-  // mostly empty, clearly what's left in the filler is too fragmented
-  // to be very useful, and we would rather release those
-  // pages. Otherwise, we're nearly guaranteed to release r (if n
-  // isn't very large), and the next allocation will just repeat this
-  // process.
+  // Call ShrinkToUsageLimit here (instead of in Finalize) before contributing
+  // r to the filler: if we need to break up hugepages to get to our usage
+  // limit, it would be very bad to break up what's left of r after we allocate
+  // from there--while r is mostly empty, clearly what's left in the filler is
+  // too fragmented to be very useful, and we would rather release those pages.
+  // Otherwise, we're nearly guaranteed to release r (if n isn't very large),
+  // and the next allocation will just repeat this process.
   forwarder_.ShrinkToUsageLimit(n, *from_released);
   return AllocAndContribute(r.start(), n, span_alloc_info, /*donated=*/false);
 }
 
 template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::AllocationState
-HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown)
+HugePageAwareAllocator<Forwarder>::Finalize(Range r, bool may_have_grown,
+                                            bool shrink_to_usage_limit)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   TC_ASSERT_NE(r.p, PageId{0});
   info_.RecordAlloc(r);
-  forwarder_.ShrinkToUsageLimit(r.n, may_have_grown);
+  if (shrink_to_usage_limit) {
+    forwarder_.ShrinkToUsageLimit(r.n, may_have_grown);
+  }
   return {r, false};
 }
 
@@ -542,7 +545,8 @@ HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
   if (ABSL_PREDICT_FALSE(page == PageId{0})) {
     return {};
   }
-  return Finalize(Range(page, n), *from_released);
+  return Finalize(Range(page, n), *from_released,
+                  /*shrink_to_usage_limit=*/false);
 }
 
 template <class Forwarder>
