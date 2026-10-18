@@ -127,9 +127,18 @@ class PageAllocatorImpl {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     switch (tag) {
       case MemoryTag::kNormal:
+        return impl(tag)->GetPageAllocationStatus(hp, pages);
       case MemoryTag::kNormalP1:
+        if (active_partitions() <= 1 || normal_impl_[1] == nullptr) {
+          return false;
+        }
+        return impl(tag)->GetPageAllocationStatus(hp, pages);
       case MemoryTag::kSampledOrCold:
+        return impl(tag)->GetPageAllocationStatus(hp, pages);
       case MemoryTag::kSampledOrColdP1:
+        if (!sampled_partition_active_ || sampled_or_cold_impl_[1] == nullptr) {
+          return false;
+        }
         return impl(tag)->GetPageAllocationStatus(hp, pages);
       case MemoryTag::kGuarded:
       case MemoryTag::kMetadata:
@@ -253,12 +262,12 @@ class PageAllocatorImpl {
     int dummy;
     Interface hpaa;
   } choices_[kNumHeaps];
-  std::array<Interface*, kNormalPartitions> normal_impl_;
+  std::array<Interface*, kNormalPartitions> normal_impl_{};
   // Combined sampled and cold heaps to save memory. This works because they're
   // both largely marked MADV_NOHUGEPAGE. See b/529739215 for more information.
-  std::array<Interface*, kSecurityPartitions> sampled_or_cold_impl_;
+  std::array<Interface*, kSecurityPartitions> sampled_or_cold_impl_{};
   // All heaps, sampled/cold then normal.
-  std::array<Interface*, kNormalPartitions + kSecurityPartitions> all_heaps_;
+  std::array<Interface*, kNormalPartitions + kSecurityPartitions> all_heaps_{};
   absl::Span<Interface* const> heaps_;
   Algorithm alg_;
   bool sampled_partition_active_;
