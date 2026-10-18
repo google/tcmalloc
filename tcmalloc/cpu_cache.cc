@@ -20,8 +20,11 @@
 #include <new>
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
+#include "absl/base/internal/spinlock.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
@@ -35,6 +38,9 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+ABSL_CONST_INIT static absl::base_internal::SpinLock cpu_cache_activation_lock(
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
+
 static void ActivatePerCpuCaches() {
   if (tcmalloc::tcmalloc_internal::tc_globals.CpuCacheActive()) {
     // Already active.
@@ -42,9 +48,15 @@ static void ActivatePerCpuCaches() {
   }
 
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
-    tc_globals.InitIfNecessary();
-    tc_globals.cpu_cache().Activate();
-    tc_globals.ActivateCpuCache();
+    {
+      AllocationGuardSpinLockHolder l(cpu_cache_activation_lock);
+      if (tc_globals.CpuCacheActive()) {
+        return;
+      }
+      tc_globals.InitIfNecessary();
+      tc_globals.cpu_cache().Activate();
+      tc_globals.ActivateCpuCache();
+    }
     // no need for this thread cache anymore, I guess.
     ThreadCache::BecomeIdle();
     // If there's a problem with this code, let's notice it right away:

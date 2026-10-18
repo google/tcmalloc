@@ -2913,6 +2913,22 @@ TEST(CpuCacheTest, NamedVma) {
   cache.Deactivate();
 }
 
+TEST(CpuCacheTest, ConcurrentForceCpuCacheActivation) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  constexpr int kNumThreads = 8;
+  std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
+  for (int i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([]() { TCMalloc_Internal_ForceCpuCacheActivation(); });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+  EXPECT_TRUE(tc_globals.CpuCacheActive());
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
