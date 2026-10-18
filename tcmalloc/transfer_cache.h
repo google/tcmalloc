@@ -121,10 +121,11 @@ class ShardedTransferCacheManagerBase {
       // Finally, we enable generic sharded transfer caches only on platforms
       // that have multiple cache domains. On platforms with less than three
       // cache domains, the traditional LIFO transfer cache should suffice.
-      int min_size = UseGenericCache() ? 0 : 4096;
-      bool use_sharded_cache =
-          UseCacheForLargeClassesOnly() ||
-          (UseGenericCache() && (num_shards_ >= kMinShardsAllowed));
+      const bool use_generic_cache =
+          UseGenericCache() && (num_shards_ >= kMinShardsAllowed);
+      const int min_size = use_generic_cache ? 1 : 4096;
+      const bool use_sharded_cache =
+          UseCacheForLargeClassesOnly() || use_generic_cache;
       active_for_class_[size_class] =
           use_sharded_cache && size_per_object >= min_size;
     }
@@ -334,7 +335,9 @@ class ShardedTransferCacheManagerBase {
   [[nodiscard]] Capacity LargeCacheCapacity(size_t size_class) const {
     const int size_per_object = forwarder_.class_to_size(size_class);
     static constexpr int k12MB = 12 << 20;
-    const int capacity = should_use(size_class) ? k12MB / size_per_object : 0;
+    const int capacity = (should_use(size_class) && size_per_object > 0)
+                             ? k12MB / size_per_object
+                             : 0;
     return {capacity, capacity};
   }
 

@@ -715,6 +715,25 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
   }
 }
 
+TEST(ShardedTransferCacheManagerTest, ZeroSizeClassesInactive) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  using ShardedManager = FakeShardedTransferCacheEnvironment::ShardedManager;
+  constexpr int kNumShards = ShardedManager::kMinShardsAllowed;
+  FakeShardedTransferCacheEnvironment env(kNumShards,
+                                          /*use_generic_cache=*/true);
+  ShardedManager& manager = env.sharded_manager();
+
+  EXPECT_TRUE(manager.should_use(kSizeClass));
+  for (int sc = 0; sc < kNumClasses; ++sc) {
+    if (FakeShardedTransferCacheForwarder::class_to_size(sc) == 0) {
+      EXPECT_FALSE(manager.should_use(sc)) << "size_class=" << sc;
+    }
+  }
+}
+
 TEST(ShardedTransferCacheManagerTest, PrintTelemetry) {
   if (!subtle::percpu::IsFast()) {
     return;
