@@ -357,6 +357,8 @@ void SystemAllocator<Topology, NormalPartitions>::InitRegionFactory()
 template <typename Topology, size_t NormalPartitions>
 AddressRange SystemAllocator<Topology, NormalPartitions>::Allocate(
     size_t bytes, size_t alignment, const MemoryTag tag) {
+  if (bytes == 0) return {nullptr, 0};
+
   // If default alignment is set request the minimum alignment provided by
   // the system.
   alignment = std::max(alignment, GetPageSize());
@@ -406,6 +408,8 @@ std::pair<void*, size_t>
 SystemAllocator<Topology, NormalPartitions>::MmapRegion::Alloc(
     size_t request_size, size_t alignment) {
   using system_allocator_internal::RoundUp;
+
+  if (request_size == 0) return {nullptr, 0};
 
   // Align on kHugePageSize boundaries to reduce external fragmentation for
   // future allocations.

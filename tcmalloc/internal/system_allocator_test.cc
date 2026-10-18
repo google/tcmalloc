@@ -144,6 +144,33 @@ TEST(SystemAllocatorTest, ReleaseLockedMemory) {
   EXPECT_EQ(allocator.release_errors(), 0);
 }
 
+TEST(SystemAllocatorTest, ZeroSizeAllocationFailsCleanly) {
+  constexpr size_t kMinMmapAlloc = 1 << 30;
+  NumaTopology<2> topology;
+  topology.Init();
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+
+  const size_t kPageSize = GetPageSize();
+  AddressRange r1 =
+      allocator.Allocate(kPageSize, kPageSize, MemoryTag::kNormal);
+  ASSERT_NE(r1.ptr, nullptr);
+
+  AddressRange r0 = allocator.Allocate(0, kPageSize, MemoryTag::kNormal);
+  EXPECT_EQ(r0.ptr, nullptr);
+  EXPECT_EQ(r0.bytes, 0);
+
+  void* reg_mem = mmap(nullptr, kHugePageSize, PROT_NONE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(reg_mem, MAP_FAILED);
+  AddressRegion* region = allocator.GetRegionFactory()->Create(
+      reg_mem, kHugePageSize, AddressRegionFactory::UsageHint::kNormal);
+  ASSERT_NE(region, nullptr);
+  std::pair<void*, size_t> reg_zero = region->Alloc(0, kPageSize);
+  EXPECT_EQ(reg_zero.first, nullptr);
+  EXPECT_EQ(reg_zero.second, 0);
+  EXPECT_EQ(munmap(reg_mem, kHugePageSize), 0);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
