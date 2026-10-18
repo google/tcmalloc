@@ -224,7 +224,7 @@ void HugeCache::Release(HugeRange r) {
   // the max size.  (This could reduce the number of regions we break
   // in half to avoid overshrinking.)
   if ((clock_.now() - last_limit_change_) > (cache_time_ticks_ * 2)) {
-    total_fast_unbacked_ += MaybeShrinkCacheLimit();
+    MaybeShrinkCacheLimit();
   }
   total_fast_unbacked_ += ShrinkCache(limit());
   UpdateSize(size());
@@ -236,20 +236,19 @@ void HugeCache::ReleaseUnbacked(HugeRange r) {
   allocator_->Release(r);
 }
 
-HugeLength HugeCache::MaybeShrinkCacheLimit() {
+void HugeCache::MaybeShrinkCacheLimit() {
   last_limit_change_ = clock_.now();
 
   const HugeLength min = size_tracker_.MinOverTime(cache_time_ * 2);
   // If cache size has gotten down to at most 20% of max, we assume
   // we're close enough to the optimal size--we don't want to fiddle
   // too much/too often unless we have large gaps in usage.
-  if (min < limit() / 5) return NHugePages(0);
+  if (min < limit() / 5) return;
 
   // Take away half of the unused portion.
   HugeLength drop = std::max(min / 2, NHugePages(1));
   limit_ = std::max(limit() <= drop ? NHugePages(0) : limit() - drop,
                     MinCacheLimit());
-  return ShrinkCache(limit());
 }
 
 HugeLength HugeCache::ShrinkCache(HugeLength target) {
@@ -293,13 +292,11 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
 
 HugeLength HugeCache::ReleaseCachedPages(HugeLength n) {
   // This is a good time to check: is our cache going persistently unused?
-  HugeLength released = MaybeShrinkCacheLimit();
+  MaybeShrinkCacheLimit();
 
-  if (released < n) {
-    n -= released;
-    const HugeLength target = n > size() ? NHugePages(0) : size() - n;
-    released += ShrinkCache(target);
-  }
+  const HugeLength target =
+      std::min(limit(), n > size() ? NHugePages(0) : size() - n);
+  const HugeLength released = ShrinkCache(target);
   UpdateSize(size());
   total_periodic_unbacked_ += released;
   return released;

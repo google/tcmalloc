@@ -212,9 +212,8 @@ class HugeCache {
   // We just cache-missed a request for <missed> pages;
   // should we grow?
   void MaybeGrowCacheLimit(HugeLength missed);
-  // Check if the cache seems consistently too big.  Returns the
-  // number of pages *evicted* (not the change in limit).
-  [[nodiscard]] HugeLength MaybeShrinkCacheLimit();
+  // Check if the cache seems consistently too big.
+  void MaybeShrinkCacheLimit();
 
   // Ensure the cache contains at most <target> hugepages,
   // returning the number removed.

@@ -583,6 +583,54 @@ TEST_P(HugeCacheTest, Contains) {
   EXPECT_FALSE(cache_.Contains(r.start() + NHugePages(4)));
 }
 
+TEST_P(HugeCacheTest, MaybeShrinkCacheLimitSingleShrinkPass) {
+  bool from;
+  // Grow cache_.limit() above 20 HP and populate cache_ with a single
+  // contiguous 20-HP node.
+  HugeRange r = cache_.Get(NHugePages(20), &from);
+  cache_.ReleaseUnbacked(r);
+  r = cache_.Get(NHugePages(20), &from);
+  EXPECT_TRUE(from);
+  Release(r);
+  ASSERT_GE(cache_.limit(), NHugePages(20));
+  ASSERT_EQ(cache_.size(), NHugePages(20));
+
+  // Case 1: When MaybeShrinkCacheLimit() shrinks limit_ below 20 HP and
+  // unback_ fails, ReleaseCachedPages must not immediately invoke ShrinkCache
+  // a second time and retry the failed unback_ in the same call.
+  Advance(GetCacheTime() * 3);
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .Times(1)
+      .WillOnce(
+          Return(MemoryModifyStatus{.success = false, .error_number = 0}));
+  EXPECT_EQ(cache_.ReleaseCachedPages(NHugePages(1)), NHugePages(0));
+  EXPECT_EQ(cache_.size(), NHugePages(20));
+  testing::Mock::VerifyAndClearExpectations(&mock_unback_);
+
+  // Case 2: Re-grow limit_ above 20 HP with a single contiguous 20-HP node.
+  // When MaybeShrinkCacheLimit() shrinks limit_ below 20 HP during
+  // ReleaseCachedPages(15), the single contiguous 20-HP node must be split and
+  // unbacked in a single 15-HP Unback call rather than split twice across two
+  // back-to-back ShrinkCache calls.
+  Advance(GetCacheTime());
+  r = cache_.Get(NHugePages(20), &from);
+  EXPECT_FALSE(from);
+  cache_.ReleaseUnbacked(r);
+  r = cache_.Get(NHugePages(20), &from);
+  EXPECT_TRUE(from);
+  Release(r);
+  ASSERT_GE(cache_.limit(), NHugePages(20));
+  ASSERT_EQ(cache_.size(), NHugePages(20));
+
+  Advance(GetCacheTime() * 3);
+  EXPECT_CALL(mock_unback_,
+              Unback(r.start().first_page(), 15 * kPagesPerHugePage))
+      .Times(1)
+      .WillOnce(Return(MemoryModifyStatus{.success = true, .error_number = 0}));
+  EXPECT_EQ(cache_.ReleaseCachedPages(NHugePages(15)), NHugePages(15));
+  EXPECT_EQ(cache_.size(), NHugePages(5));
+}
+
 INSTANTIATE_TEST_SUITE_P(All, HugeCacheTest,
                          testing::Values(absl::Seconds(1), absl::Seconds(30)));
 
