@@ -498,18 +498,18 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
   // TODO(b/424551232): Add support for the scenario when native page size is
   // larger than TCMalloc page size.
   const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
-  if (kHardwarePagesInHugePage < kPagesPerHugePage.raw_num()) {
-    return {.n_free_swapped = HardwareLength(0),
-            .n_free_unbacked = HardwareLength(0)};
+  if (!absl::has_single_bit(kHardwarePagesInHugePage) ||
+      kHardwarePagesInHugePage > kMaxResidencyBits ||
+      kHardwarePagesInHugePage < kPagesPerHugePage.raw_num()) {
+    return {};
   }
-  TC_ASSERT_LE(kHardwarePagesInHugePage, kMaxResidencyBits);
 
   const PageBitmap& used = tracker_.bits();
   const PageBitmap free = ~used;
 
   TC_ASSERT_EQ(kHardwarePagesInHugePage % kPagesPerHugePage.raw_num(), 0);
-  const int shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
-  const int shift_bits = absl::bit_width<uint8_t>(shift - 1);
+  const size_t shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
+  const int shift_bits = absl::bit_width(shift - 1);
   TC_ASSERT_LT((kHardwarePagesInHugePage - 1) >> shift_bits,
                kPagesPerHugePage.raw_num());
 

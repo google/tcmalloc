@@ -880,6 +880,37 @@ TEST_F(PageTrackerTest, b151915873) {
                                   &small.normal_length[kMaxPages.raw_num()]));
 }
 
+TEST_F(PageTrackerTest, CountInfoInHugePage) {
+  const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
+  if (kHardwarePagesInHugePage < kPagesPerHugePage.raw_num()) {
+    GTEST_SKIP() << "Native page size larger than TCMalloc page size";
+  }
+  const size_t shift = kHardwarePagesInHugePage / kPagesPerHugePage.raw_num();
+
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc alloc = Get(Length(2), info);
+  const size_t alloc_idx =
+      (alloc.p - tracker_.location().first_page()).raw_num();
+  const size_t free_idx = (alloc_idx + 2) % kPagesPerHugePage.raw_num();
+
+  PageBitmap unbacked, swapped, stale;
+  unbacked.SetBit(alloc_idx);
+  unbacked.SetBit(free_idx);
+  swapped.SetBit(alloc_idx + 1);
+  stale.SetBit(free_idx);
+
+  PageTracker::HardwarePageResidencyInfo residency_info =
+      tracker_.CountInfoInHugePage(unbacked, swapped, stale);
+  EXPECT_EQ(residency_info.n_used_unbacked, NHardwarePages(1 * shift));
+  EXPECT_EQ(residency_info.n_free_unbacked, NHardwarePages(1 * shift));
+  EXPECT_EQ(residency_info.n_used_swapped, NHardwarePages(1 * shift));
+  EXPECT_EQ(residency_info.n_free_swapped, NHardwarePages(0));
+  EXPECT_EQ(residency_info.n_used_stale, NHardwarePages(0));
+  EXPECT_EQ(residency_info.n_free_stale, NHardwarePages(1 * shift));
+
+  Put(alloc);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
