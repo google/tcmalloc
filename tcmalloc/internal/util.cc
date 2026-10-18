@@ -44,16 +44,22 @@ namespace tcmalloc_internal {
 
 int signal_safe_open(const char* path, int flags, ...) {
   int fd;
-  va_list ap;
-  using mode_t_va_arg_type =
-      std::conditional_t<sizeof(mode_t) < sizeof(int), int, mode_t>;
-
-  va_start(ap, flags);
-  mode_t mode = va_arg(ap, mode_t_va_arg_type);
-  va_end(ap);
+  mode_t mode = 0;
+  bool has_mode = (flags & O_CREAT) != 0;
+#ifdef O_TMPFILE
+  has_mode = has_mode || (flags & O_TMPFILE) == O_TMPFILE;
+#endif
+  if (has_mode) {
+    va_list ap;
+    using mode_t_va_arg_type =
+        std::conditional_t<sizeof(mode_t) < sizeof(int), int, mode_t>;
+    va_start(ap, flags);
+    mode = va_arg(ap, mode_t_va_arg_type);
+    va_end(ap);
+  }
 
   do {
-    fd = ((flags & O_CREAT) ? open(path, flags, mode) : open(path, flags));
+    fd = has_mode ? open(path, flags, mode) : open(path, flags);
   } while (fd == -1 && errno == EINTR);
 
   return fd;
@@ -113,7 +119,7 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read) {
   // case is only defined to return the number of bytes read up to that point,
   // with no indication whether more could have been read (up to count).
   pfd.fd = fd;
-  pfd.events = POLL_IN;
+  pfd.events = POLLIN;
   pfd.revents = 0;
 
   do {
@@ -124,8 +130,9 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read) {
     // try again if there's space to fill, no (non-interrupt) error,
     // and data is available.
   } while (total_bytes < count && (rc > 0 || errno == EINTR) &&
-           (signal_safe_poll(&pfd, 1, absl::ZeroDuration()) == 1 ||
-            total_bytes == 0));
+           ((total_bytes == 0 && rc == -1) ||
+            (signal_safe_poll(&pfd, 1, absl::ZeroDuration()) == 1 &&
+             (pfd.revents & (POLLIN | POLLERR | POLLHUP)) != 0)));
 
   if (bytes_read) *bytes_read = total_bytes;
 
