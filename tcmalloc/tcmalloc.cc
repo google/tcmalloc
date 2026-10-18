@@ -678,8 +678,7 @@ static constexpr uintptr_t kBadDeallocationHighMask =
     ~((uintptr_t{1} << kAddressBits) - 1u);
 static constexpr uintptr_t kBadAlignmentMask =
     static_cast<uintptr_t>(kAlignment) - 1u;
-// kNormalMask covers both kNormal and kNormalP1 because they share an
-// overlapping tag bit.  This is the same property IsNormalMemory relies on.
+// kNormalTagMask covers both kNormal and kNormalP1 and rejects unassigned tags.
 static constexpr uintptr_t kNormalMask =
     static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift;
 static constexpr uintptr_t kSampledOrColdMask =
@@ -688,7 +687,7 @@ static_assert((static_cast<uintptr_t>(MemoryTag::kNormal) &
                static_cast<uintptr_t>(MemoryTag::kNormalP1)) != 0);
 
 static constexpr uintptr_t kNormalOrBadDeallocationMask =
-    kBadDeallocationHighMask | kNormalMask | kBadAlignmentMask;
+    kBadDeallocationHighMask | kNormalTagMask | kBadAlignmentMask;
 
 static constexpr uintptr_t kTagOrBadDeallocationMask =
     kBadDeallocationHighMask | kTagMask | kBadAlignmentMask;
@@ -803,7 +802,7 @@ ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(
     void* ptr, DynamicPolicy policy) {
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
 
-  if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
+  if (ABSL_PREDICT_FALSE((uptr & kBadDeallocationHighMask) != 0)) {
     ReportCorruptedFree(tc_globals, ptr);
   }
 
@@ -813,9 +812,18 @@ ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(
     ReportCorruptedFree(tc_globals, kAlignment, ptr);
   }
 
+  if (ABSL_PREDICT_FALSE(!IsSampledOrColdMemory(ptr) &&
+                         !IsGuardedMemory(ptr))) {
+    ReportCorruptedFree(tc_globals, ptr);
+  }
+
   const size_t size_class =
       tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
+    if (ABSL_PREDICT_FALSE(!IsColdSizeClass(size_class) ||
+                           GetMemoryTag(ptr) != MemoryTag::kSampledOrCold)) {
+      ReportCorruptedFree(tc_globals, ptr);
+    }
     FreeSmall(ptr, std::nullopt, size_class);
   } else {
     SLOW_PATH_BARRIER();
@@ -871,8 +879,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
 //     (low bits set).
 //   - Large cold allocation (> kMaxSize): kSampledOrCold tag, span-aligned,
 //     size class 0.
-//   (Small cold objects never get here.  If not page aligned, they pass
-//   the address check; if page aligned, the pagemap gives a cold size class.)
+//   (Small cold objects never get here; the pagemap gives a cold size class.)
 //
 //   Invalid:
 //   - Misaligned (kBadAlignmentMask bits set) and not kGuarded.
@@ -903,7 +910,8 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
   }
   // At this point, the pointer is purely illformed: wrong alignment, corrupted
   // high bits, or illegal tags.
-  if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
+  if (ABSL_PREDICT_FALSE((uptr & kBadDeallocationHighMask) != 0 ||
+                         !IsNormalMemory(ptr))) {
     ReportCorruptedFree(tc_globals, ptr);
   }
 
@@ -952,17 +960,13 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
       return;
     }
-    // Sampled spans share the tag with cold objects, but they are always
-    // span-aligned (GWP-ASan allocations, which may be right-aligned, have
-    // their own kGuarded tag).  So a kSampledOrCold pointer that is not page
-    // aligned must be a cold object and can skip the pagemap lookup.  Page
-    // aligned pointers still consult it: sampled spans and large cold objects
-    // have size class 0 and need the slow path.
+    // Sampled spans share the tag with cold objects, while GWP-ASan allocations
+    // have their own kGuarded tag.  Consult the pagemap to distinguish cold
+    // small-object spans from sampled spans, large cold objects, and corrupted
+    // pointers that happen to have the kSampledOrCold tag.
     bool is_small_cold =
         (uptr & kTagOrBadDeallocationMask) == kSampledOrColdMask &&
-        ((uptr & (kPageSize - 1)) != 0 ||
-         IsColdSizeClass(
-             tc_globals.pagemap().sizeclass(PageIdContaining(ptr))));
+        IsColdSizeClass(tc_globals.pagemap().sizeclass(PageIdContaining(ptr)));
     if (ABSL_PREDICT_FALSE(!is_small_cold)) {
       // Sampled, guarded, large cold, and ill-formed pointers take the
       // outlined slow path.
