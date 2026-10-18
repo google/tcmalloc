@@ -32,6 +32,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
@@ -43,6 +44,8 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+extern Static tc_globals;
 
 // Denominator for bitmap scaling factor. The idea is that instead of dividing
 // by N we multiply by M = kBitmapScalingDenominator / N and round the resulting
@@ -321,16 +324,21 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
 inline bool Span::FreelistPushBatch(absl::Span<ObjIdx> batch,
                                     size_t size) __restrict__ {
   const uint16_t allocated = allocated_;
-  TC_ASSERT_GE(allocated, batch.size());
-  if (ABSL_PREDICT_FALSE(allocated == batch.size())) {
-    return false;
+  if (ABSL_PREDICT_FALSE(allocated < batch.size())) {
+    ReportDoubleFree(tc_globals, UseBitmapForSize(size)
+                                     ? BitmapIdxToPtr(batch[0], size)
+                                     : IdxToPtr(batch[0], size,
+                                                first_page().start_uintptr()));
   }
   allocated_ = allocated - batch.size();
   // Bitmaps are used to record object availability when there are no more than
   // kBitmapSize objects in a span.
   if (ABSL_PREDICT_TRUE(UseBitmapForSize(size))) {
     BitmapPushBatch(batch, size);
-    return true;
+    return allocated != batch.size();
+  }
+  if (ABSL_PREDICT_FALSE(allocated == batch.size())) {
+    return false;
   }
   ListPushBatch(batch, size);
   return true;
@@ -418,10 +426,11 @@ inline void Span::BitmapPushBatch(absl::Span<ObjIdx> batch,
                                   size_t size) __restrict__ {
   size_t before = bitmap_.CountBits();
   for (const ObjIdx idx : batch) {
-    // Check that the object is not already returned.
-    TC_ASSERT_EQ(bitmap_.GetBit(idx), 0);
-    // Set the bit indicating where the object was returned.
-    bitmap_.SetBit(idx);
+    // Check that the object is not already returned and set the bit indicating
+    // where the object was returned.
+    if (ABSL_PREDICT_FALSE(bitmap_.SetBit(idx) != 0)) {
+      ReportDoubleFree(tc_globals, BitmapIdxToPtr(idx, size));
+    }
   }
   TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
 }
@@ -507,6 +516,10 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
     if (ABSL_PREDICT_FALSE(freelist_ == kListEnd)) {
       break;
     }
+    if (ABSL_PREDICT_FALSE(freelist_ >= (kPageSize >> kAlignmentShift))) {
+      TC_BUG("Corrupted freelist index %u in span %p (size %v)", freelist_,
+             this, size);
+    }
 
     ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
     uint16_t embed_count = embed_count_;
@@ -517,7 +530,12 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
     }
     for (size_t i = 0; i < iter; i++) {
       // Pop from the first object on freelist.
-      batch[result + i] = IdxToPtr(host[embed_count - i], size, span_start);
+      const ObjIdx idx = host[embed_count - i];
+      if (ABSL_PREDICT_FALSE(idx >= (kPageSize >> kAlignmentShift))) {
+        TC_BUG("Corrupted freelist index %u in span %p (size %v)", idx, this,
+               size);
+      }
+      batch[result + i] = IdxToPtr(idx, size, span_start);
     }
     embed_count -= iter;
     result += iter;

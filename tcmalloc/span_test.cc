@@ -158,10 +158,164 @@ TEST_P(SpanTest, FreelistBasic) {
       Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx);
       bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_);
       EXPECT_FALSE(ok);
+      EXPECT_EQ(span_.Allocated(), 0);
     }
   }
 }
 
+TEST(SpanDeathTest, DoubleFreeAndCorruptedFreelist) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  size_t bitmap_sc = 0;
+  size_t list_sc = 0;
+  for (size_t sc = 1; sc < kNumClasses; ++sc) {
+    const size_t size = tc_globals.sizemap().class_to_size(sc);
+    if (size == 0) continue;
+    const size_t objects_per_span =
+        tc_globals.sizemap().class_to_pages(sc).in_bytes() / size;
+    if (Span::UseBitmapForSize(size) && objects_per_span >= 4 &&
+        bitmap_sc == 0) {
+      bitmap_sc = sc;
+    }
+    if (!Span::UseBitmapForSize(size) && objects_per_span >= 32 &&
+        size / sizeof(Span::ObjIdx) >= 4 && list_sc == 0) {
+      list_sc = sc;
+    }
+  }
+  ASSERT_NE(bitmap_sc, 0);
+  ASSERT_NE(list_sc, 0);
+
+  // 1. Pushing when allocated < batch.size() reports double free.
+  {
+    RawSpan raw;
+    raw.Init(bitmap_sc);
+    Span& span = raw.span();
+    const size_t size = tc_globals.sizemap().class_to_size(bitmap_sc);
+    const uint32_t reciprocal = Span::CalcReciprocal(size);
+    void* ptr = nullptr;
+    ASSERT_EQ(span.FreelistPopBatch(absl::MakeSpan(&ptr, 1), size), 1);
+    Span::ObjIdx idx;
+    Span::ObjectsToIdx({&ptr, 1}, &span, size, reciprocal, &idx);
+    EXPECT_FALSE(span.FreelistPushBatch(absl::MakeSpan(&idx, 1), size));
+    EXPECT_EQ(span.Allocated(), 0);
+    EXPECT_DEATH((void)span.FreelistPushBatch(absl::MakeSpan(&idx, 1), size),
+                 "Possible double free detected");
+  }
+
+  // 2. Double-freeing an object on a bitmap span reports double free both when
+  // allocated > batch.size() and when allocated == batch.size().
+  {
+    RawSpan raw;
+    raw.Init(bitmap_sc);
+    Span& span = raw.span();
+    const size_t size = tc_globals.sizemap().class_to_size(bitmap_sc);
+    const uint32_t reciprocal = Span::CalcReciprocal(size);
+    void* ptrs[3];
+    ASSERT_EQ(span.FreelistPopBatch(absl::MakeSpan(ptrs, 3), size), 3);
+    Span::ObjIdx idx0;
+    Span::ObjectsToIdx({&ptrs[0], 1}, &span, size, reciprocal, &idx0);
+    EXPECT_TRUE(span.FreelistPushBatch(absl::MakeSpan(&idx0, 1), size));
+    EXPECT_EQ(span.Allocated(), 2);
+    // allocated (2) > batch.size() (1), but idx0 is already free in bitmap_.
+    EXPECT_DEATH((void)span.FreelistPushBatch(absl::MakeSpan(&idx0, 1), size),
+                 "Possible double free detected");
+
+    Span::ObjIdx idx1;
+    Span::ObjectsToIdx({&ptrs[1], 1}, &span, size, reciprocal, &idx1);
+    EXPECT_TRUE(span.FreelistPushBatch(absl::MakeSpan(&idx1, 1), size));
+    EXPECT_EQ(span.Allocated(), 1);
+    // allocated (1) == batch.size() (1), and idx0 is already free in bitmap_
+    // while ptrs[2] is still live.
+    EXPECT_DEATH((void)span.FreelistPushBatch(absl::MakeSpan(&idx0, 1), size),
+                 "Possible double free detected");
+  }
+
+  // 3. Out-of-bounds ObjIdx in a list-mode span's embedded freelist aborts with
+  // a corrupted freelist error in both debug and opt builds.
+  {
+    RawSpan raw;
+    raw.Init(list_sc);
+    Span& span = raw.span();
+    const size_t size = tc_globals.sizemap().class_to_size(list_sc);
+    const size_t objects_per_span =
+        tc_globals.sizemap().class_to_pages(list_sc).in_bytes() / size;
+    const uint32_t reciprocal = Span::CalcReciprocal(size);
+
+    std::vector<void*> all(objects_per_span);
+    size_t popped = 0;
+    while (popped < objects_per_span) {
+      size_t want =
+          std::min<size_t>(objects_per_span - popped, kMaxObjectsToMove);
+      size_t got =
+          span.FreelistPopBatch(absl::MakeSpan(&all[popped], want), size);
+      ASSERT_GT(got, 0);
+      popped += got;
+    }
+    ASSERT_TRUE(span.FreelistEmpty(objects_per_span));
+
+    // Return 12 (cache) + 1 (host1) + (size/2 - 1) (embedded in host1) + 1
+    // (host2) objects.
+    const size_t limit = size / sizeof(Span::ObjIdx) - 1;
+    const size_t to_return = 12 + 1 + limit + 1;
+    ASSERT_LT(to_return, objects_per_span);
+    std::vector<Span::ObjIdx> idxs(to_return);
+    Span::ObjectsToIdx(absl::MakeSpan(all.data(), to_return), &span, size,
+                       reciprocal, idxs.data());
+    EXPECT_TRUE(span.FreelistPushBatch(absl::MakeSpan(idxs), size));
+
+    // Corrupt host1's top embedded slot to an out-of-page ObjIdx.
+    auto* host1 = static_cast<Span::ObjIdx*>(all[12]);
+    host1[limit] = static_cast<Span::ObjIdx>(kPageSize >> kAlignmentShift);
+
+    // Drain the 12 cached objects and host2 (13 objects total).
+    void* out[13];
+    ASSERT_EQ(span.FreelistPopBatch(absl::MakeSpan(out, 13), size), 13);
+
+    // Next pop reads host1[limit] and must abort with Corrupted freelist.
+    EXPECT_DEATH((void)span.FreelistPopBatch(absl::MakeSpan(out, 1), size),
+                 "Corrupted freelist");
+  }
+  {
+    RawSpan raw;
+    raw.Init(list_sc);
+    Span& span = raw.span();
+    const size_t size = tc_globals.sizemap().class_to_size(list_sc);
+    const size_t objects_per_span =
+        tc_globals.sizemap().class_to_pages(list_sc).in_bytes() / size;
+    const uint32_t reciprocal = Span::CalcReciprocal(size);
+
+    std::vector<void*> all(objects_per_span);
+    size_t popped = 0;
+    while (popped < objects_per_span) {
+      size_t want =
+          std::min<size_t>(objects_per_span - popped, kMaxObjectsToMove);
+      size_t got =
+          span.FreelistPopBatch(absl::MakeSpan(&all[popped], want), size);
+      ASSERT_GT(got, 0);
+      popped += got;
+    }
+
+    const size_t limit = size / sizeof(Span::ObjIdx) - 1;
+    const size_t to_return = 12 + 1 + limit + 1;
+    std::vector<Span::ObjIdx> idxs(to_return);
+    Span::ObjectsToIdx(absl::MakeSpan(all.data(), to_return), &span, size,
+                       reciprocal, idxs.data());
+    EXPECT_TRUE(span.FreelistPushBatch(absl::MakeSpan(idxs), size));
+
+    // Corrupt host2[0] (the next freelist_ head index loaded when host2 is
+    // popped).
+    auto* host2 = static_cast<Span::ObjIdx*>(all[12 + 1 + limit]);
+    host2[0] = static_cast<Span::ObjIdx>(kPageSize >> kAlignmentShift);
+
+    void* out[13];
+    ASSERT_EQ(span.FreelistPopBatch(absl::MakeSpan(out, 13), size), 13);
+    EXPECT_DEATH((void)span.FreelistPopBatch(absl::MakeSpan(out, 1), size),
+                 "Corrupted freelist");
+  }
+}
 
 INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
 
