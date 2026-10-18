@@ -588,6 +588,43 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
   trigger_resize(kShift);
 }
 
+TEST_F(TcmallocSlabTest, GrowRejectsMismatchedCachedSlab) {
+  if (MallocExtension::PerCpuCachesActive()) {
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+  if (!IsFast() || NumCPUs() < 2) {
+    GTEST_SKIP() << "Need fast percpu and >= 2 CPUs. Skipping.";
+    return;
+  }
+
+  slab_.InitCpu(0, [](size_t) { return kCapacity; });
+  slab_.InitCpu(1, [](size_t) { return kCapacity; });
+
+  ScopedFakeCpuId fake_cpu_id(1);
+  auto [got_cpu, cached] = slab_.CacheCpuSlab();
+  ASSERT_TRUE(cached);
+  ASSERT_EQ(got_cpu, 1);
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  const uintptr_t cached_cpu1_slab = tcmalloc_slabs;
+  ASSERT_NE(cached_cpu1_slab & TCMALLOC_CACHED_SLABS_MASK, 0);
+  uintptr_t target = 0;
+  // Simulate outer CacheCpuSlabSlow attempting to commit after a nested signal
+  // handler already populated tcmalloc_slabs with a cached slab pointer.
+  EXPECT_FALSE(
+      StoreCurrentCpu(&target, uintptr_t{123}, TCMALLOC_CACHED_SLABS_MASK));
+  EXPECT_EQ(target, 0);
+#endif
+
+  // With CPU 1's slab cached in tcmalloc_slabs (bit 63 set), a stale Grow() for
+  // CPU 0 must fail rather than mutating CPU 0's header.
+  EXPECT_EQ(slab_.Grow(/*cpu=*/0, /*size_class=*/1, kCapacity,
+                       []() { return kCapacity; }),
+            0);
+  EXPECT_EQ(slab_.Capacity(/*cpu=*/0, /*size_class=*/1), 0);
+  slab_.UncacheCpuSlab();
+}
+
 struct Context {
   TcmallocSlab* slab;
   std::vector<std::vector<void*>>* blocks;

@@ -671,23 +671,23 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
       [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT)
 #endif
 // Store v to p (*p = v) if the current thread wasn't rescheduled
-// (still has the slab pointer cached). Otherwise returns false.
+// (still has expected_slabs cached in tcmalloc_slabs). Otherwise returns false.
 template <typename T>
 [[nodiscard]] inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(
-    volatile void* p, T v) {
+    volatile void* p, T v, uintptr_t expected_slabs) {
   uintptr_t scratch = 0;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
   asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
           R"(
       xorq %[scratch], %[scratch]
-      btq $%c[cached_slabs_bit], %[rseq_slabs_addr]
-      jnc 5f
+      cmpq %[expected_slabs], %[rseq_slabs_addr]
+      jne 5f
       movl $1, %k[scratch]
       mov %[v], %[p]
       5 :)"
       : [scratch] "=&r"(scratch)
       : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<void* volatile*>(p)),
-        [v] "r"(v)
+        [v] "r"(v), [expected_slabs] "r"(expected_slabs)
       : "cc", "memory");
 #elif TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
   uintptr_t tmp;
@@ -699,13 +699,14 @@ template <typename T>
             R"(
         mov %[scratch], #0
         ldr %[tmp], [%[sampler_addr], #%c[sampler_slabs_offset]]
-        tbz %[tmp], #%c[cached_slabs_bit], 5f
+        cmp %[tmp], %[expected_slabs]
+        b.ne 5f
         mov %[scratch], #1
         str %[v], %[p]
         5 :)"
         : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp)
         : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint64_t* volatile*>(p)),
-          [v] "r"(v)
+          [v] "r"(v), [expected_slabs] "r"(expected_slabs)
         : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
   } else {
     static_assert(sizeof(T) == sizeof(uint32_t));
@@ -713,13 +714,14 @@ template <typename T>
             R"(
         mov %[scratch], #0
         ldr %[tmp], [%[sampler_addr], #%c[sampler_slabs_offset]]
-        tbz %[tmp], #%c[cached_slabs_bit], 5f
+        cmp %[tmp], %[expected_slabs]
+        b.ne 5f
         mov %[scratch], #1
         str %w[v], %[p]
         5 :)"
         : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp)
         : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint32_t* volatile*>(p)),
-          [v] "r"(v)
+          [v] "r"(v), [expected_slabs] "r"(expected_slabs)
         : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
   }
 #endif
@@ -992,7 +994,12 @@ inline size_t TcmallocSlab<NumClasses>::Grow(
   // 0xffff is an invalid value, so we must not be able to grow to or past that.
   TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
                Header::kReservedIndexValue);
-  return StoreCurrentCpu(hdrp, hdr) ? n : 0;
+  return StoreCurrentCpu(
+             hdrp, hdr,
+             reinterpret_cast<uintptr_t>(CpuMemoryStart(slabs, shift, cpu)) |
+                 TCMALLOC_CACHED_SLABS_MASK)
+             ? n
+             : 0;
 }
 
 template <size_t NumClasses>
@@ -1225,7 +1232,8 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
     void* start = CpuMemoryStart(slabs, shift, vcpu);
     uintptr_t new_val =
         reinterpret_cast<uintptr_t>(start) | TCMALLOC_CACHED_SLABS_MASK;
-    if (!StoreCurrentCpu(&tcmalloc_slabs, new_val)) {
+    if (!StoreCurrentCpu(&tcmalloc_slabs, new_val,
+                         TCMALLOC_CACHED_SLABS_MASK)) {
       continue;
     }
     // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may
