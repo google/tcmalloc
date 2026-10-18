@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <memory>
 #include <new>
 #include <string>
 #include <utility>
@@ -30,7 +31,9 @@
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 
 // Note: we leak memory every time a map is constructed, so do not
 // create too many maps.
@@ -174,6 +177,52 @@ TEST(TestMemoryFootprint, Test) {
   for (int i = 0; i < pages; i++) {
     EXPECT_EQ(present[i], 0);
   }
+}
+
+TEST(PageMapGetAllocatedSpansTest, SmallSpanDoesNotDereferenceSpan) {
+  tc_globals.InitIfNecessary();
+  CompactSizeClass multi_page_sc = 0;
+  for (CompactSizeClass sc = 1; sc < kNumClasses; ++sc) {
+    if (tc_globals.sizemap().class_to_pages(sc) > Length(1)) {
+      multi_page_sc = sc;
+      break;
+    }
+  }
+  if (multi_page_sc == 0) {
+    multi_page_sc = 1;
+  }
+  ASSERT_NE(multi_page_sc, 0);
+  const Length num_pages = tc_globals.sizemap().class_to_pages(multi_page_sc);
+  const size_t obj_size = tc_globals.sizemap().class_to_size(multi_page_sc);
+
+  auto pagemap = std::make_unique<ProdPageMap>();
+  const PageId first_page{100};
+  {
+    PageHeapSpinLockHolder l;
+    ASSERT_TRUE(pagemap->Ensure(Range(first_page, num_pages)));
+  }
+
+  Span* s = Span::New(first_page);
+  pagemap->RegisterSizeClass(s, num_pages, multi_page_sc, /*donated=*/false);
+
+  // Simulate Span* being deleted and recycled for a different PageId while
+  // GetAllocatedSpans inspects PageMap. GetAllocatedSpans must infer span size
+  // from size_class without dereferencing the Span pointer.
+  Span::Delete(s);
+  Span* reused = Span::New(PageId{200});
+
+  std::vector<
+      tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::SpanDetails>
+      spans;
+  spans.reserve(4);
+  int count = pagemap->GetAllocatedSpans(spans);
+  EXPECT_EQ(count, 1);
+  ASSERT_EQ(spans.size(), 1);
+  EXPECT_EQ(spans[0].start_addr, first_page.start_uintptr());
+  EXPECT_EQ(spans[0].size, num_pages.in_bytes());
+  EXPECT_EQ(spans[0].object_size, obj_size);
+
+  Span::Delete(reused);
 }
 
 }  // namespace

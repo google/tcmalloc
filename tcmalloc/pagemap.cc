@@ -51,8 +51,6 @@ GOOGLE_MALLOC_SECTION int PageMap<BITS, Allocator>::GetAllocatedSpans(
     CompactSizeClass size_class = meta.sizeclass();
     Length num_pages;
     if (size_class != 0) {
-      Span* s = meta.span();
-      if (p.value() != s->first_page()) continue;
       num_pages = tc_globals.sizemap().class_to_pages(size_class);
     } else {
       num_pages = meta.size();
