@@ -158,8 +158,13 @@ void SampleRecorder<T, Allocator>::PushNew(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::PushDead(T* sample) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   AllocationGuardSpinLockHolder sample_lock(sample->lock);
+#else
+  AllocationGuardSpinLockHolder sample_lock(sample->lock);
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
+#endif
   sample->dead = graveyard_.dead;
   graveyard_.dead = sample;
 }
@@ -180,11 +185,19 @@ T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
 
     graveyard_.dead = sample->dead;
   }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   absl::base_internal::SpinLockHolder sample_lock(sample->lock);
   // TODO(b/73749855): This could be moved out but requires updating our lock
   // annotations.
   sample->PrepareForSampling(std::forward<Targs>(args)...);
   sample->dead = nullptr;
+#else
+  sample->PrepareForSampling(std::forward<Targs>(args)...);
+  {
+    absl::base_internal::SpinLockHolder sample_lock(sample->lock);
+    sample->dead = nullptr;
+  }
+#endif
   return sample;
 }
 
@@ -208,6 +221,7 @@ void SampleRecorder<T, Allocator>::Unregister(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::UnregisterAll() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   T* sample = all_.load(std::memory_order_acquire);
   while (sample != nullptr) {
@@ -220,6 +234,20 @@ void SampleRecorder<T, Allocator>::UnregisterAll() {
     }
     sample = sample->next;
   }
+#else
+  T* sample = all_.load(std::memory_order_acquire);
+  while (sample != nullptr) {
+    {
+      AllocationGuardSpinLockHolder sample_lock(sample->lock);
+      if (sample->dead == nullptr) {
+        AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
+        sample->dead = graveyard_.dead;
+        graveyard_.dead = sample;
+      }
+    }
+    sample = sample->next;
+  }
+#endif
 }
 
 template <typename T, typename Allocator>

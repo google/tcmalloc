@@ -515,6 +515,12 @@ class CpuCache {
     //   capacity = available + allocated
     //            = available + sum(sizeclass_size * (end - begin))
     //
+    // TODO(b/298229521): Evaluate Cycles32 precision for sizing decisions.
+    struct LastMiss {
+      Cycles32 last_overflow_cycles;
+      Cycles32 last_underflow_cycles;
+    };
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // Modify atomically; we don't want to lose space.
     std::atomic<size_t> available;
     // Size class to steal from for the clock-wise algorithm.
@@ -534,11 +540,6 @@ class CpuCache {
     MissCounts underflows;
     // Tracks number of overflows on deallocate.
     MissCounts overflows;
-    // TODO(b/298229521): Evaluate Cycles32 precision for sizing decisions.
-    struct LastMiss {
-      Cycles32 last_overflow_cycles;
-      Cycles32 last_underflow_cycles;
-    };
     LastMiss last_miss[kNumClasses];
     // Total cache space available on this CPU (see above).
     // This tracks the total allocated and unallocated bytes on this CPU cache.
@@ -550,6 +551,41 @@ class CpuCache {
     // Tracks number of times this CPU has been unpopulated
     // (see GetNumUnpopulates()).
     std::atomic<size_t> num_unpopulates;
+#else
+    // Tracks number of underflows on allocate (32B) and overflows on
+    // deallocate (32B) together on their own 64B cacheline, isolated from
+    // resize_[cpu].lock and per-class counters.
+    MissCounts underflows;
+    MissCounts overflows;
+    // Isolate lock-free slack/capacity/populated state onto its own cacheline,
+    // separate from resize_[cpu].lock and next_steal.
+    ABSL_CACHELINE_ALIGNED std::atomic<size_t> available;
+    // Total cache space available on this CPU (see above).
+    // This tracks the total allocated and unallocated bytes on this CPU cache.
+    std::atomic<size_t> capacity;
+    // Track whether we have ever populated this CPU.
+    std::atomic<bool> populated;
+    // Tracks whether we've run on this CPU since the last call to
+    // ClearTouchedCpus.
+    std::atomic<bool> touched;
+    // For cross-cpu operations. We can't allocate while holding one of these so
+    // please use AllocationGuardSpinLockHolder to hold it.
+    ABSL_CACHELINE_ALIGNED absl::base_internal::SpinLock lock
+        ABSL_ACQUIRED_BEFORE(pageheap_lock){
+            absl::base_internal::SCHEDULE_KERNEL_ONLY};
+    // Size class to steal from for the clock-wise algorithm.
+    size_t next_steal = 1;
+    std::atomic<size_t> num_size_class_resizes;
+    // Used bytes in the cache as of the end of the last resize interval.
+    std::atomic<uint64_t> drain_used_bytes;
+    // Tracks number of times this CPU has been drained.
+    std::atomic<size_t> num_drains;
+    // Tracks number of times this CPU has been unpopulated
+    // (see GetNumUnpopulates()).
+    std::atomic<size_t> num_unpopulates;
+    PerClassResizeInfo per_class[kNumClasses];
+    LastMiss last_miss[kNumClasses];
+#endif
   };
 
   // false if the size class can be skipped for sizing purposes
@@ -614,7 +650,11 @@ class CpuCache {
 
   // Tries to grow freelist <size_class> on the current <cpu> by up to
   // <desired_increase> objects if there is available capacity.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   void Grow(int cpu, size_t size_class, size_t desired_increase);
+#else
+  size_t Grow(int cpu, size_t size_class, size_t desired_increase);
+#endif
 
   // Depending on the number of misses that cpu caches encountered in the
   // previous resize interval, returns if slabs should be grown, shrunk or
@@ -633,11 +673,26 @@ class CpuCache {
     int cpu;
     size_t misses;
   };
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  struct EvictedObject {
+    size_t size_class;
+    void* ptr;
+  };
+  using OptionalCpuStop =
+      std::optional<subtle::percpu::ScopedSlabCpuStop<kNumClasses>>;
+#endif
 
   // Tries to steal <bytes> for <size_class> on <cpu> from other size classes on
   // that CPU. Returns acquired bytes.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   [[nodiscard]] size_t StealCapacityForSizeClassWithinCpu(
       int cpu, absl::Span<SizeClassMissStat> dest_size_classes, size_t bytes);
+#else
+  [[nodiscard]] size_t StealCapacityForSizeClassWithinCpu(
+      int cpu, absl::Span<SizeClassMissStat> dest_size_classes, size_t bytes,
+      OptionalCpuStop& cpu_stop, absl::Span<EvictedObject> evicted,
+      size_t& num_evicted);
+#endif
 
   // Records a cache underflow or overflow on <cpu>, increments underflow or
   // overflow by 1.
@@ -661,7 +716,14 @@ class CpuCache {
                            absl::Span<CpuMissStat> skip_cpus, size_t bytes);
 
   // Try to steal one object from cpu/size_class. Return bytes stolen.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   [[nodiscard]] size_t ShrinkOtherCache(int cpu, size_t size_class);
+#else
+  [[nodiscard]] size_t ShrinkOtherCache(int cpu, size_t size_class,
+                                        OptionalCpuStop& cpu_stop,
+                                        absl::Span<EvictedObject> evicted,
+                                        size_t& num_evicted);
+#endif
 
   // Resizes capacities of up to kMaxSizeClassesToResize size classes for a
   // single <cpu>.
@@ -696,7 +758,11 @@ class CpuCache {
 
   // Provides a hint to StealFromOtherCache() so that we can steal from the
   // caches in a round-robin fashion.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   int next_cpu_cache_steal_ = 0;
+#else
+  ABSL_CACHELINE_ALIGNED int next_cpu_cache_steal_ = 0;
+#endif
 
   // Provides a hint to ResizeSizeClasses() that records the last CPU for which
   // we resized size classes. We use this to resize size classes for CPUs in a
@@ -710,7 +776,11 @@ class CpuCache {
   std::atomic<int> resize_slab_offset_ = 0;
 
   // Per-core cache limit in bytes.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   std::atomic<uint64_t> max_per_cpu_cache_size_ = 0;
+#else
+  ABSL_CACHELINE_ALIGNED std::atomic<uint64_t> max_per_cpu_cache_size_ = 0;
+#endif
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
@@ -1172,7 +1242,17 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
     if (i) {
       i -= freelist_.PushBatch(size_class, batch, i);
       if (ABSL_PREDICT_FALSE(i != 0)) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        auto [new_cpu, cached] = CacheCpuSlab();
+        if (cached && new_cpu >= 0) {
+          i -= freelist_.PushBatch(size_class, batch, i);
+        }
+        if (i != 0) {
+          ReleaseToBackingCache(size_class, {batch, i});
+        }
+#else
         ReleaseToBackingCache(size_class, {batch, i});
+#endif
       }
     }
   } while (got == kMaxObjectsToMove && i == 0 && total < target);
@@ -1289,8 +1369,12 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
       // what we want to request from transfer cache.
       increase = batch_length - capacity;
     }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     Grow(cpu, size_class, increase);
     capacity = freelist_.Capacity(cpu, size_class);
+#else
+    capacity += Grow(cpu, size_class, increase);
+#endif
   }
   // We hit the maximum capacity limit when the size class capacity is equal to
   // its maximum allowed capacity. Record a miss due to that so that we can
@@ -1344,8 +1428,13 @@ inline size_t subtract_at_least(std::atomic<size_t>* a, size_t min,
 }
 
 template <class Forwarder>
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
 inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
                                       size_t desired_increase) {
+#else
+inline size_t CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
+                                        size_t desired_increase) {
+#endif
   const size_t size = forwarder_.class_to_size(size_class);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes =
@@ -1355,7 +1444,11 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
         PerClassMissType::kCapacityTotal);
   }
   if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     return;
+#else
+    return 0;
+#endif
   }
   size_t actual_increase = acquired_bytes / size;
   TC_ASSERT_GT(actual_increase, 0);
@@ -1368,6 +1461,9 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
     // return whatever we didn't use to the slack.
     resize_[cpu].available.fetch_add(unused, std::memory_order_relaxed);
   }
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  return increase;
+#endif
 }
 
 template <class Forwarder>
@@ -1445,6 +1541,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     index = 0;
     if (!HasPopulated(cpu)) continue;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
       total_misses[index] +=
           resize_[cpu].per_class[size_class].GetAndUpdateIntervalMisses(
@@ -1453,6 +1550,14 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 
       ++index;
     }
+#else
+    for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+      total_misses[size_class] +=
+          resize_[cpu].per_class[size_class].GetAndUpdateIntervalMisses(
+              PerClassMissType::kMaxCapacityTotal,
+              PerClassMissType::kMaxCapacityResize);
+    }
+#endif
   }
 
   absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses);
@@ -1628,20 +1733,18 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
   // going over memory limit.
   forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
 
+  void* new_slabs;
   int64_t reused_bytes;
   ResizeSlabsInfo info;
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
-  uint8_t new_resize_slab_offset =
-      resize_slab_offset_.load(std::memory_order_relaxed) + 1;
-  if (new_resize_slab_offset >= kResizeSlabCopies) {
-    new_resize_slab_offset = 0;
-  }
-  resize_slab_offset_.store(new_resize_slab_offset, std::memory_order_relaxed);
-
-  {
-    // We can't allocate while holding the per-cpu spinlocks.
-    AllocationGuard enforce_no_alloc;
-    void* new_slabs;
+  std::atomic<uint16_t> updated_max_capacities[kNumClasses];
+  auto prepare_slabs = [&]() {
+    uint8_t new_resize_slab_offset =
+        resize_slab_offset_.load(std::memory_order_relaxed) + 1;
+    if (new_resize_slab_offset >= kResizeSlabCopies) {
+      new_resize_slab_offset = 0;
+    }
+    resize_slab_offset_.store(new_resize_slab_offset,
+                              std::memory_order_relaxed);
     std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
         [&](size_t size, std::align_val_t align) {
           return forwarder_.AllocReportedImpending(size, align);
@@ -1650,7 +1753,6 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
         new_resize_slab_offset);
 
-    std::atomic<uint16_t> updated_max_capacities[kNumClasses];
     for (size_t i = 0; i < kNumClasses; ++i) {
       updated_max_capacities[i].store(
           max_capacity_[i].load(std::memory_order_relaxed),
@@ -1661,7 +1763,18 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
       updated_max_capacities[new_max_capacities[i].size_class].store(
           new_max_capacities[i].max_capacity, std::memory_order_relaxed);
     }
+  };
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  prepare_slabs();
+#endif
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
+  {
+    // We can't allocate while holding the per-cpu spinlocks.
+    AllocationGuard enforce_no_alloc;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    prepare_slabs();
+#endif
     info = freelist_.UpdateMaxCapacities(
         new_slabs, MaxCapacityFunctor{updated_max_capacities},
         [this](int size_class, uint16_t cap) {
@@ -1731,6 +1844,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   }
 
   absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses - 1);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
     miss_stats[size_class - 1] = SizeClassMissStat{
         .size_class = size_class,
@@ -1738,6 +1852,23 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
             PerClassMissType::kCapacityTotal,
             PerClassMissType::kCapacityResize)};
   }
+#else
+  const auto max_capacity = GetMaxCapacityFunctor();
+  bool has_growable_misses = false;
+  for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+    const size_t misses = resize_[cpu].per_class[size_class].GetIntervalMisses(
+        PerClassMissType::kCapacityTotal, PerClassMissType::kCapacityResize);
+    miss_stats[size_class - 1] =
+        SizeClassMissStat{.size_class = size_class, .misses = misses};
+    if (misses != 0 &&
+        freelist_.Capacity(cpu, size_class) < max_capacity(size_class)) {
+      has_growable_misses = true;
+    }
+  }
+  if (!has_growable_misses) {
+    return;
+  }
+#endif
 
   // Sort the collected stats to record size classes with largest number of
   // misses in the last interval.
@@ -1751,6 +1882,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
             });
 
   size_t num_resizes = 0;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   {
     AllocationGuardSpinLockHolder h(resize_[cpu].lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
@@ -1807,6 +1939,77 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   }
   resize_[cpu].num_size_class_resizes.fetch_add(num_resizes,
                                                 std::memory_order_relaxed);
+#else
+  EvictedObject evicted[kNumClasses];
+  size_t num_evicted = 0;
+  {
+    AllocationGuardSpinLockHolder h(resize_[cpu].lock);
+    if (!HasPopulated(cpu)) {
+      return;
+    }
+    OptionalCpuStop cpu_stop;
+    size_t available =
+        resize_[cpu].available.exchange(0, std::memory_order_relaxed);
+    size_t size_classes_to_resize = 5;
+    TC_ASSERT_LT(size_classes_to_resize, kNumClasses);
+    for (size_t i = 0; i < size_classes_to_resize; ++i) {
+      // If a size class with largest misses is zero, break. Other size classes
+      // should also have suffered zero misses as well.
+      if (miss_stats[i].misses == 0) break;
+      const size_t size_class_to_grow = miss_stats[i].size_class;
+
+      // If we are already at a maximum capacity, nothing to grow.
+      const ssize_t can_grow = max_capacity(size_class_to_grow) -
+                               freelist_.Capacity(cpu, size_class_to_grow);
+      // can_grow can be negative only if slabs were resized,
+      // but since we hold resize_[cpu].lock it must not happen.
+      TC_ASSERT_GE(can_grow, 0);
+      if (can_grow <= 0) {
+        // If one of the highest miss classes is already at the max capacity,
+        // we need to try to grow more classes. Otherwise, if first 5 are at
+        // max capacity, resizing will stop working.
+        if (size_classes_to_resize < miss_stats.size()) {
+          size_classes_to_resize++;
+        }
+        continue;
+      }
+
+      num_resizes++;
+
+      size_t size = forwarder_.class_to_size(size_class_to_grow);
+      // Get total bytes to steal from other size classes. We would like to grow
+      // the capacity of the size class by a batch size.
+      const size_t need_bytes =
+          std::min<size_t>(can_grow,
+                           forwarder_.num_objects_to_move(size_class_to_grow)) *
+          size;
+      const ssize_t to_steal_bytes = need_bytes - available;
+      if (to_steal_bytes > 0) {
+        available += StealCapacityForSizeClassWithinCpu(
+            cpu, {miss_stats.begin(), size_classes_to_resize}, to_steal_bytes,
+            cpu_stop, absl::MakeSpan(evicted), num_evicted);
+      }
+      size_t capacity_acquired = std::min<size_t>(can_grow, available / size);
+      if (capacity_acquired != 0) {
+        if (!cpu_stop.has_value()) {
+          cpu_stop.emplace(freelist_, cpu);
+        }
+        size_t got = freelist_.GrowOtherCache(
+            cpu, size_class_to_grow, capacity_acquired,
+            [&]() { return GetMaxCapacity(size_class_to_grow); });
+        available -= got * size;
+      }
+    }
+    resize_[cpu].available.fetch_add(available, std::memory_order_relaxed);
+  }
+  for (size_t i = 0; i < num_evicted; ++i) {
+    ReleaseToBackingCache(evicted[i].size_class, {&evicted[i].ptr, 1});
+  }
+  if (num_resizes != 0) {
+    resize_[cpu].num_size_class_resizes.fetch_add(num_resizes,
+                                                  std::memory_order_relaxed);
+  }
+#endif
 }
 
 template <class Forwarder>
@@ -1956,6 +2159,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
       }
     }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     AllocationGuardSpinLockHolder h(resize_[src_cpu].lock);
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, src_cpu);
     size_t source_size_class = resize_[src_cpu].next_steal;
@@ -1972,6 +2176,40 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
       }
     }
     resize_[src_cpu].next_steal = source_size_class;
+#else
+    if (Capacity(src_cpu) == 0) {
+      continue;
+    }
+    EvictedObject evicted[kNumClasses];
+    size_t num_evicted = 0;
+    {
+      AllocationGuardSpinLockHolder h(resize_[src_cpu].lock);
+      if (!HasPopulated(src_cpu) || Capacity(src_cpu) == 0) {
+        continue;
+      }
+      OptionalCpuStop cpu_stop;
+      size_t source_size_class = resize_[src_cpu].next_steal;
+      for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
+        if (source_size_class >= kNumClasses) {
+          source_size_class = 1;
+        }
+        if (size_t stolen =
+                ShrinkOtherCache(src_cpu, source_size_class, cpu_stop,
+                                 absl::MakeSpan(evicted), num_evicted)) {
+          resize_[src_cpu].capacity.fetch_sub(stolen,
+                                              std::memory_order_relaxed);
+          acquired += stolen;
+          if (acquired >= bytes) {
+            break;
+          }
+        }
+      }
+      resize_[src_cpu].next_steal = source_size_class;
+    }
+    for (size_t i = 0; i < num_evicted; ++i) {
+      ReleaseToBackingCache(evicted[i].size_class, {&evicted[i].ptr, 1});
+    }
+#endif
   }
   // Record the last cpu id we stole from, which would provide a hint to the
   // next time we iterate through the cpus for stealing.
@@ -1986,7 +2224,14 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
 }
 
 template <class Forwarder>
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
 size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
+#else
+size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class,
+                                             OptionalCpuStop& cpu_stop,
+                                             absl::Span<EvictedObject> evicted,
+                                             size_t& num_evicted) {
+#endif
   TC_ASSERT(cpu >= 0 && cpu < NumCPUs(), "cpu=%d", cpu);
   TC_ASSERT(size_class >= 1 && size_class < kNumClasses);
   TC_ASSERT(resize_[cpu].lock.IsHeld());
@@ -2035,6 +2280,7 @@ size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
   }
 
   // Finally, try to shrink.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   if (!freelist_.ShrinkOtherCache(
           cpu, size_class, /*len=*/1,
           [this](size_t size_class, void** batch, size_t count) {
@@ -2043,12 +2289,36 @@ size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
           })) {
     return 0;
   }
+#else
+  if (!cpu_stop.has_value()) {
+    cpu_stop.emplace(freelist_, cpu);
+  }
+  if (!freelist_.ShrinkOtherCache(
+          cpu, size_class, /*len=*/1,
+          [&](size_t size_class, void** batch, size_t count) {
+            TC_ASSERT_EQ(count, 1);
+            if (ABSL_PREDICT_TRUE(num_evicted < evicted.size())) {
+              evicted[num_evicted++] = {size_class, batch[0]};
+            } else {
+              ReleaseToBackingCache(size_class, {batch, count});
+            }
+          })) {
+    return 0;
+  }
+#endif
   return size;
 }
 
 template <class Forwarder>
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
 inline size_t CpuCache<Forwarder>::StealCapacityForSizeClassWithinCpu(
     int cpu, absl::Span<SizeClassMissStat> dest_size_classes, size_t bytes) {
+#else
+inline size_t CpuCache<Forwarder>::StealCapacityForSizeClassWithinCpu(
+    int cpu, absl::Span<SizeClassMissStat> dest_size_classes, size_t bytes,
+    OptionalCpuStop& cpu_stop, absl::Span<EvictedObject> evicted,
+    size_t& num_evicted) {
+#endif
   // Steal from other sizeclasses.  Try to go in a nice circle.
   // Complicated by sizeclasses actually being 1-indexed.
   size_t acquired = 0;
@@ -2069,7 +2339,12 @@ inline size_t CpuCache<Forwarder>::StealCapacityForSizeClassWithinCpu(
     if (skip) {
       continue;
     }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     acquired += ShrinkOtherCache(cpu, source_size_class);
+#else
+    acquired += ShrinkOtherCache(cpu, source_size_class, cpu_stop, evicted,
+                                 num_evicted);
+#endif
     if (acquired >= bytes) {
       // can't steal any more or don't need to
       break;
@@ -2212,6 +2487,11 @@ template <class CpuCache>
 struct DrainHandler {
   void operator()(int cpu, size_t size_class, void** batch, size_t count,
                   size_t cap) const {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    if (cap == 0) {
+      return;
+    }
+#endif
     const size_t size = cache.forwarder_.class_to_size(size_class);
     const size_t batch_length =
         cache.forwarder_.num_objects_to_move(size_class);
@@ -2506,22 +2786,30 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   std::atomic<uint16_t> new_max_capacity[kNumClasses] = {0};
   CalculateMaxCapacityForAllClasses(per_cpu_shift, new_max_capacity);
 
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
-  ResizeSlabsInfo info;
-  const uint8_t resize_offset =
-      resize_slab_offset_.load(std::memory_order_relaxed);
+  void* new_slabs;
   int64_t reused_bytes;
-  {
-    // We can't allocate while holding the per-cpu spinlocks.
-    AllocationGuard enforce_no_alloc;
-
-    void* new_slabs;
+  auto prepare_slabs = [&]() {
+    const uint8_t resize_offset =
+        resize_slab_offset_.load(std::memory_order_relaxed);
     std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
         [&](size_t size, std::align_val_t align) {
           return forwarder_.AllocReportedImpending(size, align);
         },
         new_shift, num_cpus,
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift), resize_offset);
+  };
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  prepare_slabs();
+#endif
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
+  ResizeSlabsInfo info;
+  {
+    // We can't allocate while holding the per-cpu spinlocks.
+    AllocationGuard enforce_no_alloc;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    prepare_slabs();
+#endif
     info = freelist_.ResizeSlabs(
         new_shift, new_slabs, MaxCapacityFunctor{new_max_capacity},
         [this, &new_max_capacity]() {

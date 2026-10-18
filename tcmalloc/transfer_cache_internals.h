@@ -104,11 +104,20 @@ class TransferCache {
         forwarder_(),
         max_capacity_(capacity.max_capacity) {
     freelist().Init(size_class, Parameters::cfl_subbucket_prioritization());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     slots_ = max_capacity_ != 0
                  ? reinterpret_cast<void**>(forwarder_.Alloc(
                        ArenaAlloc::kTransferCache,
                        max_capacity_ * sizeof(void*), kAlignment))
                  : nullptr;
+#else
+    slots_ =
+        max_capacity_ != 0
+            ? reinterpret_cast<void**>(forwarder_.Alloc(
+                  ArenaAlloc::kTransferCache, max_capacity_ * sizeof(void*),
+                  std::align_val_t{ABSL_CACHELINE_SIZE}))
+            : nullptr;
+#endif
   }
 
   TransferCache(const TransferCache&) = delete;
@@ -159,6 +168,9 @@ class TransferCache {
     TC_ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.capacity > info.used) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      __builtin_prefetch(slots_ + info.used, 0, 3);
+#endif
       AllocationGuardSpinLockHolder h(lock_);
       // As caches are resized in the background, we do not attempt to grow
       // them here. Instead, we just check if they have spare free capacity.
@@ -167,9 +179,9 @@ class TransferCache {
       if (got > 0) {
         info.used += got;
         SetSlotInfo(info);
+        insert_hits_.LossyAdd(1);
         void** entry = GetSlot(info.used - got);
         memcpy(entry, batch.data(), sizeof(void*) * got);
-        insert_hits_.LossyAdd(1);
         if (got == N) {
           return;
         }
@@ -191,6 +203,9 @@ class TransferCache {
     TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.used) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      __builtin_prefetch(slots_ + info.used, 0, 3);
+#endif
       AllocationGuardSpinLockHolder h(lock_);
       // Refetch with the lock
       info = slot_info_.load(std::memory_order_relaxed);
@@ -198,11 +213,11 @@ class TransferCache {
       if (got) {
         info.used -= got;
         SetSlotInfo(info);
-        void** entry = GetSlot(info.used);
-        memcpy(batch.data(), entry, sizeof(void*) * got);
         remove_hits_.LossyAdd(1);
         remove_object_hits_.LossyAdd(got);
         low_water_mark_ = std::min(low_water_mark_, info.used);
+        void** entry = GetSlot(info.used);
+        memcpy(batch.data(), entry, sizeof(void*) * got);
         return got;
       }
     }
@@ -217,6 +232,10 @@ class TransferCache {
   // objects not used within a full cycle are unlikely to be used again.
   void TryPlunder(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     if (max_capacity_ == 0) return;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    if (GetSlotInfo().used == 0) return;
+    const int B = forwarder_.num_objects_to_move(size_class);
+#endif
     if (!lock_.try_lock()) return;
 
     int to_return = low_water_mark_;
@@ -228,7 +247,9 @@ class TransferCache {
     low_water_mark_ = info.used;
     while (true) {
       info = GetSlotInfo();
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       const int B = forwarder_.num_objects_to_move(size_class);
+#endif
       const size_t num_to_move = std::min({B, info.used, to_return});
       if (num_to_move == 0) break;
 
@@ -242,6 +263,9 @@ class TransferCache {
       lock_.unlock();
 
       freelist().InsertRange({buf, num_to_move});
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      if (to_return == 0) return;
+#endif
       if (!lock_.try_lock()) return;
     }
     lock_.unlock();
@@ -285,6 +309,9 @@ class TransferCache {
   [[nodiscard]] bool IncreaseCacheCapacity(int size_class)
       ABSL_LOCKS_EXCLUDED(lock_) {
     int n = forwarder_.num_objects_to_move(size_class);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    if (GetSlotInfo().capacity + n > max_capacity_) return false;
+#endif
 
     AllocationGuardSpinLockHolder h(lock_);
     auto info = slot_info_.load(std::memory_order_relaxed);
@@ -317,6 +344,9 @@ class TransferCache {
   // Decreases cache_slots_ on success.
   [[nodiscard]] bool ShrinkCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     int N = forwarder_.num_objects_to_move(size_class);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    if (GetSlotInfo().capacity <= N) return false;
+#endif
 
     void* to_free[kMaxObjectsToMove];
     int num_to_free;
@@ -402,7 +432,11 @@ class TransferCache {
 
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   void** slots_ ABSL_GUARDED_BY(lock_);
+#else
+  void** slots_ ABSL_PT_GUARDED_BY(lock_);
+#endif
 
   // owner_ and max_capacity_ are immutable, so they may share lock_'s line.
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
