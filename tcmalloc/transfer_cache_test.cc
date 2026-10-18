@@ -362,6 +362,50 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
   EXPECT_EQ(env.transfer_cache().tc_length(), 0);
 }
 
+TYPED_TEST_P(TransferCacheTest, PlunderConcurrentDrainAndRefill) {
+  TypeParam env;
+  const int batch_size = TypeParam::kBatchSize;
+
+  env.Insert(batch_size);
+  env.Insert(batch_size);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+
+  // First TryPlunder records low_water_mark_ = 2 * batch_size.
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+
+  // During the next TryPlunder, lock_ is dropped after the first batch is
+  // removed to call freelist().InsertRange. Simulate a concurrent thread
+  // draining the remaining batch (lowering low_water_mark_ to 0) and inserting
+  // two fresh batches while lock_ is unlocked.
+  bool hooked = false;
+  EXPECT_CALL(env.central_freelist(), InsertRange)
+      .WillRepeatedly([&](absl::Span<void*> batch) {
+        static_cast<FakeCentralFreeList&>(env.central_freelist())
+            .InsertRange(batch);
+        if (!hooked) {
+          hooked = true;
+          env.Remove(batch_size);
+          EXPECT_EQ(env.transfer_cache().tc_length(), 0);
+          env.Insert(batch_size);
+          env.Insert(batch_size);
+          EXPECT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+        }
+      });
+
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_TRUE(hooked);
+  // Neither of the freshly inserted batches should have been plundered after
+  // the cache was drained to 0 during the lock drop.
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+
+  // Because the cache was drained to 0 during the previous plunder cycle,
+  // low_water_mark_ must remain 0 so an immediate TryPlunder does not evict
+  // the freshly inserted batches either.
+  env.transfer_cache().TryPlunder(kSizeClass);
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+}
+
 // PickCoprimeBatchSize picks a batch size in [2, max_batch_size) that is
 // coprime with 2^32.  We choose the largest possible batch size within that
 // constraint to minimize the number of iterations of insert/remove required.
@@ -456,7 +500,8 @@ TYPED_TEST_P(TransferCacheTest, b172283201) {
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
                             PushesToFreelist, WrappingWorks, SingleItemSmoke,
-                            Plunder, b172283201);
+                            Plunder, PlunderConcurrentDrainAndRefill,
+                            b172283201);
 
 template <typename Env>
 using FuzzTest = ::testing::Test;

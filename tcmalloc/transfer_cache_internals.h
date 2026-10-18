@@ -229,7 +229,8 @@ class TransferCache {
     while (true) {
       info = GetSlotInfo();
       const int B = forwarder_.num_objects_to_move(size_class);
-      const size_t num_to_move = std::min({B, info.used, to_return});
+      const size_t num_to_move =
+          std::min({B, info.used, to_return, low_water_mark_});
       if (num_to_move == 0) break;
 
       void* buf[kMaxObjectsToMove];
@@ -237,7 +238,7 @@ class TransferCache {
       memcpy(buf, entry, sizeof(void*) * num_to_move);
       info.used -= num_to_move;
       to_return -= num_to_move;
-      low_water_mark_ = info.used;
+      low_water_mark_ -= num_to_move;
       SetSlotInfo(info);
       lock_.unlock();
 
