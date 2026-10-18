@@ -364,13 +364,21 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // If span allocation changes so that it moved to a different nonempty_ list,
   // we remove it from the previous list and add it to the desired list indexed
   // by cur_index.
-  const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
   if (ABSL_PREDICT_FALSE(was_empty)) {
+    const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
     nonempty_.Add(span, cur_index, use_prepend);
     span->set_nonempty_index(cur_index);
-  } else if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
-    nonempty_.Move(span, prev_index, cur_index, use_prepend);
-    span->set_nonempty_index(cur_index);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  } else if (ABSL_PREDICT_FALSE(cur_bitwidth != prev_bitwidth ||
+                                use_all_buckets_for_few_object_spans_)) {
+#else
+  } else {
+#endif
+    const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+    if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+      nonempty_.Move(span, prev_index, cur_index, use_prepend);
+      span->set_nonempty_index(cur_index);
+    }
   }
   return nullptr;
 }
@@ -578,7 +586,12 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         TC_ASSERT_EQ(is_empty, span->FreelistEmpty(objects_per_span));
         if (ABSL_PREDICT_FALSE(is_empty)) {
           nonempty_.Remove(span, prev_index);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        } else if (ABSL_PREDICT_FALSE(cur_bitwidth != prev_bitwidth ||
+                                      use_all_buckets_for_few_object_spans_)) {
+#else
         } else {
+#endif
           // If span allocation changes so that it must be moved to a different
           // nonempty_ list, we remove it from the previous list and add it to
           // the desired list indexed by cur_index.

@@ -180,10 +180,15 @@ T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
 
     graveyard_.dead = sample->dead;
   }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   absl::base_internal::SpinLockHolder sample_lock(sample->lock);
+#endif
   // TODO(b/73749855): This could be moved out but requires updating our lock
   // annotations.
   sample->PrepareForSampling(std::forward<Targs>(args)...);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  absl::base_internal::SpinLockHolder sample_lock(sample->lock);
+#endif
   sample->dead = nullptr;
   return sample;
 }
