@@ -15,10 +15,12 @@
 #ifndef TCMALLOC_PARAMETERS_H_
 #define TCMALLOC_PARAMETERS_H_
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
