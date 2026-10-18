@@ -83,7 +83,7 @@ PageAllocatorImpl<Forwarder>::PageAllocatorImpl() {
 template <typename Forwarder>
 void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
   BackingStats s = stats();
-  const size_t backed =
+  size_t backed =
       s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
 
   // New high water marks should be rare.
@@ -115,7 +115,8 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
   }
 
   ++limit_hits_[kSoft];
-  if (limits_[kHard] < backed) ++limit_hits_[kHard];
+  const bool hit_hard = limits_[kHard] < backed;
+  if (hit_hard) ++limit_hits_[kHard];
 
   const size_t overage = backed - limits_[kSoft];
   const Length pages = BytesToLengthCeil(overage);
@@ -124,50 +125,64 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
     return;
   }
 
-  // We're still not below limit.
-  if (limits_[kHard] < std::numeric_limits<size_t>::max()) {
-    // Recompute how many pages we still need to release.
-    BackingStats s = stats();
-    const size_t backed =
-        s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
-    if (backed <= limits_[kHard]) {
-      // We're already fine in terms of hard limit.
-      return;
+  // Recompute current backed usage: ShrinkHardBy drops pageheap_lock while
+  // unbacking, so concurrent threads may have freed/released memory (bringing
+  // us below limits_[kSoft]) or allocated memory (pushing us above
+  // limits_[kHard]).
+  s = stats();
+  backed = s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+  if (backed <= limits_[kSoft]) {
+    ++successful_shrinks_after_limit_hit_[kSoft];
+    return;
+  }
+
+  // We're still not below the soft limit.
+  if (limits_[kHard] < std::numeric_limits<size_t>::max() &&
+      backed > limits_[kHard]) {
+    if (!hit_hard) {
+      ++limit_hits_[kHard];
     }
-    const size_t overage = backed - limits_[kHard];
-    const Length pages = BytesToLengthCeil(overage);
-    if (ShrinkHardBy(pages, kHard)) {
+    const size_t hard_overage = backed - limits_[kHard];
+    const Length hard_pages = BytesToLengthCeil(hard_overage);
+    if (ShrinkHardBy(hard_pages, kHard)) {
       ++successful_shrinks_after_limit_hit_[kHard];
       // Not equal: a hard-limit hit that the soft shrink above resolved is
       // counted in limit_hits_ but not here.
       TC_ASSERT_LE(successful_shrinks_after_limit_hit_[kHard],
                    limit_hits_[kHard]);
-      return;
+      s = stats();
+      backed = s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+      if (backed <= limits_[kSoft]) {
+        return;
+      }
+    } else {
+      // ShrinkHardBy counts only the pages this call released.  Releasing drops
+      // pageheap_lock while unbacking, so the heap may have changed meanwhile:
+      // other threads may have allocated from it (leaving less to release, so
+      // the shortfall is real) or freed and released memory, including
+      // candidates this call had selected and so could not release itself.
+      // Consult the heap rather than the count before aborting.
+      s = stats();
+      backed = s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+      if (backed <= limits_[kHard]) {
+        ++successful_shrinks_after_limit_hit_[kHard];
+        TC_ASSERT_LE(successful_shrinks_after_limit_hit_[kHard],
+                     limit_hits_[kHard]);
+        if (backed <= limits_[kSoft]) {
+          return;
+        }
+      } else {
+        const size_t hard_limit = limits_[kHard];
+        limits_[kHard] = std::numeric_limits<size_t>::max();
+        TC_BUG(
+            "Hit hard tcmalloc heap limit of %v "
+            "(e.g. --tcmalloc_heap_size_hard_limit). "
+            "Aborting.\nIt was most likely set to catch "
+            "allocations that would crash the process anyway. "
+            ,
+            hard_limit);
+      }
     }
-    // ShrinkHardBy counts only the pages this call released.  Releasing drops
-    // pageheap_lock while unbacking, so the heap may have changed meanwhile:
-    // other threads may have allocated from it (leaving less to release, so
-    // the shortfall is real) or freed and released memory, including
-    // candidates this call had selected and so could not release itself.
-    // Consult the heap rather than the count before aborting.
-    s = stats();
-    const size_t backed_now =
-        s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
-    if (backed_now <= limits_[kHard]) {
-      ++successful_shrinks_after_limit_hit_[kHard];
-      TC_ASSERT_LE(successful_shrinks_after_limit_hit_[kHard],
-                   limit_hits_[kHard]);
-      return;
-    }
-    const size_t hard_limit = limits_[kHard];
-    limits_[kHard] = std::numeric_limits<size_t>::max();
-    TC_BUG(
-        "Hit hard tcmalloc heap limit of %v "
-        "(e.g. --tcmalloc_heap_size_hard_limit). "
-        "Aborting.\nIt was most likely set to catch "
-        "allocations that would crash the process anyway. "
-        ,
-        hard_limit);
   }
 
   over_limit_ = true;
