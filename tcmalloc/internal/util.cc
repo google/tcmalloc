@@ -30,8 +30,10 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <limits>
 #include <type_traits>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -131,6 +133,33 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read) {
 
   if (rc != -1 || errno == EINTR)
     rc = total_bytes;  // return the cumulative bytes read
+  return rc;
+}
+
+ssize_t signal_safe_pread(int fd, char* absl_nonnull buf, size_t count,
+                          off_t offset, size_t* absl_nullable bytes_read) {
+  if (offset < 0 ||
+      count > static_cast<size_t>(std::numeric_limits<off_t>::max() - offset)) {
+    if (bytes_read != nullptr) *bytes_read = 0;
+    errno = offset < 0 ? EINVAL : EOVERFLOW;
+    return -1;
+  }
+
+  ssize_t rc;
+  size_t total_bytes = 0;
+
+  do {
+    rc = pread(fd, buf + total_bytes, count - total_bytes,
+               offset + static_cast<off_t>(total_bytes));
+    if (rc > 0) total_bytes += rc;
+    if (rc == 0) break;  // EOF
+  } while (total_bytes < count && (rc > 0 || errno == EINTR));
+
+  if (bytes_read != nullptr) *bytes_read = total_bytes;
+
+  if (rc != -1 || errno == EINTR) {
+    rc = total_bytes;  // return the cumulative bytes read
+  }
   return rc;
 }
 

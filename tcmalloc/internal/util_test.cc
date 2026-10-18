@@ -31,6 +31,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <limits>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 
@@ -297,6 +298,89 @@ TEST_F(UtilInternalTest, read_interrupt_eof) {
   // return 0
   errno = EINTR;
   EXPECT_EQ(signal_safe_read(fd, buf, sizeof(buf), nullptr), 0);
+
+  signal_safe_close(fd);
+}
+
+TEST_F(UtilInternalTest, signal_safe_pread) {
+  static constexpr absl::string_view kTestStr = "0123456789ABCDEF";
+  std::string fname = CreateTempFile(kTestStr);
+
+  int fd = signal_safe_open(fname.c_str(), O_RDONLY);
+  PCHECK(fd >= 0);
+  ASSERT_EQ(lseek(fd, 3, SEEK_SET), 3);
+
+  SetSignalCallBackMode(kInterruptOnly, 10000000, absl::Milliseconds(1));
+  absl::Time end = absl::Now() + absl::Milliseconds(50);
+  do {
+    char buf[16];
+    size_t bytes_read;
+    ASSERT_EQ(signal_safe_pread(fd, buf, 6, 4, &bytes_read), 6);
+    ASSERT_EQ(bytes_read, 6);
+    ASSERT_EQ(absl::string_view(buf, 6), "456789");
+    ASSERT_EQ(lseek(fd, 0, SEEK_CUR), 3);
+
+    ASSERT_EQ(signal_safe_pread(fd, buf, 4, 0, &bytes_read), 4);
+    ASSERT_EQ(bytes_read, 4);
+    ASSERT_EQ(absl::string_view(buf, 4), "0123");
+    ASSERT_EQ(lseek(fd, 0, SEEK_CUR), 3);
+  } while (absl::Now() < end);
+  DisableSignalCallBack();
+
+  signal_safe_close(fd);
+}
+
+TEST_F(UtilInternalTest, pread_interrupt_eof) {
+  char buf[128];
+  static constexpr absl::string_view kTestStr = "0123456789ABCDEF";
+  std::string fname = CreateTempFile(kTestStr);
+
+  int fd = signal_safe_open(fname.c_str(), O_RDONLY);
+  PCHECK(fd >= 0);
+
+  size_t bytes_read;
+  ASSERT_EQ(signal_safe_pread(fd, buf, sizeof(buf), 10, &bytes_read), 6);
+  EXPECT_EQ(bytes_read, 6);
+  EXPECT_EQ(absl::string_view(buf, 6), "ABCDEF");
+
+  errno = EINTR;
+  EXPECT_EQ(
+      signal_safe_pread(fd, buf, sizeof(buf), kTestStr.size(), &bytes_read), 0);
+  EXPECT_EQ(bytes_read, 0);
+
+  signal_safe_close(fd);
+}
+
+TEST_F(UtilInternalTest, pread_errors) {
+  char buf[16];
+  size_t bytes_read = 99;
+
+  EXPECT_EQ(signal_safe_pread(pipe_fd[0], buf, sizeof(buf), 0, &bytes_read),
+            -1);
+  EXPECT_EQ(errno, ESPIPE);
+  EXPECT_EQ(bytes_read, 0);
+
+  std::string fname = CreateTempFile("0123456789ABCDEF");
+  int fd = signal_safe_open(fname.c_str(), O_RDONLY);
+  PCHECK(fd >= 0);
+
+  bytes_read = 99;
+  EXPECT_EQ(signal_safe_pread(fd, buf, sizeof(buf), -1, &bytes_read), -1);
+  EXPECT_EQ(errno, EINVAL);
+  EXPECT_EQ(bytes_read, 0);
+
+  bytes_read = 99;
+  EXPECT_EQ(signal_safe_pread(fd, buf, std::numeric_limits<size_t>::max() - 10,
+                              100, &bytes_read),
+            -1);
+  EXPECT_EQ(errno, EOVERFLOW);
+  EXPECT_EQ(bytes_read, 0);
+
+  bytes_read = 99;
+  EXPECT_EQ(signal_safe_pread(fd, buf, 0, std::numeric_limits<off_t>::max(),
+                              &bytes_read),
+            0);
+  EXPECT_EQ(bytes_read, 0);
 
   signal_safe_close(fd);
 }

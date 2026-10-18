@@ -1754,6 +1754,7 @@ cc_library(
     deps = [
         ":config",
         ":logging",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
