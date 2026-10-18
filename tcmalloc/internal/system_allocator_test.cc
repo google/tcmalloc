@@ -144,6 +144,41 @@ TEST(SystemAllocatorTest, ReleaseLockedMemory) {
   EXPECT_EQ(allocator.release_errors(), 0);
 }
 
+TEST(SystemAllocatorTest, SampledOrColdP1AndNormalP1DoNotAliasAdjacentRegions) {
+  constexpr size_t kMinMmapAlloc = 1 << 30;
+  const size_t kPageSize = GetPageSize();
+
+  NumaTopology<2> numa_topology;
+  numa_topology.Init();
+  SystemAllocator<NumaTopology<2>, 1> numa_allocator(numa_topology,
+                                                     kMinMmapAlloc);
+
+  AddressRange guarded =
+      numa_allocator.Allocate(kPageSize, kPageSize, MemoryTag::kGuarded);
+  ASSERT_NE(guarded.ptr, nullptr);
+  EXPECT_EQ(GetMemoryTag(guarded.ptr), MemoryTag::kGuarded);
+
+  AddressRange sampled_p1 = numa_allocator.Allocate(
+      kPageSize, kPageSize, MemoryTag::kSampledOrColdP1);
+  ASSERT_NE(sampled_p1.ptr, nullptr);
+  EXPECT_EQ(GetMemoryTag(sampled_p1.ptr), MemoryTag::kSampledOrColdP1);
+
+  NumaTopology<1> single_topology;
+  single_topology.Init();
+  SystemAllocator<NumaTopology<1>, 1> single_allocator(single_topology,
+                                                       kMinMmapAlloc);
+
+  AddressRange sampled_p0 = single_allocator.Allocate(
+      kPageSize, kPageSize, MemoryTag::kSampledOrCold);
+  ASSERT_NE(sampled_p0.ptr, nullptr);
+  EXPECT_EQ(GetMemoryTag(sampled_p0.ptr), MemoryTag::kSampledOrCold);
+
+  AddressRange normal_p1 =
+      single_allocator.Allocate(kPageSize, kPageSize, MemoryTag::kNormalP1);
+  ASSERT_NE(normal_p1.ptr, nullptr);
+  EXPECT_EQ(GetMemoryTag(normal_p1.ptr), MemoryTag::kNormalP1);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

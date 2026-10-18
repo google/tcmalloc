@@ -203,9 +203,9 @@ class SystemAllocator {
   size_t min_mmap_size_ = 0;
 
   static constexpr size_t kNumPartitions =
-      std::max(Topology::kNumPartitions, NormalPartitions);
+      std::max<size_t>({Topology::kNumPartitions, NormalPartitions, 2});
   static constexpr size_t kSecurityPartitions =
-      Topology::kNumPartitions > 1 ? 1 : NormalPartitions;
+      std::max<size_t>(Topology::kNumPartitions > 1 ? 1 : NormalPartitions, 2);
 
   mutable absl::base_internal::SpinLock spinlock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
