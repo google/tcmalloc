@@ -225,7 +225,8 @@ static void PrintStats(int level) {
   char* buffer = new char[kBufferSize];
   Printer printer(buffer, kBufferSize);
   DumpStats(printer, level, /*include_hugepage_fragmentation=*/true);
-  (void)write(STDERR_FILENO, buffer, strlen(buffer));
+  absl::string_view stats = printer.view();
+  (void)write(STDERR_FILENO, stats.data(), stats.size());
   delete[] buffer;
 }
 

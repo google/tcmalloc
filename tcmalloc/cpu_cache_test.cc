@@ -2337,7 +2337,7 @@ TEST(CpuCacheTest, Fuzz) {
   mallocz.resize(128 << 10);
   Printer p(mallocz.data(), mallocz.size());
   env.cache().Print(p);
-  std::cout << mallocz;
+  std::cout << p.view();
 }
 
 // TODO(b/179516472):  Enable this test.
