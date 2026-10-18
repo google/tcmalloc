@@ -190,8 +190,13 @@ class UsageInfo {
     }
     ++records.total_hugepages;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::HugePageResidencyState hugepage_residency_state =
         pt.GetHugePageResidencyState();
+#else
+    const PageTracker::HugePageResidencyState& hugepage_residency_state =
+        pt.GetHugePageResidencyState();
+#endif
     if (hugepage_residency_state.entry_valid) {
       TC_ASSERT_GE(free, pt.released_pages());
       ++records.treated_hugepages;
