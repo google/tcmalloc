@@ -20,6 +20,8 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <atomic>
+
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
@@ -174,7 +176,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   // is in a good enough state to handle pthread_keycreate().
   // Therefore, we use TSD keys only after tsd_inited is set to true.
   // Until then, we use a slow path to get the heap object.
-  static bool tsd_inited_;
+  static std::atomic<bool> tsd_inited_;
 
   // Linked list of heap objects.
   static ThreadCache* thread_heaps_ ABSL_GUARDED_BY(threadcache_lock_);

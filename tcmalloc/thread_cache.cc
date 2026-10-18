@@ -48,7 +48,7 @@ int ThreadCache::thread_heap_count_ = 0;
 ThreadCache* ThreadCache::next_memory_steal_ = nullptr;
 ABSL_CONST_INIT thread_local ThreadCache* ThreadCache::thread_local_data_
     ABSL_ATTRIBUTE_INITIAL_EXEC = nullptr;
-ABSL_CONST_INIT bool ThreadCache::tsd_inited_ = false;
+ABSL_CONST_INIT std::atomic<bool> ThreadCache::tsd_inited_{false};
 ABSL_CONST_INIT absl::base_internal::SpinLock ThreadCache::threadcache_lock_(
     absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
@@ -257,9 +257,9 @@ void ThreadCache::IncreaseCacheLimitLocked() {
 }
 
 void ThreadCache::InitTSD() {
-  TC_ASSERT(!tsd_inited_);
+  TC_ASSERT(!tsd_inited_.load(std::memory_order_relaxed));
   PerCpuState::state().Init();
-  tsd_inited_ = true;
+  tsd_inited_.store(true, std::memory_order_release);
 }
 
 ThreadCache* ThreadCache::CreateCacheIfNecessary() {
@@ -267,9 +267,9 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   tc_globals.InitIfNecessary();
   ThreadCache* heap = nullptr;
 
-  const bool maybe_reentrant = !tsd_inited_;
+  const bool tsd_inited = tsd_inited_.load(std::memory_order_acquire);
   // If we have set up our TLS, we can avoid a scan of the thread_heaps_ list.
-  if (tsd_inited_) {
+  if (tsd_inited) {
     if (thread_local_data_) {
       return thread_local_data_;
     }
@@ -279,15 +279,14 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
     AllocationGuardSpinLockHolder l(threadcache_lock_);
     const pthread_t me = pthread_self();
 
-    // This may be a recursive malloc call from pthread_setspecific()
-    // In that case, the heap for this thread has already been created
-    // and added to the linked list.  So we search for that first.
-    if (maybe_reentrant) {
-      for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
-        if (pthread_equal(h->tid_, me) != 0) {
-          heap = h;
-          break;
-        }
+    // This may be a recursive malloc call from pthread_setspecific(), or this
+    // thread may have allocated before InitTSD() was called. In either case,
+    // the heap for this thread has already been created and added to the
+    // linked list. So we search for that first.
+    for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
+      if (pthread_equal(h->tid_, me) != 0) {
+        heap = h;
+        break;
       }
     }
 
@@ -300,7 +299,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   // call malloc() recursively.  We check for the recursive call using
   // the "in_setspecific_" flag so that we can avoid calling
   // pthread_setspecific() if we are already inside pthread_setspecific().
-  if (!heap->in_setspecific_ && tsd_inited_) {
+  if (!heap->in_setspecific_ && tsd_inited) {
     heap->in_setspecific_ = true;
     // Also keep a copy in __thread for faster retrieval
     thread_local_data_ = heap;
@@ -328,15 +327,15 @@ ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
 }
 
 void ThreadCache::BecomeIdle() {
-  if (!tsd_inited_) return;  // No caches yet
+  if (!tsd_inited_.load(std::memory_order_acquire)) return;  // No caches yet
   ThreadCache* heap = GetCacheIfPresent();
   if (heap == nullptr) return;        // No thread cache to remove
   if (heap->in_setspecific_) return;  // Do not disturb the active caller
 
   heap->in_setspecific_ = true;
-  PerCpuState::state().RegisterThreadCache(nullptr);
   // Also update the copy in __thread
   thread_local_data_ = nullptr;
+  PerCpuState::state().RegisterThreadCache(nullptr);
   heap->in_setspecific_ = false;
   if (GetCacheIfPresent() == heap) {
     // Somehow heap got reinstated by a recursive call to malloc

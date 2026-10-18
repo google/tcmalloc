@@ -18,6 +18,7 @@
 #include <sys/mman.h>
 
 #include <limits>
+#include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 
@@ -111,6 +112,21 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
   // of the allocation done.
   EXPECT_GE(192 * 1024, end_size - start_size)
       << "Before: " << start_size << " After: " << end_size;
+}
+
+TEST_F(ThreadCacheTest, NoOrphanedCacheAcrossInitTSD) {
+  ASSERT_FALSE(MallocExtension::PerCpuCachesActive());
+
+  void* p = ::operator new(8);
+  benchmark::DoNotOptimize(p);
+  ::operator delete(p, 8);
+
+  MallocExtension::MarkThreadIdle();
+
+  std::optional<size_t> total_bytes = MallocExtension::GetNumericProperty(
+      "tcmalloc.current_total_thread_cache_bytes");
+  ASSERT_TRUE(total_bytes.has_value());
+  EXPECT_EQ(*total_bytes, 0);
 }
 
 }  // namespace

@@ -16,10 +16,12 @@
 #define TCMALLOC_INTERNAL_PERCPU_STATE_H_
 
 #include <pthread.h>
+#include <stdlib.h>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 
@@ -58,7 +60,9 @@ class PerCpuState {
 
 inline void PerCpuState::Init() {
   absl::base_internal::LowLevelCallOnce(&f_, [&]() {
-    pthread_key_create(&key_, HandleThreadExit);
+    if (ABSL_PREDICT_FALSE(pthread_key_create(&key_, HandleThreadExit) != 0)) {
+      abort();
+    }
 
     // Invoke `pthread_setspecific` now to ensure that we have one of the
     // early `pthread_key_t`'s that does not require allocating when use it.
@@ -68,11 +72,15 @@ inline void PerCpuState::Init() {
 }
 
 inline void PerCpuState::RegisterThreadCache(ThreadCache* absl_nullable cache) {
+  int err;
   if (cache == nullptr) {
     // Use &g as a sentinel so that we always get a callback.
-    pthread_setspecific(key_, &g);
+    err = pthread_setspecific(key_, &g);
   } else {
-    pthread_setspecific(key_, cache);
+    err = pthread_setspecific(key_, cache);
+  }
+  if (ABSL_PREDICT_FALSE(err != 0)) {
+    abort();
   }
 }
 
