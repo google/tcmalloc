@@ -62,8 +62,10 @@ class Bitmap {
   void ClearLowestBit();
 
   template <typename Visitor>
-  [[nodiscard]] size_t PopBatch(Visitor visitor, size_t limit) {
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE size_t PopBatch(Visitor visitor,
+                                                             size_t limit) {
     size_t count = 0;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     for (size_t i = 0; i < kWords; ++i) {
       if (count >= limit) break;
       size_t word = bits_[i];
@@ -75,6 +77,20 @@ class Bitmap {
       }
       bits_[i] = word;
     }
+#else
+    for (size_t i = 0; i < kWords && count < limit; ++i) {
+      size_t word = bits_[i];
+      if (word == 0) continue;
+      const size_t base = i * kWordSize;
+      do {
+        size_t off = absl::countr_zero(word);
+        visitor(base + off);
+        count++;
+        word &= word - 1;
+      } while (word != 0 && count < limit);
+      bits_[i] = word;
+    }
+#endif
     return count;
   }
 

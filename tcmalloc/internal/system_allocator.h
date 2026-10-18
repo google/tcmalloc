@@ -224,6 +224,7 @@ class SystemAllocator {
 
   std::atomic<int> release_errors_{0};
   std::atomic<MadvisePreference> madvise_{MadvisePreference::kNever};
+  std::atomic<bool> has_custom_region_factory_{false};
   bool unlock_vmas_ = false;
 
   void DiscardMappedRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
@@ -392,6 +393,9 @@ void SystemAllocator<Topology, NormalPartitions>::SetRegionFactory(
   AllocationGuardSpinLockHolder lock_holder(spinlock_);
   DiscardMappedRegions();
   region_factory_ = factory;
+  if (factory != &mmap_factory_.factory) {
+    has_custom_region_factory_.store(true, std::memory_order_relaxed);
+  }
 }
 
 template <typename Topology, size_t NormalPartitions>
@@ -958,7 +962,6 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
     return ReleaseStatus::kFailure;
   }
 
-  int ret;
   // Note -- ignoring most return codes, because if this fails it
   // doesn't matter...
   // Moreover, MADV_REMOVE *will* fail (with EINVAL) on private memory,
@@ -966,15 +969,23 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
 #ifdef MADV_REMOVE
   // MADV_REMOVE deletes any backing storage for tmpfs or anonymous shared
   // memory.
-  do {
-    ret = madvise(start, length, MADV_REMOVE);
-  } while (ret == -1 && errno == EAGAIN);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  if (ABSL_PREDICT_FALSE(
+          has_custom_region_factory_.load(std::memory_order_relaxed)))
+#endif
+  {
+    int ret;
+    do {
+      ret = madvise(start, length, MADV_REMOVE);
+    } while (ret == -1 && errno == EAGAIN);
 
-  if (ret == 0) {
-    return ReleaseStatus::kSuccess;
+    if (ret == 0) {
+      return ReleaseStatus::kSuccess;
+    }
   }
 #endif
 
+  ReleaseStatus status = ReleaseStatus::kFailure;
 #ifdef MADV_FREE
   const bool do_madvfree = [&]() {
     switch (madvise_preference()) {
@@ -990,12 +1001,16 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
   }();
 
   if (do_madvfree) {
+    int ret;
     do {
       ret = madvise(start, length, MADV_FREE);
     } while (ret == -1 && errno == EAGAIN);
+
+    if (ret == 0) {
+      status = ReleaseStatus::kSuccess;
+    }
   }
 #endif
-  ReleaseStatus status = ReleaseStatus::kFailure;
 #ifdef MADV_DONTNEED
   const bool do_madvdontneed = [&]() {
     switch (madvise_preference()) {
@@ -1013,18 +1028,18 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
   // MADV_DONTNEED drops page table info and any anonymous pages.
   if (do_madvdontneed) {
     const int advice = system_allocator_internal::MadvDontNeedAdviceAvailable();
+    int ret;
     do {
       ret = madvise(start, length, advice);
     } while (ret == -1 && errno == EAGAIN);
 
-    if (advice == MADV_DONTNEED) {
-      status = ReleaseStatus::kRetryAfterMunlock;
+    if (ret == 0) {
+      return ReleaseStatus::kSuccess;
     }
+    status = advice == MADV_DONTNEED ? ReleaseStatus::kRetryAfterMunlock
+                                     : ReleaseStatus::kFailure;
   }
 #endif
-  if (ret == 0) {
-    return ReleaseStatus::kSuccess;
-  }
 
   return status;
 }
