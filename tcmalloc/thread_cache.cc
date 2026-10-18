@@ -423,9 +423,11 @@ AllocatorStats ThreadCache::GetStats(uint64_t* total_bytes,
   return tc_globals.threadcache_allocator().stats();
 }
 
-void ThreadCache::set_overall_thread_cache_size(size_t new_size) {
+void ThreadCache::set_overall_thread_cache_size(int64_t new_size) {
   // Clip the value to a reasonable minimum
-  if (new_size < kMinThreadCacheSize) new_size = kMinThreadCacheSize;
+  if (new_size < static_cast<int64_t>(kMinThreadCacheSize)) {
+    new_size = kMinThreadCacheSize;
+  }
 
   AllocationGuardSpinLockHolder l(threadcache_lock_);
   overall_thread_cache_size_.store(new_size, std::memory_order_relaxed);

@@ -18,6 +18,7 @@
 #include <sys/mman.h>
 
 #include <limits>
+#include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 
@@ -111,6 +112,31 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
   // of the allocation done.
   EXPECT_GE(192 * 1024, end_size - start_size)
       << "Before: " << start_size << " After: " << end_size;
+}
+
+TEST_F(ThreadCacheTest, OverallThreadCacheSizeOverflow) {
+  ASSERT_FALSE(MallocExtension::PerCpuCachesActive());
+
+  const int64_t original_limit = MallocExtension::GetMaxTotalThreadCacheBytes();
+
+  MallocExtension::SetMaxTotalThreadCacheBytes(
+      std::numeric_limits<int64_t>::min() + (64 << 10));
+  MallocExtension::MarkThreadIdle();
+
+  std::optional<size_t> max_bytes = MallocExtension::GetNumericProperty(
+      "tcmalloc.max_total_thread_cache_bytes");
+  ASSERT_TRUE(max_bytes.has_value());
+  EXPECT_LE(*max_bytes,
+            static_cast<size_t>(std::numeric_limits<int64_t>::max()));
+
+  std::thread t([]() {
+    void* p = ::operator new(64);
+    benchmark::DoNotOptimize(p);
+    ::operator delete(p, 64);
+  });
+  t.join();
+
+  MallocExtension::SetMaxTotalThreadCacheBytes(original_limit);
 }
 
 }  // namespace

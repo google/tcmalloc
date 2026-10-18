@@ -64,7 +64,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   // Sets the total thread cache size to new_size, recomputing the
   // individual thread cache sizes as necessary.
-  static void set_overall_thread_cache_size(size_t new_size)
+  static void set_overall_thread_cache_size(int64_t new_size)
       ABSL_LOCKS_EXCLUDED(threadcache_lock_);
 
   [[nodiscard]] static size_t overall_thread_cache_size()
