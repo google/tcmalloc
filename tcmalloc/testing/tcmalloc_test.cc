@@ -1899,5 +1899,21 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
+TEST(TCMalloc, PvallocOverflow) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  const size_t page_size = GetPageSize();
+  for (size_t delta : {size_t{0}, size_t{1}, page_size - 1}) {
+    size_t size = std::numeric_limits<size_t>::max() - delta;
+    benchmark::DoNotOptimize(size);
+    errno = 0;
+    void* ptr = pvalloc(size);
+    benchmark::DoNotOptimize(ptr);
+    EXPECT_EQ(ptr, nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

@@ -1930,6 +1930,10 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalPvalloc(
   if (size == 0) {     // pvalloc(0) should allocate one page, according to
     size = page_size;  // http://man.free4web.biz/man3/libmpatrol.3.html
   }
+  if (ABSL_PREDICT_FALSE(size >
+                         std::numeric_limits<size_t>::max() - page_size + 1)) {
+    return MallocPolicy::handle_oom(size);
+  }
   size = (size + page_size - 1) & ~(page_size - 1);
   return fast_alloc(size, MallocPolicy().AlignAs(page_size));
 }
@@ -2275,6 +2279,10 @@ ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, std::align_val_t align,
     size_t page_size = GetPageSize();                                          \
     if (size == 0) {                                                           \
       size = page_size;                                                        \
+    }                                                                          \
+    if (ABSL_PREDICT_FALSE(size > std::numeric_limits<size_t>::max() -         \
+                                      page_size + 1)) {                        \
+      return MallocPolicy::handle_oom(size);                                   \
     }                                                                          \
     size = (size + page_size - 1) & ~(page_size - 1);                          \
     return fast_alloc(                                                         \
