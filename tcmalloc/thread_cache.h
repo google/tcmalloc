@@ -179,6 +179,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   // Linked list of heap objects.
   static ThreadCache* thread_heaps_ ABSL_GUARDED_BY(threadcache_lock_);
   static int thread_heap_count_ ABSL_GUARDED_BY(threadcache_lock_);
+  static int unregistered_heap_count_ ABSL_GUARDED_BY(threadcache_lock_);
 
   // A pointer to one of the objects in thread_heaps_.  Represents
   // the next ThreadCache from which a thread over its max_size_ should
@@ -206,6 +207,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   pthread_t tid_;
   bool in_setspecific_;
+  bool registered_in_tsd_ ABSL_GUARDED_BY(threadcache_lock_);
 
   // Allocate a new heap.
   [[nodiscard]] static ThreadCache* NewHeap(pthread_t tid)

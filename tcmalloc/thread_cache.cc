@@ -45,6 +45,7 @@ std::atomic<size_t> ThreadCache::overall_thread_cache_size_ =
 int64_t ThreadCache::unclaimed_cache_space_ = kDefaultOverallThreadCacheSize;
 ThreadCache* ThreadCache::thread_heaps_ = nullptr;
 int ThreadCache::thread_heap_count_ = 0;
+int ThreadCache::unregistered_heap_count_ = 0;
 ThreadCache* ThreadCache::next_memory_steal_ = nullptr;
 ABSL_CONST_INIT thread_local ThreadCache* ThreadCache::thread_local_data_
     ABSL_ATTRIBUTE_INITIAL_EXEC = nullptr;
@@ -72,6 +73,7 @@ ThreadCache::ThreadCache(pthread_t tid) {
   prev_ = nullptr;
   tid_ = tid;
   in_setspecific_ = false;
+  registered_in_tsd_ = false;
   for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
     list_[size_class].Init();
   }
@@ -267,7 +269,6 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   tc_globals.InitIfNecessary();
   ThreadCache* heap = nullptr;
 
-  const bool maybe_reentrant = !tsd_inited_;
   // If we have set up our TLS, we can avoid a scan of the thread_heaps_ list.
   if (tsd_inited_) {
     if (thread_local_data_) {
@@ -275,14 +276,16 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
     }
   }
 
+  bool bind_to_tsd = false;
   {
     AllocationGuardSpinLockHolder l(threadcache_lock_);
     const pthread_t me = pthread_self();
 
-    // This may be a recursive malloc call from pthread_setspecific()
-    // In that case, the heap for this thread has already been created
-    // and added to the linked list.  So we search for that first.
-    if (maybe_reentrant) {
+    // This may be a recursive malloc call from pthread_setspecific(), or a
+    // thread whose heap was created before InitTSD() ran.  In that case, the
+    // heap for this thread has already been created and added to the linked
+    // list.  So we search for that first.
+    if (!tsd_inited_ || unregistered_heap_count_ > 0) {
       for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
         if (pthread_equal(h->tid_, me) != 0) {
           heap = h;
@@ -293,6 +296,12 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
 
     if (heap == nullptr) {
       heap = NewHeap(me);
+      unregistered_heap_count_++;
+    }
+    if (!heap->in_setspecific_ && tsd_inited_ && !heap->registered_in_tsd_) {
+      heap->registered_in_tsd_ = true;
+      unregistered_heap_count_--;
+      bind_to_tsd = true;
     }
   }
 
@@ -300,7 +309,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   // call malloc() recursively.  We check for the recursive call using
   // the "in_setspecific_" flag so that we can avoid calling
   // pthread_setspecific() if we are already inside pthread_setspecific().
-  if (!heap->in_setspecific_ && tsd_inited_) {
+  if (bind_to_tsd) {
     heap->in_setspecific_ = true;
     // Also keep a copy in __thread for faster retrieval
     thread_local_data_ = heap;
@@ -330,7 +339,19 @@ ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
 void ThreadCache::BecomeIdle() {
   if (!tsd_inited_) return;  // No caches yet
   ThreadCache* heap = GetCacheIfPresent();
-  if (heap == nullptr) return;        // No thread cache to remove
+  if (heap == nullptr) {
+    AllocationGuardSpinLockHolder l(threadcache_lock_);
+    if (unregistered_heap_count_ > 0) {
+      const pthread_t me = pthread_self();
+      for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
+        if (pthread_equal(h->tid_, me) != 0) {
+          heap = h;
+          break;
+        }
+      }
+    }
+    if (heap == nullptr) return;  // No thread cache to remove
+  }
   if (heap->in_setspecific_) return;  // Do not disturb the active caller
 
   heap->in_setspecific_ = true;
@@ -375,6 +396,10 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
     if (heap->prev_ != nullptr) heap->prev_->next_ = heap->next_;
     if (thread_heaps_ == heap) thread_heaps_ = heap->next_;
     thread_heap_count_--;
+    if (!heap->registered_in_tsd_) {
+      unregistered_heap_count_--;
+      heap->registered_in_tsd_ = true;
+    }
 
     if (next_memory_steal_ == heap) next_memory_steal_ = heap->next_;
     if (next_memory_steal_ == nullptr) next_memory_steal_ = thread_heaps_;

@@ -18,6 +18,7 @@
 #include <sys/mman.h>
 
 #include <limits>
+#include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 
@@ -55,6 +56,31 @@ class ThreadCacheTest : public ::testing::Test {
   ScopedSkipSubreleaseShortInterval skip_subrelease_short_interval_;
   ScopedSkipSubreleaseLongInterval skip_subrelease_long_interval_;
 };
+
+TEST_F(ThreadCacheTest, NoOrphanedThreadCacheAcrossInitTSD) {
+  ASSERT_FALSE(MallocExtension::PerCpuCachesActive());
+
+  void* p = ::operator new(8);
+  benchmark::DoNotOptimize(p);
+  ::operator delete(p);
+
+  std::optional<size_t> active_count =
+      MallocExtension::GetNumericProperty("tcmalloc.thread_cache_count");
+  ASSERT_TRUE(active_count.has_value());
+  EXPECT_EQ(*active_count, 1u);
+
+  MallocExtension::MarkThreadIdle();
+
+  std::optional<size_t> idle_count =
+      MallocExtension::GetNumericProperty("tcmalloc.thread_cache_count");
+  ASSERT_TRUE(idle_count.has_value());
+  EXPECT_EQ(*idle_count, 0u);
+
+  std::optional<size_t> idle_bytes = MallocExtension::GetNumericProperty(
+      "tcmalloc.current_total_thread_cache_bytes");
+  ASSERT_TRUE(idle_bytes.has_value());
+  EXPECT_EQ(*idle_bytes, 0u);
+}
 
 // Make sure that creating and destroying many mallocing threads
 // does not leak memory.
