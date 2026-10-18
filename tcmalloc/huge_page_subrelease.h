@@ -84,7 +84,9 @@ class SkippedSubreleaseCorrectnessTracker {
     SkippedSubreleaseUpdate update;
     update.decision = SkippedSubreleaseDecision(skipped_pages);
     update.num_pages_at_decision = peak_pages;
-    tracker_.Report(update);
+    if (tracker_.Report(update)) {
+      last_confirmed_peak_ = Length(0);
+    }
   }
 
   void ReportUpdatedPeak(Length current_peak, int64_t now) {
@@ -109,6 +111,7 @@ class SkippedSubreleaseCorrectnessTracker {
             const SkippedSubreleaseEntry& e) {
           // Do not clear any decisions in the current epoch.
           if (offset == 0) {
+            pending_skipped_ += e.decisions;
             return;
           }
 

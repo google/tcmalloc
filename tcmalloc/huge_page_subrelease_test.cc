@@ -311,6 +311,54 @@ TEST_F(StatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   EXPECT_EQ(tracker_.pending_skipped().count, 0);
 }
 
+TEST_F(StatsTrackerTest, SameEpochAndCrossEpochPendingSkippedSubrelease) {
+  // Decision D0 at t = 0 requires peak >= 500.
+  GenerateDemandPoint(Length(100), Length(1000));
+  tracker_.ReportSkippedSubreleasePages(Length(100), Length(500));
+
+  // At t = 1 min, Decision D1 (requiring peak >= 1000) is recorded in the same
+  // epoch before Report() confirms D0 with a peak of 600.
+  Advance(absl::Minutes(1));
+  tracker_.ReportSkippedSubreleasePages(Length(200), Length(1000));
+  GenerateDemandPoint(Length(600), Length(1000));
+
+  // D0 (100 pages) is confirmed; D1 (200 pages) in the current epoch must stay
+  // pending.
+  EXPECT_EQ(tracker_.correctly_skipped().pages, Length(100));
+  EXPECT_EQ(tracker_.correctly_skipped().count, 1);
+  EXPECT_EQ(tracker_.pending_skipped().pages, Length(200));
+  EXPECT_EQ(tracker_.pending_skipped().count, 1);
+
+  // Also record D2 at t = 1 min requiring peak >= 700 (which is > 600).
+  tracker_.ReportSkippedSubreleasePages(Length(50), Length(700));
+  EXPECT_EQ(tracker_.pending_skipped().pages, Length(250));
+  EXPECT_EQ(tracker_.pending_skipped().count, 2);
+
+  // At t = 2 min, a peak of 1000 confirms both D1 and D2 (setting
+  // last_confirmed_peak_ = 1000 for t = 2 min), and a new decision D3 requiring
+  // peak >= 800 is recorded at t = 2 min.
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(Length(1000), Length(1000));
+  tracker_.ReportSkippedSubreleasePages(Length(75), Length(800));
+  EXPECT_EQ(tracker_.correctly_skipped().pages, Length(350));
+  EXPECT_EQ(tracker_.correctly_skipped().count, 3);
+  EXPECT_EQ(tracker_.pending_skipped().pages, Length(75));
+  EXPECT_EQ(tracker_.pending_skipped().count, 1);
+
+  // At t = 3 min, ReportSkippedSubreleasePages is called first (advancing the
+  // correctness tracker to t = 3 min), followed by a peak of 850 (which is
+  // >= D3's 800, though < t=2 min's last_confirmed_peak_ of 1000). D3 must be
+  // confirmed.
+  Advance(absl::Minutes(1));
+  tracker_.ReportSkippedSubreleasePages(Length(25), Length(1500));
+  GenerateDemandPoint(Length(850), Length(1000));
+
+  EXPECT_EQ(tracker_.correctly_skipped().pages, Length(425));
+  EXPECT_EQ(tracker_.correctly_skipped().count, 4);
+  EXPECT_EQ(tracker_.pending_skipped().pages, Length(25));
+  EXPECT_EQ(tracker_.pending_skipped().count, 1);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
