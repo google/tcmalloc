@@ -880,6 +880,32 @@ TEST_F(PageTrackerTest, b151915873) {
                                   &small.normal_length[kMaxPages.raw_num()]));
 }
 
+TEST_F(PageTrackerTest, MarkSubreleasedUpdatesHugePageResidencyState) {
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  PAlloc a = Get(kPagesPerHugePage / 2, info);
+
+  PageTracker::HugePageResidencyState state;
+  state.entry_valid = true;
+  state.maybe_hugepage_backed = true;
+  state.released_since_selected = false;
+  tracker_.SetHugePageResidencyState(state);
+
+  PageBitmap unbacked;
+  unbacked.SetRange(kPagesPerHugePage.raw_num() / 2, 4);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(tracker_.MarkSubreleased(unbacked), Length(4));
+  }
+  EXPECT_TRUE(tracker_.released());
+  EXPECT_FALSE(tracker_.unbroken());
+  EXPECT_FALSE(tracker_.GetHugePageResidencyState().maybe_hugepage_backed);
+  EXPECT_TRUE(tracker_.GetHugePageResidencyState().released_since_selected);
+  tracker_.RecordFeatures();
+  EXPECT_FALSE(tracker_.features().is_hugepage_backed);
+
+  Put(a);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
