@@ -228,6 +228,23 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     Bitmap<kBitmapSize> bitmap_;
   };
 
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE uint16_t embed_count() const {
+    return embed_count_;
+  }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void set_embed_count(uint16_t v) {
+    embed_count_ = v;
+  }
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE uint16_t freelist() const {
+    return freelist_;
+  }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void set_freelist(uint16_t v) { freelist_ = v; }
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE uint8_t cache_size() const {
+    return cache_size_;
+  }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void set_cache_size(uint8_t v) {
+    cache_size_ = v;
+  }
+
   // There is nothing inherently fixed about this size, but it is a useful
   // indicator that we are using the space and not unintentionally regressing
   // it.
@@ -331,14 +348,14 @@ inline bool Span::FreelistPushBatch(absl::Span<ObjIdx> batch,
 
 inline void Span::ListPushBatch(absl::Span<ObjIdx> batch,
                                 size_t size) __restrict__ {
-  if (cache_size_ < kCacheSize) {
-    auto cache_writes = std::min(kCacheSize - cache_size_, batch.size());
+  if (this->cache_size() < kCacheSize) {
+    auto cache_writes = std::min(kCacheSize - this->cache_size(), batch.size());
     for (int i = 0; i < cache_writes; ++i) {
       // Have empty space in the cache, push there.
       const ObjIdx idx = batch[i];
-      list_.cache[cache_size_ + i] = idx;
+      list_.cache[this->cache_size() + i] = idx;
     }
-    cache_size_ += cache_writes;
+    this->set_cache_size(this->cache_size() + cache_writes);
     batch.remove_prefix(cache_writes);
   }
 
@@ -348,8 +365,8 @@ inline void Span::ListPushBatch(absl::Span<ObjIdx> batch,
 
   const uintptr_t start = absl::bit_cast<uintptr_t>(start_address());
 
-  ObjIdx freelist = freelist_;
-  uint16_t embed_count = embed_count_;
+  ObjIdx freelist = this->freelist();
+  uint16_t embed_count = this->embed_count();
 
   ObjIdx* __restrict host;
   if (ABSL_PREDICT_TRUE(freelist != kListEnd)) {
@@ -383,8 +400,8 @@ inline void Span::ListPushBatch(absl::Span<ObjIdx> batch,
       host = new_host;
     }
   }
-  freelist_ = freelist;
-  embed_count_ = embed_count;
+  this->set_freelist(freelist);
+  this->set_embed_count(embed_count);
 }
 
 inline void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size,
@@ -478,7 +495,7 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
   size_t result = 0;
 
   // Pop from cache.
-  auto csize = cache_size_;
+  auto csize = this->cache_size();
   ASSUME(csize <= kCacheSize);
   auto cache_reads = csize < N ? csize : N;
   const uintptr_t span_start = first_page().start_uintptr();
@@ -487,15 +504,15 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
   }
 
   // Store this->cache_size_ one time.
-  cache_size_ = csize - result;
+  this->set_cache_size(csize - result);
 
   while (result < N) {
-    if (ABSL_PREDICT_FALSE(freelist_ == kListEnd)) {
+    if (ABSL_PREDICT_FALSE(this->freelist() == kListEnd)) {
       break;
     }
 
-    ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
-    uint16_t embed_count = embed_count_;
+    ObjIdx* const host = IdxToPtr(this->freelist(), size, span_start);
+    uint16_t embed_count = this->embed_count();
 
     size_t iter = embed_count;
     if (result + embed_count > N) {
@@ -509,7 +526,7 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
     result += iter;
 
     if (result == N) {
-      embed_count_ = embed_count;
+      this->set_embed_count(embed_count);
       break;
     }
 
@@ -519,8 +536,8 @@ inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
     batch[result] = host;
     result++;
 
-    freelist_ = host[0];
-    embed_count_ = size / sizeof(ObjIdx) - 1;
+    this->set_freelist(host[0]);
+    this->set_embed_count(size / sizeof(ObjIdx) - 1);
   }
   allocated_ += result;
   return result;
