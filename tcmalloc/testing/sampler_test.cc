@@ -270,6 +270,42 @@ TEST(Sampler, weight_distribution) {
   }
 }
 
+TEST(Sampler, ExtremeAllocationSizes) {
+  constexpr size_t kMaxWeight =
+      static_cast<size_t>(std::numeric_limits<ssize_t>::max());
+  constexpr size_t kSignBit = static_cast<size_t>(1) << 63;
+  ScopedProfileSamplingInterval interval(1);
+
+  // 1. Uninitialized sampler receiving an allocation >= 2^63 must sample with
+  // clamped weight kMaxWeight and remain able to sample subsequent allocations.
+  {
+    Sampler uninit_sampler;
+    EXPECT_TRUE(uninit_sampler.WillRecordAllocation(kSignBit));
+    EXPECT_TRUE(uninit_sampler.WillRecordAllocation(
+        std::numeric_limits<size_t>::max()));
+    EXPECT_EQ(uninit_sampler.RecordAllocation(kSignBit +
+                                              (static_cast<size_t>(1) << 62)),
+              kMaxWeight);
+    EXPECT_GT(uninit_sampler.RecordAllocation(1), 0u);
+  }
+
+  // 2. Initialized sampler across extreme k values in [2^63 - 1, SIZE_MAX]:
+  //    - k == kSignBit when bytes_until_sample_ == 0 must not trigger signed
+  //      overflow UB on (bytes_until_sample_ + kIntervalOffset).
+  //    - k > kSignBit + bytes_until_sample_ must not wrap weight negative.
+  //    - k == SIZE_MAX must not wrap (k + 1) to 0.
+  for (size_t k : {kMaxWeight, kSignBit, kSignBit + 1,
+                   kSignBit + (static_cast<size_t>(1) << 62),
+                   std::numeric_limits<size_t>::max() - 1,
+                   std::numeric_limits<size_t>::max()}) {
+    SCOPED_TRACE(k);
+    Sampler s;
+    ASSERT_GT(s.RecordAllocation(1), 0u);
+    EXPECT_TRUE(s.WillRecordAllocation(k));
+    EXPECT_EQ(s.RecordAllocation(k), kMaxWeight);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

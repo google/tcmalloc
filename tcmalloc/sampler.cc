@@ -126,9 +126,7 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
     Init(absl::HashOf(
         static_cast<uint64_t>(absl::base_internal::CycleClock::Now()),
         reinterpret_cast<uintptr_t>(this)));
-    // Avoid missampling 0.
-    bytes_until_sample_ -= k + 1;
-    if (ABSL_PREDICT_TRUE(bytes_until_sample_ >= 0)) {
+    if (ABSL_PREDICT_TRUE(TryRecordAllocationFast(k))) {
       return 0;
     }
   }
@@ -145,8 +143,10 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
   // gives us a weight of T + k - f.
   //
   ssize_t weight;
-  if (ABSL_PREDICT_FALSE(__builtin_ssubl_overflow(
-          sample_interval_, bytes_until_sample_ + kIntervalOffset, &weight))) {
+  if (ABSL_PREDICT_FALSE(bytes_until_sample_ >= 0 ||
+                         __builtin_ssubl_overflow(
+                             sample_interval_,
+                             bytes_until_sample_ + kIntervalOffset, &weight))) {
     weight = std::numeric_limits<ssize_t>::max();
   }
   bytes_until_sample_ = PickNextSamplingPoint();

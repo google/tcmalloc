@@ -19,6 +19,8 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <limits>
+
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
@@ -154,6 +156,8 @@ class Sampler {
 };
 
 inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE Sampler::RecordAllocation(size_t k) {
+  // Clamp k to avoid k + 1 wrapping to 0 in TryRecordAllocationFast.
+  k -= k == std::numeric_limits<size_t>::max();
   if (ABSL_PREDICT_FALSE(!TryRecordAllocationFast(k))) {
     return RecordAllocationSlow(k);
   }
@@ -184,7 +188,7 @@ Sampler::RecordedAllocationFast(size_t k) {
 
 inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
 Sampler::WillRecordAllocation(size_t k) {
-  return ABSL_PREDICT_FALSE(bytes_until_sample_ < (k + 1));
+  return ABSL_PREDICT_FALSE(bytes_until_sample_ <= k);
 }
 
 // Returns the approximate number of bytes that would have been allocated to
