@@ -2310,6 +2310,9 @@ template <class TrackerType>
 inline size_t HugePageFiller<TrackerType>::ListFor(
     const TrackerType& pt) const {
   if (pt.HasDenseSpans()) {
+    if (ABSL_PREDICT_FALSE(pt.longest_free_range() == Length(0))) {
+      return DenseListFor(kPagesPerHugePage.raw_num());
+    }
     return DenseListFor(pt.nallocs());
   }
   return SparseListFor(pt.longest_free_range(), IndexFor(pt));

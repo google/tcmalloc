@@ -8005,6 +8005,85 @@ TEST_F(FillerTest, TryGetReturnsPerPagePreviouslyUnbackedState) {
   DeleteRaw(a3);
 }
 
+TEST_F(FillerTest, FullDenseTrackerWithMultiPageSpanRoutedToFullList) {
+  if (kPagesPerHugePage < Length(4)) {
+    GTEST_SKIP();
+  }
+  const SpanAllocInfo kDenseInfo = {.objects_per_span = 16,
+                                    .density = AccessDensityPrediction::kDense};
+
+  // Open a tracker with an initial 2-page dense span and contribute it, then
+  // fill the remaining kPagesPerHugePage - 2 pages with 1-page dense spans so
+  // the hugepage is 100% full (used_pages() == kPagesPerHugePage,
+  // longest_free_range() == 0), while nallocs() == kPagesPerHugePage - 1.
+  std::vector<PAlloc> first_hp_allocs;
+  auto* first_pt =
+      new PageTracker(GetBacking(), /*was_donated=*/false, FakeClock::now());
+  PageId first_page;
+  {
+    PageHeapSpinLockHolder l;
+    first_page = first_pt->Get(Length(2), kDenseInfo).page;
+    filler_.Contribute(first_pt, /*donated=*/false, kDenseInfo);
+  }
+  ++hp_contained_;
+  total_allocated_ += Length(2);
+  PAlloc initial_alloc = {.pt = first_pt,
+                          .p = first_page,
+                          .n = Length(2),
+                          .mark = ++next_mark_,
+                          .span_alloc_info = kDenseInfo,
+                          .from_released = false};
+  Mark(initial_alloc);
+  CheckStats();
+  first_hp_allocs.push_back(initial_alloc);
+
+  for (Length i = Length(2); i < kPagesPerHugePage; ++i) {
+    PAlloc a = AllocateWithSpanAllocInfo(Length(1), kDenseInfo);
+    ASSERT_EQ(a.pt, first_pt);
+    first_hp_allocs.push_back(a);
+  }
+
+  EXPECT_EQ(first_pt->used_pages(), kPagesPerHugePage);
+  EXPECT_EQ(first_pt->longest_free_range(), Length(0));
+  EXPECT_EQ(first_pt->nallocs(), kPagesPerHugePage.raw_num() - 1);
+
+  // Even though nallocs() < kPagesPerHugePage.raw_num(), the tracker has zero
+  // free pages and must be placed on the full list (bucket 0) rather than a
+  // non-full allocatable dense bucket.
+  HugePageFillerStats stats;
+  PageTracker* try_get_pt;
+  {
+    PageHeapSpinLockHolder l;
+    SmallSpanStats small;
+    LargeSpanStats large;
+    filler_.AddSpanStats(&small, &large);
+    stats = filler_.GetStats();
+
+    // TryGet must miss cleanly instead of popping the full tracker and crashing
+    // inside RangeTracker::FindAndMark.
+    try_get_pt = filler_.TryGet(Length(1), kDenseInfo).pt;
+  }
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kDense], NHugePages(1));
+  EXPECT_EQ(stats.n_total[AccessDensityPrediction::kDense], NHugePages(1));
+  EXPECT_EQ(try_get_pt, nullptr);
+
+  // Subsequent dense allocations must land on a second hugepage, and freeing
+  // an allocation on the first hugepage must make it allocatable again.
+  PAlloc second_hp_alloc = AllocateWithSpanAllocInfo(Length(1), kDenseInfo);
+  EXPECT_NE(second_hp_alloc.pt, first_pt);
+
+  Delete(first_hp_allocs.back());
+  first_hp_allocs.pop_back();
+  {
+    PageHeapSpinLockHolder l;
+    stats = filler_.GetStats();
+  }
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kDense], NHugePages(0));
+
+  Delete(second_hp_alloc);
+  DeleteVector(first_hp_allocs);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
