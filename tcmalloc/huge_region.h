@@ -661,6 +661,9 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
   Length to_release;
   if (hit_limit) {
     to_release = desired;
+    if (to_release == Length(0)) {
+      return Length(0);
+    }
   } else if (use_adaptive) {
     to_release = lowater_free_backed_.in_pages();
   } else {

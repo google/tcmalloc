@@ -1149,6 +1149,55 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithHitLimit) {
   EXPECT_EQ(r1->free_backed().in_bytes(), 0);
 }
 
+TEST_P(HugeRegionSetTest, ZeroTargetHitLimitPreservesLowWaterMark) {
+  if (!UseHugeRegionMoreOften()) {
+    return;
+  }
+
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage;
+  bool from_released;
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // Initialize lowater_free_backed_ to the full region size.
+  EXPECT_EQ(set_.ReleasePages(Length::max(), /*use_adaptive=*/true,
+                              /*hit_limit=*/false),
+            Length(0));
+
+  // Allocate half the region and return it, lowering lowater_free_backed_ to
+  // half the region while free_backed_count_ returns to the full region.
+  const size_t to_alloc = allocs.size() / 2;
+  std::vector<Alloc> active_allocs;
+  for (size_t i = 0; i < to_alloc; ++i) {
+    ASSERT_TRUE(set_.MaybeGet(kSize, &p, &from_released));
+    active_allocs.push_back({p, kSize});
+  }
+  for (auto a : active_allocs) {
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
+  }
+
+  // A zero-target hit_limit call (e.g., when HugeCache already satisfied the
+  // page release target) must not clobber lowater_free_backed_.
+  EXPECT_EQ(set_.ReleasePages(Length(0), /*use_adaptive=*/false,
+                              /*hit_limit=*/true),
+            Length(0));
+
+  const Length expected_released =
+      NHugePages(allocs.size() - to_alloc).in_pages();
+  const Length released = set_.ReleasePages(
+      Length::max(), /*use_adaptive=*/true, /*hit_limit=*/false);
+  EXPECT_EQ(released, expected_released);
+}
+
 TEST_P(HugeRegionSetTest, ReleaseAdaptiveOrder) {
   if (!UseHugeRegionMoreOften()) {
     return;
