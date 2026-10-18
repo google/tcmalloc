@@ -139,6 +139,14 @@ class ABSL_CACHELINE_ALIGNED Arena {
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(
       ArenaAlloc type, size_t bytes, std::align_val_t alignment = kAlignment);
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  // Allocates `bytes` that were previously reported as impending via
+  // UpdateAllocatedAndNonresident(bytes, 0), under a single arena_lock_
+  // acquisition.
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL void* AllocReportedImpending(
+      ArenaAlloc type, size_t bytes, std::align_val_t alignment = kAlignment);
+#endif
+
   // Updates the stats for allocated and non-resident bytes.
   void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident) {
     AllocationGuardSpinLockHolder l(arena_lock_);
