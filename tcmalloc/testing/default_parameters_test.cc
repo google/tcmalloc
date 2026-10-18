@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include <cstdio>
+#include <limits>
 
 #include "absl/strings/str_format.h"
 #include "absl/time/time.h"
@@ -108,6 +109,62 @@ bool TestSkipSubreleaseIntervals() {
   return true;
 }
 
+bool TestParameterClamping() {
+  MallocExtension::SetMaxTotalThreadCacheBytes(-1);
+  auto max_thread_cache = MallocExtension::GetNumericProperty(
+      "tcmalloc.max_total_thread_cache_bytes");
+  if (!max_thread_cache.has_value() ||
+      *max_thread_cache >
+          static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+    absl::FPrintF(stderr,
+                  "tcmalloc.max_total_thread_cache_bytes after -1: got %v, "
+                  "want clamped\n",
+                  max_thread_cache.value_or(0));
+    return false;
+  }
+
+  MallocExtension::SetProfileSamplingInterval(1);
+  MallocExtension::SetGuardedSamplingInterval(int64_t{1} << 40);
+  if (MallocExtension::GetGuardedSamplingInterval() <= 0) {
+    absl::FPrintF(stderr,
+                  "GuardedSamplingInterval after 1<<40: got %d, want > 0\n",
+                  MallocExtension::GetGuardedSamplingInterval());
+    return false;
+  }
+
+  MallocExtension::SetGuardedSamplingInterval(-(int64_t{1} << 32));
+
+  MallocExtension::SetBackgroundProcessSleepInterval(absl::Seconds(-1));
+  if (MallocExtension::GetBackgroundProcessSleepInterval() <
+      absl::ZeroDuration()) {
+    absl::FPrintF(
+        stderr, "BackgroundProcessSleepInterval after -1s: got %d, want >= 0\n",
+        absl::ToInt64Seconds(
+            MallocExtension::GetBackgroundProcessSleepInterval()));
+    return false;
+  }
+
+  MallocExtension::SetSkipSubreleaseShortInterval(absl::Seconds(-1));
+  if (MallocExtension::GetSkipSubreleaseShortInterval() <
+      absl::ZeroDuration()) {
+    absl::FPrintF(stderr,
+                  "SkipSubreleaseShortInterval after -1s: got %d, want >= 0\n",
+                  absl::ToInt64Seconds(
+                      MallocExtension::GetSkipSubreleaseShortInterval()));
+    return false;
+  }
+
+  MallocExtension::SetSkipSubreleaseLongInterval(absl::Seconds(-1));
+  if (MallocExtension::GetSkipSubreleaseLongInterval() < absl::ZeroDuration()) {
+    absl::FPrintF(
+        stderr, "SkipSubreleaseLongInterval after -1s: got %d, want >= 0\n",
+        absl::ToInt64Seconds(MallocExtension::GetSkipSubreleaseLongInterval()));
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace
 }  // namespace tcmalloc
 
@@ -119,6 +176,7 @@ int main() {
   success = success & tcmalloc::TestGuardedSamplingInterval();
   success = success & tcmalloc::TestBackgroundReleaseRate();
   success = success & tcmalloc::TestSkipSubreleaseIntervals();
+  success = success & tcmalloc::TestParameterClamping();
 
   if (success) {
     fprintf(stderr, "PASS");

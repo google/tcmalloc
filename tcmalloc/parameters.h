@@ -15,10 +15,12 @@
 #ifndef TCMALLOC_PARAMETERS_H_
 #define TCMALLOC_PARAMETERS_H_
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
@@ -196,12 +198,14 @@ class Parameters {
   [[nodiscard]] static absl::Duration background_process_sleep_interval();
 
   static void set_filler_skip_subrelease_short_interval(absl::Duration value) {
+    value = std::max(value, absl::ZeroDuration());
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(value);
   }
 
   [[nodiscard]] static absl::Duration filler_skip_subrelease_short_interval();
 
   static void set_filler_skip_subrelease_long_interval(absl::Duration value) {
+    value = std::max(value, absl::ZeroDuration());
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(value);
   }
 
@@ -209,6 +213,7 @@ class Parameters {
 
   static void set_filler_skip_subrelease_cold_short_interval(
       absl::Duration value) {
+    value = std::max(value, absl::ZeroDuration());
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(value);
   }
 
@@ -217,6 +222,7 @@ class Parameters {
 
   static void set_filler_skip_subrelease_cold_long_interval(
       absl::Duration value) {
+    value = std::max(value, absl::ZeroDuration());
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(value);
   }
 
