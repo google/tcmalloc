@@ -613,9 +613,9 @@ inline MemoryModifyStatus PageTracker::Collapse(
   // store the being_collapsed state.
   {
     PageHeapSpinLockHolder l;
-    // If the tracker is in the released state, or about to be, we do not want
-    // to collapse it.
-    if (released() || BeingReleased()) {
+    // If the tracker is fully freed, in the released state, or about to be, we
+    // do not want to collapse it.
+    if (fully_freed() || released() || BeingReleased()) {
       return {.success = false, .error_number = 0};
     }
     TC_ASSERT(!BeingCollapsed());

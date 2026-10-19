@@ -8005,6 +8005,62 @@ TEST_F(FillerTest, TryGetReturnsPerPagePreviouslyUnbackedState) {
   DeleteRaw(a3);
 }
 
+TEST_F(FillerTest, DoNotCollapseTrackerFreedDuringTreatment) {
+  randomize_density_ = false;
+  const SpanAllocInfo kSparseInfo = {1, AccessDensityPrediction::kSparse};
+  PAlloc a1 =
+      AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(1), kSparseInfo);
+  PAlloc a2 =
+      AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(1), kSparseInfo);
+  ASSERT_NE(a1.pt, a2.pt);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  for (const PAlloc& pa : {a1, a2}) {
+    pageflags.MarkHugePageBacked(pa.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    unbacked.SetRange(/*index=*/0, /*n=*/1);
+    residency.SetUnbackedAndSwappedBitmaps(pa.p.start_addr(), unbacked,
+                                           swapped);
+    pageflags.SetStaleBitmap(pa.p.start_addr(), {});
+  }
+
+  // While the first selected tracker is being collapsed (with pageheap_lock
+  // dropped), free the other tracker's only allocation so it becomes
+  // fully_freed() and is parked on fully_freed_trackers_.
+  bool freed_other = false;
+  PAlloc kept = a1;
+  PAlloc freed = a2;
+  collapse_.unlocked_hook_ = [&](Range r) {
+    if (freed_other) return;
+    freed_other = true;
+    HugePage collapsed_hp = HugePageContaining(r.p);
+    if (collapsed_hp == a1.pt->location()) {
+      kept = a1;
+      freed = a2;
+    } else {
+      kept = a2;
+      freed = a1;
+    }
+    EXPECT_FALSE(DeleteRaw(freed));
+    EXPECT_TRUE(freed.pt->fully_freed());
+  };
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  collapse_.unlocked_hook_ = nullptr;
+
+  EXPECT_TRUE(freed_other);
+  EXPECT_TRUE(collapse_.TriedCollapse(kept.p.start_addr()));
+  EXPECT_FALSE(collapse_.TriedCollapse(freed.p.start_addr()));
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(1));
+
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  Delete(kept);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
