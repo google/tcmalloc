@@ -8005,6 +8005,57 @@ TEST_F(FillerTest, TryGetReturnsPerPagePreviouslyUnbackedState) {
   DeleteRaw(a3);
 }
 
+TEST_F(FillerTest, HandleUnbackedHugePageClearsMaybeHugepageBacked) {
+  randomize_density_ = false;
+  const SpanAllocInfo kSparseInfo = {1, AccessDensityPrediction::kSparse};
+  PAlloc a =
+      AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(1), kSparseInfo);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a.p.start_addr(), /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  unbacked.SetRange(/*index=*/0, /*n=*/1);
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), unbacked, swapped);
+  pageflags.SetStaleBitmap(a.p.start_addr(), {});
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  ASSERT_EQ(collapse_.TimesCollapsed(a.p.start_addr()), 1);
+  ASSERT_TRUE(a.pt->GetHugePageResidencyState().maybe_hugepage_backed);
+
+  // Mark the free page on a.pt as subreleased via HandleUnbackedHugePage.
+  PageBitmap free_unbacked;
+  free_unbacked.SetRange(0, kPagesPerHugePage.raw_num());
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(filler_.HandleUnbackedHugePage(a.pt, free_unbacked), Length(1));
+  }
+  EXPECT_TRUE(a.pt->released());
+  EXPECT_FALSE(a.pt->unbroken());
+  EXPECT_FALSE(a.pt->GetHugePageResidencyState().maybe_hugepage_backed);
+  EXPECT_TRUE(a.pt->GetHugePageResidencyState().released_since_selected);
+
+  // Re-allocate the subreleased page so the tracker is no longer released(),
+  // then free it again so the tracker has a free page while still broken.
+  PAlloc tail = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+  ASSERT_EQ(tail.pt, a.pt);
+  ASSERT_FALSE(a.pt->released());
+  ASSERT_FALSE(a.pt->unbroken());
+  Delete(tail);
+
+  // After kRecordInterval elapses, TreatHugepageTrackers must revisit and
+  // collapse a.pt again instead of skipping it as maybe_hugepage_backed.
+  FakeClock::Advance(absl::Minutes(10));
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(collapse_.TimesCollapsed(a.p.start_addr()), 2);
+
+  Delete(a);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

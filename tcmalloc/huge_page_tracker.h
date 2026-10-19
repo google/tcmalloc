@@ -602,6 +602,8 @@ inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
   // TCMalloc pages. Marking this will move this tracker to one of the
   // released lists.
   unbroken_ = false;
+  hugepage_residency_state_.maybe_hugepage_backed = false;
+  hugepage_residency_state_.released_since_selected = true;
   TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
   return count;
