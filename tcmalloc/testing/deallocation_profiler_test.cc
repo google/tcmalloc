@@ -727,7 +727,10 @@ TEST(LifetimeProfiler, LifetimeBucketing) {
     return LifetimeNsToBucketedDuration(nanoseconds);
   };
 
-  EXPECT_EQ(absl::Nanoseconds(1), BucketizeDuration(0));
+  EXPECT_EQ(absl::ZeroDuration(), LifetimeNsToBucketedDuration(-5.0));
+  EXPECT_EQ(absl::ZeroDuration(), BucketizeDuration(0));
+  EXPECT_EQ(absl::Nanoseconds(1), LifetimeNsToBucketedDuration(0.5));
+  EXPECT_EQ(absl::Nanoseconds(1), BucketizeDuration(1));
   EXPECT_EQ(absl::Nanoseconds(10), BucketizeDuration(31));
   EXPECT_EQ(absl::Nanoseconds(100), BucketizeDuration(104));
   EXPECT_EQ(absl::Nanoseconds(1000), BucketizeDuration(4245));

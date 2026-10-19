@@ -877,10 +877,12 @@ namespace internal {
 // are rounded to the next smaller power of 10.  Lifetimes above 1ms are rounded
 // down to the nearest millisecond.
 absl::Duration LifetimeNsToBucketedDuration(double lifetime_ns) {
+  if (lifetime_ns <= 0.0) {
+    return absl::ZeroDuration();
+  }
   if (lifetime_ns < 1000000.0) {
     if (lifetime_ns <= 1) {
-      // Avoid negatives.  We can't allocate in a negative amount of time or
-      // even as quickly as a nanosecond (microbenchmarks of
+      // We can't allocate in as quickly as a nanosecond (microbenchmarks of
       // allocation/deallocation in a tight loop are several nanoseconds), so
       // results this small indicate probable clock skew or other confounding
       // factors in the data.
