@@ -376,6 +376,22 @@ tcmalloc_cc_library(
     "tcmalloc::malloc_extension"
 )
 
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_gwp_asan_state_test
+  SRCS
+    "gwp_asan_state_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::span"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_gwp_asan_state"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::tcmalloc"
+)
+
 tcmalloc_cc_library(
   NAME
     tcmalloc_internal_hook_list
