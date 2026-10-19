@@ -523,6 +523,11 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
                bitmaps.unbacked.CountBits() < kMaxUnbackedPagesForCollapse);
           if (should_collapse) {
             state.maybe_hugepage_backed = TryUserspaceCollapse(tracker);
+            if (state.maybe_hugepage_backed) {
+              state.unbacked = {};
+              state.swapped = {};
+              state.stale = {};
+            }
           } else {
             state.collapse_skipped = true;
           }
@@ -549,24 +554,29 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
       }
-      if (residency_states_[i].tracker_state.maybe_hugepage_backed &&
-          tracker->GetHugePageResidencyState().released_since_selected) {
-        // The hugepage was observed (or collapsed) as hugepage backed, but
-        // another thread released pages from it while pageheap_lock was
-        // dropped, breaking it again (the pages may since have been
-        // reallocated, so released() alone would not show it).  Record it as
-        // broken so that a later pass reexamines it instead of skipping it as
-        // hugepage backed, and do not report the stale collapse to the filler.
-        residency_states_[i].tracker_state.maybe_hugepage_backed = false;
-      }
-      tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
       if (residency_states_[i].tracker_state.maybe_hugepage_backed) {
-        if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
-          page_filler_.OnCollapseSuccess(tracker);
+        if (tracker->GetHugePageResidencyState().released_since_selected) {
+          // The hugepage was observed (or collapsed) as hugepage backed, but
+          // another thread released pages from it while pageheap_lock was
+          // dropped, breaking it again (the pages may since have been
+          // reallocated, so released() alone would not show it).  Record it as
+          // broken so that a later pass reexamines it instead of skipping it as
+          // hugepage backed, and do not report the stale collapse to the
+          // filler.
+          residency_states_[i].tracker_state.maybe_hugepage_backed = false;
+          tracker->SetHugePageResidencyState(
+              residency_states_[i].tracker_state);
+        } else {
+          tracker->SetHugePageResidencyState(
+              residency_states_[i].tracker_state);
+          if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
+            page_filler_.OnCollapseSuccess(tracker);
+          }
         }
         tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
       }
+      tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
 
       // HandleReleaseFree drops pageheap_lock, so the kCollapse pin stays set
       // across it: a concurrent Put that empties tracker then parks it rather
