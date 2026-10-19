@@ -1762,6 +1762,14 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       },
       /*start=*/0);
 
+  if (sampled_tracker_treatment.num_valid_trackers() == 0 &&
+      unbacked_tracker_treatment.num_valid_trackers() == 0) {
+    treatment_stats_.treated_pages_subreleased = Length(0);
+    treatment_stats_.treated_pages_unbacked_subreleased = Length(0);
+    treatment_stats_.treated_pages_stale_subreleased = Length(0);
+    return;
+  }
+
   sampled_tracker_treatment.FinishSelection();
   unbacked_tracker_treatment.FinishSelection();
 

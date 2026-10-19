@@ -333,8 +333,18 @@ class SampledTrackerTreatment final : public HugePageTreatment {
   double record_interval_cycles_;
 
   struct TrackerState {
+    TrackerState() {}
+    TrackerState(PageTracker* t, Length l, size_t na, size_t no, bool d, bool r)
+        : tracker(t),
+          lfr(l),
+          nallocs(na),
+          nobjects(no),
+          has_dense_spans(d),
+          released(r) {}
     PageTracker* tracker;
-    Length lfr;
+    union {
+      Length lfr;
+    };
     size_t nallocs;
     size_t nobjects;
     bool has_dense_spans;
@@ -662,8 +672,11 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   int num_valid_trackers_ = 0;
 
   struct ResidencyState {
+    ResidencyState() {}
     PageTracker* tracker;
-    PageTracker::HugePageResidencyState tracker_state;
+    union {
+      PageTracker::HugePageResidencyState tracker_state;
+    };
   };
   std::array<ResidencyState, kTotalTrackersToScan> residency_states_;
   HugePageTreatmentStats treatment_stats_;
