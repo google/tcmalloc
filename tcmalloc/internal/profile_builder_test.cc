@@ -1562,6 +1562,56 @@ TEST(ProfileConverterTest, NoCompressibilityColumnsWithoutMeasurements) {
   }
 }
 
+TEST(BuildId, ZeroOneAndCorruptAlignment) {
+  // Construct two 4-byte-aligned ELF notes back-to-back:
+  // 1) A non-GNU note with n_namesz = 6 ("Linux\0", padded to 8) and
+  //    n_descsz = 1 (padded to 4), total 12 + 8 + 4 = 24 bytes.
+  // 2) An NT_GNU_BUILD_ID note with n_namesz = 4 ("GNU\0") and
+  //    n_descsz = 8 (0x0102030405060708), total 12 + 4 + 8 = 24 bytes.
+  alignas(8) uint8_t note_buf[48] = {};
+  ElfW(Nhdr) nhdr1 = {};
+  nhdr1.n_namesz = 6;
+  nhdr1.n_descsz = 1;
+  nhdr1.n_type = 0;
+  std::memcpy(note_buf, &nhdr1, sizeof(nhdr1));
+  std::memcpy(note_buf + sizeof(nhdr1), "Linux", 6);
+  note_buf[sizeof(nhdr1) + 8] = 0x42;
+
+  ElfW(Nhdr) nhdr2 = {};
+  nhdr2.n_namesz = 4;
+  nhdr2.n_descsz = 8;
+  nhdr2.n_type = NT_GNU_BUILD_ID;
+  std::memcpy(note_buf + 24, &nhdr2, sizeof(nhdr2));
+  std::memcpy(note_buf + 24 + sizeof(nhdr2), "GNU\0", 4);
+  const uint8_t kDesc[8] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+  std::memcpy(note_buf + 24 + sizeof(nhdr2) + 4, kDesc, sizeof(kDesc));
+
+  ElfW(Phdr) pt_note = {};
+  pt_note.p_type = PT_NOTE;
+  pt_note.p_vaddr = 0;
+  pt_note.p_filesz = sizeof(note_buf);
+
+  dl_phdr_info info = {};
+  info.dlpi_name = "test.so";
+  info.dlpi_addr = reinterpret_cast<ElfW(Addr)>(note_buf);
+  info.dlpi_phdr = &pt_note;
+  info.dlpi_phnum = 1;
+
+  // ELF spec: p_align of 0 or 1 means default 4-byte note alignment.
+  pt_note.p_align = 0;
+  EXPECT_EQ(GetBuildId(&info), "0102030405060708");
+
+  pt_note.p_align = 1;
+  EXPECT_EQ(GetBuildId(&info), "0102030405060708");
+
+  // Non-power-of-2 or sub-4-byte p_align values are corrupt and must be
+  // rejected rather than causing misaligned ElfW(Nhdr) dereferences.
+  for (ElfW(Word) bad_align : {ElfW(Word){2}, ElfW(Word){3}, ElfW(Word){6}}) {
+    pt_note.p_align = bad_align;
+    EXPECT_EQ(GetBuildId(&info), "");
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

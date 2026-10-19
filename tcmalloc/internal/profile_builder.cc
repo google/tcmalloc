@@ -253,7 +253,13 @@ std::string GetBuildId(const dl_phdr_info* const info) {
     const char* note =
         reinterpret_cast<char*>(info->dlpi_addr + pt_note->p_vaddr);
     const char* const last = note + pt_note->p_filesz;
-    const ElfW(Word) align = pt_note->p_align;
+    const ElfW(Word) align =
+        pt_note->p_align <= 1 ? ElfW(Word){4} : pt_note->p_align;
+    if (align < alignof(ElfW(Nhdr)) || (align & (align - 1)) != 0 ||
+        reinterpret_cast<uintptr_t>(note) % alignof(ElfW(Nhdr)) != 0) {
+      // Corrupt PT_NOTE alignment.
+      continue;
+    }
     while (note < last) {
       const ElfW(Nhdr)* const nhdr = reinterpret_cast<const ElfW(Nhdr)*>(note);
       if (note + sizeof(*nhdr) > last) {
