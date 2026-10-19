@@ -452,14 +452,20 @@ void ProfileBuilder::InternCallstack(absl::Span<const void* const> stack,
 
 void ProfileBuilder::AddCurrentMappings() {
 #if defined(__linux__)
+  struct CallbackData {
+    ProfileBuilder& builder;
+    bool is_first_entry = true;
+  };
   auto dl_iterate_callback = +[](dl_phdr_info* info, size_t size, void* data) {
     // Skip dummy entry introduced since glibc 2.18.
     if (info->dlpi_phdr == nullptr && info->dlpi_phnum == 0) {
       return 0;
     }
 
-    ProfileBuilder& builder = *static_cast<ProfileBuilder*>(data);
-    const bool is_main_executable = builder.profile_->mapping_size() == 0;
+    CallbackData& cb_data = *static_cast<CallbackData*>(data);
+    ProfileBuilder& builder = cb_data.builder;
+    const bool is_main_executable =
+        std::exchange(cb_data.is_first_entry, false);
 
     // Storage for path to executable as dlpi_name isn't populated for the
     // main executable.  +1 to allow for the null terminator that readlink
@@ -485,10 +491,12 @@ void ProfileBuilder::AddCurrentMappings() {
 
     char resolved_path[PATH_MAX];
     absl::string_view resolved_filename;
-    if (realpath(filename, resolved_path)) {
-      resolved_filename = resolved_path;
-    } else {
-      resolved_filename = filename;
+    if (filename != nullptr) {
+      if (realpath(filename, resolved_path)) {
+        resolved_filename = resolved_path;
+      } else {
+        resolved_filename = filename;
+      }
     }
 
     const std::string build_id = GetBuildId(info);
@@ -515,7 +523,8 @@ void ProfileBuilder::AddCurrentMappings() {
     return 0;
   };
 
-  dl_iterate_phdr(dl_iterate_callback, this);
+  CallbackData cb_data{*this};
+  dl_iterate_phdr(dl_iterate_callback, &cb_data);
 #endif  // defined(__linux__)
 }
 

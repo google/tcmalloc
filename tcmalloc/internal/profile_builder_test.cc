@@ -1562,6 +1562,21 @@ TEST(ProfileConverterTest, NoCompressibilityColumnsWithoutMeasurements) {
   }
 }
 
+TEST(ProfileBuilderTest, AddCurrentMappingsAfterAddMapping) {
+  ProfileBuilder builder;
+  builder.AddMapping(uintptr_t{0x100}, uintptr_t{0x200}, uintptr_t{0},
+                     "custom.so", "deadbeef");
+  builder.AddCurrentMappings();
+  auto profile = std::move(builder).Finalize();
+
+  absl::flat_hash_set<std::string> filenames;
+  for (const auto& mapping : profile->mapping()) {
+    filenames.emplace(profile->string_table(mapping.filename()));
+  }
+  EXPECT_THAT(filenames, testing::Contains("custom.so"));
+  EXPECT_THAT(filenames, testing::Contains(RealPath()));
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
