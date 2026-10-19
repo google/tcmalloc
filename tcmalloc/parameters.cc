@@ -106,18 +106,17 @@ static std::atomic<int64_t>& background_process_sleep_interval_ns() {
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::Duration interval;
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  interval = absl::ZeroDuration();
-#else
-  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
-    interval = absl::Seconds(60);
-  } else {
-    interval = absl::Seconds(10);
-  }
-#endif
-
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    absl::Duration interval;
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+    interval = absl::ZeroDuration();
+#else
+    if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
+      interval = absl::Seconds(60);
+    } else {
+      interval = absl::Seconds(10);
+    }
+#endif
     // clang-format off
     v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
     // clang-format on
@@ -128,18 +127,17 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::Duration interval;
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  interval = absl::ZeroDuration();
-#else
-  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
-    interval = absl::Seconds(300);
-  } else {
-    interval = absl::Seconds(120);
-  }
-#endif
-
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    absl::Duration interval;
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+    interval = absl::ZeroDuration();
+#else
+    if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
+      interval = absl::Seconds(300);
+    } else {
+      interval = absl::Seconds(120);
+    }
+#endif
     // clang-format off
     v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
     // clang-format on
@@ -186,6 +184,7 @@ static std::atomic<int64_t>& skip_subrelease_cold_long_interval_ns() {
 }
 
 uint64_t Parameters::heap_size_hard_limit() {
+  tc_globals.InitIfNecessary();
   return tc_globals.page_allocator().limit(PageAllocator::kHard);
 }
 
@@ -548,6 +547,7 @@ void MallocExtension_Internal_GetBackgroundProcessSleepInterval(
 
 void MallocExtension_Internal_SetBackgroundProcessSleepInterval(
     absl::Duration value) {
+  value = std::max(value, absl::ZeroDuration());
   tcmalloc::tcmalloc_internal::background_process_sleep_interval_ns().store(
       absl::ToInt64Nanoseconds(value), std::memory_order_relaxed);
 }
@@ -683,7 +683,8 @@ void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
 
 void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v) {
   Parameters::max_total_thread_cache_bytes_.store(v, std::memory_order_relaxed);
-  tcmalloc::tcmalloc_internal::ThreadCache::set_overall_thread_cache_size(v);
+  tcmalloc::tcmalloc_internal::ThreadCache::set_overall_thread_cache_size(
+      std::max<int64_t>(0, v));
 }
 
 void TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v) {
@@ -719,6 +720,7 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration v) {
+  v = std::max(v, absl::ZeroDuration());
   tcmalloc::tcmalloc_internal::skip_subrelease_short_interval_ns().store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
@@ -730,6 +732,7 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration v) {
+  v = std::max(v, absl::ZeroDuration());
   tcmalloc::tcmalloc_internal::skip_subrelease_long_interval_ns().store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
@@ -741,6 +744,7 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdShortInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
     absl::Duration v) {
+  v = std::max(v, absl::ZeroDuration());
   tcmalloc::tcmalloc_internal::skip_subrelease_cold_short_interval_ns().store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
@@ -752,6 +756,7 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdLongInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
     absl::Duration v) {
+  v = std::max(v, absl::ZeroDuration());
   tcmalloc::tcmalloc_internal::skip_subrelease_cold_long_interval_ns().store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
