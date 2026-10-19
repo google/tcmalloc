@@ -14,13 +14,18 @@
 
 #include "tcmalloc/allocation_sampling.h"
 
+#include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <new>
 #include <optional>
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/time/clock.h"
@@ -30,15 +35,19 @@
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/guarded_allocations.h"
+#include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
+#include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/sampler.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/static_vars.h"
@@ -56,6 +65,364 @@ std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state) {
         profile->AddTrace(1.0, sampled_allocation.sampled_stack);
       });
   return profile;
+}
+
+// Performs sampling for already occurred allocation of object.
+//
+// For small object sizes, we allocate a new object in a sampled span.
+//
+// For large objects (i.e. allocated with do_malloc_pages) they are
+// also fully reused and their span is marked as sampled.
+//
+// Note that do_free_with_size assumes sampled objects have
+// page-aligned addresses. Please change both functions if need to
+// invalidate the assumption.
+//
+// Note that size_class might not match requested_size in case of
+// memalign. I.e. when larger than requested allocation is done to
+// satisfy alignment constraint.
+//
+// In case of out-of-memory condition when allocating span or
+// stacktrace struct, this function simply cheats and returns original
+// object. As if no sampling was requested.
+[[nodiscard]] ABSL_ATTRIBUTE_NOINLINE sized_ptr_t
+SampleifyAllocation(Static& state, DynamicPolicy policy, size_t requested_size,
+                    size_t weight, size_t size_class, Range r, bool donated) {
+  TC_CHECK_EQ(size_class != 0, r.n == Length(0));
+
+  StackTrace stack_trace;
+  stack_trace.requested_size = requested_size;
+  // Grab the stack trace outside the heap lock.
+  stack_trace.depth = absl::GetStackTrace(stack_trace.stack, kMaxStackDepth, 0);
+
+  if (policy.has_explicit_alignment()) {
+    stack_trace.requested_alignment = policy.align();
+  } else {
+    stack_trace.requested_alignment = std::nullopt;
+  }
+
+  stack_trace.requested_size_returning = policy.size_returning();
+  stack_trace.access_hint = static_cast<uint8_t>(policy.access());
+  stack_trace.weight = weight;
+  stack_trace.token_id = policy.token_id();
+
+  // How many allocations does this sample represent, given the sampling
+  // frequency (weight) and its size.
+  const double allocation_estimate =
+      static_cast<double>(weight) / (requested_size + 1);
+
+  GuardedAllocWithStatus alloc_with_status{
+      nullptr, Profile::Sample::GuardedStatus::NotAttempted};
+
+  const MemoryTag tag =
+      Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull &&
+              policy.partition() == 1
+          ? MemoryTag::kSampledOrColdP1
+          : MemoryTag::kSampledOrCold;
+  size_t capacity = 0;
+  if (size_class != 0) {
+    TC_ASSERT(!donated);
+    stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
+    stack_trace.cold_allocated = IsColdSizeClass(size_class);
+
+    Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
+    std::align_val_t sample_alignment = policy.align();
+    alloc_with_status = state.guardedpage_allocator().TrySample(
+        requested_size, sample_alignment, num_pages, stack_trace);
+    if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
+      TC_ASSERT(!IsNormalMemory(alloc_with_status.alloc));
+      r = Range(PageIdContaining(alloc_with_status.alloc), num_pages);
+      donated = false;
+      // If we report capacity back from a size returning allocation, we can not
+      // report the stack_trace.allocated_size, as we guard the size to
+      // 'requested_size', and we maintain the invariant that GetAllocatedSize()
+      // must match the returned size from size returning allocations. So in
+      // that case, we report the requested size for both capacity and
+      // GetAllocatedSize().
+      if (policy.size_returning()) {
+        stack_trace.allocated_size = requested_size;
+      }
+      capacity = requested_size;
+    } else if (auto res = state.page_allocator().New(
+                   num_pages, {1, AccessDensityPrediction::kSparse}, tag)) {
+      r = res.r;
+      donated = res.donated;
+      capacity = stack_trace.allocated_size;
+    } else {
+      return {};
+    }
+
+    state.per_size_class_counts()[size_class].Add(allocation_estimate);
+  } else {
+    // Set stack_trace.allocated_size to the exact size for a page allocation.
+    // NOTE: if we introduce gwp-asan sampling / guarded allocations
+    // for page allocations, then we need to revisit do_malloc_pages as
+    // the current assumption is that only class sized allocs are sampled
+    // for gwp-asan.
+    stack_trace.allocated_size = r.in_bytes();
+    stack_trace.cold_allocated =
+        GetMemoryTag(r.start_addr()) == MemoryTag::kSampledOrCold;
+    capacity = stack_trace.allocated_size;
+  }
+
+  TC_ASSERT_GT(r.n, Length(0));
+
+  // Do not madvise guarded (GWP-ASan) allocations: GWP-ASan initializes magic
+  // canary bytes in the allocated page to detect buffer overflows on
+  // deallocation; releasing memory zeroes the page and corrupts the canaries.
+  if (Parameters::madvise_sampled_allocations() ==
+          MadviseSampledAllocations::kEnabled &&
+      alloc_with_status.status != Profile::Sample::GuardedStatus::Guarded) {
+    switch (GetMemoryTag(r.start_addr())) {
+      case MemoryTag::kSampledOrCold:
+      case MemoryTag::kSampledOrColdP1: {
+        const uintptr_t hardware_page_size = GetPageSize();
+        const size_t allocated_size_rounded =
+            (stack_trace.allocated_size + hardware_page_size - 1) &
+            ~(hardware_page_size - 1);
+        const size_t limit =
+            std::min<size_t>(r.in_bytes(), allocated_size_rounded);
+        if (limit <= hardware_page_size) {
+          break;
+        }
+        uintptr_t start =
+            reinterpret_cast<uintptr_t>(r.start_addr()) + hardware_page_size;
+        uintptr_t length = limit - hardware_page_size;
+
+        (void)state.system_allocator().Release(reinterpret_cast<void*>(start),
+                                               length);
+        break;
+      }
+      case MemoryTag::kNormal:
+      case MemoryTag::kNormalP1:
+      case MemoryTag::kGuarded:
+      case MemoryTag::kMetadata:
+        break;
+    }
+  }
+
+  // TODO(b/414876446): Add entropy to the handles generated.
+  stack_trace.sampled_alloc_handle =
+      AllocHandle(state.sampled_alloc_handle_generator.fetch_add(
+                      1, std::memory_order_relaxed) +
+                  1);
+  // For guarded allocations under large page sizes, r.start_addr()
+  // rounds down to a PROT_NONE guard page; record the object address instead
+  // so residency queries (e.g. mincore) inspect the accessible page.
+  stack_trace.span_start_address = (alloc_with_status.alloc != nullptr)
+                                       ? alloc_with_status.alloc
+                                       : r.start_addr();
+  stack_trace.allocation_time = absl::Now();
+  stack_trace.guarded_status = alloc_with_status.status;
+  stack_trace.allocation_type = policy.allocation_type();
+
+  // Adjust our estimate of internal fragmentation.
+  TC_ASSERT_LE(requested_size, stack_trace.allocated_size);
+  if (requested_size < stack_trace.allocated_size) {
+    state.sampled_internal_fragmentation_.Add(
+        allocation_estimate * (stack_trace.allocated_size - requested_size));
+  }
+
+  MallocHook::SampledAlloc sampled_alloc = {
+      .handle = stack_trace.sampled_alloc_handle,
+      .requested_size = stack_trace.requested_size,
+      .requested_alignment = stack_trace.requested_alignment,
+      .allocated_size = stack_trace.allocated_size,
+      .weight = allocation_estimate,
+      .stack = absl::MakeSpan(stack_trace.stack, stack_trace.depth),
+      .allocation_time = stack_trace.allocation_time,
+      .ptr = stack_trace.span_start_address,
+      .access_hint = stack_trace.access_hint,
+      .access_allocated = stack_trace.cold_allocated ? MallocHook::Access::Cold
+                                                     : MallocHook::Access::Hot,
+  };
+  MallocHook::InvokeSampledNewHook(sampled_alloc);
+
+  state.allocation_samples.ReportMalloc(stack_trace);
+
+  state.deallocation_samples.ReportMalloc(stack_trace);
+
+  // The SampledAllocation object is visible to readers after this. Readers only
+  // care about its various metadata (e.g. stack trace, weight) to generate the
+  // heap profile.
+  SampledAllocation* sampled_allocation =
+      state.sampled_allocation_recorder().Register(std::move(stack_trace));
+
+  // No pageheap_lock required. The page is freshly allocated and no one else
+  // can access it. It is visible after we return from this allocation path.
+  state.pagemap().SetSampled(r.p, sampled_allocation, donated);
+
+  // The cast to value matches MaybeUnsampleAllocation.
+  StatsCounter::Value allocated_bytes = static_cast<StatsCounter::Value>(
+      AllocatedBytes(sampled_allocation->sampled_stack));
+  state.sampled_objects_size_.Add(allocated_bytes);
+  state.total_sampled_count_.Add(1);
+
+  state.peak_heap_tracker().MaybeSaveSample();
+
+  TC_ASSERT_EQ(state.pagemap().sizeclass(r.p), 0);
+  return {(alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
+                                               : r.start_addr(),
+          capacity};
+}
+
+// Rewrite type so that the allocation type falls into one of the categories we
+// use for deallocations (new or malloc, not aligned malloc or array new).
+[[nodiscard]] static inline AllocationType SimplifyType(AllocationType type) {
+  switch (type) {
+    case AllocationType::New:
+    case AllocationType::Malloc:
+      return type;
+    case AllocationType::AlignedMalloc:
+      return AllocationType::Malloc;
+    case AllocationType::NewArray:
+      return AllocationType::New;
+  }
+
+  ABSL_UNREACHABLE();
+}
+
+void MaybeUnsampleAllocation(Static& state, DynamicPolicy policy,
+                             void* absl_nonnull ptr, std::optional<size_t> size,
+                             PageId p, PageMeta meta) {
+  if (!meta.sampled()) {
+    if (ABSL_PREDICT_TRUE(size.has_value())) {
+      const size_t maximum_size = meta.size().in_bytes();
+      const size_t minimum_size = maximum_size - (kPageSize - 1u);
+
+      // *size should fall in [minimum_size, maximum_size], but a size of 0
+      // bytes is rounded up to 1 page if overaligned, we must allow 0 bytes if
+      // the span is 1 page.
+      if (ABSL_PREDICT_FALSE(*size < minimum_size || *size > maximum_size) &&
+          ABSL_PREDICT_TRUE(
+              !(*size == 0 && maximum_size == kPageSize &&
+                static_cast<size_t>(policy.align()) > kPageSize))) {
+        // While we don't have precise allocation-time information because
+        // this span was not sampled, the deallocated object's purported size
+        // exceeds the span it is on.  This is impossible and indicates
+        // corruption.
+        ReportMismatchedDelete(state, ptr, *size, minimum_size, maximum_size);
+      }
+    }
+
+    return;
+  }
+
+  SampledAllocation* sampled_allocation = meta.sampled_allocation();
+  TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContainingTagged(ptr)), 0);
+
+  // The cast to Value ensures no funny business happens during the negation if
+  // sizeof(size_t) != sizeof(Value).
+  StatsCounter::Value neg_allocated_bytes = -static_cast<StatsCounter::Value>(
+      AllocatedBytes(sampled_allocation->sampled_stack));
+  state.sampled_objects_size_.Add(neg_allocated_bytes);
+
+  const size_t weight = sampled_allocation->sampled_stack.weight;
+  const size_t requested_size =
+      sampled_allocation->sampled_stack.requested_size;
+  const size_t allocated_size =
+      sampled_allocation->sampled_stack.allocated_size;
+  if (size.has_value()) {
+    if (sampled_allocation->sampled_stack.requested_size_returning) {
+      if (ABSL_PREDICT_FALSE(
+              !(requested_size <= *size && *size <= allocated_size))) {
+        ReportMismatchedDelete(state, ptr, *sampled_allocation, *size,
+                               requested_size, allocated_size);
+      }
+    } else if (ABSL_PREDICT_FALSE(size != requested_size)) {
+      ReportMismatchedDelete(state, ptr, *sampled_allocation, *size,
+                             requested_size, std::nullopt);
+    }
+  }
+
+  if (auto dealloc_type = SimplifyType(policy.allocation_type()),
+      alloc_type =
+          SimplifyType(sampled_allocation->sampled_stack.allocation_type);
+      ABSL_PREDICT_FALSE(dealloc_type != alloc_type)) {
+    ReportMismatchedFree(
+        state, ptr, sampled_allocation->sampled_stack.allocation_type,
+        policy.allocation_type(),
+        absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                       sampled_allocation->sampled_stack.depth));
+  }
+
+  // Check pointer for misalignment.
+  //
+  // TODO(ckennelly): Eliminate redundant guarded check with
+  // InvokeHooksAndFreePages.
+  if (ABSL_PREDICT_FALSE(ptr != p.start_addr()) &&
+      sampled_allocation->sampled_stack.guarded_status !=
+          Profile::Sample::GuardedStatus::Guarded) {
+    ReportCorruptedFree(
+        tc_globals, static_cast<std::align_val_t>(kPageSize), ptr,
+        absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                       sampled_allocation->sampled_stack.depth));
+  }
+
+  if ((size.has_value() || IsNew(policy.allocation_type()))) {
+    // operator delete[] aliases operator delete, so a new[] allocation is
+    // expected to be deallocated as "new".
+    // TODO(b/457842787): Distinguish operator delete[] from operator delete to
+    // detect new[]/delete mismatches.
+    const AllocationType alloc_type =
+        sampled_allocation->sampled_stack.allocation_type;
+    const bool type_mismatch = IsNew(alloc_type)
+                                   ? !IsNew(policy.allocation_type())
+                                   : policy.allocation_type() != alloc_type;
+    const std::optional<std::align_val_t> deallocated_alignment =
+        policy.has_explicit_alignment()
+            ? std::make_optional<std::align_val_t>(policy.align())
+            : std::nullopt;
+    const bool alignment_mismatch =
+        deallocated_alignment !=
+        sampled_allocation->sampled_stack.requested_alignment;
+    if (ABSL_PREDICT_FALSE(type_mismatch || alignment_mismatch)) {
+      ReportMismatchedFree(
+          state, ptr, sampled_allocation->sampled_stack.requested_alignment,
+          deallocated_alignment,
+          absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                         sampled_allocation->sampled_stack.depth));
+    }
+  }
+
+  // How many allocations does this sample represent, given the sampling
+  // frequency (weight) and its size.
+  const double allocation_estimate =
+      static_cast<double>(weight) / (requested_size + 1);
+  AllocHandle sampled_alloc_handle =
+      sampled_allocation->sampled_stack.sampled_alloc_handle;
+  MallocHook::SampledAlloc sampled_alloc = {
+      .handle = sampled_alloc_handle,
+      .requested_size = requested_size,
+      .requested_alignment =
+          sampled_allocation->sampled_stack.requested_alignment,
+      .allocated_size = allocated_size,
+      .weight = allocation_estimate,
+      .stack = absl::MakeSpan(sampled_allocation->sampled_stack.stack,
+                              sampled_allocation->sampled_stack.depth),
+      .allocation_time = sampled_allocation->sampled_stack.allocation_time,
+      .ptr = ptr,
+      .access_hint = sampled_allocation->sampled_stack.access_hint,
+      .access_allocated = sampled_allocation->sampled_stack.cold_allocated
+                              ? MallocHook::Access::Cold
+                              : MallocHook::Access::Hot,
+  };
+  state.sampled_allocation_recorder().Unregister(sampled_allocation);
+
+  // Adjust our estimate of internal fragmentation.
+  TC_ASSERT_LE(requested_size, allocated_size);
+  if (requested_size < allocated_size) {
+    const size_t sampled_fragmentation =
+        allocation_estimate * (allocated_size - requested_size);
+
+    // Check against wraparound
+    TC_ASSERT_GE(state.sampled_internal_fragmentation_.value(),
+                 sampled_fragmentation);
+    state.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
+  }
+  MallocHook::InvokeSampledDeleteHook(sampled_alloc);
+
+  state.deallocation_samples.ReportFree(sampled_alloc_handle);
 }
 
 }  // namespace tcmalloc::tcmalloc_internal
