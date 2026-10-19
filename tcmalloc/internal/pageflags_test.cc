@@ -90,6 +90,10 @@ class PageFlagsFriend {
     return r_.GetSinglePageBitmaps(addr);
   }
 
+  decltype(auto) MaybeReadOne(uintptr_t vaddr, uint64_t& flags, bool& is_huge) {
+    return r_.MaybeReadOne(vaddr, flags, is_huge);
+  }
+
   void SetCachedScanSeconds(
       decltype(PageFlags::cached_scan_seconds_) scan_seconds) {
     r_.cached_scan_seconds_ = scan_seconds;
@@ -111,8 +115,10 @@ using ::testing::Optional;
 
 constexpr uint64_t kPageHead = (1UL << 15);
 constexpr uint64_t kPageTail = (1UL << 16);
-constexpr uint64_t kPageThp = (1UL << 22);
 constexpr uint64_t kPageHuge = (1UL << 17);
+constexpr uint64_t kPageUnevictable = (1UL << 18);
+constexpr uint64_t kPageThp = (1UL << 22);
+constexpr uint64_t kPageMlocked = (1UL << 33);
 constexpr uint64_t kPageStale = (1UL << 44);
 
 constexpr size_t kPagemapEntrySize = 8;
@@ -375,10 +381,6 @@ TEST(PageFlagsTest, Locked) {
   // hugepages.
   char* p = MmapWithHugepageMisalignment(kNumPages * kHardwarePageSize,
                                          /*misalignment=*/0);
-  absl::BitGen rng;
-  for (int i = 0; i < kNumPages * kHardwarePageSize; ++i) {
-    p[i] = absl::Uniform(rng, 0, 256);
-  }
 
   PageFlags s;
   ASSERT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}));
@@ -391,6 +393,11 @@ TEST(PageFlagsTest, Locked) {
   ASSERT_EQ(madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_HUGEPAGE), 0)
       << errno;
 
+  absl::BitGen rng;
+  for (int i = 0; i < kNumPages * kHardwarePageSize; ++i) {
+    p[i] = absl::Uniform(rng, 0, 256);
+  }
+
   ASSERT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}));
 
   // Synchronously collapse the MADV_HUGEPAGE regions into transparent
@@ -400,9 +407,16 @@ TEST(PageFlagsTest, Locked) {
   // inconsistent, so the reported locked byte count oscillates a few pages
   // around the true value. MADV_COLLAPSE must run before mlock() (it can fail
   // on pinned pages) and is best-effort (Linux 6.1+); ignore failures on
-  // kernels that lack it.
+  // kernels that lack it. Afterwards, set MADV_NOHUGEPAGE on those ranges
+  // before mlock() so that if MADV_COLLAPSE could not collapse a range,
+  // khugepaged cannot asynchronously collapse or migrate pages during or after
+  // mlock() (already-collapsed THPs remain intact).
   (void)madvise(p + kHugePageSize, 3 * kHugePageSize, MADV_COLLAPSE);
   (void)madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_COLLAPSE);
+  ASSERT_EQ(madvise(p + kHugePageSize, 3 * kHugePageSize, MADV_NOHUGEPAGE), 0)
+      << errno;
+  ASSERT_EQ(madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_NOHUGEPAGE), 0)
+      << errno;
 
   ASSERT_EQ(mlock(p, kHardwarePageSize * kNumPages), 0) << errno;
 
@@ -427,6 +441,112 @@ TEST(PageFlagsTest, Locked) {
   ASSERT_EQ(res->bytes_locked, kHardwarePageSize * kNumPages);
 
   ASSERT_EQ(munmap(p, kNumPages * kHardwarePageSize), 0) << errno;
+}
+
+TEST(PageFlagsTest, MlockedFlags) {
+  GTEST_SKIP() << "pageflags not commonly available";
+
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_MEMORY_SANITIZER || \
+    ABSL_HAVE_THREAD_SANITIZER
+  GTEST_SKIP() << "Skipped under sanitizers.";
+#endif
+
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kSize = kHugePageSize;
+  char* p = MmapWithHugepageMisalignment(kSize, /*misalignment=*/0);
+  absl::BitGen rng;
+  for (size_t i = 0; i < kSize; ++i) {
+    p[i] = absl::Uniform<uint8_t>(rng);
+  }
+
+  PageFlagsFriend s;
+  ASSERT_THAT(s.Get(p, kSize), Optional(PageStats{}));
+  for (size_t offset = 0; offset < kSize; offset += kHardwarePageSize) {
+    uint64_t flags = 0;
+    bool is_huge = false;
+    ASSERT_EQ(
+        s.MaybeReadOne(reinterpret_cast<uintptr_t>(p) + offset, flags, is_huge),
+        absl::StatusCode::kOk);
+    EXPECT_EQ(flags & kPageMlocked, 0)
+        << "offset=" << offset << " flags=0x" << absl::Hex(flags);
+  }
+
+  (void)madvise(p, kSize, MADV_COLLAPSE);
+  ASSERT_EQ(madvise(p, kSize, MADV_NOHUGEPAGE), 0) << errno;
+  ASSERT_EQ(mlock(p, kSize), 0) << errno;
+
+  std::optional<PageStats> res;
+  absl::Time start = absl::Now();
+  do {
+    res = s.Get(p, kSize);
+    ASSERT_TRUE(res.has_value());
+    if (res->bytes_locked == kSize) {
+      break;
+    }
+    absl::SleepFor(absl::Milliseconds(100));
+  } while (absl::Now() - start < absl::Seconds(60));
+  ASSERT_TRUE(res.has_value());
+  ASSERT_EQ(res->bytes_locked, kSize);
+
+  for (size_t offset = 0; offset < kSize; offset += kHardwarePageSize) {
+    uint64_t flags = 0;
+    bool is_huge = false;
+    ASSERT_EQ(
+        s.MaybeReadOne(reinterpret_cast<uintptr_t>(p) + offset, flags, is_huge),
+        absl::StatusCode::kOk);
+    EXPECT_EQ(flags & kPageMlocked, kPageMlocked)
+        << "offset=" << offset << " flags=0x" << absl::Hex(flags);
+  }
+
+  ASSERT_EQ(munmap(p, kSize), 0) << errno;
+}
+
+TEST(PageFlagsTest, UnevictableWithoutMlockedIsNotLocked) {
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  std::vector<uint64_t> data(3 * kPagesPerHugepage, 0);
+
+  // Hugepage 0: individual native pages with combinations of KPF_UNEVICTABLE
+  // and KPF_MLOCKED.
+  data[0] = kPageUnevictable;
+  data[1] = kPageMlocked;
+  data[2] = kPageMlocked | kPageUnevictable;
+
+  // Hugepage 1: compound THP that is unevictable but not mlocked.
+  data[kPagesPerHugepage] = kPageHead | kPageThp | kPageUnevictable;
+  for (size_t i = 1; i < kPagesPerHugepage; ++i) {
+    data[kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  // Hugepage 2: compound THP that is mlocked (and unevictable).
+  data[2 * kPagesPerHugepage] =
+      kPageHead | kPageThp | kPageMlocked | kPageUnevictable;
+  for (size_t i = 1; i < kPagesPerHugepage; ++i) {
+    data[2 * kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/unevictable-vs-mlocked");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(data[0])));
+
+  PageFlagsFriend s(file_path);
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(0 * kHardwarePageSize), kHardwarePageSize),
+      Optional(FieldsAre(0, 0, 0)));
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(1 * kHardwarePageSize), kHardwarePageSize),
+      Optional(FieldsAre(0, kHardwarePageSize, 0)));
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(2 * kHardwarePageSize), kHardwarePageSize),
+      Optional(FieldsAre(0, kHardwarePageSize, 0)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(0), 3 * kHardwarePageSize),
+              Optional(FieldsAre(0, 2 * kHardwarePageSize, 0)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
+              Optional(FieldsAre(0, 0, 0)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(2 * kHugePageSize), kHugePageSize),
+              Optional(FieldsAre(0, kHugePageSize, 0)));
 }
 
 TEST(PageFlagsTest, OnlyTails) {

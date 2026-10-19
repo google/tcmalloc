@@ -80,9 +80,11 @@ constexpr bool PageStale(uint64_t flags) {
 }
 constexpr bool PageLocked(uint64_t flags) {
   constexpr uint64_t kPageMlocked{uint64_t{1} << KPF_MLOCKED};
-  // Locked pages are often "unevictable."  KPF_LOCKED has a different meaning.
-  constexpr uint64_t kPageUnevictable{uint64_t{1} << KPF_UNEVICTABLE};
-  return (flags & (kPageMlocked | kPageUnevictable)) != 0;
+  // Counts mlocked pages only (KPF_MLOCKED). KPF_LOCKED is the short-lived
+  // page-level buffer lock, not mlock, and KPF_UNEVICTABLE is also set on
+  // non-mlocked unevictable pages (such as pages rejected by in-memory swap
+  // compression).
+  return (flags & kPageMlocked) == kPageMlocked;
 }
 
 void MaybeAddToStats(PageStats& stats, const uint64_t flags,

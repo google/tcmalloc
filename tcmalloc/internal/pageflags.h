@@ -36,6 +36,8 @@ namespace tcmalloc_internal {
 
 struct PageStats {
   size_t bytes_stale = 0;
+  // Number of mlocked bytes (KPF_MLOCKED); counts mlocked pages only and
+  // excludes non-mlocked unevictable pages.
   size_t bytes_locked = 0;
   // The number of seconds that must elapse (at minimum) for a page to be
   // considered "stale". 0 indicates that kstaled is disabled or we weren't
