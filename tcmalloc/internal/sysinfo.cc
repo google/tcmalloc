@@ -59,10 +59,7 @@ std::optional<CpuSet> ParseCpulist(
 
     // If we have no more data to parse & couldn't read any then we've reached
     // the end of the input & are done.
-    if (current.empty() && rc == 0) {
-      break;
-    }
-    if (current == "\n" && rc == 0) {
+    if ((current.empty() || current == "\n") && rc == 0 && cpu_from == -1) {
       break;
     }
 
@@ -70,7 +67,8 @@ std::optional<CpuSet> ParseCpulist(
     const size_t dash = current.find('-');
     const size_t comma = current.find(',');
     if (dash != absl::string_view::npos && dash < comma) {
-      if (!absl::SimpleAtoi(current.substr(0, dash), &cpu_from) ||
+      if (cpu_from != -1 ||
+          !absl::SimpleAtoi(current.substr(0, dash), &cpu_from) ||
           !IsInBounds(cpu_from)) {
         return std::nullopt;
       }
@@ -78,7 +76,7 @@ std::optional<CpuSet> ParseCpulist(
     } else if (comma != absl::string_view::npos || rc == 0) {
       int cpu;
       if (!absl::SimpleAtoi(current.substr(0, comma), &cpu) ||
-          !IsInBounds(cpu)) {
+          !IsInBounds(cpu) || cpu < cpu_from) {
         return std::nullopt;
       }
       if (comma == absl::string_view::npos) {
@@ -86,16 +84,17 @@ std::optional<CpuSet> ParseCpulist(
       } else {
         consumed = comma + 1;
       }
-      if (cpu_from != -1) {
-        for (int c = cpu_from; c <= cpu; c++) {
-          set.Set(c);
-        }
-        cpu_from = -1;
-      } else {
-        set.Set(cpu);
+      if (cpu_from == -1) {
+        cpu_from = cpu;
       }
-    } else {
+      for (int c = cpu_from; c <= cpu; c++) {
+        set.Set(c);
+      }
+      cpu_from = -1;
+    } else if (current.size() < buf.size()) {
       consumed = 0;
+    } else {
+      return std::nullopt;
     }
 
     carry_over = current.size() - consumed;

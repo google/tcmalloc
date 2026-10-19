@@ -37,6 +37,7 @@ void ParseInput(absl::string_view s) {
 
   std::optional<CpuSet> r =
       ParseCpulist([&](char* buf, size_t count) -> ssize_t {
+        EXPECT_GT(count, 0);
         size_t to_read = std::min(size, count);
         if (to_read > 0) {
           memcpy(buf, data, to_read);
@@ -88,6 +89,7 @@ void FuzzCpuSetRoundTrip(const std::vector<int>& cpus_to_set,
 
   const std::optional<CpuSet> parsed =
       ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
+        EXPECT_GT(count, 0);
         // Calculate how much data we have left to provide.
         const size_t max = std::min(count, remaining.size());
 

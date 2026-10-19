@@ -99,6 +99,41 @@ TEST(ParseCpulistTest, NotInBounds) {
   ASSERT_THAT(parsed, testing::Eq(std::nullopt));
 }
 
+TEST(ParseCpulistTest, LongTokenWithoutDelimiter) {
+  // 16 bytes without ',' or '-' followed by more digits must not trigger a
+  // zero-length read (false EOF) that splits the token into two CPUs.
+  absl::string_view cpulist("00000000000000010\n");
+
+  const absl::optional<CpuSet> parsed =
+      ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
+        EXPECT_GT(count, 0);
+        const size_t to_copy = std::min(count, cpulist.size());
+        if (to_copy == 0) return 0;
+        memcpy(buf, cpulist.data(), to_copy);
+        cpulist.remove_prefix(to_copy);
+        return to_copy;
+      });
+
+  EXPECT_THAT(parsed, testing::Eq(std::nullopt));
+}
+
+TEST(ParseCpulistTest, MalformedRanges) {
+  for (absl::string_view input :
+       {"0-\n", "0-", "0-2-5\n", "5-2\n", "0-1,5-2\n"}) {
+    absl::string_view remaining = input;
+    const absl::optional<CpuSet> parsed =
+        ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
+          EXPECT_GT(count, 0);
+          const size_t to_copy = std::min(count, remaining.size());
+          if (to_copy == 0) return 0;
+          memcpy(buf, remaining.data(), to_copy);
+          remaining.remove_prefix(to_copy);
+          return to_copy;
+        });
+    EXPECT_THAT(parsed, testing::Eq(std::nullopt)) << input;
+  }
+}
+
 TEST(NumCPUs, NoCache) {
   const int result = []() {
     AllocationGuard guard;
