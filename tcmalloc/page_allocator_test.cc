@@ -312,6 +312,52 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
+TEST_F(PageAllocatorTest, ShrinkFailureStickyWithHardLimitTest) {
+  // Turn off subrelease so that we take the ShrinkHardBy path.
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  AllocationState normal1 =
+      New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  AllocationState normal2 =
+      New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
+
+  const size_t metadata_bytes = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.metadata_bytes();
+  }();
+  // Configure a finite hard limit above current usage and a soft limit that
+  // cannot be satisfied yet.
+  allocator_->set_limit(metadata_bytes + 4 * kHugePageSize,
+                        PageAllocator::kHard);
+  allocator_->set_limit(metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes(),
+                        PageAllocator::kSoft);
+  EXPECT_EQ(1, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(
+      0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+
+  Delete(normal1, kSpanInfo, MemoryTag::kNormal);
+
+  // Even with a finite hard limit configured, over_limit_ must remain sticky
+  // when backed > limits_[kSoft] so a subsequent may_have_grown == false call
+  // shrinks below the soft limit.
+  {
+    PageHeapSpinLockHolder l;
+    allocator_->ShrinkToUsageLimit(Length(0), /*may_have_grown=*/false);
+  }
+  EXPECT_EQ(2, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(
+      1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+
+  Delete(normal2, kSpanInfo, MemoryTag::kNormal);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
 struct HookRecord {
   size_t start_page_index;
   size_t n;
@@ -457,6 +503,151 @@ TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
   ASSERT_TRUE(
       page_allocator_release_hooks.Remove(&ReleaseDuringHardLimitShrinkHook));
   shrink_hook_allocator = nullptr;
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
+static void ReleaseDuringSoftLimitShrinkHook(size_t num_pages, size_t released,
+                                             PageReleaseReason reason)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  if (reason != PageReleaseReason::kSoftLimitExceeded || !shrink_hook_alloc) {
+    return;
+  }
+  ++shrink_hook_calls;
+  const PageAllocatorInterface::AllocationState a = *shrink_hook_alloc;
+  shrink_hook_alloc.reset();
+  shrink_hook_allocator->Delete(a, MemoryTag::kNormal, shrink_hook_alloc_info);
+  (void)shrink_hook_allocator->ReleaseAtLeastNPages(
+      kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem);
+}
+
+TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesSoftLimit) {
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  AllocationState normal =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
+
+  const size_t metadata_bytes = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.metadata_bytes();
+  }();
+
+  shrink_hook_allocator = &*allocator_;
+  shrink_hook_alloc.emplace(normal);
+  shrink_hook_alloc_info = kSpanInfo;
+  shrink_hook_calls = 0;
+  ASSERT_TRUE(
+      page_allocator_release_hooks.Add(&ReleaseDuringSoftLimitShrinkHook));
+
+  // The soft shrink requests 5/4 of a hugepage. During ReleaseAtLeastNPages,
+  // the hook frees and releases normal's hugepage (1 HP), and breaking
+  // hugepages then releases the free half of sampled's hugepage (1/2 HP).
+  // ShrinkHardBy itself only counts 1/2 HP < 5/4 HP and returns false, but
+  // total backed usage is now 1/2 HP <= 3/4 HP.
+  allocator_->set_limit(metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes(),
+                        PageAllocator::kSoft);
+
+  EXPECT_EQ(shrink_hook_calls, 1);
+  EXPECT_EQ(allocator_->limit_hits(PageAllocator::kSoft), 1);
+  EXPECT_EQ(
+      allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft), 1);
+
+  ASSERT_TRUE(
+      page_allocator_release_hooks.Remove(&ReleaseDuringSoftLimitShrinkHook));
+  shrink_hook_allocator = nullptr;
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
+static std::optional<PageAllocatorInterface::AllocationState>
+    shrink_hook_extra_alloc1;
+static std::optional<PageAllocatorInterface::AllocationState>
+    shrink_hook_extra_alloc2;
+
+static void GrowDuringSoftShrinkAndReleaseDuringHardShrinkHook(
+    size_t num_pages, size_t released, PageReleaseReason reason)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  if (reason == PageReleaseReason::kSoftLimitExceeded &&
+      !shrink_hook_extra_alloc1) {
+    ++shrink_hook_calls;
+    pageheap_lock.Unlock();
+    shrink_hook_extra_alloc1 = shrink_hook_allocator->New(
+        kPagesPerHugePage, shrink_hook_alloc_info, MemoryTag::kNormal);
+    shrink_hook_extra_alloc2 = shrink_hook_allocator->New(
+        kPagesPerHugePage, shrink_hook_alloc_info, MemoryTag::kNormal);
+    pageheap_lock.Lock();
+  } else if (reason == PageReleaseReason::kHardLimitExceeded &&
+             shrink_hook_extra_alloc1) {
+    ++shrink_hook_calls;
+    const PageAllocatorInterface::AllocationState a = *shrink_hook_extra_alloc1;
+    shrink_hook_extra_alloc1.reset();
+    shrink_hook_allocator->Delete(a, MemoryTag::kNormal,
+                                  shrink_hook_alloc_info);
+    (void)shrink_hook_allocator->ReleaseAtLeastNPages(
+        kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem);
+  }
+}
+
+TEST_F(PageAllocatorTest, HardLimitCrossedDuringSoftShrink) {
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  AllocationState normal =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
+
+  const size_t metadata_bytes = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.metadata_bytes();
+  }();
+
+  // Set hard limit above initial backed usage (2 HP < 2.5 HP), so neither limit
+  // is hit on entry.
+  allocator_->set_limit(metadata_bytes + (5 * kPagesPerHugePage / 2).in_bytes(),
+                        PageAllocator::kHard);
+  ASSERT_EQ(allocator_->limit_hits(PageAllocator::kHard), 0);
+
+  shrink_hook_allocator = &*allocator_;
+  shrink_hook_extra_alloc1.reset();
+  shrink_hook_extra_alloc2.reset();
+  shrink_hook_alloc_info = kSpanInfo;
+  shrink_hook_calls = 0;
+  ASSERT_TRUE(page_allocator_release_hooks.Add(
+      &GrowDuringSoftShrinkAndReleaseDuringHardShrinkHook));
+
+  // On entry to ShrinkToUsageLimitSlow, backed == limits_[kHard] (2 HP), so
+  // hit_hard is false. During the soft shrink lock drop, another thread maps
+  // 2 HP while soft subrelease unmaps 1 HP, leaving backed == 3 HP >
+  // limits_[kHard] (2 HP). The subsequent hard shrink releases 1 HP to bring
+  // backed back to 2 HP <= limits_[kHard] and must record limit_hits_[kHard].
+  allocator_->set_limit(metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes(),
+                        PageAllocator::kSoft);
+
+  EXPECT_EQ(shrink_hook_calls, 2);
+  EXPECT_EQ(allocator_->limit_hits(PageAllocator::kHard), 1);
+  EXPECT_EQ(
+      allocator_->successful_shrinks_after_limit_hit(PageAllocator::kHard), 1);
+
+  ASSERT_TRUE(page_allocator_release_hooks.Remove(
+      &GrowDuringSoftShrinkAndReleaseDuringHardShrinkHook));
+  shrink_hook_allocator = nullptr;
+  if (shrink_hook_extra_alloc1) {
+    Delete(*shrink_hook_extra_alloc1, kSpanInfo, MemoryTag::kNormal);
+    shrink_hook_extra_alloc1.reset();
+  }
+  if (shrink_hook_extra_alloc2) {
+    Delete(*shrink_hook_extra_alloc2, kSpanInfo, MemoryTag::kNormal);
+    shrink_hook_extra_alloc2.reset();
+  }
+  Delete(normal, kSpanInfo, MemoryTag::kNormal);
   Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
