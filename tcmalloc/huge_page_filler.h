@@ -1806,6 +1806,9 @@ inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
   TC_ASSERT(!pt->fully_freed());
   TC_ASSERT(!pt->BeingReleased());
   if (pt->unbroken()) return;
+  if (pt->donated()) {
+    ++treatment_stats_.collapse_donated_succeeded;
+  }
   RemoveFromFillerList(pt);
   pt->set_unbroken(/*status=*/true);
   AddToFillerList(pt);
@@ -1906,9 +1909,10 @@ inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything,
 
   out.printf(
       "HugePageFiller: Out of %v eligible hugepages, %v were "
-      "attempted, and %v were collapsed.\n",
+      "attempted, and %v were collapsed (%v donated).\n",
       treatment_stats_.collapse_eligible, treatment_stats_.collapse_attempted,
-      treatment_stats_.collapse_succeeded);
+      treatment_stats_.collapse_succeeded,
+      treatment_stats_.collapse_donated_succeeded);
 
   out.printf(
       "HugePageFiller: Of the failed collapse operations, number of operations "
@@ -2209,6 +2213,9 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
         "collapse_attempted", treatment_stats_.collapse_attempted.raw_num());
     huge_page_treatment_region.PrintI64(
         "collapse_succeeded", treatment_stats_.collapse_succeeded.raw_num());
+    huge_page_treatment_region.PrintI64(
+        "collapse_donated_succeeded",
+        treatment_stats_.collapse_donated_succeeded.raw_num());
     for (int i = 0; i < treatment_stats_.collapse_errors.size(); ++i) {
       PbtxtRegion collapse_errors_region =
           huge_page_treatment_region.CreateSubRegion("collapse_errors");
