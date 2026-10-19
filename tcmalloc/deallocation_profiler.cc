@@ -687,12 +687,18 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
   // Left-censored samples cannot be aggregated with lifetimes
   if (alloc_trace.stack_trace.depth == 0) return;
 
-  CpuThreadMatchingStatus status =
-      CpuThreadMatchingStatus(alloc_trace.cpu_id == dealloc_trace.cpu_id,
-                              alloc_trace.vcpu_id == dealloc_trace.vcpu_id,
-                              alloc_trace.l3_id == dealloc_trace.l3_id,
-                              alloc_trace.numa_id == dealloc_trace.numa_id,
-                              alloc_trace.thread_id == dealloc_trace.thread_id);
+  const bool is_censored = (dealloc_trace.stack_trace.depth == 0);
+  CpuThreadMatchingStatus status = CpuThreadMatchingStatus(
+      !is_censored && alloc_trace.cpu_id >= 0 &&
+          alloc_trace.cpu_id == dealloc_trace.cpu_id,
+      !is_censored && alloc_trace.vcpu_id >= 0 &&
+          alloc_trace.vcpu_id == dealloc_trace.vcpu_id,
+      !is_censored && alloc_trace.l3_id >= 0 &&
+          alloc_trace.l3_id == dealloc_trace.l3_id,
+      !is_censored && alloc_trace.numa_id >= 0 &&
+          alloc_trace.numa_id == dealloc_trace.numa_id,
+      !is_censored && alloc_trace.thread_id != 0 &&
+          alloc_trace.thread_id == dealloc_trace.thread_id);
 
   // Initialize a default rpc matched status.
   RpcMatchingStatus rpc_status(/*alloc=*/0, /*dealloc=*/0);

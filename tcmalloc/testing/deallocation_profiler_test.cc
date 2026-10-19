@@ -740,6 +740,47 @@ TEST(LifetimeProfiler, LifetimeBucketing) {
   EXPECT_EQ(absl::Nanoseconds(34000000), BucketizeDuration(34200040));
 }
 
+TEST(LifetimeProfiler, UninitializedVcpuIdDoesNotMatchAcrossThreads) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
+  constexpr int64_t kMallocSize = 4 * 1024 * 1024;
+
+  auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
+
+  void* ptr;
+  std::thread alloc_thread([&]() { ptr = SingleAlloc(2, kMallocSize); });
+  alloc_thread.join();
+
+  std::thread dealloc_thread([&]() { SingleDealloc(2, ptr); });
+  dealloc_thread.join();
+
+  const tcmalloc::Profile profile = std::move(token).Stop();
+
+  int matched_samples = 0;
+  profile.Iterate([&](const tcmalloc::Profile::Sample& s) {
+    bool found_test_alloc = false;
+    for (int i = 0; i < s.depth; i++) {
+      char str[1024];
+      absl::Symbolize(s.stack[i], str, sizeof(str));
+      if (absl::StrContains(str, "SingleAlloc") ||
+          absl::StrContains(str, "SingleDealloc")) {
+        found_test_alloc = true;
+      }
+    }
+    if (!found_test_alloc) return;
+
+    ++matched_samples;
+    ASSERT_TRUE(s.allocator_deallocator_thread_matched.has_value());
+    EXPECT_FALSE(*s.allocator_deallocator_thread_matched);
+    ASSERT_TRUE(s.allocator_deallocator_virtual_cpu_matched.has_value());
+    EXPECT_FALSE(*s.allocator_deallocator_virtual_cpu_matched);
+  });
+  EXPECT_EQ(matched_samples, 2);
+}
+
 enum class EventType { kAlloc, kDealloc };
 
 class ContainsEventMatcher {
