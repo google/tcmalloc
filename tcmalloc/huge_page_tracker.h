@@ -340,6 +340,12 @@ class PageTracker : public TList<PageTracker>::Elem {
   [[nodiscard]] bool DontFreeTracker() const {
     return dont_free_tracker_mask_ != 0 || release_pins_ != 0;
   }
+  // Whether treatment `type` in particular holds a pin.  Release pins are a
+  // separate count (PinnedForRelease), so this must not decide whether to
+  // free a tracker; DontFreeTracker() covers both.
+  [[nodiscard]] bool PinnedByTreatment(HugePageTreatmentType type) const {
+    return (dont_free_tracker_mask_ & static_cast<uint8_t>(type)) != 0;
+  }
   // Pins held by HugePageFiller::ReleasePages on each candidate it keeps a
   // pointer to while pageheap_lock is dropped.  Unlike the treatment pins
   // above, concurrent ReleasePages calls may select the same candidate, so
@@ -380,14 +386,6 @@ class PageTracker : public TList<PageTracker>::Elem {
 
  private:
   friend class PageTrackerTestPeer;
-
-  // Whether treatment `type` in particular holds a pin.  Release pins are a
-  // separate count (PinnedForRelease), so this must not decide whether to
-  // free a tracker; DontFreeTracker() covers both.  Exposed to tests only,
-  // through PageTrackerTestPeer.
-  [[nodiscard]] bool PinnedByTreatment(HugePageTreatmentType type) const {
-    return (dont_free_tracker_mask_ & static_cast<uint8_t>(type)) != 0;
-  }
 
   HugePage location_;
 
