@@ -111,15 +111,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   static void Delete(Span* absl_nonnull span);
   static void Delete(absl::Span<Span* absl_nonnull> spans);
 
-  // ---------------------------------------------------------------------------
-  // Span memory range.
-  // ---------------------------------------------------------------------------
-
   // Returns first page of the span.
   [[nodiscard]] PageId first_page() const;
-
-  // Sets span first page.
-  void set_first_page(PageId p);
 
   // Returns start address of the span.
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL void* start_address() const;
@@ -427,13 +420,6 @@ inline void Span::BitmapPushBatch(absl::Span<ObjIdx> batch,
 }
 
 inline PageId Span::first_page() const { return PageId(first_page_); }
-
-inline void Span::set_first_page(PageId p) {
-  TC_ASSERT_GT(p, PageId{0});
-  TC_CHECK_LT(p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
-  first_page_ = p.index();
-  TC_ASSERT_EQ(first_page_, p.index());
-}
 
 inline void* Span::start_address() const {
   TC_ASSERT_GT(first_page(), PageId{0});
