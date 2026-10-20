@@ -1533,13 +1533,9 @@ void TcmallocSlab<NumClasses>::ReleaseSlabMetadataForDrainedCpus(
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t slab_size_bytes = 1ULL << static_cast<uint8_t>(shift);
   TC_CHECK_LT(slab_size_bytes, kHugePageSize);
-
-  // If the slab is not aligned to its own size, freeing any hugepage
-  // would tear through a CPU's data, and we can do nothing.
-  if (!IsAlignedTo(slabs, slab_size_bytes)) {
-    TC_BUG("Slabs are not properly aligned");
-    return;
-  }
+  // If the slab is not aligned to its own size, freeing any hugepage would tear
+  // through a CPU's data, and we can do nothing.
+  TC_CHECK(IsAlignedTo(slabs, slab_size_bytes));
 
   auto address_to_hugepage_number = [](const void* addr) {
     return reinterpret_cast<uintptr_t>(addr) >> kHugePageShift;
