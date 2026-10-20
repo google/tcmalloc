@@ -134,15 +134,20 @@ class CpuCache {
   };
 
   enum class PerClassMissType {
-    // Tracks total number of capacity misses.
+    // Tracks total number of capacity misses. Capacity misses are when we
+    // cannot grow a freelist because there are too many bytes in the cache
+    // (sum of total freelist capacity is too high).
     kCapacityTotal = 0,
-    // Tracks number of misses recorded as of the end of the last per-class
-    // resize interval.
+    // Tracks number of capacity misses recorded as of the end of the last
+    // per-class resize interval.
     kCapacityResize,
+
     // Tracks total number of misses due to insufficient max_capacity.
+    // These misses are because the structure of the metadata slab does not
+    // allow growing a specific class further.
     kMaxCapacityTotal,
-    // Tracks number of misses recorded as of the end of the last per-class
-    // max capacity resize interval.
+    // Tracks number of max_capacity misses recorded as of the end of the last
+    // per-class max capacity resize interval.
     kMaxCapacityResize,
     kNumTypes,
   };
