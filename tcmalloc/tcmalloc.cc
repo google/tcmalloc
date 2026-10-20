@@ -327,12 +327,14 @@ static_assert(static_cast<int>(tcmalloc::MallocExtension::LimitKind::kHard) ==
 
 extern "C" size_t MallocExtension_Internal_GetMemoryLimit(
     tcmalloc::MallocExtension::LimitKind limit_kind) {
+  tc_globals.InitIfNecessary();
   return tc_globals.page_allocator().limit(
       static_cast<PageAllocator::LimitKind>(limit_kind));
 }
 
 extern "C" void MallocExtension_Internal_SetMemoryLimit(
     size_t limit, tcmalloc::MallocExtension::LimitKind limit_kind) {
+  tc_globals.InitIfNecessary();
   if (limit_kind == tcmalloc::MallocExtension::LimitKind::kHard) {
     Parameters::set_heap_size_hard_limit(limit);
   }
@@ -366,6 +368,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
   ABSL_CONST_INIT static ConstantRatePageAllocatorReleaser releaser
       ABSL_GUARDED_BY(release_lock);
 
+  tc_globals.InitIfNecessary();
   const AllocationGuardSpinLockHolder rh(release_lock);
 
   return releaser.Release(num_bytes,
