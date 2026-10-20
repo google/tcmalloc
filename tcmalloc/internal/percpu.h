@@ -65,6 +65,8 @@
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x53053053
 #elif defined(__aarch64__)
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0xd428bc00
+#elif defined(__riscv)
+#define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0xf1401073
 #else
 // Rather than error, allow us to build, but with an invalid signature.
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x0
