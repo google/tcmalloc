@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstring>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -1297,15 +1298,14 @@ TEST_P(HugeRegionSetTest, Set) {
   std::vector<char> buf(64 * 1024);
   Printer out(&buf[0], buf.size());
   set_.Print(out);
-  printf("%s\n", &buf[0]);
-  EXPECT_THAT(absl::string_view(&buf[0]),
-              testing::HasSubstr("0 low water mark free backed"));
+  std::cout << out.view() << "\n";
+  EXPECT_THAT(out.view(), testing::HasSubstr("0 low water mark free backed"));
 
   std::vector<char> pbtxt_buf(64 * 1024);
   Printer pbtxt_out(&pbtxt_buf[0], pbtxt_buf.size());
   PbtxtRegion region(pbtxt_out, kNested);
   set_.PrintInPbtxt(region);
-  EXPECT_THAT(absl::string_view(&pbtxt_buf[0]),
+  EXPECT_THAT(pbtxt_out.view(),
               testing::HasSubstr("huge_region_low_water_mark_bytes: 0"));
 }
 
