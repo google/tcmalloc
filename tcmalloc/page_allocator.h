@@ -375,6 +375,10 @@ inline void PageAllocatorImpl<Forwarder>::TreatHugepageTrackers(
     Residency* residency) {
   sampled_or_cold_impl_[0]->TreatHugepageTrackers(EnableCollapse::kDisabled,
                                                   pageflags, residency);
+  if (sampled_partition_active_) {
+    sampled_or_cold_impl_[1]->TreatHugepageTrackers(EnableCollapse::kDisabled,
+                                                    pageflags, residency);
+  }
 
   for (int partition = 0; partition < active_partitions(); partition++) {
     normal_impl_[partition]->TreatHugepageTrackers(enable_collapse, pageflags,

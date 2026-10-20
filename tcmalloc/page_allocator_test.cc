@@ -461,6 +461,41 @@ TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
+TEST_F(PageAllocatorTest, TreatHugepageTrackersAllPartitions) {
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  std::vector<MemoryTag> tags = {MemoryTag::kSampledOrCold, MemoryTag::kNormal};
+  if (Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull) {
+    tags.push_back(MemoryTag::kSampledOrColdP1);
+  }
+  if (tc_globals.active_partitions() > 1) {
+    tags.push_back(MemoryTag::kNormalP1);
+  }
+
+  std::vector<std::pair<AllocationState, MemoryTag>> allocs;
+  for (MemoryTag tag : tags) {
+    allocs.push_back({New(Length(1), kSpanInfo, tag), tag});
+  }
+
+  PageFlags pageflags;
+  allocator_->TreatHugepageTrackers(EnableCollapse::kDisabled,
+                                    /*pageflags=*/nullptr,
+                                    /*residency=*/nullptr);
+
+  for (MemoryTag tag : tags) {
+    std::string output = PrintToString(1024 * 1024, [&](Printer& out) {
+      allocator_->Print(out, tag, pageflags);
+    });
+    EXPECT_THAT(output, testing::ContainsRegex(
+                            "HugePageFiller: 1 of .* pages treated out of 1"))
+        << "tag=" << MemoryTagToLabel(tag);
+  }
+
+  for (auto& [s, tag] : allocs) {
+    Delete(s, kSpanInfo, tag);
+  }
+}
+
 TEST_F(PageAllocatorTest, Hooks) {
   new_record_count = 0;
   delete_record_count = 0;
