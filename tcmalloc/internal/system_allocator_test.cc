@@ -49,6 +49,7 @@ namespace {
 constexpr size_t kMinMmapAlloc = 1 << 30;
 
 using ::testing::HasSubstr;
+using ::testing::Not;
 
 // Returns the filename associated with the runtime mapping that includes the
 // [start, start+size) address range, or the empty string if not found.
@@ -142,6 +143,43 @@ TEST(SystemAllocatorTest, ReleaseLockedMemory) {
   MemoryModifyStatus status = allocator.Release(res.ptr, res.bytes);
   EXPECT_TRUE(status.success);
   EXPECT_EQ(allocator.release_errors(), 0);
+}
+
+TEST(SystemAllocatorTest, SetAnonVmaNameHandlesEmptyAndSubstringViews) {
+  constexpr size_t kMinMmapAlloc = 1 << 30;
+  NumaTopology<2> topology;
+  topology.Init();
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+
+  const size_t kPageSize = GetPageSize();
+  AddressRange res =
+      allocator.Allocate(kPageSize, kPageSize, MemoryTag::kNormal);
+  ASSERT_NE(res.ptr, nullptr);
+
+  constexpr absl::string_view kFullName = "custom_region_extra_trailing_bytes";
+  allocator.SetAnonVmaName(res.ptr, res.bytes, kFullName.substr(0, 13));
+  if (tcmalloc::NamedVMAsSupported()) {
+    EXPECT_THAT(MappingName(res.ptr, res.bytes), HasSubstr("custom_region"));
+    EXPECT_THAT(MappingName(res.ptr, res.bytes),
+                Not(HasSubstr("extra_trailing_bytes")));
+  }
+
+  allocator.SetAnonVmaName(res.ptr, res.bytes, absl::string_view());
+  if (tcmalloc::NamedVMAsSupported()) {
+    EXPECT_THAT(MappingName(res.ptr, res.bytes),
+                HasSubstr("tcmalloc_region_NORMAL"));
+  }
+
+  allocator.SetAnonVmaName(res.ptr, res.bytes, kFullName.substr(0, 13));
+  if (tcmalloc::NamedVMAsSupported()) {
+    EXPECT_THAT(MappingName(res.ptr, res.bytes), HasSubstr("custom_region"));
+  }
+
+  allocator.SetAnonVmaName(res.ptr, res.bytes, absl::string_view(""));
+  if (tcmalloc::NamedVMAsSupported()) {
+    EXPECT_THAT(MappingName(res.ptr, res.bytes),
+                HasSubstr("tcmalloc_region_NORMAL"));
+  }
 }
 
 }  // namespace

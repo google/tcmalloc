@@ -1442,6 +1442,7 @@ tcmalloc_cc_library(
     "absl::span"
     "absl::str_format"
     "absl::string_view"
+    "absl::strings"
     "tcmalloc::experiment"
     "tcmalloc::internal_config"
     "tcmalloc::internal_environment"

@@ -20,9 +20,11 @@
 
 #include <asm/unistd.h>
 
+#include <algorithm>
 #include <cstring>
 #include <optional>
 
+#include "absl/strings/match.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/is_aligned_to.h"
@@ -759,16 +761,18 @@ void SystemAllocator<Topology, NormalPartitions>::SetAnonVmaName(
   // CONFIG_ANON_VMA_NAME kernel option.  This is OK since the call is
   // primarily a debugging aid.
   ErrnoRestorer errno_restorer;
-  if (name.has_value()) {
-    TC_ASSERT_EQ(strlen(name.value().data()), name.value().size());
-    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, start, length, name.value().data());
+  char vma_name[256];
+  if (name.has_value() && !name->empty()) {
+    TC_ASSERT(!absl::StrContains(*name, '\0'));
+    const size_t len = std::min(name->size(), sizeof(vma_name) - 1);
+    memcpy(vma_name, name->data(), len);
+    vma_name[len] = '\0';
   } else {
-    char name[256];
     MemoryTag tag = GetMemoryTag(start);
-    absl::SNPrintF(name, sizeof(name), "tcmalloc_region_%s",
+    absl::SNPrintF(vma_name, sizeof(vma_name), "tcmalloc_region_%s",
                    MemoryTagToLabel(tag));
-    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, start, length, name);
   }
+  prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, start, length, vma_name);
 #endif  // __linux__
 }
 
