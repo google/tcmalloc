@@ -115,7 +115,8 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
   }
 
   ++limit_hits_[kSoft];
-  if (limits_[kHard] < backed) ++limit_hits_[kHard];
+  const size_t hard_limit = limits_[kHard];
+  if (hard_limit < backed) ++limit_hits_[kHard];
 
   const size_t overage = backed - limits_[kSoft];
   const Length pages = BytesToLengthCeil(overage);
@@ -125,16 +126,16 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
   }
 
   // We're still not below limit.
-  if (limits_[kHard] < std::numeric_limits<size_t>::max()) {
+  if (hard_limit < std::numeric_limits<size_t>::max()) {
     // Recompute how many pages we still need to release.
     BackingStats s = stats();
     const size_t backed =
         s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
-    if (backed <= limits_[kHard]) {
+    if (backed <= hard_limit) {
       // We're already fine in terms of hard limit.
       return;
     }
-    const size_t overage = backed - limits_[kHard];
+    const size_t overage = backed - hard_limit;
     const Length pages = BytesToLengthCeil(overage);
     if (ShrinkHardBy(pages, kHard)) {
       ++successful_shrinks_after_limit_hit_[kHard];
@@ -153,14 +154,20 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
     s = stats();
     const size_t backed_now =
         s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
-    if (backed_now <= limits_[kHard]) {
+    if (backed_now <= hard_limit) {
       ++successful_shrinks_after_limit_hit_[kHard];
       TC_ASSERT_LE(successful_shrinks_after_limit_hit_[kHard],
                    limit_hits_[kHard]);
       return;
     }
-    const size_t hard_limit = limits_[kHard];
     limits_[kHard] = std::numeric_limits<size_t>::max();
+    // Unlock pageheap_lock before aborting so crash/signal handlers (e.g.
+    // FailureSignalHandler or query-of-death loggers, for which limits_[kHard]
+    // is cleared above) can allocate without deadlocking on pageheap_lock.
+#ifndef NDEBUG
+    pageheap_lock.AssertHeld();
+#endif  // NDEBUG
+    pageheap_lock.unlock();
     TC_BUG(
         "Hit hard tcmalloc heap limit of %v "
         "(e.g. --tcmalloc_heap_size_hard_limit). "
