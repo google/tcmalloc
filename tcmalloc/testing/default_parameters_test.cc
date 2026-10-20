@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include <cstdio>
+#include <limits>
 
 #include "absl/strings/str_format.h"
 #include "absl/time/time.h"
@@ -27,8 +28,10 @@ namespace {
 constexpr int64_t kDefaultProfileSamplingInterval = 2 << 20;
 #ifdef NDEBUG
 constexpr int64_t kDefaultGuardedSampleParameter = 50;
+constexpr bool kDefaultUsermodeHugepageCollapse = true;
 #else
 constexpr int64_t kDefaultGuardedSampleParameter = 5;
+constexpr bool kDefaultUsermodeHugepageCollapse = false;
 #endif
 constexpr int64_t kDefaultGuardedSamplingInterval =
     kDefaultGuardedSampleParameter * kDefaultProfileSamplingInterval;
@@ -49,6 +52,23 @@ constexpr absl::Duration kDefaultSkipSubreleaseLongInterval =
     absl::Seconds(120)
 #endif
     ;
+constexpr int32_t kDefaultMaxPerCpuCacheSize =
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+    10 * 1024
+#else
+    1.5 * 1024 * 1024
+#endif
+    ;
+constexpr int64_t kDefaultMaxTotalThreadCacheBytes =
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+    64 * 1024
+#else
+    8 * (4 << 20)
+#endif
+    ;
+constexpr bool kDefaultBackgroundProcessActionsEnabled = true;
+constexpr absl::Duration kDefaultBackgroundProcessSleepInterval =
+    absl::Seconds(1);
 
 bool TestProfileSamplingInterval() {
 
@@ -108,6 +128,49 @@ bool TestSkipSubreleaseIntervals() {
   return true;
 }
 
+bool TestMaxPerCpuCacheSize() {
+
+  auto extension_value = MallocExtension::GetMaxPerCpuCacheSize();
+  if (extension_value != kDefaultMaxPerCpuCacheSize) {
+    absl::FPrintF(stderr, "MaxPerCpuCacheSize: got %d, want %d\n",
+                  extension_value, kDefaultMaxPerCpuCacheSize);
+    return false;
+  }
+
+  return true;
+}
+
+bool TestMaxTotalThreadCacheBytes() {
+
+  auto extension_value = MallocExtension::GetMaxTotalThreadCacheBytes();
+  if (extension_value != kDefaultMaxTotalThreadCacheBytes) {
+    absl::FPrintF(stderr, "MaxTotalThreadCacheBytes: got %d, want %d\n",
+                  extension_value, kDefaultMaxTotalThreadCacheBytes);
+    return false;
+  }
+
+  return true;
+}
+
+bool TestBackgroundProcessParameters() {
+  auto actions_enabled = MallocExtension::GetBackgroundProcessActionsEnabled();
+  if (actions_enabled != kDefaultBackgroundProcessActionsEnabled) {
+    absl::FPrintF(stderr, "BackgroundProcessActionsEnabled: got %v, want %v\n",
+                  actions_enabled, kDefaultBackgroundProcessActionsEnabled);
+    return false;
+  }
+
+  auto sleep_interval = MallocExtension::GetBackgroundProcessSleepInterval();
+  if (sleep_interval != kDefaultBackgroundProcessSleepInterval) {
+    absl::FPrintF(stderr, "BackgroundProcessSleepInterval: got %d, want %d\n",
+                  absl::ToInt64Seconds(sleep_interval),
+                  absl::ToInt64Seconds(kDefaultBackgroundProcessSleepInterval));
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace
 }  // namespace tcmalloc
 
@@ -119,6 +182,9 @@ int main() {
   success = success & tcmalloc::TestGuardedSamplingInterval();
   success = success & tcmalloc::TestBackgroundReleaseRate();
   success = success & tcmalloc::TestSkipSubreleaseIntervals();
+  success = success & tcmalloc::TestMaxPerCpuCacheSize();
+  success = success & tcmalloc::TestMaxTotalThreadCacheBytes();
+  success = success & tcmalloc::TestBackgroundProcessParameters();
 
   if (success) {
     fprintf(stderr, "PASS");
