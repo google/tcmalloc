@@ -246,13 +246,7 @@ class Parameters {
   }
 
   [[nodiscard]] static bool release_drained_slab_metadata() {
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    // The small-but-slow configuration does not align the slab metadata
-    // on huge pages, which we need to release them.
-    return false;
-#else
     return release_drained_slab_metadata_.load(std::memory_order_relaxed);
-#endif
   }
 
   static void set_release_drained_slab_metadata(bool value) {
@@ -310,7 +304,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetMadviseSampledAllocations(
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
   friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
-  friend bool ::TCMalloc_Internal_GetReleaseDrainedSlabMetadata();
   friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
 
   static std::atomic<int64_t> guarded_sampling_interval_;

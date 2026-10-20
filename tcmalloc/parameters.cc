@@ -858,8 +858,7 @@ void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v) {
 }
 
 bool TCMalloc_Internal_GetReleaseDrainedSlabMetadata() {
-  return Parameters::release_drained_slab_metadata_.load(
-      std::memory_order_relaxed);
+  return Parameters::release_drained_slab_metadata();
 }
 
 void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v) {
