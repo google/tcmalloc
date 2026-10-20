@@ -266,12 +266,14 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     }
   }
 
-  if (kSecurityPartitions > 1 && tc_globals.multiple_non_numa_partitions()) {
+  if (kSecurityPartitions > 1 &&
+      (tc_globals.multiple_non_numa_partitions() ||
+       tc_globals.slc_exclusion_partition_active())) {
     // Route Hot Malloc R1 to security partition P1.
     SetClassArrayRegion(kSecurityPartitions + 1, +kNumBaseClasses);
     // Route Hot New R1 to security partition P1.
     SetClassArrayRegion(1, +kNumBaseClasses);
-    if (!heap_partitioning_full) {
+    if (!heap_partitioning_full && tc_globals.multiple_non_numa_partitions()) {
       // In kLight mode, route Hot New R0 to P1.
       SetClassArrayRegion(0, +kNumBaseClasses);
     }

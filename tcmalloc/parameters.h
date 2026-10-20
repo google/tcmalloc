@@ -281,6 +281,8 @@ class Parameters {
 
   [[nodiscard]] static HeapPartitioningMode heap_partitioning_mode();
 
+  [[nodiscard]] static bool slc_exclude_hint();
+
   // TODO: b/527473378 - Remove this function once the experiment is cleaned up.
   [[nodiscard]] static ReleaseStalePages release_stale_pages() {
     return release_stale_pages_.load(std::memory_order_relaxed);

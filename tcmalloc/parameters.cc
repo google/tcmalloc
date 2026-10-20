@@ -379,6 +379,21 @@ static std::atomic<HeapPartitioningMode>& heap_partitioning_mode_ptr() {
   return v;
 }
 
+// Returns whether Partition 1 is repurposed to isolate SLC-excluded allocations
+// on single-socket systems, configured via environment variable at startup.
+static std::atomic<bool>& slc_exclude_hint_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    const char* e = thread_safe_getenv("TCMALLOC_SLC_EXCLUDE_HINT");
+    if (e != nullptr &&
+        (std::strcmp(e, "1") == 0 || strcasecmp(e, "true") == 0)) {
+      v.store(true, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 ABSL_CONST_INIT std::atomic<EnableCollapse>
     Parameters::usermode_hugepage_collapse_enabled_{
         // This feature causes very long delays in the tail in non-optimized
@@ -425,6 +440,10 @@ HugeRegionUsageOption Parameters::huge_region_option() {
 
 HeapPartitioningMode Parameters::heap_partitioning_mode() {
   return heap_partitioning_mode_ptr().load(std::memory_order_relaxed);
+}
+
+bool Parameters::slc_exclude_hint() {
+  return slc_exclude_hint_enabled().load(std::memory_order_relaxed);
 }
 
 extern "C" ABSL_ATTRIBUTE_WEAK bool
@@ -554,6 +573,7 @@ void MallocExtension_Internal_SetSkipSubreleaseLongInterval(
 
 tcmalloc::MallocExtension::BytesPerSecond
 MallocExtension_Internal_GetBackgroundReleaseRate() {
+  tc_globals.InitIfNecessary();
   return Parameters::background_release_rate();
 }
 

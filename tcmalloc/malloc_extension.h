@@ -93,6 +93,10 @@ enum class TokenId : uint8_t {
 
 constexpr hot_cold_t kDefaultMinHotAccessHint =
     static_cast<tcmalloc::hot_cold_t>(1);
+// Compiler-emitted hint indicating that an allocation is not profitable to
+// cache in the System-Level Cache (SLC).
+constexpr hot_cold_t kSlcExcludedAccessHint =
+    static_cast<tcmalloc::hot_cold_t>(2);
 
 }  // namespace tcmalloc
 

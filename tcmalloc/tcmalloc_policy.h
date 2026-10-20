@@ -180,6 +180,10 @@ struct NonArrayPolicy {
   [[nodiscard]] static constexpr bool is_array() { return false; }
 };
 
+// Partition index used to isolate SLC-excluded allocations on single-socket
+// systems when security heap partitioning is disabled.
+inline constexpr size_t kSlcExcludedPartition = 1;
+
 // AllocationAccessAsPolicy: use user provided access hint
 class AllocationAccessAsPolicy {
  public:
@@ -194,6 +198,11 @@ class AllocationAccessAsPolicy {
 
   [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() const {
     return value_ < Parameters::min_hot_access_hint();
+  }
+
+  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+  is_slc_exclude_hint() const {
+    return value_ == kSlcExcludedAccessHint;
   }
 
  private:
@@ -212,6 +221,11 @@ struct AllocationAccessHotPolicy {
   [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() {
     return false;
   }
+
+  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+  is_slc_exclude_hint() {
+    return false;
+  }
 };
 
 struct AllocationAccessColdPolicy {
@@ -222,6 +236,11 @@ struct AllocationAccessColdPolicy {
 
   [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool is_cold() {
     return true;
+  }
+
+  [[nodiscard]] static constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+  is_slc_exclude_hint() {
+    return false;
   }
 };
 
@@ -392,15 +411,37 @@ class TCMallocPolicy {
     return align_.align();
   }
 
-  // NUMA partition
+  // Returns true when this allocation carries kSlcExcludedAccessHint and
+  // Partition 1 is active for SLC exclusion.
+  [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+  ShouldRouteToSlcExclusionPartition() const {
+    if constexpr (!std::is_same_v<AccessPolicy, AllocationAccessAsPolicy>) {
+      return false;
+    } else {
+      return ABSL_PREDICT_FALSE(access_.is_slc_exclude_hint()) &&
+             tc_globals.slc_exclusion_partition_active();
+    }
+  }
+
+  // NUMA or SLC-excluded partition
   [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
   numa_partition() const {
+    if constexpr (kSecurityPartitions == 1) {
+      if (ShouldRouteToSlcExclusionPartition()) {
+        return kSlcExcludedPartition;
+      }
+    }
     return numa_.partition();
   }
 
-  // NUMA partition multiplied by kNumBaseClasses
+  // NUMA or SLC-excluded partition multiplied by kNumBaseClasses.
   [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
   scaled_numa_partition() const {
+    if constexpr (kSecurityPartitions == 1) {
+      if (ShouldRouteToSlcExclusionPartition()) {
+        return kSlcExcludedPartition * kNumBaseClasses;
+      }
+    }
     return numa_.scaled_partition();
   }
 
@@ -410,12 +451,18 @@ class TCMallocPolicy {
     if constexpr (kSecurityPartitions == 1) {
       return 0;
     }
+    if (ShouldRouteToSlcExclusionPartition()) {
+      return kSlcExcludedPartition;
+    }
     return partition_.partition();
   }
 
   // NUMA or Security partition (0 or 1)
   [[nodiscard]] constexpr ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
   partition() const {
+    if (ShouldRouteToSlcExclusionPartition()) {
+      return kSlcExcludedPartition;
+    }
     if constexpr (kSecurityPartitions == 1) {
       return numa_partition();
     }
@@ -534,29 +581,48 @@ class TCMallocPolicy {
       OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy, HooksPolicy,
       SizeReturningPolicy, FixedNumaPartitionPolicy, SecurityPartitionPolicy>
   InPartition(size_t partition) const {
-    const size_t numa_partition = partition % kNumaPartitions;
-    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
-                          HooksPolicy, SizeReturningPolicy,
-                          FixedNumaPartitionPolicy, SecurityPartitionPolicy>(
-        align_, access_, FixedNumaPartitionPolicy{numa_partition},
-        SecurityPartitionPolicy{(partition - numa_partition) /
-                                kNumaPartitions});
+    if constexpr (kSecurityPartitions == 1) {
+      return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                            HooksPolicy, SizeReturningPolicy,
+                            FixedNumaPartitionPolicy, SecurityPartitionPolicy>(
+          align_, access_, FixedNumaPartitionPolicy{partition},
+          SecurityPartitionPolicy{0});
+    } else {
+      const size_t numa_partition = partition % kNumaPartitions;
+      return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                            HooksPolicy, SizeReturningPolicy,
+                            FixedNumaPartitionPolicy, SecurityPartitionPolicy>(
+          align_, access_, FixedNumaPartitionPolicy{numa_partition},
+          SecurityPartitionPolicy{(partition - numa_partition) /
+                                  kNumaPartitions});
+    }
   }
 
   // Returns this policy with a compile-time fixed NUMA/type partition.
   template <size_t kPartition>
   [[nodiscard]] constexpr auto InPartition() const {
-    constexpr size_t kNumaPartition = kPartition % kNumaPartitions;
-    constexpr size_t kSecPartition =
-        (kPartition - kNumaPartition) / kNumaPartitions;
-    using ConstSecurityPartitionPolicy =
-        ConstSecurityPartitionPolicy<TokenId::kNoAllocToken, kSecPartition>;
-    return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
-                          HooksPolicy, SizeReturningPolicy,
-                          FixedNumaPartitionPolicy,
-                          ConstSecurityPartitionPolicy>(
-        align_, access_, FixedNumaPartitionPolicy{kNumaPartition},
-        ConstSecurityPartitionPolicy());
+    if constexpr (kSecurityPartitions == 1) {
+      using ConstSecurityPartitionPolicy =
+          ConstSecurityPartitionPolicy<TokenId::kNoAllocToken, 0>;
+      return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                            HooksPolicy, SizeReturningPolicy,
+                            FixedNumaPartitionPolicy,
+                            ConstSecurityPartitionPolicy>(
+          align_, access_, FixedNumaPartitionPolicy{kPartition},
+          ConstSecurityPartitionPolicy());
+    } else {
+      constexpr size_t kNumaPartition = kPartition % kNumaPartitions;
+      constexpr size_t kSecPartition =
+          (kPartition - kNumaPartition) / kNumaPartitions;
+      using ConstSecurityPartitionPolicy =
+          ConstSecurityPartitionPolicy<TokenId::kNoAllocToken, kSecPartition>;
+      return TCMallocPolicy<OomPolicy, AlignPolicy, ArrayPolicy, AccessPolicy,
+                            HooksPolicy, SizeReturningPolicy,
+                            FixedNumaPartitionPolicy,
+                            ConstSecurityPartitionPolicy>(
+          align_, access_, FixedNumaPartitionPolicy{kNumaPartition},
+          ConstSecurityPartitionPolicy());
+    }
   }
 
   // Returns this policy with a fixed partition and token ID.
