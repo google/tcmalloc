@@ -345,6 +345,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_cpu_utils"
     "tcmalloc::internal_delay_injection"
     "tcmalloc::internal_environment"
+    "tcmalloc::internal_explicitly_constructed"
     "tcmalloc::internal_exponential_biased"
     "tcmalloc::internal_gwp_asan_state"
     "tcmalloc::internal_hardware_pages"

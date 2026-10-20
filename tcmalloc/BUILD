@@ -323,6 +323,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:cpu_utils",
         "//tcmalloc/internal:delay_injection",
         "//tcmalloc/internal:environment",
+        "//tcmalloc/internal:explicitly_constructed",
         "//tcmalloc/internal:exponential_biased",
         "//tcmalloc/internal:gwp_asan_state",
         "//tcmalloc/internal:hardware_pages",
