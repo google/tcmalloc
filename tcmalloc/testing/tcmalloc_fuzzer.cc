@@ -193,6 +193,7 @@ FUZZ_TEST(TCMalloc, AlignedNewSizedDelete)
 
 void SizeReturningNewDeleteAllocatedSize(size_t size) {
   const auto ptr = TCMallocInternalSizeReturningNew(size);
+  ASSERT_GE(nallocx(size, 0), ptr.n);
   TCMallocInternalDeleteSized(ptr.p, ptr.n);
 }
 
@@ -222,6 +223,8 @@ void SizeReturningNewAlignedDeleteAllocatedSizeAligned(size_t alignment_log2,
   const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
   const auto ptr = TCMallocInternalSizeReturningNewAligned(
       size, static_cast<std::align_val_t>(alignment));
+  ASSERT_GE(nallocx(size, MALLOCX_LG_ALIGN(static_cast<int>(alignment_log2))),
+            ptr.n);
   TCMallocInternalDeleteSizedAligned(ptr.p, ptr.n,
                                      static_cast<std::align_val_t>(alignment));
 }
@@ -516,11 +519,18 @@ FUZZ_TEST(TCMalloc, AlignedAllocSdallocx)
                  fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
 
 void NallocxIsMonotonic(size_t alignment_log2, size_t a, size_t b) {
+  const size_t alignment =
+      std::min(size_t{1} << static_cast<int>(alignment_log2), kPageSize);
   const int flags = MALLOCX_LG_ALIGN(static_cast<int>(alignment_log2));
   const size_t lo = std::min(a, b);
   const size_t hi = std::max(a, b);
-  ASSERT_GE(nallocx(lo, flags), lo);
-  ASSERT_LE(nallocx(lo, flags), nallocx(hi, flags));
+  const size_t rounded_lo = nallocx(lo, flags);
+  const size_t rounded_hi = nallocx(hi, flags);
+  ASSERT_GT(rounded_lo, 0);
+  ASSERT_GE(rounded_lo, lo);
+  ASSERT_EQ(rounded_lo % alignment, 0);
+  ASSERT_LE(rounded_lo, rounded_hi);
+  ASSERT_EQ(rounded_hi % alignment, 0);
 }
 
 FUZZ_TEST(TCMalloc, NallocxIsMonotonic)

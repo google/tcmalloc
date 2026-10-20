@@ -387,7 +387,7 @@ static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
     TC_ASSERT_NE(size_class, 0);
     return tc_globals.sizemap().class_to_size(size_class);
   } else {
-    return BytesToLengthCeil(size).in_bytes();
+    return std::max<Length>(BytesToLengthCeil(size), Length(1)).in_bytes();
   }
 }
 

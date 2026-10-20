@@ -823,6 +823,22 @@ TEST(TCMallocTest, nallocx_alignment) {
   }
 }
 
+TEST(TCMallocTest, NallocxZeroSizeLargeAlignment) {
+  ScopedGuardedSamplingInterval gs(-1);
+  constexpr int kLgAlign = kPageShift + 1;
+  constexpr size_t kAlign = size_t{1} << kLgAlign;
+  size_t rounded = nallocx(0, MALLOCX_LG_ALIGN(kLgAlign));
+  void* ptr = memalign(kAlign, 0);
+  ASSERT_NE(ptr, nullptr);
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_THREAD_SANITIZER) ||  \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  rounded = std::max<size_t>(rounded, 1u);
+#endif
+  EXPECT_EQ(rounded, MallocExtension::GetAllocatedSize(ptr));
+  free(ptr);
+}
+
 TEST(TCMallocTest, sdallocx) {
   for (size_t size = 0; size <= 4096; size += 7) {
     void* ptr = malloc(size);
