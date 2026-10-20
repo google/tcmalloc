@@ -40,6 +40,10 @@ inline constexpr size_t kFuzzingMaxSize = kMaxSize * 2 + 1;
 
 size_t GetPageSizeLog2() { return kHugePageShift; }
 
+bool IsAligned(const void* ptr, size_t alignment) {
+  return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
+}
+
 size_t PickDeleteSize(size_t min, size_t max, double scale) {
   TC_ASSERT_LE(min, max);
   TC_ASSERT_GE(max, min);
@@ -75,6 +79,8 @@ void AlignedAllocFreeAlignedSized(size_t alignment_log2, size_t size) {
   const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
   void* ptr = TCMallocInternalAlignedAlloc(alignment, size);
   ASSERT_TRUE(ptr != nullptr);
+  ASSERT_TRUE(IsAligned(ptr, alignment));
+  ASSERT_GE(TCMallocInternalMallocSize(ptr), size);
   TCMallocInternalFreeAlignedSized(ptr, alignment, size);
 }
 
@@ -85,6 +91,8 @@ FUZZ_TEST(TCMalloc, AlignedAllocFreeAlignedSized)
 void AllocAtLeastFreeAllocatedSize(size_t size) {
   const auto result = TCMallocInternalAllocAtLeast(size);
   ASSERT_TRUE(result.ptr != nullptr);
+  ASSERT_GE(result.size, size);
+  ASSERT_EQ(TCMallocInternalMallocSize(result.ptr), result.size);
   TCMallocInternalFreeSized(result.ptr, result.size);
 }
 
@@ -94,6 +102,7 @@ FUZZ_TEST(TCMalloc, AllocAtLeastFreeAllocatedSize)
 void AllocAtLeastFreeRequestedSize(size_t size) {
   const auto result = TCMallocInternalAllocAtLeast(size);
   ASSERT_TRUE(result.ptr != nullptr);
+  ASSERT_GE(result.size, size);
   TCMallocInternalFreeSized(result.ptr, size);
 }
 
@@ -103,6 +112,7 @@ FUZZ_TEST(TCMalloc, AllocAtLeastFreeRequestedSize)
 void AllocAtLeastFreeSized(size_t size, double delete_size_scale) {
   const auto result = TCMallocInternalAllocAtLeast(size);
   ASSERT_TRUE(result.ptr != nullptr);
+  ASSERT_GE(result.size, size);
   TCMallocInternalFreeSized(
       result.ptr, PickDeleteSize(size, result.size, delete_size_scale));
 }
@@ -116,6 +126,9 @@ void AlignedAllocAtLeastFreeAllocatedSizeAligned(size_t alignment_log2,
   const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
   const auto result = TCMallocInternalAlignedAllocAtLeast(alignment, size);
   ASSERT_TRUE(result.ptr != nullptr);
+  ASSERT_TRUE(IsAligned(result.ptr, alignment));
+  ASSERT_GE(result.size, size);
+  ASSERT_EQ(TCMallocInternalMallocSize(result.ptr), result.size);
   TCMallocInternalFreeAlignedSized(result.ptr, alignment, result.size);
 }
 
@@ -152,6 +165,8 @@ FUZZ_TEST(TCMalloc, AlignedAllocAtLeastFreeSizedAligned)
 
 void NewSizedDelete(size_t size) {
   void* ptr = TCMallocInternalNew(size);
+  ASSERT_TRUE(ptr != nullptr);
+  ASSERT_GE(TCMallocInternalMallocSize(ptr), size);
   TCMallocInternalDeleteSized(ptr, size);
 }
 
@@ -161,6 +176,7 @@ FUZZ_TEST(TCMalloc, NewSizedDelete)
 void AlignedNewDelete(size_t size, std::align_val_t align) {
   void* ptr = TCMallocInternalNewAligned(size, align);
   ASSERT_TRUE(ptr != nullptr);
+  ASSERT_TRUE(IsAligned(ptr, static_cast<size_t>(align)));
   TCMallocInternalDeleteAligned(ptr, align);
 }
 
@@ -175,6 +191,8 @@ FUZZ_TEST(TCMalloc, AlignedNewDelete)
 void AlignedNewSizedDelete(size_t size, std::align_val_t align) {
   void* ptr = TCMallocInternalNewAligned(size, align);
   ASSERT_TRUE(ptr != nullptr);
+  ASSERT_TRUE(IsAligned(ptr, static_cast<size_t>(align)));
+  ASSERT_GE(TCMallocInternalMallocSize(ptr), size);
   TCMallocInternalDeleteSizedAligned(ptr, size, align);
 }
 
@@ -193,7 +211,10 @@ FUZZ_TEST(TCMalloc, AlignedNewSizedDelete)
 
 void SizeReturningNewDeleteAllocatedSize(size_t size) {
   const auto ptr = TCMallocInternalSizeReturningNew(size);
+  ASSERT_TRUE(ptr.p != nullptr);
+  ASSERT_GE(ptr.n, size);
   ASSERT_GE(nallocx(size, 0), ptr.n);
+  ASSERT_EQ(TCMallocInternalMallocSize(ptr.p), ptr.n);
   TCMallocInternalDeleteSized(ptr.p, ptr.n);
 }
 
@@ -202,6 +223,8 @@ FUZZ_TEST(TCMalloc, SizeReturningNewDeleteAllocatedSize)
 
 void SizeReturningNewDeleteRequestedSize(size_t size) {
   const auto ptr = TCMallocInternalSizeReturningNew(size);
+  ASSERT_TRUE(ptr.p != nullptr);
+  ASSERT_GE(ptr.n, size);
   TCMallocInternalDeleteSized(ptr.p, size);
 }
 
@@ -210,6 +233,8 @@ FUZZ_TEST(TCMalloc, SizeReturningNewDeleteRequestedSize)
 
 void SizeReturningNewDeleteSized(size_t size, double delete_size_scale) {
   const auto ptr = TCMallocInternalSizeReturningNew(size);
+  ASSERT_TRUE(ptr.p != nullptr);
+  ASSERT_GE(ptr.n, size);
   TCMallocInternalDeleteSized(ptr.p,
                               PickDeleteSize(size, ptr.n, delete_size_scale));
 }
@@ -223,8 +248,12 @@ void SizeReturningNewAlignedDeleteAllocatedSizeAligned(size_t alignment_log2,
   const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
   const auto ptr = TCMallocInternalSizeReturningNewAligned(
       size, static_cast<std::align_val_t>(alignment));
+  ASSERT_TRUE(ptr.p != nullptr);
+  ASSERT_TRUE(IsAligned(ptr.p, alignment));
+  ASSERT_GE(ptr.n, size);
   ASSERT_GE(nallocx(size, MALLOCX_LG_ALIGN(static_cast<int>(alignment_log2))),
             ptr.n);
+  ASSERT_EQ(TCMallocInternalMallocSize(ptr.p), ptr.n);
   TCMallocInternalDeleteSizedAligned(ptr.p, ptr.n,
                                      static_cast<std::align_val_t>(alignment));
 }
@@ -238,6 +267,9 @@ void SizeReturningNewAlignedDeleteRequestedSizeAligned(size_t alignment_log2,
   const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
   const auto ptr = TCMallocInternalSizeReturningNewAligned(
       size, static_cast<std::align_val_t>(alignment));
+  ASSERT_TRUE(ptr.p != nullptr);
+  ASSERT_TRUE(IsAligned(ptr.p, alignment));
+  ASSERT_GE(ptr.n, size);
   TCMallocInternalDeleteSizedAligned(ptr.p, size,
                                      static_cast<std::align_val_t>(alignment));
 }
@@ -252,6 +284,9 @@ void SizeReturningNewAlignedDeleteSizedAligned(size_t alignment_log2,
   const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
   const auto ptr = TCMallocInternalSizeReturningNewAligned(
       size, static_cast<std::align_val_t>(alignment));
+  ASSERT_TRUE(ptr.p != nullptr);
+  ASSERT_TRUE(IsAligned(ptr.p, alignment));
+  ASSERT_GE(ptr.n, size);
   TCMallocInternalDeleteSizedAligned(
       ptr.p, PickDeleteSize(size, ptr.n, delete_size_scale),
       static_cast<std::align_val_t>(alignment));
@@ -263,10 +298,6 @@ FUZZ_TEST(TCMalloc, SizeReturningNewAlignedDeleteSizedAligned)
                  fuzztest::InRange(0.0, 1.0));
 
 size_t GetSystemPageSize() { return static_cast<size_t>(getpagesize()); }
-
-bool IsAligned(const void* ptr, size_t alignment) {
-  return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
-}
 
 // Returns an element size such that n * elem_size overflows size_t.
 size_t OverflowingElementSize(size_t n) {
