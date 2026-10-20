@@ -194,12 +194,12 @@ class ShardedTransferCacheManagerBase {
       sharded_cumulative_bytes += class_bytes;
 
       const auto estimated_frontend_operations = counts[size_class].value();
+      const uint64_t backend_operations =
+          stats.remove_object_hits + stats.remove_object_misses;
       const double hit_rate =
-          estimated_frontend_operations == 0
+          estimated_frontend_operations <= backend_operations
               ? 0.
-              : 100. *
-                    (estimated_frontend_operations -
-                     (stats.remove_object_hits + stats.remove_object_misses)) /
+              : 100. * (estimated_frontend_operations - backend_operations) /
                     estimated_frontend_operations;
 
       out.printf(
@@ -499,13 +499,13 @@ class TransferCacheManagerBase {
       cumulative_bytes += class_bytes;
 
       const auto estimated_frontend_operations = counts[size_class].value();
-      const double hit_rate = estimated_frontend_operations == 0
-                                  ? 0.
-                                  : 100. *
-                                        (estimated_frontend_operations -
-                                         (tc_stats.remove_object_hits +
-                                          tc_stats.remove_object_misses)) /
-                                        estimated_frontend_operations;
+      const uint64_t backend_operations =
+          tc_stats.remove_object_hits + tc_stats.remove_object_misses;
+      const double hit_rate =
+          estimated_frontend_operations <= backend_operations
+              ? 0.
+              : 100. * (estimated_frontend_operations - backend_operations) /
+                    estimated_frontend_operations;
 
       out.printf(
           "class %3d [ %8zu bytes ] : %8u"

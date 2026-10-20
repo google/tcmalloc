@@ -772,6 +772,30 @@ TEST(ShardedTransferCacheManagerTest, PrintTelemetry) {
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("remove_hits: 1"));
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("used: 1"));
   EXPECT_THAT(pbtxt_output, ::testing::HasSubstr("frontend_allocations: 10"));
+
+  // 5. Verify frontline hit rate does not underflow when backend removals
+  // exceed estimated frontend operations (e.g., 2 removals vs 1 frontend op).
+  env.SetCurrentCpu(2);
+  void* pop1 = manager.Pop(kSizeClass);
+  ASSERT_NE(pop1, nullptr);
+  env.central_freelist().FreeBatch({&pop1, 1});
+
+  StatsCounters<kNumClasses> low_counts;
+  low_counts[kSizeClass].Add(1);
+  std::string low_output = PrintToString(1024 * 1024, [&](Printer& printer) {
+    manager.Print(low_counts, printer);
+  });
+  EXPECT_THAT(low_output, ::testing::HasSubstr(absl::StrFormat(
+                              "class %3d [ %8zu bytes ] : %8u objs; %5.1f MiB; "
+                              "%6.1f cum MiB; %5u capacity; %8u max_capacity; "
+                              "%8u insert hits; %8u insert misses (%10lu "
+                              "object misses); %8u remove hits; %8u remove "
+                              "misses (%10lu object misses); 0.00000 frontline "
+                              "hit rate",
+                              kSizeClass, class_size, 0, 0.0, 0.0,
+                              manager.GetStats(kSizeClass).capacity,
+                              manager.GetStats(kSizeClass).max_capacity, 2, 0,
+                              0UL, 2, 0, 0UL)));
 }
 
 TEST(ShardedTransferCacheManagerTest, GetStatsAggregatesInsertObjectMisses) {
@@ -1003,6 +1027,17 @@ TEST(TransferCacheManagerTest, PrintTelemetry) {
               ::testing::HasSubstr(absl::StrFormat("%8u remove hits", 1)));
   EXPECT_THAT(output,
               ::testing::HasSubstr(absl::StrFormat("%8u objs", batch_size)));
+  EXPECT_THAT(
+      output,
+      ::testing::HasSubstr(absl::StrFormat(
+          "class %3d [ %8zu bytes ] : %8u objs; %5.1f MiB; %6.1f cum "
+          "MiB; %5u capacity; %5u max_capacity; %8u insert hits; %8u "
+          "insert misses (%10lu object misses); %8u remove hits; %8u "
+          "remove misses (%10lu object misses); 0.00000 frontline hit "
+          "rate",
+          size_class, manager.forwarder().class_to_size(size_class), batch_size,
+          0.0, 0.0, manager.GetStats(size_class).capacity,
+          manager.GetStats(size_class).max_capacity, 2, 0, 0UL, 1, 0, 0UL)));
 
   // 2. Verify PrintInPbtxt telemetry.
   std::string pbtxt_output = PrintToString(
