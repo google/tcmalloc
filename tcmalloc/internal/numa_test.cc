@@ -233,6 +233,37 @@ TEST_F(NumaTopologyTest, LongCpuLists) {
   }
 }
 
+TEST_F(NumaTopologyTest, ManyNodes) {
+  std::vector<SyntheticCpuList> nodes;
+  nodes.reserve(33);
+  for (int i = 0; i < 33; ++i) {
+    nodes.emplace_back(absl::StrCat(i));
+  }
+
+  const auto nt = CreateNumaTopology<2>(nodes);
+
+  EXPECT_TRUE(nt.numa_aware());
+  EXPECT_EQ(nt.num_nodes(), 33);
+  // Node 31 maps to partition 1; shifting 1 << 31 as signed 32-bit int must not
+  // sign-extend into bits 32..63.
+  EXPECT_NE(nt.GetPartitionNodes(1) & (uint64_t{1} << 31), 0);
+  EXPECT_EQ(nt.GetPartitionNodes(1) >> 32, 0);
+  // Node 32 maps to partition 0; shifting must use 64-bit mask without UB.
+  EXPECT_NE(nt.GetPartitionNodes(0) & (uint64_t{1} << 32), 0);
+}
+
+TEST_F(NumaTopologyTest, SandboxPermissionDenied) {
+  NumaTopology<2> nt;
+  nt.InitForTest([](const size_t node) {
+    errno = EACCES;
+    return -1;
+  });
+
+  EXPECT_FALSE(nt.numa_aware());
+  EXPECT_EQ(nt.active_partitions(), 1);
+  EXPECT_EQ(nt.num_nodes(), 1);
+}
+
 // Ensure we can initialize using the host system's real NUMA topology
 // information.
 TEST_F(NumaTopologyTest, Host) {

@@ -64,7 +64,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
   const char* e =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_NUMA_AWARE");
 
-  partition_to_nodes[NodeToPartition(0, num_partitions)] |= 1 << 0;
+  partition_to_nodes[NodeToPartition(0, num_partitions)] |= uint64_t{1} << 0;
   *bind_mode = NumaBindMode::kAdvisory;
   *num_nodes = 1;
 
@@ -104,7 +104,11 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
   // allocated prior to lookups. It has kMaxCpus entries which ought to be
   // sufficient, but sanity check that indexing it by CPU number shouldn't
   // exceed its bounds.
-  int num_cpus = NumCPUs();
+  std::optional<int> maybe_num_cpus = NumCPUsMaybe();
+  if (!maybe_num_cpus.has_value()) {
+    return false;
+  }
+  int num_cpus = *maybe_num_cpus;
   TC_CHECK_LE(num_cpus, kMaxCpus);
 
   // We could just always report that we're NUMA aware, but if a NUMA-aware
@@ -119,8 +123,9 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
     const int fd = open_node_cpulist(node);
     if (fd == -1) {
       // We expect to encounter ENOENT once node surpasses the actual number of
-      // nodes present in the system. Any other error is a problem.
-      TC_CHECK_EQ(errno, ENOENT);
+      // nodes present in the system, or EACCES/EPERM in restricted sandboxes.
+      // Any other error is a problem.
+      TC_CHECK(errno == ENOENT || errno == EACCES || errno == EPERM);
       // Even the first open may fail in sandboxes, don't set num_nodes to 0.
       if (node != 0) {
         *num_nodes = node;
@@ -130,7 +135,9 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
 
     // Record this node in partition_to_nodes.
     const size_t partition = NodeToPartition(node, num_partitions);
-    partition_to_nodes[partition] |= 1 << node;
+    if (node < 64) {
+      partition_to_nodes[partition] |= uint64_t{1} << node;
+    }
 
     // cpu_to_scaled_partition_ entries are default initialized to zero, so
     // skip redundantly parsing CPU lists for nodes that map to partition 0.
