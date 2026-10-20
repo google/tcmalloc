@@ -57,10 +57,12 @@ class ResidencySpouse {
 
   template <typename... Args>
   decltype(auto) Get(Args&&... args) {
+    AllocationGuard g;
     return r_.Get(std::forward<Args>(args)...);
   }
 
   decltype(auto) GetUnbackedAndSwappedBitmaps(const void* const addr) {
+    AllocationGuard g;
     return r_.GetUnbackedAndSwappedBitmaps(addr);
   }
 
@@ -89,14 +91,21 @@ TEST(ResidenceTest, ThisProcess) {
     const size_t kHead = kHardwarePageSize * 10;
     const size_t kTail = kHardwarePageSize * 10;
 
+    std::optional<AllocationGuard> g;
+    g.emplace();
     ResidencyPageMap r;
+    g.reset();
+    auto get = [&](const void* addr, size_t size) {
+      AllocationGuard guard;
+      return r.Get(addr, size);
+    };
     // Overallocate kNumPages of memory, so we can munmap the page before and
     // after it.
     void* p = mmap(nullptr, kNumPages * kHardwarePageSize + kHead + kTail,
                    PROT_READ | PROT_WRITE, flags, -1, 0);
     ASSERT_NE(p, MAP_FAILED) << errno;
 
-    EXPECT_THAT(r.Get(p, (kNumPages + 2) * kHardwarePageSize),
+    EXPECT_THAT(get(p, (kNumPages + 2) * kHardwarePageSize),
                 Optional(FieldsAre(0, 0, _)));
     void* q = reinterpret_cast<char*>(p) + kHead;
     void* last =
@@ -104,48 +113,49 @@ TEST(ResidenceTest, ThisProcess) {
     ASSERT_EQ(munmap(p, kHardwarePageSize), 0);
     ASSERT_EQ(munmap(last, kHardwarePageSize), 0);
 
-    EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0, _)));
-    EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0, _)));
+    EXPECT_THAT(get(p, kHead), Optional(FieldsAre(0, 0, _)));
+    EXPECT_THAT(get(last, kTail), Optional(FieldsAre(0, 0, _)));
 
     memset(q, 0, kNumPages * kHardwarePageSize);
     (void)mlock(q, kNumPages * kHardwarePageSize);
     ::benchmark::DoNotOptimize(q);
 
-    EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0, _)));
-    EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0, _)));
+    EXPECT_THAT(get(p, kHead), Optional(FieldsAre(0, 0, _)));
+    EXPECT_THAT(get(last, kTail), Optional(FieldsAre(0, 0, _)));
 
-    EXPECT_THAT(r.Get(q, kHardwarePageSize),
+    EXPECT_THAT(get(q, kHardwarePageSize),
                 Optional(FieldsAre(kHardwarePageSize, 0, _)));
 
-    EXPECT_THAT(r.Get(q, (kNumPages + 2) * kHardwarePageSize),
+    EXPECT_THAT(get(q, (kNumPages + 2) * kHardwarePageSize),
                 Optional(FieldsAre(kHardwarePageSize * kNumPages, 0, _)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kHardwarePageSize - 7),
+    EXPECT_THAT(get(reinterpret_cast<char*>(q) + 7, kHardwarePageSize - 7),
                 Optional(FieldsAre(kHardwarePageSize - 7, 0, _)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kHardwarePageSize),
+    EXPECT_THAT(get(reinterpret_cast<char*>(q) + 7, kHardwarePageSize),
                 Optional(FieldsAre(kHardwarePageSize, 0, _)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, 3 * kHardwarePageSize),
+    EXPECT_THAT(get(reinterpret_cast<char*>(q) + 7, 3 * kHardwarePageSize),
                 Optional(FieldsAre(kHardwarePageSize * 3, 0, _)));
 
     EXPECT_THAT(
-        r.Get(reinterpret_cast<char*>(q) + 7, kNumPages * kHardwarePageSize),
+        get(reinterpret_cast<char*>(q) + 7, kNumPages * kHardwarePageSize),
         Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
-                      kNumPages * kHardwarePageSize - 7),
+    EXPECT_THAT(
+        get(reinterpret_cast<char*>(q) + 7, kNumPages * kHardwarePageSize - 7),
+        Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
+
+    EXPECT_THAT(get(reinterpret_cast<char*>(q) + 7,
+                    (kNumPages + 1) * kHardwarePageSize),
                 Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
-                      (kNumPages + 1) * kHardwarePageSize),
+    EXPECT_THAT(get(reinterpret_cast<char*>(q) + 7,
+                    (kNumPages + 1) * kHardwarePageSize - 7),
                 Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
 
-    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7,
-                      (kNumPages + 1) * kHardwarePageSize - 7),
-                Optional(FieldsAre(kHardwarePageSize * kNumPages - 7, 0, _)));
-
-    auto q_info = r.Get(q, kNumPages * kHardwarePageSize);
+    std::optional<Residency::Info> q_info =
+        get(q, kNumPages * kHardwarePageSize);
     ASSERT_TRUE(q_info.has_value());
     EXPECT_THAT(*q_info, FieldsAre(kHardwarePageSize * kNumPages, 0, _));
     for (size_t i = 0; i < kNumPages; ++i) {
@@ -157,18 +167,33 @@ TEST(ResidenceTest, ThisProcess) {
 }
 
 TEST(ResidenceTest, CannotOpen) {
-  ResidencySpouse r("/tmp/a667ba48-18ba-4523-a8a7-b49ece3a6c2b");
-  EXPECT_FALSE(r.Get(nullptr, 1).has_value());
+  std::optional<Residency::Info> res;
+  {
+    AllocationGuard g;
+    ResidencySpouse r("/tmp/a667ba48-18ba-4523-a8a7-b49ece3a6c2b");
+    res = r.Get(nullptr, 1);
+  }
+  EXPECT_FALSE(res.has_value());
 }
 
 TEST(ResidenceTest, CannotRead) {
-  ResidencySpouse r("/dev/null");
-  EXPECT_FALSE(r.Get(nullptr, 1).has_value());
+  std::optional<Residency::Info> res;
+  {
+    AllocationGuard g;
+    ResidencySpouse r("/dev/null");
+    res = r.Get(nullptr, 1);
+  }
+  EXPECT_FALSE(res.has_value());
 }
 
 TEST(ResidenceTest, CannotSeek) {
-  ResidencySpouse r("/dev/null");
-  EXPECT_FALSE(r.Get(&r, 1).has_value());
+  std::optional<Residency::Info> res;
+  {
+    AllocationGuard g;
+    ResidencySpouse r("/dev/null");
+    res = r.Get(&r, 1);
+  }
+  EXPECT_FALSE(res.has_value());
 }
 
 TEST(ResidenceTest, GuardPagesNotCountedAsSwapped) {
@@ -186,8 +211,12 @@ TEST(ResidenceTest, GuardPagesNotCountedAsSwapped) {
   ASSERT_EQ(close(write_fd), 0);
 
   const size_t kHardwarePageSize = GetPageSize();
-  ResidencySpouse r(file_path);
-  auto info = r.Get(nullptr, 3 * kHardwarePageSize);
+  std::optional<Residency::Info> info;
+  {
+    AllocationGuard g;
+    ResidencySpouse r(file_path);
+    info = r.Get(nullptr, 3 * kHardwarePageSize);
+  }
   ASSERT_TRUE(info.has_value());
   EXPECT_EQ(info->bytes_resident, kHardwarePageSize);
   EXPECT_EQ(info->bytes_swapped, kHardwarePageSize);
