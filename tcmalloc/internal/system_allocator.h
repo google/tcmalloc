@@ -512,6 +512,7 @@ SystemAllocator<Topology, NormalPartitions>::AllocateFromRegion(
       TC_ASSERT_EQ(result.second, size);
     } else {
       TC_ASSERT_EQ(result.second, 0);
+      munmap(ptr, size);
     }
     return result;
   }
