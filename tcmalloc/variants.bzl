@@ -337,6 +337,70 @@ def create_tcmalloc_libraries(name, srcs = [], **kwargs):
         **kwargs
     )
 
+def _env_target_impl(ctx):
+    out = ctx.actions.declare_file(ctx.label.name)
+    ctx.actions.symlink(
+        output = out,
+        target_file = ctx.executable.src,
+        is_executable = True,
+    )
+    runfiles = ctx.runfiles(files = [ctx.executable.src] + ctx.files.data)
+    runfiles = runfiles.merge_all([
+        d[DefaultInfo].default_runfiles
+        for d in ctx.attr.data + [ctx.attr.src]
+    ])
+
+    test_env = {}
+    inherited_env = []
+    if RunEnvironmentInfo in ctx.attr.src:
+        test_env.update(ctx.attr.src[RunEnvironmentInfo].environment)
+        inherited_env = ctx.attr.src[RunEnvironmentInfo].inherited_environment
+    for k in ctx.attr.unset_env:
+        test_env.pop(k, None)
+    for k, v in ctx.attr.env.items():
+        test_env[k] = ctx.expand_location(v)
+
+    providers = [
+        DefaultInfo(
+            executable = out,
+            files = depset([out]),
+            runfiles = runfiles,
+        ),
+        RunEnvironmentInfo(
+            environment = test_env,
+            inherited_environment = inherited_env,
+        ),
+    ]
+    if testing.ExecutionInfo in ctx.attr.src:
+        providers.append(ctx.attr.src[testing.ExecutionInfo])
+    if InstrumentedFilesInfo in ctx.attr.src:
+        providers.append(ctx.attr.src[InstrumentedFilesInfo])
+    return providers
+
+_ENV_TARGET_ATTRS = {
+    "src": attr.label(
+        executable = True,
+        allow_files = True,
+        cfg = "target",
+        mandatory = True,
+    ),
+    "data": attr.label_list(allow_files = True),
+    "env": attr.string_dict(),
+    "unset_env": attr.string_list(),
+}
+
+_tcmalloc_env_test = rule(
+    implementation = _env_target_impl,
+    attrs = _ENV_TARGET_ATTRS,
+    test = True,
+)
+
+_tcmalloc_env_binary = rule(
+    implementation = _env_target_impl,
+    attrs = _ENV_TARGET_ATTRS,
+    executable = True,
+)
+
 def create_tcmalloc_test_variant_targets(create_one, name, srcs = [], **kwargs):
     """ Invokes create_one once per TCMalloc variant
 
@@ -358,6 +422,7 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs = [], **kwargs):
 
     env0 = kwargs.pop("env", {})
 
+    canonical_binaries = {}
     variant_targets = []
     for variant in test_variants:
         inner_target_name = name + "_" + variant["name"]
@@ -374,24 +439,51 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs = [], **kwargs):
         if not build_variant:
             build_variant = variant["name"]
 
-        create_one(
-            inner_target_name,
-            copts = copts + variant.get("copts", []),
-            linkopts = linkopts + variant.get("linkopts", []),
-            malloc = variant.get("malloc"),
-            srcs = srcs,
-            deps = deps + variant.get("deps", []) + [
-                d + "_" + build_variant
-                for d in variant_deps
-            ],
-            env = env,
-            tags = tags + variant.get("tags", []),
-            **kwargs
+        variant_copts = copts + variant.get("copts", [])
+        variant_linkopts = linkopts + variant.get("linkopts", [])
+        variant_malloc = variant.get("malloc")
+        variant_full_deps = deps + variant.get("deps", []) + [
+            d + "_" + build_variant
+            for d in variant_deps
+        ]
+        build_key = (
+            variant_malloc,
+            tuple(variant.get("deps", [])),
+            tuple(variant.get("copts", [])),
+            tuple(variant.get("linkopts", [])),
+            build_variant,
         )
+
+        if build_key not in canonical_binaries:
+            canonical_binaries[build_key] = (
+                inner_target_name,
+                list(variant.get("env", {}).keys()),
+            )
+            create_one(
+                inner_target_name,
+                copts = variant_copts,
+                linkopts = variant_linkopts,
+                malloc = variant_malloc,
+                srcs = srcs,
+                deps = variant_full_deps,
+                env = env,
+                tags = tags + variant.get("tags", []),
+                **kwargs
+            )
+        else:
+            canonical_name, canonical_env_keys = canonical_binaries[build_key]
+            unset_env = [k for k in canonical_env_keys if k not in env]
+            create_one(
+                inner_target_name,
+                src_binary = ":" + canonical_name,
+                env = env,
+                unset_env = unset_env,
+                tags = tags + variant.get("tags", []),
+                **kwargs
+            )
 
     return variant_targets
 
-# Declare an individual test.
 def create_tcmalloc_test(
         name,
         copts = [],
@@ -400,6 +492,28 @@ def create_tcmalloc_test(
         srcs = [],
         deps = [],
         **kwargs):
+    """Declares an individual TCMalloc test target.
+
+    Args:
+      name: Target name.
+      copts: Compiler options passed to cc_test.
+      linkopts: Linker options passed to cc_test.
+      malloc: The malloc target passed to cc_test.
+      srcs: Source files to be built.
+      deps: Dependencies passed to cc_test.
+      **kwargs: Other arguments passed through to cc_test or _tcmalloc_env_test.
+    """
+    src_binary = kwargs.pop("src_binary", None)
+    unset_env = kwargs.pop("unset_env", [])
+    if src_binary != None:
+        kwargs.pop("linkstatic", None)
+        _tcmalloc_env_test(
+            name = name,
+            src = src_binary,
+            unset_env = unset_env,
+            **kwargs
+        )
+        return
     cc_test(
         name = name,
         srcs = srcs,
@@ -422,7 +536,29 @@ def create_tcmalloc_testsuite(name, srcs = [], **kwargs):
     native.test_suite(name = name, tests = variant_targets, tags = tags)
 
 # Declare a single benchmark binary.
-def create_tcmalloc_benchmark(name, srcs, **kwargs):
+def create_tcmalloc_benchmark(
+        name,
+        srcs = [],
+        **kwargs):
+    """Declares a single TCMalloc benchmark binary.
+
+    Args:
+      name: Target name.
+      srcs: Source files to be built.
+      **kwargs: Other arguments passed through to cc_binary or _tcmalloc_env_binary.
+    """
+    src_binary = kwargs.pop("src_binary", None)
+    unset_env = kwargs.pop("unset_env", [])
+    if src_binary != None:
+        kwargs.pop("linkstatic", None)
+        _tcmalloc_env_binary(
+            name = name,
+            src = src_binary,
+            testonly = 1,
+            unset_env = unset_env,
+            **kwargs
+        )
+        return
     deps = kwargs.pop("deps")
     malloc = kwargs.pop("malloc", "//tcmalloc")
     cc_binary(

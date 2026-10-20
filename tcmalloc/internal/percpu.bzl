@@ -42,6 +42,59 @@ percpu_test_variants = [
     },
 ]
 
+def _percpu_env_test_impl(ctx):
+    out = ctx.actions.declare_file(ctx.label.name)
+    ctx.actions.symlink(
+        output = out,
+        target_file = ctx.executable.src,
+        is_executable = True,
+    )
+    runfiles = ctx.runfiles(files = [ctx.executable.src] + ctx.files.data)
+    runfiles = runfiles.merge_all([
+        d[DefaultInfo].default_runfiles
+        for d in ctx.attr.data + [ctx.attr.src]
+    ])
+
+    test_env = {}
+    inherited_env = []
+    if RunEnvironmentInfo in ctx.attr.src:
+        test_env.update(ctx.attr.src[RunEnvironmentInfo].environment)
+        inherited_env = ctx.attr.src[RunEnvironmentInfo].inherited_environment
+    for k, v in ctx.attr.env.items():
+        test_env[k] = ctx.expand_location(v)
+
+    providers = [
+        DefaultInfo(
+            executable = out,
+            files = depset([out]),
+            runfiles = runfiles,
+        ),
+        RunEnvironmentInfo(
+            environment = test_env,
+            inherited_environment = inherited_env,
+        ),
+    ]
+    if testing.ExecutionInfo in ctx.attr.src:
+        providers.append(ctx.attr.src[testing.ExecutionInfo])
+    if InstrumentedFilesInfo in ctx.attr.src:
+        providers.append(ctx.attr.src[InstrumentedFilesInfo])
+    return providers
+
+_percpu_env_test = rule(
+    implementation = _percpu_env_test_impl,
+    attrs = {
+        "src": attr.label(
+            executable = True,
+            allow_files = True,
+            cfg = "target",
+            mandatory = True,
+        ),
+        "data": attr.label_list(allow_files = True),
+        "env": attr.string_dict(),
+    },
+    test = True,
+)
+
 def create_percpu_tcmalloc_testsuite(
         name,
         srcs = ["percpu_tcmalloc_test.cc"],
@@ -70,24 +123,36 @@ def create_percpu_tcmalloc_testsuite(
     Returns:
       A list of the targets generated.
     """
+    canonical_name = None
     targets = []
     for variant in percpu_test_variants:
         test_name = name + variant["name"]
         targets.append(test_name)
         variant_env = dict(env)
         variant_env.update(variant["env"])
-        cc_test(
-            name = test_name,
-            srcs = srcs,
-            copts = copts,
-            deps = deps,
-            env = variant_env,
-            linkstatic = linkstatic,
-            malloc = malloc,
-            tags = tags,
-            timeout = timeout,
-            **kwargs
-        )
+        if canonical_name == None:
+            canonical_name = test_name
+            cc_test(
+                name = test_name,
+                srcs = srcs,
+                copts = copts,
+                deps = deps,
+                env = variant_env,
+                linkstatic = linkstatic,
+                malloc = malloc,
+                tags = tags,
+                timeout = timeout,
+                **kwargs
+            )
+        else:
+            _percpu_env_test(
+                name = test_name,
+                src = ":" + canonical_name,
+                env = variant_env,
+                tags = tags,
+                timeout = timeout,
+                **kwargs
+            )
     return targets
 
 percpu_testsuite = create_percpu_tcmalloc_testsuite
