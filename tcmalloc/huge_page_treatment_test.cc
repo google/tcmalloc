@@ -346,7 +346,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     PageHeapSpinLockHolder l;
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
-        ReleaseStalePages::kDisabled, &pageflags_, &residency_);
+        ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
+        &pageflags_, &residency_);
     EXPECT_EQ(filler_.GetHugePageTreatmentStats().collapse_succeeded,
               NHugePages(0));
     EXPECT_TRUE(pt->released());
@@ -394,7 +395,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     PageHeapSpinLockHolder l;
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
-        ReleaseStalePages::kDisabled, &pageflags_, &residency_);
+        ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
+        &pageflags_, &residency_);
     EXPECT_EQ(filler_.GetHugePageTreatmentStats().collapse_attempted,
               NHugePages(0));
   }
@@ -411,7 +413,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     ASSERT_EQ(madvise(backing_.ptr, kHugePageSize, MADV_HUGEPAGE), 0) << errno;
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kEnabled,
-        ReleaseStalePages::kDisabled, &pageflags_, &residency_);
+        ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
+        &pageflags_, &residency_);
   }
   if (collapse_.calls() == 0 &&
       pageflags_.IsHugepageBacked(backing_.ptr).value_or(false)) {
