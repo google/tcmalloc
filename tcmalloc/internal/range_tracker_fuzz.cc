@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -26,8 +25,7 @@
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-void FuzzBitmapPopBatch(const std::array<bool, 128>& bits_to_set,
-                        size_t limit) {
+void FuzzBitmapPopBatch(const std::vector<bool>& bits_to_set, size_t limit) {
   constexpr size_t N = 128;
   Bitmap<N> map1;
   Bitmap<N> map2;
@@ -59,10 +57,10 @@ void FuzzBitmapPopBatch(const std::array<bool, 128>& bits_to_set,
 }
 
 FUZZ_TEST(BitmapFuzzTest, FuzzBitmapPopBatch)
-    .WithDomains(fuzztest::Arbitrary<std::array<bool, 128>>(),
+    .WithDomains(fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithSize(128),
                  fuzztest::InRange<size_t>(0, 128));
 
-void FuzzBitmapCountBits(const std::array<bool, 253>& bits_to_set, size_t start,
+void FuzzBitmapCountBits(const std::vector<bool>& bits_to_set, size_t start,
                          size_t length) {
   constexpr size_t N = 253;
   if (start > N || start + length > N) {
@@ -88,12 +86,12 @@ void FuzzBitmapCountBits(const std::array<bool, 253>& bits_to_set, size_t start,
 }
 
 FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCountBits)
-    .WithDomains(fuzztest::Arbitrary<std::array<bool, 253>>(),
+    .WithDomains(fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithSize(253),
                  fuzztest::InRange<size_t>(0, 253),
                  fuzztest::InRange<size_t>(0, 253));
 
-void FuzzBitmapCopyBits(const std::array<bool, 256>& src_bits,
-                        const std::array<bool, 256>& dst_initial_bits,
+void FuzzBitmapCopyBits(const std::vector<bool>& src_bits,
+                        const std::vector<bool>& dst_initial_bits,
                         size_t src_offset, size_t dst_offset, size_t length) {
   constexpr size_t N = 256;
   if (src_offset > N || src_offset + length > N || dst_offset > N ||
@@ -103,7 +101,7 @@ void FuzzBitmapCopyBits(const std::array<bool, 256>& src_bits,
 
   Bitmap<N> src_map;
   Bitmap<N> dst_map;
-  std::array<bool, N> expected_dst = dst_initial_bits;
+  std::vector<bool> expected_dst = dst_initial_bits;
 
   for (size_t i = 0; i < N; ++i) {
     if (src_bits[i]) {
@@ -126,16 +124,16 @@ void FuzzBitmapCopyBits(const std::array<bool, 256>& src_bits,
 }
 
 FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCopyBits)
-    .WithDomains(fuzztest::Arbitrary<std::array<bool, 256>>(),
-                 fuzztest::Arbitrary<std::array<bool, 256>>(),
+    .WithDomains(fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithSize(256),
+                 fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithSize(256),
                  fuzztest::InRange<size_t>(0, 256),
                  fuzztest::InRange<size_t>(0, 256),
                  fuzztest::InRange<size_t>(0, 256));
 
-void FuzzBitmapCopyBitsDifferentSizes(
-    const std::array<bool, 127>& src_bits,
-    const std::array<bool, 300>& dst_initial_bits, size_t src_offset,
-    size_t dst_offset, size_t length) {
+void FuzzBitmapCopyBitsDifferentSizes(const std::vector<bool>& src_bits,
+                                      const std::vector<bool>& dst_initial_bits,
+                                      size_t src_offset, size_t dst_offset,
+                                      size_t length) {
   constexpr size_t SrcN = 127;
   constexpr size_t DstN = 300;
   if (src_offset > SrcN || src_offset + length > SrcN || dst_offset > DstN ||
@@ -145,7 +143,7 @@ void FuzzBitmapCopyBitsDifferentSizes(
 
   Bitmap<SrcN> src_map;
   Bitmap<DstN> dst_map;
-  std::array<bool, DstN> expected_dst = dst_initial_bits;
+  std::vector<bool> expected_dst = dst_initial_bits;
 
   for (size_t i = 0; i < SrcN; ++i) {
     if (src_bits[i]) {
@@ -170,15 +168,15 @@ void FuzzBitmapCopyBitsDifferentSizes(
 }
 
 FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCopyBitsDifferentSizes)
-    .WithDomains(fuzztest::Arbitrary<std::array<bool, 127>>(),
-                 fuzztest::Arbitrary<std::array<bool, 300>>(),
+    .WithDomains(fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithSize(127),
+                 fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithSize(300),
                  fuzztest::InRange<size_t>(0, 127),
                  fuzztest::InRange<size_t>(0, 300),
                  fuzztest::InRange<size_t>(0, 300));
 
 void FuzzBitmapCopyBitsContractingSizes(
-    const std::array<bool, 300>& src_bits,
-    const std::array<bool, 127>& dst_initial_bits, size_t src_offset,
+    const std::vector<bool>& src_bits,
+    const std::vector<bool>& dst_initial_bits, size_t src_offset,
     size_t dst_offset, size_t length) {
   constexpr size_t SrcN = 300;
   constexpr size_t DstN = 127;
@@ -189,7 +187,7 @@ void FuzzBitmapCopyBitsContractingSizes(
 
   Bitmap<SrcN> src_map;
   Bitmap<DstN> dst_map;
-  std::array<bool, DstN> expected_dst = dst_initial_bits;
+  std::vector<bool> expected_dst = dst_initial_bits;
 
   for (size_t i = 0; i < SrcN; ++i) {
     if (src_bits[i]) {
@@ -214,8 +212,8 @@ void FuzzBitmapCopyBitsContractingSizes(
 }
 
 FUZZ_TEST(BitmapFuzzTest, FuzzBitmapCopyBitsContractingSizes)
-    .WithDomains(fuzztest::Arbitrary<std::array<bool, 300>>(),
-                 fuzztest::Arbitrary<std::array<bool, 127>>(),
+    .WithDomains(fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithSize(300),
+                 fuzztest::VectorOf(fuzztest::Arbitrary<bool>()).WithSize(127),
                  fuzztest::InRange<size_t>(0, 300),
                  fuzztest::InRange<size_t>(0, 127),
                  fuzztest::InRange<size_t>(0, 127));
