@@ -428,7 +428,9 @@ struct State {
     // has dropped pageheap_lock itself, so the set must never grow there.  We
     // have at most num_instructions allocations, for at most kPagesPerHugePage
     // pages each, that we can track the released status of.
-    released_set.reserve(kPagesPerHugePage.raw_num() * num_instructions);
+    released_set.reserve(kPagesPerHugePage.raw_num() * (num_instructions + 1));
+    non_resident_set.reserve(kPagesPerHugePage.raw_num() *
+                             (num_instructions + 1));
   }
 
   // Called by every mock the filler invokes with pageheap_lock dropped.  Checks
@@ -566,14 +568,15 @@ struct State {
                   end = hp.first_page() + kPagesPerHugePage;
            p != end; ++p) {
         released_set.erase(p);
+        non_resident_set.erase(p);
       }
       delete pt;
     }
   }
 
   // Each tracker's released bitmap agrees with its released count, marks no
-  // page a live allocation holds, and, summed over the trackers, is exactly
-  // released_set.
+  // page a live allocation holds, never covers a resident page, and, summed
+  // over the trackers, is exactly released_set.
   void CheckTrackerBitmaps() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     size_t released = 0;
@@ -583,12 +586,23 @@ struct State {
       TC_CHECK_EQ((rel & pt->allocated_pages_bitmap()).CountBits(), 0);
       const PageId first = pt->location().first_page();
       rel.ForEachSet(0, [&](size_t i) {
-        TC_CHECK(released_set.contains(first + Length(i)), "%v",
-                 first + Length(i));
+        const PageId p = first + Length(i);
+        TC_CHECK(non_resident_set.contains(p), "%v", p);
+        TC_CHECK(released_set.contains(p), "%v", p);
         ++released;
       });
     }
     TC_CHECK_EQ(released, released_set.size());
+  }
+
+  void MarkUnbackedBitmapPagesNonResident(const void* addr) {
+    const HugePage hp = HugePageContaining(PageIdContaining(addr));
+    const size_t pages_per_huge_page = kHugePageSize / GetPageSize();
+    const PageBitmap scaled = Scale<kPagesPerHugePage.raw_num()>(
+        unbacked_bitmap, pages_per_huge_page, ReductionOp::kAll);
+    scaled.ForEachSet(0, [&](size_t i) {
+      non_resident_set.insert(hp.first_page() + Length(i));
+    });
   }
 
   // Every range the filler unbacks lies within one hugepage it has been given
@@ -632,6 +646,7 @@ struct State {
   Bitmap<kMaxResidencyBits> swapped_bitmap;
   Bitmap<kMaxResidencyBits> stale_bitmap;
   absl::flat_hash_set<PageId> released_set;
+  absl::flat_hash_set<PageId> non_resident_set;
 
   MockUnback unback;
   MockUnbackWithoutLock unback_without_lock;
@@ -672,6 +687,7 @@ MemoryModifyStatus MockUnback::operator()(Range r) {
   PageId end = r.p + r.n;
   for (; r.p != end; ++r.p) {
     state_.released_set.insert(r.p);
+    state_.non_resident_set.insert(r.p);
   }
 
   return {.success = true, .error_number = state_.error_number};
@@ -720,12 +736,19 @@ std::optional<bool> FakePageFlags::IsHugepageBacked(const void* addr) {
 Residency::SinglePageBitmaps FakeResidency::GetUnbackedAndSwappedBitmaps(
     const void* addr) {
   state_.OnLockDropped();
+  state_.MarkUnbackedBitmapPagesNonResident(addr);
   return {state_.unbacked_bitmap, state_.swapped_bitmap, absl::StatusCode::kOk};
 }
 
 MemoryModifyStatus MockCollapse::operator()(Range r) {
   state_.OnLockDropped();
   fake_clock += state_.collapse_latency;
+  if (state_.collapse_success) {
+    for (PageId p = r.p, end = r.p + r.n; p != end; ++p) {
+      state_.released_set.erase(p);
+      state_.non_resident_set.erase(p);
+    }
+  }
   return {.success = state_.collapse_success,
           .error_number = state_.error_number};
 }
@@ -791,6 +814,7 @@ void Allocate::Perform(State& state) const {
     // Only a previously released hugepage can hand out unmapped pages.
     TC_CHECK(result.from_released || !state.released_set.contains(p));
     state.released_set.erase(p);
+    state.non_resident_set.erase(p);
   }
 
   state.allocs[hp].push_back({{result.page, n}, alloc_info});
@@ -851,6 +875,7 @@ void Deallocate::Perform(State& state) const {
     for (PageId p = hp.first_page(), end = hp.first_page() + kPagesPerHugePage;
          p != end; ++p) {
       state.released_set.erase(p);
+      state.non_resident_set.erase(p);
     }
     delete ret;
   }
@@ -948,6 +973,7 @@ void ModelTail::Perform(State& state) const {
 
   for (PageId p = start, end = p + n; p != end; ++p) {
     state.released_set.erase(p);
+    state.non_resident_set.erase(p);
   }
 
   state.allocs[pt->location()].push_back(
@@ -1023,16 +1049,19 @@ void TreatTrackers::Perform(State& state) const {
       &pageflags, &residency);
   state.treating_trackers = false;
   state.DrainFullyFreedTrackers();
-  for (PageTracker* pt : state.trackers) {
-    HugePage hp = pt->location();
-    const PageBitmap& rel = pt->released_by_page();
-    for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
-      PageId p = hp.first_page() + Length(i);
-      if (rel.GetBit(i)) {
-        state.released_set.insert(p);
-      } else {
-        state.released_set.erase(p);
-      }
+  if (state.subrelease_unbacked_mode == SubreleaseUnbackedMode::kEnabled) {
+    // HandleUnbackedHugePage marks already-unbacked free pages as released
+    // without calling MockUnback; record any newly marked non-resident pages
+    // without erasing bits from released_set so a missed ClearReleasedPages
+    // after collapse is caught by CheckInvariants.
+    for (const PageTracker* pt : state.trackers) {
+      const PageId first = pt->location().first_page();
+      pt->released_by_page().ForEachSet(0, [&](size_t i) {
+        const PageId p = first + Length(i);
+        if (state.non_resident_set.contains(p)) {
+          state.released_set.insert(p);
+        }
+      });
     }
   }
 }
