@@ -351,7 +351,7 @@ ABSL_CONST_INIT std::atomic<EnableUnfilteredCollapse>
 ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
     Parameters::madvise_sampled_allocations_(
         MadviseSampledAllocations::kDisabled);
-ABSL_CONST_INIT std::atomic<int64_t> Parameters::event_trace_memory_limit_(
+ABSL_CONST_INIT std::atomic<size_t> Parameters::event_trace_memory_limit_(
     16 << 20);
 ABSL_CONST_INIT
 std::atomic<bool> Parameters::release_drained_slab_metadata_(true);
@@ -945,11 +945,11 @@ void TCMalloc_Internal_SetMadviseSampledAllocations(
   Parameters::madvise_sampled_allocations_.store(v, std::memory_order_relaxed);
 }
 
-int64_t TCMalloc_Internal_GetEventTraceMemoryLimit() {
+size_t TCMalloc_Internal_GetEventTraceMemoryLimit() {
   return Parameters::event_trace_memory_limit();
 }
 
-void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v) {
+void TCMalloc_Internal_SetEventTraceMemoryLimit(size_t v) {
   Parameters::event_trace_memory_limit_.store(v, std::memory_order_relaxed);
 }
 

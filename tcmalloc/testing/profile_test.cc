@@ -540,7 +540,7 @@ TEST(ProfileTest, HeapProfile) {
 
 class ScopedEventTraceMemoryLimit {
  public:
-  explicit ScopedEventTraceMemoryLimit(int64_t limit)
+  explicit ScopedEventTraceMemoryLimit(size_t limit)
       : previous_(TCMalloc_Internal_GetEventTraceMemoryLimit()) {
     TCMalloc_Internal_SetEventTraceMemoryLimit(limit);
   }
@@ -550,7 +550,7 @@ class ScopedEventTraceMemoryLimit {
   }
 
  private:
-  int64_t previous_;
+  size_t previous_;
 };
 
 TEST(ProfileTest, EventTraceTruncation) {
@@ -567,7 +567,7 @@ TEST(ProfileTest, EventTraceTruncation) {
   // each ~600B. A limit of 8192 allows initial allocations (including any
   // background activity) to be recorded while ensuring late allocations are
   // truncated by filler allocations.
-  constexpr int64_t kEventTraceMemoryLimit = 8192;
+  constexpr size_t kEventTraceMemoryLimit = 8192;
   constexpr size_t kApproximateDeallocationSampleRecordSize = 600;
   constexpr int kExpectedSampleCount =
       kEventTraceMemoryLimit / kApproximateDeallocationSampleRecordSize;

@@ -117,9 +117,9 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     TCMalloc_Internal_GetMadviseSampledAllocations();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseSampledAllocations(
     tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
-[[nodiscard]] ABSL_ATTRIBUTE_WEAK int64_t
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK size_t
 TCMalloc_Internal_GetEventTraceMemoryLimit();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetEventTraceMemoryLimit(size_t v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK uint8_t
 TCMalloc_Internal_GetMinHotAccessHint();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);

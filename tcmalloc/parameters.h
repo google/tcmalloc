@@ -170,11 +170,11 @@ class Parameters {
     TCMalloc_Internal_SetMadviseSampledAllocations(value);
   }
 
-  [[nodiscard]] static int64_t event_trace_memory_limit() {
+  [[nodiscard]] static size_t event_trace_memory_limit() {
     return event_trace_memory_limit_.load(std::memory_order_relaxed);
   }
 
-  static void set_event_trace_memory_limit(int64_t value) {
+  static void set_event_trace_memory_limit(size_t value) {
     TCMalloc_Internal_SetEventTraceMemoryLimit(value);
   }
 
@@ -306,7 +306,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMadviseSampledAllocations(
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
-  friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(int64_t v);
+  friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(size_t v);
   friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
 
   static std::atomic<int64_t> guarded_sampling_interval_;
@@ -326,7 +326,7 @@ class Parameters {
   static std::atomic<int32_t> back_size_threshold_bytes_;
   static std::atomic<EnableUnfilteredCollapse> enable_unfiltered_collapse_;
   static std::atomic<MadviseSampledAllocations> madvise_sampled_allocations_;
-  static std::atomic<int64_t> event_trace_memory_limit_;
+  static std::atomic<size_t> event_trace_memory_limit_;
   static std::atomic<bool> release_drained_slab_metadata_;
   static std::atomic<bool> huge_region_adaptive_release_;
 };
