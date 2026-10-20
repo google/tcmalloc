@@ -391,6 +391,10 @@ void MaybeUnsampleAllocation(Static& state, DynamicPolicy policy,
       static_cast<double>(weight) / (requested_size + 1);
   AllocHandle sampled_alloc_handle =
       sampled_allocation->sampled_stack.sampled_alloc_handle;
+  const size_t depth =
+      std::min<size_t>(sampled_allocation->sampled_stack.depth, kMaxStackDepth);
+  void* stack[kMaxStackDepth];
+  std::copy_n(sampled_allocation->sampled_stack.stack, depth, stack);
   MallocHook::SampledAlloc sampled_alloc = {
       .handle = sampled_alloc_handle,
       .requested_size = requested_size,
@@ -398,8 +402,7 @@ void MaybeUnsampleAllocation(Static& state, DynamicPolicy policy,
           sampled_allocation->sampled_stack.requested_alignment,
       .allocated_size = allocated_size,
       .weight = allocation_estimate,
-      .stack = absl::MakeSpan(sampled_allocation->sampled_stack.stack,
-                              sampled_allocation->sampled_stack.depth),
+      .stack = absl::MakeSpan(stack, depth),
       .allocation_time = sampled_allocation->sampled_stack.allocation_time,
       .ptr = ptr,
       .access_hint = sampled_allocation->sampled_stack.access_hint,

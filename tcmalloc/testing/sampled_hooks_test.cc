@@ -20,11 +20,17 @@
 #include <new>
 #include <optional>
 #include <string>
+#include <thread>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
+#include "absl/base/internal/spinlock.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_hook.h"
 #include "tcmalloc/testing/testutil.h"
@@ -274,6 +280,107 @@ TEST_F(SampledHooksTest, AlwaysSampledAndGuarded) {
   EXPECT_EQ(1, num_new_hook_calls);
   EXPECT_EQ(1, num_delete_hook_calls);
   EXPECT_EQ(1.0, last_weight);
+}
+
+ABSL_ATTRIBUTE_NOINLINE void* AllocateFromDistinctStackFrame(size_t depth) {
+  if (depth > 0) {
+    void* p = AllocateFromDistinctStackFrame(depth - 1);
+    benchmark::DoNotOptimize(p);
+    return p;
+  }
+  void* p = ::operator new(64);
+  benchmark::DoNotOptimize(p);
+  return p;
+}
+
+ABSL_CONST_INIT absl::base_internal::SpinLock delete_hook_mu;
+bool in_delete_hook ABSL_GUARDED_BY(delete_hook_mu) = false;
+bool reuse_done ABSL_GUARDED_BY(delete_hook_mu) = false;
+const void* stack_before[64] ABSL_GUARDED_BY(delete_hook_mu);
+size_t stack_before_depth ABSL_GUARDED_BY(delete_hook_mu) = 0;
+const void* stack_after[64] ABSL_GUARDED_BY(delete_hook_mu);
+size_t stack_after_depth ABSL_GUARDED_BY(delete_hook_mu) = 0;
+thread_local bool capture_next_delete = false;
+
+void ConcurrentSampledDeleteHook(
+    const
+    MallocHook::SampledAlloc& sampled_alloc) {
+  if (!capture_next_delete) {
+    return;
+  }
+  capture_next_delete = false;
+  {
+    absl::base_internal::SpinLockHolder lock(delete_hook_mu);
+    stack_before_depth = sampled_alloc.stack.size();
+    std::copy(sampled_alloc.stack.begin(), sampled_alloc.stack.end(),
+              stack_before);
+    in_delete_hook = true;
+  }
+  while (true) {
+    {
+      absl::base_internal::SpinLockHolder lock(delete_hook_mu);
+      if (reuse_done) {
+        break;
+      }
+    }
+    std::this_thread::yield();
+  }
+  {
+    absl::base_internal::SpinLockHolder lock(delete_hook_mu);
+    stack_after_depth = sampled_alloc.stack.size();
+    std::copy(sampled_alloc.stack.begin(), sampled_alloc.stack.end(),
+              stack_after);
+  }
+}
+
+TEST_F(SampledHooksTest, DeleteHookStackNotCorruptedBySampleReuse) {
+  ScopedProfileSamplingInterval i(1);
+  {
+    absl::base_internal::SpinLockHolder lock(delete_hook_mu);
+    in_delete_hook = false;
+    reuse_done = false;
+    stack_before_depth = 0;
+    stack_after_depth = 0;
+  }
+
+  ASSERT_TRUE(MallocHook::AddSampledDeleteHook(&ConcurrentSampledDeleteHook));
+  std::thread worker([] {
+    while (true) {
+      {
+        absl::base_internal::SpinLockHolder lock(delete_hook_mu);
+        if (in_delete_hook) {
+          break;
+        }
+      }
+      std::this_thread::yield();
+    }
+    // Trigger a sampled allocation from a deeper stack frame on a separate
+    // thread while sampled_alloc.stack is live in the delete hook on the main
+    // thread. Because Unregister() has already placed the SampledAllocation on
+    // graveyard_.dead, Register() pops and reuses the same SampledAllocation
+    // node. sampled_alloc.stack must not alias the recycled node's
+    // sampled_stack.stack buffer.
+    void* p2 = AllocateFromDistinctStackFrame(8);
+    ::operator delete(p2);
+    {
+      absl::base_internal::SpinLockHolder lock(delete_hook_mu);
+      reuse_done = true;
+    }
+  });
+
+  void* p1 = ::operator new(34);
+  capture_next_delete = true;
+  sized_delete(p1, 34);
+  capture_next_delete = false;
+  worker.join();
+  ASSERT_TRUE(
+      MallocHook::RemoveSampledDeleteHook(&ConcurrentSampledDeleteHook));
+
+  absl::base_internal::SpinLockHolder lock(delete_hook_mu);
+  ASSERT_GT(stack_before_depth, 0u);
+  ASSERT_EQ(stack_before_depth, stack_after_depth);
+  EXPECT_EQ(absl::MakeConstSpan(stack_before, stack_before_depth),
+            absl::MakeConstSpan(stack_after, stack_after_depth));
 }
 
 }  // namespace
