@@ -779,6 +779,21 @@ TEST_F(FillerTest, ClockCalls) {
   EXPECT_EQ(FakeClock::now_calls(), 0);
   EXPECT_EQ(FakeClock::freq_calls(), 0);
 
+  // TreatHugepageTrackers on empty filler (0 eligible trackers) returns early
+  // without dropping pageheap_lock, opening procfs files, or querying
+  // clock_.freq() for collapse latency thresholds.
+  FakeClock::ResetCalls();
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, /*pageflags=*/nullptr,
+                        /*residency=*/nullptr);
+  EXPECT_EQ(FakeClock::now_calls(), 2);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  EXPECT_EQ(FakeClock::freq_calls(), 3);
+#else
+  EXPECT_EQ(FakeClock::freq_calls(), 2);
+#endif
+
   auto* pt = new PageTracker(GetBacking(), /*was_donated=*/false, 0);
   PageId page1;
   {
@@ -1066,6 +1081,15 @@ TEST_F(FillerTest, ReleaseStaleFree) {
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: In the previous treatment "
                                  "interval, subreleased 128 stale pages."));
+
+  // 4. Without advancing the clock, no trackers are eligible; per-pass stale
+  // subrelease stats should reset to 0 on an empty pass.
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kEnabled, &pageflags, &residency);
+  stats_after = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats_after.treated_pages_stale_subreleased, Length(0));
+
   // Clean up
   Delete(a4);
 }

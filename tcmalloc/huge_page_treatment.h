@@ -464,6 +464,12 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
   void Treat() ABSL_LOCKS_EXCLUDED(pageheap_lock) override {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    if (num_valid_trackers_ == 0) {
+      return;
+    }
+#endif
+
     // Obtain residency information for the collected addresses.
     PageFlagsBase* pf = pageflags_;
     PageFlags pageflags_obj;

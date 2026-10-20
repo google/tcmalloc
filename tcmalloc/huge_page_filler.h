@@ -1765,6 +1765,14 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
       },
       /*start=*/0);
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  if (sampled_tracker_treatment.num_valid_trackers() == 0 &&
+      unbacked_tracker_treatment.num_valid_trackers() == 0) {
+    unbacked_tracker_treatment.UpdateHugePageTreatmentStats(treatment_stats_);
+    return;
+  }
+#endif
+
   sampled_tracker_treatment.FinishSelection();
   unbacked_tracker_treatment.FinishSelection();
 
