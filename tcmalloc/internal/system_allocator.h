@@ -582,6 +582,17 @@ void* SystemAllocator<Topology, NormalPartitions>::MmapAlignedLocked(
     size_t size, size_t alignment, const MemoryTag tag) {
   using system_allocator_internal::MapFixedNoReplaceFlagAvailable;
 
+  constexpr uintptr_t kTagFree = uintptr_t{1} << kTagShift;
+  // Each memory tag partition spans kTagFree bytes (whereas kTagMask is the
+  // multi-bit mask across all tags), so requests with size or alignment larger
+  // than kTagFree would cross tag boundaries or clear tag bits in
+  // RandomMmapHint.
+  // TODO(b/141325493): Support allocations and alignments larger than kTagFree.
+  if (size == 0 || size > kTagFree || alignment == 0 || alignment > kTagFree ||
+      !absl::has_single_bit(alignment)) {
+    return nullptr;
+  }
+
   TC_ASSERT_LE(size, kTagMask);
   TC_ASSERT_LE(alignment, kTagMask);
 

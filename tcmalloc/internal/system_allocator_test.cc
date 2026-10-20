@@ -182,6 +182,22 @@ TEST(SystemAllocatorTest, SetAnonVmaNameHandlesEmptyAndSubstringViews) {
   }
 }
 
+TEST(SystemAllocatorTest, MmapAlignedRejectsOutOfPartitionSizeAndAlignment) {
+  constexpr size_t kMinMmapAlloc = 1 << 30;
+  NumaTopology<2> topology;
+  topology.Init();
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+
+  const size_t kPageSize = GetPageSize();
+  constexpr size_t kPartitionSize = uintptr_t{1} << kTagShift;
+  EXPECT_EQ(allocator.MmapAligned(kPageSize, 2 * kPartitionSize,
+                                  MemoryTag::kSampledOrCold),
+            nullptr);
+  EXPECT_EQ(allocator.MmapAligned(kPartitionSize + kPageSize, kPageSize,
+                                  MemoryTag::kNormal),
+            nullptr);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
