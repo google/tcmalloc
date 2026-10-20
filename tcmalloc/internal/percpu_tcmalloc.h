@@ -97,20 +97,10 @@ enum class Shift : uint8_t;
 // resident.  We align it to the slab size so that it is easier to make
 // entire hugepages nonresident when we get to clearing out metadata
 // from drained CPUs.
-//
-// For small-but-slow, we instead prefer a small page size (EXEC_PAGESIZE)
-// to allocate the slab in the tail of its existing Arena block.
-// We still align it a page size so neighboring allocations (from
-// TCMalloc's internal arena) do not necessarily cause the metadata to be
-// faulted in.
 [[nodiscard]] constexpr std::align_val_t SlabAlignment(Shift shift) {
   constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  return kPhysicalPageAlign;
-#else
   return std::max(std::align_val_t{size_t{1} << ToUint8(shift)},
                   kPhysicalPageAlign);
-#endif
 }
 
 // Tcmalloc slab for per-cpu caching mode.
