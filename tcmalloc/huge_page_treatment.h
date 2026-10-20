@@ -356,7 +356,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       EnableCollapse enable_collapse,
       SubreleaseUnbackedMode subrelease_unbacked_mode,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      ReleaseStalePages release_stale_pages)
+      ReleaseStalePages release_stale_pages,
+      PreserveDonatedOnCollapse preserve_donated_on_collapse)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
@@ -366,6 +367,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         subrelease_unbacked_mode_(subrelease_unbacked_mode),
         enable_unfiltered_collapse_(enable_unfiltered_collapse),
         release_stale_pages_(release_stale_pages),
+        preserve_donated_on_collapse_(preserve_donated_on_collapse),
         clock_now_(clock.now()),
         record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
                                 clock.freq()) {}
@@ -562,7 +564,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       tracker->SetHugePageResidencyState(residency_states_[i].tracker_state);
       if (residency_states_[i].tracker_state.maybe_hugepage_backed) {
         if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
-          page_filler_.OnCollapseSuccess(tracker);
+          page_filler_.OnCollapseSuccess(tracker,
+                                         preserve_donated_on_collapse_);
         }
         tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
@@ -673,6 +676,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
   ReleaseStalePages release_stale_pages_;
+  PreserveDonatedOnCollapse preserve_donated_on_collapse_;
 
   // Clock state cached at construction time, so that we do not read the
   // hardware clock nor recompute the record interval threshold for every

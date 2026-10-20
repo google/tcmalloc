@@ -82,6 +82,7 @@ class StaticForwarder : private Parameters {
   using Parameters::per_cpu_caches_dynamic_slab_enabled;
   using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
   using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
+  using Parameters::preserve_donated_on_collapse;
   using Parameters::release_drained_slab_metadata;
   using Parameters::release_max_filler_pages;
   using Parameters::release_partial_alloc_pages;

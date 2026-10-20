@@ -294,6 +294,9 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
 ABSL_CONST_INIT std::atomic<EnableUnfilteredCollapse>
     Parameters::enable_unfiltered_collapse_(
         EnableUnfilteredCollapse::kDisabled);
+ABSL_CONST_INIT std::atomic<PreserveDonatedOnCollapse>
+    Parameters::preserve_donated_on_collapse_(
+        PreserveDonatedOnCollapse::kDisabled);
 ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
     Parameters::madvise_sampled_allocations_(
         MadviseSampledAllocations::kDisabled);

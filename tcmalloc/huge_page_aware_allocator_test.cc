@@ -315,6 +315,7 @@ class HugePageAwareAllocatorTest
     PageTracker* tracker = nullptr;
     uint64_t bits = 0;
     bool unbroken = false;
+    bool donated = false;
     Length released_pages;
   };
 
@@ -326,6 +327,7 @@ class HugePageAwareAllocatorTest
     state.bits = packed.Bits();
     if (state.tracker != nullptr) {
       state.unbroken = state.tracker->unbroken();
+      state.donated = state.tracker->donated();
       state.released_pages = state.tracker->released_pages();
     }
     return state;
@@ -1815,6 +1817,9 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
       allocator_->forwarder().release_stale_pages.set(
           absl::Bernoulli(rng, 0.5) ? ReleaseStalePages::kEnabled
                                     : ReleaseStalePages::kDisabled);
+      allocator_->forwarder().preserve_donated_on_collapse.set(
+          absl::Bernoulli(rng, 0.5) ? PreserveDonatedOnCollapse::kEnabled
+                                    : PreserveDonatedOnCollapse::kDisabled);
       TreatHugepageTrackers(EnableCollapse::kEnabled);
     }
   };
@@ -2693,6 +2698,105 @@ TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
 
   for (AllocationState& s : keep_alive) {
     Delete(s, 1);
+  }
+}
+
+TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
+  if (allocator_->forwarder().subrelease_unbacked_hugepages() ==
+      SubreleaseUnbackedMode::kDisabled) {
+    GTEST_SKIP() << "Requires subrelease_unbacked_hugepages enabled";
+  }
+  class StubPageFlags final : public PageFlagsBase {
+   public:
+    std::optional<PageStats> Get(const void* addr, size_t size) override {
+      return PageStats{};
+    }
+    PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
+      return {{}, absl::StatusCode::kOk};
+    }
+    std::optional<bool> IsHugepageBacked(const void* addr) override {
+      return false;
+    }
+  };
+  class StubResidency final : public Residency {
+   public:
+    std::optional<Info> Get(const void* addr, size_t size) override {
+      return std::nullopt;
+    }
+    SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+      return {{}, {}, absl::StatusCode::kOk};
+    }
+    size_t GetHardwarePagesInHugePage() const override {
+      return kHugePageSize / kPageSize;
+    }
+  };
+
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  StubPageFlags pageflags;
+  StubResidency residency;
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().release_partial_alloc_pages.set(true);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().track_broken_hugepages.set(
+      TrackBrokenHugepages::kEnabled);
+  allocator_->forwarder().set_collapse_succeeds(true);
+
+  for (const PreserveDonatedOnCollapse preserve_donated :
+       {PreserveDonatedOnCollapse::kDisabled,
+        PreserveDonatedOnCollapse::kEnabled,
+        PreserveDonatedOnCollapse::kDisabled}) {
+    allocator_->forwarder().preserve_donated_on_collapse.set(preserve_donated);
+    allocator_->forwarder().AdvanceClock(absl::Minutes(10));
+
+    // Allocate a 2-hugepage span with 10 pages of slack on its tail hugepage
+    // `hp`, break `hp` via subrelease, and drain both hugepages back to
+    // `HugeAllocator` so `hp` retains `bits == 1` in `PageMap`.
+    AllocationState initial =
+        New(2 * kPagesPerHugePage - Length(10), kSpanInfo);
+    ASSERT_TRUE(initial);
+    ASSERT_TRUE(initial.donated);
+    const HugePage hp = HugePageContaining(initial.r.p) + NHugePages(1);
+    AllocationState tail = New(Length(10), kSpanInfo);
+    ASSERT_TRUE(tail);
+    ASSERT_EQ(HugePageContaining(tail.r.p), hp);
+    Delete(initial, 1);
+    allocator_->forwarder().AdvanceClock(absl::Minutes(10));
+    ReleasePages(2 * kPagesPerHugePage,
+                 PageReleaseReason::kProcessBackgroundActions);
+    HugepageEntryState state = GetHugepageState(hp);
+    ASSERT_NE(state.tracker, nullptr);
+    EXPECT_FALSE(state.unbroken);
+    Delete(tail, 1);
+    state = GetHugepageState(hp);
+    EXPECT_EQ(state.tracker, nullptr);
+    EXPECT_EQ(state.bits, 1u);
+
+    // Reuse the 2-hugepage range: `AllocAndContribute` on the donated tail
+    // hugepage `hp` restores `!pt->unbroken()` on `donated_alloc_`.
+    AllocationState donated =
+        New(2 * kPagesPerHugePage - Length(10), kSpanInfo);
+    ASSERT_TRUE(donated);
+    ASSERT_TRUE(donated.donated);
+    ASSERT_EQ(HugePageContaining(donated.r.p) + NHugePages(1), hp);
+    state = GetHugepageState(hp);
+    ASSERT_NE(state.tracker, nullptr);
+    EXPECT_FALSE(state.unbroken);
+    EXPECT_TRUE(state.donated);
+
+    // Userspace collapse transitions `hp` to `unbroken()` and preserves it on
+    // `donated_alloc_` iff `preserve_donated_on_collapse` is enabled.
+    allocator_->TreatHugepageTrackers(EnableCollapse::kEnabled, &pageflags,
+                                      &residency);
+    state = GetHugepageState(hp);
+    ASSERT_NE(state.tracker, nullptr);
+    EXPECT_TRUE(state.unbroken);
+    EXPECT_EQ(state.donated,
+              preserve_donated == PreserveDonatedOnCollapse::kEnabled);
+
+    Delete(donated, 1);
   }
 }
 
