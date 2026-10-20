@@ -658,6 +658,11 @@ void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation) {
         Parameters::track_broken_hugepages() == TrackBrokenHugepages::kEnabled
             ? 1
             : 0);
+    out.printf("PARAMETER tcmalloc_preserve_donated_on_collapse %d\n",
+               Parameters::preserve_donated_on_collapse() ==
+                       PreserveDonatedOnCollapse::kEnabled
+                   ? 1
+                   : 0);
     out.printf("PARAMETER tcmalloc_madvise_sampled_allocations %d\n",
                Parameters::madvise_sampled_allocations() ==
                    MadviseSampledAllocations::kEnabled);
@@ -958,6 +963,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool(
       "tcmalloc_track_broken_hugepages",
       Parameters::track_broken_hugepages() == TrackBrokenHugepages::kEnabled);
+  region.PrintBool("tcmalloc_preserve_donated_on_collapse",
+                   Parameters::preserve_donated_on_collapse() ==
+                       PreserveDonatedOnCollapse::kEnabled);
   region.PrintI64("profile_sampling_interval",
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",

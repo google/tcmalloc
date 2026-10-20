@@ -348,9 +348,6 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(
 ABSL_CONST_INIT std::atomic<EnableUnfilteredCollapse>
     Parameters::enable_unfiltered_collapse_(
         EnableUnfilteredCollapse::kDisabled);
-ABSL_CONST_INIT std::atomic<PreserveDonatedOnCollapse>
-    Parameters::preserve_donated_on_collapse_(
-        PreserveDonatedOnCollapse::kDisabled);
 ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
     Parameters::madvise_sampled_allocations_(
         MadviseSampledAllocations::kDisabled);
@@ -376,6 +373,20 @@ static std::atomic<TrackBrokenHugepages>& track_broken_hugepages_enabled() {
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     if (IsExperimentActive(Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES)) {
       v.store(TrackBrokenHugepages::kEnabled, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
+static std::atomic<PreserveDonatedOnCollapse>&
+preserve_donated_on_collapse_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<PreserveDonatedOnCollapse> v{
+      PreserveDonatedOnCollapse::kDisabled};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE)) {
+      v.store(PreserveDonatedOnCollapse::kEnabled, std::memory_order_relaxed);
     }
   });
   return v;
@@ -495,6 +506,10 @@ bool Parameters::release_max_filler_pages() {
 
 TrackBrokenHugepages Parameters::track_broken_hugepages() {
   return track_broken_hugepages_enabled().load(std::memory_order_relaxed);
+}
+
+PreserveDonatedOnCollapse Parameters::preserve_donated_on_collapse() {
+  return preserve_donated_on_collapse_enabled().load(std::memory_order_relaxed);
 }
 
 MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
@@ -894,6 +909,18 @@ void TCMalloc_Internal_SetTrackBrokenHugepages(bool v) {
   tcmalloc::tcmalloc_internal::track_broken_hugepages_enabled().store(
       v ? tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kEnabled
         : tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kDisabled,
+      std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetPreserveDonatedOnCollapse() {
+  return Parameters::preserve_donated_on_collapse() ==
+         tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled;
+}
+
+void TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v) {
+  tcmalloc::tcmalloc_internal::preserve_donated_on_collapse_enabled().store(
+      v ? tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled
+        : tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kDisabled,
       std::memory_order_relaxed);
 }
 

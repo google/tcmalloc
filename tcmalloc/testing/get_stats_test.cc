@@ -188,6 +188,13 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("tcmalloc_track_broken_hugepages: false"));
   }
 
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE)) {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_preserve_donated_on_collapse: true"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("tcmalloc_preserve_donated_on_collapse: false"));
+  }
+
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
   if (MallocExtension::PerCpuCachesActive()) {
     EXPECT_THAT(buf, ContainsRegex("cpu_caches_touched: [0-9]+"));
@@ -257,6 +264,10 @@ TEST_F(GetStatsTest, Parameters) {
       Parameters::track_broken_hugepages() ==
       tcmalloc_internal::TrackBrokenHugepages::kEnabled;
   Parameters::set_track_broken_hugepages(false);
+  const bool old_preserve_donated_on_collapse =
+      Parameters::preserve_donated_on_collapse() ==
+      tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled;
+  Parameters::set_preserve_donated_on_collapse(false);
   ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
 
   auto using_hpaa = [](absl::string_view sv) {
@@ -346,6 +357,8 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_track_broken_hugepages 0)"));
     EXPECT_THAT(
+        buf, HasSubstr(R"(PARAMETER tcmalloc_preserve_donated_on_collapse 0)"));
+    EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 0)"));
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(using_hpaa_subrelease: false)"));
@@ -363,6 +376,8 @@ TEST_F(GetStatsTest, Parameters) {
                   HasSubstr(R"(tcmalloc_release_max_filler_pages: false)"));
     }
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_track_broken_hugepages: false)"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_preserve_donated_on_collapse: false)"));
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
@@ -428,6 +443,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_skip_subrelease_cold_long_interval(
       absl::Milliseconds(300625));
   Parameters::set_track_broken_hugepages(true);
+  Parameters::set_preserve_donated_on_collapse(true);
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
   Parameters::set_madvise_sampled_allocations(
       MadviseSampledAllocations::kEnabled);
@@ -470,6 +486,8 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_track_broken_hugepages 1)"));
     EXPECT_THAT(
+        buf, HasSubstr(R"(PARAMETER tcmalloc_preserve_donated_on_collapse 1)"));
+    EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 1)"));
 
     if (using_hpaa(buf)) {
@@ -500,6 +518,8 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(
             R"(tcmalloc_skip_subrelease_cold_long_interval_ns: 300625000000)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_track_broken_hugepages: true)"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_preserve_donated_on_collapse: true)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: true)"));
@@ -520,6 +540,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_skip_subrelease_cold_long_interval(
       old_skip_subrelease_cold_long);
   Parameters::set_track_broken_hugepages(old_track_broken_hugepages);
+  Parameters::set_preserve_donated_on_collapse(
+      old_preserve_donated_on_collapse);
 }
 
 TEST_F(GetStatsTest, StackDepth) {
