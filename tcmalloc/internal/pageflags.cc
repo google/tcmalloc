@@ -221,7 +221,9 @@ std::optional<bool> PageFlags::IsHugepageBacked(const void* const addr) {
   // corresponding to the span [addr, addr+size).
   uintptr_t basePage = uaddr & ~(kHardwarePageSize - 1);
   // Seek into fd.
-  if (auto res = Seek(basePage); res != absl::StatusCode::kOk) return false;
+  if (auto res = Seek(basePage); res != absl::StatusCode::kOk) {
+    return std::nullopt;
+  }
   // Read entry
   static_assert(sizeof(flags) == kPagemapEntrySize);
   auto status = signal_safe_read(fd_, reinterpret_cast<char*>(&flags),
