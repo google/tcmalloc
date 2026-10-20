@@ -26,6 +26,7 @@
 #include "absl/base/optimization.h"
 #include "absl/strings/str_format.h"
 #include "tcmalloc/huge_cache.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
@@ -38,19 +39,6 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-enum class HugeRegionUsageOption : bool {
-  // This is a default behavior. We use slack to determine when to use
-  // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
-  // greater than the number of small allocations, we allocate large allocations
-  // from HugeRegion.
-  kDefault,
-  // When the experiment TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN is
-  // enabled, we use number of abandoned pages in addition to slack to make a
-  // decision. If the size of abandoned pages plus slack exceeds 64MB (to ignore
-  // small binaries), we use HugeRegion for large allocations.
-  kUseForAllLargeAllocs
-};
 
 // Track allocations from a fixed-size multiple huge page region.
 // Similar to PageTracker but a few important differences:

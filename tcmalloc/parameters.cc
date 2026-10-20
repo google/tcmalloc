@@ -29,8 +29,8 @@
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
-#include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
@@ -59,14 +59,68 @@ static constexpr T DefaultOrDebugValue(T default_val, T debug_val) {
 extern "C" ABSL_ATTRIBUTE_WEAK void
 tcmalloc_flag_enable_heap_partitioning_default_on();
 
+ABSL_ATTRIBUTE_WEAK int default_subrelease();
+
+static bool decide_subrelease() {
+  const char* e = thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        // If we're forcing HPAA on, we want to converge towards our default
+        // of subrelease on, rather than off (where it is moot without HPAA).
+        break;
+      case '1':
+        return false;
+      case '2':
+        return true;
+      default:
+        TC_BUG("bad env var '%s'", e);
+    }
+  }
+
+  if (default_subrelease != nullptr) {
+    const int decision = default_subrelease();
+    if (decision != 0) {
+      return decision > 0;
+    }
+  }
+
+  return true;
+}
+
+extern "C" ABSL_ATTRIBUTE_WEAK bool
+default_want_disable_huge_region_more_often();
+
+static bool use_huge_region_more_often() {
+  // Disable huge regions more often feature if built against an opt-out.
+  if (default_want_disable_huge_region_more_often != nullptr) {
+    return false;
+  }
+
+  // TODO(b/296281171): Remove this opt-out.
+  const char* e =
+      thread_safe_getenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        return true;
+      case '1':
+        return false;
+      default:
+        TC_BUG("bad env var '%s'", e);
+    }
+  }
+
+  return true;
+}
+
 // As decide_subrelease() is determined at runtime, we cannot require constant
 // initialization for the atomic.  This avoids an initialization order fiasco.
 static std::atomic<bool>& hpaa_subrelease_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(huge_page_allocator_internal::decide_subrelease(),
-            std::memory_order_relaxed);
+    v.store(decide_subrelease(), std::memory_order_relaxed);
   });
 
   return v;
@@ -418,6 +472,21 @@ absl::Duration Parameters::filler_skip_subrelease_cold_long_interval() {
 
 EnableCollapse Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
+}
+
+HugeRegionUsageOption Parameters::huge_region_option() {
+  // By default, we use slack to determine when to use HugeRegion. When slack is
+  // greater than 64MB (to ignore small binaries), and greater than the number
+  // of small allocations, we allocate large allocations from HugeRegion.
+  //
+  // When huge-region-more-often feature is enabled, we use number of abandoned
+  // pages in addition to slack to make a decision. If the size of abandoned
+  // pages plus slack exceeds 64MB (to ignore small binaries), we use HugeRegion
+  // for large allocations. This results in using HugeRegions for all the large
+  // allocations once the size exceeds 64MB.
+  return use_huge_region_more_often()
+             ? HugeRegionUsageOption::kUseForAllLargeAllocs
+             : HugeRegionUsageOption::kDefault;
 }
 
 bool Parameters::release_max_filler_pages() {

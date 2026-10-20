@@ -69,6 +69,18 @@ enum class PreserveDonatedOnCollapse : bool {
   kEnabled = true,
 };
 
+enum class HugeRegionUsageOption : bool {
+  // This is a default behavior. We use slack to determine when to use
+  // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
+  // greater than the number of small allocations, we allocate large allocations
+  // from HugeRegion.
+  kDefault,
+  // When the experiment TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN is
+  // enabled, we use number of abandoned pages in addition to slack to make a
+  // decision. If the size of abandoned pages plus slack exceeds 64MB (to ignore
+  // small binaries), we use HugeRegion for large allocations.
+  kUseForAllLargeAllocs
+};
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
 

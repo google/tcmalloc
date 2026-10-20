@@ -60,14 +60,10 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
-[[nodiscard]] bool decide_subrelease();
-
-[[nodiscard]] HugeRegionUsageOption huge_region_option();
-[[nodiscard]] bool use_huge_region_more_often();
-
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
-  HugeRegionUsageOption use_huge_region_more_often = huge_region_option();
+  HugeRegionUsageOption use_huge_region_more_often =
+      Parameters::huge_region_option();
 };
 
 // An implementation of the PageAllocator interface that is hugepage-efficient.

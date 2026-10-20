@@ -217,7 +217,6 @@ create_tcmalloc_libraries(
         "huge_allocator.h",
         "huge_cache.cc",
         "huge_cache.h",
-        "huge_page_aware_allocator.cc",
         "huge_page_aware_allocator.h",
         "huge_page_filler.h",
         "huge_page_options.h",

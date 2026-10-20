@@ -146,6 +146,8 @@ class Parameters {
     return huge_region_adaptive_release_.load(std::memory_order_relaxed);
   }
 
+  [[nodiscard]] static HugeRegionUsageOption huge_region_option();
+
   [[nodiscard]] static bool release_max_filler_pages();
 
   static void set_release_max_filler_pages(bool value) {
