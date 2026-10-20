@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include <cstddef>
+#include <limits>
 #include <new>
 
 #include "gtest/gtest.h"
@@ -51,7 +52,7 @@ TEST(Arena, AlignedAlloc) {
                 arena.Alloc(ArenaAlloc::kTest, 128, Align(64))) %
                 64,
             0);
-  for (int alignment = 1; alignment < 100; ++alignment) {
+  for (int alignment = 1; alignment < 100; alignment *= 2) {
     EXPECT_EQ(reinterpret_cast<uintptr_t>(
                   arena.Alloc(ArenaAlloc::kTest, 7, Align(alignment))) %
                   alignment,
@@ -431,6 +432,23 @@ TEST(Arena, ArenaAllocInfo) {
   }
   EXPECT_DEATH((void)GetArenaAllocInfo(ArenaAlloc::kNumTypes),
                "Invalid ArenaAlloc type");
+}
+
+TEST(Arena, AllocOomReportsActualAskSize) {
+  Arena arena;
+  // Leave free_area_ unaligned for 8-byte alignment to also cover
+  // alignment_bytes + bytes overflow protection.
+  void* p = arena.Alloc(ArenaAlloc::kTest, 1, Align(1));
+  ASSERT_NE(p, nullptr);
+
+  constexpr size_t kUnallocatableBytes = size_t{1} << 60;
+  EXPECT_DEATH(
+      (void)arena.Alloc(ArenaAlloc::kTest, kUnallocatableBytes, Align(8)),
+      "bytes=1152921504606846976, object-size=1152921504606846976");
+
+  EXPECT_DEATH((void)arena.Alloc(ArenaAlloc::kTest,
+                                 std::numeric_limits<size_t>::max(), Align(8)),
+               "Out of memory trying to allocate internal tcmalloc data");
 }
 
 }  // namespace
