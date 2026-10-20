@@ -449,9 +449,15 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         return;
       }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       if (CompareForHugePageTreatment(selected_trackers_[0], &pt)) {
         return;
       }
+#else
+      if (!CompareForHugePageTreatment(&pt, selected_trackers_[0])) {
+        return;
+      }
+#endif
       std::pop_heap(selected_trackers_.begin(),
                     selected_trackers_.begin() + num_valid_trackers_,
                     CompareForHugePageTreatment);
