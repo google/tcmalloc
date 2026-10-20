@@ -101,6 +101,7 @@ tcmalloc_deps = [
     "//tcmalloc/internal:packed_ptr",
     "//tcmalloc/internal:page_allocation_status",
     "//tcmalloc/internal:percpu",
+    "//tcmalloc/internal:prefetch",
     "//tcmalloc/internal:range_tracker",
     "//tcmalloc/internal:sampled_allocation",
     "//tcmalloc/internal:system_allocator",

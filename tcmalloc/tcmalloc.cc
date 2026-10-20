@@ -106,6 +106,7 @@
 #include "tcmalloc/internal/page_allocation_status.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/system_allocator.h"
@@ -790,9 +791,25 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
         Range(p, num_pages),
         meta.donated(),
     };
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    // In huge_page_filler.h, we static_assert that PageTracker's key elements
+    // for deallocation are within the first two cachelines.
+    void* pt = tc_globals.pagemap().GetHugepage(p);
+    // Prefetch for writing, as we will issue stores to the PageTracker
+    // instance.
+    if (pt) {
+      PrefetchW(pt);
+      PrefetchW(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
+                                        ABSL_CACHELINE_SIZE));
+    }
+    const MemoryTag tag = GetMemoryTag(ptr);
+#endif
     PageHeapSpinLockHolder l;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    const MemoryTag tag = GetMemoryTag(ptr);
+#endif
     tc_globals.page_allocator().Delete(
-        a, GetMemoryTag(ptr),
+        a, tag,
         {.objects_per_span = 1, .density = AccessDensityPrediction::kSparse});
   }
   // We expect to crash in GuardedPageAllocator::Delete or in
