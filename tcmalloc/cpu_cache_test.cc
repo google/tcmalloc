@@ -995,7 +995,7 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
 
   std::vector<std::thread> threads;
   std::thread resize_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = NumStressThreads();
   std::atomic<bool> stop(false);
 
   size_t old_max_capacity = 0;
@@ -1047,7 +1047,7 @@ TEST(CpuCacheTest, StressSizeClassResize) {
 
   std::vector<std::thread> threads;
   std::thread resize_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = NumStressThreads();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -1089,7 +1089,7 @@ TEST(CpuCacheTest, StealCpuCache) {
 
   std::vector<std::thread> threads;
   std::thread shuffle_thread;
-  const int n_threads = NumCPUs();
+  const int n_threads = NumStressThreads();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
