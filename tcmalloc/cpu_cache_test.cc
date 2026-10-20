@@ -170,6 +170,11 @@ class CpuCachePeer {
     cpu_cache.resize_[cpu].available.fetch_add(available,
                                                std::memory_order_relaxed);
   }
+
+  template <typename CpuCache>
+  static uint8_t PartitionShift(const CpuCache& cpu_cache) {
+    return cpu_cache.PartitionShift();
+  }
 };
 
 namespace {
@@ -378,10 +383,7 @@ class TestStaticForwarder : private Parameters {
     return false;
   }
 
-  size_t active_partitions() const {
-    // TODO(b/446814339): Test other states.
-    return 1u;
-  }
+  size_t active_partitions() const { return active_partitions_; }
 
   bool multiple_non_numa_partitions() const {
     // TODO(b/446814339): Test other states.
@@ -401,6 +403,7 @@ class TestStaticForwarder : private Parameters {
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   std::optional<SizeMap> size_map_;
   bool release_drained_slab_metadata_ = false;
+  size_t active_partitions_ = 1u;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
@@ -2911,6 +2914,23 @@ TEST(CpuCacheTest, NamedVma) {
   }
   EXPECT_TRUE(found_active);
   cache.Deactivate();
+}
+
+TEST(CpuCacheTest, PartitionShift) {
+  CpuCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+
+  forwarder.active_partitions_ = 1;
+  EXPECT_EQ(CpuCachePeer::PartitionShift(cache), 0);
+
+  forwarder.active_partitions_ = 2;
+  EXPECT_EQ(CpuCachePeer::PartitionShift(cache), 1);
+
+  forwarder.active_partitions_ = 3;
+  EXPECT_EQ(CpuCachePeer::PartitionShift(cache), 2);
+
+  forwarder.active_partitions_ = 4;
+  EXPECT_EQ(CpuCachePeer::PartitionShift(cache), 2);
 }
 
 }  // namespace

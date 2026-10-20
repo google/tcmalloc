@@ -2865,7 +2865,7 @@ inline uint8_t CpuCache<Forwarder>::PartitionShift() const {
               forwarder_.multiple_non_numa_partitions()),
             "NUMA-awareness should never be enabled with non-NUMA partitions.");
   if (forwarder_.active_partitions() > 1) {
-    return absl::bit_ceil(forwarder_.active_partitions() - 1);
+    return absl::bit_width(forwarder_.active_partitions() - 1);
   }
   return 0;
 }
