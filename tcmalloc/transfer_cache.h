@@ -275,7 +275,7 @@ class ShardedTransferCacheManagerBase {
       if (!shard_initialized(shard)) continue;
       for (int size_class = 0; size_class < kNumClasses; ++size_class) {
         TransferCache& cache = shards_[shard].transfer_caches[size_class];
-        cache.TryPlunder(cache.freelist().size_class());
+        cache.TryPlunder(size_class);
       }
     }
   }
@@ -355,10 +355,7 @@ class ShardedTransferCacheManagerBase {
       Capacity capacity = UseGenericCache() ? ScaledCacheCapacity(size_class)
                                             : LargeCacheCapacity(size_class);
       new (&new_caches[size_class])
-          TransferCache(capacity.capacity > 0 ? size_class : 0,
-                        {capacity.capacity, capacity.max_capacity});
-      new_caches[size_class].freelist().Init(
-          size_class, Parameters::cfl_subbucket_prioritization());
+          TransferCache(size_class, {capacity.capacity, capacity.max_capacity});
     }
     shard.transfer_caches = new_caches;
     active_shards_.fetch_add(1, std::memory_order_relaxed);

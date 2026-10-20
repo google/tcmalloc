@@ -715,6 +715,48 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
   }
 }
 
+class SingleInitFreeList : public MinimalFakeCentralFreeList {
+ public:
+  void Init(size_t size_class,
+            central_freelist_internal::CflSubbucketPrioritization) {
+    TC_CHECK(!initialized_);
+    initialized_ = true;
+    size_class_ = size_class;
+  }
+  [[nodiscard]] int size_class() const { return size_class_; }
+
+ private:
+  bool initialized_ = false;
+  size_t size_class_ = 0;
+};
+
+TEST(ShardedTransferCacheManagerTest, DoesNotDoubleInitFreeList) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  using ShardedManager =
+      ShardedTransferCacheManagerBase<FakeShardedTransferCacheForwarder,
+                                      FakeCpuLayout, SingleInitFreeList>;
+  FakeShardedTransferCacheForwarder::SetGenericShardedCache(true);
+  FakeShardedTransferCacheForwarder::SetShardedCacheForLargeClassesOnly(false);
+  FakeCpuLayout cpu_layout;
+  cpu_layout.Init(ShardedManager::kMinShardsAllowed);
+  ShardedManager manager(&cpu_layout);
+  manager.Init();
+
+  SingleInitFreeList freelist;
+  void* ptr;
+  freelist.AllocateBatch({&ptr, 1});
+  cpu_layout.SetCurrentCpu(0);
+  manager.Push(kSizeClass, ptr);
+  void* popped = manager.Pop(kSizeClass);
+  ASSERT_EQ(popped, ptr);
+  freelist.FreeBatch({&popped, 1});
+
+  FakeShardedTransferCacheForwarder::SetGenericShardedCache(false);
+}
+
 TEST(ShardedTransferCacheManagerTest, PrintTelemetry) {
   if (!subtle::percpu::IsFast()) {
     return;
