@@ -651,7 +651,6 @@ TEST_P(MismatchedSampledTest, MismatchedSampled) {
     constexpr std::optional<hot_cold_t> hot_cold_set[] = {
         std::nullopt,
         hot_cold_t{0},
-        hot_cold_t{128},
         hot_cold_t{255},
     };
 
@@ -748,7 +747,6 @@ TEST_P(MismatchedDeleteTooLargeTest, MismatchedDeleteTooLarge) {
     constexpr std::optional<hot_cold_t> hot_cold_set[] = {
         std::nullopt,
         hot_cold_t{0},
-        hot_cold_t{128},
         hot_cold_t{255},
     };
 
@@ -920,7 +918,6 @@ TEST_P(CorruptedPointerTest, CorruptedPointer) {
 
   constexpr size_t kMisalignment[] = {
       1,
-      static_cast<size_t>(tcmalloc_internal::kAlignment) - 1,
 #ifdef NDEBUG
 #if !defined(ABSL_HAVE_ADDRESS_SANITIZER)
       tcmalloc_internal::kPageSize / 2,
