@@ -905,6 +905,7 @@ tcmalloc_cc_test_variants(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
+    "absl::config"
     "absl::flat_hash_set"
     "absl::span"
     "tcmalloc::internal_config"

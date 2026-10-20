@@ -25,6 +25,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/config.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
@@ -193,16 +194,17 @@ TEST_F(LargeAllocationTest, NearMaxAddressBits) {
   // For -1 <= i < 5, we expect all allocations to fail.  For -6 <= i < -1, the
   // allocation might succeed but create so much pagemap metadata that we exceed
   // test memory limits and OOM.  So we skip that range.
-#ifdef MEMORY_SANITIZER
+#if defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
   for (int i = -7; i < -6; ++i) {
     // Prior to cl/635999531
     // (https://github.com/llvm/llvm-project/commit/511077df763752fd2c187e4ca1a3ada335b77804),
     // MSan's allocation limit was 8GB, which meant these
     // allocations would quickly be declined. After cl/635999531, the limit is
-    // 1 << 40, which means MSan will happily try to allocate, say,
-    // 1 << (48 + -10) == 256GB; due to inefficiency in MSan, this will OOM on
-    // many systems.
-    // For i == -7, the allocation will be declined by MSan.
+    // 1 << 40 (matching TSan's kMaxAllowedMallocSize), which means MSan and
+    // TSan will happily try to allocate, say, 1 << (48 + -10) == 256GB; due to
+    // shadow-memory updates across the entire allocation, this can OOM or time
+    // out.
+    // For i == -7, the allocation will be declined by MSan and TSan.
 #else
   for (int i = -10; i < -6; ++i) {
 #endif
