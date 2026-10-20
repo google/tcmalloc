@@ -39,6 +39,7 @@ struct PageStats {
   // Number of mlocked bytes (KPF_MLOCKED); counts mlocked pages only and
   // excludes non-mlocked unevictable pages.
   size_t bytes_locked = 0;
+  size_t bytes_incompressible = 0;
   // The number of seconds that must elapse (at minimum) for a page to be
   // considered "stale". 0 indicates that kstaled is disabled or we weren't
   // able to read from the scan_seconds sysfs control. (See b/111239799
@@ -53,6 +54,7 @@ struct PageStats {
   // C++20 "= default" when we increase the baseline compiler requirement.
   bool operator==(const PageStats& rhs) const {
     return bytes_stale == rhs.bytes_stale && bytes_locked == rhs.bytes_locked &&
+           bytes_incompressible == rhs.bytes_incompressible &&
            stale_scan_seconds == rhs.stale_scan_seconds;
   }
 

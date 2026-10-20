@@ -51,6 +51,10 @@ namespace {
 #define KPF_MLOCKED 33
 #endif
 #define KPF_STALE 44
+#ifndef KPF_INCOMPRESSIBLE
+// Set by kernels that track pages rejected by in-memory swap compression.
+#define KPF_INCOMPRESSIBLE 47
+#endif
 
 // If a page is Head or Tail it is a compound page. It cannot be both, but it
 // can be neither, in which case it's just a native page and no special handling
@@ -86,11 +90,16 @@ constexpr bool PageLocked(uint64_t flags) {
   // compression).
   return (flags & kPageMlocked) == kPageMlocked;
 }
+constexpr bool PageIncompressible(uint64_t flags) {
+  constexpr uint64_t kPageIncompressible{uint64_t{1} << KPF_INCOMPRESSIBLE};
+  return (flags & kPageIncompressible) == kPageIncompressible;
+}
 
 void MaybeAddToStats(PageStats& stats, const uint64_t flags,
                      const size_t delta) {
   if (PageStale(flags)) stats.bytes_stale += delta;
   if (PageLocked(flags)) stats.bytes_locked += delta;
+  if (PageIncompressible(flags)) stats.bytes_incompressible += delta;
 }
 
 }  // namespace
