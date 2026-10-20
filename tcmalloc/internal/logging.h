@@ -120,7 +120,8 @@ template <typename... Args>
                        file, line, func, args...);
   }
   buf[sizeof(buf) - 1] = 0;
-  CheckFailed(file, line, buf, std::min<size_t>(n, sizeof(buf) - 1));
+  CheckFailed(file, line, buf,
+              n < 0 ? 0 : std::min<size_t>(n, sizeof(buf) - 1));
 }
 
 void PrintStackTrace(void* const* stack_frames, size_t depth);
@@ -140,7 +141,7 @@ ABSL_ATTRIBUTE_NOINLINE void LogImpl(
                        args...);
   }
   buf[sizeof(buf) - 1] = 0;
-  (*log_message_writer)(buf, std::min<size_t>(n, sizeof(buf) - 1));
+  (*log_message_writer)(buf, n < 0 ? 0 : std::min<size_t>(n, sizeof(buf) - 1));
 }
 
 // TC_BUG unconditionally aborts the program with the message.
@@ -273,7 +274,7 @@ class Printer {
     }
     required_ += r;
 
-    if (static_cast<size_t>(r) > left_) {
+    if (static_cast<size_t>(r) >= left_) {
       left_ = 0;
     } else {
       left_ -= r;
@@ -295,7 +296,7 @@ class Printer {
     for (const absl::string_view piece : pieces) total_size += piece.size();
 
     required_ += total_size;
-    if (left_ < total_size) {
+    if (left_ <= total_size) {
       left_ = 0;
       return;
     }
@@ -311,6 +312,7 @@ class Printer {
     }
 
     left_ -= total_size;
+    buf_[0] = '\0';
   }
 };
 

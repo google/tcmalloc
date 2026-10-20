@@ -251,6 +251,37 @@ TEST(Check, Optional) {
   EXPECT_DEATH(TC_CHECK_EQ(opt1, noopt), "opt1 == noopt \\(1 == \\?\\?\\?\\)");
 }
 
+TEST(Printer, NullTerminationAndExactBoundary) {
+  // Append must NUL-terminate the buffer even when the backing memory is
+  // non-zero.
+  char buf[6];
+  memset(buf, 'X', sizeof(buf));
+  Printer p(buf, 5);
+  p.Append("abcd");
+  EXPECT_EQ(p.SpaceRequired(), 4);
+  EXPECT_EQ(buf[4], '\0');
+  EXPECT_STREQ(buf, "abcd");
+  EXPECT_EQ(buf[5], 'X');
+
+  // When total_size == left_, Append must not overwrite the 1 byte reserved
+  // for the trailing NUL terminator.
+  memset(buf, 'X', sizeof(buf));
+  Printer p_exact(buf, 4);
+  p_exact.Append("abcd");
+  EXPECT_EQ(p_exact.SpaceRequired(), 4);
+  EXPECT_EQ(buf[0], '\0');
+  EXPECT_EQ(buf[3], 'X');
+
+  // When printf returns r == left_, output is truncated and left_ becomes 0.
+  memset(buf, 'X', sizeof(buf));
+  Printer p_printf(buf, 4);
+  p_printf.printf("%s", "abcd");
+  EXPECT_EQ(p_printf.SpaceRequired(), 4);
+  EXPECT_EQ(buf[3], '\0');
+  EXPECT_STREQ(buf, "abc");
+  EXPECT_EQ(buf[4], 'X');
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
