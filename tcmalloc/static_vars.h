@@ -229,7 +229,7 @@ class Static final {
   union PageAllocatorStorage {
     constexpr PageAllocatorStorage() : extra(0) {}
 
-    char memory[sizeof(PageAllocator)];
+    alignas(PageAllocator) char memory[sizeof(PageAllocator)];
     uintptr_t extra;  // To force alignment
   };
 
