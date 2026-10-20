@@ -240,7 +240,45 @@ void BM_RealisticHitRate(benchmark::State& state) {
       static_cast<double>(stats.remove_misses) / total_removes;
 }
 
+template <typename Env>
+void BM_ContendedHitMissMix(benchmark::State& state) {
+  using Cache = typename Env::TransferCache;
+  constexpr int kClass = 1;
+  constexpr int kBatch = Env::kBatchSize;
+  constexpr int kCap = 16 * kBatch;
+  static Cache* c = []() {
+    auto* cache = new Cache(kClass, {kCap, kCap});
+    void* init_batch[Env::kMaxObjectsToMove];
+    for (int i = 0; i < kCap / kBatch; ++i) {
+      cache->freelist().AllocateBatch({init_batch, kBatch});
+      cache->InsertRange(kClass, {init_batch, kBatch});
+    }
+    return cache;
+  }();
+  void* batch[Env::kMaxObjectsToMove];
+  for (int i = 0; i < kBatch; ++i) {
+    batch[i] = &batch[i];
+  }
+  const bool hit_thread = (state.thread_index() % 2) == 0;
+  for (auto _ : state) {
+    if (hit_thread) {
+      benchmark::DoNotOptimize(batch);
+      int got = c->RemoveRange(kClass, {batch, 1});
+      benchmark::DoNotOptimize(got);
+      c->InsertRange(kClass, {batch, static_cast<size_t>(got)});
+      benchmark::DoNotOptimize(batch);
+    } else {
+      benchmark::DoNotOptimize(batch);
+      c->InsertRange(kClass, {batch, kBatch});
+      benchmark::DoNotOptimize(batch);
+    }
+  }
+}
+
 BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
+BENCHMARK_TEMPLATE(BM_ContendedHitMissMix, TransferCacheEnv)
+    ->ThreadRange(2, 64)
+    ->UseRealTime();
 BENCHMARK_TEMPLATE(BM_InsertRange, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations, TransferCacheEnv);

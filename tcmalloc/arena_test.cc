@@ -451,6 +451,22 @@ TEST(Arena, AllocOomReportsActualAskSize) {
                "Out of memory trying to allocate internal tcmalloc data");
 }
 
+TEST(Arena, New) {
+  struct alignas(64) AlignedObject {
+    explicit AlignedObject(int a, int b) : x(a), y(b) {}
+    int x;
+    int y;
+  };
+  Arena arena;
+  // Advance free_area_ by 1 byte first to verify New<T> aligns to alignof(T).
+  ASSERT_NE(arena.Alloc(ArenaAlloc::kTest, 1, Align(1)), nullptr);
+  AlignedObject* obj = arena.New<AlignedObject>(ArenaAlloc::kTest, 10, 20);
+  ASSERT_NE(obj, nullptr);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(obj) % alignof(AlignedObject), 0);
+  EXPECT_EQ(obj->x, 10);
+  EXPECT_EQ(obj->y, 20);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
