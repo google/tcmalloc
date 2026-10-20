@@ -60,6 +60,7 @@ jobs:
         include:
           - toolchain: libstdc++
             extra-config: --config=clang
+            remote_config: remote-central
     env:
       USE_BAZEL_VERSION: 8.x
     steps:
@@ -81,7 +82,7 @@ jobs:
           google-credentials: ${{ secrets.GCP_SERVICE_ACCOUNT }}
           bazelrc: |
             test --test_tag_filters=-benchmark
-            common --config=remote
+            common --config=${{ matrix.remote_config || 'remote-east' }}
 
       - name: Run tests
         run: >
