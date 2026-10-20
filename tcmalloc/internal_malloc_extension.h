@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -108,6 +109,8 @@ ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetProperties(
     tcmalloc::MallocExtension::PropertyMap* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetExperiments(
     tcmalloc::MallocExtension::PropertyMap* ret);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetExperiment(
+    absl::string_view name, bool* active);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetStats(std::string* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMaxPerCpuCacheSize(
     int32_t value);

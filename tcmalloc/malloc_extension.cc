@@ -32,7 +32,9 @@
 #include "absl/base/call_once.h"
 #include "absl/base/internal/low_level_alloc.h"
 #include "absl/functional/function_ref.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
@@ -582,6 +584,18 @@ std::optional<size_t> MallocExtension::GetNumericProperty(
     if (MallocExtension_Internal_GetNumericProperty(property.data(),
                                                     property.size(), &value)) {
       return value;
+    }
+  }
+  // We query experiments via a weak symbol rather than calling experiment.h
+  // directly to avoid a build dependency cycle between :malloc_extension and
+  // :experiment.
+  constexpr absl::string_view kExperimentPrefix = "tcmalloc.experiment.";
+  if (&MallocExtension_Internal_GetExperiment != nullptr &&
+      absl::StartsWith(property, kExperimentPrefix)) {
+    bool active;
+    if (MallocExtension_Internal_GetExperiment(
+            absl::StripPrefix(property, kExperimentPrefix), &active)) {
+      return active ? 1 : 0;
     }
   }
 #endif

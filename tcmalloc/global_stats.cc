@@ -22,16 +22,13 @@
 
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
-#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
 #include "absl/time/time.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_page_options.h"
@@ -1246,16 +1243,6 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
                  ? static_cast<int>(Parameters::heap_partitioning_mode())
                  : 0;
     return true;
-  }
-
-  const absl::string_view kExperimentPrefix = "tcmalloc.experiment.";
-  if (absl::StartsWith(name, kExperimentPrefix)) {
-    std::optional<Experiment> exp =
-        FindExperimentByName(absl::StripPrefix(name, kExperimentPrefix));
-    if (exp.has_value()) {
-      *value = IsExperimentActive(*exp) ? 1 : 0;
-      return true;
-    }
   }
 
   // LINT.ThenChange(//depot/google3/tcmalloc/testing/malloc_extension_test.cc)

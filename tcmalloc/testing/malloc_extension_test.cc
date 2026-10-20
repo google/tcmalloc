@@ -24,7 +24,6 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/cpu_cache.h"
@@ -91,21 +90,14 @@ TEST(MallocExtension, Properties) {
   // GetNumericProperty.
   const auto properties = MallocExtension::GetProperties();
   for (const auto& property : properties) {
-    // Skip experiments under sanitizers as GetNumericProperty doesn't currently
-    // handle them.
-    //
-    // TODO(b/273946827): Report in malloc_extension.cc
-    if (kSanitizerPresent &&
-        absl::StartsWith(property.first, "tcmalloc.experiment.")) {
-      continue;
-    }
-
     std::optional<size_t> scalar =
         MallocExtension::GetNumericProperty(property.first);
     // The value of the property itself may have changed, so just check that it
     // is present.
     EXPECT_THAT(scalar, testing::Ne(std::nullopt)) << property.first;
   }
+  EXPECT_EQ(MallocExtension::GetNumericProperty("tcmalloc.experiment.unknown"),
+            std::nullopt);
 
   std::vector<absl::string_view> known_properties = {
       // go/keep-sorted start

@@ -37,6 +37,7 @@
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
+#include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 
 // Loops over `experiments` must not be unrolled or otherwise specialized on
@@ -367,6 +368,16 @@ extern "C" void MallocExtension_Internal_GetExperiments(
   WalkExperiments([&](absl::string_view name, bool active) {
     (*result)[absl::StrCat("tcmalloc.experiment.", name)].value = active;
   });
+}
+
+extern "C" bool MallocExtension_Internal_GetExperiment(absl::string_view name,
+                                                       bool* active) {
+  std::optional<Experiment> exp = FindExperimentByName(name);
+  if (!exp.has_value()) {
+    return false;
+  }
+  *active = IsExperimentActive(*exp);
+  return true;
 }
 
 }  // namespace tcmalloc
