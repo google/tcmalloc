@@ -87,6 +87,9 @@ class StubPageFlags final : public PageFlagsBase {
     if (locked_bytes_.find(uaddr) != locked_bytes_.end()) {
       ret.bytes_locked = locked_bytes_[uaddr];
     }
+    if (incompressible_bytes_.find(uaddr) != incompressible_bytes_.end()) {
+      ret.bytes_incompressible = incompressible_bytes_[uaddr];
+    }
     ret.stale_scan_seconds = stale_scan_period_;
     return ret;
   }
@@ -101,6 +104,11 @@ class StubPageFlags final : public PageFlagsBase {
     locked_bytes_[uaddr] = locked;
   }
 
+  void set_bytes_incompressible(const void* addr, int incompressible) {
+    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+    incompressible_bytes_[uaddr] = incompressible;
+  }
+
   void set_stale_scan_period(const void* addr, uint64_t seconds_stale) {
     stale_scan_period_ = seconds_stale;
   }
@@ -112,6 +120,7 @@ class StubPageFlags final : public PageFlagsBase {
  private:
   absl::flat_hash_map<uintptr_t, int> stale_bytes_;
   absl::flat_hash_map<uintptr_t, int> locked_bytes_;
+  absl::flat_hash_map<uintptr_t, int> incompressible_bytes_;
   uint64_t stale_scan_period_ = 0;
 };
 
@@ -457,8 +466,11 @@ perftools::profiles::Profile MakeTestProfile(
     if (profile_type == ProfileType::kHeap) {
       // Total stale bytes for this sample = 5 * 17 = 85.
       // Total locked bytes for this sample = 5 * 11 = 55.
+      // Total incompressible bytes for this sample = 5 * 13 = 65.
       p->set_bytes_stale(sample.span_start_address, /*stale=*/17);
       p->set_bytes_locked(sample.span_start_address, /*locked=*/11);
+      p->set_bytes_incompressible(sample.span_start_address,
+                                  /*incompressible=*/13);
       p->set_stale_scan_period(sample.span_start_address,
                                /*seconds_stale=*/10);
     }
@@ -609,19 +621,20 @@ TEST(ProfileConverterTest, HeapProfile) {
   // Require that the default_sample_type appeared in sample_type.
   EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
 
-  constexpr int kNumSampleTypes = 6
+  constexpr int kNumSampleTypes = 7
       ;
   // This is slightly redundant with the next line, but we need to loop over
   // each of the samples later.
   constexpr int kNumSamples = 6;
   EXPECT_THAT(extracted_sample_type, SizeIs(kNumSampleTypes));
-  EXPECT_THAT(extracted_sample_type,
-              UnorderedElementsAre(
-                  Pair("objects", "count"), Pair("space", "bytes"),
-                  Pair("resident_space", "bytes"), Pair("stale_space", "bytes"),
-                  Pair("locked_space", "bytes"),
-                  Pair("swapped_space", "bytes")
-                  ));
+  EXPECT_THAT(
+      extracted_sample_type,
+      UnorderedElementsAre(
+          Pair("objects", "count"), Pair("space", "bytes"),
+          Pair("resident_space", "bytes"), Pair("stale_space", "bytes"),
+          Pair("locked_space", "bytes"), Pair("incompressible_space", "bytes"),
+          Pair("swapped_space", "bytes")
+          ));
 
   SampleLabels extracted_labels;
   {

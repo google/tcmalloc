@@ -111,6 +111,7 @@ struct SampleMergedData {
   std::optional<size_t> swapped_size;
   std::optional<size_t> stale_size;
   std::optional<size_t> locked_size;
+  std::optional<size_t> incompressible_size;
   std::optional<uint64_t> stale_scan_period;
   size_t compressed_size = 0;
   size_t zero_size = 0;
@@ -204,6 +205,12 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
           data.locked_size.emplace();
         }
         data.locked_size.value() += entry.count * page_stats->bytes_locked;
+
+        if (!data.incompressible_size.has_value()) {
+          data.incompressible_size.emplace();
+        }
+        data.incompressible_size.value() +=
+            entry.count * page_stats->bytes_incompressible;
 
         if (!data.stale_scan_period.has_value()) {
           data.stale_scan_period = page_stats->stale_scan_seconds;
@@ -901,6 +908,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int swapped_space_id = builder.InternString("swapped_space");
   const int stale_space_id = builder.InternString("stale_space");
   const int locked_space_id = builder.InternString("locked_space");
+  const int incompressible_space_id =
+      builder.InternString("incompressible_space");
   const int space_compressed_id = builder.InternString("space_compressed");
   const int zero_space_id = builder.InternString("zero_space");
 
@@ -946,6 +955,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
     sample_type = converted.add_sample_type();
     sample_type->set_type(locked_space_id);
+    sample_type->set_unit(bytes_id);
+
+    sample_type = converted.add_sample_type();
+    sample_type->set_type(incompressible_space_id);
     sample_type->set_unit(bytes_id);
   }
 
@@ -996,6 +1009,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       sample.add_value(data.swapped_size.value_or(0));
       sample.add_value(data.stale_size.value_or(0));
       sample.add_value(data.locked_size.value_or(0));
+      sample.add_value(data.incompressible_size.value_or(0));
     }
     if (exporting_compressibility) {
       sample.add_value(data.zero_size);
