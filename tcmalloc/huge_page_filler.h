@@ -693,9 +693,8 @@ class HugePageFiller {
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
-      ReleaseStalePages release_stale_pages,
-      PreserveDonatedOnCollapse preserve_donated_on_collapse,
-      PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
+      ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags = nullptr,
+      Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to release free pages from a given `page_tracker`
@@ -703,8 +702,7 @@ class HugePageFiller {
   Length HandleReleaseFree(PageTracker* page_tracker)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void OnCollapseSuccess(TrackerType* absl_nonnull pt,
-                         PreserveDonatedOnCollapse preserve_donated_on_collapse)
+  void OnCollapseSuccess(TrackerType* absl_nonnull pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to handle a non-hugepage backed `page_tracker` and
@@ -1694,9 +1692,8 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     EnableCollapse enable_collapse,
     EnableUnfilteredCollapse enable_unfiltered_collapse,
-    ReleaseStalePages release_stale_pages,
-    PreserveDonatedOnCollapse preserve_donated_on_collapse,
-    PageFlagsBase* pageflags, Residency* residency) {
+    ReleaseStalePages release_stale_pages, PageFlagsBase* pageflags,
+    Residency* residency) {
   if (enable_collapse == EnableCollapse::kEnabled &&
       ShouldBackoffFromCollapse()) {
     enable_collapse = EnableCollapse::kDisabled;
@@ -1710,7 +1707,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
       subrelease_unbacked_mode_, enable_unfiltered_collapse,
-      release_stale_pages, preserve_donated_on_collapse);
+      release_stale_pages);
 
   // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_.sparse.Iter(
@@ -1805,23 +1802,16 @@ inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::OnCollapseSuccess(
-    TrackerType* pt, PreserveDonatedOnCollapse preserve_donated_on_collapse) {
+inline void HugePageFiller<TrackerType>::OnCollapseSuccess(TrackerType* pt) {
   TC_ASSERT(!pt->fully_freed());
   TC_ASSERT(!pt->BeingReleased());
   if (pt->unbroken()) return;
-  const bool was_donated = pt->donated();
-  if (was_donated) {
+  if (pt->donated()) {
     ++treatment_stats_.collapse_donated_succeeded;
   }
   RemoveFromFillerList(pt);
   pt->set_unbroken(/*status=*/true);
-  if (was_donated &&
-      preserve_donated_on_collapse == PreserveDonatedOnCollapse::kEnabled) {
-    DonateToFillerList(pt);
-  } else {
-    AddToFillerList(pt);
-  }
+  AddToFillerList(pt);
 }
 
 template <class TrackerType>

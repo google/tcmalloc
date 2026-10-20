@@ -530,8 +530,6 @@ class FillerTest : public testing::Test {
   // where the output is hardcoded, we disable randomization through the
   // variable below.
   bool randomize_density_ = true;
-  PreserveDonatedOnCollapse preserve_donated_on_collapse_ =
-      PreserveDonatedOnCollapse::kDisabled;
 
   void CheckStats() {
     EXPECT_EQ(filler_.size(), hp_contained_);
@@ -678,9 +676,8 @@ class FillerTest : public testing::Test {
     // scoped lock doesn't recognize the manual unlock. In tests, collapse
     // allocates, so we use manual lock and unlock here.
     pageheap_lock.lock();
-    filler_.TreatHugepageTrackers(
-        enable_collapse, enable_unfiltered_collapse, release_stale_pages,
-        preserve_donated_on_collapse_, pageflags, residency);
+    filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
+                                  release_stale_pages, pageflags, residency);
     pageheap_lock.unlock();
   }
 
@@ -8039,168 +8036,8 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_EQ(GetHugePageTreatmentStats().collapse_donated_succeeded,
             NHugePages(1));
   EXPECT_TRUE(donated.pt->unbroken());
-  EXPECT_FALSE(donated.pt->donated());
 
   EXPECT_TRUE(Delete(donated));
-  EXPECT_TRUE(Delete(regular));
-}
-
-TEST_F(FillerTestWithSubreleaseUnbacked,
-       OnCollapseSuccessPreservesDonatedTracker) {
-  randomize_density_ = false;
-  preserve_donated_on_collapse_ = PreserveDonatedOnCollapse::kEnabled;
-  // Contribute a regular hugepage with 254 free pages first, then contribute
-  // tail slack from a live multi-hugepage allocation (`donated=true`, 10 slack
-  // pages) onto `donated_alloc_`.
-  const Length kDonatedAlloc = kPagesPerHugePage - Length(10);
-  PAlloc regular = Allocate(Length(2), /*donated=*/false);
-  PAlloc donated = Allocate(kDonatedAlloc, /*donated=*/true);
-  ASSERT_TRUE(donated.pt->donated());
-  ASSERT_FALSE(regular.pt->donated());
-
-  // Model a donated tracker originating from a reused broken hugepage
-  // (`!unbroken()`) that is collapsed by userspace collapse treatment.
-  donated.pt->set_unbroken(/*status=*/false);
-  ASSERT_FALSE(donated.pt->unbroken());
-
-  FakePageFlags pageflags;
-  FakeResidency residency;
-  pageflags.MarkHugePageBacked(regular.p.start_addr(),
-                               /*is_hugepage_backed=*/true);
-  pageflags.MarkHugePageBacked(donated.p.start_addr(),
-                               /*is_hugepage_backed=*/false);
-  residency.SetUnbackedAndSwappedBitmaps(donated.p.start_addr(), {}, {});
-  pageflags.SetStaleBitmap(donated.p.start_addr(), {});
-
-  TreatHugepageTrackers(EnableCollapse::kEnabled,
-                        EnableUnfilteredCollapse::kDisabled,
-                        ReleaseStalePages::kDisabled, &pageflags, &residency);
-
-  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(1));
-  EXPECT_EQ(GetHugePageTreatmentStats().collapse_donated_succeeded,
-            NHugePages(1));
-  EXPECT_TRUE(donated.pt->unbroken());
-  // When `PreserveDonatedOnCollapse::kEnabled` is set, `OnCollapseSuccess`
-  // re-inserts a donated tracker via `DonateToFillerList` so it remains on
-  // `donated_alloc_` (`donated() == true`) rather than moving to
-  // `regular_alloc_`, where its shorter free range (10 pages vs. 254 on
-  // `regular`) would cause small allocations to prefer it and abandon the tail
-  // when `donated` is freed.
-  EXPECT_TRUE(donated.pt->donated());
-
-  PAlloc small = Allocate(Length(1), /*donated=*/false);
-  EXPECT_EQ(small.pt, regular.pt);
-  EXPECT_TRUE(donated.pt->donated());
-
-  EXPECT_TRUE(Delete(donated));
-  Delete(small);
-  EXPECT_TRUE(Delete(regular));
-}
-
-TEST_F(FillerTestWithSubreleaseUnbacked,
-       OnCollapseSuccessTogglesPreserveDonatedTracker) {
-  randomize_density_ = false;
-  const Length kDonatedAlloc = kPagesPerHugePage - Length(10);
-  PAlloc regular = Allocate(Length(2), /*donated=*/false);
-  ASSERT_FALSE(regular.pt->donated());
-
-  FakePageFlags pageflags;
-  FakeResidency residency;
-  pageflags.MarkHugePageBacked(regular.p.start_addr(),
-                               /*is_hugepage_backed=*/true);
-
-  auto collapse_broken_donated_tracker =
-      [&](PreserveDonatedOnCollapse mode) -> PAlloc {
-    preserve_donated_on_collapse_ = mode;
-    PAlloc donated = Allocate(kDonatedAlloc, /*donated=*/true);
-    EXPECT_TRUE(donated.pt->donated());
-    donated.pt->set_unbroken(/*status=*/false);
-    EXPECT_FALSE(donated.pt->unbroken());
-    pageflags.MarkHugePageBacked(donated.p.start_addr(),
-                                 /*is_hugepage_backed=*/false);
-    residency.SetUnbackedAndSwappedBitmaps(donated.p.start_addr(), {}, {});
-    pageflags.SetStaleBitmap(donated.p.start_addr(), {});
-    TreatHugepageTrackers(EnableCollapse::kEnabled,
-                          EnableUnfilteredCollapse::kDisabled,
-                          ReleaseStalePages::kDisabled, &pageflags, &residency);
-    pageflags.MarkHugePageBacked(donated.p.start_addr(),
-                                 /*is_hugepage_backed=*/true);
-    return donated;
-  };
-
-  auto expect_backed_hugepages = [&](HugeLength expected_regular,
-                                     HugeLength expected_donated) {
-    std::string buffer_text = PrintToString(1024 * 1024, [&](Printer& printer) {
-      PageHeapSpinLockHolder l;
-      filler_.Print(printer, /*everything=*/true, pageflags);
-    });
-    EXPECT_THAT(
-        buffer_text,
-        testing::HasSubstr(absl::StrFormat(
-            "HugePageFiller: %v of sparsely-accessed regular pages hugepage "
-            "backed out of %v.",
-            expected_regular, expected_regular)));
-    EXPECT_THAT(buffer_text,
-                testing::HasSubstr(absl::StrFormat(
-                    "HugePageFiller: %v of donated pages hugepage backed out "
-                    "of %v.",
-                    expected_donated, expected_donated)));
-  };
-
-  // 1. With `PreserveDonatedOnCollapse::kDisabled`, collapsing `d1` moves it
-  // from `donated_alloc_` to `regular_alloc_.sparse`.
-  PAlloc d1 =
-      collapse_broken_donated_tracker(PreserveDonatedOnCollapse::kDisabled);
-  EXPECT_TRUE(d1.pt->unbroken());
-  EXPECT_FALSE(d1.pt->donated());
-  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(1));
-  EXPECT_EQ(GetHugePageTreatmentStats().collapse_donated_succeeded,
-            NHugePages(1));
-  expect_backed_hugepages(/*expected_regular=*/NHugePages(2),
-                          /*expected_donated=*/NHugePages(0));
-
-  // 2. Toggle to `PreserveDonatedOnCollapse::kEnabled` while `d1` is still
-  // live: collapsing `d2` preserves `d2` on `donated_alloc_` while `d1` stays
-  // accounted on `regular_alloc_.sparse`.
-  PAlloc d2 =
-      collapse_broken_donated_tracker(PreserveDonatedOnCollapse::kEnabled);
-  EXPECT_TRUE(d2.pt->unbroken());
-  EXPECT_TRUE(d2.pt->donated());
-  EXPECT_FALSE(d1.pt->donated());
-  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(2));
-  EXPECT_EQ(GetHugePageTreatmentStats().collapse_donated_succeeded,
-            NHugePages(2));
-  expect_backed_hugepages(/*expected_regular=*/NHugePages(2),
-                          /*expected_donated=*/NHugePages(1));
-
-  // 3. Toggle back to `PreserveDonatedOnCollapse::kDisabled` while `d1` and
-  // `d2` remain live: collapsing `d3` moves `d3` to `regular_alloc_.sparse`,
-  // while `d2` remains preserved on `donated_alloc_`.
-  PAlloc d3 =
-      collapse_broken_donated_tracker(PreserveDonatedOnCollapse::kDisabled);
-  EXPECT_TRUE(d3.pt->unbroken());
-  EXPECT_FALSE(d3.pt->donated());
-  EXPECT_TRUE(d2.pt->donated());
-  EXPECT_FALSE(d1.pt->donated());
-  EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(3));
-  EXPECT_EQ(GetHugePageTreatmentStats().collapse_donated_succeeded,
-            NHugePages(3));
-  expect_backed_hugepages(/*expected_regular=*/NHugePages(3),
-                          /*expected_donated=*/NHugePages(1));
-
-  // Freeing `d1` and `d3` removes them from `regular_alloc_.sparse`, leaving
-  // `regular` on `regular_alloc_.sparse` and `d2` on `donated_alloc_`.
-  EXPECT_TRUE(Delete(d1));
-  EXPECT_TRUE(Delete(d3));
-  expect_backed_hugepages(/*expected_regular=*/NHugePages(1),
-                          /*expected_donated=*/NHugePages(1));
-
-  PAlloc small = Allocate(Length(1), /*donated=*/false);
-  EXPECT_EQ(small.pt, regular.pt);
-  EXPECT_TRUE(d2.pt->donated());
-
-  EXPECT_TRUE(Delete(d2));
-  Delete(small);
   EXPECT_TRUE(Delete(regular));
 }
 
