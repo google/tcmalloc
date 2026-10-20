@@ -533,6 +533,8 @@ TEST(BitmapScaleTest, ScaleAssertionFailures) {
   EXPECT_DEATH((void)Scale<10>(map1, 64, ReductionOp::kAll), "");
   // 2. src_len > N (64)
   EXPECT_DEATH((void)Scale<256>(map1, 128, ReductionOp::kAll), "");
+  // 3. src_len == 0
+  EXPECT_DEATH((void)Scale<64>(map1, 0, ReductionOp::kAll), "");
 }
 
 TEST(BitmapScaleTest, Scale) {

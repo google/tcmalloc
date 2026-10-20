@@ -704,6 +704,8 @@ enum class ReductionOp {
 template <size_t M, size_t N>
 [[nodiscard]] Bitmap<M> Scale(const Bitmap<N>& src, size_t src_len,
                               ReductionOp op) {
+  static_assert(M > 0);
+  TC_ASSERT_GT(src_len, 0);
   TC_ASSERT_LE(src_len, N);
   TC_ASSERT(src_len % M == 0 || M % src_len == 0);
 
