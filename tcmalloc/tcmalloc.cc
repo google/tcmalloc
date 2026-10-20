@@ -649,10 +649,13 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, size_t weight,
       tag = MultiNormalTag(policy.partition());
     }
   }
+  const Length align = BytesToLengthCeil(policy.align());
+  if (ABSL_PREDICT_FALSE(align > kPagesPerHugePage)) {
+    return {nullptr, 0};
+  }
   PageAllocatorInterface::AllocationState alloc_res =
       tc_globals.page_allocator().NewAligned(
-          num_pages, BytesToLengthCeil(policy.align()),
-          {1, AccessDensityPrediction::kSparse}, tag);
+          num_pages, align, {1, AccessDensityPrediction::kSparse}, tag);
   if (!alloc_res) return {nullptr, 0};
 
   // Set capacity to the exact size for a page allocation.  This needs to be

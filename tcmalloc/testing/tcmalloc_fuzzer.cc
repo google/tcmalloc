@@ -301,14 +301,63 @@ void PosixMemalignRejectsBadAlignment(size_t alignment, size_t size) {
     ASSERT_EQ(ptr, &sentinel);
     return;
   }
+  if (alignment > kHugePageSize) {
+    ASSERT_EQ(result, ENOMEM);
+    ASSERT_EQ(ptr, &sentinel);
+    return;
+  }
   ASSERT_EQ(result, 0);
   ASSERT_TRUE(IsAligned(ptr, alignment));
   TCMallocInternalFree(ptr);
 }
 
 FUZZ_TEST(TCMalloc, PosixMemalignRejectsBadAlignment)
-    .WithDomains(fuzztest::InRange(size_t{0}, size_t{1} << kHugePageShift),
+    .WithDomains(fuzztest::Arbitrary<size_t>(),
                  fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
+
+void OverHugePageAlignment(size_t alignment_log2, size_t size,
+                           uint8_t hot_cold) {
+  const size_t alignment = size_t{1} << alignment_log2;
+  const auto align = static_cast<std::align_val_t>(alignment);
+  const auto access = static_cast<hot_cold_t>(hot_cold);
+
+  errno = 0;
+  ASSERT_EQ(TCMallocInternalMemalign(alignment, size), nullptr);
+  ASSERT_EQ(errno, ENOMEM);
+
+  errno = 0;
+  ASSERT_EQ(TCMallocInternalAlignedAlloc(alignment, size), nullptr);
+  ASSERT_EQ(errno, ENOMEM);
+
+  errno = 0;
+  const auto at_least = TCMallocInternalAlignedAllocAtLeast(alignment, size);
+  ASSERT_EQ(at_least.ptr, nullptr);
+  ASSERT_EQ(at_least.size, 0);
+  ASSERT_EQ(errno, ENOMEM);
+
+  char sentinel;
+  void* ptr = &sentinel;
+  ASSERT_EQ(TCMallocInternalPosixMemalign(&ptr, alignment, size), ENOMEM);
+  ASSERT_EQ(ptr, &sentinel);
+
+  ASSERT_EQ(TCMallocInternalNewAlignedNothrow(size, align, std::nothrow),
+            nullptr);
+  ASSERT_EQ(TCMallocInternalNewAlignedHotColdNothrow(size, align, std::nothrow,
+                                                     access),
+            nullptr);
+  ASSERT_EQ(TCMallocInternalNewArrayAlignedNothrow(size, align, std::nothrow),
+            nullptr);
+  ASSERT_EQ(TCMallocInternalNewArrayAlignedHotColdNothrow(size, align,
+                                                          std::nothrow, access),
+            nullptr);
+}
+
+FUZZ_TEST(TCMalloc, OverHugePageAlignment)
+    .WithDomains(fuzztest::InRange<size_t>(kHugePageShift + 1,
+                                           std::numeric_limits<size_t>::digits -
+                                               1),
+                 fuzztest::InRange(size_t{0}, kFuzzingMaxSize),
+                 fuzztest::Arbitrary<uint8_t>());
 
 void MemalignFree(size_t alignment_log2, size_t size) {
   const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);

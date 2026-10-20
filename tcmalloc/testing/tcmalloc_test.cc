@@ -1899,5 +1899,36 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
+TEST(TCMalloc, OverHugePageAlignment) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  size_t align = 2 * kHugePageSize;
+  size_t size = 2 * kHugePageSize;
+  benchmark::DoNotOptimize(align);
+  benchmark::DoNotOptimize(size);
+
+  errno = 0;
+  void* ptr = memalign(align, size);
+  benchmark::DoNotOptimize(ptr);
+  EXPECT_EQ(ptr, nullptr);
+  EXPECT_EQ(errno, ENOMEM);
+
+  errno = 0;
+  ptr = aligned_alloc(align, size);
+  benchmark::DoNotOptimize(ptr);
+  EXPECT_EQ(ptr, nullptr);
+  EXPECT_EQ(errno, ENOMEM);
+
+  void* posix_ptr = reinterpret_cast<void*>(uintptr_t{1});
+  EXPECT_EQ(posix_memalign(&posix_ptr, align, size), ENOMEM);
+  EXPECT_EQ(posix_ptr, reinterpret_cast<void*>(uintptr_t{1}));
+
+  ptr =
+      ::operator new(size, static_cast<std::align_val_t>(align), std::nothrow);
+  benchmark::DoNotOptimize(ptr);
+  EXPECT_EQ(ptr, nullptr);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
