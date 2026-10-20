@@ -17,23 +17,21 @@
 // thousands of trackers.  Pageflags and residency are faked so that the pass
 // is not dominated by syscalls.
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <numeric>
 #include <optional>
-#include <random>
 #include <utility>
 #include <vector>
 
-#include "absl/base/attributes.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_filler.h"
-#include "tcmalloc/huge_page_subrelease.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_page_tracker.h"
 #include "tcmalloc/huge_page_treatment.h"
 #include "tcmalloc/huge_pages.h"
@@ -42,8 +40,8 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
-#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/residency.h"
+#include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 
