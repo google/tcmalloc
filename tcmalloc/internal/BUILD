@@ -368,6 +368,19 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "gwp_asan_state_test",
+    srcs = ["gwp_asan_state_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":config",
+        ":gwp_asan_state",
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "hook_list",
     srcs = ["hook_list.cc"],
