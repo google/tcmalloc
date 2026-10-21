@@ -18,7 +18,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
+#include "absl/base/optimization.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
@@ -239,7 +241,36 @@ class PageAllocInfo {
 
   const int64_t baseline_ticks_{absl::base_internal::CycleClock::Now()};
   const double freq_{absl::base_internal::CycleClock::Frequency()};
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  ABSL_ATTRIBUTE_NOINLINE void RecordAllocSlow(Range r);
+  ABSL_ATTRIBUTE_NOINLINE void RecordFreeSlow(Range r);
+#endif
 };
+
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+inline void PageAllocInfo::RecordAlloc(Range r) {
+  static_assert(kMaxPages.in_bytes() == 1024 * 1024, "threshold changed?");
+  if (ABSL_PREDICT_FALSE(r.n > largest_seen_)) {
+    largest_seen_ = r.n;
+  }
+  if (ABSL_PREDICT_TRUE(r.n <= kMaxPages)) {
+    total_small_ += r.n;
+    small_[(r.n - Length(1)).raw_num()].Alloc(r.n);
+    return;
+  }
+  RecordAllocSlow(r);
+}
+
+inline void PageAllocInfo::RecordFree(Range r) {
+  if (ABSL_PREDICT_TRUE(r.n <= kMaxPages)) {
+    total_small_ -= r.n;
+    small_[(r.n - Length(1)).raw_num()].Free(r.n);
+    return;
+  }
+  RecordFreeSlow(r);
+}
+#endif
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
