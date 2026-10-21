@@ -189,6 +189,12 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetFixMaxCapacityBug(bool v);
 TCMalloc_Internal_GetPageAllocationStatus(
     const void* ptr,
     tcmalloc::tcmalloc_internal::PageAllocationStatus* absl_nonnull status);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK float
+TCMalloc_Internal_GetCapacityMultiSpanLambda();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetCapacityMultiSpanLambda(float v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK float
+TCMalloc_Internal_GetCapacitySingleSpanLambda();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetCapacitySingleSpanLambda(float v);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

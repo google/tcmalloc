@@ -100,4 +100,10 @@ experiment_variants = [
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES"},
     },
+    {
+        "name": "tcmalloc_capacity_pi",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_CAPACITY_PI"},
+    },
 ]

@@ -132,6 +132,10 @@ class FakeStaticForwarder {
     EXPECT_EQ(size % kHugePageSize, 0);
   }
 
+  bool capacity_pi() const { return false; }
+  float capacity_single_span_lambda() const { return 1.0f; }
+  float capacity_multi_span_lambda() const { return 0.17f; }
+
  private:
   struct SpanInfo {
     Span* span;

@@ -76,6 +76,7 @@ class DumpForwarder {
   void set_num_active_partitions(size_t value) {
     num_active_partitions_ = value;
   }
+  bool capacity_pi() const { return false; }
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;

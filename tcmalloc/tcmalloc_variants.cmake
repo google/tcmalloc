@@ -453,6 +453,15 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES"
   )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_capacity_pi
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_CAPACITY_PI"
+  )
 endfunction()
 
 function(tcmalloc_cc_binary_variants)
@@ -710,6 +719,13 @@ function(tcmalloc_cc_binary_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
   )
   tcmalloc_cc_binary(NAME ${TCMALLOC_NAME}_tcmalloc_track_broken_hugepages
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+  )
+  tcmalloc_cc_binary(NAME ${TCMALLOC_NAME}_tcmalloc_capacity_pi
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}

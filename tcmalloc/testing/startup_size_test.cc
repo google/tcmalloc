@@ -34,6 +34,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 
 namespace tcmalloc {
 namespace {
@@ -65,10 +66,12 @@ TEST(StartupSizeTest, Basic) {
   }
   size_t meta = Property(map, "tcmalloc.metadata_bytes");
   size_t physical = Property(map, "generic.physical_memory_used");
-  EXPECT_LE(meta, metadata_limit + upper_percpu_limit);
-  // Allow 20% more total physical memory than the virtual memory
-  // reserved for the metadata.
-  EXPECT_LE(physical, (metadata_limit + upper_percpu_limit) * 1.2);
+  if (!tcmalloc_internal::Parameters::capacity_pi()) {
+    EXPECT_LE(meta, metadata_limit + upper_percpu_limit);
+    // Allow 20% more total physical memory than the virtual memory
+    // reserved for the metadata.
+    EXPECT_LE(physical, (metadata_limit + upper_percpu_limit) * 1.2);
+  }
 }
 
 }  // namespace

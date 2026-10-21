@@ -58,6 +58,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/fake_clock.h"
 #include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
@@ -259,47 +260,6 @@ class FakeResidency : public NoopResidency {
   absl::flat_hash_map<const void*, SinglePageBitmaps> residency_bitmaps_;
 };
 
-class FakeClock {
- public:
-  FakeClock() = default;
-  [[nodiscard]] static int64_t now() {
-    now_calls_.fetch_add(1, std::memory_order_relaxed);
-    return clock_.load(std::memory_order_relaxed);
-  }
-  [[nodiscard]] static double freq() {
-    freq_calls_.fetch_add(1, std::memory_order_relaxed);
-    return absl::ToDoubleNanoseconds(absl::Seconds(2));
-  }
-  static void Advance(absl::Duration d) {
-    clock_.fetch_add(static_cast<int64_t>(absl::ToDoubleSeconds(d) * freq()),
-                     std::memory_order_relaxed);
-  }
-  static void ResetClock() {
-    clock_.store(1234, std::memory_order_relaxed);
-    now_calls_.store(0, std::memory_order_relaxed);
-    freq_calls_.store(0, std::memory_order_relaxed);
-  }
-  [[nodiscard]] static size_t now_calls() {
-    return now_calls_.load(std::memory_order_relaxed);
-  }
-  [[nodiscard]] static size_t freq_calls() {
-    return freq_calls_.load(std::memory_order_relaxed);
-  }
-  static void ResetCalls() {
-    now_calls_.store(0, std::memory_order_relaxed);
-    freq_calls_.store(0, std::memory_order_relaxed);
-  }
-
- private:
-  static std::atomic<int64_t> clock_;
-  static std::atomic<size_t> now_calls_;
-  static std::atomic<size_t> freq_calls_;
-};
-
-std::atomic<int64_t> FakeClock::clock_{1234};
-std::atomic<size_t> FakeClock::now_calls_{0};
-std::atomic<size_t> FakeClock::freq_calls_{0};
-
 class MockCollapse final : public MemoryModifyFunction {
  public:
   MockCollapse() = default;
@@ -492,9 +452,9 @@ class FillerTest : public testing::Test {
   explicit FillerTest(
       SubreleaseUnbackedMode mode = SubreleaseUnbackedMode::kDisabled)
       : mode_(mode),
-        filler_(Clock{.now = FakeClock::now, .freq = FakeClock::freq},
-                MemoryTag::kNormal, blocking_unback_without_lock_, collapse_,
-                set_anon_vma_name_, mode) {
+        filler_(FakeClock::GetClock(), MemoryTag::kNormal,
+                blocking_unback_without_lock_, collapse_, set_anon_vma_name_,
+                mode) {
     // Reset success state
     blocking_unback_.success_ = true;
     blocking_unback_.backing_ = &backing_;

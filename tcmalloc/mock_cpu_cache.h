@@ -197,6 +197,28 @@ class CpuCachePeer {
       cpu_cache.resize_[cpu].lock.unlock();
     }
   }
+
+  template <typename CpuCache>
+  static void ResizeCpuSizeClassesPI(CpuCache& cpu_cache, int cpu,
+                                     absl::Span<float> max_uncapped_desire,
+                                     const Clock& clock) {
+    cpu_cache.ResizeCpuSizeClassesPI(cpu, max_uncapped_desire, clock);
+  }
+
+  template <typename CpuCache>
+  [[nodiscard]] static size_t UpdateCapacityPI(CpuCache& cpu_cache, int cpu,
+                                               size_t size_class, bool overflow,
+                                               const Clock& clock) {
+    return cpu_cache.UpdateCapacityPI(cpu, size_class, overflow, clock);
+  }
+
+  // Force our fake clock without having to sent it all the way through
+  // Allocate().
+  template <typename CpuCache>
+  static void ForceLastResize(CpuCache& cpu_cache, int cpu,
+                              const Clock& clock) {
+    cpu_cache.resize_[cpu].last_resize.Update(clock);
+  }
 };
 
 enum class DynamicSlab { kGrow, kShrink, kNoop };
@@ -360,6 +382,10 @@ class TestStaticForwarder : private Parameters {
     }
   }
 
+  Length class_to_pages(int size_class) const {
+    return size_map_->class_to_pages(size_class);
+  }
+
   size_t num_objects_to_move(int size_class) const {
     if (size_map_.has_value()) {
       if (!IsColdSizeClass(size_class) &&
@@ -418,6 +444,14 @@ class TestStaticForwarder : private Parameters {
 
   bool fix_max_capacity_bug() const { return fix_max_capacity_bug_; }
 
+  [[nodiscard]] bool capacity_pi() const { return capacity_pi_; }
+  [[nodiscard]] float capacity_multi_span_lambda() const {
+    return capacity_multi_span_lambda_;
+  }
+  [[nodiscard]] float capacity_single_span_lambda() const {
+    return capacity_single_span_lambda_;
+  }
+
   size_t arena_reported_nonresident_bytes_ = 0;
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;
@@ -429,6 +463,9 @@ class TestStaticForwarder : private Parameters {
   bool release_drained_slab_metadata_ = false;
   size_t active_partitions_ = 1u;
   bool fix_max_capacity_bug_ = true;
+  bool capacity_pi_ = false;
+  float capacity_multi_span_lambda_ = 0.17f;
+  float capacity_single_span_lambda_ = 1.0f;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;

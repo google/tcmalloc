@@ -18,7 +18,9 @@
 #include <sys/prctl.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -53,6 +55,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/fake_clock.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
@@ -462,7 +465,12 @@ static void ResizeSizeClasses(CpuCache& cache, const std::atomic<bool>& stop) {
   // Wake up every 10ms to resize size classes. Let miss stats acummulate over
   // those 10ms.
   while (!stop.load(std::memory_order_acquire)) {
-    cache.ResizeSizeClasses();
+    if (cache.forwarder().capacity_pi()) {
+      std::array<float, kNumClasses> max_uncapped_desire{0.0f};
+      cache.ResizeSizeClassesPI(absl::MakeSpan(max_uncapped_desire));
+    } else {
+      cache.ResizeSizeClassesClassic();
+    }
     absl::SleepFor(absl::Milliseconds(10));
   }
 }
@@ -599,7 +607,15 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
 
     {
       ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
-      cache.ResizeSizeClassMaxCapacities();
+      if (cache.forwarder().capacity_pi()) {
+        std::array<float, kNumClasses> max_uncapped_desire{0.0f};
+        cache.ResizeSizeClassesPI(absl::MakeSpan(max_uncapped_desire));
+        cache.ResizeSizeClassMaxCapacitiesPI(
+            absl::MakeSpan(max_uncapped_desire),
+            /*can_resize_slab=*/false);
+      } else {
+        cache.ResizeSizeClassMaxCapacitiesClassic();
+      }
     }
 
     // The capacity should still be the same as before.
@@ -637,6 +653,258 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
   }
 }
 
+static void InduceOverflowsPI(
+    int cpu, size_t size_class, bool overflow, CpuCache& cache,
+    absl::FunctionRef<double(int)> overflows_for_capacity) {
+  int capacity = cache.GetCapacityOfSizeClass(cpu, size_class);
+  double overflows = std::max(overflows_for_capacity(capacity), 0.0);
+  for (int j = 0; j < std::lrint(overflows * 2.0); ++j) {
+    (void)CpuCachePeer::UpdateCapacityPI(cache, cpu, size_class, overflow,
+                                         FakeClock::GetClock());
+  }
+}
+
+// Verify that the PI controller manages to find about the right
+// set-point given a couple of different (time-invariant) function responses,
+// and then that it manages to adapt to differing conditions.
+//
+// This is mostly qualitative and not quantitative; we do not attempt
+// to rigorously verify properties such as bandwidth, stability etc..
+static void RunPICapacityTest(bool overflow) {
+  FakeClock::ResetClock();
+  FakeClock::Advance(absl::Milliseconds(10));
+
+  CpuCache cache;
+  cache.Init();
+  cache.forwarder().capacity_pi_ = true;
+
+  // We set up two size classes with very different behavior:
+  //
+  // kSmallClass is 8 bytes (should have ~0.83 misses/sec) and has 300
+  // misses/sec at capacity 0 and drops off as sqrt(1-c²) at c=100.
+  // This should end up somewhere around 100.
+  //
+  // kLargeClass is 4096 bytes (should have ~64 misses/sec), and will make
+  // 200 misses/sec until we have capacity 50, then nothing. This should
+  // end up somewhere around 50.
+  //
+  // kVeryLargeClass is 65536 bytes and single-span (should have ~256
+  // misses/sec), and follows the same curve as kSmallClass. This should end up
+  // somewhere around 52 (by solving the equation).
+  SizeMap size_map;
+  SizeClassInfo classes[] = {
+      {0, 0, 0},          {8, kPageSize, 2},       {4096, 65536, 2},
+      {65536, 65536, 16}, {kMaxSize, kMaxSize, 2},
+  };
+  constexpr size_t kSmallClass = 1;
+  constexpr size_t kLargeClass = 2;
+  constexpr size_t kVeryLargeClass = 3;
+  ASSERT_TRUE(size_map.Init(classes));
+  cache.forwarder().size_map_ = size_map;
+  cache.Activate();
+
+  // Temporarily fake being on the given CPU.
+  constexpr int kCpuId = 0;
+  ScopedFakeCpuId fake_cpu_id(kCpuId);
+
+  // Allocate a little bit to get the core populated.
+  void* ptr = cache.Allocate(kSmallClass);
+  cache.Deallocate(ptr, kSmallClass);
+
+  std::array<float, kNumClasses> max_uncapped_desire{0.0f};
+  CpuCachePeer::ResizeCpuSizeClassesPI(cache, kCpuId,
+                                       absl::MakeSpan(max_uncapped_desire),
+                                       FakeClock::GetClock());
+  CpuCachePeer::ForceLastResize(cache, kCpuId, FakeClock::GetClock());
+
+  for (int i = 0; i < 100; ++i) {
+    // We should not have much overshoot in this case; only the step function
+    // in kLargeClass is pretty bad.
+    EXPECT_LT(cache.GetCapacityOfSizeClass(kCpuId, kSmallClass), 103);
+    EXPECT_LT(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass), 60);
+    EXPECT_LT(cache.GetCapacityOfSizeClass(kCpuId, kVeryLargeClass), 54);
+
+    InduceOverflowsPI(kCpuId, kSmallClass, overflow, cache, [](int capacity) {
+      return 300.0 * std::sqrt(1 - (capacity * 0.01) * (capacity * 0.01));
+    });
+    InduceOverflowsPI(kCpuId, kLargeClass, overflow, cache, [](int capacity) {
+      return (capacity >= 50) ? 0.0 : 200.0;
+    });
+    InduceOverflowsPI(
+        kCpuId, kVeryLargeClass, overflow, cache, [](int capacity) {
+          return 300.0 * std::sqrt(1 - (capacity * 0.01) * (capacity * 0.01));
+        });
+
+    FakeClock::Advance(absl::Seconds(2));
+    if (!overflow) {
+      CpuCachePeer::ResizeCpuSizeClassesPI(cache, kCpuId,
+                                           absl::MakeSpan(max_uncapped_desire),
+                                           FakeClock::GetClock());
+    }
+  }
+
+  EXPECT_NEAR(100, cache.GetCapacityOfSizeClass(kCpuId, kSmallClass), 3.0);
+  EXPECT_NEAR(50, cache.GetCapacityOfSizeClass(kCpuId, kLargeClass), 5.0);
+  EXPECT_NEAR(52, cache.GetCapacityOfSizeClass(kCpuId, kVeryLargeClass), 3.0);
+
+  // Now stop activity in all size classes; the capacity should go down to
+  // the minimum batch size, although very slowly for some.
+  for (int i = 0; i < 200; ++i) {
+    FakeClock::Advance(absl::Seconds(2));
+    CpuCachePeer::ResizeCpuSizeClassesPI(cache, kCpuId,
+                                         absl::MakeSpan(max_uncapped_desire),
+                                         FakeClock::GetClock());
+  }
+
+  // This should go down, but the zero rate is so close to the target
+  // that we don't drop very much with the current code.
+  EXPECT_LT(cache.GetCapacityOfSizeClass(kCpuId, kSmallClass), 95);
+
+  EXPECT_NEAR(2, cache.GetCapacityOfSizeClass(kCpuId, kLargeClass), 3.0);
+  EXPECT_NEAR(16, cache.GetCapacityOfSizeClass(kCpuId, kVeryLargeClass), 3.0);
+}
+
+TEST(CpuCacheTest, ResizeCapacityPITest) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  RunPICapacityTest(/*overflow=*/false);
+}
+
+TEST(CpuCacheTest, MaxCapacityGrowsEvenWithoutResizePITest) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  RunPICapacityTest(/*overflow=*/true);
+}
+
+TEST(CpuCacheTest, ResizeMaxCapacityAndResizeSlabPI) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  FakeClock::ResetClock();
+  FakeClock::Advance(absl::Milliseconds(10));
+
+  CpuCache cache;
+  cache.Init();
+  cache.forwarder().capacity_pi_ = true;
+  cache.forwarder().dynamic_slab_enabled_ = true;
+
+  // We set up two types of size classes with very different behavior:
+  //
+  // The first five classes are small(ish) and have 300 misses/sec at capacity 0
+  // and drop off as sqrt(1-c²) at c=100. They should end up somewhere around
+  // 100, depending a bit on the size of the class.
+  //
+  // kBusySizeClass is 1024 bytes and drops off much slower; only at c=100000.
+  // This hits the max size.
+  SizeMap size_map;
+  constexpr size_t kNumSmallClasses = 2;
+  constexpr size_t kBusySizeClass = kNumSmallClasses + 1;
+  SizeClassInfo classes[kBusySizeClass + 2];
+
+  classes[0].size = 0;
+  classes[0].bytes = Bytes{0};
+  classes[0].num_to_move = 0;
+
+  for (unsigned sc = 1; sc <= kNumSmallClasses; ++sc) {
+    classes[sc].size = sc * 8;
+    classes[sc].bytes = Bytes{kPageSize};
+    classes[sc].num_to_move = 2;
+  }
+
+  classes[kBusySizeClass].size = 1024;
+  classes[kBusySizeClass].bytes = Bytes{kPageSize};
+  classes[kBusySizeClass].num_to_move = 2;
+
+  classes[kBusySizeClass + 1].size = kMaxSize;
+  classes[kBusySizeClass + 1].bytes = Bytes{kMaxSize};
+  classes[kBusySizeClass + 1].num_to_move = 2;
+
+  ASSERT_TRUE(size_map.Init(classes));
+  cache.forwarder().size_map_ = size_map;
+  cache.Activate();
+
+  // Temporarily fake being on the given CPU.
+  constexpr int kCpuId = 0;
+  ScopedFakeCpuId fake_cpu_id(kCpuId);
+
+  // Allocate a little bit to get the core populated.
+  void* ptr = cache.Allocate(1);
+  cache.Deallocate(ptr, 1);
+
+  std::array<float, kNumClasses> max_uncapped_desire{0.0f};
+  CpuCachePeer::ResizeCpuSizeClassesPI(cache, kCpuId,
+                                       absl::MakeSpan(max_uncapped_desire),
+                                       FakeClock::GetClock());
+  CpuCachePeer::ForceLastResize(cache, kCpuId, FakeClock::GetClock());
+
+  // Run through a bit to let the desire converge.
+  auto do_converge = [&] {
+    for (int i = 0; i < 100; ++i) {
+      for (unsigned sc = 1; sc <= kNumSmallClasses; ++sc) {
+        InduceOverflowsPI(
+            kCpuId, sc, /*overflow=*/true, cache, [](int capacity) {
+              return 300.0 *
+                     std::sqrt(1 - (capacity * 0.01) * (capacity * 0.01));
+            });
+      }
+      InduceOverflowsPI(
+          kCpuId, kBusySizeClass, /*overflow=*/true, cache, [](int capacity) {
+            return 30000.0 *
+                   std::sqrt(1 - (capacity * 0.00001) * (capacity * 0.00001));
+          });
+      FakeClock::Advance(absl::Seconds(2));
+    }
+  };
+  do_converge();
+
+  // Now the first class should have converged, and the busy one
+  // should be pegged at the max (which is far below where it would want).
+  EXPECT_NEAR(100, cache.GetCapacityOfSizeClass(kCpuId, /*size_class=*/1), 3.0);
+  EXPECT_GT(cache.GetCapacityOfSizeClass(kCpuId, kBusySizeClass), 100);
+  EXPECT_LT(cache.GetCapacityOfSizeClass(kCpuId, kBusySizeClass), 1000);
+  EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kBusySizeClass),
+            cache.GetMaxCapacity(kBusySizeClass));
+
+  // Resizing now should give much more to the busy class, without starving
+  // the smaller ones too badly. (We first call ResizeCpuSizeClassesPI()
+  // explicitly, to fill max_uncapped_desire.)
+  std::fill(max_uncapped_desire.begin(), max_uncapped_desire.end(), 0.0f);
+  CpuCachePeer::ResizeCpuSizeClassesPI(cache, kCpuId,
+                                       absl::MakeSpan(max_uncapped_desire),
+                                       FakeClock::GetClock());
+  EXPECT_EQ(14, CpuCachePeer::GetSlabShift(cache));
+  cache.ResizeSizeClassMaxCapacitiesPI(absl::MakeSpan(max_uncapped_desire),
+                                       /*can_resize_slab=*/false);
+  EXPECT_EQ(14, CpuCachePeer::GetSlabShift(cache));  // No resize.
+
+  EXPECT_NEAR(55, cache.GetMaxCapacity(/*size_class=*/1), 5.0);
+  EXPECT_NEAR(55, cache.GetMaxCapacity(/*size_class=*/2), 5.0);
+  EXPECT_GT(cache.GetMaxCapacity(kBusySizeClass), 1000);
+  EXPECT_LT(cache.GetMaxCapacity(kBusySizeClass), 2000);
+
+  // Let things converge again, with the new max.
+  do_converge();
+
+  std::fill(max_uncapped_desire.begin(), max_uncapped_desire.end(), 0.0f);
+  CpuCachePeer::ResizeCpuSizeClassesPI(cache, kCpuId,
+                                       absl::MakeSpan(max_uncapped_desire),
+                                       FakeClock::GetClock());
+  cache.ResizeSizeClassMaxCapacitiesPI(absl::MakeSpan(max_uncapped_desire),
+                                       /*can_resize_slab=*/true);
+  EXPECT_EQ(15, CpuCachePeer::GetSlabShift(cache));  // Should be resized.
+
+  // Now the smaller classes should get what they want (possibly more).
+  // The busy class may still be starved (since we're not really able to
+  // accurately distinguish _how_ much higher the desire is in each class;
+  // this is an area for future improvement).
+  EXPECT_GT(cache.GetMaxCapacity(/*size_class=*/1), 90);
+  EXPECT_GT(cache.GetMaxCapacity(/*size_class=*/2), 90);
+  EXPECT_GT(cache.GetMaxCapacity(kBusySizeClass), 1500);
+}
+
 static void ResizeMaxCapacities(CpuCache& cache,
                                 const std::atomic<bool>& stop) {
   if (!subtle::percpu::IsFast()) {
@@ -646,7 +914,14 @@ static void ResizeMaxCapacities(CpuCache& cache,
   // Wake up every 10ms to resize size classes. Let miss stats acummulate over
   // those 10ms.
   while (!stop.load(std::memory_order_acquire)) {
-    cache.ResizeSizeClassMaxCapacities();
+    if (cache.forwarder().capacity_pi()) {
+      std::array<float, kNumClasses> max_uncapped_desire{0.0f};
+      cache.ResizeSizeClassesPI(absl::MakeSpan(max_uncapped_desire));
+      cache.ResizeSizeClassMaxCapacitiesPI(absl::MakeSpan(max_uncapped_desire),
+                                           /*can_resize_slab=*/false);
+    } else {
+      cache.ResizeSizeClassMaxCapacitiesClassic();
+    }
     absl::SleepFor(absl::Milliseconds(10));
   }
 }
@@ -957,7 +1232,7 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   {
     ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
     for (int i = 0; i < num_resizes; ++i) {
-      cache.ResizeSizeClasses();
+      cache.ResizeSizeClassesClassic();
     }
   }
 
@@ -1185,7 +1460,7 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
 
   for (int i = 0; i < 10; ++i) {
     absl::SleepFor(absl::Milliseconds(100));
-    cache.ResizeSizeClassMaxCapacities();
+    cache.ResizeSizeClassMaxCapacitiesClassic();
   }
   stop = true;
   for (auto& t : threads) {
@@ -1355,7 +1630,12 @@ TEST(CpuCacheTest, ResizeCpuSizeClassesHoldsLockForAvailable) {
   std::atomic<bool> stop{false};
   std::thread resizer([&]() {
     while (!stop.load(std::memory_order_relaxed)) {
-      cache.ResizeSizeClasses();
+      if (cache.forwarder().capacity_pi()) {
+        std::array<float, kNumClasses> max_uncapped_desire;
+        cache.ResizeSizeClassesPI(absl::MakeSpan(max_uncapped_desire));
+      } else {
+        cache.ResizeSizeClassesClassic();
+      }
     }
   });
 
@@ -1398,7 +1678,14 @@ TEST(CpuCacheTest, ResizeCpuSizeClassesSkipsUnpopulatedCpu) {
     void* ptr = cache.Allocate(/*size_class=*/1);
     cache.Deallocate(ptr, /*size_class=*/1);
   }
-  cache.ResizeSizeClasses();
+  if (cache.forwarder().capacity_pi()) {
+    std::array<float, kNumClasses> max_uncapped_desire{0.0f};
+    cache.ResizeSizeClassesPI(absl::MakeSpan(max_uncapped_desire));
+    cache.ResizeSizeClassMaxCapacitiesPI(absl::MakeSpan(max_uncapped_desire),
+                                         /*can_resize_slab=*/false);
+  } else {
+    cache.ResizeSizeClassesClassic();
+  }
   cache.TryDrainingCaches();
   cache.TryDrainingCaches();
 
@@ -1418,7 +1705,7 @@ TEST(CpuCacheTest, ResizeCpuSizeClassesSkipsUnpopulatedCpu) {
     ready.store(true, std::memory_order_release);
     while (!stop.load(std::memory_order_relaxed)) {
       if (cache.GetNumDrains(target_cpu) > last_drain) {
-        cache.ResizeSizeClasses();
+        cache.ResizeSizeClassesClassic();
         last_drain = cache.GetNumDrains(target_cpu);
         resizes_completed.fetch_add(1, std::memory_order_release);
       }
@@ -2005,12 +2292,25 @@ class CpuCacheEnvironment {
       }
       case 13: {
         absl::MutexLock lock(background_mutex_);
-        cache_.ResizeSizeClasses();
+        if (cache_.forwarder().capacity_pi()) {
+          std::array<float, kNumClasses> max_uncapped_desire{0.0f};
+          cache_.ResizeSizeClassesPI(absl::MakeSpan(max_uncapped_desire));
+        } else {
+          cache_.ResizeSizeClassesClassic();
+        }
         break;
       }
       case 14: {
         absl::MutexLock lock(background_mutex_);
-        cache_.ResizeSizeClassMaxCapacities();
+        if (cache_.forwarder().capacity_pi()) {
+          std::array<float, kNumClasses> max_uncapped_desire{0.0f};
+          cache_.ResizeSizeClassesPI(absl::MakeSpan(max_uncapped_desire));
+          cache_.ResizeSizeClassMaxCapacitiesPI(
+              absl::MakeSpan(max_uncapped_desire),
+              /*can_resize_slab=*/false);
+        } else {
+          cache_.ResizeSizeClassMaxCapacitiesClassic();
+        }
         break;
       }
       case 15: {
@@ -2484,6 +2784,10 @@ TEST(CpuCacheTest, StressSetCacheLimit) {
   cache.SetCacheLimit(kLimits[2]);
   cache.Activate();
 
+  if (cache.forwarder().capacity_pi()) {
+    GTEST_SKIP() << "Cache limits are not used under the PI controller";
+  }
+
   std::atomic<bool> stop(false);
   std::vector<std::thread> workers;
   const int n_threads = NumStressThreads();
@@ -2495,7 +2799,7 @@ TEST(CpuCacheTest, StressSetCacheLimit) {
   std::thread background([&]() {
     while (!stop.load(std::memory_order_acquire)) {
       cache.ShuffleCpuCaches();
-      cache.ResizeSizeClasses();
+      cache.ResizeSizeClassesClassic();
       cache.TryDrainingCaches();
     }
   });

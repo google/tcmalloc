@@ -25,6 +25,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/test_allocator_harness.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -60,6 +61,9 @@ size_t CpuCacheBytes() {
 TEST(CpuCacheSizeTest, Resizing) {
   if (!MallocExtension::PerCpuCachesActive()) {
     GTEST_SKIP() << "Test requires working per-CPU caches";
+  }
+  if (tcmalloc_internal::Parameters::capacity_pi()) {
+    GTEST_SKIP() << "Capacity PI controller does not use cache size limits";
   }
 
   const int cpus = tcmalloc_internal::NumCPUs();

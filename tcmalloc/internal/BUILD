@@ -1839,3 +1839,22 @@ cc_library(
         "@com_google_absl//absl/numeric:bits",
     ],
 )
+
+cc_library(
+    name = "fake_clock",
+    testonly = 1,
+    srcs = [
+        "fake_clock.cc",
+    ],
+    hdrs = [
+        "fake_clock.h",
+    ],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":clock",
+        "@com_google_absl//absl/time",
+    ],
+)

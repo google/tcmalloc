@@ -483,6 +483,7 @@ cc_test(
     ],
     deps = [
         ":rseq_util",
+        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:sysinfo",
