@@ -548,6 +548,7 @@ void MallocExtension_Internal_SetBackgroundProcessSleepInterval(
 
 void MallocExtension_Internal_GetSkipSubreleaseShortInterval(
     absl::Duration* ret) {
+  tc_globals.InitIfNecessary();
   *ret = Parameters::filler_skip_subrelease_short_interval();
 }
 
@@ -558,6 +559,7 @@ void MallocExtension_Internal_SetSkipSubreleaseShortInterval(
 
 void MallocExtension_Internal_GetSkipSubreleaseLongInterval(
     absl::Duration* ret) {
+  tc_globals.InitIfNecessary();
   *ret = Parameters::filler_skip_subrelease_long_interval();
 }
 
@@ -568,6 +570,7 @@ void MallocExtension_Internal_SetSkipSubreleaseLongInterval(
 
 tcmalloc::MallocExtension::BytesPerSecond
 MallocExtension_Internal_GetBackgroundReleaseRate() {
+  tc_globals.InitIfNecessary();
   return Parameters::background_release_rate();
 }
 
@@ -577,6 +580,7 @@ void MallocExtension_Internal_SetBackgroundReleaseRate(
 }
 
 void TCMalloc_Internal_SetBackgroundReleaseRate(size_t value) {
+  tc_globals.InitIfNecessary();
   Parameters::background_release_rate_.store(
       static_cast<tcmalloc::MallocExtension::BytesPerSecond>(value));
 }
@@ -708,44 +712,52 @@ void TCMalloc_Internal_SetProfileSamplingInterval(int64_t v) {
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration* v) {
+  tc_globals.InitIfNecessary();
   *v = Parameters::filler_skip_subrelease_short_interval();
 }
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration v) {
+  tc_globals.InitIfNecessary();
   Parameters::skip_subrelease_short_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration* v) {
+  tc_globals.InitIfNecessary();
   *v = Parameters::filler_skip_subrelease_long_interval();
 }
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration v) {
+  tc_globals.InitIfNecessary();
   Parameters::skip_subrelease_long_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdShortInterval(
     absl::Duration* v) {
+  tc_globals.InitIfNecessary();
   *v = Parameters::filler_skip_subrelease_cold_short_interval();
 }
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
     absl::Duration v) {
+  tc_globals.InitIfNecessary();
   Parameters::skip_subrelease_cold_short_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdLongInterval(
     absl::Duration* v) {
+  tc_globals.InitIfNecessary();
   *v = Parameters::filler_skip_subrelease_cold_long_interval();
 }
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
     absl::Duration v) {
+  tc_globals.InitIfNecessary();
   Parameters::skip_subrelease_cold_long_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
@@ -762,10 +774,12 @@ void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
 }
 
 uint8_t TCMalloc_Internal_GetMinHotAccessHint() {
+  tc_globals.InitIfNecessary();
   return static_cast<uint8_t>(Parameters::min_hot_access_hint());
 }
 
 void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v) {
+  tc_globals.InitIfNecessary();
   Parameters::min_hot_access_hint_.store(static_cast<tcmalloc::hot_cold_t>(v),
                                          std::memory_order_relaxed);
 }
@@ -799,19 +813,23 @@ void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v) {
 }
 
 bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
+  tc_globals.InitIfNecessary();
   return Parameters::release_max_filler_pages();
 }
 
 void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
+  tc_globals.InitIfNecessary();
   Parameters::release_max_filler_pages_.store(v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetTrackBrokenHugepages() {
+  tc_globals.InitIfNecessary();
   return Parameters::track_broken_hugepages() ==
          tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kEnabled;
 }
 
 void TCMalloc_Internal_SetTrackBrokenHugepages(bool v) {
+  tc_globals.InitIfNecessary();
   Parameters::track_broken_hugepages_.store(
       v ? tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kEnabled
         : tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kDisabled,
@@ -819,11 +837,13 @@ void TCMalloc_Internal_SetTrackBrokenHugepages(bool v) {
 }
 
 bool TCMalloc_Internal_GetPreserveDonatedOnCollapse() {
+  tc_globals.InitIfNecessary();
   return Parameters::preserve_donated_on_collapse() ==
          tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled;
 }
 
 void TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v) {
+  tc_globals.InitIfNecessary();
   Parameters::preserve_donated_on_collapse_.store(
       v ? tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled
         : tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kDisabled,
@@ -831,11 +851,13 @@ void TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v) {
 }
 
 bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
+  tc_globals.InitIfNecessary();
   return Parameters::madvise_cold_regions_nohugepage() ==
          tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled;
 }
 
 void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
+  tc_globals.InitIfNecessary();
   Parameters::madvise_cold_regions_nohugepage_.store(
       v ? tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled
         : tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kDisabled,
