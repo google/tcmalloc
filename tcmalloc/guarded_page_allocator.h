@@ -24,6 +24,7 @@
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
@@ -316,6 +317,9 @@ class GuardedPageAllocator {
   // 80% or below, the probability of false positives will be below 10%.
   DecayingStackTraceFilter<kGpaMaxPages * 3, 2, 32> stacktrace_filter_;
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  ABSL_CACHELINE_ALIGNED
+#endif
   mutable absl::base_internal::SpinLock guarded_page_lock_;
 
   // Maps each bool to one page.
@@ -347,6 +351,9 @@ class GuardedPageAllocator {
   // A dynamically-allocated array of stack trace data captured when each page
   // is allocated/deallocated.  Printed by the SEGV handler when a memory error
   // is detected.
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  ABSL_CACHELINE_ALIGNED
+#endif
   SlotMetadata* data_;
 
   uintptr_t pages_base_addr_;   // Points to start of mapped region.
@@ -355,6 +362,9 @@ class GuardedPageAllocator {
   size_t max_allocated_pages_;  // Max number of pages to allocate at once.
   size_t total_pages_;          // Size of the page pool to allocate from.
   size_t page_size_;            // Size of pages we allocate.
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  ABSL_CACHELINE_ALIGNED
+#endif
   Random rand_;
 
   // True if this object has been fully initialized.
