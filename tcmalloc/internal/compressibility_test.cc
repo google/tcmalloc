@@ -273,6 +273,57 @@ TEST(CompressibilityTest, MisalignedAllocationWithResidencyGap) {
   EXPECT_EQ(res->zero_bytes, expected_zeroes);
 }
 
+TEST(CompressibilityTest, HighAddressEmptySpanAndZeroCapacity) {
+  const size_t page_size = GetPageSize();
+  const char* high_ptr =
+      reinterpret_cast<const char*>(~uintptr_t{0} - page_size / 2 + 1);
+
+  Residency::Info info;
+  info.bytes_resident = 64;
+  info.page_is_resident.SetBit(0);
+
+  CompressionAnalyzer analyzer;
+  auto empty_res = analyzer.Analyze(absl::Span<const char>(high_ptr, 0), info);
+  ABSL_ASSERT_OK(empty_res);
+  EXPECT_EQ(empty_res->zero_bytes, 0);
+
+  CompressionAnalyzer zero_cap_analyzer(0);
+  auto zero_cap_res =
+      zero_cap_analyzer.Analyze(absl::Span<const char>(high_ptr, 64), info);
+  ABSL_ASSERT_OK(zero_cap_res);
+  EXPECT_EQ(zero_cap_res->zero_bytes, 0);
+}
+
+#if defined(__linux__)
+TEST(CompressibilityTest, AddressWraparoundClampsToResidentPage) {
+  const size_t page_size = GetPageSize();
+  void* mapping = mmap(nullptr, 2 * page_size, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(mapping, MAP_FAILED);
+  std::memset(mapping, 0, page_size);
+  ASSERT_EQ(
+      mprotect(static_cast<char*>(mapping) + page_size, page_size, PROT_NONE),
+      0);
+
+  // Only page 0 is marked resident; page 1 is an unmapped/PROT_NONE guard page.
+  Residency::Info info;
+  info.bytes_resident = page_size;
+  info.page_is_resident.SetBit(0);
+
+  const uintptr_t uaddr = reinterpret_cast<uintptr_t>(mapping);
+  const size_t wrapping_size =
+      std::numeric_limits<uintptr_t>::max() - uaddr + 1 + 64;
+
+  CompressionAnalyzer analyzer;
+  auto res = analyzer.Analyze(
+      absl::Span<const char>(static_cast<const char*>(mapping), wrapping_size),
+      info);
+  ABSL_ASSERT_OK(res);
+
+  munmap(mapping, 2 * page_size);
+}
+#endif  // defined(__linux__)
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
