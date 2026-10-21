@@ -207,8 +207,13 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
 
   const bool write_test = GetParam();
   auto RepeatUnderflow = [&]() {
+    ScopedGuardedSamplingInterval gs(-1);
     for (int i = 0; i < 1000000; i++) {
-      auto buf = std::make_unique<char[]>(kPageSize / 2);
+      std::unique_ptr<char[]> buf;
+      {
+        ScopedAlwaysSample always_sample;
+        buf = std::make_unique<char[]>(kPageSize / 2);
+      }
       volatile char* buf_minus_1 = buf.get() - 1;
       benchmark::DoNotOptimize(buf_minus_1);
       // TCMalloc may crash without a GWP-ASan report if we underflow a regular
@@ -242,8 +247,13 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
 
   const bool write_test = GetParam();
   auto RepeatOverflow = [&]() {
+    ScopedGuardedSamplingInterval gs(-1);
     for (int i = 0; i < 1000000; i++) {
-      auto buf = std::make_unique<char[]>(kPageSize / 2);
+      std::unique_ptr<char[]> buf;
+      {
+        ScopedAlwaysSample always_sample;
+        buf = std::make_unique<char[]>(kPageSize / 2);
+      }
       benchmark::DoNotOptimize(buf);
       // TCMalloc may crash without a GWP-ASan report if we overflow a regular
       // allocation.  Make sure we have a guarded allocation.
@@ -277,8 +287,13 @@ TEST_P(ReadWriteTcMallocTest, ZeroByteAccessDetected) {
 
   const bool write_test = GetParam();
   auto RepeatZeroByteAccess = [&]() {
+    ScopedGuardedSamplingInterval gs(-1);
     for (int i = 0; i < 100000000; i++) {
-      auto buf = std::make_unique<char[]>(0);
+      std::unique_ptr<char[]> buf;
+      {
+        ScopedAlwaysSample always_sample;
+        buf = std::make_unique<char[]>(0);
+      }
       benchmark::DoNotOptimize(buf);
 
       // Ensure it's a GWP-ASan guarded allocation.
@@ -313,8 +328,13 @@ TEST_P(ReadWriteTcMallocTest, ZeroByteAccessDetected) {
 TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
   const bool write_test = GetParam();
   auto RepeatUseAfterFree = [&]() {
+    ScopedGuardedSamplingInterval gs(-1);
     for (int i = 0; i < 1000000; i++) {
-      char* sink_buf = new char[kPageSize];
+      char* sink_buf;
+      {
+        ScopedAlwaysSample always_sample;
+        sink_buf = new char[kPageSize];
+      }
       benchmark::DoNotOptimize(sink_buf);
       delete[] sink_buf;
       if (write_test) {
@@ -390,8 +410,13 @@ TEST_F(TcMallocTest, DoubleFreeDetected) {
 #endif
 
   auto RepeatDoubleFree = []() {
+    ScopedGuardedSamplingInterval gs(-1);
     for (int i = 0; i < 1000000; i++) {
-      void* buf = ::operator new(kPageSize);
+      void* buf;
+      {
+        ScopedAlwaysSample always_sample;
+        buf = ::operator new(kPageSize);
+      }
       ::operator delete(buf);
       benchmark::DoNotOptimize(buf);
       // TCMalloc often SEGVs on double free (without GWP-ASan report). Make
@@ -410,11 +435,16 @@ TEST_F(TcMallocTest, DoubleFreeDetected) {
 
 TEST_F(TcMallocTest, OverflowWriteDetectedAtFree) {
   auto RepeatOverflowWrite = [&]() {
+    ScopedGuardedSamplingInterval gs(-1);
     for (int i = 0; i < 1000000; i++) {
       // Make buffer smaller than kPageSize to test detection-at-free of write
       // overflows.
       constexpr size_t kSize = kPageSize - 1;
-      auto sink_buf = std::make_unique<char[]>(kSize);
+      std::unique_ptr<char[]> sink_buf;
+      {
+        ScopedAlwaysSample always_sample;
+        sink_buf = std::make_unique<char[]>(kSize);
+      }
       benchmark::DoNotOptimize(sink_buf);
       sink_buf[kSize] = '\0';
       benchmark::DoNotOptimize(sink_buf[kSize]);
@@ -445,8 +475,13 @@ TEST_F(TcMallocTest, OffsetAndLength) {
 #endif  // ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
 
   auto RepeatUseAfterFree = [&](size_t buffer_len, off_t access_offset) {
+    ScopedGuardedSamplingInterval gs(-1);
     for (int i = 0; i < 1000000; i++) {
-      void* buf = ::operator new(buffer_len);
+      void* buf;
+      {
+        ScopedAlwaysSample always_sample;
+        buf = ::operator new(buffer_len);
+      }
       ::operator delete(buf);
       // TCMalloc may crash without a GWP-ASan report if we overflow a regular
       // allocation.  Make sure we have a guarded allocation.
