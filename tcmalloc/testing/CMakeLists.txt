@@ -956,9 +956,11 @@ tcmalloc_cc_test_variants(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
+    "absl::core_headers"
     "absl::strings"
     "absl::time"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
 )

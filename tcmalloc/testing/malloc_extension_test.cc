@@ -24,10 +24,13 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/parameter_accessors.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -198,6 +201,38 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
       properties["tcmalloc.metadata_bytes"],
       testing::Field(&MallocExtension::Property::value, testing::Gt(0)));
 }
+
+#if ABSL_HAVE_ATTRIBUTE(init_priority)
+struct EarlyParameterInitCheck {
+  MallocExtension::BytesPerSecond initial_release_rate;
+  absl::Duration initial_short_interval;
+  bool initial_madvise_nohugepage;
+
+  EarlyParameterInitCheck() {
+    initial_release_rate = MallocExtension::GetBackgroundReleaseRate();
+    initial_short_interval = MallocExtension::GetSkipSubreleaseShortInterval();
+    initial_madvise_nohugepage =
+        TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
+        absl::Seconds(42));
+  }
+};
+
+EarlyParameterInitCheck early_parameter_init_check
+    __attribute__((init_priority(101)));
+
+TEST(MallocExtension, EarlyParameterInitialization) {
+  tc_globals.InitIfNecessary();
+  EXPECT_EQ(early_parameter_init_check.initial_release_rate,
+            Parameters::background_release_rate());
+  EXPECT_EQ(early_parameter_init_check.initial_short_interval,
+            Parameters::filler_skip_subrelease_short_interval());
+  EXPECT_EQ(early_parameter_init_check.initial_madvise_nohugepage,
+            TCMalloc_Internal_GetMadviseColdRegionsNoHugepage());
+  EXPECT_EQ(Parameters::filler_skip_subrelease_cold_short_interval(),
+            absl::Seconds(42));
+}
+#endif
 
 }  // namespace
 }  // namespace tcmalloc_internal

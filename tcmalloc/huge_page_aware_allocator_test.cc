@@ -2909,6 +2909,27 @@ TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {
   delete_allocation(tail_small);
 }
 
+#if ABSL_HAVE_ATTRIBUTE(init_priority)
+struct EarlyFakeForwarderCheck {
+  MadviseRegionsNoHugepage fake_value;
+  MadviseRegionsNoHugepage global_value;
+
+  EarlyFakeForwarderCheck() {
+    huge_page_allocator_internal::FakeHugePageStaticForwarder forwarder;
+    fake_value = forwarder.madvise_cold_regions_nohugepage();
+    global_value = Parameters::madvise_cold_regions_nohugepage();
+  }
+};
+
+EarlyFakeForwarderCheck early_fake_forwarder_check
+    __attribute__((init_priority(101)));
+
+TEST(HugePageAwareAllocatorTest, FakeForwarderInitializesExperimentDefaults) {
+  EXPECT_EQ(early_fake_forwarder_check.fake_value,
+            early_fake_forwarder_check.global_value);
+}
+#endif
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

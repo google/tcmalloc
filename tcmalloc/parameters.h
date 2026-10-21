@@ -288,8 +288,9 @@ class Parameters {
   [[nodiscard]] static central_freelist_internal::CflSubbucketPrioritization
   cfl_subbucket_prioritization();
 
+  static void InitializeFromExperiments();
+
  private:
-  friend class Static;
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
@@ -336,8 +337,6 @@ class Parameters {
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
   friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(size_t v);
   friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
-
-  static void InitializeFromExperiments();
 
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;

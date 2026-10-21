@@ -68,13 +68,21 @@ class FakeParameter {
 };
 
 class FakeHugePageStaticForwarder : private Parameters {
+ private:
+  struct InitGlobals {
+    InitGlobals() {
+      // Arena allocates its blocks from tc_globals.system_allocator(), and
+      // Parameters::InitializeFromExperiments() runs from
+      // Static::SlowInitIfNecessary().  If this test is not linked against
+      // TCMalloc as its malloc, nothing else triggers that before member
+      // initializers run.
+      tc_globals.InitIfNecessary();
+    }
+  };
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS InitGlobals init_globals_;
+
  public:
-  FakeHugePageStaticForwarder() {
-    // Arena allocates its blocks from tc_globals.system_allocator(), which is
-    // only initialized by Static::SlowInitIfNecessary().  If this test is not
-    // linked against TCMalloc as its malloc, nothing else triggers that.
-    tc_globals.InitIfNecessary();
-  }
+  FakeHugePageStaticForwarder() = default;
 
   // Runtime parameters.  This can change between calls.
   // NOLINTBEGIN(readability-identifier-naming)

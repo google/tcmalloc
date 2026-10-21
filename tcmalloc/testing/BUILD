@@ -1033,10 +1033,13 @@ create_tcmalloc_testsuite(
     name = "malloc_extension_test",
     srcs = ["malloc_extension_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:parameter_accessors",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
