@@ -1173,6 +1173,13 @@ create_tcmalloc_testsuite(
         "notsan",
         "noubsan",
     ],
+    variants = [
+        "8k_pages",
+        "numa_aware",
+        "partitioned_light_runtime",
+        "partitioned_enabled_runtime",
+        "small_but_slow",
+    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",

@@ -419,12 +419,15 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs = [], **kwargs):
     variant_deps = kwargs.pop("variant_deps", [])
     linkopts = kwargs.pop("linkopts", [])
     tags = kwargs.pop("tags", [])
+    variants = kwargs.pop("variants", None)
 
     env0 = kwargs.pop("env", {})
 
     canonical_binaries = {}
     variant_targets = []
     for variant in test_variants:
+        if variants != None and variant["name"] not in variants:
+            continue
         inner_target_name = name + "_" + variant["name"]
         variant_targets.append(inner_target_name)
         env = dict(variant.get("env", {}))
