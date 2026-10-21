@@ -253,6 +253,19 @@ static void BM_GetStats(benchmark::State& state) {
 }
 BENCHMARK(BM_GetStats)->Threads(1)->ThreadPerCpu();
 
+static void BM_RecordAllocFree(benchmark::State& state) {
+  const Length len(state.range(0));
+  PageAllocInfo info("bench");
+  const Range r(PageId{1}, len);
+  for (auto _ : state) {
+    info.RecordAlloc(r);
+    info.RecordFree(r);
+  }
+  benchmark::DoNotOptimize(info.small());
+  state.SetItemsProcessed(state.iterations());
+}
+BENCHMARK(BM_RecordAllocFree)->Arg(1)->Arg(8)->Arg(64)->Arg(128)->Arg(256);
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
