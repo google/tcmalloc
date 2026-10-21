@@ -424,20 +424,21 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   //    kMaxSwappedPagesForCollapse respectively.
   // 3. Acquire the pageheap lock and restore the recorded state using Restore
   //    (e.g. update the residency information in the trackers).
+  [[nodiscard]] static uint64_t CandidatePriority(const PageTracker& pt) {
+    // All things considered equal, prefer collapsing dense spans.
+    return (pt.nobjects() << 1) | static_cast<uint64_t>(pt.HasDenseSpans());
+  }
+
   [[nodiscard]] static bool CompareForHugePageTreatment(PageTracker* a,
                                                         PageTracker* b) {
     TC_ASSERT_NE(a, nullptr);
     TC_ASSERT_NE(b, nullptr);
-    if (a->nobjects() > b->nobjects()) return true;
-    if (a->nobjects() < b->nobjects()) return false;
-
-    // All things considered equal, prefer collapsing dense spans.
-    if (!a->HasDenseSpans()) return false;
-    return !b->HasDenseSpans();
+    return CandidatePriority(*a) > CandidatePriority(*b);
   }
 
   void SelectEligibleTrackers(PageTracker& pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     // Trackers are pinned in FinishSelection, once the set is final:
     // pinning here and unpinning on eviction would touch a cold tracker per
     // eviction under pageheap_lock.
@@ -453,15 +454,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         return;
       }
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       if (CompareForHugePageTreatment(selected_trackers_[0], &pt)) {
         return;
       }
-#else
-      if (!CompareForHugePageTreatment(&pt, selected_trackers_[0])) {
-        return;
-      }
-#endif
       std::pop_heap(selected_trackers_.begin(),
                     selected_trackers_.begin() + num_valid_trackers_,
                     CompareForHugePageTreatment);
@@ -471,12 +466,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
                      CompareForHugePageTreatment);
     };
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::HugePageResidencyState state = pt.GetHugePageResidencyState();
-#else
-    const PageTracker::HugePageResidencyState& state =
-        pt.GetHugePageResidencyState();
-#endif
     if (state.maybe_hugepage_backed) return;
 
     if (!state.entry_valid) {
@@ -490,6 +480,27 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     if (elapsed > record_interval_cycles_) {
       PushCandidate(pt);
     }
+#else
+    const PageTracker::HugePageResidencyState& state =
+        pt.GetHugePageResidencyState();
+    if (state.maybe_hugepage_backed) return;
+
+    if (state.entry_valid) {
+      // Evaluate against the cached clock and the precomputed interval to avoid
+      // repeatedly reading the hardware clock and recomputing the threshold
+      // under lock.
+      double elapsed = std::max<double>(clock_now_ - state.record_time, 0);
+      if (elapsed <= record_interval_cycles_) {
+        return;
+      }
+    }
+
+    if (num_valid_trackers_ >= kTotalTrackersToScan &&
+        CandidatePriority(pt) <= min_priority_) {
+      return;
+    }
+    InsertCandidate(pt);
+#endif
   }
 
   void FinishSelection() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
@@ -712,6 +723,34 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     return ret.success;
   }
 
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  ABSL_ATTRIBUTE_NOINLINE void InsertCandidate(PageTracker& pt) {
+    // Trackers are pinned in FinishSelection, once the set is final:
+    // pinning here and unpinning on eviction would touch a cold tracker per
+    // eviction under pageheap_lock.
+    if (num_valid_trackers_ < kTotalTrackersToScan) {
+      selected_trackers_[num_valid_trackers_] = &pt;
+      ++num_valid_trackers_;
+      if (num_valid_trackers_ == kTotalTrackersToScan) {
+        std::make_heap(selected_trackers_.begin(),
+                       selected_trackers_.begin() + num_valid_trackers_,
+                       CompareForHugePageTreatment);
+        min_priority_ = CandidatePriority(*selected_trackers_[0]);
+      }
+      return;
+    }
+
+    std::pop_heap(selected_trackers_.begin(),
+                  selected_trackers_.begin() + num_valid_trackers_,
+                  CompareForHugePageTreatment);
+    selected_trackers_[num_valid_trackers_ - 1] = &pt;
+    std::push_heap(selected_trackers_.begin(),
+                   selected_trackers_.begin() + num_valid_trackers_,
+                   CompareForHugePageTreatment);
+    min_priority_ = CandidatePriority(*selected_trackers_[0]);
+  }
+#endif
+
   static constexpr size_t kTotalTrackersToScan = 64;
   static constexpr size_t kMaxSwappedPagesForCollapse = 128;
   static constexpr size_t kMaxUnbackedPagesForCollapse = 64;
@@ -724,6 +763,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   using TrackerArray = std::array<PageTracker*, kTotalTrackersToScan>;
   TrackerArray selected_trackers_;
   int num_valid_trackers_ = 0;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  uint64_t min_priority_ = 0;
+#endif
 
   struct ResidencyState {
     PageTracker* tracker;

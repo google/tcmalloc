@@ -54,6 +54,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/system_allocator.h"
@@ -371,6 +372,13 @@ class PageTracker : public TList<PageTracker>::Elem {
   };
   [[nodiscard]] TagState GetTagState() const { return tagged_state_; }
   void SetTagState(const TagState& state) { tagged_state_ = state; }
+
+  void PrefetchForScan() const {
+    PrefetchT0(this);
+    PrefetchT0(&num_objects_);
+    PrefetchT0(&tagged_state_);
+    PrefetchT0(&hugepage_residency_state_.maybe_hugepage_backed);
+  }
 
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
                       std::optional<absl::string_view> name);

@@ -17,11 +17,15 @@
 #include <errno.h>
 #include <sys/mman.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -29,6 +33,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_page_options.h"
@@ -492,6 +497,74 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     EXPECT_TRUE(pt->unbroken());
   }
 }
+
+struct PrefetchProbeNode
+    : HintedTrackerLists<PrefetchProbeNode, 1>::TrackerList::Elem {
+  size_t id = 0;
+  mutable size_t prefetch_count = 0;
+  size_t* total_prefetches = nullptr;
+
+  void PrefetchForScan() const {
+    ++prefetch_count;
+    ++(*total_prefetches);
+  }
+};
+
+struct IterPrefetchCase {
+  std::string test_name;
+  size_t list_len;
+};
+
+class HintedTrackerListsIterPrefetchTest
+    : public ::testing::TestWithParam<IterPrefetchCase> {};
+
+TEST_P(HintedTrackerListsIterPrefetchTest, VisitsInOrderAndPrefetchesAhead) {
+  const size_t len = GetParam().list_len;
+  size_t total_prefetches = 0;
+  std::array<PrefetchProbeNode, 7> nodes;
+  HintedTrackerLists<PrefetchProbeNode, 4> lists;
+  std::vector<size_t> expected_ids;
+  std::vector<size_t> expected_prefetches_at_visit;
+  for (size_t i = 0; i < len; ++i) {
+    nodes[i].id = i;
+    nodes[i].total_prefetches = &total_prefetches;
+    lists.Add(&nodes[i], /*i=*/1, /*prepend=*/false);
+    expected_ids.push_back(i);
+    expected_prefetches_at_visit.push_back(std::min(len, i + 3));
+  }
+
+  std::vector<size_t> visited_ids;
+  std::vector<size_t> node_prefetch_counts;
+  std::vector<size_t> prefetches_at_visit;
+  lists.Iter(
+      [&](PrefetchProbeNode& n) {
+        visited_ids.push_back(n.id);
+        node_prefetch_counts.push_back(n.prefetch_count);
+        prefetches_at_visit.push_back(total_prefetches);
+      },
+      /*start=*/0);
+
+  EXPECT_EQ(visited_ids, expected_ids);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  EXPECT_EQ(node_prefetch_counts, std::vector<size_t>(len, 0));
+  EXPECT_EQ(total_prefetches, 0);
+#else
+  EXPECT_EQ(node_prefetch_counts, std::vector<size_t>(len, 1));
+  EXPECT_EQ(prefetches_at_visit, expected_prefetches_at_visit);
+  EXPECT_EQ(total_prefetches, len);
+#endif
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ListLengths, HintedTrackerListsIterPrefetchTest,
+    ::testing::Values(IterPrefetchCase{"Empty", 0},
+                      IterPrefetchCase{"OneElement", 1},
+                      IterPrefetchCase{"TwoElements", 2},
+                      IterPrefetchCase{"ThreeElements", 3},
+                      IterPrefetchCase{"SevenElements", 7}),
+    [](const ::testing::TestParamInfo<IterPrefetchCase>& info) {
+      return info.param.test_name;
+    });
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

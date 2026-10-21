@@ -16,7 +16,10 @@
 #define TCMALLOC_HINTED_TRACKER_LISTS_H_
 
 #include <cstddef>
+#include <type_traits>
+#include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
@@ -27,6 +30,14 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+template <typename T, typename = void>
+struct HasPrefetchForScan : std::false_type {};
+
+template <typename T>
+struct HasPrefetchForScan<
+    T, std::void_t<decltype(std::declval<const T&>().PrefetchForScan())>>
+    : std::true_type {};
 
 // This class wraps an array of N TrackerLists and a Bitmap storing which
 // elements are non-empty.
@@ -141,6 +152,7 @@ class HintedTrackerLists {
   // This quirk is inherited from TrackerList.
   template <typename Functor>
   void Iter(const Functor& func, size_t start) const {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     nonempty_.ForEachSet(start, [&](size_t i) GOOGLE_MALLOC_SECTION {
       auto& list = lists_[i];
       TC_ASSERT(!list.empty());
@@ -148,9 +160,37 @@ class HintedTrackerLists {
         func(*pt);
       }
     });
+#else
+    if (size_ == 0) return;
+    nonempty_.ForEachSet(
+        start,
+        [&](size_t i) ABSL_ATTRIBUTE_ALWAYS_INLINE GOOGLE_MALLOC_SECTION {
+          auto& list = lists_[i];
+          TC_ASSERT(!list.empty());
+          if constexpr (HasPrefetchForScan<TrackerType>::value) {
+            auto ahead = list.begin();
+            for (size_t k = 0; k < kPrefetchDistance && ahead != list.end();
+                 ++k, ++ahead) {
+              ahead->PrefetchForScan();
+            }
+            for (TrackerType* pt : list) {
+              if (ABSL_PREDICT_TRUE(ahead != list.end())) {
+                ahead->PrefetchForScan();
+                ++ahead;
+              }
+              func(*pt);
+            }
+          } else {
+            for (TrackerType* pt : list) {
+              func(*pt);
+            }
+          }
+        });
+#endif
   }
 
  private:
+  static constexpr size_t kPrefetchDistance = 2;
   size_t size_;
   Bitmap<N> nonempty_;
   TrackerList lists_[N];
