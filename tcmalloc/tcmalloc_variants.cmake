@@ -345,6 +345,15 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_CFL_PRIORITIZATION_ABLATION"
   )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_drained_metadata_ablation
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"
+  )
 endfunction()
 
 function(tcmalloc_cc_binary_variants)

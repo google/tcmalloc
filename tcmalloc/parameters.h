@@ -271,9 +271,7 @@ class Parameters {
         std::memory_order_relaxed);
   }
 
-  [[nodiscard]] static bool release_drained_slab_metadata() {
-    return release_drained_slab_metadata_.load(std::memory_order_relaxed);
-  }
+  [[nodiscard]] static bool release_drained_slab_metadata();
 
   static void set_release_drained_slab_metadata(bool value) {
     TCMalloc_Internal_SetReleaseDrainedSlabMetadata(value);
@@ -359,7 +357,6 @@ class Parameters {
   static std::atomic<EnableUnfilteredCollapse> enable_unfiltered_collapse_;
   static std::atomic<MadviseSampledAllocations> madvise_sampled_allocations_;
   static std::atomic<size_t> event_trace_memory_limit_;
-  static std::atomic<bool> release_drained_slab_metadata_;
   static std::atomic<bool> huge_region_adaptive_release_;
   static std::atomic<ReleaseStalePages> release_stale_pages_;
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;

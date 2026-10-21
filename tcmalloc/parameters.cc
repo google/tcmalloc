@@ -298,12 +298,22 @@ ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
         MadviseSampledAllocations::kDisabled);
 ABSL_CONST_INIT std::atomic<size_t> Parameters::event_trace_memory_limit_(
     16 << 20);
-ABSL_CONST_INIT
-std::atomic<bool> Parameters::release_drained_slab_metadata_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
     true);
 ABSL_CONST_INIT std::atomic<ReleaseStalePages> Parameters::release_stale_pages_(
     ReleaseStalePages::kDisabled);
+
+static std::atomic<bool>& release_drained_slab_metadata_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{true};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
+      v.store(false, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
 
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
@@ -421,6 +431,11 @@ HugeRegionUsageOption Parameters::huge_region_option() {
   return use_huge_region_more_often()
              ? HugeRegionUsageOption::kUseForAllLargeAllocs
              : HugeRegionUsageOption::kDefault;
+}
+
+bool Parameters::release_drained_slab_metadata() {
+  return release_drained_slab_metadata_enabled().load(
+      std::memory_order_relaxed);
 }
 
 HeapPartitioningMode Parameters::heap_partitioning_mode() {
@@ -846,12 +861,13 @@ void TCMalloc_Internal_SetEventTraceMemoryLimit(size_t v) {
 }
 
 bool TCMalloc_Internal_GetReleaseDrainedSlabMetadata() {
-  return Parameters::release_drained_slab_metadata();
+  return tcmalloc::tcmalloc_internal::release_drained_slab_metadata_enabled()
+      .load(std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v) {
-  Parameters::release_drained_slab_metadata_.store(v,
-                                                   std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::release_drained_slab_metadata_enabled().store(
+      v, std::memory_order_relaxed);
 }
 }  // extern "C"
 
