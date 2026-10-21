@@ -104,11 +104,17 @@ class TransferCache {
         forwarder_(),
         max_capacity_(capacity.max_capacity) {
     freelist().Init(size_class, Parameters::cfl_subbucket_prioritization());
-    slots_ = max_capacity_ != 0
-                 ? reinterpret_cast<void**>(forwarder_.Alloc(
-                       ArenaAlloc::kTransferCache,
-                       max_capacity_ * sizeof(void*), kAlignment))
-                 : nullptr;
+    slots_ =
+        max_capacity_ != 0
+            ? reinterpret_cast<void**>(forwarder_.Alloc(
+                  ArenaAlloc::kTransferCache, max_capacity_ * sizeof(void*),
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+                  kAlignment
+#else
+                  std::align_val_t{ABSL_CACHELINE_SIZE}
+#endif
+                  ))
+            : nullptr;
   }
 
   TransferCache(const TransferCache&) = delete;
@@ -260,6 +266,9 @@ class TransferCache {
       lock_.unlock();
 
       freelist().InsertRange({buf, num_to_move});
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      if (to_return == 0) return;
+#endif
       if (!lock_.try_lock()) return;
     }
     lock_.unlock();
@@ -422,7 +431,7 @@ class TransferCache {
 
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
-  void** slots_ ABSL_GUARDED_BY(lock_);
+  void** slots_ ABSL_PT_GUARDED_BY(lock_);
 
   // owner_ and max_capacity_ are immutable, so they may share lock_'s line.
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
