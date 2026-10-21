@@ -372,8 +372,7 @@ static std::atomic<HeapPartitioningMode>& heap_partitioning_mode_ptr() {
     }
     const char* hp = thread_safe_getenv("TCMALLOC_HEAP_PARTITIONING");
     if (hp == nullptr &&
-        (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_HEAP_PARTITIONING) ||
-         tcmalloc_flag_enable_heap_partitioning_default_on != nullptr)) {
+        tcmalloc_flag_enable_heap_partitioning_default_on != nullptr) {
       v.store(HeapPartitioningMode::kFull, std::memory_order_relaxed);
     }
     if (hp != nullptr) {

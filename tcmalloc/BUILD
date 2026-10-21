@@ -1405,7 +1405,7 @@ cc_test(
     name = "page_allocator_test_partitioned",
     srcs = ["page_allocator_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    env = {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"},
+    env = {"TCMALLOC_HEAP_PARTITIONING": "true"},
     linkstatic = 1,
     deps = [
         ":common_8k_pages",

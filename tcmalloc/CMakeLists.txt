@@ -1670,7 +1670,7 @@ tcmalloc_cc_test(
     "tcmalloc::tcmalloc"
     "tcmalloc::testing_testutil"
   ENV
-    "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_HEAP_PARTITIONING"
+    "TCMALLOC_HEAP_PARTITIONING=true"
 )
 
 tcmalloc_cc_test(
