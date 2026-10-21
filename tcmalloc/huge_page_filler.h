@@ -1175,6 +1175,8 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
         const Length unmapped = free_pages - released_pages;
         unmapping_unaccounted_ += unmapped;
         subrelease_stats_.total_pages_subreleased += unmapped;
+      } else {
+        pt->ResetReleased();
       }
     }
   }
