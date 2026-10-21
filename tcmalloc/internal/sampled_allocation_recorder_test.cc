@@ -20,9 +20,11 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <random>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/thread_annotations.h"
@@ -40,7 +42,11 @@ using ::testing::UnorderedElementsAre;
 struct Info : public Sample<Info> {
  public:
   Info() { PrepareForSampling(); }
-  void PrepareForSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+  void PrepareForSampling()
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock)
+#endif
+  {
     initialized = true;
   }
   std::atomic<size_t> size;
@@ -217,7 +223,11 @@ struct InfoWithParam : public Sample<InfoWithParam> {
   // Default constructor to initialize |graveyard_|.
   InfoWithParam() = default;
   explicit InfoWithParam(size_t size) { PrepareForSampling(size); }
-  void PrepareForSampling(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+  void PrepareForSampling(size_t size)
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock)
+#endif
+  {
     info_size = size;
     initialized = true;
   }
@@ -248,6 +258,131 @@ TEST(SampleRecorderWithParamTest, RegisterWithParam) {
   EXPECT_THAT(info->info_size, 2);
   EXPECT_TRUE(info->initialized);
 }
+
+struct BenchSample : public Sample<BenchSample> {
+  static constexpr size_t kStackDepth = 64;
+  uintptr_t stack[kStackDepth] = {};
+  size_t weight = 0;
+
+  BenchSample() = default;
+  BenchSample(const uintptr_t* src, size_t w) { PrepareForSampling(src, w); }
+
+  void PrepareForSampling(const uintptr_t* src, size_t w)
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock)
+#endif
+  {
+    memcpy(stack, src, sizeof(stack));
+    stack[0] ^= w;
+    weight = w;
+    benchmark::DoNotOptimize(stack);
+  }
+};
+
+class BenchSampleAllocator {
+ public:
+  static BenchSample* New(const uintptr_t* src, size_t w) {
+    return new BenchSample(src, w);
+  }
+  static void Delete(BenchSample* s) { delete s; }
+};
+
+struct BenchRecorderEnv {
+  BenchSampleAllocator allocator;
+  SampleRecorder<BenchSample, BenchSampleAllocator> recorder{allocator};
+
+  BenchRecorderEnv() {
+    uintptr_t init_stack[BenchSample::kStackDepth] = {};
+    for (size_t i = 0; i < BenchSample::kStackDepth; ++i) {
+      init_stack[i] = 0x100000 + i * 16;
+    }
+    std::vector<BenchSample*> pool;
+    pool.reserve(128);
+    for (int i = 0; i < 128; ++i) {
+      pool.push_back(recorder.Register(init_stack, i + 1));
+    }
+    for (BenchSample* s : pool) {
+      recorder.Unregister(s);
+    }
+  }
+};
+
+static void BM_PopPushDead_DuringIterate(benchmark::State& state) {
+  static BenchRecorderEnv* env = new BenchRecorderEnv();
+  static std::atomic<bool> stop_iter{false};
+  static std::thread* iter_thread = nullptr;
+
+  uintptr_t local_stack[BenchSample::kStackDepth];
+  for (size_t i = 0; i < BenchSample::kStackDepth; ++i) {
+    local_stack[i] = 0x200000 + state.thread_index() * 256 + i;
+  }
+  constexpr size_t kRing = 4;
+  BenchSample* ring[kRing] = {};
+  for (size_t i = 0; i < kRing; ++i) {
+    ring[i] = env->recorder.Register(local_stack, i + 1);
+  }
+  if (state.thread_index() == 0) {
+    stop_iter.store(false, std::memory_order_relaxed);
+    iter_thread = new std::thread([&]() {
+      while (!stop_iter.load(std::memory_order_relaxed)) {
+        uint64_t acc = 0;
+        env->recorder.Iterate([&](const BenchSample& s) {
+          uint64_t h = s.weight;
+          for (size_t j = 0; j < BenchSample::kStackDepth; ++j) {
+            h = (h ^ s.stack[j]) * 0x9ddfea08eb382d69ULL;
+          }
+          acc ^= h;
+        });
+        benchmark::DoNotOptimize(acc);
+      }
+    });
+  }
+
+  size_t idx = 0;
+  for (auto _ : state) {
+    BenchSample* s = env->recorder.Register(local_stack, idx + 1);
+    benchmark::DoNotOptimize(s);
+    const size_t slot = idx++ & (kRing - 1);
+    env->recorder.Unregister(ring[slot]);
+    ring[slot] = s;
+  }
+
+  if (state.thread_index() == 0) {
+    stop_iter.store(true, std::memory_order_relaxed);
+    iter_thread->join();
+    delete iter_thread;
+    iter_thread = nullptr;
+  }
+  for (size_t i = 0; i < kRing; ++i) {
+    env->recorder.Unregister(ring[i]);
+  }
+}
+BENCHMARK(BM_PopPushDead_DuringIterate)->Threads(4)->Threads(8)->UseRealTime();
+
+static void BM_PopPushDead_4T(benchmark::State& state) {
+  static BenchRecorderEnv* env = new BenchRecorderEnv();
+  uintptr_t local_stack[BenchSample::kStackDepth];
+  for (size_t i = 0; i < BenchSample::kStackDepth; ++i) {
+    local_stack[i] = 0x300000 + state.thread_index() * 256 + i;
+  }
+  constexpr size_t kRing = 4;
+  BenchSample* ring[kRing] = {};
+  for (size_t i = 0; i < kRing; ++i) {
+    ring[i] = env->recorder.Register(local_stack, i + 1);
+  }
+  size_t idx = 0;
+  for (auto _ : state) {
+    BenchSample* s = env->recorder.Register(local_stack, idx + 1);
+    benchmark::DoNotOptimize(s);
+    const size_t slot = idx++ & (kRing - 1);
+    env->recorder.Unregister(ring[slot]);
+    ring[slot] = s;
+  }
+  for (size_t i = 0; i < kRing; ++i) {
+    env->recorder.Unregister(ring[i]);
+  }
+}
+BENCHMARK(BM_PopPushDead_4T)->Threads(4)->UseRealTime();
 
 }  // namespace
 }  // namespace tcmalloc_internal
