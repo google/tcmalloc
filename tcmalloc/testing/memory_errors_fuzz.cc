@@ -505,6 +505,127 @@ FUZZ_TEST(MemoryErrorsFuzzTest, MisalignedPointer)
                       fuzztest::Arbitrary<size_t>()),
         fuzztest::Arbitrary<bool>());
 
+void DoubleFree(size_t size, std::optional<hot_cold_t> hot_cold,
+                std::optional<std::align_val_t> alignment, bool sized) {
+  GTEST_SKIP() << "Skipping";
+
+  if (alignment.has_value() &&
+      !absl::has_single_bit(static_cast<size_t>(*alignment))) {
+    // Ill-formed alignment.
+    return;
+  }
+
+  void* ptr;
+  if (hot_cold.has_value()) {
+    if (alignment.has_value()) {
+      ptr = TCMallocInternalNewAlignedHotColdNothrow(size, *alignment,
+                                                     std::nothrow, *hot_cold);
+    } else {
+      ptr = TCMallocInternalNewHotColdNothrow(size, std::nothrow, *hot_cold);
+    }
+  } else {
+    if (alignment.has_value()) {
+      ptr = TCMallocInternalNewAlignedNothrow(size, *alignment, std::nothrow);
+    } else {
+      ptr = TCMallocInternalNewNothrow(size, std::nothrow);
+    }
+  }
+  if (ptr == nullptr) {
+    return;
+  }
+
+  auto deallocate = [&]() {
+    if (alignment.has_value()) {
+      if (sized) {
+        TCMallocInternalDeleteSizedAligned(ptr, size, *alignment);
+      } else {
+        TCMallocInternalDeleteAligned(ptr, *alignment);
+      }
+    } else {
+      if (sized) {
+        TCMallocInternalDeleteSized(ptr, size);
+      } else {
+        TCMallocInternalDelete(ptr);
+      }
+    }
+  };
+
+  // GWP-ASan reports double-frees by faulting on the guarded page in
+  // GuardedPageAllocator::Deallocate() rather than logging a CHECK failure that
+  // LongJmpScope can intercept.
+  if (IsGuardedMemory(ptr)) {
+    deallocate();
+    return;
+  }
+
+  deallocate();
+
+  // An unsampled size-classful object returned to the per-CPU or central
+  // freelist keeps its span registered in the pagemap; even if its span was
+  // returned to the page heap, the sized-delete fast path for normal or
+  // non-page-aligned cold pointers derives the size class from `size` without
+  // consulting the pagemap.
+  const bool size_classful =
+      size <= kMaxSize &&
+      static_cast<size_t>(alignment.value_or(std::align_val_t{1})) <= kPageSize;
+  if (IsOwned(ptr) || (sized && size_classful &&
+                       (IsNormalMemory(ptr) || (absl::bit_cast<uintptr_t>(ptr) &
+                                                (kPageSize - 1)) != 0))) {
+    return;
+  }
+
+  LongJmpScope scope;
+  if (setjmp(scope.buf_)) {
+    return;
+  }
+
+  deallocate();
+  LOG(FATAL) << "should have caught error and not reached this point";
+}
+
+TEST(MemoryErrorsFuzzTest, DoubleFreeRegression) {
+  ScopedNeverSample never_sample;
+  // Unsampled size-classful object: returned to the per-CPU freelist, so a
+  // second free is not immediately detected.
+  DoubleFree(16, std::nullopt, std::nullopt, /*sized=*/false);
+  DoubleFree(16, std::nullopt, std::nullopt, /*sized=*/true);
+  // Page heap spans (single-hugepage, overaligned, and multi-hugepage with
+  // donated tail slack): always detected.
+  DoubleFree(kMaxSize + 1, std::nullopt, std::nullopt, /*sized=*/false);
+  DoubleFree(kMaxSize + 1, std::nullopt, std::nullopt, /*sized=*/true);
+  DoubleFree(0, std::nullopt, std::align_val_t{2 * kPageSize}, /*sized=*/false);
+  DoubleFree(0, std::nullopt, std::align_val_t{2 * kPageSize}, /*sized=*/true);
+  DoubleFree(kHugePageSize + kPageSize, std::nullopt, std::nullopt,
+             /*sized=*/false);
+  DoubleFree(kHugePageSize + kPageSize, std::nullopt, std::nullopt,
+             /*sized=*/true);
+}
+
+TEST(MemoryErrorsFuzzTest, DoubleFreeSampledRegression) {
+  ScopedAlwaysSample always_sample;
+  DoubleFree(0, std::nullopt, std::nullopt, /*sized=*/false);
+  DoubleFree(16, std::nullopt, std::nullopt, /*sized=*/true);
+  ScopedGuardedSamplingInterval unguarded(-1);
+  for (int i = 0; i < 4; ++i) {
+    DoubleFree(16, std::nullopt, std::nullopt, /*sized=*/false);
+    DoubleFree(16, std::nullopt, std::nullopt, /*sized=*/true);
+    DoubleFree(16, std::nullopt, std::align_val_t{64}, /*sized=*/false);
+    DoubleFree(16, std::nullopt, std::align_val_t{64}, /*sized=*/true);
+  }
+}
+
+FUZZ_TEST(MemoryErrorsFuzzTest, DoubleFree)
+    .WithDomains(fuzztest::InRange<size_t>(0, kMaxFuzzAllocationSize),
+                 fuzztest::OptionalOf(fuzztest::Map(
+                     [](uint8_t v) { return static_cast<hot_cold_t>(v); },
+                     fuzztest::Arbitrary<uint8_t>())),
+                 fuzztest::OptionalOf(fuzztest::Map(
+                     [](size_t v) {
+                       return static_cast<std::align_val_t>(1ULL << v);
+                     },
+                     fuzztest::InRange<size_t>(0, kHugePageShift))),
+                 fuzztest::Arbitrary<bool>());
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
 

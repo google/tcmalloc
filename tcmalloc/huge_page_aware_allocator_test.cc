@@ -2864,6 +2864,54 @@ TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
   }
 }
 
+TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {
+  FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
+  constexpr SpanAllocInfo kSpanInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  auto delete_allocation = [&](AllocationState s) {
+    PageHeapSpinLockHolder l;
+    allocator.Delete(s, kSpanInfo);
+  };
+
+  // 1. Double-free of `n < kPagesPerHugePage` after its PageTracker was
+  //    drained to HugeCache (`GetTracker(hp) == nullptr`).
+  //    Keep another small allocation live on a separate hugepage so
+  //    `info_.RecordFree` does not underflow `total_small_` first.
+  AllocationState keep_hp0_a = allocator.New(kPagesPerHugePage / 2, kSpanInfo);
+  AllocationState keep_hp0_b = allocator.New(kPagesPerHugePage / 2, kSpanInfo);
+  AllocationState small = allocator.New(Length(1), kSpanInfo);
+  ASSERT_TRUE(small);
+  ASSERT_NE(HugePageContaining(small.r.p), HugePageContaining(keep_hp0_a.r.p));
+  delete_allocation(small);
+  EXPECT_DEATH(delete_allocation(small), "Double free of");
+  delete_allocation(keep_hp0_a);
+  delete_allocation(keep_hp0_b);
+
+  // 2. Double-free of a multi-hugepage allocation with slack after the tail
+  //    hugepage was reused for a non-donated PageTracker
+  //    (`!pt->was_donated()`). Keep another donated allocation live so
+  //    `info_.RecordFree` does not underflow `total_slack_` first.
+  AllocationState large =
+      allocator.New(kPagesPerHugePage + Length(1), kSpanInfo);
+  ASSERT_TRUE(large);
+  delete_allocation(large);
+  AllocationState fill1 = allocator.New(kPagesPerHugePage / 2, kSpanInfo);
+  AllocationState fill2 = allocator.New(kPagesPerHugePage / 2, kSpanInfo);
+  AllocationState tail_small = allocator.New(Length(1), kSpanInfo);
+  ASSERT_EQ(HugePageContaining(tail_small.r.p),
+            HugePageContaining(large.r.p) + NHugePages(1));
+  delete_allocation(fill1);
+  delete_allocation(fill2);
+  AllocationState keep_large =
+      allocator.New(2 * kPagesPerHugePage + Length(1), kSpanInfo);
+  ASSERT_TRUE(keep_large);
+  EXPECT_DEATH(delete_allocation(large), "Double free of");
+  delete_allocation(keep_large);
+  delete_allocation(tail_small);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

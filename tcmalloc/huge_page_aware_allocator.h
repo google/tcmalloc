@@ -818,7 +818,9 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
   // c) we came straight from the HugeCache - return straight there.  (We
   //    might have had slack put into the filler - if so, return that virtual
   //    allocation to the filler too!)
-  TC_ASSERT_GE(n, kPagesPerHugePage);
+  if (ABSL_PREDICT_FALSE(n < kPagesPerHugePage)) {
+    forwarder_.ReportDoubleFree(p.start_addr());
+  }
   HugeLength hl = HLFromPages(n);
   HugePage last = hp + hl - NHugePages(1);
   Length slack = hl.in_pages() - n;
@@ -828,10 +830,9 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
     // Pretend the range was shorter.  We will handle it with the filler.
     --hl;
     pt = GetTracker(last);
-    if (ABSL_PREDICT_FALSE(pt == nullptr)) {
+    if (ABSL_PREDICT_FALSE(pt == nullptr || !pt->was_donated())) {
       forwarder_.ReportDoubleFree(p.start_addr());
     }
-    TC_ASSERT(pt->was_donated());
   }
 
   // Release the non-slack portion of the allocation to the HugeCache.  We do
