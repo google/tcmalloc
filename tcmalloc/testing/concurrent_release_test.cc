@@ -131,7 +131,7 @@ size_t SoftLimitHits() {
 void RunChurn(bool hard_limit) {
   constexpr int kThreads = 8;
   constexpr size_t kBudgetPerThread = 32 << 20;
-  constexpr absl::Duration kDuration = absl::Seconds(3);
+  constexpr absl::Duration kDuration = absl::Milliseconds(500);
 
   ScopedBackgroundProcessSleepInterval sleep_interval(absl::Milliseconds(1));
   ScopedBackgroundReleaseRate release_rate(
@@ -176,7 +176,11 @@ void RunChurn(bool hard_limit) {
     }
   });
 
+  const absl::Time deadline = absl::Now() + absl::Seconds(3);
   absl::SleepFor(kDuration);
+  while (SoftLimitHits() == soft_limit_hits_before && absl::Now() < deadline) {
+    absl::SleepFor(absl::Milliseconds(10));
+  }
 
   done.store(true, std::memory_order_release);
   limiter.join();
