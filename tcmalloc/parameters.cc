@@ -150,93 +150,48 @@ static std::atomic<int64_t>& background_process_sleep_interval_ns() {
   return v;
 }
 
-// As skip_subrelease_short_interval_ns(), and
-// skip_subrelease_long_interval_ns() are determined at runtime, we cannot
-// require constant initialization for the atomic.  This avoids an
-// initialization order fiasco.
-//
-// Configures short and long intervals to zero by default. We expect to set them
-// to the non-zero durations once the feature is no longer experimental.
-static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::Duration interval;
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  interval = absl::ZeroDuration();
-#else
+void Parameters::InitializeFromExperiments() {
+#if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
-    interval = absl::Seconds(60);
-  } else {
-    interval = absl::Seconds(10);
+    skip_subrelease_short_interval_ns_.store(
+        absl::ToInt64Nanoseconds(absl::Seconds(60)), std::memory_order_relaxed);
+    skip_subrelease_long_interval_ns_.store(
+        absl::ToInt64Nanoseconds(absl::Seconds(300)),
+        std::memory_order_relaxed);
+    skip_subrelease_cold_short_interval_ns_.store(
+        absl::ToInt64Nanoseconds(absl::Seconds(60)), std::memory_order_relaxed);
+    skip_subrelease_cold_long_interval_ns_.store(
+        absl::ToInt64Nanoseconds(absl::Seconds(300)),
+        std::memory_order_relaxed);
   }
 #endif
 
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    // clang-format off
-    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
-    // clang-format on
-  });
-  return v;
-}
-
-static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::Duration interval;
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  interval = absl::ZeroDuration();
-#else
-  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
-    interval = absl::Seconds(300);
-  } else {
-    interval = absl::Seconds(120);
+  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES)) {
+    track_broken_hugepages_.store(TrackBrokenHugepages::kEnabled,
+                                  std::memory_order_relaxed);
   }
-#endif
 
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    // clang-format off
-    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
-    // clang-format on
-  });
-  return v;
-}
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE)) {
+    preserve_donated_on_collapse_.store(PreserveDonatedOnCollapse::kEnabled,
+                                        std::memory_order_relaxed);
+  }
 
-static std::atomic<int64_t>& skip_subrelease_cold_short_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    absl::Duration interval;
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-    interval = absl::ZeroDuration();
-#else
-    if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
-      interval = absl::Seconds(60);
-    } else {
-      interval = absl::Seconds(10);
-    }
-#endif
-    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
-  });
-  return v;
-}
+  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
+    madvise_cold_regions_nohugepage_.store(MadviseRegionsNoHugepage::kEnabled,
+                                           std::memory_order_relaxed);
+  }
 
-static std::atomic<int64_t>& skip_subrelease_cold_long_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    absl::Duration interval;
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-    interval = absl::ZeroDuration();
-#else
-    if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
-      interval = absl::Seconds(300);
-    } else {
-      interval = absl::Seconds(120);
-    }
-#endif
-    v.store(absl::ToInt64Nanoseconds(interval), std::memory_order_relaxed);
-  });
-  return v;
+  if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
+    release_stale_pages_.store(ReleaseStalePages::kEnabled,
+                               std::memory_order_relaxed);
+  }
+
+  if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
+  ) {
+    min_hot_access_hint_.store(static_cast<tcmalloc::hot_cold_t>(2),
+                               std::memory_order_relaxed);
+  }
 }
 
 uint64_t Parameters::heap_size_hard_limit() {
@@ -286,20 +241,10 @@ SubreleaseUnbackedMode Parameters::subrelease_unbacked_hugepages() {
   return v.load(std::memory_order_relaxed);
 }
 
-std::atomic<MallocExtension::BytesPerSecond>& background_release_rate_ptr() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<MallocExtension::BytesPerSecond> v{
-      MallocExtension::BytesPerSecond{
-          0
-      }};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-  });
-  return v;
-}
-
-MallocExtension::BytesPerSecond Parameters::background_release_rate() {
-  return background_release_rate_ptr().load(std::memory_order_relaxed);
-}
+ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
+    Parameters::background_release_rate_{MallocExtension::BytesPerSecond{
+        0
+    }};
 
 void Parameters::set_background_release_rate(
     MallocExtension::BytesPerSecond value) {
@@ -357,54 +302,52 @@ ABSL_CONST_INIT
 std::atomic<bool> Parameters::release_drained_slab_metadata_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
     true);
+ABSL_CONST_INIT std::atomic<ReleaseStalePages> Parameters::release_stale_pages_(
+    ReleaseStalePages::kDisabled);
 
-static std::atomic<bool>& release_max_filler_pages_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-  });
-  return v;
-}
-
-static std::atomic<TrackBrokenHugepages>& track_broken_hugepages_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<TrackBrokenHugepages> v{
-      TrackBrokenHugepages::kDisabled};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES)) {
-      v.store(TrackBrokenHugepages::kEnabled, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
-
-static std::atomic<PreserveDonatedOnCollapse>&
-preserve_donated_on_collapse_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<PreserveDonatedOnCollapse> v{
-      PreserveDonatedOnCollapse::kDisabled};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(
-            Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE)) {
-      v.store(PreserveDonatedOnCollapse::kEnabled, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
-
-static std::atomic<MadviseRegionsNoHugepage>&
-madvise_cold_regions_nohugepage_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<MadviseRegionsNoHugepage> v{
-      MadviseRegionsNoHugepage::kDisabled};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(
-            Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
-      v.store(MadviseRegionsNoHugepage::kEnabled, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
+// Configures short and long intervals to zero by default. We expect to set them
+// to the non-zero durations once the feature is no longer experimental.
+ABSL_CONST_INIT std::atomic<int64_t>
+    Parameters::skip_subrelease_short_interval_ns_(
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+        0
+#else
+        absl::ToInt64Nanoseconds(absl::Seconds(10))
+#endif
+    );
+ABSL_CONST_INIT std::atomic<int64_t>
+    Parameters::skip_subrelease_long_interval_ns_(
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+        0
+#else
+        absl::ToInt64Nanoseconds(absl::Seconds(120))
+#endif
+    );
+ABSL_CONST_INIT std::atomic<int64_t>
+    Parameters::skip_subrelease_cold_short_interval_ns_(
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+        0
+#else
+        absl::ToInt64Nanoseconds(absl::Seconds(10))
+#endif
+    );
+ABSL_CONST_INIT std::atomic<int64_t>
+    Parameters::skip_subrelease_cold_long_interval_ns_(
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+        0
+#else
+        absl::ToInt64Nanoseconds(absl::Seconds(120))
+#endif
+    );
+ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_filler_pages_(false);
+ABSL_CONST_INIT std::atomic<TrackBrokenHugepages>
+    Parameters::track_broken_hugepages_(TrackBrokenHugepages::kDisabled);
+ABSL_CONST_INIT std::atomic<PreserveDonatedOnCollapse>
+    Parameters::preserve_donated_on_collapse_(
+        PreserveDonatedOnCollapse::kDisabled);
+ABSL_CONST_INIT std::atomic<MadviseRegionsNoHugepage>
+    Parameters::madvise_cold_regions_nohugepage_(
+        MadviseRegionsNoHugepage::kDisabled);
 
 static std::atomic<HeapPartitioningMode>& heap_partitioning_mode_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -461,26 +404,6 @@ absl::Duration Parameters::background_process_sleep_interval() {
       background_process_sleep_interval_ns().load(std::memory_order_relaxed));
 }
 
-absl::Duration Parameters::filler_skip_subrelease_short_interval() {
-  return absl::Nanoseconds(
-      skip_subrelease_short_interval_ns().load(std::memory_order_relaxed));
-}
-
-absl::Duration Parameters::filler_skip_subrelease_long_interval() {
-  return absl::Nanoseconds(
-      skip_subrelease_long_interval_ns().load(std::memory_order_relaxed));
-}
-
-absl::Duration Parameters::filler_skip_subrelease_cold_short_interval() {
-  return absl::Nanoseconds(
-      skip_subrelease_cold_short_interval_ns().load(std::memory_order_relaxed));
-}
-
-absl::Duration Parameters::filler_skip_subrelease_cold_long_interval() {
-  return absl::Nanoseconds(
-      skip_subrelease_cold_long_interval_ns().load(std::memory_order_relaxed));
-}
-
 EnableCollapse Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
 }
@@ -500,38 +423,8 @@ HugeRegionUsageOption Parameters::huge_region_option() {
              : HugeRegionUsageOption::kDefault;
 }
 
-bool Parameters::release_max_filler_pages() {
-  return release_max_filler_pages_enabled().load(std::memory_order_relaxed);
-}
-
-TrackBrokenHugepages Parameters::track_broken_hugepages() {
-  return track_broken_hugepages_enabled().load(std::memory_order_relaxed);
-}
-
-PreserveDonatedOnCollapse Parameters::preserve_donated_on_collapse() {
-  return preserve_donated_on_collapse_enabled().load(std::memory_order_relaxed);
-}
-
-MadviseRegionsNoHugepage Parameters::madvise_cold_regions_nohugepage() {
-  return madvise_cold_regions_nohugepage_enabled().load(
-      std::memory_order_relaxed);
-}
-
 HeapPartitioningMode Parameters::heap_partitioning_mode() {
   return heap_partitioning_mode_ptr().load(std::memory_order_relaxed);
-}
-
-ReleaseStalePages Parameters::release_stale_pages() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<ReleaseStalePages> v{
-      ReleaseStalePages::kDisabled};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(
-        ReleaseStalePages{
-            IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)},
-        std::memory_order_relaxed);
-  });
-  return v.load(std::memory_order_relaxed);
 }
 
 extern "C" ABSL_ATTRIBUTE_WEAK bool
@@ -670,7 +563,7 @@ void MallocExtension_Internal_SetBackgroundReleaseRate(
 }
 
 void TCMalloc_Internal_SetBackgroundReleaseRate(size_t value) {
-  tcmalloc::tcmalloc_internal::background_release_rate_ptr().store(
+  Parameters::background_release_rate_.store(
       static_cast<tcmalloc::MallocExtension::BytesPerSecond>(value));
 }
 
@@ -806,7 +699,7 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration v) {
-  tcmalloc::tcmalloc_internal::skip_subrelease_short_interval_ns().store(
+  Parameters::skip_subrelease_short_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
@@ -817,7 +710,7 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration v) {
-  tcmalloc::tcmalloc_internal::skip_subrelease_long_interval_ns().store(
+  Parameters::skip_subrelease_long_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
@@ -828,7 +721,7 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdShortInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
     absl::Duration v) {
-  tcmalloc::tcmalloc_internal::skip_subrelease_cold_short_interval_ns().store(
+  Parameters::skip_subrelease_cold_short_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
@@ -839,7 +732,7 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdLongInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
     absl::Duration v) {
-  tcmalloc::tcmalloc_internal::skip_subrelease_cold_long_interval_ns().store(
+  Parameters::skip_subrelease_cold_long_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
@@ -896,8 +789,7 @@ bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
 }
 
 void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
-  tcmalloc::tcmalloc_internal::release_max_filler_pages_enabled().store(
-      v, std::memory_order_relaxed);
+  Parameters::release_max_filler_pages_.store(v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetTrackBrokenHugepages() {
@@ -906,7 +798,7 @@ bool TCMalloc_Internal_GetTrackBrokenHugepages() {
 }
 
 void TCMalloc_Internal_SetTrackBrokenHugepages(bool v) {
-  tcmalloc::tcmalloc_internal::track_broken_hugepages_enabled().store(
+  Parameters::track_broken_hugepages_.store(
       v ? tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kEnabled
         : tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kDisabled,
       std::memory_order_relaxed);
@@ -918,7 +810,7 @@ bool TCMalloc_Internal_GetPreserveDonatedOnCollapse() {
 }
 
 void TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v) {
-  tcmalloc::tcmalloc_internal::preserve_donated_on_collapse_enabled().store(
+  Parameters::preserve_donated_on_collapse_.store(
       v ? tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled
         : tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kDisabled,
       std::memory_order_relaxed);
@@ -930,7 +822,7 @@ bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
 }
 
 void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
-  tcmalloc::tcmalloc_internal::madvise_cold_regions_nohugepage_enabled().store(
+  Parameters::madvise_cold_regions_nohugepage_.store(
       v ? tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled
         : tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kDisabled,
       std::memory_order_relaxed);

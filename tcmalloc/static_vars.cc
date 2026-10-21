@@ -112,10 +112,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   CacheTopology::Instance().Init();
   cpu_cache_.Init();
 
-  if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
-  ) {
-    TCMalloc_Internal_SetMinHotAccessHint(/*v=*/2);
-  }
+  Parameters::InitializeFromExperiments();
 
   // Do a bit of sanitizing: make sure central_cache is aligned properly
   TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);
