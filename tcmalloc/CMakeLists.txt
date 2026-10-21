@@ -2116,21 +2116,20 @@ tcmalloc_cc_test_variants(
   SRCS
     "static_forwarder_test.cc"
   DEPS
-    "GTest::gtest_main"
-    "GTest::gmock_main"
+    "GTest::gtest"
     "GTest::gmock"
     "absl::core_headers"
     "absl::fixed_array"
     "absl::flat_hash_map"
     "absl::flat_hash_set"
     "absl::inlined_vector"
-    "absl::random_random"
     "absl::span"
-    "absl::synchronization"
-    "absl::time"
+    "absl::str_format"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
     "tcmalloc::experiment"
     "tcmalloc::internal_logging"
-    "tcmalloc::testing_thread_manager"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_library(

@@ -17,20 +17,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <memory>
+#include <algorithm>
 #include <new>
-#include <utility>
+#include <random>
+#include <variant>
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "fuzztest/fuzztest.h"
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
-#include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
-#include "absl/random/random.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
+#include "absl/strings/str_format.h"
 #include "absl/types/span.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
@@ -45,7 +43,7 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
-#include "tcmalloc/testing/thread_manager.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -382,71 +380,25 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
 class StaticForwarderEnvironment {
   struct SpanData {
     Span* span;
-    void* batch[kMaxObjectsToMove];
+    void* first_object;
   };
 
  public:
   StaticForwarderEnvironment(int size_class, size_t object_size,
                              size_t objects_per_span, Length pages_per_span,
-                             int batch_size)
+                             int batch_size, size_t max_spans)
       : size_class_(size_class),
         object_size_(object_size),
         objects_per_span_(objects_per_span),
         pages_per_span_(pages_per_span),
-        batch_size_(batch_size) {}
+        batch_size_(batch_size) {
+    data_.reserve(max_spans);
+    free_spans_.reserve(max_spans);
+  }
 
   ~StaticForwarderEnvironment() { Drain(); }
 
-  void RandomlyPoke() {
-    absl::BitGen rng;
-    double coin = absl::Uniform(rng, 0.0, 1.0);
-
-    if (coin < 0.5) {
-      Grow();
-    } else if (coin < 0.9) {
-      // Deallocate Spans.  We may deallocate more than 1 span, so we bias
-      // towards allocating Spans more often than we deallocate.
-      Shrink();
-    } else {
-      Shuffle(rng);
-    }
-  }
-
-  void Drain() {
-    std::vector<std::unique_ptr<SpanData>> spans;
-
-    {
-      absl::MutexLock l(mu_);
-      if (data_.empty()) {
-        return;
-      }
-
-      spans = std::move(data_);
-      data_.clear();
-    }
-
-    // Check mappings.
-    std::vector<Span*> free_spans;
-    for (const auto& data : spans) {
-      EXPECT_EQ(size_class_,
-                tc_globals.pagemap().sizeclass(data->span->first_page()));
-      EXPECT_EQ(size_class_,
-                tc_globals.pagemap().sizeclass(data->span->first_page() +
-                                               pages_per_span_ - Length(1)));
-      // Confirm we can map at least one object back.
-      Span* got;
-      ProdForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got, size_class_);
-      EXPECT_EQ(data->span, got);
-
-      free_spans.push_back(data->span);
-    }
-
-    auto span_span = absl::MakeSpan(free_spans);
-    for (int i = 0; i < spans.size(); i += kMaxObjectsToMove) {
-      ProdForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
-                                     span_span.subspan(i, kMaxObjectsToMove));
-    }
-  }
+  void Drain() { Shrink(data_.size()); }
 
   void Grow() {
     // Allocate a Span
@@ -454,11 +406,9 @@ class StaticForwarderEnvironment {
                                              pages_per_span_);
     ASSERT_NE(span, nullptr);
 
-    auto d = std::make_unique<SpanData>();
-    d->span = span;
-
-    size_t allocated = span->BuildFreelist(
-        object_size_, objects_per_span_, absl::MakeSpan(d->batch, batch_size_));
+    void* batch[kMaxObjectsToMove];
+    size_t allocated = span->BuildFreelist(object_size_, objects_per_span_,
+                                           absl::MakeSpan(batch, batch_size_));
     EXPECT_LE(allocated, objects_per_span_);
 
     EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
@@ -467,65 +417,46 @@ class StaticForwarderEnvironment {
                                              pages_per_span_ - Length(1)));
     // Confirm we can map at least one object back.
     Span* got;
-    ProdForwarder::MapObjectsToSpans({&d->batch[0], 1}, &got, size_class_);
+    ProdForwarder::MapObjectsToSpans({&batch[0], 1}, &got, size_class_);
     EXPECT_EQ(span, got);
 
-    absl::MutexLock l(mu_);
-    spans_allocated_++;
-    data_.push_back(std::move(d));
+    data_.push_back(SpanData{span, batch[0]});
   }
 
-  void Shrink() {
-    absl::BitGen rng;
-    std::vector<std::unique_ptr<SpanData>> spans;
-
-    {
-      absl::MutexLock l(mu_);
-      if (data_.empty()) {
-        return;
-      }
-
-      size_t count = absl::LogUniform<size_t>(rng, 1, data_.size());
-      spans.reserve(count);
-
-      for (int i = 0; i < count; i++) {
-        spans.push_back(std::move(data_.back()));
-        data_.pop_back();
-      }
+  void Shrink(size_t count) {
+    if (data_.empty() || count == 0) {
+      return;
     }
 
-    // Check mappings.
-    std::vector<Span*> free_spans;
-    for (auto& data : spans) {
+    count = std::min(count, data_.size());
+    free_spans_.clear();
+    for (size_t i = data_.size() - count; i < data_.size(); ++i) {
+      SpanData& data = data_[i];
       EXPECT_EQ(size_class_,
-                tc_globals.pagemap().sizeclass(data->span->first_page()));
+                tc_globals.pagemap().sizeclass(data.span->first_page()));
       EXPECT_EQ(size_class_,
-                tc_globals.pagemap().sizeclass(data->span->first_page() +
+                tc_globals.pagemap().sizeclass(data.span->first_page() +
                                                pages_per_span_ - Length(1)));
       // Confirm we can map at least one object back.
       Span* got;
-      ProdForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got, size_class_);
-      EXPECT_EQ(data->span, got);
+      ProdForwarder::MapObjectsToSpans({&data.first_object, 1}, &got,
+                                       size_class_);
+      EXPECT_EQ(data.span, got);
 
-      free_spans.push_back(data->span);
+      free_spans_.push_back(data.span);
     }
+    data_.resize(data_.size() - count);
 
-    auto span_span = absl::MakeSpan(free_spans);
-    for (int i = 0; i < spans.size(); i += kMaxObjectsToMove) {
+    auto span_span = absl::MakeSpan(free_spans_);
+    for (size_t i = 0; i < free_spans_.size(); i += kMaxObjectsToMove) {
       ProdForwarder::DeallocateSpans(objects_per_span_, pages_per_span_,
                                      span_span.subspan(i, kMaxObjectsToMove));
     }
   }
 
-  void Shuffle(absl::BitGen& rng) {
-    // Shuffle the shared vector.
-    absl::MutexLock l(mu_);
+  void Shuffle(uint32_t seed) {
+    std::mt19937 rng(seed);
     absl::c_shuffle(data_, rng);
-  }
-
-  int64_t BytesAllocated() {
-    absl::MutexLock l(mu_);
-    return pages_per_span_.in_bytes() * spans_allocated_;
   }
 
  private:
@@ -535,9 +466,8 @@ class StaticForwarderEnvironment {
   Length pages_per_span_;
   int batch_size_;
 
-  absl::Mutex mu_;
-  int64_t spans_allocated_ ABSL_GUARDED_BY(mu_) = 0;
-  std::vector<std::unique_ptr<SpanData>> data_ ABSL_GUARDED_BY(mu_);
+  std::vector<SpanData> data_;
+  std::vector<Span*> free_spans_;
 };
 
 static BackingStats PageHeapStats() {
@@ -545,37 +475,92 @@ static BackingStats PageHeapStats() {
   return tc_globals.page_allocator().stats();
 }
 
-TEST_P(StaticForwarderSpanTest, Fuzz) {
+static uint64_t InUseBytes(const BackingStats& s) {
+  return s.system_bytes - s.free_bytes - s.unmapped_bytes;
+}
+
+struct GrowOp {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const GrowOp&) {
+    absl::Format(&sink, "GrowOp{}");
+  }
+
+  void Perform(StaticForwarderEnvironment& env) const { env.Grow(); }
+};
+
+struct ShrinkOp {
+  uint8_t count;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const ShrinkOp& s) {
+    absl::Format(&sink, "ShrinkOp{.count=%v}", s.count);
+  }
+
+  void Perform(StaticForwarderEnvironment& env) const { env.Shrink(count); }
+};
+
+struct ShuffleOp {
+  uint32_t seed;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const ShuffleOp& s) {
+    absl::Format(&sink, "ShuffleOp{.seed=%v}", s.seed);
+  }
+
+  void Perform(StaticForwarderEnvironment& env) const { env.Shuffle(seed); }
+};
+
+using FuzzOp = std::variant<GrowOp, ShrinkOp, ShuffleOp>;
+
+template <typename Sink>
+void AbslStringify(Sink& sink, const FuzzOp& op) {
+  std::visit([&](const auto& arg) { absl::Format(&sink, "%v", arg); }, op);
+}
+
+void Fuzz(size_t size_class, const std::vector<FuzzOp>& ops) {
 #if ABSL_HAVE_THREAD_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
   // TODO(b/193887621):  Enable this test under TSan after addressing benign
   // true positives.
-  GTEST_SKIP() << "Skipping test under Thread Sanitizer.";
+  return;
 #endif  // ABSL_HAVE_THREAD_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER
 
-  const auto page_heap_before = PageHeapStats();
+  if (IsColdSizeClass(size_class) && !ColdFeatureActive()) {
+    return;
+  }
 
-  StaticForwarderEnvironment env(size_class_, object_size_, objects_per_span_,
-                                 pages_per_span_, batch_size_);
-  ThreadManager threads;
-  threads.Start(10, [&](int) { env.RandomlyPoke(); });
+  ScopedBackgroundProcessActionsEnabled disable_background_actions(false);
 
-  absl::SleepFor(absl::Milliseconds(50));
+  tc_globals.InitIfNecessary();
+  const size_t object_size = tc_globals.sizemap().class_to_size(size_class);
+  if (object_size == 0) {
+    return;
+  }
 
-  threads.Stop();
+  const Length pages_per_span = tc_globals.sizemap().class_to_pages(size_class);
+  const size_t batch_size =
+      tc_globals.sizemap().num_objects_to_move(size_class);
+  const size_t objects_per_span = pages_per_span.in_bytes() / object_size;
 
-  const auto page_heap_after = PageHeapStats();
-  // Confirm we did not leak Spans by ensuring the page heap did not grow nearly
-  // 1:1 by the total number of Spans we ever allocated.
-  //
-  // Since we expect to allocate a significant number of spans, we apply a
-  // factor of 1/2 (which is unlikely to be flaky) to avoid false negatives
-  // if/when a background thread triggers a deallocation.
-  const int64_t bytes_allocated = env.BytesAllocated();
-  EXPECT_GT(bytes_allocated, 0);
-  EXPECT_LE(static_cast<int64_t>(page_heap_after.system_bytes) -
-                static_cast<int64_t>(page_heap_before.system_bytes),
-            bytes_allocated / 2);
+  StaticForwarderEnvironment env(size_class, object_size, objects_per_span,
+                                 pages_per_span, batch_size, ops.size());
+  const BackingStats page_heap_before = PageHeapStats();
+  const size_t spans_in_use_before = tc_globals.span_allocator().stats().in_use;
+
+  for (const FuzzOp& op : ops) {
+    std::visit([&](const auto& arg) { arg.Perform(env); }, op);
+  }
+  env.Drain();
+
+  // Confirm we did not leak Spans or page heap allocations after draining.
+  const BackingStats page_heap_after = PageHeapStats();
+  EXPECT_EQ(InUseBytes(page_heap_after), InUseBytes(page_heap_before));
+  EXPECT_EQ(tc_globals.span_allocator().stats().in_use, spans_in_use_before);
 }
+
+FUZZ_TEST(StaticForwarderTest, Fuzz)
+    .WithDomains(
+        fuzztest::InRange<size_t>(1, kNumClasses - 1),
+        fuzztest::VectorOf(fuzztest::Arbitrary<FuzzOp>()).WithMaxSize(128));
 
 INSTANTIATE_TEST_SUITE_P(All, StaticForwarderSpanTest,
                          testing::Range(size_t(1), kNumClasses));

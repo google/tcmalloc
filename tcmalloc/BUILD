@@ -1837,20 +1837,18 @@ create_tcmalloc_testsuite(
     name = "static_forwarder_test",
     srcs = ["static_forwarder_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
     deps = [
         ":experiment",
         "//tcmalloc/internal:logging",
-        "//tcmalloc/testing:thread_manager",
+        "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
-        "@com_google_absl//absl/random",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
