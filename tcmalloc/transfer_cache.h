@@ -313,7 +313,11 @@ class ShardedTransferCacheManagerBase {
 
   // Store the transfer cache pointers and information about whether they are
   // initialized next to each other.
-  struct Shard {
+  struct
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      alignas(ABSL_CACHELINE_SIZE)
+#endif
+          Shard {
     Shard() {
       // The constructor of atomic values is not atomic. Set the value
       // explicitly and atomically here.
