@@ -2933,6 +2933,91 @@ TEST(CpuCacheTest, PartitionShift) {
   EXPECT_EQ(CpuCachePeer::PartitionShift(cache), 2);
 }
 
+void BM_CpuCacheResizeSizeClasses(benchmark::State& state) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  cache.SetCacheLimit(512);
+  cache.Activate();
+
+  const int num_cpus = std::min(NumCPUs(), 8);
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    ColdCacheOperations(cache, cpu, /*size_class=*/1);
+    CpuCachePeer::SubtractFromAvailable(cache, cpu, cache.Unallocated(cpu));
+  }
+
+  for (auto _ : state) {
+    cache.ResizeSizeClasses();
+  }
+
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    CpuCachePeer::AddToAvailable(cache, cpu,
+                                 cache.Capacity(cpu) - cache.Allocated(cpu));
+  }
+  cache.Deactivate();
+}
+BENCHMARK(BM_CpuCacheResizeSizeClasses);
+
+void BM_CpuCacheShuffleCpuCaches(benchmark::State& state) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Init();
+  cache.SetCacheLimit(512);
+  cache.Activate();
+
+  const int num_cpus = std::min(NumCPUs(), 8);
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    ColdCacheOperations(cache, cpu, /*size_class=*/1);
+    CpuCachePeer::SubtractFromAvailable(cache, cpu, cache.Unallocated(cpu));
+  }
+
+  for (auto _ : state) {
+    CpuCachePeer::IncrementCacheMisses(cache);
+    cache.ShuffleCpuCaches();
+  }
+
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    CpuCachePeer::AddToAvailable(cache, cpu,
+                                 cache.Capacity(cpu) - cache.Allocated(cpu));
+  }
+  cache.Deactivate();
+}
+BENCHMARK(BM_CpuCacheShuffleCpuCaches);
+
+void BM_CpuCacheContendedResizeAndSteal(benchmark::State& state) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  static CpuCache* cache = []() {
+    auto* c = new CpuCache();
+    c->Init();
+    c->SetCacheLimit(512);
+    c->Activate();
+    return c;
+  }();
+
+  constexpr int kBatch = 16;
+  void* batch[kBatch];
+  for (auto _ : state) {
+    if (state.thread_index() == 0) {
+      cache->ResizeSizeClasses();
+      cache->ShuffleCpuCaches();
+    } else {
+      for (int i = 0; i < kBatch; ++i) {
+        batch[i] = cache->Allocate(1);
+      }
+      for (int i = 0; i < kBatch; ++i) {
+        cache->Deallocate(batch[i], 1);
+      }
+    }
+  }
+}
+BENCHMARK(BM_CpuCacheContendedResizeAndSteal)->ThreadRange(2, 8)->UseRealTime();
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
