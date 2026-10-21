@@ -301,9 +301,18 @@ class PageTracker : public TList<PageTracker>::Elem {
     // since the tracker has transitioned from broken/no hugepage to hugepage'd.
   }
 
-  [[nodiscard]] HugePageResidencyState GetHugePageResidencyState() const {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  [[nodiscard]] HugePageResidencyState GetHugePageResidencyState() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return hugepage_residency_state_;
   }
+#else
+  [[nodiscard]] const HugePageResidencyState& GetHugePageResidencyState() const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return hugepage_residency_state_;
+  }
+#endif
   // Called by a treatment pass when it selects this tracker under
   // pageheap_lock; ReleaseFree sets the flag again if it releases pages from
   // the hugepage before the pass restores its findings.
