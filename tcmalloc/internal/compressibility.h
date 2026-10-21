@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "absl/container/fixed_array.h"
 #include "absl/status/statusor.h"
@@ -50,7 +51,8 @@ class CompressionAnalyzer {
                                   const Residency::Info& residency_info);
 
  private:
-  absl::FixedArray<char> local_copy_;
+  size_t max_local_copy_size_;
+  std::optional<absl::FixedArray<char>> local_copy_;
 };
 
 }  // namespace tcmalloc_internal

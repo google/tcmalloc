@@ -130,6 +130,11 @@ class StubResidency final : public Residency {
   ~StubResidency() override = default;
 
   std::optional<Info> Get(const void* addr, size_t size) override {
+    if (auto current = MallocExtension::GetNumericProperty(
+            "generic.current_allocated_bytes");
+        current.has_value()) {
+      allocated_bytes_in_get_ = *current;
+    }
     uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
     auto it = infos_.find(uaddr);
     if (it != infos_.end()) {
@@ -140,6 +145,10 @@ class StubResidency final : public Residency {
       return result;
     }
     return std::nullopt;
+  }
+
+  std::optional<size_t> allocated_bytes_in_get() const {
+    return allocated_bytes_in_get_;
   }
 
   size_t GetHardwarePagesInHugePage() const override { return 512; }
@@ -155,6 +164,7 @@ class StubResidency final : public Residency {
 
  private:
   absl::flat_hash_map<uintptr_t, Info> infos_;
+  std::optional<size_t> allocated_bytes_in_get_;
 };
 
 // Returns the fully resolved path of this program.
@@ -1558,8 +1568,17 @@ TEST(ProfileConverterTest, NoCompressibilityColumnsWithoutMeasurements) {
   fake_profile->SetSamples({sample});
   Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
 
+  const auto baseline_allocated =
+      MallocExtension::GetNumericProperty("generic.current_allocated_bytes");
   auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
   CHECK_OK(converted_or.status());
+  if (baseline_allocated.has_value() &&
+      residency.allocated_bytes_in_get().has_value()) {
+    const size_t current = *residency.allocated_bytes_in_get();
+    const size_t delta =
+        current > *baseline_allocated ? current - *baseline_allocated : 0;
+    EXPECT_LT(delta, 1024 * 1024);
+  }
   const auto& converted = **converted_or;
 
   std::vector<std::string> types;

@@ -160,9 +160,6 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
   SampleMergeResult result;
   SampleMergedMap& map = result.samples;
   std::optional<CompressionAnalyzer> compression_analyzer;
-  if (collecting_compressibility) {
-    compression_analyzer.emplace();
-  }
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     SampleMergedData& data = map[entry];
@@ -225,8 +222,11 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
       }
     }
 
-    if (compression_analyzer.has_value() && residency_info.has_value() &&
+    if (collecting_compressibility && residency_info.has_value() &&
         entry.span_start_address != nullptr && entry.requested_size > 0) {
+      if (!compression_analyzer.has_value()) {
+        compression_analyzer.emplace();
+      }
       absl::Span<const char> sample_mem(
           reinterpret_cast<const char*>(entry.span_start_address), size);
       absl::StatusOr<CompressionAnalyzer::Results> res =
