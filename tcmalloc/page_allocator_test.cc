@@ -496,6 +496,33 @@ TEST_F(PageAllocatorTest, TreatHugepageTrackersAllPartitions) {
   }
 }
 
+TEST_F(PageAllocatorTest, GetPageAllocationStatusInactivePartitions) {
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  AllocationState s = New(Length(1), kSpanInfo, MemoryTag::kNormal);
+  const HugePage hp = HugePageContaining(s.r.p);
+  {
+    PageHeapSpinLockHolder l;
+    void* old_pt = tc_globals.pagemap().GetHugepage(hp.first_page());
+    tc_globals.pagemap().SetHugepage(hp.first_page(), nullptr);
+    PageBitmap pages;
+    if (Parameters::heap_partitioning_mode() != HeapPartitioningMode::kFull) {
+      EXPECT_FALSE(allocator_->GetPageAllocationStatus(
+          hp, pages, MemoryTag::kSampledOrColdP1));
+    }
+    if (tc_globals.active_partitions() <= 1) {
+      EXPECT_FALSE(
+          allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kNormalP1));
+    }
+    EXPECT_FALSE(
+        allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kGuarded));
+    EXPECT_FALSE(
+        allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kMetadata));
+    tc_globals.pagemap().SetHugepage(hp.first_page(), old_pt);
+  }
+  Delete(s, kSpanInfo, MemoryTag::kNormal);
+}
+
 TEST_F(PageAllocatorTest, Hooks) {
   new_record_count = 0;
   delete_record_count = 0;
