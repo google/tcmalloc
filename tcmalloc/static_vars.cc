@@ -93,6 +93,8 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   }
 
   numa_topology_.Init();
+  slc_exclusion_partition_active_.store(CanActivateSlcExclusionPartition(),
+                                        std::memory_order_relaxed);
   TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
   system_allocator_.Init(numa_topology_, kMinMmapAlloc);
   sampledallocation_allocator_.Init(arena_);

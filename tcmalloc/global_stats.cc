@@ -289,16 +289,15 @@ static absl::string_view SizeClassConfigurationString(
 }
 
 static absl::string_view HeapPartitioningModeString() {
-  if (tc_globals.active_partitions() == 1) {
-    return "PARTITIONING_MODE_DISABLED";
-  } else if (kSecurityPartitions == 1 && tc_globals.active_partitions() > 1) {
-    return "PARTITIONING_MODE_NUMA";
-  } else if (tc_globals.active_partitions() > 1) {
+  if (tc_globals.multiple_non_numa_partitions()) {
     return Parameters::heap_partitioning_mode() == HeapPartitioningMode::kLight
                ? "PARTITIONING_MODE_SECURITY_LIGHT"
                : "PARTITIONING_MODE_SECURITY";
   }
-  return "PARTITIONING_MODE_UNKNOWN";
+  if (tc_globals.numa_topology().numa_aware()) {
+    return "PARTITIONING_MODE_NUMA";
+  }
+  return "PARTITIONING_MODE_DISABLED";
 }
 
 static absl::string_view PerCpuTypeString(RseqVcpuMode mode) {
@@ -612,8 +611,11 @@ void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation) {
         stats.num_released_hard_limit_exceeded.in_mib());
     out.printf("Number of active %spartitions: %llu\n",
                tc_globals.active_partitions() > 1
-                   ? (tc_globals.multiple_non_numa_partitions() ? "security "
-                                                                : "NUMA ")
+                   ? (tc_globals.multiple_non_numa_partitions()
+                          ? "security "
+                          : (tc_globals.numa_topology().numa_aware()
+                                 ? "NUMA "
+                                 : "SLC exclusion "))
                    : "",
                tc_globals.active_partitions());
 

@@ -41,6 +41,12 @@ int main() {
     void* ptr_1_sz0 = __alloc_token_1_malloc(0);
     void* new_0 = __alloc_token_0__Znwm(8);
     void* new_0_large = __alloc_token_0__Znwm(512 << 10);
+    void* slc_excluded_small =
+        ::operator new(64, tcmalloc::kSlcExcludedAccessHint);
+    absl::string_view slc_small_tag =
+        MemoryTagToLabel(GetMemoryTag(slc_excluded_small));
+    void* slc_excluded_large =
+        ::operator new(512 << 10, tcmalloc::kSlcExcludedAccessHint);
 
     int mode = tcmalloc::MallocExtension::GetNumericProperty(
                    "tcmalloc.security_partitioning_active")
@@ -53,6 +59,8 @@ int main() {
     absl::string_view tag_1_sz0 = MemoryTagToLabel(GetMemoryTag(ptr_1_sz0));
 
     absl::PrintF("security_partitioning:%d\n", security_partitioning);
+    absl::PrintF("min_hot_access_hint:%d\n",
+                 static_cast<int>(TCMalloc_Internal_GetMinHotAccessHint()));
     absl::PrintF("security_partitioning_mode:%d\n", mode);
     absl::PrintF("ptr_0_tag:%s\n", tag_0);
     absl::PrintF("ptr_1_tag:%s\n", tag_1);
@@ -61,7 +69,12 @@ int main() {
     absl::PrintF("new_0_tag:%s\n", MemoryTagToLabel(GetMemoryTag(new_0)));
     absl::PrintF("new_0_large_tag:%s\n",
                  MemoryTagToLabel(GetMemoryTag(new_0_large)));
+    absl::PrintF("slc_excluded_small_tag:%s\n", slc_small_tag);
+    absl::PrintF("slc_excluded_large_tag:%s\n",
+                 MemoryTagToLabel(GetMemoryTag(slc_excluded_large)));
 
+    ::operator delete(slc_excluded_large, 512 << 10);
+    ::operator delete(slc_excluded_small, 64);
     ::operator delete(new_0_large);
     ::operator delete(new_0);
     free(ptr_0);

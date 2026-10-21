@@ -116,9 +116,28 @@ class Static final {
     return Parameters::heap_partitioning_mode() != HeapPartitioningMode::kOff;
   }
 
-  [[nodiscard]] size_t active_partitions() {
-    return multiple_non_numa_partitions() ? kNormalPartitions
-                                          : numa_topology().active_partitions();
+  [[nodiscard]] bool CanActivateSlcExclusionPartition() const {
+    return kNormalPartitions > 1 && Parameters::slc_exclude_hint() &&
+           !multiple_non_numa_partitions() && !numa_topology_.numa_aware();
+  }
+
+  // Returns true when Partition 1 (MemoryTag::kNormalP1, size classes
+  // [kNumBaseClasses, 2 * kNumBaseClasses)) is repurposed to isolate
+  // kSlcExcludedAccessHint allocations on a single-socket system without
+  // security heap partitioning.
+  [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+  slc_exclusion_partition_active() const {
+    return slc_exclusion_partition_active_.load(std::memory_order_relaxed);
+  }
+
+  [[nodiscard]] size_t active_partitions() const {
+    if (multiple_non_numa_partitions()) {
+      return kNormalPartitions;
+    }
+    if (slc_exclusion_partition_active()) {
+      return 2;
+    }
+    return numa_topology_.active_partitions();
   }
 
   [[nodiscard]] SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,
@@ -253,6 +272,7 @@ class Static final {
       linked_sample_allocator_;
   std::atomic<bool> inited_ = false;
   std::atomic<bool> cpu_cache_active_ = false;
+  std::atomic<bool> slc_exclusion_partition_active_ = false;
   PeakHeapTracker peak_heap_tracker_;
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
   GwpAsanState gwp_asan_state_;
