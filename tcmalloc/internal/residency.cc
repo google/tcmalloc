@@ -35,7 +35,9 @@ namespace tcmalloc_internal {
 namespace {
 
 // From fs/proc/task_mmu.c:
+#define PM_MMAP_EXCLUSIVE (1ULL << 56)
 #define PM_GUARD_REGION (1ULL << 58)
+#define PM_FILE (1ULL << 61)
 #define PM_SWAP (1ULL << 62)
 #define PM_PRESENT (1ULL << 63)
 
@@ -44,8 +46,11 @@ constexpr bool PageSwapped(uint64_t flags) {
 }
 
 constexpr bool PagePresent(uint64_t flags) {
-  constexpr uint64_t kPresentPage = PM_PRESENT;
-  return (flags & kPresentPage) == kPresentPage;
+  // A shared zero-page PTE has PM_PRESENT set, but vm_normal_page() returns
+  // NULL in pte_to_pagemap_entry(), leaving both PM_MMAP_EXCLUSIVE and PM_FILE
+  // clear. Exclude shared zero-page PTEs so residency matches smaps Rss.
+  return (flags & PM_PRESENT) == PM_PRESENT &&
+         (flags & (PM_MMAP_EXCLUSIVE | PM_FILE)) != 0;
 }
 
 // Small helper to interpret /proc/pid/pagemap. Bit 62 represents if the page is
