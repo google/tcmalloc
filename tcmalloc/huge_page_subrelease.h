@@ -237,6 +237,14 @@ struct SubreleaseStats {
 
   void reset() {
     TC_ASSERT_GE(num_pages_subreleased, num_already_counted_pages_subreleased);
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    if (num_pages_subreleased == Length(0) &&
+        num_hugepages_broken == NHugePages(0)) {
+      TC_ASSERT_EQ(num_already_counted_pages_subreleased, Length(0));
+      TC_ASSERT_EQ(num_partial_alloc_pages_subreleased, Length(0));
+      return;
+    }
+#endif
     total_pages_subreleased +=
         num_pages_subreleased - num_already_counted_pages_subreleased;
     total_partial_alloc_pages_subreleased +=
