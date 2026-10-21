@@ -212,9 +212,8 @@ class FakeCentralFreeListEnvironment {
   using Forwarder = typename CentralFreeListT::Forwarder;
 
   static constexpr int kSizeClass = 1;
-  [[nodiscard]] size_t objects_per_span() {
-    return forwarder().class_to_pages(kSizeClass).in_bytes() /
-           forwarder().class_to_size(kSizeClass);
+  [[nodiscard]] size_t objects_per_span() const {
+    return cache_.objects_per_span();
   }
   [[nodiscard]] size_t batch_size() const { return batch_size_; }
 

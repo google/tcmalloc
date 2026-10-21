@@ -45,7 +45,8 @@ struct State {
   size_t object_size;
   Length pages;
   size_t num_to_move;
-  size_t objects_per_span;
+  size_t objects_per_span = 0;
+  int32_t bitmap_offset = 0;
   uint32_t size_reciprocal;
   void* mem = nullptr;
   std::unique_ptr<Span> span;
@@ -54,16 +55,22 @@ struct State {
   std::mt19937 rng;
   uint8_t nonempty_index = 0;
 
-  State(size_t object_size, Length pages, size_t num_to_move)
+  State(bool use_bitmap_for_small, size_t object_size, Length pages,
+        size_t num_to_move)
       : object_size(object_size),
         pages(pages),
         num_to_move(num_to_move),
-        objects_per_span(pages.in_bytes() / object_size),
         size_reciprocal(Span::CalcReciprocal(object_size)) {
+    const auto info =
+        Span::CalcBitmapInfo(use_bitmap_for_small, pages, object_size);
+    objects_per_span = info.objects_per_span;
+    bitmap_offset = info.bitmap_offset;
     TC_CHECK_EQ(posix_memalign(&mem, kPageSize, pages.in_bytes()), 0);
 
     span = std::make_unique<Span>(PageIdContaining(mem));
-    TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {}), 0);
+    TC_CHECK_EQ(
+        span->BuildFreelist(object_size, objects_per_span, {}, bitmap_offset),
+        0);
 
     live_ptrs.reserve(objects_per_span);
     batch.resize(kMaxObjectsToMove);
@@ -74,8 +81,9 @@ struct State {
       size_t limit = std::min<size_t>(live_ptrs.size() - i, num_to_move);
       Span::ObjIdx idx[kMaxObjectsToMove];
       Span::ObjectsToIdx({&live_ptrs[i], limit}, span.get(), object_size,
-                         size_reciprocal, idx);
-      (void)span->FreelistPushBatch(absl::MakeSpan(idx, limit), object_size);
+                         size_reciprocal, idx, bitmap_offset);
+      (void)span->FreelistPushBatch(absl::MakeSpan(idx, limit), object_size,
+                                    bitmap_offset);
       i += limit;
     }
     free(mem);
@@ -100,7 +108,8 @@ struct Alloc {
     }
 
     size_t popped = state.span->FreelistPopBatch(
-        absl::MakeSpan(state.batch.data(), n), state.object_size);
+        absl::MakeSpan(state.batch.data(), n), state.object_size,
+        state.objects_per_span, state.bitmap_offset);
     state.live_ptrs.insert(state.live_ptrs.end(), state.batch.data(),
                            state.batch.data() + popped);
   }
@@ -138,10 +147,11 @@ struct Dealloc {
 
     Span::ObjIdx idx[kMaxObjectsToMove];
     Span::ObjectsToIdx(ptrs, state.span.get(), state.object_size,
-                       state.size_reciprocal, idx);
+                       state.size_reciprocal, idx, state.bitmap_offset);
 
     (void)state.span->FreelistPushBatch(
-        absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size);
+        absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
+        state.bitmap_offset);
     state.live_ptrs.resize(state.live_ptrs.size() - n);
   }
 };
@@ -182,7 +192,8 @@ void AbslStringify(Sink& sink, const Instruction& i) {
 
 void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
                           uint8_t num_objects_to_move,
-                          const std::vector<Instruction>& instructions) {
+                          const std::vector<Instruction>& instructions,
+                          bool use_bitmap_for_small) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP()
       << "Skipping under HWASan, which uses the top bits of the pointer.";
@@ -199,7 +210,8 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
     return;
   }
 
-  State state(object_size, Length(num_pages), num_to_move);
+  State state(use_bitmap_for_small, object_size, Length(num_pages),
+              num_to_move);
 
   for (const auto& instruction : instructions) {
     std::visit([&](const auto& arg) { arg.Perform(state); }, instruction);
@@ -209,10 +221,11 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
 FUZZ_TEST(SpanTest, FuzzSpanInstructions)
     .WithDomains(fuzztest::Arbitrary<size_t>(), AnyLength(),
                  fuzztest::Arbitrary<uint8_t>(),
-                 fuzztest::Arbitrary<std::vector<Instruction>>());
+                 fuzztest::Arbitrary<std::vector<Instruction>>(),
+                 fuzztest::Arbitrary<bool>());
 
 void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
-              size_t initial_objects_at_build) {
+              size_t initial_objects_at_build, bool use_bitmap_for_small) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
   GTEST_SKIP()
       << "Skipping under HWASan, which uses the top bits of the pointer.";
@@ -224,9 +237,10 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   }
 
   const auto pages = num_pages;
-  const size_t objects_per_span = pages.in_bytes() / object_size;
-  initial_objects_at_build =
-      std::min(objects_per_span, initial_objects_at_build);
+  const auto [objects_per_span, bitmap_offset] =
+      Span::CalcBitmapInfo(use_bitmap_for_small, pages, object_size);
+  const size_t initial_objects =
+      std::min<size_t>(objects_per_span, initial_objects_at_build);
   const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
 
   void* mem;
@@ -238,12 +252,12 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   auto span = std::make_unique<Span>(PageIdContaining(mem));
 
   std::vector<void*> ptrs;
-  ptrs.resize(initial_objects_at_build);
+  ptrs.resize(initial_objects);
 
-  TC_CHECK_EQ(
-      span->BuildFreelist(object_size, objects_per_span, absl::MakeSpan(ptrs)),
-      initial_objects_at_build);
-  TC_CHECK_EQ(span->Allocated(), initial_objects_at_build);
+  TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span,
+                                  absl::MakeSpan(ptrs), bitmap_offset),
+              initial_objects);
+  TC_CHECK_EQ(span->Allocated(), initial_objects);
 
   ptrs.reserve(objects_per_span);
   while (ptrs.size() < objects_per_span) {
@@ -251,7 +265,8 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     TC_CHECK_GT(want, 0);
     void* batch[kMaxObjectsToMove];
     TC_CHECK(!span->FreelistEmpty(objects_per_span));
-    size_t n = span->FreelistPopBatch(absl::MakeSpan(batch, want), object_size);
+    size_t n = span->FreelistPopBatch(absl::MakeSpan(batch, want), object_size,
+                                      objects_per_span, bitmap_offset);
 
     TC_CHECK_GT(n, 0);
     TC_CHECK_LE(n, want);
@@ -266,8 +281,9 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
     Span::ObjIdx idx;
     Span::ObjectsToIdx({&ptrs[i], 1}, span.get(), object_size, size_reciprocal,
-                       &idx);
-    bool ok = span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size);
+                       &idx, bitmap_offset);
+    bool ok = span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
+                                      bitmap_offset);
     TC_CHECK_EQ(ok, i != popped - 1);
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.
@@ -279,39 +295,44 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   free(mem);
 }
 
-TEST(SpanTest, Regression1) { FuzzSpan(2560, Length(40), 6, 16); }
+TEST(SpanTest, Regression1) { FuzzSpan(2560, Length(40), 6, 16, false); }
 
-TEST(SpanTest, Fuzz6321706670620672) { FuzzSpan(262144, Length(32), 32, 1); }
+TEST(SpanTest, Fuzz6321706670620672) {
+  FuzzSpan(262144, Length(32), 32, 1, false);
+}
 
 TEST(SpanTest, Crash01d72a40d5815461b92d3f7c0f6377fd441b0034) {
-  FuzzSpan(2560, Length(0), 9, 16);
+  FuzzSpan(2560, Length(0), 9, 16, false);
 }
 
 TEST(SpanTest, Crash32697afd59029eb8356fee8ba568e7f6b58d728f) {
-  FuzzSpan(2560, Length(24), 6, 16);
+  FuzzSpan(2560, Length(24), 6, 16, false);
 }
 
 TEST(SpanTest, Crash42b80edf9551d1095aebb6724c070ee43d490125) {
-  FuzzSpan(2560, Length(18), 0, 16);
+  FuzzSpan(2560, Length(18), 0, 16, false);
 }
 
 TEST(SpanTest, Crash500955af6568b0ed234bd40d6a01af496ba15eb2) {
-  FuzzSpan(2560, Length(18), 6, 16);
+  FuzzSpan(2560, Length(18), 6, 16, false);
 }
 
 TEST(SpanTest, Crash6ef2b6ae2246d1bda0190983b1007df2699e7738) {
-  FuzzSpan(41984, Length(2), 39, 60);
+  FuzzSpan(41984, Length(2), 39, 60, false);
 }
 
 TEST(SpanTest, Crash746940d0368bfe3e4a94b60659eeb6cb87106618) {
-  FuzzSpan(0, Length(1), 0, 1);
+  FuzzSpan(0, Length(1), 0, 1, false);
 }
 
-TEST(SpanTest, Testcase5877384059617280) { FuzzSpan(8, Length(1), 8, 1024); }
+TEST(SpanTest, Testcase5877384059617280) {
+  FuzzSpan(8, Length(1), 8, 1024, false);
+}
 
 FUZZ_TEST(SpanTest, FuzzSpan)
     .WithDomains(fuzztest::InRange<size_t>(0, kMaxSize), AnyLength(),
-                 fuzztest::Arbitrary<size_t>(), fuzztest::Arbitrary<size_t>());
+                 fuzztest::Arbitrary<size_t>(), fuzztest::Arbitrary<size_t>(),
+                 fuzztest::Arbitrary<bool>());
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

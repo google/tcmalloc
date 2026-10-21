@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <new>
@@ -40,6 +41,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 #ifdef NDEBUG
+#else
+static_assert(sizeof(Span) == 128);
 #endif  // NDEBUG
 
 // Freelist organization.
@@ -88,12 +91,16 @@ void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
   TC_ASSERT_EQ(bitmap_.CountBits(), count);
 }
 
-int Span::BuildFreelist(size_t size, size_t count,
-                        absl::Span<void*> batch) __restrict__ {
+int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
+                        int32_t bitmap_offset) __restrict__ {
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
 
-  if (UseBitmapForSize(size)) {
+  if (bitmap_offset != 0) {
+    return DynamicBitmapBuild(size, count, batch, bitmap_offset);
+  }
+
+  if (UseBitmapForSize(size, bitmap_offset)) {
     BuildBitmap(size, count);
     return BitmapPopBatch(batch, size);
   }
@@ -157,6 +164,45 @@ int Span::BuildFreelist(size_t size, size_t count,
     }
   }
   embed_count_ = embed_count;
+  return result;
+}
+
+int Span::DynamicBitmapBuild(size_t size, size_t count, absl::Span<void*> batch,
+                             int32_t bitmap_offset) __restrict__ {
+  TC_ASSERT_GT(count, 0);
+  BitmapElem* bm = DynamicBitmap(bitmap_offset);
+  const size_t result = std::min(batch.size(), count);
+  char* ptr = static_cast<char*>(start_address());
+  for (size_t i = 0; i < result; ++i, ptr += size) {
+    batch[i] = ptr;
+  }
+  allocated_ = result;
+
+  const size_t start_word = result / kBitsPerWord;
+  const size_t start_bit = result % kBitsPerWord;
+  const size_t end_word = count / kBitsPerWord;
+  const size_t end_bit = count % kBitsPerWord;
+  for (size_t w = 0; w < start_word; ++w) {
+    bm[w] = 0;
+  }
+  if (result == count) {
+    if (start_bit != 0) {
+      bm[start_word] = 0;
+    }
+    return result;
+  }
+  if (start_word == end_word) {
+    bm[start_word] =
+        (~BitmapElem{0} << start_bit) & ((BitmapElem{1} << end_bit) - 1);
+    return result;
+  }
+  bm[start_word] = ~BitmapElem{0} << start_bit;
+  for (size_t w = start_word + 1; w < end_word; ++w) {
+    bm[w] = ~BitmapElem{0};
+  }
+  if (end_bit != 0) {
+    bm[end_word] = (BitmapElem{1} << end_bit) - 1;
+  }
   return result;
 }
 

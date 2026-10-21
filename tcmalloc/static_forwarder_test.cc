@@ -274,6 +274,7 @@ class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {
   size_t batch_size_;
   size_t objects_per_span_;
   uint32_t size_reciprocal_;
+  int32_t bitmap_offset_;
 
  private:
   void SetUp() override {
@@ -297,7 +298,10 @@ class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {
 
     pages_per_span_ = tc_globals.sizemap().class_to_pages(size_class_);
     batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
-    objects_per_span_ = pages_per_span_.in_bytes() / object_size_;
+    const auto [objects_per_span, bitmap_offset] = Span::CalcBitmapInfo(
+        /*use_bitmap_for_small=*/true, pages_per_span_, object_size_);
+    objects_per_span_ = objects_per_span;
+    bitmap_offset_ = bitmap_offset;
     size_reciprocal_ = CalcReciprocal(object_size_);
   }
 };
@@ -309,7 +313,7 @@ TEST_P(StaticForwarderSpanTest, Simple) {
 
   absl::FixedArray<void*> batch(objects_per_span_);
   size_t allocated = span->BuildFreelist(object_size_, objects_per_span_,
-                                         absl::MakeSpan(batch));
+                                         absl::MakeSpan(batch), bitmap_offset_);
   ASSERT_EQ(allocated, objects_per_span_);
 
   EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
@@ -326,8 +330,10 @@ TEST_P(StaticForwarderSpanTest, Simple) {
 
   for (void* ptr : batch) {
     Span::ObjIdx idx;
-    Span::ObjectsToIdx({&ptr, 1}, span, object_size_, size_reciprocal_, &idx);
-    EXPECT_EQ(span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size_),
+    Span::ObjectsToIdx({&ptr, 1}, span, object_size_, size_reciprocal_, &idx,
+                       bitmap_offset_);
+    EXPECT_EQ(span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size_,
+                                      bitmap_offset_),
               ptr != batch.back());
   }
 
@@ -339,7 +345,8 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
   constexpr int size_class = 1;
   const size_t object_size = tc_globals.sizemap().class_to_size(size_class);
   const Length pages_per_span = tc_globals.sizemap().class_to_pages(size_class);
-  const size_t objects_per_span = pages_per_span.in_bytes() / object_size;
+  const auto [objects_per_span, bitmap_offset] = Span::CalcBitmapInfo(
+      /*use_bitmap_for_small=*/true, pages_per_span, object_size);
   const size_t size_reciprocal = CalcReciprocal(object_size);
 
   Span* span =
@@ -347,8 +354,8 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
   ASSERT_NE(span, nullptr);
 
   absl::FixedArray<void*> batch(objects_per_span);
-  size_t allocated =
-      span->BuildFreelist(object_size, objects_per_span, absl::MakeSpan(batch));
+  size_t allocated = span->BuildFreelist(object_size, objects_per_span,
+                                         absl::MakeSpan(batch), bitmap_offset);
   ASSERT_EQ(allocated, objects_per_span);
 
   // Mismatched size class
@@ -366,8 +373,10 @@ TEST(StaticForwarderDeathTest, MapObjectsToSpansErrors) {
 
   for (void* p : batch) {
     Span::ObjIdx idx;
-    Span::ObjectsToIdx({&p, 1}, span, object_size, size_reciprocal, &idx);
-    (void)span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size);
+    Span::ObjectsToIdx({&p, 1}, span, object_size, size_reciprocal, &idx,
+                       bitmap_offset);
+    (void)span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
+                                  bitmap_offset);
   }
   ProdForwarder::DeallocateSpans(objects_per_span, pages_per_span,
                                  absl::MakeSpan(&span, 1));
@@ -385,11 +394,13 @@ class StaticForwarderEnvironment {
 
  public:
   StaticForwarderEnvironment(int size_class, size_t object_size,
-                             size_t objects_per_span, Length pages_per_span,
-                             int batch_size, size_t max_spans)
+                             size_t objects_per_span, int32_t bitmap_offset,
+                             Length pages_per_span, int batch_size,
+                             size_t max_spans)
       : size_class_(size_class),
         object_size_(object_size),
         objects_per_span_(objects_per_span),
+        bitmap_offset_(bitmap_offset),
         pages_per_span_(pages_per_span),
         batch_size_(batch_size) {
     data_.reserve(max_spans);
@@ -407,8 +418,9 @@ class StaticForwarderEnvironment {
     ASSERT_NE(span, nullptr);
 
     void* batch[kMaxObjectsToMove];
-    size_t allocated = span->BuildFreelist(object_size_, objects_per_span_,
-                                           absl::MakeSpan(batch, batch_size_));
+    size_t allocated =
+        span->BuildFreelist(object_size_, objects_per_span_,
+                            absl::MakeSpan(batch, batch_size_), bitmap_offset_);
     EXPECT_LE(allocated, objects_per_span_);
 
     EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
@@ -463,6 +475,7 @@ class StaticForwarderEnvironment {
   int size_class_;
   size_t object_size_;
   size_t objects_per_span_;
+  int32_t bitmap_offset_;
   Length pages_per_span_;
   int batch_size_;
 
@@ -539,10 +552,12 @@ void Fuzz(size_t size_class, const std::vector<FuzzOp>& ops) {
   const Length pages_per_span = tc_globals.sizemap().class_to_pages(size_class);
   const size_t batch_size =
       tc_globals.sizemap().num_objects_to_move(size_class);
-  const size_t objects_per_span = pages_per_span.in_bytes() / object_size;
+  const auto [objects_per_span, bitmap_offset] = Span::CalcBitmapInfo(
+      /*use_bitmap_for_small=*/true, pages_per_span, object_size);
 
   StaticForwarderEnvironment env(size_class, object_size, objects_per_span,
-                                 pages_per_span, batch_size, ops.size());
+                                 bitmap_offset, pages_per_span, batch_size,
+                                 ops.size());
   const BackingStats page_heap_before = PageHeapStats();
   const size_t spans_in_use_before = tc_globals.span_allocator().stats().in_use;
 

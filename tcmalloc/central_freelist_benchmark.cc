@@ -653,14 +653,13 @@ void BM_SteadyState(benchmark::State& state) {
   const Bytes span_bytes =
       Bytes(tc_globals.sizemap().class_to_pages(size_class).in_bytes());
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  const int objects_per_span = span_bytes.raw_num() / object_size;
+  BenchmarkEnv env(object_size, span_bytes, batch_size);
+  const int objects_per_span = env.central_freelist().objects_per_span();
 
   if (objects_per_span <= 1) {
     state.SkipWithError("Only for >1 objects per span");
     return;
   }
-
-  BenchmarkEnv env(object_size, span_bytes, batch_size);
 
   ActiveObjectPool pool =
       SetupFreelistOccupancy(env, objects_per_span, 2 * batch_size, batch_size,
@@ -718,15 +717,16 @@ void BM_Multithreaded_Setup(const benchmark::State& state) {
   const Bytes span_bytes =
       Bytes(tc_globals.sizemap().class_to_pages(size_class).in_bytes());
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  const int objects_per_span = span_bytes.raw_num() / object_size;
-
-  if (objects_per_span <= 1) {
-    return;
-  }
-
   g_mt_state = new MultithreadedState();
   g_mt_state->env =
       std::make_unique<BenchmarkEnv>(object_size, span_bytes, batch_size);
+  const int objects_per_span =
+      g_mt_state->env->central_freelist().objects_per_span();
+  if (objects_per_span <= 1) {
+    delete g_mt_state;
+    g_mt_state = nullptr;
+    return;
+  }
   g_mt_state->thread_pools.resize(state.threads());
   for (int t = 0; t < state.threads(); ++t) {
     g_mt_state->thread_pools[t] = SetupFreelistOccupancy(
@@ -755,14 +755,13 @@ void BM_Multithreaded_Teardown(const benchmark::State& state) {
 }
 
 void BM_Multithreaded(benchmark::State& state) {
+  TC_CHECK(g_mt_state);
   const size_t object_size = state.range(0);
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
-  const Bytes span_bytes =
-      Bytes(tc_globals.sizemap().class_to_pages(size_class).in_bytes());
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  const int objects_per_span = span_bytes.raw_num() / object_size;
-
+  const int objects_per_span =
+      g_mt_state->env->central_freelist().objects_per_span();
   if (objects_per_span <= 1) {
     state.SkipWithError("Only for >1 objects per span");
     return;

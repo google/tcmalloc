@@ -21,6 +21,7 @@
 #include <memory>
 #include <new>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -35,6 +36,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
@@ -43,17 +45,15 @@ namespace {
 
 class RawSpan {
  public:
-  void Init(size_t size_class) {
-    size_t size = tc_globals.sizemap().class_to_size(size_class);
-    auto npages = tc_globals.sizemap().class_to_pages(size_class);
-    size_t objects_per_span = npages.in_bytes() / size;
-
+  void Init(size_t size, Length npages, size_t objects_per_span,
+            int32_t bitmap_offset) {
     int res = posix_memalign(&mem_, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
 
     // Dynamically allocate so ASan can flag if we run out of bounds.
     span_ = std::make_unique<Span>(PageIdContaining(mem_));
-    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}), 0);
+    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, bitmap_offset),
+                0);
   }
 
   ~RawSpan() {
@@ -67,7 +67,7 @@ class RawSpan {
   std::unique_ptr<Span> span_;
 };
 
-class SpanTest : public testing::TestWithParam<size_t> {
+class SpanTest : public testing::TestWithParam<std::tuple<size_t, bool>> {
  protected:
   size_t size_class_;
   size_t size_;
@@ -75,6 +75,7 @@ class SpanTest : public testing::TestWithParam<size_t> {
   size_t batch_size_;
   size_t objects_per_span_;
   uint32_t reciprocal_;
+  int32_t bitmap_offset_;
   RawSpan raw_span_;
 
  private:
@@ -84,7 +85,8 @@ class SpanTest : public testing::TestWithParam<size_t> {
         << "Skipping under HWASan, which uses the top bits of the pointer.";
 #endif
 
-    size_class_ = GetParam();
+    size_class_ = std::get<0>(GetParam());
+    const bool use_bitmap_for_small = std::get<1>(GetParam());
     size_ = tc_globals.sizemap().class_to_size(size_class_);
     if (size_ == 0) {
       GTEST_SKIP() << "Skipping empty size class.";
@@ -92,10 +94,13 @@ class SpanTest : public testing::TestWithParam<size_t> {
 
     npages_ = tc_globals.sizemap().class_to_pages(size_class_);
     batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
-    objects_per_span_ = npages_.in_bytes() / size_;
+    const auto [objects_per_span, bitmap_offset] =
+        Span::CalcBitmapInfo(use_bitmap_for_small, npages_, size_);
+    objects_per_span_ = objects_per_span;
+    bitmap_offset_ = bitmap_offset;
     reciprocal_ = Span::CalcReciprocal(size_);
 
-    raw_span_.Init(size_class_);
+    raw_span_.Init(size_, npages_, objects_per_span_, bitmap_offset_);
   }
 
   void TearDown() override {}
@@ -114,7 +119,8 @@ TEST_P(SpanTest, FreelistBasic) {
     // Pop all objects in batches of varying size and ensure that we've got
     // all objects.
     for (;;) {
-      size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
+      size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_,
+                                        objects_per_span_, bitmap_offset_);
       popped += n;
       EXPECT_EQ(span_.FreelistEmpty(objects_per_span_),
                 popped == objects_per_span_);
@@ -136,7 +142,9 @@ TEST_P(SpanTest, FreelistBasic) {
       }
     }
     EXPECT_TRUE(span_.FreelistEmpty(objects_per_span_));
-    EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
+    EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_,
+                                     objects_per_span_, bitmap_offset_),
+              0);
     EXPECT_EQ(popped, objects_per_span_);
 
     // Push all objects back except the last one (which would not be pushed).
@@ -144,8 +152,10 @@ TEST_P(SpanTest, FreelistBasic) {
       EXPECT_TRUE(objects[idx]);
       void* ptr = start + idx * size_;
       Span::ObjIdx objidx;
-      Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx);
-      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_);
+      Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx,
+                         bitmap_offset_);
+      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
+                                        bitmap_offset_);
       EXPECT_TRUE(ok);
       EXPECT_FALSE(span_.FreelistEmpty(objects_per_span_));
       objects[idx] = false;
@@ -155,15 +165,78 @@ TEST_P(SpanTest, FreelistBasic) {
     if (x == 1) {
       void* ptr = start + (objects_per_span_ - 1) * size_;
       Span::ObjIdx objidx;
-      Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx);
-      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_);
+      Span::ObjectsToIdx({&ptr, 1}, &span_, size_, reciprocal_, &objidx,
+                         bitmap_offset_);
+      bool ok = span_.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
+                                        bitmap_offset_);
       EXPECT_FALSE(ok);
     }
   }
 }
 
+INSTANTIATE_TEST_SUITE_P(
+    All, SpanTest,
+    testing::Combine(testing::Range(size_t(1), kNumClasses), testing::Bool()));
 
-INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
+TEST(SpanBitmapTest, CalcBitmapInfo) {
+  bool saw_enough_waste = false;
+  bool saw_lacking_waste = false;
+  for (size_t size = 8; size <= 2 * kPageSize;
+       size += static_cast<size_t>(kAlignment)) {
+    for (Length pages = Length(1); pages <= Length(4); ++pages) {
+      if (!SizeMap::IsValidSizeClass(size, pages,
+                                     /*num_objects_to_move=*/2)) {
+        continue;
+      }
+      {
+        const auto [objects_per_span, bitmap_offset] =
+            Span::CalcBitmapInfo(false, pages, size);
+        ASSERT_EQ(objects_per_span, pages.in_bytes() / size);
+        ASSERT_EQ(bitmap_offset, 0);
+      }
+
+      const auto [objects_per_span, bitmap_offset] =
+          Span::CalcBitmapInfo(true, pages, size);
+      const size_t max_objects = pages.in_bytes() / size;
+      if (max_objects <= Span::kRawBitmapSize * Span::kBitsPerWord) {
+        ASSERT_EQ(objects_per_span, max_objects);
+        ASSERT_EQ(bitmap_offset, -1);
+        continue;
+      }
+
+      ASSERT_GT(bitmap_offset, 0);
+      ASSERT_EQ(bitmap_offset % alignof(Span::BitmapElem), 0);
+      const size_t bitmap_bytes = (objects_per_span + Span::kBitsPerWord - 1) /
+                                  Span::kBitsPerWord * sizeof(Span::BitmapElem);
+      ASSERT_EQ(bitmap_offset, pages.in_bytes() - bitmap_bytes);
+      ASSERT_LE(objects_per_span * size, bitmap_offset);
+
+      const size_t max_bitmap_bytes = (max_objects + Span::kBitsPerWord - 1) /
+                                      Span::kBitsPerWord *
+                                      sizeof(Span::BitmapElem);
+      const size_t end_waste = pages.in_bytes() % size;
+      if (end_waste >= max_bitmap_bytes) {
+        saw_enough_waste = true;
+        ASSERT_EQ(objects_per_span, max_objects);
+      } else {
+        saw_lacking_waste = true;
+        ASSERT_LT(objects_per_span, max_objects);
+      }
+
+      // Verify that we do not over-subtract objects_per_span and use span bytes
+      // as much as possible: one more object would not fit with its bitmap.
+      const size_t next_objects = objects_per_span + 1;
+      const size_t next_bitmap_bytes = (next_objects + Span::kBitsPerWord - 1) /
+                                       Span::kBitsPerWord *
+                                       sizeof(Span::BitmapElem);
+      ASSERT_GT(next_objects * size + next_bitmap_bytes, pages.in_bytes());
+    }
+  }
+  EXPECT_TRUE(saw_lacking_waste);
+  if (kPageSize >= (32 << 10)) {
+    EXPECT_TRUE(saw_enough_waste);
+  }
+}
 
 TEST(SpanAllocatorTest, Alignment) {
   constexpr int kNumSpans = 1000;
