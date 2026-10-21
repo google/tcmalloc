@@ -15,7 +15,6 @@
 #include "tcmalloc/internal/cache_topology.h"
 
 #include <fcntl.h>
-#include <string.h>
 
 #include <cerrno>
 #include <cstdio>
@@ -40,14 +39,17 @@ int OpenSysfsCacheList(size_t cpu) {
 }
 }  // namespace
 
-void CacheTopology::Init() {
-  const auto maybe_numcpus = NumCPUsMaybe();
+void CacheTopology::Init() { InitImpl(NumCPUsMaybe(), OpenSysfsCacheList); }
+
+void CacheTopology::InitImpl(std::optional<int> maybe_numcpus,
+                             int (*open_cache_cpulist)(size_t)) {
   if (!maybe_numcpus.has_value()) {
     l3_count_ = 1;
     return;
   }
 
   cpu_count_ = *maybe_numcpus;
+  TC_CHECK_LE(cpu_count_, kMaxCpus);
   CpuSet cpus_to_check;
   cpus_to_check.Zero();
   for (int cpu = 0; cpu < cpu_count_; ++cpu) {
@@ -59,22 +61,14 @@ void CacheTopology::Init() {
     if (cpu == -1) {
       break;
     }
-    const int fd = OpenSysfsCacheList(cpu);
+    const int fd = open_cache_cpulist(cpu);
     if (fd == -1) {
-      // At some point we reach the number of CPU on the system, and
-      // we should exit. We verify that there was no other problem.
+      // Offline CPUs or systems that do not expose cache/index3 in sysfs
+      // return ENOENT. Verify that there was no other problem, mark this CPU
+      // as checked, and continue checking remaining CPUs.
       TC_CHECK_EQ(errno, ENOENT);
-      // For aarch64 if
-      // /sys/devices/system/cpu/cpu*/cache/index3/shared_cpu_list is missing
-      // then L3 is assumed to be shared by all CPUs.
-      // TODO(b/210049384): find a better replacement for shared_cpu_list in
-      // this case, e.g. based on numa nodes.
-#ifdef __aarch64__
-      if (l3_count_ == 0) {
-        l3_count_ = 1;
-      }
-#endif
-      return;
+      cpus_to_check.CLR(cpu);
+      continue;
     }
     // The file contains something like:
     //   0-11,22-33
@@ -104,6 +98,15 @@ void CacheTopology::Init() {
       cpus_to_check.CLR(next_cpu);
       l3_cache_index_[next_cpu] = l3_cache_index_[first_cpu];
     }
+  }
+
+  // If /sys/devices/system/cpu/cpu*/cache/index3/shared_cpu_list is missing
+  // (e.g. on aarch64 or x86_64 VMs/containers that do not expose L3 cache
+  // topology in sysfs), then L3 is assumed to be shared by all CPUs.
+  // TODO(b/210049384): find a better replacement for shared_cpu_list in
+  // this case, e.g. based on numa nodes.
+  if (l3_count_ == 0) {
+    l3_count_ = 1;
   }
 }
 
