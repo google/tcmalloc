@@ -505,6 +505,13 @@ using tcmalloc::tcmalloc_internal::MadviseSampledAllocations;
 using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
 
+// Parameters::InitializeFromExperiments() runs during tc_globals initialization
+// (normally on the first allocation).  Getters below that back flag defaults
+// or MallocExtension can run before that, e.g. under sanitizers, where TCMalloc
+// is not the allocator.  Such getters must initialize first to report the
+// experiment-adjusted value.
+static void EnsureExperimentDefaults() { tc_globals.InitIfNecessary(); }
+
 extern "C" {
 
 int64_t MallocExtension_Internal_GetProfileSamplingInterval() {
@@ -548,6 +555,7 @@ void MallocExtension_Internal_SetBackgroundProcessSleepInterval(
 
 void MallocExtension_Internal_GetSkipSubreleaseShortInterval(
     absl::Duration* ret) {
+  EnsureExperimentDefaults();
   *ret = Parameters::filler_skip_subrelease_short_interval();
 }
 
@@ -558,6 +566,7 @@ void MallocExtension_Internal_SetSkipSubreleaseShortInterval(
 
 void MallocExtension_Internal_GetSkipSubreleaseLongInterval(
     absl::Duration* ret) {
+  EnsureExperimentDefaults();
   *ret = Parameters::filler_skip_subrelease_long_interval();
 }
 
@@ -568,6 +577,7 @@ void MallocExtension_Internal_SetSkipSubreleaseLongInterval(
 
 tcmalloc::MallocExtension::BytesPerSecond
 MallocExtension_Internal_GetBackgroundReleaseRate() {
+  EnsureExperimentDefaults();
   return Parameters::background_release_rate();
 }
 
@@ -708,6 +718,7 @@ void TCMalloc_Internal_SetProfileSamplingInterval(int64_t v) {
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration* v) {
+  EnsureExperimentDefaults();
   *v = Parameters::filler_skip_subrelease_short_interval();
 }
 
@@ -719,6 +730,7 @@ void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration* v) {
+  EnsureExperimentDefaults();
   *v = Parameters::filler_skip_subrelease_long_interval();
 }
 
@@ -730,6 +742,7 @@ void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdShortInterval(
     absl::Duration* v) {
+  EnsureExperimentDefaults();
   *v = Parameters::filler_skip_subrelease_cold_short_interval();
 }
 
@@ -741,6 +754,7 @@ void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdLongInterval(
     absl::Duration* v) {
+  EnsureExperimentDefaults();
   *v = Parameters::filler_skip_subrelease_cold_long_interval();
 }
 
@@ -762,6 +776,7 @@ void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
 }
 
 uint8_t TCMalloc_Internal_GetMinHotAccessHint() {
+  EnsureExperimentDefaults();
   return static_cast<uint8_t>(Parameters::min_hot_access_hint());
 }
 
@@ -799,6 +814,7 @@ void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v) {
 }
 
 bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
+  EnsureExperimentDefaults();
   return Parameters::release_max_filler_pages();
 }
 
@@ -807,6 +823,7 @@ void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
 }
 
 bool TCMalloc_Internal_GetTrackBrokenHugepages() {
+  EnsureExperimentDefaults();
   return Parameters::track_broken_hugepages() ==
          tcmalloc::tcmalloc_internal::TrackBrokenHugepages::kEnabled;
 }
@@ -819,6 +836,7 @@ void TCMalloc_Internal_SetTrackBrokenHugepages(bool v) {
 }
 
 bool TCMalloc_Internal_GetPreserveDonatedOnCollapse() {
+  EnsureExperimentDefaults();
   return Parameters::preserve_donated_on_collapse() ==
          tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled;
 }
@@ -831,6 +849,7 @@ void TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v) {
 }
 
 bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
+  EnsureExperimentDefaults();
   return Parameters::madvise_cold_regions_nohugepage() ==
          tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled;
 }
