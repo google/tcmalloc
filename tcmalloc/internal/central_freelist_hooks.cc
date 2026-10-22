@@ -15,6 +15,7 @@
 #include "tcmalloc/internal/central_freelist_hooks.h"
 
 #include <cstddef>
+#include <cstdint>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
@@ -35,7 +36,8 @@ namespace tcmalloc_internal {
 
 namespace {
 
-void InitialRemoveRangeHook(size_t size_class, absl::Span<void*> batch);
+void InitialRemoveRangeHook(size_t size_class, absl::Span<void*> batch,
+                            uint64_t seq);
 
 void RemoveInitialHooksAndCallInitializers() {
   TC_CHECK(central_freelist_remove_range_hooks.Remove(&InitialRemoveRangeHook));
@@ -44,13 +46,14 @@ void RemoveInitialHooksAndCallInitializers() {
   }
 }
 
-void InitialRemoveRangeHook(size_t size_class, absl::Span<void*> batch) {
+void InitialRemoveRangeHook(size_t size_class, absl::Span<void*> batch,
+                            uint64_t seq) {
   ABSL_CONST_INIT static absl::once_flag once;
   absl::base_internal::LowLevelCallOnce(&once,
                                         RemoveInitialHooksAndCallInitializers);
 
   if (ABSL_PREDICT_FALSE(!central_freelist_remove_range_hooks.empty())) {
-    central_freelist_remove_range_hooks.Invoke(size_class, batch);
+    central_freelist_remove_range_hooks.Invoke(size_class, batch, seq);
   }
 }
 

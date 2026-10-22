@@ -35,6 +35,26 @@ struct TracerSizeClassInfo {
   size_t num_objects_to_move;
 };
 
+struct CentralFreeListSpanSnapshot {
+  uintptr_t start_address;
+  uint32_t size_class;
+  uint32_t objects_per_span;
+  uint32_t allocated_objects;
+  // Offset into `CentralFreeListSnapshot::allocated_bitmaps`, or UINT32_MAX
+  // when `allocated_objects == objects_per_span` (full span).
+  uint32_t bitmap_word_offset;
+};
+
+struct CentralFreeListSnapshot {
+  // Sequence number `trace_seq_` observed under each size class's lock.
+  std::vector<uint64_t> class_seqs;
+  // Spans ordered by size class: nonempty spans in priority-list order
+  // (0..kNumLists-1, front to back), followed by full spans.
+  std::vector<CentralFreeListSpanSnapshot> spans;
+  // Packed allocated-object bitmaps for nonempty spans (`1` = allocated).
+  std::vector<uint64_t> allocated_bitmaps;
+};
+
 enum class MadviseSampledAllocations : bool { kDisabled, kEnabled };
 
 }  // namespace tcmalloc_internal
@@ -176,6 +196,11 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(
 TCMalloc_Internal_GetPageAllocationStatus(
     const void* ptr,
     tcmalloc::tcmalloc_internal::PageAllocationStatus* absl_nonnull status);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SnapshotCentralFreeLists(
+    tcmalloc::tcmalloc_internal::CentralFreeListSnapshot* absl_nonnull
+        snapshot);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetCflSubbucketPrioritization();
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_
