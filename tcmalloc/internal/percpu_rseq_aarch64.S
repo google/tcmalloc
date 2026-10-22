@@ -153,8 +153,8 @@ label##_trampoline:                                               \
   adrp    x6, :gottprel:__rseq_abi;             \
   ldr     x6, [x6,:gottprel_lo12:__rseq_abi];   \
   add     x5, x5, x6;                           \
-  adrp    x6, __rseq_cs_##src;                  \
-  add     x6, x6, :lo12:__rseq_cs_##src;        \
+  adrp    x6, :got:__rseq_cs_##src;             \
+  ldr     x6, [x6, :got_lo12:__rseq_cs_##src];  \
   str     x6, [x5, #8];                         \
   .L##src##_start:
 
@@ -187,8 +187,8 @@ label##_trampoline:                                               \
   add     x5, x5, x0;                          \
   ldp     x2, x3, [sp, #16];                   \
   ldp     x0, x1, [sp], #48;                   \
-  adrp    x6, __rseq_cs_##src;                 \
-  add     x6, x6, :lo12:__rseq_cs_##src;       \
+  adrp    x6, :got:__rseq_cs_##src;            \
+  ldr     x6, [x6, :got_lo12:__rseq_cs_##src]; \
   str     x6, [x5, #8];                        \
   .L##src##_start:
 
