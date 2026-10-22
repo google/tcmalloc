@@ -275,6 +275,10 @@ TEST_F(GetStatsTest, Parameters) {
       tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled;
   Parameters::set_preserve_donated_on_collapse(false);
   ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
+  ASSERT_NE(&TCMalloc_Internal_GetBackSmallAllocations, nullptr);
+  const bool old_back_small_allocations =
+      TCMalloc_Internal_GetBackSmallAllocations();
+  TCMalloc_Internal_SetBackSmallAllocations(false);
 
   auto using_hpaa = [](absl::string_view sv) {
     return absl::StrContains(sv, "HugePageAwareAllocator");
@@ -373,6 +377,7 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: -1)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: false)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(back_small_allocations: false)"));
     if (false
     ) {
       EXPECT_THAT(pbtxt,
@@ -460,6 +465,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
   Parameters::set_madvise_sampled_allocations(
       MadviseSampledAllocations::kEnabled);
+  TCMalloc_Internal_SetBackSmallAllocations(true);
+  EXPECT_TRUE(TCMalloc_Internal_GetBackSmallAllocations());
 
   buf = MallocExtension::GetStats();
   pbtxt = GetStatsInPbTxt();
@@ -502,6 +509,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_preserve_donated_on_collapse 1)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 1)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 1)"));
 
     if (using_hpaa(buf)) {
       EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
@@ -536,6 +545,7 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: true)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(back_small_allocations: true)"));
   }
 
   Parameters::set_hpaa_subrelease(old_hpaa_subrelease);
@@ -555,6 +565,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_track_broken_hugepages(old_track_broken_hugepages);
   Parameters::set_preserve_donated_on_collapse(
       old_preserve_donated_on_collapse);
+  TCMalloc_Internal_SetBackSmallAllocations(old_back_small_allocations);
 }
 
 TEST_F(GetStatsTest, StackDepth) {

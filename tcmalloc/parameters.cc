@@ -483,10 +483,6 @@ int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }
 
-bool TCMalloc_Internal_GetBackSmallAllocations() {
-  return Parameters::back_small_allocations();
-}
-
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
 
 // TODO(b/271475288): remove the default_want_disable_dynamic_slabs opt-out
@@ -597,6 +593,10 @@ bool TCMalloc_Internal_GetHPAASubrelease() {
 
 bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
+}
+
+bool TCMalloc_Internal_GetBackSmallAllocations() {
+  return Parameters::back_small_allocations();
 }
 
 int32_t TCMalloc_Internal_GetBackSizeThresholdBytes() {
