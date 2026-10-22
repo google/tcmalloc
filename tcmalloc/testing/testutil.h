@@ -298,8 +298,7 @@ class ScopedFakeCpuId {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     // Now that our unregister_rseq_ member has prevented the kernel from
     // modifying __rseq_abi, we can inject our own CPU ID.
-    tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
-    test_vcpu_ = cpu_id;
+    SetCpuId(cpu_id);
 #endif
   }
 
@@ -307,9 +306,7 @@ class ScopedFakeCpuId {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     // Undo the modification we made in the constructor, as required by
     // ~ScopedFakeCpuId.
-    tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id =
-        tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
-    test_vcpu_ = tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
+    SetCpuId(tcmalloc_internal::subtle::percpu::kCpuIdUninitialized);
 #endif
   }
 
@@ -318,16 +315,22 @@ class ScopedFakeCpuId {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     // Now that our unregister_rseq_ member has prevented the kernel from
     // modifying __rseq_abi, we can inject our own CPU ID.
-    tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
-    test_vcpu_ = cpu_id;
+    SetCpuId(cpu_id);
 #endif
   }
 
  private:
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  // Writes `cpu_id` to every __rseq_abi field VirtualCpu::Synchronize() may
+  // read, so the fake ID is observed regardless of the vCPU mode.
+  static void SetCpuId(const int cpu_id) {
+    auto& rseq_abi = tcmalloc_internal::subtle::percpu::__rseq_abi;
+    rseq_abi.cpu_id = cpu_id;
+    rseq_abi.mm_cid = cpu_id;
+  }
+#endif
 
   const ScopedUnregisterRseq unregister_rseq_;
-  static thread_local int test_vcpu_;
-  friend class tcmalloc_internal::subtle::percpu::VirtualCpu;
 };
 
 // This pragma ensures that a loop does not get unrolled, in which case the
