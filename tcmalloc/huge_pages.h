@@ -399,11 +399,6 @@ struct HugeRange {
 inline Range::Range(HugeRange r)
     : p(r.start().first_page()), n(r.len().in_pages()) {}
 
-enum class SubreleaseUnbackedMode : bool {
-  kDisabled = false,
-  kEnabled = true,
-};
-
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

@@ -81,6 +81,12 @@ enum class HugeRegionUsageOption : bool {
   // small binaries), we use HugeRegion for large allocations.
   kUseForAllLargeAllocs
 };
+
+enum class SubreleaseUnbackedMode : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
 

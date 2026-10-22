@@ -54,6 +54,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+class PageTracker;
 class Static;
 extern Static tc_globals;
 

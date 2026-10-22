@@ -31,23 +31,30 @@ class PackedPtr {
   static_assert(kBits > 0, "PackedPtr requires at least one bit.");
   static_assert(kBits < sizeof(uintptr_t) * 8,
                 "PackedPtr requires fewer bits than uintptr_t width.");
-  static_assert(
-      alignof(T) >= (size_t{1} << kBits),
-      "PackedPtr requires alignof(T) >= (1 << kBits) to store low bits.");
 
   constexpr PackedPtr() : rep_(0) {}
 
   explicit PackedPtr(T* ptr) : rep_(reinterpret_cast<uintptr_t>(ptr)) {
+    static_assert(
+        alignof(T) >= (size_t{1} << kBits),
+        "PackedPtr requires alignof(T) >= (1 << kBits) to store low bits.");
     TC_ASSERT_EQ(rep_ & kBitsMask, uintptr_t{0});
   }
 
   explicit PackedPtr(T* ptr, uintptr_t bits)
       : rep_(reinterpret_cast<uintptr_t>(ptr) | bits) {
+    static_assert(
+        alignof(T) >= (size_t{1} << kBits),
+        "PackedPtr requires alignof(T) >= (1 << kBits) to store low bits.");
     TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) & kBitsMask, uintptr_t{0});
     TC_ASSERT_EQ(bits & ~kBitsMask, uintptr_t{0});
   }
 
-  explicit PackedPtr(void* raw) : rep_(reinterpret_cast<uintptr_t>(raw)) {}
+  explicit PackedPtr(void* raw) : rep_(reinterpret_cast<uintptr_t>(raw)) {
+    static_assert(
+        alignof(T) >= (size_t{1} << kBits),
+        "PackedPtr requires alignof(T) >= (1 << kBits) to store low bits.");
+  }
 
   [[nodiscard]] T* Get() const {
     return reinterpret_cast<T*>(rep_ & ~kBitsMask);
