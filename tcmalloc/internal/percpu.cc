@@ -350,14 +350,16 @@ static void SlowFence(int target) {
 static void UpstreamRseqFenceCpu(int cpu) {
   TC_CHECK(using_upstream_fence.load(std::memory_order_relaxed) &&
            "upstream fence unavailable.");
+  TC_CHECK_GE(cpu, -1);
 
   constexpr int kMEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ = (1 << 7);
   constexpr int kMEMBARRIER_CMD_FLAG_CPU = (1 << 0);
 
+  ErrnoRestorer errno_restorer;
   int64_t res = syscall(__NR_membarrier, kMEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ,
                         kMEMBARRIER_CMD_FLAG_CPU, cpu);
 
-  TC_CHECK(res == 0 || res == -ENXIO /* missing CPU */,
+  TC_CHECK(res == 0 || (res == -1 && errno == ENXIO) /* missing CPU */,
            "Upstream fence failed.");
 }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ

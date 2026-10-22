@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <sys/time.h>
 #include <ucontext.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -135,6 +136,32 @@ TEST(PerCpu, UnregisteredThread) {
 #endif
   EXPECT_GE(VirtualCpu::Synchronize(), 0);
   EXPECT_TRUE(IsFastNoInit());
+}
+
+TEST(PerCpu, FenceAllCpus) {
+  if (!InitFastPerCpu()) {
+    GTEST_SKIP() << "per-CPU unavailable";
+  }
+
+  FenceAllCpus();
+}
+
+TEST(PerCpu, FenceCpuMissingCpu) {
+  if (!InitFastPerCpu()) {
+    GTEST_SKIP() << "per-CPU unavailable";
+  }
+
+  errno = 0;
+  const int num_cpus = sysconf(_SC_NPROCESSORS_CONF);
+  ASSERT_GT(num_cpus, 0);
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    FenceCpu(cpu);
+    EXPECT_EQ(errno, 0);
+  }
+  FenceCpu(-1);
+  EXPECT_EQ(errno, 0);
+  FenceCpu(num_cpus);
+  EXPECT_EQ(errno, 0);
 }
 
 }  // namespace
