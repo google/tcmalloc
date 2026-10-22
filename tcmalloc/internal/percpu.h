@@ -248,6 +248,7 @@ enum class RseqVcpuMode { kNone, kMM };
 
 extern RseqVcpuMode vcpu_mode;
 [[nodiscard]] inline bool IsFast();
+[[nodiscard]] inline bool IsFastNoInit();
 
 [[nodiscard]] inline RseqVcpuMode GetRseqVcpuMode() {
   (void)IsFast();
@@ -328,7 +329,26 @@ class VirtualCpu {
   // depends on the (per-CPU mutually exclusive) vCPU ID with the current vCPU
   // ID after a thread preemption was detected. This function may be expensive,
   // so it should only be called on slow paths.
-  [[nodiscard]] static int Synchronize();
+  [[nodiscard]] static ABSL_ATTRIBUTE_ALWAYS_INLINE int Synchronize() {
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    int vcpu = kCpuIdUninitialized;
+    switch (GetRseqVcpuMode()) {
+      case RseqVcpuMode::kMM:
+        vcpu = __rseq_abi.mm_cid;
+        break;
+      case RseqVcpuMode::kNone:
+        vcpu = GetRealCpuUnsafe();
+        break;
+    }
+
+    TC_CHECK(IsFastNoInit());
+    TC_CHECK_GE(vcpu, kCpuIdInitialized);
+    tcmalloc_cached_vcpu = vcpu;
+    return vcpu;
+#else   // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    TC_BUG("unsupported without rseq");
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  }
 };
 
 [[nodiscard]] bool InitFastPerCpu();

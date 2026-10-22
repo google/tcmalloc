@@ -459,7 +459,7 @@ class TcmallocSlab {
   void InitCpuImpl(void* slabs, Shift shift, int cpu,
                    absl::FunctionRef<size_t(size_t)> capacity);
 
-  [[nodiscard]] std::pair<int, bool> CacheCpuSlabSlow();
+  [[nodiscard]] ABSL_ATTRIBUTE_NOINLINE std::pair<int, bool> CacheCpuSlabSlow();
 
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.

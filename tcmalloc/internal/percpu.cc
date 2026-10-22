@@ -94,28 +94,6 @@ bool UsingRseqVirtualCpus() {
   return vcpu_mode == RseqVcpuMode::kMM;
 }
 
-int VirtualCpu::Synchronize() {
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  int vcpu = kCpuIdUninitialized;
-  switch (GetRseqVcpuMode()) {
-    case RseqVcpuMode::kMM:
-      vcpu = __rseq_abi.mm_cid;
-      break;
-    case RseqVcpuMode::kNone:
-      vcpu = GetRealCpuUnsafe();
-      break;
-  }
-
-  TC_CHECK(IsFastNoInit());
-  TC_CHECK_GE(vcpu, kCpuIdInitialized);
-  TC_ASSERT_LT(vcpu, NumCPUs());
-  tcmalloc_cached_vcpu = vcpu;
-  return vcpu;
-#else   // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  TC_BUG("unsupported without rseq");
-#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-}
-
 static void InitPerCpu() {
   const auto maybe_numcpus = NumCPUsMaybe();
   if (!maybe_numcpus.has_value()) {
