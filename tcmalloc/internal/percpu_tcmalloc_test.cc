@@ -1411,6 +1411,41 @@ void BM_PushPopBatch(benchmark::State& state) {
 }
 BENCHMARK(BM_PushPopBatch);
 
+TEST(VirtualCpuTest, Synchronize) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need RSEQ";
+  }
+
+  // Without a fake CPU ID, the vCPU ID is read from RSEQ.
+  const int vcpu = VirtualCpu::Synchronize();
+  EXPECT_GE(vcpu, 0);
+  EXPECT_LT(vcpu, NumCPUs());
+  EXPECT_EQ(VirtualCpu::get(), vcpu);
+
+  // An unregistered thread is re-registered.
+  {
+    ScopedUnregisterRseq unregister;
+    ASSERT_FALSE(IsFastNoInit());
+    const int reinit_vcpu = VirtualCpu::Synchronize();
+    EXPECT_GE(reinit_vcpu, 0);
+    EXPECT_LT(reinit_vcpu, NumCPUs());
+    EXPECT_TRUE(IsFastNoInit());
+    EXPECT_EQ(VirtualCpu::get(), reinit_vcpu);
+  }
+
+  // A fake CPU ID written to __rseq_abi is observed in every vCPU mode.
+  {
+    ScopedFakeCpuId fake_cpu_id(0);
+    EXPECT_EQ(VirtualCpu::Synchronize(), 0);
+    EXPECT_EQ(VirtualCpu::get(), 0);
+    if (NumCPUs() > 1) {
+      fake_cpu_id.SwitchTo(1);
+      EXPECT_EQ(VirtualCpu::Synchronize(), 1);
+      EXPECT_EQ(VirtualCpu::get(), 1);
+    }
+  }
+}
+
 }  // namespace
 }  // namespace percpu
 }  // namespace subtle

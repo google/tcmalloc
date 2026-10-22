@@ -97,15 +97,6 @@ bool UsingRseqVirtualCpus() {
 int VirtualCpu::Synchronize() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   int vcpu = kCpuIdUninitialized;
-
-  if (TestSynchronize) {
-    vcpu = TestSynchronize();
-    if (vcpu >= kCpuIdInitialized) {
-      tcmalloc_cached_vcpu = vcpu;
-      return vcpu;
-    }
-  }
-
   switch (GetRseqVcpuMode()) {
     case RseqVcpuMode::kMM:
       vcpu = __rseq_abi.mm_cid;

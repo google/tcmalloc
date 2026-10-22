@@ -85,11 +85,6 @@ size_t GetTestResourceLimit() {
 }
 
 namespace tcmalloc {
-thread_local int ScopedFakeCpuId::test_vcpu_ =
-    tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
-namespace tcmalloc_internal::subtle::percpu {
-int VirtualCpu::TestSynchronize() { return ScopedFakeCpuId::test_vcpu_; }
-}  // namespace tcmalloc_internal::subtle::percpu
 
 std::string GetStatsInPbTxt() {
   // When huge page telemetry is enabled, the output can become very large.

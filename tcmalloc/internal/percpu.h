@@ -329,11 +329,6 @@ class VirtualCpu {
   // ID after a thread preemption was detected. This function may be expensive,
   // so it should only be called on slow paths.
   [[nodiscard]] static int Synchronize();
-
- private:
-  // The return value of Synchronize() may be overridden by tests if they define
-  // VirtualCpu::TestSynchronize().
-  [[nodiscard]] ABSL_ATTRIBUTE_WEAK static int TestSynchronize();
 };
 
 [[nodiscard]] bool InitFastPerCpu();
