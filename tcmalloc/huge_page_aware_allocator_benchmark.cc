@@ -74,7 +74,7 @@ void Touch(AllocationState s) {
 
 class BenchmarkAllocator {
  public:
-  char buf_[sizeof(HugePageAwareAllocator)];
+  alignas(HugePageAwareAllocator) char buf_[sizeof(HugePageAwareAllocator)];
   HugePageAwareAllocator* alloc_;
   AllocationState prime_;
   static constexpr size_t kObjectsPerSpan = 1;
@@ -265,6 +265,36 @@ static void BM_RecordAllocFree(benchmark::State& state) {
   state.SetItemsProcessed(state.iterations());
 }
 BENCHMARK(BM_RecordAllocFree)->Arg(1)->Arg(8)->Arg(64)->Arg(128)->Arg(256);
+
+static void BM_ContendedSmallAllocFree(benchmark::State& state) {
+  static constexpr size_t kPool = 256;
+  static constexpr SpanAllocInfo kInfo = {256, AccessDensityPrediction::kDense};
+  struct ContendedState {
+    BenchmarkAllocator alloc;
+    AllocationState pool[64][kPool];
+    ContendedState() {
+      alloc.Reset();
+      for (int t = 0; t < 64; ++t) {
+        for (size_t i = 0; i < kPool; ++i) {
+          pool[t][i] = alloc.alloc_->New(Length(1), kInfo);
+        }
+      }
+    }
+  };
+  static ContendedState* cs = new ContendedState();
+  const int tid = state.thread_index();
+  size_t idx = 0;
+  for (auto _ : state) {
+    {
+      PageHeapSpinLockHolder l;
+      cs->alloc.alloc_->Delete(cs->pool[tid][idx], kInfo);
+    }
+    cs->pool[tid][idx] = cs->alloc.alloc_->New(Length(1), kInfo);
+    idx = (idx + 1) & (kPool - 1);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+BENCHMARK(BM_ContendedSmallAllocFree)->ThreadRange(1, 16)->UseRealTime();
 
 }  // namespace
 }  // namespace tcmalloc_internal
