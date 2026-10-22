@@ -174,6 +174,66 @@ TEST_P(SpanTest, FreelistBasic) {
   }
 }
 
+TEST_P(SpanTest, ForEachFreeObject) {
+  Span& span = raw_span_.span();
+  char* start = static_cast<char*>(span.start_address());
+
+  auto check_free_set = [&](const std::vector<bool>& allocated) {
+    std::vector<bool> seen_free(objects_per_span_, false);
+    size_t free_count = 0;
+    span.ForEachFreeObject(size_, objects_per_span_, bitmap_offset_,
+                           [&](size_t idx) {
+                             ASSERT_LT(idx, objects_per_span_);
+                             EXPECT_FALSE(seen_free[idx]);
+                             seen_free[idx] = true;
+                             ++free_count;
+                           });
+    size_t expected_free = 0;
+    for (size_t i = 0; i < objects_per_span_; ++i) {
+      EXPECT_EQ(seen_free[i], !allocated[i]);
+      if (!allocated[i]) {
+        ++expected_free;
+      }
+    }
+    EXPECT_EQ(free_count, expected_free);
+  };
+
+  std::vector<bool> allocated(objects_per_span_, false);
+  check_free_set(allocated);
+
+  void* batch[kMaxObjectsToMove];
+  std::vector<void*> popped_ptrs;
+  while (popped_ptrs.size() < objects_per_span_) {
+    const size_t want = std::min<size_t>(
+        batch_size_, (objects_per_span_ - popped_ptrs.size() + 1) / 2);
+    const size_t n =
+        span.FreelistPopBatch(absl::MakeSpan(batch, std::max<size_t>(want, 1)),
+                              size_, objects_per_span_, bitmap_offset_);
+    ASSERT_GT(n, 0);
+    for (size_t i = 0; i < n; ++i) {
+      const size_t idx = (static_cast<char*>(batch[i]) - start) / size_;
+      ASSERT_LT(idx, objects_per_span_);
+      allocated[idx] = true;
+      popped_ptrs.push_back(batch[i]);
+    }
+    check_free_set(allocated);
+  }
+
+  // Push every second object back (except the last if that would free the
+  // entire span) and verify free indices match.
+  for (size_t i = 0; i + 1 < popped_ptrs.size(); i += 2) {
+    void* ptr = popped_ptrs[i];
+    Span::ObjIdx objidx;
+    Span::ObjectsToIdx({&ptr, 1}, &span, size_, reciprocal_, &objidx,
+                       bitmap_offset_);
+    ASSERT_TRUE(span.FreelistPushBatch(absl::MakeSpan(&objidx, 1), size_,
+                                       bitmap_offset_));
+    const size_t idx = (static_cast<char*>(ptr) - start) / size_;
+    allocated[idx] = false;
+  }
+  check_free_set(allocated);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     All, SpanTest,
     testing::Combine(testing::Range(size_t(1), kNumClasses), testing::Bool()));
