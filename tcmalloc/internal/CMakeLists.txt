@@ -946,7 +946,6 @@ tcmalloc_cc_library(
   SRCS
     "percpu.cc"
     "percpu_rseq_asm.S"
-    "percpu_rseq_unsupported.cc"
   DEPS
     "absl::base"
     "absl::core_headers"

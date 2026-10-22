@@ -1012,6 +1012,7 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
                                                   void** batch, size_t len) {
   TC_ASSERT_NE(size_class, 0);
   TC_ASSERT_NE(len, 0);
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   // We need to annotate batch[...] as released before running the restartable
   // sequence, since those objects become visible to other threads the moment
   // the restartable sequence is complete and before the annotation potentially
@@ -1020,6 +1021,9 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
   // This oversynchronizes slightly, since PushBatch may succeed only partially.
   TSANReleaseBatch(batch, len);
   return TcmallocSlab_Internal_PushBatch(size_class, batch, len);
+#else
+  return 0;
+#endif
 }
 
 template <size_t NumClasses>
@@ -1027,6 +1031,7 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
                                                  void** batch, size_t len) {
   TC_ASSERT_NE(size_class, 0);
   TC_ASSERT_NE(len, 0);
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   const size_t n = TcmallocSlab_Internal_PopBatch(size_class, batch, len,
                                                   &begins_[size_class]);
   TC_ASSERT_LE(n, len);
@@ -1036,6 +1041,9 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
   ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
   TSANAcquireBatch(batch, n);
   return n;
+#else
+  return 0;
+#endif
 }
 
 template <size_t NumClasses>

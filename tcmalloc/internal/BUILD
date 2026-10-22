@@ -924,7 +924,6 @@ cc_library(
     srcs = [
         "percpu.cc",
         "percpu_rseq_asm.S",
-        "percpu_rseq_unsupported.cc",
     ],
     hdrs = ["percpu.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
