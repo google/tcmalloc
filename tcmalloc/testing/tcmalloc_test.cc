@@ -1847,5 +1847,58 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
+TEST(TCMalloc, IsNormalMemoryRejectsInvalidTags) {
+  const void* kNormalPtr = reinterpret_cast<const void*>(
+      (static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift) | 0x1000);
+  EXPECT_TRUE(IsNormalMemory(kNormalPtr));
+  if (!kSanitizerAddressSpace) {
+    const void* kNormalP1Ptr = reinterpret_cast<const void*>(
+        (static_cast<uintptr_t>(MemoryTag::kNormalP1) << kTagShift) | 0x1000);
+    EXPECT_TRUE(IsNormalMemory(kNormalP1Ptr));
+  }
+  const void* kMetadataPtr = reinterpret_cast<const void*>(
+      (static_cast<uintptr_t>(MemoryTag::kMetadata) << kTagShift) | 0x1000);
+  EXPECT_FALSE(IsNormalMemory(kMetadataPtr));
+  const void* kTag5Ptr =
+      reinterpret_cast<const void*>((uintptr_t{0x5} << kTagShift) | 0x1000);
+  EXPECT_FALSE(IsNormalMemory(kTag5Ptr));
+  const void* kTag7Ptr =
+      reinterpret_cast<const void*>((uintptr_t{0x7} << kTagShift) | 0x1000);
+  EXPECT_FALSE(IsNormalMemory(kTag7Ptr));
+}
+
+TEST(TCMalloc, SizedDeleteCorruptedColdTagDeathTest) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  ScopedNeverSample never_sample;
+  void* p1 = ::operator new(32);
+  void* p2 = ::operator new(32);
+  void* target =
+      (reinterpret_cast<uintptr_t>(p1) & (kPageSize - 1)) != 0 ? p1 : p2;
+  ASSERT_NE(reinterpret_cast<uintptr_t>(target) & (kPageSize - 1), 0u);
+  void* corrupted_cold = reinterpret_cast<void*>(
+      (reinterpret_cast<uintptr_t>(target) & ~kTagMask) |
+      (static_cast<uintptr_t>(MemoryTag::kSampledOrCold) << kTagShift));
+  EXPECT_DEATH(::operator delete(corrupted_cold, 32),
+               "Attempted to free corrupted pointer");
+  ::operator delete(p1, 32);
+  ::operator delete(p2, 32);
+}
+
+TEST(TCMalloc, SizedDeleteCorruptedIllegalTagDeathTest) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Skipping under sanitizers";
+  }
+  ScopedNeverSample never_sample;
+  void* p1 = ::operator new(32);
+  void* corrupted_tag5 =
+      reinterpret_cast<void*>((reinterpret_cast<uintptr_t>(p1) & ~kTagMask) |
+                              (uintptr_t{0x5} << kTagShift));
+  EXPECT_DEATH(::operator delete(corrupted_tag5, 32),
+               "Attempted to free corrupted pointer");
+  ::operator delete(p1, 32);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
