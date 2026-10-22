@@ -17,6 +17,7 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//tcmalloc:experiment_variants.bzl", "experiment_variants")
 
 build_variants = [
     {
@@ -240,55 +241,7 @@ test_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING2"],
         "tags": ["noubsan"],
     },
-    {
-        "name": "tcmalloc_cfl_prioritization_ablation",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_CFL_PRIORITIZATION_ABLATION"},
-    },
-    {
-        "name": "pgho_experiment",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_PGHO_EXPERIMENT"},
-    },
-    {
-        "name": "tcmalloc_release_drained_metadata_ablation",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"},
-    },
-    {
-        "name": "tcmalloc_release_free_stale",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_FREE_STALE"},
-    },
-    {
-        "name": "tcmalloc_madv_nohugepage_regions",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_DISABLE_EXPERIMENTS": "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"},
-    },
-    {
-        "name": "tcmalloc_preserve_donated_on_collapse",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE"},
-    },
-    {
-        "name": "sonic_sharded_transfer_cache",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE"},
-    },
-    {
-        "name": "tcmalloc_track_broken_hugepages",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES"},
-    },
-]
+] + experiment_variants
 
 def create_tcmalloc_library(
         name,
