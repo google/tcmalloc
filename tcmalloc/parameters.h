@@ -198,9 +198,20 @@ class Parameters {
     TCMalloc_Internal_SetProfileSamplingInterval(value);
   }
 
-  [[nodiscard]] static bool background_process_actions_enabled();
-  static void set_background_process_actions_enabled(bool value);
-  [[nodiscard]] static absl::Duration background_process_sleep_interval();
+  [[nodiscard]] static bool background_process_actions_enabled() {
+    return background_process_actions_enabled_.load(std::memory_order_relaxed);
+  }
+  static void set_background_process_actions_enabled(bool value) {
+    background_process_actions_enabled_.store(value, std::memory_order_relaxed);
+  }
+  [[nodiscard]] static absl::Duration background_process_sleep_interval() {
+    return absl::Nanoseconds(
+        background_process_sleep_interval_ns_.load(std::memory_order_relaxed));
+  }
+  static void set_background_process_sleep_interval(absl::Duration value) {
+    background_process_sleep_interval_ns_.store(absl::ToInt64Nanoseconds(value),
+                                                std::memory_order_relaxed);
+  }
 
   static void set_filler_skip_subrelease_short_interval(absl::Duration value) {
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(value);
@@ -319,6 +330,9 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
 
   static void InitializeFromExperiments();
+
+  static std::atomic<bool> background_process_actions_enabled_;
+  static std::atomic<int64_t> background_process_sleep_interval_ns_;
 
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;

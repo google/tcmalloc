@@ -125,30 +125,6 @@ static std::atomic<bool>& hpaa_subrelease_ptr() {
   return v;
 }
 
-// As background_process_actions_enabled_ptr() are determined at runtime, we
-// cannot require constant initialization for the atomic.  This avoids an
-// initialization order fiasco.
-static std::atomic<bool>& background_process_actions_enabled_ptr() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(
-      &flag, [&]() { v.store(true, std::memory_order_relaxed); });
-  return v;
-}
-
-// As background_process_sleep_interval_ns() are determined at runtime, we
-// cannot require constant initialization for the atomic.  This avoids an
-// initialization order fiasco.
-static std::atomic<int64_t>& background_process_sleep_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(absl::ToInt64Nanoseconds(absl::Seconds(1)),
-            std::memory_order_relaxed);
-  });
-  return v;
-}
-
 void Parameters::InitializeFromExperiments() {
 #if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
@@ -403,20 +379,11 @@ ABSL_CONST_INIT std::atomic<EnableCollapse>
                             EnableCollapse::kDisabled),
     };
 
-bool Parameters::background_process_actions_enabled() {
-  return background_process_actions_enabled_ptr().load(
-      std::memory_order_relaxed);
-}
-
-void Parameters::set_background_process_actions_enabled(bool value) {
-  background_process_actions_enabled_ptr().store(value,
-                                                 std::memory_order_relaxed);
-}
-
-absl::Duration Parameters::background_process_sleep_interval() {
-  return absl::Nanoseconds(
-      background_process_sleep_interval_ns().load(std::memory_order_relaxed));
-}
+ABSL_CONST_INIT std::atomic<bool>
+    Parameters::background_process_actions_enabled_(true);
+ABSL_CONST_INIT std::atomic<int64_t>
+    Parameters::background_process_sleep_interval_ns_(
+        absl::ToInt64Nanoseconds(absl::Seconds(1)));
 
 EnableCollapse Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
@@ -545,8 +512,7 @@ void MallocExtension_Internal_GetBackgroundProcessSleepInterval(
 
 void MallocExtension_Internal_SetBackgroundProcessSleepInterval(
     absl::Duration value) {
-  tcmalloc::tcmalloc_internal::background_process_sleep_interval_ns().store(
-      absl::ToInt64Nanoseconds(value), std::memory_order_relaxed);
+  Parameters::set_background_process_sleep_interval(value);
 }
 
 void MallocExtension_Internal_GetSkipSubreleaseShortInterval(
