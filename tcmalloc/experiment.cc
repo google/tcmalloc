@@ -260,15 +260,18 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
     }
   });
 
-  // Enable some random combination of experiments for tests that don't
+  // Flip some random combination of experiments for tests that don't
   // explicitly set any of the experiment env vars. This allows to get better
   // test coverage of experiments before production.
+  // Flipping enables normal experiments, and disables inverted rollouts
+  // (holdbacks): the latter are enabled by default (tests have no hostname),
+  // so disabling them covers the non-default (ablation) code path.
   // Tests can opt out by exporting BORG_EXPERIMENTS="".
-  // Enabled experiments are selected based on the stable test target name hash,
+  // Flipped experiments are selected based on the stable test target name hash,
   // this allows get a wide range of experiment permutations on a large test
   // base, but at the same time avoids flaky test failures (if a particular
   // test fails only with a particular experiment combination).
-  // It would be nice to print what experiments we enable, but printing even
+  // It would be nice to print what experiments we flip, but printing even
   // to stderr breaks some tests that capture subprocess output.
   if (unset && !test_target.empty()) {
     // TODO: b/454666418 - Replace with TC_CHECK when the synchronization
@@ -278,29 +281,33 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
         static_cast<uint64_t>(absl::base_internal::CycleClock::Now());
     const size_t target_hash = absl::HashOf(test_target, seed);
     constexpr size_t kVanillaOneOf = 11;
-    constexpr size_t kEnableOneOf = 3;
+    constexpr size_t kFlipOneOf = 3;
     if ((target_hash % kVanillaOneOf) != 0) {
-      int num_enabled_experiments = 0;
-      Experiment experiment_id = Experiment::kMaxExperimentID;
+      auto flip = [buffer](const ExperimentConfig& config) {
+        buffer[static_cast<int>(config.id)] = !config.rollout_inverted;
+      };
+      int num_flipped_experiments = 0;
+      const ExperimentConfig* last_config = nullptr;
       TCMALLOC_EXPERIMENT_LOOP_NO_UNROLL
-      for (auto config : experiments) {
+      for (const auto& config : experiments) {
         if (IsCompilerExperiment(config.id) || config.brittle) {
           continue;
         }
-        experiment_id = config.id;
+        last_config = &config;
 
-        // Enabling is specifically based on the experiment name so that it's
+        // Flipping is specifically based on the experiment name so that it's
         // stable when experiments are added/removed.
-        bool enabled =
-            ((target_hash ^ absl::HashOf(config.name)) % kEnableOneOf) == 0;
-        buffer[static_cast<int>(config.id)] |= enabled;
-        num_enabled_experiments += enabled;
+        const bool flipped =
+            ((target_hash ^ absl::HashOf(config.name)) % kFlipOneOf) == 0;
+        if (flipped) {
+          flip(config);
+        }
+        num_flipped_experiments += flipped;
       }
-      // In case the hash-based selection above did not work out, select the
+      // In case the hash-based selection above did not work out, flip the
       // last experiment.
-      if (num_enabled_experiments == 0 &&
-          experiment_id != Experiment::kMaxExperimentID) {
-        buffer[static_cast<int>(experiment_id)] = true;
+      if (num_flipped_experiments == 0 && last_config != nullptr) {
+        flip(*last_config);
       }
     }
   }
