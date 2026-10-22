@@ -1224,11 +1224,14 @@ tcmalloc_cc_test_variants(
     "GTest::gmock_main"
     "GTest::gmock"
     "absl::base"
+    "absl::bits"
     "absl::core_headers"
     "absl::flat_hash_set"
     "absl::span"
     "tcmalloc::internal_central_freelist_hooks"
     "tcmalloc::internal_logging"
+    "tcmalloc::internal_parameter_accessors"
+    "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
 )
 
