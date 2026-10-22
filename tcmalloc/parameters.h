@@ -97,10 +97,6 @@ class Parameters {
     return peak_sampling_heap_growth_fraction_.load(std::memory_order_relaxed);
   }
 
-  static void set_peak_sampling_heap_growth_fraction(double value) {
-    TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(value);
-  }
-
   [[nodiscard]] static bool release_partial_alloc_pages() {
     return release_partial_alloc_pages_.load(std::memory_order_relaxed);
   }
@@ -160,17 +156,9 @@ class Parameters {
     return release_max_filler_pages_.load(std::memory_order_relaxed);
   }
 
-  static void set_release_max_filler_pages(bool value) {
-    TCMalloc_Internal_SetReleaseMaxFillerPages(value);
-  }
-
   [[nodiscard]] static MadviseRegionsNoHugepage
   madvise_cold_regions_nohugepage() {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
-  }
-
-  static void set_madvise_cold_regions_nohugepage(bool value) {
-    TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(value);
   }
 
   [[nodiscard]] static MadviseSampledAllocations madvise_sampled_allocations() {
@@ -183,10 +171,6 @@ class Parameters {
 
   [[nodiscard]] static size_t event_trace_memory_limit() {
     return event_trace_memory_limit_.load(std::memory_order_relaxed);
-  }
-
-  static void set_event_trace_memory_limit(size_t value) {
-    TCMalloc_Internal_SetEventTraceMemoryLimit(value);
   }
 
   static void set_per_cpu_caches(bool value) {
@@ -257,9 +241,6 @@ class Parameters {
   [[nodiscard]] static bool per_cpu_caches_dynamic_slab_enabled() {
     return per_cpu_caches_dynamic_slab_.load(std::memory_order_relaxed);
   }
-  static void set_per_cpu_caches_dynamic_slab_enabled(bool value) {
-    TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(value);
-  }
 
   [[nodiscard]] static double per_cpu_caches_dynamic_slab_grow_threshold() {
     return per_cpu_caches_dynamic_slab_grow_threshold_.load(
@@ -272,10 +253,6 @@ class Parameters {
   }
 
   [[nodiscard]] static bool release_drained_slab_metadata();
-
-  static void set_release_drained_slab_metadata(bool value) {
-    TCMalloc_Internal_SetReleaseDrainedSlabMetadata(value);
-  }
 
   [[nodiscard]] static HeapPartitioningMode heap_partitioning_mode();
 
