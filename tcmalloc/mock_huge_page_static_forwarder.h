@@ -111,6 +111,8 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::enable_unfiltered_collapse()};
   FakeParameter<PreserveDonatedOnCollapse> preserve_donated_on_collapse{
       Parameters::preserve_donated_on_collapse()};
+  FakeParameter<CollapseReleasedHugePages> collapse_released_hugepages{
+      Parameters::collapse_released_hugepages()};
   // NOLINTEND(readability-identifier-naming)
 
   [[nodiscard]] bool release_succeeds() const { return release_succeeds_; }

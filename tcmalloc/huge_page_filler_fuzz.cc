@@ -300,6 +300,7 @@ struct GatherSpanStats {
 struct TreatTrackers {
   bool enable_collapse;
   bool enable_unfiltered_collapse;
+  bool collapse_released;
   bool enable_release_stale_pages;
   bool preserve_donated_on_collapse;
 
@@ -310,10 +311,12 @@ struct TreatTrackers {
     absl::Format(&sink,
                  "TreatTrackers{.enable_collapse=%v, "
                  ".enable_unfiltered_collapse=%v, "
+                 ".collapse_released=%v, "
                  ".enable_release_stale_pages=%v, "
                  ".preserve_donated_on_collapse=%v}",
                  t.enable_collapse, t.enable_unfiltered_collapse,
-                 t.enable_release_stale_pages, t.preserve_donated_on_collapse);
+                 t.collapse_released, t.enable_release_stale_pages,
+                 t.preserve_donated_on_collapse);
   }
 };
 
@@ -1046,6 +1049,8 @@ void TreatTrackers::Perform(State& state) const {
                                  : ReleaseStalePages::kDisabled,
       preserve_donated_on_collapse ? PreserveDonatedOnCollapse::kEnabled
                                    : PreserveDonatedOnCollapse::kDisabled,
+      collapse_released ? CollapseReleasedHugePages::kEnabled
+                        : CollapseReleasedHugePages::kDisabled,
       &pageflags, &residency);
   state.treating_trackers = false;
   state.DrainFullyFreedTrackers();
@@ -1679,12 +1684,13 @@ TEST(HugePageFillerTest, InstructionStringify) {
   {
     Instruction inst = TreatTrackers{.enable_collapse = true,
                                      .enable_unfiltered_collapse = false,
+                                     .collapse_released = false,
                                      .enable_release_stale_pages = true,
                                      .preserve_donated_on_collapse = true};
     std::string s = absl::StrFormat("%v", inst);
     EXPECT_EQ(s,
               "TreatTrackers{.enable_collapse=true, "
-              ".enable_unfiltered_collapse=false, "
+              ".enable_unfiltered_collapse=false, .collapse_released=false, "
               ".enable_release_stale_pages=true, "
               ".preserve_donated_on_collapse=true}");
   }
@@ -1899,6 +1905,92 @@ TEST(HugePageFillerTest, PrintSummaryOnly) {
        MemoryLimitHitRelease{.desired = 65535},
        GatherStats{.summary_only = true}, GatherStats{.summary_only = false}},
       SubreleaseUnbackedMode::kDisabled);
+}
+
+// Regression tests for the three lock-drop interleavings while collapsing a
+// partially released tracker with .collapse_released = true:
+//   1. Release between tracker selection and Collapse()
+//   2. Release after Collapse() succeeds and before Restore()
+//   3. Deallocate emptying and parking the tracker during Collapse()
+TEST(HugePageFillerTest, CollapseReleasedInterleavedReleaseBeforeCollapse) {
+  FuzzFiller(
+      {UpdateBitmaps{.hugepage_backed_set = true,
+                     .hugepage_backed_val = false,
+                     .unbacked_bitmap_val = 0,
+                     .swapped_bitmap_val = 0,
+                     .stale_bitmap_val = 0},
+       Allocate{.length = 4, .num_objects = 1},
+       Allocate{.length = 4, .num_objects = 1},
+       Allocate{.length = 4, .num_objects = 1},
+       Deallocate{.tracker_index = 0, .alloc_index = 1},
+       MemoryLimitHitRelease{.desired = 4},
+       Deallocate{.tracker_index = 0, .alloc_index = 1},
+       // First lock drop in Treat() is IsHugepageBacked() before Collapse():
+       // release the remaining free pages before Collapse() re-backs the whole
+       // hugepage.
+       ReentrantSubprogram{.subprogram = {MemoryLimitHitRelease{.desired = 4}}},
+       TreatTrackers{.enable_collapse = true,
+                     .enable_unfiltered_collapse = true,
+                     .collapse_released = true},
+       Deallocate{.tracker_index = 0, .alloc_index = 0}},
+      SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, CollapseReleasedInterleavedReleaseAfterCollapse) {
+  FuzzFiller(
+      {UpdateBitmaps{.hugepage_backed_set = true,
+                     .hugepage_backed_val = false,
+                     .unbacked_bitmap_val = 0,
+                     .swapped_bitmap_val = 0,
+                     .stale_bitmap_val = 0},
+       // First tracker on regular_alloc_partial_released_ (scanned first),
+       // second tracker on donated_alloc_ (scanned second).
+       Allocate{.length = 4, .num_objects = 1},
+       Allocate{.length = 4, .num_objects = 1},
+       Allocate{.length = 4, .num_objects = 1}, ModelTail{.length = 4},
+       Deallocate{.tracker_index = 0, .alloc_index = 1},
+       MemoryLimitHitRelease{.desired = 4},
+       Deallocate{.tracker_index = 0, .alloc_index = 1},
+       // LIFO subprograms: skip the 4 lock drops of tracker 0
+       // (IsHugepageBacked, GetUnbackedAndSwappedBitmaps, GetSinglePageBitmaps,
+       // MockCollapse), then fire MemoryLimitHitRelease on tracker 1's
+       // IsHugepageBacked drop after tracker 0's Collapse() has returned and
+       // before Restore() runs.
+       ReentrantSubprogram{.subprogram = {MemoryLimitHitRelease{.desired = 4}}},
+       ReentrantSubprogram{.subprogram = {}},
+       ReentrantSubprogram{.subprogram = {}},
+       ReentrantSubprogram{.subprogram = {}},
+       ReentrantSubprogram{.subprogram = {}},
+       TreatTrackers{.enable_collapse = true,
+                     .enable_unfiltered_collapse = true,
+                     .collapse_released = true},
+       Deallocate{.tracker_index = 0, .alloc_index = 0},
+       Deallocate{.tracker_index = 0, .alloc_index = 0}},
+      SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, CollapseReleasedInterleavedDeallocateDuringCollapse) {
+  FuzzFiller({UpdateBitmaps{.hugepage_backed_set = true,
+                            .hugepage_backed_val = false,
+                            .unbacked_bitmap_val = 0,
+                            .swapped_bitmap_val = 0,
+                            .stale_bitmap_val = 0},
+              Allocate{.length = 4, .num_objects = 1},
+              Allocate{.length = 4, .num_objects = 1},
+              Deallocate{.tracker_index = 0, .alloc_index = 1},
+              MemoryLimitHitRelease{.desired = 4},
+              // LIFO: skip IsHugepageBacked, GetUnbackedAndSwappedBitmaps, and
+              // GetSinglePageBitmaps, then empty and park tracker 0 inside
+              // MockCollapse!
+              ReentrantSubprogram{.subprogram = {Deallocate{.tracker_index = 0,
+                                                            .alloc_index = 0}}},
+              ReentrantSubprogram{.subprogram = {}},
+              ReentrantSubprogram{.subprogram = {}},
+              ReentrantSubprogram{.subprogram = {}},
+              TreatTrackers{.enable_collapse = true,
+                            .enable_unfiltered_collapse = true,
+                            .collapse_released = true}},
+             SubreleaseUnbackedMode::kDisabled);
 }
 
 }  // namespace

@@ -241,8 +241,6 @@ class PageTrackerTest : public testing::Test {
     size_t actual_index_{0};
   };
 
-  MockMemoryInterface mock_collapse_;
-
   void Check(PAlloc a, size_t mark) {
     EXPECT_LE(huge_.first_page(), a.p);
     size_t index = (a.p - huge_.first_page()).raw_num();
@@ -254,11 +252,6 @@ class PageTrackerTest : public testing::Test {
   }
   void ExpectUnbackPages(PAlloc a, bool success = true) {
     mock_unback_.Expect(a.p, a.n, success);
-  }
-
-  void ExpectCollapsedPages(PAlloc a, bool success = true,
-                            int error_number = 0) {
-    mock_collapse_.Expect(a.p, a.n, success, error_number);
   }
 
   PAlloc Get(Length n, SpanAllocInfo span_alloc_info) {
@@ -283,8 +276,6 @@ class PageTrackerTest : public testing::Test {
   size_t marks_[kPagesPerHugePage.raw_num()];
   HugePage huge_;
   PageTracker tracker_;
-
-  MemoryModifyStatus Collapse() { return tracker_.Collapse(mock_collapse_); }
 };
 
 class FakePageFlags : public PageFlagsBase {
@@ -381,83 +372,27 @@ TEST_F(PageTrackerTest, AllocSane) {
   }
 }
 
-TEST_F(PageTrackerTest, Collapse) {
+TEST_F(PageTrackerTest, ClearReleasedPages) {
   static const Length kAllocSize = kPagesPerHugePage / 4;
   SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
   PAlloc a1 = Get(kAllocSize, info);
   PAlloc a2 = Get(kAllocSize, info);
   PAlloc a3 = Get(kAllocSize, info);
   PAlloc a4 = Get(kAllocSize, info);
-
-  PAlloc first_page_alloc = PAlloc(huge_.first_page(), kPagesPerHugePage, info);
-  ExpectCollapsedPages(first_page_alloc, /*success=*/true);
-  Collapse();
-  mock_collapse_.VerifyAndClear();
-
-  Put(a2);
-  ExpectCollapsedPages(first_page_alloc, /*success=*/false);
-  Collapse();
-  mock_collapse_.VerifyAndClear();
-
-  Put(a4);
-  ExpectCollapsedPages(first_page_alloc, /*success=*/true);
-  Collapse();
-  mock_collapse_.VerifyAndClear();
-
-  Put(a1);
-  Put(a3);
-}
-
-TEST_F(PageTrackerTest, CollapseErrorNumber) {
-  static const Length kAllocSize = kPagesPerHugePage / 4;
-  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
-  PAlloc a1 = Get(kAllocSize, info);
-  PAlloc a2 = Get(kAllocSize, info);
-
-  PAlloc first_page_alloc = PAlloc(huge_.first_page(), kPagesPerHugePage, info);
-  ExpectCollapsedPages(first_page_alloc, /*success=*/true, /*error_number=*/0);
-  MemoryModifyStatus ret = Collapse();
-  EXPECT_TRUE(ret.success);
-  EXPECT_EQ(ret.error_number, 0);
-  mock_collapse_.VerifyAndClear();
-
-  Put(a2);
-  ExpectCollapsedPages(first_page_alloc, /*success=*/false, /*error_number=*/1);
-  ret = Collapse();
-  EXPECT_FALSE(ret.success);
-  EXPECT_EQ(ret.error_number, 1);
-  mock_collapse_.VerifyAndClear();
-
-  Put(a1);
-}
-
-TEST_F(PageTrackerTest, CollapseReleasedPage) {
-  static const Length kAllocSize = kPagesPerHugePage / 4;
-  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
-  PAlloc a1 = Get(kAllocSize, info);
-  PAlloc a2 = Get(kAllocSize, info);
-  PAlloc a3 = Get(kAllocSize, info);
-  PAlloc a4 = Get(kAllocSize, info);
-
-  PAlloc first_page_alloc = PAlloc(huge_.first_page(), kPagesPerHugePage, info);
-  ExpectCollapsedPages(first_page_alloc, /*success=*/true);
-  Collapse();
-  mock_collapse_.VerifyAndClear();
 
   Put(a2);
   ExpectUnbackPages(a2, /*success=*/true);
   ReleaseFree();
   mock_unback_.VerifyAndClear();
 
-  // The page was released, so we should not be able to collapse it.
   ASSERT_TRUE(tracker_.released());
-  EXPECT_FALSE(Collapse().success);
-
-  a2 = Get(kAllocSize, info);
-  ASSERT_FALSE(tracker_.released());
-  ExpectCollapsedPages(first_page_alloc, /*success=*/true);
-  Collapse();
-  mock_collapse_.VerifyAndClear();
+  ASSERT_EQ(tracker_.released_pages(), kAllocSize);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(tracker_.ClearReleasedPages(), kAllocSize);
+  }
+  EXPECT_FALSE(tracker_.released());
+  EXPECT_EQ(tracker_.released_pages(), Length(0));
 
   Put(a1);
   Put(a3);

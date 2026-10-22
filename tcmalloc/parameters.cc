@@ -285,6 +285,10 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
 
+ABSL_CONST_INIT std::atomic<CollapseReleasedHugePages>
+    Parameters::collapse_released_hugepages_(
+        CollapseReleasedHugePages::kDisabled);
+
 // TODO: b/134694141 - Remove this opt out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::back_small_allocations_(false);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::back_size_threshold_bytes_(

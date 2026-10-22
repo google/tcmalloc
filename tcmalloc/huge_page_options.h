@@ -49,6 +49,11 @@ enum class EnableUnfilteredCollapse : bool {
   kEnabled = true,
 };
 
+enum class CollapseReleasedHugePages : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 enum class ReleaseStalePages : bool {
   kDisabled = false,
   kEnabled = true,

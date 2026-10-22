@@ -387,7 +387,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       SubreleaseUnbackedMode subrelease_unbacked_mode,
       EnableUnfilteredCollapse enable_unfiltered_collapse,
       ReleaseStalePages release_stale_pages,
-      PreserveDonatedOnCollapse preserve_donated_on_collapse)
+      PreserveDonatedOnCollapse preserve_donated_on_collapse,
+      CollapseReleasedHugePages collapse_released)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
@@ -398,6 +399,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         enable_unfiltered_collapse_(enable_unfiltered_collapse),
         release_stale_pages_(release_stale_pages),
         preserve_donated_on_collapse_(preserve_donated_on_collapse),
+        collapse_released_(collapse_released),
         clock_now_(clock.now()),
         record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
                                 clock.freq()) {}
@@ -567,6 +569,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
                bitmaps.unbacked.CountBits() < kMaxUnbackedPagesForCollapse);
           if (should_collapse) {
             state.maybe_hugepage_backed = TryUserspaceCollapse(tracker);
+            if (state.maybe_hugepage_backed) {
+              state.unbacked.Clear();
+              state.swapped.Clear();
+            }
           } else {
             state.collapse_skipped = true;
           }
@@ -609,15 +615,11 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         // dropped, breaking it again (the pages may since have been
         // reallocated, so released() alone would not show it).  Record it as
         // broken so that a later pass reexamines it instead of skipping it as
-        // hugepage backed, and do not report the stale collapse to the filler.
+        // hugepage backed.
         entry.tracker_state.maybe_hugepage_backed = false;
       }
       tracker->SetHugePageResidencyState(entry.tracker_state);
       if (entry.tracker_state.maybe_hugepage_backed) {
-        if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
-          page_filler_.OnCollapseSuccess(tracker,
-                                         preserve_donated_on_collapse_);
-        }
         tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
         continue;
       }
@@ -686,7 +688,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
   [[nodiscard]] bool TryUserspaceCollapse(PageTracker* tracker) {
     double before = clock_.now();
-    MemoryModifyStatus ret = tracker->Collapse(collapse_);
+    MemoryModifyStatus ret = page_filler_.Collapse(
+        tracker, preserve_donated_on_collapse_, collapse_released_);
     double after = clock_.now();
     double elapsed = std::max<double>(after - before, 0);
     treatment_stats_.collapse_time_total_cycles += elapsed;
@@ -733,6 +736,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   EnableUnfilteredCollapse enable_unfiltered_collapse_;
   ReleaseStalePages release_stale_pages_;
   PreserveDonatedOnCollapse preserve_donated_on_collapse_;
+  CollapseReleasedHugePages collapse_released_;
 
   // Clock state cached at construction time, so that we do not read the
   // hardware clock nor recompute the record interval threshold for every

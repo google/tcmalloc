@@ -695,6 +695,7 @@ class HugePageFiller {
       EnableUnfilteredCollapse enable_unfiltered_collapse,
       ReleaseStalePages release_stale_pages,
       PreserveDonatedOnCollapse preserve_donated_on_collapse,
+      CollapseReleasedHugePages collapse_released,
       PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -703,8 +704,15 @@ class HugePageFiller {
   Length HandleReleaseFree(PageTracker* page_tracker)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  [[nodiscard]] MemoryModifyStatus Collapse(
+      TrackerType* absl_nonnull pt,
+      PreserveDonatedOnCollapse preserve_donated_on_collapse,
+      CollapseReleasedHugePages collapse_released)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+
   void OnCollapseSuccess(TrackerType* absl_nonnull pt,
-                         PreserveDonatedOnCollapse preserve_donated_on_collapse)
+                         PreserveDonatedOnCollapse preserve_donated_on_collapse,
+                         CollapseReleasedHugePages collapse_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Utility function to handle a non-hugepage backed `page_tracker` and
@@ -1705,21 +1713,20 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     EnableUnfilteredCollapse enable_unfiltered_collapse,
     ReleaseStalePages release_stale_pages,
     PreserveDonatedOnCollapse preserve_donated_on_collapse,
-    PageFlagsBase* pageflags, Residency* residency) {
+    CollapseReleasedHugePages collapse_released, PageFlagsBase* pageflags,
+    Residency* residency) {
   if (enable_collapse == EnableCollapse::kEnabled &&
       ShouldBackoffFromCollapse()) {
     enable_collapse = EnableCollapse::kDisabled;
     ++treatment_stats_.collapse_intervals_skipped;
   }
-  bool enable_subrelease_unbacked =
-      subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled;
 
   SampledTrackerTreatment sampled_tracker_treatment(clock_, tag_,
                                                     set_anon_vma_name_);
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
       subrelease_unbacked_mode_, enable_unfiltered_collapse,
-      release_stale_pages, preserve_donated_on_collapse);
+      release_stale_pages, preserve_donated_on_collapse, collapse_released);
 
   // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_.sparse.Iter(
@@ -1759,18 +1766,14 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   regular_alloc_released_.sparse.Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
         sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        if (enable_subrelease_unbacked) {
-          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-        }
+        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
       },
       /*start=*/0);
 
   regular_alloc_released_.dense.Iter(
       [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
         sampled_tracker_treatment.SelectEligibleTrackers(pt);
-        if (enable_subrelease_unbacked) {
-          unbacked_tracker_treatment.SelectEligibleTrackers(pt);
-        }
+        unbacked_tracker_treatment.SelectEligibleTrackers(pt);
       },
       /*start=*/0);
 
@@ -1822,16 +1825,90 @@ inline Length HugePageFiller<TrackerType>::HandleReleaseFree(
 }
 
 template <class TrackerType>
+inline MemoryModifyStatus HugePageFiller<TrackerType>::Collapse(
+    TrackerType* pt, PreserveDonatedOnCollapse preserve_donated_on_collapse,
+    CollapseReleasedHugePages collapse_released) {
+  {
+    PageHeapSpinLockHolder l;
+    if (pt->fully_freed() || pt->BeingReleased() ||
+        (collapse_released == CollapseReleasedHugePages::kDisabled &&
+         pt->released())) {
+      return {.success = false, .error_number = 0};
+    }
+    TC_ASSERT(!pt->BeingCollapsed());
+    pt->SetBeingCollapsed(/*value=*/true);
+  }
+
+  MemoryModifyStatus status =
+      collapse_(Range(pt->location().first_page(), kPagesPerHugePage));
+
+  {
+    PageHeapSpinLockHolder l;
+    if (collapse_released == CollapseReleasedHugePages::kDisabled) {
+      TC_ASSERT(!pt->released());
+    }
+    if (status.success) {
+      // MADV_COLLAPSE re-backs the whole hugepage, holes included, so update
+      // tracker state and filler lists under pageheap_lock before dropping
+      // BeingCollapsed:
+      //   1. Any ReleasePages between selection and Collapse() was superseded
+      //      by this collapse; clear its released pages and
+      //      released_since_selected bit.
+      //   2. Any ReleasePages after BeingCollapsed is cleared (before
+      //      Restore()) sees released_by_page_ empty and unbacks all free pages
+      //      rather than skipping re-backed pages, while setting
+      //      released_since_selected anew so Restore() records
+      //      maybe_hugepage_backed = false.
+      //   3. If a concurrent Put emptied and parked pt during the syscall,
+      //      clearing released_by_page_ and marking pt unbroken lets
+      //      ReleaseHugepage see !pt->released() and pt->unbroken(), returning
+      //      the re-backed hugepage to cache_.Release() as unbroken.
+      pt->ClearReleasedSinceSelected();
+      if (pt->fully_freed()) {
+        if (collapse_released == CollapseReleasedHugePages::kEnabled) {
+          (void)pt->ClearReleasedPages();
+        }
+        pt->set_unbroken(/*status=*/true);
+      } else {
+        TC_ASSERT(!pt->BeingReleased());
+        OnCollapseSuccess(pt, preserve_donated_on_collapse, collapse_released);
+      }
+    }
+    pt->SetBeingCollapsed(/*value=*/false);
+  }
+
+  return status;
+}
+
+template <class TrackerType>
 inline void HugePageFiller<TrackerType>::OnCollapseSuccess(
-    TrackerType* pt, PreserveDonatedOnCollapse preserve_donated_on_collapse) {
+    TrackerType* pt, PreserveDonatedOnCollapse preserve_donated_on_collapse,
+    CollapseReleasedHugePages collapse_released) {
   TC_ASSERT(!pt->fully_freed());
   TC_ASSERT(!pt->BeingReleased());
-  if (pt->unbroken()) return;
+  if (collapse_released == CollapseReleasedHugePages::kDisabled) {
+    TC_ASSERT(!pt->released());
+  }
+  if (pt->unbroken()) {
+    TC_ASSERT(!pt->released());
+    return;
+  }
+  if (collapse_released == CollapseReleasedHugePages::kDisabled &&
+      subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kDisabled) {
+    pt->set_unbroken(/*status=*/true);
+    return;
+  }
   const bool was_donated = pt->donated();
   if (was_donated) {
     ++treatment_stats_.collapse_donated_succeeded;
   }
   RemoveFromFillerList(pt);
+  if (collapse_released == CollapseReleasedHugePages::kEnabled) {
+    const Length previously_released = pt->ClearReleasedPages();
+    TC_ASSERT_GE(unmapped_, previously_released);
+    unmapped_ -= previously_released;
+    ClearWasReleased(pt);
+  }
   pt->set_unbroken(/*status=*/true);
   if (was_donated &&
       preserve_donated_on_collapse == PreserveDonatedOnCollapse::kEnabled) {

@@ -33,6 +33,7 @@
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_page_subrelease.h"
 #include "tcmalloc/huge_page_tracker.h"
 #include "tcmalloc/huge_page_treatment.h"
@@ -168,7 +169,7 @@ class FillerHeap {
     filler_.TreatHugepageTrackers(
         EnableCollapse::kDisabled, EnableUnfilteredCollapse::kDisabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
     pageheap_lock.unlock();
   }
 

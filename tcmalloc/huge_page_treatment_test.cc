@@ -347,9 +347,10 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
     EXPECT_EQ(filler_.GetHugePageTreatmentStats().collapse_succeeded,
               NHugePages(0));
+    EXPECT_FALSE(pt->GetHugePageResidencyState().unbacked.IsZero());
     EXPECT_TRUE(pt->released());
     EXPECT_EQ(pt->released_pages(), Length(3));
     EXPECT_EQ(filler_.unmapped_pages(), Length(3));
@@ -358,6 +359,53 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   EXPECT_EQ(residency_.GetUnbackedAndSwappedBitmaps(backing_.ptr)
                 .unbacked.CountBits(),
             Length(3).in_bytes() / host_page_size_);
+
+  // Advance past kRecordInterval, re-enable MADV_HUGEPAGE, and run with
+  // CollapseReleasedHugePages::kEnabled. Real MADV_COLLAPSE collapses the
+  // 2 MiB range despite the 3 missing TCMalloc pages, re-backing them with
+  // zeroed physical pages inside the compound THP and clearing released state.
+  FakeClock::Advance(kRecordInterval + absl::Minutes(1));
+  {
+    PageHeapSpinLockHolder l;
+    ASSERT_EQ(madvise(backing_.ptr, kHugePageSize, MADV_HUGEPAGE), 0) << errno;
+    filler_.TreatHugepageTrackers(
+        EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
+        ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
+        CollapseReleasedHugePages::kEnabled, &pageflags_, &residency_);
+  }
+  if (collapse_.calls() == 0 &&
+      pageflags_.IsHugepageBacked(backing_.ptr).value_or(false)) {
+    GTEST_SKIP() << "Kernel khugepaged collapsed VMA concurrently with test.";
+  }
+  ASSERT_EQ(collapse_.calls(), 1);
+  if (!collapse_.last_status().success) {
+    GTEST_SKIP() << "madvise(MADV_COLLAPSE) failed on host kernel with errno="
+                 << collapse_.last_status().error_number;
+  }
+
+  EXPECT_THAT(pageflags_.IsHugepageBacked(backing_.ptr),
+              testing::Optional(true));
+  auto post_collapse_residency =
+      residency_.GetUnbackedAndSwappedBitmaps(backing_.ptr);
+  ASSERT_EQ(post_collapse_residency.status, absl::StatusCode::kOk);
+  EXPECT_EQ(post_collapse_residency.unbacked.CountBits(), 0);
+  EXPECT_EQ(*reinterpret_cast<uint8_t*>(kept_page.start_addr()), 0xAB);
+  EXPECT_EQ(*reinterpret_cast<uint8_t*>(extra_free_page.start_addr()), 0xCD);
+  EXPECT_EQ(*reinterpret_cast<uint8_t*>((rel_page + Length(1)).start_addr()),
+            0x00);
+
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(filler_.GetHugePageTreatmentStats().collapse_succeeded,
+              NHugePages(1));
+    EXPECT_TRUE(pt->GetHugePageResidencyState().unbacked.IsZero());
+    EXPECT_TRUE(pt->GetHugePageResidencyState().swapped.IsZero());
+    EXPECT_FALSE(pt->released());
+    EXPECT_EQ(pt->released_pages(), Length(0));
+    EXPECT_TRUE(pt->unbroken());
+    EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+    EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(0));
+  }
 }
 
 // Verifies behavior when missing (unbacked) pages in a real 2 MiB region exceed
@@ -396,9 +444,10 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
     EXPECT_EQ(filler_.GetHugePageTreatmentStats().collapse_attempted,
               NHugePages(0));
+    EXPECT_FALSE(pt->GetHugePageResidencyState().unbacked.IsZero());
   }
   EXPECT_EQ(collapse_.calls(), 0);
   EXPECT_EQ(residency_.GetUnbackedAndSwappedBitmaps(backing_.ptr)
@@ -414,7 +463,7 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kEnabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
   }
   if (collapse_.calls() == 0 &&
       pageflags_.IsHugepageBacked(backing_.ptr).value_or(false)) {
@@ -435,6 +484,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   EXPECT_EQ(*reinterpret_cast<uint8_t*>(unbacked_start.start_addr()), 0x00);
   {
     PageHeapSpinLockHolder l;
+    EXPECT_TRUE(pt->GetHugePageResidencyState().unbacked.IsZero());
+    EXPECT_TRUE(pt->GetHugePageResidencyState().swapped.IsZero());
     EXPECT_TRUE(pt->unbroken());
   }
 }
