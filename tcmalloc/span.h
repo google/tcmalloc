@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <climits>
 #include <cstddef>
@@ -122,12 +123,18 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   // Returns number of objects allocated in the span.
   [[nodiscard]] uint16_t Allocated() const { return allocated_; }
 
+  // Sentinel values stored in `nonempty_index_` when a span is not in any
+  // `CentralFreeList::nonempty_` bucket.
+  static constexpr uint8_t kFullSpan = 0xfe;
+  static constexpr uint8_t kInFlightSpan = 0xff;
+
   // Returns index of the non-empty list to which this span belongs to.
-  [[nodiscard]] uint8_t nonempty_index() const { return nonempty_index_; }
+  [[nodiscard]] uint8_t nonempty_index() const {
+    return nonempty_index_.load(std::memory_order_relaxed);
+  }
   // Records an index of the non-empty list associated with this span.
   void set_nonempty_index(uint8_t index) {
-    nonempty_index_ = index;
-    TC_ASSERT_EQ(nonempty_index_, index);
+    nonempty_index_.store(index, std::memory_order_relaxed);
   }
 
   // ---------------------------------------------------------------------------
@@ -169,6 +176,12 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] int BuildFreelist(size_t size, size_t count,
                                   absl::Span<void*> batch,
                                   int32_t bitmap_offset) __restrict__;
+
+  // Invokes `fn(idx)` once for each free object slot index in
+  // `[0, objects_per_span)`.
+  template <typename Fn>
+  void ForEachFreeObject(size_t size, size_t objects_per_span,
+                         int32_t bitmap_offset, Fn&& fn) const;
 
   // Prefetch cacheline containing most important span information.
   void Prefetch();
@@ -226,7 +239,8 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   };
   uint16_t allocated_;  // Number of non-free objects
   uint8_t cache_size_;
-  uint8_t nonempty_index_;  // The nonempty_ list index for this span.
+  std::atomic<uint8_t>
+      nonempty_index_;  // The nonempty_ list index for this span.
 
   // The number of bits of the cache space that may be used for bitmap.
   static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kCacheSize;
@@ -271,6 +285,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
                                       size_t size) __restrict__;
 
   [[nodiscard]] BitmapElem* DynamicBitmap(int32_t bitmap_offset);
+  [[nodiscard]] const BitmapElem* DynamicBitmap(int32_t bitmap_offset) const;
   void DynamicBitmapPush(absl::Span<ObjIdx> batch, size_t size,
                          int32_t bitmap_offset) __restrict__;
   [[nodiscard]] size_t DynamicBitmapPop(absl::Span<void* absl_nonnull> batch,
@@ -619,6 +634,74 @@ inline Span::BitmapElem* Span::DynamicBitmap(int32_t bitmap_offset) {
              ? reinterpret_cast<BitmapElem*>(
                    static_cast<char*>(start_address()) + bitmap_offset)
              : raw_bitmap_;
+}
+
+inline const Span::BitmapElem* Span::DynamicBitmap(
+    int32_t bitmap_offset) const {
+  TC_ASSERT_NE(bitmap_offset, 0);
+  return bitmap_offset > 0
+             ? reinterpret_cast<const BitmapElem*>(
+                   static_cast<const char*>(start_address()) + bitmap_offset)
+             : raw_bitmap_;
+}
+
+template <typename Fn>
+inline void Span::ForEachFreeObject(size_t size, size_t objects_per_span,
+                                    int32_t bitmap_offset, Fn&& fn) const {
+  if (allocated_ == objects_per_span) {
+    return;
+  }
+  size_t visited = 0;
+  if (bitmap_offset != 0) {
+    const BitmapElem* bm = DynamicBitmap(bitmap_offset);
+    const size_t bitmap_words =
+        (objects_per_span + kBitsPerWord - 1) / kBitsPerWord;
+    for (size_t w = 0; w < bitmap_words; ++w) {
+      BitmapElem word = bm[w];
+      while (word != 0) {
+        const size_t bit = absl::countr_zero(word);
+        const size_t idx = w * kBitsPerWord + bit;
+        TC_ASSERT_LT(idx, objects_per_span);
+        fn(idx);
+        ++visited;
+        word &= word - 1;
+      }
+    }
+  } else if (UseBitmapForSize(size, bitmap_offset)) {
+    bitmap_.ForEachSet(0, [&](size_t idx) {
+      TC_ASSERT_LT(idx, objects_per_span);
+      fn(idx);
+      ++visited;
+    });
+  } else {
+    const uint32_t reciprocal = CalcReciprocal(size);
+    auto visit_raw = [&](ObjIdx raw_idx) {
+      const uintptr_t byte_off = static_cast<uintptr_t>(raw_idx)
+                                 << kAlignmentShift;
+      const size_t idx = OffsetToIdx(byte_off, reciprocal);
+      TC_ASSERT_EQ(idx * size, byte_off);
+      TC_ASSERT_LT(idx, objects_per_span);
+      fn(idx);
+      ++visited;
+    };
+    for (size_t i = 0; i < cache_size_; ++i) {
+      visit_raw(list_.cache[i]);
+    }
+    const uintptr_t start = first_page().start_uintptr();
+    const size_t max_embed = size / sizeof(ObjIdx) - 1;
+    ObjIdx cur = freelist_;
+    size_t embed = embed_count_;
+    while (cur != kListEnd) {
+      const ObjIdx* host = IdxToPtr(cur, size, start);
+      for (size_t i = 1; i <= embed; ++i) {
+        visit_raw(host[i]);
+      }
+      visit_raw(cur);
+      cur = host[0];
+      embed = max_embed;
+    }
+  }
+  TC_ASSERT_EQ(visited, objects_per_span - allocated_);
 }
 
 inline void Span::DynamicBitmapPush(absl::Span<ObjIdx> batch, size_t size,

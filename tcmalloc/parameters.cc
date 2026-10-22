@@ -891,6 +891,13 @@ void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v) {
   tcmalloc::tcmalloc_internal::release_drained_slab_metadata_enabled().store(
       v, std::memory_order_relaxed);
 }
+
+bool TCMalloc_Internal_GetCflSubbucketPrioritization() {
+  tc_globals.InitIfNecessary();
+  return Parameters::cfl_subbucket_prioritization() ==
+         tcmalloc::tcmalloc_internal::central_freelist_internal::
+             CflSubbucketPrioritization::kEnabled;
+}
 }  // extern "C"
 
 GOOGLE_MALLOC_SECTION_END
