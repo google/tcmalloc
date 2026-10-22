@@ -80,7 +80,8 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // region. If adaptive_release is true, we scan the hugepages in reverse order
   // to select candidates for release. This order is opposite to the allocation
   // order, so we hope to release pages that won't be soon allocated.
-  [[nodiscard]] HugeLength Release(Length desired, bool adaptive_release);
+  [[nodiscard]] HugeLength Release(Length desired,
+                                   HugeRegionAdaptiveRelease adaptive_release);
 
   // Is p located in this region?
   [[nodiscard]] bool contains(PageId p) const { return location_.contains(p); }
@@ -192,7 +193,8 @@ class HugeRegionSet {
   //   low water mark of free backed pages (capped by desired).
   // - If hit_limit is false and use_adaptive is false, we release a fraction
   //   of the free backed pages.
-  [[nodiscard]] Length ReleasePages(Length desired, bool use_adaptive,
+  [[nodiscard]] Length ReleasePages(Length desired,
+                                    HugeRegionAdaptiveRelease use_adaptive,
                                     bool hit_limit);
 
   void Print(Printer& out) const;
@@ -331,7 +333,8 @@ inline void HugeRegion::Put(Range r, bool release) {
 // free but backed hugepages from the region. We can explore a more
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
-inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
+inline HugeLength HugeRegion::Release(
+    Length desired, HugeRegionAdaptiveRelease adaptive_release) {
   const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
   if (to_release == Length(0)) return NHugePages(0);
@@ -339,20 +342,19 @@ inline HugeLength HugeRegion::Release(Length desired, bool adaptive_release) {
   Bitmap<kNumHugePages> should_unback;
   HugeLength release_target = NHugePages(0);
   const HugeLength needed = HLFromPages(to_release);
-  size_t index = adaptive_release ? kNumHugePages : 0, n = 0;
+  const bool reverse = adaptive_release == HugeRegionAdaptiveRelease::kEnabled;
+  size_t index = reverse ? kNumHugePages : 0, n = 0;
 
-  const auto next_free_range = [adaptive_release, this](
-                                   size_t* index,
-                                   size_t* n) GOOGLE_MALLOC_SECTION {
-    return adaptive_release
-               ? unreleasable_hugepages_.PrevFreeRange(*index, index, n)
-               : unreleasable_hugepages_.NextFreeRange(*index + *n, index, n);
-  };
+  const auto next_free_range =
+      [reverse, this](size_t* index, size_t* n) GOOGLE_MALLOC_SECTION {
+        return reverse ? unreleasable_hugepages_.PrevFreeRange(*index, index, n)
+                       : unreleasable_hugepages_.NextFreeRange(*index + *n,
+                                                               index, n);
+      };
 
   while (next_free_range(&index, &n)) {
     const HugeLength count = std::min(NHugePages(n), needed - release_target);
-    const size_t start =
-        adaptive_release ? (index + n - count.raw_num()) : index;
+    const size_t start = reverse ? (index + n - count.raw_num()) : index;
     should_unback.SetRange(start, count.raw_num());
 #ifndef NDEBUG
     for (size_t i = 0; i < count.raw_num(); ++i) {
@@ -643,13 +645,12 @@ inline void HugeRegionSet<Region>::Contribute(Region* region) {
 }
 
 template <typename Region>
-inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
-                                                  bool use_adaptive,
-                                                  bool hit_limit) {
+inline Length HugeRegionSet<Region>::ReleasePages(
+    Length desired, HugeRegionAdaptiveRelease use_adaptive, bool hit_limit) {
   Length to_release;
   if (hit_limit) {
     to_release = desired;
-  } else if (use_adaptive) {
+  } else if (use_adaptive == HugeRegionAdaptiveRelease::kEnabled) {
     to_release = lowater_free_backed_.in_pages();
   } else {
     to_release =
@@ -666,7 +667,7 @@ inline Length HugeRegionSet<Region>::ReleasePages(Length desired,
     released += region_released;
   };
 
-  if (use_adaptive) {
+  if (use_adaptive == HugeRegionAdaptiveRelease::kEnabled) {
     for (auto it = list_.rbegin(); it != list_.rend(); ++it) {
       if (released >= to_release) break;
       release_from_region(**it);

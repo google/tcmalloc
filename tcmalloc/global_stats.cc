@@ -627,12 +627,12 @@ void DumpStats(Printer& out, int level) {
     out.printf("PARAMETER tcmalloc_skip_subrelease_cold_long_interval %s\n",
                absl::FormatDuration(
                    Parameters::filler_skip_subrelease_cold_long_interval()));
-    out.printf("PARAMETER tcmalloc_release_partial_alloc_pages %d\n",
-               Parameters::release_partial_alloc_pages() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_release_partial_alloc_pages %v\n",
+               Parameters::release_partial_alloc_pages());
     out.printf("PARAMETER tcmalloc_release_pages_from_huge_region %d\n",
                Parameters::release_pages_from_huge_region() ? 1 : 0);
-    out.printf("PARAMETER tcmalloc_huge_region_adaptive_release %d\n",
-               Parameters::huge_region_adaptive_release() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_huge_region_adaptive_release %v\n",
+               Parameters::huge_region_adaptive_release());
     out.printf("PARAMETER madvise_cold_regions_nohugepage %d\n",
                Parameters::madvise_cold_regions_nohugepage() ==
                        MadviseRegionsNoHugepage::kEnabled
@@ -925,11 +925,13 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   absl::ToInt64Nanoseconds(
                       Parameters::filler_skip_subrelease_cold_long_interval()));
   region.PrintBool("tcmalloc_release_partial_alloc_pages",
-                   Parameters::release_partial_alloc_pages());
+                   Parameters::release_partial_alloc_pages() ==
+                       ReleasePartialAllocPages::kEnabled);
   region.PrintBool("tcmalloc_release_pages_from_huge_region",
                    Parameters::release_pages_from_huge_region());
   region.PrintBool("tcmalloc_huge_region_adaptive_release",
-                   Parameters::huge_region_adaptive_release());
+                   Parameters::huge_region_adaptive_release() ==
+                       HugeRegionAdaptiveRelease::kEnabled);
   region.PrintBool("madvise_cold_regions_nohugepage",
                    Parameters::madvise_cold_regions_nohugepage() ==
                        MadviseRegionsNoHugepage::kEnabled);

@@ -86,14 +86,14 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::filler_skip_subrelease_cold_short_interval()};
   FakeParameter<absl::Duration> filler_skip_subrelease_cold_long_interval{
       Parameters::filler_skip_subrelease_cold_long_interval()};
-  FakeParameter<bool> release_partial_alloc_pages{
+  FakeParameter<ReleasePartialAllocPages> release_partial_alloc_pages{
       Parameters::release_partial_alloc_pages()};
   FakeParameter<bool> hpaa_subrelease{Parameters::hpaa_subrelease()};
   FakeParameter<SubreleaseUnbackedMode> subrelease_unbacked_hugepages{
       Parameters::subrelease_unbacked_hugepages()};
   FakeParameter<TrackBrokenHugepages> track_broken_hugepages{
       Parameters::track_broken_hugepages()};
-  FakeParameter<bool> huge_region_adaptive_release{
+  FakeParameter<HugeRegionAdaptiveRelease> huge_region_adaptive_release{
       Parameters::huge_region_adaptive_release()};
   FakeParameter<MallocExtension::BytesPerSecond> background_release_rate{
       Parameters::background_release_rate()};

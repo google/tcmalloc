@@ -254,8 +254,9 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
     DefaultOrDebugValue(/*default_val=*/50, /*debug_val=*/5) *
     kDefaultProfileSamplingInterval);
 // TODO(b/285379004):  Remove this opt-out.
-ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
-    true);
+ABSL_CONST_INIT std::atomic<ReleasePartialAllocPages>
+    Parameters::release_partial_alloc_pages_(
+        ReleasePartialAllocPages::kEnabled);
 // TODO(b/123345734): Remove the flag when experimentation is done.
 ABSL_CONST_INIT std::atomic<bool> Parameters::resize_size_class_max_capacity_(
     true);
@@ -301,8 +302,9 @@ ABSL_CONST_INIT std::atomic<MadviseSampledAllocations>
         MadviseSampledAllocations::kDisabled);
 ABSL_CONST_INIT std::atomic<size_t> Parameters::event_trace_memory_limit_(
     16 << 20);
-ABSL_CONST_INIT std::atomic<bool> Parameters::huge_region_adaptive_release_(
-    true);
+ABSL_CONST_INIT std::atomic<HugeRegionAdaptiveRelease>
+    Parameters::huge_region_adaptive_release_(
+        HugeRegionAdaptiveRelease::kEnabled);
 ABSL_CONST_INIT std::atomic<ReleaseStalePages> Parameters::release_stale_pages_(
     ReleaseStalePages::kDisabled);
 
@@ -500,8 +502,10 @@ static bool want_disable_dynamic_slabs() {
 
 using tcmalloc::tcmalloc_internal::EnableCollapse;
 using tcmalloc::tcmalloc_internal::EnableUnfilteredCollapse;
+using tcmalloc::tcmalloc_internal::HugeRegionAdaptiveRelease;
 using tcmalloc::tcmalloc_internal::MadviseSampledAllocations;
 using tcmalloc::tcmalloc_internal::Parameters;
+using tcmalloc::tcmalloc_internal::ReleasePartialAllocPages;
 using tcmalloc::tcmalloc_internal::tc_globals;
 
 extern "C" {
@@ -595,7 +599,8 @@ bool TCMalloc_Internal_GetHPAASubrelease() {
 }
 
 bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
-  return Parameters::release_partial_alloc_pages();
+  return Parameters::release_partial_alloc_pages() ==
+         ReleasePartialAllocPages::kEnabled;
 }
 
 bool TCMalloc_Internal_GetBackSmallAllocations() {
@@ -657,7 +662,10 @@ void TCMalloc_Internal_SetHPAASubrelease(bool v) {
 }
 
 void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {
-  Parameters::release_partial_alloc_pages_.store(v, std::memory_order_relaxed);
+  Parameters::release_partial_alloc_pages_.store(
+      v ? ReleasePartialAllocPages::kEnabled
+        : ReleasePartialAllocPages::kDisabled,
+      std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v) {
@@ -808,11 +816,15 @@ void TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v) {
 }
 
 bool TCMalloc_Internal_GetHugeRegionAdaptiveReleaseEnabled() {
-  return Parameters::huge_region_adaptive_release();
+  return Parameters::huge_region_adaptive_release() ==
+         HugeRegionAdaptiveRelease::kEnabled;
 }
 
 void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v) {
-  Parameters::huge_region_adaptive_release_.store(v, std::memory_order_relaxed);
+  Parameters::huge_region_adaptive_release_.store(
+      v ? HugeRegionAdaptiveRelease::kEnabled
+        : HugeRegionAdaptiveRelease::kDisabled,
+      std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetReleaseMaxFillerPages() {

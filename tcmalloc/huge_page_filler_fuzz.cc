@@ -916,8 +916,11 @@ void Release::Perform(State& state) const {
     to_release_from_partial_allocs =
         Length(HugePageFiller<PageTracker>::kPartialAllocPagesRelease *
                state.filler.FreePagesInPartialAllocs().raw_num());
-    released = state.filler.ReleasePages(desired, skip_subrelease_intervals,
-                                         release_partial_allocs, hit_limit);
+    released = state.filler.ReleasePages(
+        desired, skip_subrelease_intervals,
+        release_partial_allocs ? ReleasePartialAllocPages::kEnabled
+                               : ReleasePartialAllocPages::kDisabled,
+        hit_limit);
     state.DrainFullyFreedTrackers();
   }
   if (state.depth == 0 && runs_before == state.reentrant_runs) {
@@ -999,7 +1002,7 @@ void MemoryLimitHitRelease::Perform(State& state) const {
   {
     PageHeapSpinLockHolder l;
     released = state.filler.ReleasePages(desired_len, SkipSubreleaseIntervals{},
-                                         /*release_partial_alloc_pages=*/false,
+                                         ReleasePartialAllocPages::kDisabled,
                                          /*hit_limit=*/true);
     state.DrainFullyFreedTrackers();
   }

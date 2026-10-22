@@ -359,7 +359,9 @@ void Release::Perform(State& state) const {
   const Length len = Length(length % (1 << 18));
   const HugeLength max_expected =
       std::min(state.region.free_backed(), HLFromPages(len));
-  const HugeLength actual = state.region.Release(len, adaptive_release);
+  const HugeLength actual = state.region.Release(
+      len, adaptive_release ? HugeRegionAdaptiveRelease::kEnabled
+                            : HugeRegionAdaptiveRelease::kDisabled);
   if (!state.unback.unback_success_) {
     TC_CHECK_EQ(actual, NHugePages(0));
     return;
@@ -723,8 +725,11 @@ void ReleasePages::Perform(State& state) const {
   // out of free-but-backed hugepages.
   const Length cap = std::min(to_release, before.in_pages());
 
-  const Length released =
-      state.set.ReleasePages(desired, use_adaptive, hit_limit);
+  const Length released = state.set.ReleasePages(
+      desired,
+      use_adaptive ? HugeRegionAdaptiveRelease::kEnabled
+                   : HugeRegionAdaptiveRelease::kDisabled,
+      hit_limit);
   if (!state.unback.unback_success_) {
     EXPECT_EQ(released, Length(0));
   } else {

@@ -686,7 +686,8 @@ TEST_P(HugePageAwareAllocatorTest, ReleaseFromHugeRegionWhenCacheSatisfies) {
   }
 
   // Disable adaptive release for huge region.
-  allocator_->forwarder().huge_region_adaptive_release.set(false);
+  allocator_->forwarder().huge_region_adaptive_release.set(
+      HugeRegionAdaptiveRelease::kDisabled);
 
   static constexpr Length kSlack = kPagesPerHugePage / 2 - Length(2);
   static constexpr Length kSmallSize = kSlack;
@@ -2610,7 +2611,8 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
 
 TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
   allocator_->forwarder().hpaa_subrelease.set(true);
-  allocator_->forwarder().release_partial_alloc_pages.set(true);
+  allocator_->forwarder().release_partial_alloc_pages.set(
+      ReleasePartialAllocPages::kEnabled);
   allocator_->forwarder().filler_skip_subrelease_short_interval.set(
       absl::ZeroDuration());
   allocator_->forwarder().filler_skip_subrelease_long_interval.set(
@@ -2796,7 +2798,8 @@ TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
   StubPageFlags pageflags;
   StubResidency residency;
   allocator_->forwarder().hpaa_subrelease.set(true);
-  allocator_->forwarder().release_partial_alloc_pages.set(true);
+  allocator_->forwarder().release_partial_alloc_pages.set(
+      ReleasePartialAllocPages::kEnabled);
   allocator_->forwarder().filler_skip_subrelease_short_interval.set(
       absl::ZeroDuration());
   allocator_->forwarder().filler_skip_subrelease_long_interval.set(

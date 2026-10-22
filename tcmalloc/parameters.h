@@ -96,7 +96,7 @@ class Parameters {
     return peak_sampling_heap_growth_fraction_.load(std::memory_order_relaxed);
   }
 
-  [[nodiscard]] static bool release_partial_alloc_pages() {
+  [[nodiscard]] static ReleasePartialAllocPages release_partial_alloc_pages() {
     return release_partial_alloc_pages_.load(std::memory_order_relaxed);
   }
 
@@ -145,7 +145,8 @@ class Parameters {
     TCMalloc_Internal_SetPreserveDonatedOnCollapse(value);
   }
 
-  [[nodiscard]] static bool huge_region_adaptive_release() {
+  [[nodiscard]] static HugeRegionAdaptiveRelease
+  huge_region_adaptive_release() {
     return huge_region_adaptive_release_.load(std::memory_order_relaxed);
   }
 
@@ -323,7 +324,7 @@ class Parameters {
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
-  static std::atomic<bool> release_partial_alloc_pages_;
+  static std::atomic<ReleasePartialAllocPages> release_partial_alloc_pages_;
   static std::atomic<bool> release_pages_from_huge_region_;
   static std::atomic<bool> resize_size_class_max_capacity_;
   static std::atomic<int64_t> profile_sampling_interval_;
@@ -338,7 +339,7 @@ class Parameters {
   static std::atomic<EnableUnfilteredCollapse> enable_unfiltered_collapse_;
   static std::atomic<MadviseSampledAllocations> madvise_sampled_allocations_;
   static std::atomic<size_t> event_trace_memory_limit_;
-  static std::atomic<bool> huge_region_adaptive_release_;
+  static std::atomic<HugeRegionAdaptiveRelease> huge_region_adaptive_release_;
   static std::atomic<ReleaseStalePages> release_stale_pages_;
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> skip_subrelease_short_interval_ns_;

@@ -1205,7 +1205,7 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   }
 
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
-                                   /*release_partial_alloc_pages=*/false,
+                                   ReleasePartialAllocPages::kDisabled,
                                    /*hit_limit=*/true);
   DrainFreedTrackers();
 

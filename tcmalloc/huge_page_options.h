@@ -92,6 +92,16 @@ enum class SubreleaseUnbackedMode : bool {
   kEnabled = true,
 };
 
+enum class ReleasePartialAllocPages : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
+enum class HugeRegionAdaptiveRelease : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
 

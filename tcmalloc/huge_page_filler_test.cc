@@ -647,7 +647,7 @@ class FillerTest : public testing::Test {
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals = {}) {
     PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, intervals,
-                                /*release_partial_alloc_pages=*/false,
+                                ReleasePartialAllocPages::kDisabled,
                                 /*hit_limit=*/false);
   }
 
@@ -655,14 +655,14 @@ class FillerTest : public testing::Test {
                              SkipSubreleaseIntervals intervals = {}) {
     PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, intervals,
-                                /*release_partial_alloc_pages=*/true,
+                                ReleasePartialAllocPages::kEnabled,
                                 /*hit_limit=*/false);
   }
 
   Length HardReleasePages(Length desired) {
     PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, SkipSubreleaseIntervals{},
-                                /*release_partial_alloc_pages=*/false,
+                                ReleasePartialAllocPages::kDisabled,
                                 /*hit_limit=*/true);
   }
 
@@ -2152,7 +2152,7 @@ TEST_F(FillerTest, CollapseDuringRelease) {
   pageheap_lock.lock();
   const Length released = filler_.ReleasePages(
       2 * kPagesPerHugePage, SkipSubreleaseIntervals{},
-      /*release_partial_alloc_pages=*/false, /*hit_limit=*/false);
+      ReleasePartialAllocPages::kDisabled, /*hit_limit=*/false);
   pageheap_lock.unlock();
   EXPECT_EQ(released, 2 * kPagesPerHugePage - Length(3));
   blocking_unback_without_lock_.unlocked_hook_ = nullptr;

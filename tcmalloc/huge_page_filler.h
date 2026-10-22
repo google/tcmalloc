@@ -635,7 +635,8 @@ class HugePageFiller {
   // reduced by skip subrelease which is disabled if all intervals are zero.
   static constexpr double kPartialAllocPagesRelease = 0.1;
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals,
-                      bool release_partial_alloc_pages, bool hit_limit)
+                      ReleasePartialAllocPages release_partial_alloc_pages,
+                      bool hit_limit)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Number of candidate hugepages selected in each iteration for releasing
   // their free memory.
@@ -1479,7 +1480,7 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleasePages(
     Length desired, SkipSubreleaseIntervals intervals,
-    bool release_partial_alloc_pages, bool hit_limit) {
+    ReleasePartialAllocPages release_partial_alloc_pages, bool hit_limit) {
   Length total_released;
 
   // If the feature to release all free pages in partially-released allocs is
@@ -1487,7 +1488,8 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
   // of releasable pages in partially-released allocs. We disable this feature
   // for cases when hit_limit is set to true (i.e. when memory limit is hit).
   const bool release_all_from_partial_allocs =
-      release_partial_alloc_pages && !hit_limit;
+      release_partial_alloc_pages == ReleasePartialAllocPages::kEnabled &&
+      !hit_limit;
   if (ABSL_PREDICT_FALSE(release_all_from_partial_allocs)) {
     // If we have fewer than desired number of free pages in partial allocs, we
     // would try to release pages from full allocs as well (after we include

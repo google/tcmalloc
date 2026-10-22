@@ -1217,7 +1217,9 @@ void SetFillerSkipSubreleaseColdLongInterval::Perform(State& state) const {
 }
 
 void SetReleasePartialAllocPages::Perform(State& state) const {
-  state.allocator.forwarder().release_partial_alloc_pages.set(value);
+  state.allocator.forwarder().release_partial_alloc_pages.set(
+      value ? ReleasePartialAllocPages::kEnabled
+            : ReleasePartialAllocPages::kDisabled);
 }
 
 void SetHpaaSubrelease::Perform(State& state) const {
@@ -1250,7 +1252,9 @@ void SetCollapseSucceeds::Perform(State& state) const {
 }
 
 void SetHugeRegionAdaptiveRelease::Perform(State& state) const {
-  state.allocator.forwarder().huge_region_adaptive_release.set(value);
+  state.allocator.forwarder().huge_region_adaptive_release.set(
+      value ? HugeRegionAdaptiveRelease::kEnabled
+            : HugeRegionAdaptiveRelease::kDisabled);
 }
 
 void SetAllocateSucceeds::Perform(State& state) const {
