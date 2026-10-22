@@ -954,7 +954,7 @@ struct State {
 PageFlagsBase::PageFlagsBitmaps FakePageFlags::GetSinglePageBitmaps(
     const void* addr) {
   state_.OnLockDropped();
-  return {state_.stale_bitmap, absl::StatusCode::kOk};
+  return {.stale = state_.stale_bitmap, .status = absl::StatusCode::kOk};
 }
 
 std::optional<bool> FakePageFlags::IsHugepageBacked(const void* addr) {
