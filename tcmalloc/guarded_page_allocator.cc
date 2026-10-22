@@ -197,7 +197,9 @@ GuardedPageAllocator::ProtectResult GuardedPageAllocator::ProtectPage(
     // and an application may mlock() memory we have already handed out at any
     // point.  This is not a property we can establish once: fall back to
     // mprotect() for this page and retry guard regions on the next pass, so
-    // that a later munlock() restores them.
+    // that a later munlock() restores them.  madvise() may have marked part of
+    // the range before failing, so clear any installed guard markers first.
+    madvise(addr, size, MADV_GUARD_REMOVE);
     mprotect_fallbacks_.Add(1);
   }
   const int ret = mprotect(addr, size, PROT_NONE);
