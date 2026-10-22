@@ -211,7 +211,7 @@ template <class T, class S, size_t kSlots>
 void TimeSeriesTracker<T, S, kSlots>::IterBackwards(
     absl::FunctionRef<void(size_t, size_t, const T&)> f,
     absl::Duration interval) const {
-  if (interval == absl::ZeroDuration()) return;
+  if (interval <= absl::ZeroDuration()) return;
   size_t epochs_to_traverse;
   if (interval == absl::InfiniteDuration()) {
     // InfiniteDuration() means that we are outputting all records.

@@ -370,6 +370,19 @@ TEST_F(TimeSeriesTrackerTest, ClampedNegativeClock) {
   EXPECT_THAT(all_values, ElementsAre(ElementsAre(1, 2, 3)));
 }
 
+TEST_F(TimeSeriesTrackerTest, NegativeIntervalIterBackwards) {
+  tracker_.Report(1);
+  Advance(absl::Seconds(0.5));
+  tracker_.Report(2);
+
+  auto fail_cb = [&](size_t, size_t, const TestEntry&) {
+    FAIL() << "IterBackwards should not invoke callback for negative interval";
+  };
+  tracker_.IterBackwards(fail_cb, -absl::Nanoseconds(1));
+  tracker_.IterBackwards(fail_cb, -absl::Seconds(1));
+  tracker_.IterBackwards(fail_cb, -absl::InfiniteDuration());
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

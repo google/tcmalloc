@@ -209,13 +209,13 @@ struct SkipSubreleaseIntervals {
   absl::Duration long_interval;
   // Checks if the peak interval is set.
   [[nodiscard]] bool IsPeakIntervalSet() const {
-    return peak_interval != absl::ZeroDuration();
+    return peak_interval > absl::ZeroDuration();
   }
   // Checks if the skip subrelease feature is enabled.
   [[nodiscard]] bool SkipSubreleaseEnabled() const {
-    if (peak_interval != absl::ZeroDuration() ||
-        short_interval != absl::ZeroDuration() ||
-        long_interval != absl::ZeroDuration()) {
+    if (peak_interval > absl::ZeroDuration() ||
+        short_interval > absl::ZeroDuration() ||
+        long_interval > absl::ZeroDuration()) {
       return true;
     }
     return false;
@@ -315,7 +315,7 @@ class SubreleaseStatsTracker {
   // decision.
   [[nodiscard]] Length GetRecentPeak(absl::Duration peak_interval) {
     last_skip_subrelease_intervals_.peak_interval =
-        std::min(peak_interval, window_);
+        std::max(std::min(peak_interval, window_), absl::ZeroDuration());
     // Being precise about the interval length as the tracker can hold records
     // outside the window_ .
     return CalculateDemandPeak(last_skip_subrelease_intervals_.peak_interval);
@@ -469,6 +469,8 @@ class SubreleaseStatsTracker {
   // Gets the peak demand recorded in the time series over the last
   // <peak_interval>.
   [[nodiscard]] Length CalculateDemandPeak(absl::Duration peak_interval) {
+    peak_interval =
+        std::max(std::min(peak_interval, window_), absl::ZeroDuration());
     Length max_demand_pages;
     tracker_.IterBackwards(
         [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
@@ -488,8 +490,8 @@ class SubreleaseStatsTracker {
   // difference in <short_interval> and the max-min demand in <long_interval>.
   [[nodiscard]] Length CalculateCombinedDemandTrend(
       absl::Duration short_interval, absl::Duration long_interval) {
-    if (short_interval != absl::ZeroDuration() &&
-        long_interval != absl::ZeroDuration()) {
+    if (short_interval > absl::ZeroDuration() &&
+        long_interval > absl::ZeroDuration()) {
       short_interval = std::min(short_interval, long_interval);
     }
     last_skip_subrelease_intervals_.short_interval =

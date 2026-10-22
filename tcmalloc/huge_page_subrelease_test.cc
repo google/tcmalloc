@@ -311,6 +311,38 @@ TEST_F(StatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   EXPECT_EQ(tracker_.pending_skipped().count, 0);
 }
 
+TEST_F(StatsTrackerTest, NegativeAndUnboundedSubreleaseIntervals) {
+  GenerateDemandPoint(Length(100), Length(1000));
+  GenerateDemandPoint(Length(400), Length(1000));
+  // Advance 12 minutes (> kWindow = 10 min) in a single step so the old record
+  // remains in the ring buffer but outside kWindow.
+  Advance(absl::Minutes(12));
+  GenerateDemandPoint(Length(100), Length(1000));
+  GenerateDemandPoint(Length(150), Length(1000));
+
+  SkipSubreleaseIntervals neg_intervals{-absl::Seconds(1), -absl::Seconds(1),
+                                        -absl::Seconds(1)};
+  EXPECT_FALSE(neg_intervals.IsPeakIntervalSet());
+  EXPECT_FALSE(neg_intervals.SkipSubreleaseEnabled());
+
+  // Negative peak intervals must clamp to 0 and not crash in IterBackwards.
+  EXPECT_EQ(tracker_.GetRecentPeak(-absl::Nanoseconds(1)), Length(0));
+  EXPECT_EQ(tracker_.GetRecentPeak(-absl::Minutes(1)), Length(0));
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::ZeroDuration(), absl::ZeroDuration(),
+                                     -absl::Nanoseconds(1)),
+            Length(0));
+
+  // A negative long_interval must not erase a positive short_interval.
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::Minutes(1), -absl::Minutes(1)),
+            Length(50));
+
+  // GetRecentDemand with peak_interval > kWindow must clamp peak_interval to
+  // kWindow (150 pages), not read the stale 400-page peak from 12 minutes ago.
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::Minutes(5), absl::Minutes(5),
+                                     kWindow + absl::Minutes(5)),
+            Length(150));
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
