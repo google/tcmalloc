@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 
 #include "absl/base/macros.h"
 #include "absl/functional/function_ref.h"
@@ -43,8 +42,6 @@ struct MemoryStats {
 
 // Memory stats of a process
 [[nodiscard]] bool GetMemoryStats(MemoryStats& stats);
-
-[[nodiscard]] std::optional<double> GetHugepageFragmentationRatio(size_t node);
 
 ABSL_DEPRECATE_AND_INLINE()
 [[nodiscard]] inline bool GetMemoryStats(MemoryStats* stats) {

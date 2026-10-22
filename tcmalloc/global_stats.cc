@@ -313,7 +313,7 @@ static absl::string_view PerCpuTypeString(RseqVcpuMode mode) {
   return "NONE";
 }
 
-void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation) {
+void DumpStats(Printer& out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
@@ -468,19 +468,6 @@ void DumpStats(Printer& out, int level, bool include_hugepage_fragmentation) {
         "TOTAL: %12u (%7.1f MiB) Bytes via VmPTE\n",
         rss, rss / MiB, vss, vss / MiB, memstats.vmpte, memstats.vmpte / MiB);
     // clang-format on
-  }
-
-  if (include_hugepage_fragmentation) {
-    out.printf("\nMachine-level hugepage fragmentation stats:\n");
-    const size_t num_nodes = tc_globals.numa_topology().num_nodes();
-    for (size_t node = 0; node < num_nodes; node++) {
-      std::optional<double> hugepage_frag_ratio =
-          GetHugepageFragmentationRatio(node);
-      if (hugepage_frag_ratio.has_value()) {
-        out.printf("TOTAL: %12.3f Hugepage fragmentation ratio (node%zu)\n",
-                   *hugepage_frag_ratio, node);
-      }
-    }
   }
 
   out.printf(
@@ -824,18 +811,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
     region.PrintI64("total_resident", uint64_t(memstats.rss));
     region.PrintI64("total_mapped", uint64_t(memstats.vss));
     region.PrintI64("total_vmpte", uint64_t(memstats.vmpte));
-  }
-
-  const size_t num_nodes = tc_globals.numa_topology().num_nodes();
-  for (size_t node = 0; node < num_nodes; node++) {
-    std::optional<double> hugepage_frag_ratio =
-        GetHugepageFragmentationRatio(node);
-    if (hugepage_frag_ratio.has_value()) {
-      PbtxtRegion entry =
-          region.CreateSubRegion("hugepage_fragmentation_ratio");
-      entry.PrintI64("node", node);
-      entry.PrintDouble("ratio", *hugepage_frag_ratio);
-    }
   }
 
   region.PrintI64("total_sampled_count",

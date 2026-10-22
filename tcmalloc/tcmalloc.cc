@@ -224,7 +224,7 @@ static void PrintStats(int level) {
   const int kBufferSize = 64 << 10;
   char* buffer = new char[kBufferSize];
   Printer printer(buffer, kBufferSize);
-  DumpStats(printer, level, /*include_hugepage_fragmentation=*/true);
+  DumpStats(printer, level);
   (void)write(STDERR_FILENO, buffer, strlen(buffer));
   delete[] buffer;
 }
@@ -238,29 +238,28 @@ extern "C" void MallocExtension_Internal_GetStats(std::string* ret) {
     bool success = false;
     absl::StringResizeAndOverwrite(
         *ret, size - 1,
-        [&](char* buffer, size_t buffer_size)
-            ABSL_ATTRIBUTE_ALWAYS_INLINE -> size_t {
-              size_t written_size = TCMalloc_Internal_GetStats(
-                  buffer, buffer_size, /*include_hugepage_fragmentation=*/true);
-              if (written_size < buffer_size) {
-                success = true;
-                return written_size;
-              }
-              return 0;
-            });
+        [&](char* buffer,
+            size_t buffer_size) ABSL_ATTRIBUTE_ALWAYS_INLINE -> size_t {
+          size_t written_size = TCMalloc_Internal_GetStats(buffer, buffer_size);
+          if (written_size < buffer_size) {
+            success = true;
+            return written_size;
+          }
+          return 0;
+        });
     if (success) {
       return;
     }
   }
 }
 
-extern "C" size_t TCMalloc_Internal_GetStats(
-    char* buffer, size_t buffer_length, bool include_hugepage_fragmentation) {
+extern "C" size_t TCMalloc_Internal_GetStats(char* buffer,
+                                             size_t buffer_length) {
   Printer printer(buffer, buffer_length);
   if (buffer_length < 10000) {
-    DumpStats(printer, 1, include_hugepage_fragmentation);
+    DumpStats(printer, 1);
   } else {
-    DumpStats(printer, 2, include_hugepage_fragmentation);
+    DumpStats(printer, 2);
   }
 
   printer.printf("\nLow-level allocator stats:\n");

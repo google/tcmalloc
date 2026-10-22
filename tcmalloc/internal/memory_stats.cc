@@ -15,18 +15,13 @@
 #include "tcmalloc/internal/memory_stats.h"
 
 #include <fcntl.h>
-#include <limits.h>
-#include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <array>
-#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <optional>
 
 #include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
@@ -153,39 +148,6 @@ bool GetMemoryStats(MemoryStats& stats) {
   return GetMemoryStatsFromStatus(stats, [&](char* buf, size_t count) {
     return signal_safe_read(fd.fd, buf, count, nullptr);
   });
-}
-
-[[nodiscard]] std::optional<double> GetHugepageFragmentationRatio(size_t node) {
-#if !defined(__linux__)
-  return std::nullopt;
-#endif
-
-  char path[PATH_MAX];
-  snprintf(path, sizeof(path),
-           "/sys/devices/system/node/node%zu/hugepage_fragmentation_ratio",
-           node);
-
-  int fd = signal_safe_open(path, O_RDONLY | O_CLOEXEC);
-  if (fd < 0) {
-    TC_ASSERT_EQ(errno, ENOENT);
-    return std::nullopt;
-  }
-
-  std::array<char, 16> buf;
-  ssize_t rc = signal_safe_read(fd, buf.data(), buf.size(), nullptr);
-  signal_safe_close(fd);
-
-  if (ABSL_PREDICT_FALSE(rc <= 0)) {
-    return std::nullopt;
-  }
-
-  absl::string_view str(buf.data(), rc);
-  double ratio;
-  if (!absl::SimpleAtod(str, &ratio)) {
-    return std::nullopt;
-  }
-
-  return ratio;
 }
 
 }  // namespace tcmalloc_internal
