@@ -102,6 +102,22 @@ void MaybeAddToStats(PageStats& stats, const uint64_t flags,
   if (PageIncompressible(flags)) stats.bytes_incompressible += delta;
 }
 
+// Updates a contiguous run of set bits in `bitmap` at page index `i`.
+// `cond` indicates whether page `i` has the flag set; `run_start` tracks the
+// start index of the current contiguous run of set pages (or -1 if not in a
+// run) and is flushed to `bitmap` via `SetRange` when `cond` becomes false.
+void UpdateBitmapRun(bool cond, int i, int& run_start,
+                     ResidencyBitmap& bitmap) {
+  if (cond) {
+    if (run_start == -1) {
+      run_start = i;
+    }
+  } else if (run_start != -1) {
+    bitmap.SetRange(run_start, i - run_start);
+    run_start = -1;
+  }
+}
+
 }  // namespace
 
 PageFlags::PageFlags()
@@ -390,6 +406,8 @@ PageFlagsBase::PageFlagsBitmaps PageFlags::GetSinglePageBitmaps(
   last_head_read_ = -1;
 
   int stale_start = -1;
+  int locked_start = -1;
+  int incompressible_start = -1;
   for (int i = 0; i < kHardwarePagesInHugePage; ++i) {
     uint64_t flags = buf_[i];
 
@@ -404,19 +422,20 @@ PageFlagsBase::PageFlagsBitmaps PageFlags::GetSinglePageBitmaps(
       flags = last_head_read_;
     }
 
-    if (PageStale(flags)) {
-      if (stale_start == -1) {
-        stale_start = i;
-      }
-    } else {
-      if (stale_start != -1) {
-        ret.stale.SetRange(stale_start, i - stale_start);
-        stale_start = -1;
-      }
-    }
+    UpdateBitmapRun(PageStale(flags), i, stale_start, ret.stale);
+    UpdateBitmapRun(PageLocked(flags), i, locked_start, ret.locked);
+    UpdateBitmapRun(PageIncompressible(flags), i, incompressible_start,
+                    ret.incompressible);
   }
-  if (stale_start != -1) {
-    ret.stale.SetRange(stale_start, kHardwarePagesInHugePage - stale_start);
+  UpdateBitmapRun(/*cond=*/false, kHardwarePagesInHugePage, stale_start,
+                  ret.stale);
+  UpdateBitmapRun(/*cond=*/false, kHardwarePagesInHugePage, locked_start,
+                  ret.locked);
+  UpdateBitmapRun(/*cond=*/false, kHardwarePagesInHugePage,
+                  incompressible_start, ret.incompressible);
+
+  if (!ret.stale.IsZero()) {
+    ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
   }
 
   ret.status = absl::StatusCode::kOk;

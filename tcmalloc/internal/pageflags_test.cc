@@ -882,6 +882,14 @@ TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
     if (i % 2 == 0) {
       data[i] |= kPageStale;
     }
+    if (i % 4 == 0) {
+      data[i] |= kPageMlocked | kPageUnevictable;
+    } else if (i % 4 == 1) {
+      data[i] |= kPageUnevictable;
+    }
+    if (i % 8 == 0) {
+      data[i] |= kPageIncompressible | kPageUnevictable;
+    }
   }
 
   std::string content(reinterpret_cast<const char*>(data.data()),
@@ -889,10 +897,15 @@ TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
   SetContents(fake_pageflags, content);
 
   PageFlagsFriend s(fake_pageflags);
+  constexpr uint64_t kSetScanSeconds = 63;
+  s.SetCachedScanSeconds(kSetScanSeconds);
 
   auto ret = s.GetSinglePageBitmaps(nullptr);
   EXPECT_EQ(ret.status, absl::StatusCode::kOk);
   EXPECT_EQ(ret.stale.CountBits(), kHardwarePagesInHugePage / 2);
+  EXPECT_EQ(ret.locked.CountBits(), kHardwarePagesInHugePage / 4);
+  EXPECT_EQ(ret.incompressible.CountBits(), kHardwarePagesInHugePage / 8);
+  EXPECT_EQ(ret.stale_scan_seconds, kSetScanSeconds);
 }
 
 }  // namespace

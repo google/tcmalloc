@@ -77,7 +77,10 @@ class PageFlagsBase {
 
   struct PageFlagsBitmaps {
     ResidencyBitmap stale;
-    absl::StatusCode status;
+    ResidencyBitmap locked;
+    ResidencyBitmap incompressible;
+    uint64_t stale_scan_seconds = 0;
+    absl::StatusCode status = absl::StatusCode::kOk;
   };
 
   [[nodiscard]] virtual PageFlagsBitmaps GetSinglePageBitmaps(

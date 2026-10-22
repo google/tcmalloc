@@ -187,7 +187,8 @@ class FakePageFlags : public PageFlagsBase {
   void SetStaleBitmap(const void* addr, const ResidencyBitmap& stale) {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
-    page_flags_bitmaps_[hp.start_addr()] = {stale, absl::StatusCode::kOk};
+    page_flags_bitmaps_[hp.start_addr()] = {.stale = stale,
+                                            .status = absl::StatusCode::kOk};
   }
 
   void MarkHugePageBacked(void* addr, bool is_hugepage_backed) {
