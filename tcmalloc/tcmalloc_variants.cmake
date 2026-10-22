@@ -165,15 +165,6 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_256k_pages tcmalloc::common_256k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_sonic_sharded_transfer_cache
-    ${EXTRA_ARGS}
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS}
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE"
-  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_numa_aware
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
@@ -255,15 +246,6 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_deprecated_perthread tcmalloc::common_deprecated_perthread
     ENV ${TCMALLOC_ENV}
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_pgho_experiment
-    ${EXTRA_ARGS}
-    SRCS ${TCMALLOC_SRCS}
-    HDRS ${TCMALLOC_HDRS}
-    COPTS ${TCMALLOC_COPTS}
-    LINKOPTS ${TCMALLOC_LINKOPTS}
-    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_PGHO_EXPERIMENT"
-  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_flat_cpu_caches
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
@@ -318,6 +300,33 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_legacy_locking2 tcmalloc::common_legacy_locking2
     ENV ${TCMALLOC_ENV}
   )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_prioritization_ablation
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_CFL_PRIORITIZATION_ABLATION"
+  )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_pgho_experiment
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_PGHO_EXPERIMENT"
+  )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_drained_metadata_ablation
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"
+  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_free_stale
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
@@ -334,25 +343,34 @@ function(tcmalloc_cc_test_variants)
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"
+    ENV ${TCMALLOC_ENV} "BORG_DISABLE_EXPERIMENTS=TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_prioritization_ablation
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_preserve_donated_on_collapse
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_CFL_PRIORITIZATION_ABLATION"
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE"
   )
-  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_release_drained_metadata_ablation
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_sonic_sharded_transfer_cache
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE"
+  )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_track_broken_hugepages
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES"
   )
 endfunction()
 

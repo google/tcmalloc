@@ -686,6 +686,7 @@ tcmalloc_cc_test_variants(
     "absl::time"
     "tcmalloc::malloc_extension"
   ENV
+    "BORG_DISABLE_EXPERIMENTS="
     "BORG_EXPERIMENTS="
 )
 

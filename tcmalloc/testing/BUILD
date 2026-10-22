@@ -741,7 +741,11 @@ create_tcmalloc_testsuite(
     name = "default_parameters_test",
     srcs = ["default_parameters_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    env = {"BORG_EXPERIMENTS": ""},
+    # Test the defaults without experiments, overriding experiment variants.
+    env = {
+        "BORG_DISABLE_EXPERIMENTS": "",
+        "BORG_EXPERIMENTS": "",
+    },
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/strings:str_format",
