@@ -206,20 +206,25 @@ class StaticForwarder : private Parameters {
     return state.multiple_non_numa_partitions();
   }
 
-  static void InvokeInsertRangeHook(size_t size_class,
-                                    absl::Span<void*> batch) {
+  [[nodiscard]] static bool HaveCentralFreelistHooks() {
+    return !central_freelist_insert_range_hooks.empty() ||
+           !central_freelist_remove_range_hooks.empty();
+  }
+
+  static void InvokeInsertRangeHook(size_t size_class, absl::Span<void*> batch,
+                                    uint64_t seq) {
     if (ABSL_PREDICT_TRUE(central_freelist_insert_range_hooks.empty())) {
       return;
     }
-    InvokeInsertRangeHookSlow(size_class, batch);
+    InvokeInsertRangeHookSlow(size_class, batch, seq);
   }
 
-  static void InvokeRemoveRangeHook(size_t size_class,
-                                    absl::Span<void*> batch) {
+  static void InvokeRemoveRangeHook(size_t size_class, absl::Span<void*> batch,
+                                    uint64_t seq) {
     if (ABSL_PREDICT_TRUE(central_freelist_remove_range_hooks.empty())) {
       return;
     }
-    InvokeRemoveRangeHookSlow(size_class, batch);
+    InvokeRemoveRangeHookSlow(size_class, batch, seq);
   }
 
   static void MapObjectsToSpans(absl::Span<void*> batch,
@@ -259,6 +264,7 @@ class StaticForwarder : private Parameters {
       return nullptr;
     }
     Span* span = Span::New(res.r.p);
+    span->set_nonempty_index(Span::kInFlightSpan);
     TC_ASSERT_EQ(tag, GetMemoryTag(res.r.start_addr()));
     TC_ASSERT_EQ(res.r.n, pages_per_span);
 
@@ -367,13 +373,13 @@ class StaticForwarder : private Parameters {
 
  private:
   ABSL_ATTRIBUTE_NOINLINE static void InvokeInsertRangeHookSlow(
-      size_t size_class, absl::Span<void*> batch) {
-    central_freelist_insert_range_hooks.Invoke(size_class, batch);
+      size_t size_class, absl::Span<void*> batch, uint64_t seq) {
+    central_freelist_insert_range_hooks.Invoke(size_class, batch, seq);
   }
 
   ABSL_ATTRIBUTE_NOINLINE static void InvokeRemoveRangeHookSlow(
-      size_t size_class, absl::Span<void*> batch) {
-    central_freelist_remove_range_hooks.Invoke(size_class, batch);
+      size_t size_class, absl::Span<void*> batch, uint64_t seq) {
+    central_freelist_remove_range_hooks.Invoke(size_class, batch, seq);
   }
 
   [[nodiscard]] static MemoryTag MemoryTagFromSizeClass(size_t size_class) {

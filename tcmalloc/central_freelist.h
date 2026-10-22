@@ -158,6 +158,30 @@ class CentralFreeList {
 
   [[nodiscard]] size_t objects_per_span() const { return objects_per_span_; }
 
+  // Allocates a fresh span and populates `batch` (which must have size equal to
+  // `objects_per_span_`) with all of its objects, leaving `nonempty_` untouched
+  // and without invoking tracing hooks.
+  [[nodiscard]] bool RemoveWholeSpan(absl::Span<void*> batch)
+      ABSL_LOCKS_EXCLUDED(lock_);
+
+  // Visits every span in `nonempty_` in priority-list order (lists
+  // `0..kNumLists-1`, front to back) under `lock_`, invokes `under_lock()`
+  // before releasing `lock_`, and returns the current `trace_seq_`.
+  template <typename SpanFn, typename UnderLockFn>
+  uint64_t ForEachNonemptySpan(SpanFn&& fn, UnderLockFn&& under_lock)
+      ABSL_LOCKS_EXCLUDED(lock_) {
+    CentralFreeListLockHolder h(lock_);
+    if (objects_per_span_ > 1) {
+      nonempty_.Iter(
+          [&](const Span& span) GOOGLE_MALLOC_SECTION {
+            fn(span, object_size_, objects_per_span_, bitmap_offset_);
+          },
+          0);
+    }
+    under_lock();
+    return trace_seq_;
+  }
+
  private:
   friend class CentralFreeListTestPeer;
 
@@ -303,6 +327,7 @@ class CentralFreeList {
   // If span prioritization is disabled, we add spans to the
   // nonempty_[kNumLists-1] list, leaving other lists unused.
   HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
+  uint64_t trace_seq_ ABSL_GUARDED_BY(lock_) = 0;
 
   bool use_all_buckets_for_few_object_spans_;
 
@@ -360,6 +385,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     if (ABSL_PREDICT_TRUE(!was_empty)) {
       nonempty_.Remove(span, prev_index);
     }
+    span->set_nonempty_index(Span::kInFlightSpan);
     return span;
   }
   // As the objects are being added to the span, its utilization might change.
@@ -453,8 +479,6 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   TC_CHECK(!batch.empty());
   TC_CHECK_LE(batch.size(), kMaxObjectsToMove);
 
-  forwarder_.InvokeInsertRangeHook(size_class_, batch);
-
   Span* spans[kMaxObjectsToMove];
   // First, map objects to spans and prefetch spans outside of our mutex
   // (to reduce critical section size and cache misses).
@@ -462,6 +486,19 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
   if (ABSL_PREDICT_FALSE(objects_per_span_ == 1)) {
     // If there is only 1 object per span, skip CentralFreeList entirely.
+    uint64_t seq = 0;
+    if (ABSL_PREDICT_FALSE(forwarder_.HaveCentralFreelistHooks())) {
+      CentralFreeListLockHolder h(lock_);
+      for (size_t i = 0; i < batch.size(); ++i) {
+        spans[i]->set_nonempty_index(Span::kInFlightSpan);
+      }
+      seq = ++trace_seq_;
+    } else {
+      for (size_t i = 0; i < batch.size(); ++i) {
+        spans[i]->set_nonempty_index(Span::kInFlightSpan);
+      }
+    }
+    forwarder_.InvokeInsertRangeHook(size_class_, batch, seq);
     DeallocateSpans({spans, batch.size()});
     return;
   }
@@ -479,6 +516,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // Safe to store free spans into freed up space in span array.
   Span** free_spans = spans;
   int free_count = 0;
+  uint64_t seq;
 
   // Then, release all individual objects into spans under our mutex
   // and collect spans that become completely free.
@@ -510,12 +548,14 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
     RecordMultiSpansDeallocated(free_count);
     UpdateObjectCounts(batch.size());
+    seq = ++trace_seq_;
   }
 #else
     if (ABSL_PREDICT_FALSE(free_count > 0)) {
       RecordMultiSpansDeallocated(free_count);
     }
     UpdateObjectCounts(batch.size());
+    seq = ++trace_seq_;
   }
 
   const int same_span = batch.size() - runs;
@@ -523,6 +563,8 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   num_same_spans_[absl::bit_width(static_cast<unsigned int>(same_span))]
       .LossyAdd(1);
 #endif
+
+  forwarder_.InvokeInsertRangeHook(size_class_, batch, seq);
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
@@ -540,6 +582,9 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   TC_ASSERT(!batch.empty());
 
   int result = 0;
+  int pre_populate_result = 0;
+  uint64_t pre_populate_seq = 0;
+  uint64_t seq = 0;
 
   if (ABSL_PREDICT_FALSE(objects_per_span_ == 1)) {
     // If there is only 1 object per span, skip CentralFreeList entirely.
@@ -547,6 +592,13 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
     if (ABSL_PREDICT_TRUE(span != nullptr)) {
       batch[0] = span->start_address();
       result = 1;
+      if (ABSL_PREDICT_FALSE(forwarder_.HaveCentralFreelistHooks())) {
+        CentralFreeListLockHolder h(lock_);
+        span->set_nonempty_index(Span::kFullSpan);
+        seq = ++trace_seq_;
+      } else {
+        span->set_nonempty_index(Span::kFullSpan);
+      }
     }
   } else {
     // Use local copy of variable to ensure that it is not reloaded.
@@ -562,6 +614,11 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         num_spans++;
         auto [span, prev_index] = FirstNonEmptySpan();
         if (ABSL_PREDICT_FALSE(!span)) {
+          if (ABSL_PREDICT_FALSE(result > 0 &&
+                                 forwarder_.HaveCentralFreelistHooks())) {
+            pre_populate_result = result;
+            pre_populate_seq = ++trace_seq_;
+          }
           result += Populate(batch.subspan(result));
           break;
         }
@@ -595,6 +652,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         TC_ASSERT_EQ(is_empty, span->FreelistEmpty(objects_per_span));
         if (ABSL_PREDICT_FALSE(is_empty)) {
           nonempty_.Remove(span, prev_index);
+          span->set_nonempty_index(Span::kFullSpan);
         } else {
           // If span allocation changes so that it must be moved to a different
           // nonempty_ list, we remove it from the previous list and add it to
@@ -614,9 +672,11 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
       UpdateObjectCounts(-result);
+      seq = ++trace_seq_;
     }
 #else
       UpdateObjectCounts(-result);
+      seq = ++trace_seq_;
     }
     span_allocations_tracker_[absl::bit_width(num_spans) - 1].LossyAdd(1);
 #endif
@@ -627,8 +687,47 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
   // TODO(b/538576012): Use a recommended API for this.
   size_t size = batch.size();
   ASSUME(result <= size);
-  forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result));
+  if (ABSL_PREDICT_FALSE(pre_populate_seq != 0)) {
+    ASSUME(pre_populate_result <= result);
+    forwarder_.InvokeRemoveRangeHook(
+        size_class_, batch.subspan(0, pre_populate_result), pre_populate_seq);
+    if (result > pre_populate_result) {
+      forwarder_.InvokeRemoveRangeHook(
+          size_class_,
+          batch.subspan(pre_populate_result, result - pre_populate_result),
+          seq);
+    }
+  } else {
+    forwarder_.InvokeRemoveRangeHook(size_class_, batch.subspan(0, result),
+                                     seq);
+  }
   return result;
+}
+
+template <class Forwarder>
+inline bool CentralFreeList<Forwarder>::RemoveWholeSpan(
+    absl::Span<void*> batch) {
+  TC_CHECK_EQ(batch.size(), objects_per_span_);
+  Span* span = AllocateSpan();
+  if (ABSL_PREDICT_FALSE(span == nullptr)) {
+    return false;
+  }
+  if (objects_per_span_ == 1) {
+    batch[0] = span->start_address();
+    span->set_nonempty_index(Span::kFullSpan);
+    return true;
+  }
+  const int n = span->BuildFreelist(object_size_, objects_per_span_, batch,
+                                    bitmap_offset_);
+  TC_CHECK_EQ(n, static_cast<int>(objects_per_span_));
+  span->set_nonempty_index(Span::kFullSpan);
+  const uint8_t bitwidth =
+      absl::bit_width(static_cast<uint32_t>(objects_per_span_));
+  CentralFreeListLockHolder h(lock_);
+  RecordSpanUtil(bitwidth, /*increase=*/true);
+  RecordSpanAllocated();
+  UpdateObjectCounts(-static_cast<int>(objects_per_span_));
+  return true;
 }
 
 // Fetch memory from the system and add to the central cache freelist.
@@ -666,6 +765,8 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
   RecordSpanUtil(bitwidth, /*increase=*/true);
   if (!span_empty) {
     nonempty_.Add(span, index, /*prepend=*/true);
+  } else {
+    span->set_nonempty_index(Span::kFullSpan);
   }
   RecordSpanAllocated();
   return result;
