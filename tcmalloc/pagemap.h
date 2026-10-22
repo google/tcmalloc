@@ -341,7 +341,10 @@ class PageMap {
 
   [[nodiscard]] bool Ensure(Range r) {
     if (r.n == Length(0)) return true;
-    const PageId last = r.p + r.n - Length(1);
+    const PageId last = r.p + (r.n - Length(1));
+    if (last < r.p || (last.index() >> BITS) != 0) {
+      return false;
+    }
     for (PageId p = r.p; p <= last;) {
       const auto [i1, i2, i3] = Index(p);
       (void)i3;

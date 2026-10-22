@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <limits>
 #include <new>
 #include <string>
 #include <utility>
@@ -123,6 +124,18 @@ TEST_P(PageMapTest, Bulk) {
 TEST_P(PageMapTest, Overflow) {
   const uintptr_t kLimit = uintptr_t{1} << kTestBits;
   ASSERT_FALSE(map->Ensure(Range(PageId(kLimit), Length(kLimit + 1))));
+}
+
+TEST_P(PageMapTest, EnsureOverflowAndPartialBounds) {
+  const uintptr_t kLimit = uintptr_t{1} << kTestBits;
+  const Length kMaxLen(std::numeric_limits<uintptr_t>::max());
+  EXPECT_FALSE(map->Ensure(Range(PageId(2), kMaxLen)));
+  EXPECT_FALSE(map->HasLeaf(PageId(2)));
+  EXPECT_FALSE(map->Ensure(Range(PageId(kLimit), kMaxLen)));
+  EXPECT_FALSE(map->Ensure(Range(PageId(kLimit - 1), Length(2))));
+  EXPECT_FALSE(map->HasLeaf(PageId(kLimit - 1)));
+  EXPECT_FALSE(map->Ensure(Range(PageId(1), kMaxLen)));
+  EXPECT_FALSE(map->HasLeaf(PageId(1)));
 }
 
 TEST_P(PageMapTest, RandomAccess) {
