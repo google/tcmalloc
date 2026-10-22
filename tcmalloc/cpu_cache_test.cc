@@ -158,6 +158,11 @@ class CpuCachePeer {
   }
 
   template <typename CpuCache>
+  static int64_t TakeAvailable(CpuCache& cpu_cache, int cpu) {
+    return cpu_cache.resize_[cpu].TakeAvailable();
+  }
+
+  template <typename CpuCache>
   static void HoldResizeLockWithZeroAvailable(CpuCache& cpu_cache, int cpu,
                                               std::atomic<bool>& ready,
                                               std::atomic<bool>& release) {
@@ -1981,6 +1986,62 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateRepeated) {
   cache.Deactivate();
 }
 
+// Checks the available <= capacity invariant of the unpopulate pass while
+// SetCacheLimit shrinks CPUs concurrently.
+TEST(CpuCacheTest, StressUnpopulateWithSetCacheLimit) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.forwarder().release_drained_slab_metadata_ = true;
+  // Step the limit down 4 KiB at a time, which a drained CPU covers from
+  // available without draining, then jump back up.
+  constexpr size_t kSteps = 16;
+  constexpr size_t kStep = 4096;
+  cache.SetCacheLimit(kMaxCpuCacheSize);
+  cache.Activate();
+
+  const int num_cpus = NumCPUs();
+  const auto shift =
+      subtle::percpu::ToShiftType(CpuCachePeer::GetSlabShift(cache));
+  if (subtle::percpu::GetSlabsAllocSize(shift, num_cpus) < 3 * kHugePageSize) {
+    cache.Deactivate();
+    GTEST_SKIP() << "Not enough CPUs to run test";
+  }
+
+  std::atomic<bool> stop(false);
+  std::thread limiter([&]() {
+    for (size_t i = 0; !stop.load(std::memory_order_acquire); ++i) {
+      cache.SetCacheLimit(kMaxCpuCacheSize - (i % kSteps) * kStep);
+    }
+  });
+
+  // Each round repopulates every CPU, snapshots usage, then drains and
+  // unpopulates all of them while the limiter runs.
+  const absl::Time deadline = absl::Now() + absl::Seconds(8);
+  do {
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      ColdCacheOperations(cache, cpu, /*size_class=*/1);
+    }
+    cache.TryDrainingCaches();
+    cache.TryDrainingCaches();
+  } while (absl::Now() < deadline);
+
+  stop.store(true, std::memory_order_release);
+  limiter.join();
+
+  EXPECT_GT(cache.GetNumUnpopulates(), 0);
+  const size_t limit = cache.CacheLimit();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    EXPECT_EQ(cache.Capacity(cpu), limit);
+    EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu), limit);
+  }
+
+  cache.Deactivate();
+}
+
 TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateConcurrent) {
   if (!subtle::percpu::IsFast()) {
     return;
@@ -2340,8 +2401,7 @@ TEST(CpuCacheTest, Fuzz) {
   std::cout << mallocz;
 }
 
-// TODO(b/179516472):  Enable this test.
-TEST(CpuCacheTest, DISABLED_ChangingSizes) {
+TEST(CpuCacheTest, ChangingSizes) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2418,7 +2478,7 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
   EXPECT_EQ(env.num_cpus() * last_cache_size, capacity);
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitBeforeActivate) {
+TEST(CpuCacheTest, SetCacheLimitBeforeActivate) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2437,7 +2497,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitBeforeActivate) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitDuringActivate) {
+TEST(CpuCacheTest, SetCacheLimitDuringActivate) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2470,7 +2530,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitDuringActivate) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitToZeroAndBack) {
+TEST(CpuCacheTest, SetCacheLimitToZeroAndBack) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2529,7 +2589,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitToZeroAndBack) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitAfterShuffle) {
+TEST(CpuCacheTest, SetCacheLimitAfterShuffle) {
   if (!subtle::percpu::IsFast() || NumCPUs() < 2) {
     return;
   }
@@ -2571,7 +2631,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitAfterShuffle) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitWithInFlightGrow) {
+TEST(CpuCacheTest, SetCacheLimitWithInFlightGrow) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2616,7 +2676,47 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitWithInFlightGrow) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_SetCacheLimitRetriesAvailableUnderResizeLock) {
+TEST(CpuCacheTest, TakeAvailableLeavesDebtInPlace) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  ColdCacheOperations(cache, 0, /*size_class=*/1);
+  ASSERT_GT(cache.Allocated(0), 0);
+
+  // As in SetCacheLimitWithInFlightGrow: a Grow() holds kInFlight bytes while
+  // SetCacheLimit(kNewLimit) drains CPU 0, leaving available negative.
+  constexpr size_t kInFlight = 64 << 10;
+  constexpr size_t kNewLimit = 32 << 10;
+  ASSERT_EQ(CpuCachePeer::SubtractFromAvailable(cache, 0, kInFlight),
+            kInFlight);
+  cache.SetCacheLimit(kNewLimit);
+  const int64_t debt = CpuCachePeer::Available(cache, 0);
+  ASSERT_LT(debt, 0);
+
+  // ResizeCpuSizeClasses takes nothing and leaves the debt for the in-flight
+  // Grow() to repay.  Zeroing available instead would let that repayment land
+  // on top of 0 and exceed capacity.
+  EXPECT_EQ(CpuCachePeer::TakeAvailable(cache, 0), 0);
+  EXPECT_EQ(CpuCachePeer::Available(cache, 0), debt);
+
+  CpuCachePeer::AddToAvailable(cache, 0, kInFlight);
+  EXPECT_EQ(CpuCachePeer::Available(cache, 0), kNewLimit);
+  EXPECT_LE(CpuCachePeer::Available(cache, 0), cache.Capacity(0));
+
+  // With no debt, every unallocated byte is taken.
+  EXPECT_EQ(CpuCachePeer::TakeAvailable(cache, 0), kNewLimit);
+  EXPECT_EQ(CpuCachePeer::Available(cache, 0), 0);
+  CpuCachePeer::AddToAvailable(cache, 0, kNewLimit);
+
+  cache.Deactivate();
+}
+
+TEST(CpuCacheTest, SetCacheLimitRetriesAvailableUnderResizeLock) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2656,7 +2756,7 @@ TEST(CpuCacheTest, DISABLED_SetCacheLimitRetriesAvailableUnderResizeLock) {
   cache.Deactivate();
 }
 
-TEST(CpuCacheTest, DISABLED_StressSetCacheLimit) {
+TEST(CpuCacheTest, StressSetCacheLimit) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
