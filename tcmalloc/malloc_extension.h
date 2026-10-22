@@ -579,10 +579,6 @@ class MallocExtension final {
   // long-term demand trend. Zero duration means not considering corresponding
   // demand history for delayed subrelease. Delayed subrelease is disabled if
   // all intervals are zero.
-  [[nodiscard]] ABSL_DEPRECATE_AND_INLINE() static absl::Duration
-      GetSkipSubreleaseInterval() {
-    return absl::ZeroDuration();
-  }
   ABSL_DEPRECATE_AND_INLINE()
   static void SetSkipSubreleaseInterval(absl::Duration) {}
   [[nodiscard]] static absl::Duration GetSkipSubreleaseShortInterval();
@@ -819,11 +815,6 @@ extern "C" {
 }
 [[nodiscard]] __sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
     size_t size) noexcept TCMALLOC_ATTRIBUTE_MALLOC_SPAN;
-[[nodiscard]] ABSL_DEPRECATE_AND_INLINE() inline __sized_ptr_t
-    tcmalloc_size_returning_operator_new_hot_cold(
-        size_t size, tcmalloc::hot_cold_t hot_cold) {
-  return __size_returning_new_hot_cold(size, hot_cold);
-}
 [[nodiscard]] __sized_ptr_t
 tcmalloc_size_returning_operator_new_hot_cold_nothrow(
     size_t size,
@@ -842,12 +833,6 @@ tcmalloc_size_returning_operator_new_hot_cold_nothrow(
 tcmalloc_size_returning_operator_new_aligned_nothrow(
     size_t size,
     std::align_val_t alignment) noexcept TCMALLOC_ATTRIBUTE_MALLOC_SPAN;
-[[nodiscard]] ABSL_DEPRECATE_AND_INLINE() inline __sized_ptr_t
-    tcmalloc_size_returning_operator_new_aligned_hot_cold(
-        size_t size, std::align_val_t alignment,
-        tcmalloc::hot_cold_t hot_cold) {
-  return __size_returning_new_aligned_hot_cold(size, alignment, hot_cold);
-}
 [[nodiscard]] __sized_ptr_t
 tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
     size_t size, std::align_val_t alignment,
