@@ -76,9 +76,12 @@ using ::testing::_;
 using ::testing::FieldsAre;
 using ::testing::Optional;
 
+constexpr uint64_t kPageMmapExclusive = (1ULL << 56);
 constexpr uint64_t kPageGuardRegion = (1ULL << 58);
+constexpr uint64_t kPageFile = (1ULL << 61);
 constexpr uint64_t kPageSwapped = (1ULL << 62);
-constexpr uint64_t kPagePresent = (1ULL << 63);
+constexpr uint64_t kPageSharedZero = (1ULL << 63);
+constexpr uint64_t kPagePresent = kPageSharedZero | kPageMmapExclusive;
 
 TEST(ResidenceTest, ThisProcess) {
   const size_t kHardwarePageSize = GetPageSize();
@@ -223,6 +226,71 @@ TEST(ResidenceTest, GuardPagesNotCountedAsSwapped) {
   EXPECT_FALSE(info->page_is_resident.GetBit(0));
   EXPECT_TRUE(info->page_is_resident.GetBit(1));
   EXPECT_FALSE(info->page_is_resident.GetBit(2));
+}
+
+TEST(ResidenceTest, SharedZeroPagesNotCountedAsResident) {
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/shared_zero_pages_residency");
+  int write_fd = signal_safe_open(
+      file_path.c_str(), O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
+  ASSERT_NE(write_fd, -1) << errno;
+  // Entry 0: shared zero page (PM_PRESENT set, PM_MMAP_EXCLUSIVE and PM_FILE
+  // both clear).
+  // Entry 1: exclusive anonymous page (PM_PRESENT | PM_MMAP_EXCLUSIVE).
+  // Entry 2: file-backed / shared page (PM_PRESENT | PM_FILE).
+  const uint64_t entries[3] = {
+      kPageSharedZero,
+      kPagePresent,
+      kPageSharedZero | kPageFile,
+  };
+  ASSERT_EQ(write(write_fd, entries, sizeof(entries)), sizeof(entries));
+  ASSERT_EQ(close(write_fd), 0);
+
+  const size_t kHardwarePageSize = GetPageSize();
+  std::optional<Residency::Info> info;
+  {
+    AllocationGuard g;
+    ResidencySpouse r(file_path);
+    info = r.Get(nullptr, 3 * kHardwarePageSize);
+  }
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->bytes_resident, 2 * kHardwarePageSize);
+  EXPECT_EQ(info->bytes_swapped, 0);
+  EXPECT_FALSE(info->page_is_resident.GetBit(0));
+  EXPECT_TRUE(info->page_is_resident.GetBit(1));
+  EXPECT_TRUE(info->page_is_resident.GetBit(2));
+
+  // Also verify against live /proc/self/pagemap: a read fault on a fresh
+  // MAP_PRIVATE | MAP_ANONYMOUS page maps the kernel shared zero page, which
+  // does not consume process RSS until written.
+  void* p = mmap(nullptr, kHardwarePageSize, PROT_READ | PROT_WRITE,
+                 MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+  ASSERT_NE(p, MAP_FAILED) << errno;
+  ASSERT_EQ(madvise(p, kHardwarePageSize, MADV_NOHUGEPAGE), 0) << errno;
+  char zero = *static_cast<volatile const char*>(p);
+  ::benchmark::DoNotOptimize(zero);
+
+  {
+    AllocationGuard g;
+    ResidencyPageMap r;
+    info = r.Get(p, kHardwarePageSize);
+  }
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->bytes_resident, 0);
+  EXPECT_FALSE(info->page_is_resident.GetBit(0));
+
+  memset(p, 0, kHardwarePageSize);
+  ::benchmark::DoNotOptimize(p);
+  {
+    AllocationGuard g;
+    ResidencyPageMap r;
+    info = r.Get(p, kHardwarePageSize);
+  }
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->bytes_resident, kHardwarePageSize);
+  EXPECT_TRUE(info->page_is_resident.GetBit(0));
+
+  ASSERT_EQ(munmap(p, kHardwarePageSize), 0);
 }
 
 // Method that can write a region with a single hugepage
