@@ -929,8 +929,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
       // scratch.current--;
       "add %w[scratch], %w[scratch], %w[kAdjustment]\n"
       "add %[current], %[region_start], %[current], LSL #3\n"
-      "ldp %[prefetch], %[result], [%[current], #-16]\n"
+      // Use two 8-byte loads rather than a 16-byte ldp so that popping slots
+      // written via 8-byte str in TcmallocSlab_Internal_Push forwards cleanly
+      // from the store buffer without partial-forwarding RAW flushes.
+      "ldur %[result], [%[current], #-8]\n"
       "tbnz %[result], #%c[begin_mark_bit], %l[underflow_path]\n"
+      "ldur %[prefetch], [%[current], #-16]\n"
       "str %w[scratch], [%[region_start], %[size_class], LSL #2]\n"
       // Commit
       "5:\n"
