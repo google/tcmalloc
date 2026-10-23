@@ -92,15 +92,15 @@ void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
 }
 
 int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
-                        int32_t bitmap_offset) __restrict__ {
+                        BitmapMode mode) __restrict__ {
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
 
-  if (bitmap_offset != 0) {
-    return DynamicBitmapBuild(size, count, batch, bitmap_offset);
+  if (mode != BitmapMode::kDisabled) {
+    return DynamicBitmapBuild(size, count, batch, mode);
   }
 
-  if (UseBitmapForSize(size, bitmap_offset)) {
+  if (UseBitmapForSize(size, mode)) {
     BuildBitmap(size, count);
     return BitmapPopBatch(batch, size);
   }
@@ -167,10 +167,44 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   return result;
 }
 
+namespace {
+
+template <int kDir>
+void InitBitmapRange(Span::BitmapElem* bm, size_t start, size_t end) {
+  constexpr size_t kBitsPerWord = Span::kBitsPerWord;
+  const ptrdiff_t start_word = start / kBitsPerWord;
+  const size_t start_bit = start % kBitsPerWord;
+  const ptrdiff_t end_word = end / kBitsPerWord;
+  const size_t end_bit = end % kBitsPerWord;
+  for (ptrdiff_t w = 0; w < start_word; ++w) {
+    bm[kDir * w] = 0;
+  }
+  if (start == end) {
+    if (start_bit != 0) {
+      bm[kDir * start_word] = 0;
+    }
+    return;
+  }
+  if (start_word == end_word) {
+    bm[kDir * start_word] = (~Span::BitmapElem{0} << start_bit) &
+                            ((Span::BitmapElem{1} << end_bit) - 1);
+    return;
+  }
+  bm[kDir * start_word] = ~Span::BitmapElem{0} << start_bit;
+  for (ptrdiff_t w = start_word + 1; w < end_word; ++w) {
+    bm[kDir * w] = ~Span::BitmapElem{0};
+  }
+  if (end_bit != 0) {
+    bm[kDir * end_word] = (Span::BitmapElem{1} << end_bit) - 1;
+  }
+}
+
+}  // namespace
+
 int Span::DynamicBitmapBuild(size_t size, size_t count, absl::Span<void*> batch,
-                             int32_t bitmap_offset) __restrict__ {
+                             BitmapMode mode) __restrict__ {
   TC_ASSERT_GT(count, 0);
-  BitmapElem* bm = DynamicBitmap(bitmap_offset);
+  TC_ASSERT_NE(mode, BitmapMode::kDisabled);
   const size_t result = std::min(batch.size(), count);
   char* ptr = static_cast<char*>(start_address());
   for (size_t i = 0; i < result; ++i, ptr += size) {
@@ -178,30 +212,59 @@ int Span::DynamicBitmapBuild(size_t size, size_t count, absl::Span<void*> batch,
   }
   allocated_ = result;
 
-  const size_t start_word = result / kBitsPerWord;
-  const size_t start_bit = result % kBitsPerWord;
-  const size_t end_word = count / kBitsPerWord;
-  const size_t end_bit = count % kBitsPerWord;
-  for (size_t w = 0; w < start_word; ++w) {
-    bm[w] = 0;
+  if (mode == BitmapMode::kInline64) {
+    TC_ASSERT_LE(count, kBitsPerWord);
+    raw_bitmap_[0] = result == count
+                         ? 0
+                         : (~BitmapElem{0} << result) &
+                               (~BitmapElem{0} >> (kBitsPerWord - count));
+    return result;
   }
-  if (result == count) {
-    if (start_bit != 0) {
-      bm[start_word] = 0;
+
+  BitmapElem* bm = mode == BitmapMode::kInline256
+                       ? &raw_bitmap_[kRawBitmapSize - 1]
+                       : OutlineBitmap();
+  InitBitmapRange<-1>(bm, result, count);
+
+  const size_t l1_start = result / kBitsPerWord;
+  const size_t l1_words = (count + kBitsPerWord - 1) / kBitsPerWord;
+  switch (mode) {
+    case BitmapMode::kInline256:
+      TC_ASSERT_LE(l1_words, kRawBitmapSize);
+      level2_bitmap_ = result == count ? 0
+                                       : ((BitmapElem{1} << l1_words) - 1) &
+                                             (~BitmapElem{0} << l1_start);
+      break;
+    case BitmapMode::kOutlineL2_1:
+      TC_ASSERT_LE(l1_words, kBitsPerWord);
+      raw_bitmap_[0] = result == count
+                           ? 0
+                           : (~BitmapElem{0} << l1_start) &
+                                 (~BitmapElem{0} >> (kBitsPerWord - l1_words));
+      break;
+    case BitmapMode::kOutlineL2_4:
+      TC_ASSERT_LE(l1_words, kRawBitmapSize * kBitsPerWord);
+      memset(raw_bitmap_, 0, sizeof(raw_bitmap_));
+      if (result < count) {
+        InitBitmapRange<1>(raw_bitmap_, l1_start, l1_words);
+      }
+      break;
+    case BitmapMode::kOutlineL2_8: {
+      if ((l1_words & 1) != 0) {
+        bm[-static_cast<ptrdiff_t>(l1_words)] = 0;
+      }
+      const size_t l2_start = l1_start / 2;
+      const size_t l2_end = (l1_words + 1) / 2;
+      TC_ASSERT_LE(l2_end, kRawBitmapSize * kBitsPerWord);
+      memset(raw_bitmap_, 0, sizeof(raw_bitmap_));
+      if (result < count) {
+        InitBitmapRange<1>(raw_bitmap_, l2_start, l2_end);
+      }
+      break;
     }
-    return result;
-  }
-  if (start_word == end_word) {
-    bm[start_word] =
-        (~BitmapElem{0} << start_bit) & ((BitmapElem{1} << end_bit) - 1);
-    return result;
-  }
-  bm[start_word] = ~BitmapElem{0} << start_bit;
-  for (size_t w = start_word + 1; w < end_word; ++w) {
-    bm[w] = ~BitmapElem{0};
-  }
-  if (end_bit != 0) {
-    bm[end_word] = (BitmapElem{1} << end_bit) - 1;
+    case BitmapMode::kDisabled:
+    case BitmapMode::kInline64:
+      ABSL_UNREACHABLE();
   }
   return result;
 }
