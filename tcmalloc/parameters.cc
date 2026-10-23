@@ -342,6 +342,8 @@ ABSL_CONST_INIT std::atomic<TrackBrokenHugepages>
 ABSL_CONST_INIT std::atomic<PreserveDonatedOnCollapse>
     Parameters::preserve_donated_on_collapse_(
         PreserveDonatedOnCollapse::kDisabled);
+ABSL_CONST_INIT std::atomic<PreferBackedPages>
+    Parameters::prefer_backed_filler_pages_(PreferBackedPages::kDisabled);
 ABSL_CONST_INIT std::atomic<MadviseRegionsNoHugepage>
     Parameters::madvise_cold_regions_nohugepage_(
         MadviseRegionsNoHugepage::kDisabled);
@@ -836,7 +838,6 @@ void TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v) {
         : tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kDisabled,
       std::memory_order_relaxed);
 }
-
 bool TCMalloc_Internal_GetCollapseReleasedHugepages() {
   tc_globals.InitIfNecessary();
   return Parameters::collapse_released_hugepages() ==

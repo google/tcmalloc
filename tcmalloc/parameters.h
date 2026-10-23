@@ -164,6 +164,10 @@ class Parameters {
     TCMalloc_Internal_SetCollapseReleasedHugepages(value);
   }
 
+  [[nodiscard]] static PreferBackedPages prefer_backed_filler_pages() {
+    return prefer_backed_filler_pages_.load(std::memory_order_relaxed);
+  }
+
   [[nodiscard]] static MadviseRegionsNoHugepage
   madvise_cold_regions_nohugepage() {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
@@ -368,6 +372,7 @@ class Parameters {
   static std::atomic<bool> release_max_filler_pages_;
   static std::atomic<TrackBrokenHugepages> track_broken_hugepages_;
   static std::atomic<PreserveDonatedOnCollapse> preserve_donated_on_collapse_;
+  static std::atomic<PreferBackedPages> prefer_backed_filler_pages_;
   static std::atomic<MadviseRegionsNoHugepage> madvise_cold_regions_nohugepage_;
 };
 

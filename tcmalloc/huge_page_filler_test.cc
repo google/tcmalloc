@@ -739,7 +739,8 @@ class FillerTest : public testing::Test {
     ret.span_alloc_info = span_alloc_info;
     if (!donated) {  // Donated means always create a new hugepage
       PageHeapSpinLockHolder l;
-      auto [pt, page, from_released] = filler_.TryGet(n, span_alloc_info);
+      auto [pt, page, from_released] =
+          filler_.TryGet(n, span_alloc_info, PreferBackedPages::kDisabled);
       ret.pt = pt;
       ret.p = page;
       ret.from_released = from_released;
@@ -748,7 +749,8 @@ class FillerTest : public testing::Test {
       ret.pt = new PageTracker(GetBacking(), donated, clock_);
       {
         PageHeapSpinLockHolder l;
-        ret.p = ret.pt->Get(n, span_alloc_info).page;
+        ret.p =
+            ret.pt->Get(n, span_alloc_info, PreferBackedPages::kDisabled).page;
       }
       filler_.Contribute(ret.pt, donated, span_alloc_info);
       ++hp_contained_;
@@ -821,7 +823,7 @@ TEST_F(FillerTest, ClockCalls) {
   FakeClock::ResetCalls();
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(1), info);
+    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
     EXPECT_EQ(res.pt, nullptr);
   }
   EXPECT_EQ(FakeClock::now_calls(), 0);
@@ -846,7 +848,7 @@ TEST_F(FillerTest, ClockCalls) {
   PageId page1;
   {
     PageHeapSpinLockHolder l;
-    page1 = pt->Get(Length(1), info).page;
+    page1 = pt->Get(Length(1), info, PreferBackedPages::kDisabled).page;
     filler_.Contribute(pt, /*donated=*/false, info);
   }
 
@@ -857,7 +859,7 @@ TEST_F(FillerTest, ClockCalls) {
   PageId page2;
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(1), info);
+    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
     alloc_pt = res.pt;
     page2 = res.page;
   }
@@ -892,7 +894,7 @@ TEST_F(FillerTest, ClockCalls) {
   // 5. Contribute and wait for pt to be sampled.
   while (true) {
     PageHeapSpinLockHolder l;
-    page1 = pt->Get(Length(1), info).page;
+    page1 = pt->Get(Length(1), info, PreferBackedPages::kDisabled).page;
     filler_.Contribute(pt, /*donated=*/false, info);
     if (pt->GetTagState().sampled_for_tagging) {
       break;
@@ -904,7 +906,7 @@ TEST_F(FillerTest, ClockCalls) {
 
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(1), info);
+    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
     alloc_pt = res.pt;
     page2 = res.page;
   }
@@ -938,7 +940,7 @@ TEST_F(FillerTest, RecordLifetimeEdgeCases) {
     PageId page;
     {
       PageHeapSpinLockHolder l;
-      page = pt.Get(Length(1), info).page;
+      page = pt.Get(Length(1), info, PreferBackedPages::kDisabled).page;
       filler_.Contribute(&pt, /*donated=*/false, info);
     }
     FakeClock::Advance(delta);
@@ -984,7 +986,8 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      1
   PageId page_overflow;
   {
     PageHeapSpinLockHolder l;
-    page_overflow = pt_overflow.Get(Length(1), info).page;
+    page_overflow =
+        pt_overflow.Get(Length(1), info, PreferBackedPages::kDisabled).page;
     low_freq_filler.Contribute(&pt_overflow, /*donated=*/false, info);
   }
   PageTracker* res_overflow;
@@ -1702,9 +1705,13 @@ TEST_F(FillerTest, AllocateDuringRetirementUnback) {
     EXPECT_EQ(filler_.size(), NHugePages(1));
     EXPECT_EQ(filler_.unmapped_pages(), Length(0));
     EXPECT_EQ(filler_.used_pages(), kPagesPerHugePage - Length(1));
-    EXPECT_EQ(filler_.TryGet(Length(2), b.span_alloc_info).pt, nullptr);
-    auto [pt, page, from_released] =
-        filler_.TryGet(Length(1), b.span_alloc_info);
+    EXPECT_EQ(
+        filler_
+            .TryGet(Length(2), b.span_alloc_info, PreferBackedPages::kDisabled)
+            .pt,
+        nullptr);
+    auto [pt, page, from_released] = filler_.TryGet(
+        Length(1), b.span_alloc_info, PreferBackedPages::kDisabled);
     EXPECT_EQ(pt, b.pt);
     EXPECT_FALSE(from_released);
     EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info),
@@ -1737,7 +1744,11 @@ TEST_F(FillerTest, ReleaseDropsLockDuringUnback) {
     EXPECT_TRUE(a.pt->BeingReleased());
     // The tracker being released is off the filler lists, so it is not
     // eligible for allocation.
-    EXPECT_EQ(filler_.TryGet(Length(1), a.span_alloc_info).pt, nullptr);
+    EXPECT_EQ(
+        filler_
+            .TryGet(Length(1), a.span_alloc_info, PreferBackedPages::kDisabled)
+            .pt,
+        nullptr);
     // The pages being unbacked are already accounted as unmapped.
     EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(1));
     EXPECT_EQ(filler_.free_pages(), Length(0));
@@ -1992,7 +2003,8 @@ TEST_F(FillerTest, ReleaseTargetMetLeavesCandidatesInPlace) {
     EXPECT_TRUE(b.pt->BeingReleased());
     EXPECT_FALSE(a.pt->BeingReleased());
     EXPECT_TRUE(a.pt->PinnedForRelease());
-    got = filler_.TryGet(Length(1), a.span_alloc_info);
+    got = filler_.TryGet(Length(1), a.span_alloc_info,
+                         PreferBackedPages::kDisabled);
     EXPECT_EQ(got.pt, a.pt);
   };
   EXPECT_EQ(ReleasePages(kPagesPerHugePage - Length(1)),
@@ -2222,7 +2234,11 @@ TEST_F(FillerTest, ReentrantAllocateDuringRelease) {
   blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
     ++calls;
     PageHeapSpinLockHolder l;
-    EXPECT_EQ(filler_.TryGet(Length(5), a.span_alloc_info).pt, nullptr);
+    EXPECT_EQ(
+        filler_
+            .TryGet(Length(5), a.span_alloc_info, PreferBackedPages::kDisabled)
+            .pt,
+        nullptr);
   };
   EXPECT_EQ(ReleasePartialPages(kPagesPerHugePage),
             kPagesPerHugePage - Length(20));
@@ -2396,7 +2412,8 @@ TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
       PageId page;
       {
         PageHeapSpinLockHolder l;
-        auto result = filler_.TryGet(Length(1), info);
+        auto result =
+            filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
         pt = result.pt;
         page = result.page;
       }
@@ -8500,6 +8517,94 @@ TEST_F(FillerTest, ConcurrentTreatmentInterferenceStress) {
 
   DrainFreedTrackers();
   CheckStats();
+}
+
+TEST_F(FillerTest, PreferBackedFillerPages) {
+  SpanAllocInfo info = {.objects_per_span = 1,
+                        .density = AccessDensityPrediction::kSparse};
+
+  // Fill a single hugepage in the filler:
+  //   sep0 (1), unbacked_hole (4), sep1 (1), backed_hole (6), tail (rest)
+  PAlloc sep0 = AllocateWithSpanAllocInfo(Length(1), info);
+  PAlloc unbacked_hole = AllocateWithSpanAllocInfo(Length(4), info);
+  PAlloc sep1 = AllocateWithSpanAllocInfo(Length(1), info);
+  PAlloc backed_hole = AllocateWithSpanAllocInfo(Length(6), info);
+  PAlloc tail = AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(12), info);
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+
+  // Subrelease unbacked_hole (4 pages) first so [1, 5) is unbacked.
+  DeleteRaw(unbacked_hole);
+  EXPECT_EQ(HardReleasePages(Length(4)), Length(4));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(4));
+
+  // Now free backed_hole (6 pages) so [6, 12) remains backed on the same
+  // PARTIAL tracker.
+  DeleteRaw(backed_hole);
+  EXPECT_EQ(filler_.unmapped_pages(), Length(4));
+
+  // TryGet(Length(2), info, PreferBackedPages::kEnabled) uses the 6-page
+  // backed hole [6, 12) rather than the smaller 4-page unbacked hole [1, 5),
+  // keeping unmapped_pages() == 4 and leaving [8, 12) (4 backed pages) free.
+  PageTracker* pt1 = nullptr;
+  PageId page1;
+  {
+    PageHeapSpinLockHolder l;
+    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kEnabled);
+    pt1 = res.pt;
+    page1 = res.page;
+    total_allocated_ += Length(2);
+  }
+  ASSERT_NE(pt1, nullptr);
+  EXPECT_EQ(page1, backed_hole.p);
+  EXPECT_EQ(filler_.unmapped_pages(), Length(4));
+
+  // Flip to PreferBackedPages::kDisabled while live allocations remain on the
+  // tracker: TryGet(Length(2), info, PreferBackedPages::kDisabled) picks the
+  // 4-page unbacked hole [1, 5) over the 4-page backed remainder [8, 12)
+  // (lower page offset tie-break), dropping unmapped_pages() to 2 and leaving
+  // [3, 5) (2 unbacked pages) free.
+  PageTracker* pt2 = nullptr;
+  PageId page2;
+  {
+    PageHeapSpinLockHolder l;
+    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kDisabled);
+    pt2 = res.pt;
+    page2 = res.page;
+    total_allocated_ += Length(2);
+  }
+  ASSERT_NE(pt2, nullptr);
+  EXPECT_EQ(page2, unbacked_hole.p);
+  EXPECT_EQ(filler_.unmapped_pages(), Length(2));
+
+  // Flip back to PreferBackedPages::kEnabled: TryGet(Length(2), info,
+  // PreferBackedPages::kEnabled) picks the 4-page backed hole [8, 12) over the
+  // exact-fit 2-page unbacked hole [3, 5), keeping unmapped_pages() == 2.
+  PageTracker* pt3 = nullptr;
+  PageId page3;
+  {
+    PageHeapSpinLockHolder l;
+    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kEnabled);
+    pt3 = res.pt;
+    page3 = res.page;
+    total_allocated_ += Length(2);
+  }
+  ASSERT_NE(pt3, nullptr);
+  EXPECT_EQ(page3, backed_hole.p + Length(2));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(2));
+
+  // Clean up remaining allocations.
+  PAlloc partial_backed1{
+      .pt = pt1, .p = page1, .n = Length(2), .span_alloc_info = info};
+  PAlloc partial_unbacked{
+      .pt = pt2, .p = page2, .n = Length(2), .span_alloc_info = info};
+  PAlloc partial_backed2{
+      .pt = pt3, .p = page3, .n = Length(2), .span_alloc_info = info};
+  DeleteRaw(partial_backed1);
+  DeleteRaw(partial_unbacked);
+  DeleteRaw(partial_backed2);
+  DeleteRaw(sep0);
+  DeleteRaw(sep1);
+  DeleteRaw(tail);
 }
 
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
