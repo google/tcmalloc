@@ -54,12 +54,18 @@ class FakeStaticForwarder {
   HookList<CentralFreelistInsertRangeHook> insert_range_hooks_;
   HookList<CentralFreelistRemoveRangeHook> remove_range_hooks_;
 
-  void InvokeInsertRangeHook(size_t size_class, absl::Span<void*> batch) {
-    insert_range_hooks_.Invoke(size_class, batch);
+  [[nodiscard]] bool HaveCentralFreelistHooks() const {
+    return !insert_range_hooks_.empty() || !remove_range_hooks_.empty();
   }
 
-  void InvokeRemoveRangeHook(size_t size_class, absl::Span<void*> batch) {
-    remove_range_hooks_.Invoke(size_class, batch);
+  void InvokeInsertRangeHook(size_t size_class, absl::Span<void*> batch,
+                             uint64_t seq) {
+    insert_range_hooks_.Invoke(size_class, batch, seq);
+  }
+
+  void InvokeRemoveRangeHook(size_t size_class, absl::Span<void*> batch,
+                             uint64_t seq) {
+    remove_range_hooks_.Invoke(size_class, batch, seq);
   }
 
   [[nodiscard]] size_t class_to_size(int size_class) const {
@@ -97,6 +103,7 @@ class FakeStaticForwarder {
     PageId page = PageIdContaining(backing);
 
     auto* span = new Span(page);
+    span->set_nonempty_index(Span::kInFlightSpan);
 
     absl::MutexLock l(mu_);
     SpanInfo info;
