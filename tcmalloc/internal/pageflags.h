@@ -40,6 +40,7 @@ struct PageStats {
   // excludes non-mlocked unevictable pages.
   size_t bytes_locked = 0;
   size_t bytes_incompressible = 0;
+  size_t bytes_hugepage = 0;
   // The number of seconds that must elapse (at minimum) for a page to be
   // considered "stale". 0 indicates that kstaled is disabled or we weren't
   // able to read from the scan_seconds sysfs control. (See b/111239799
@@ -55,6 +56,7 @@ struct PageStats {
   bool operator==(const PageStats& rhs) const {
     return bytes_stale == rhs.bytes_stale && bytes_locked == rhs.bytes_locked &&
            bytes_incompressible == rhs.bytes_incompressible &&
+           bytes_hugepage == rhs.bytes_hugepage &&
            stale_scan_seconds == rhs.stale_scan_seconds;
   }
 
@@ -106,10 +108,8 @@ class PageFlags final : public PageFlagsBase {
   static void operator delete(void*) { __builtin_trap(); }
 
   // Query a span of memory starting from `addr` for `size` bytes. The memory
-  // span must consist of only native-size pages and THP hugepages; the behavior
-  // is undefined if we encounter other hugepages (such as hugetlbfs). We try to
-  // bail out if we find hugetlbfs immediately, but in esoteric cases like a
-  // hugetlbfs in the middle of another mapping, this won't work.
+  // span must consist of only native-size pages, THP hugepages, and hugetlbfs
+  // pages; the behavior is undefined if we encounter non-huge compound pages.
   //
   // We use std::optional for return value as std::optional guarantees that no
   // dynamic memory allocation would happen.  In contrast, absl::StatusOr may
