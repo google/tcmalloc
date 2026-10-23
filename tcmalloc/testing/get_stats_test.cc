@@ -31,8 +31,6 @@
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -105,46 +103,26 @@ TEST_F(GetStatsTest, Pbtxt) {
               HasSubstr(absl::StrCat("profile_sampling_interval: ",
                                      Parameters::profile_sampling_interval())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
   EXPECT_THAT(buf,
-              HasSubstr("tcmalloc_skip_subrelease_cold_short_interval_ns: 0"));
+              HasSubstr(absl::StrCat(
+                  "tcmalloc_skip_subrelease_short_interval_ns: ",
+                  absl::ToInt64Nanoseconds(
+                      Parameters::filler_skip_subrelease_short_interval()))));
   EXPECT_THAT(buf,
-              HasSubstr("tcmalloc_skip_subrelease_cold_long_interval_ns: 0"));
-#else
-  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 60000000000"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr(
-            "tcmalloc_skip_subrelease_cold_short_interval_ns: 60000000000"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr(
-            "tcmalloc_skip_subrelease_cold_long_interval_ns: 300000000000"));
-  } else {
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 10000000000"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 120000000000"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr(
-            "tcmalloc_skip_subrelease_cold_short_interval_ns: 10000000000"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr(
-            "tcmalloc_skip_subrelease_cold_long_interval_ns: 120000000000"));
-  }
-#endif
+              HasSubstr(absl::StrCat(
+                  "tcmalloc_skip_subrelease_long_interval_ns: ",
+                  absl::ToInt64Nanoseconds(
+                      Parameters::filler_skip_subrelease_long_interval()))));
+  EXPECT_THAT(
+      buf, HasSubstr(absl::StrCat(
+               "tcmalloc_skip_subrelease_cold_short_interval_ns: ",
+               absl::ToInt64Nanoseconds(
+                   Parameters::filler_skip_subrelease_cold_short_interval()))));
+  EXPECT_THAT(
+      buf, HasSubstr(absl::StrCat(
+               "tcmalloc_skip_subrelease_cold_long_interval_ns: ",
+               absl::ToInt64Nanoseconds(
+                   Parameters::filler_skip_subrelease_cold_long_interval()))));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(
@@ -163,37 +141,33 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_huge_region_adaptive_release: true"));
   EXPECT_THAT(buf, HasSubstr("subrelease_unbacked_hugepages: true"));
-  if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
-  ) {
-    EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
-  }
-
-  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
-    EXPECT_THAT(buf, HasSubstr("madvise_cold_regions_nohugepage: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("madvise_cold_regions_nohugepage: false"));
-  }
-  if (false
-  ) {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_filler_pages: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_release_max_filler_pages: false"));
-  }
-
-  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES)) {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_track_broken_hugepages: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_track_broken_hugepages: false"));
-  }
-
-  if (IsExperimentActive(
-          Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE)) {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_preserve_donated_on_collapse: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_preserve_donated_on_collapse: false"));
-  }
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "min_hot_access_hint: ",
+                       static_cast<int>(Parameters::min_hot_access_hint()))));
+  EXPECT_THAT(buf,
+              HasSubstr(absl::StrCat(
+                  "madvise_cold_regions_nohugepage: ",
+                  Parameters::madvise_cold_regions_nohugepage() ==
+                          tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled
+                      ? "true"
+                      : "false")));
+  EXPECT_THAT(buf,
+              HasSubstr(absl::StrCat(
+                  "tcmalloc_release_max_filler_pages: ",
+                  Parameters::release_max_filler_pages() ? "true" : "false")));
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "tcmalloc_track_broken_hugepages: ",
+                       Parameters::track_broken_hugepages() ==
+                               tcmalloc_internal::TrackBrokenHugepages::kEnabled
+                           ? "true"
+                           : "false")));
+  EXPECT_THAT(buf,
+              HasSubstr(absl::StrCat(
+                  "tcmalloc_preserve_donated_on_collapse: ",
+                  Parameters::preserve_donated_on_collapse() ==
+                          tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled
+                      ? "true"
+                      : "false")));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
   if (MallocExtension::PerCpuCachesActive()) {
@@ -201,25 +175,25 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, ContainsRegex("max_cpu_cache_touched: [0-9]+"));
   }
 
-  if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_release_stale_pages: true"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_release_stale_pages: false"));
-  }
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "tcmalloc_release_stale_pages: ",
+                       Parameters::release_stale_pages() ==
+                               tcmalloc_internal::ReleaseStalePages::kEnabled
+                           ? "true"
+                           : "false")));
 
-  if (IsExperimentActive(
-          Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
-    EXPECT_THAT(buf,
-                HasSubstr("tcmalloc_release_drained_slab_metadata: false"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_release_drained_slab_metadata: true"));
-  }
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "tcmalloc_release_drained_slab_metadata: ",
+                       Parameters::release_drained_slab_metadata() ? "true"
+                                                                   : "false")));
 
-  if (IsExperimentActive(Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION)) {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_cfl_subbucket_prioritization: false"));
-  } else {
-    EXPECT_THAT(buf, HasSubstr("tcmalloc_cfl_subbucket_prioritization: true"));
-  }
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "tcmalloc_cfl_subbucket_prioritization: ",
+                       Parameters::cfl_subbucket_prioritization() ==
+                               tcmalloc_internal::central_freelist_internal::
+                                   CflSubbucketPrioritization::kEnabled
+                           ? "true"
+                           : "false")));
 
   sized_delete(alloc, kSize);
 }
@@ -352,22 +326,16 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_subrelease_unbacked_hugepages 1)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(subrelease_unbacked_hugepages: true)"));
-    if (IsExperimentActive(
-            Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER madvise_cold_regions_nohugepage 1)"));
-    } else {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER madvise_cold_regions_nohugepage 0)"));
-    }
-    if (false
-    ) {
-      EXPECT_THAT(
-          buf, HasSubstr(R"(PARAMETER tcmalloc_release_max_filler_pages 1)"));
-    } else {
-      EXPECT_THAT(
-          buf, HasSubstr(R"(PARAMETER tcmalloc_release_max_filler_pages 0)"));
-    }
+    EXPECT_THAT(
+        buf, HasSubstr(absl::StrCat(
+                 "PARAMETER madvise_cold_regions_nohugepage ",
+                 Parameters::madvise_cold_regions_nohugepage() ==
+                         tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled
+                     ? 1
+                     : 0)));
+    EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                         "PARAMETER tcmalloc_release_max_filler_pages ",
+                         Parameters::release_max_filler_pages() ? 1 : 0)));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_track_broken_hugepages 0)"));
     EXPECT_THAT(
@@ -384,14 +352,10 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: false)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(back_small_allocations: false)"));
-    if (false
-    ) {
-      EXPECT_THAT(pbtxt,
-                  HasSubstr(R"(tcmalloc_release_max_filler_pages: true)"));
-    } else {
-      EXPECT_THAT(pbtxt,
-                  HasSubstr(R"(tcmalloc_release_max_filler_pages: false)"));
-    }
+    EXPECT_THAT(
+        pbtxt, HasSubstr(absl::StrCat(
+                   "tcmalloc_release_max_filler_pages: ",
+                   Parameters::release_max_filler_pages() ? "true" : "false")));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_track_broken_hugepages: false)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_preserve_donated_on_collapse: false)"));
@@ -417,41 +381,29 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_skip_subrelease_cold_long_interval_ns: 5000000000)"));
-    if (IsExperimentActive(Experiment::TCMALLOC_PGHO_EXPERIMENT)
-    ) {
-      EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 2)"));
-    } else {
-      EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
-    }
+    EXPECT_THAT(pbtxt,
+                HasSubstr(absl::StrCat(
+                    "min_hot_access_hint: ",
+                    static_cast<int>(Parameters::min_hot_access_hint()))));
 
-    if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER tcmalloc_release_stale_pages 1)"));
-    } else {
-      EXPECT_THAT(buf,
-                  HasSubstr(R"(PARAMETER tcmalloc_release_stale_pages 0)"));
-    }
+    EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                         "PARAMETER tcmalloc_release_stale_pages ",
+                         Parameters::release_stale_pages() ==
+                                 tcmalloc_internal::ReleaseStalePages::kEnabled
+                             ? 1
+                             : 0)));
 
-    if (IsExperimentActive(
-            Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
-      EXPECT_THAT(
-          buf,
-          HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 0)"));
-    } else {
-      EXPECT_THAT(
-          buf,
-          HasSubstr(R"(PARAMETER tcmalloc_release_drained_slab_metadata 1)"));
-    }
+    EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                         "PARAMETER tcmalloc_release_drained_slab_metadata ",
+                         Parameters::release_drained_slab_metadata() ? 1 : 0)));
 
-    if (IsExperimentActive(Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION)) {
-      EXPECT_THAT(
-          buf,
-          HasSubstr(R"(PARAMETER tcmalloc_cfl_subbucket_prioritization 0)"));
-    } else {
-      EXPECT_THAT(
-          buf,
-          HasSubstr(R"(PARAMETER tcmalloc_cfl_subbucket_prioritization 1)"));
-    }
+    EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                         "PARAMETER tcmalloc_cfl_subbucket_prioritization ",
+                         Parameters::cfl_subbucket_prioritization() ==
+                                 tcmalloc_internal::central_freelist_internal::
+                                     CflSubbucketPrioritization::kEnabled
+                             ? 1
+                             : 0)));
   }
 
   Parameters::set_hpaa_subrelease(true);

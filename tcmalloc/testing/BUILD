@@ -702,7 +702,6 @@ create_tcmalloc_testsuite(
     deps = [
         ":rseq_util",
         ":testutil",
-        "//tcmalloc:experiment",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
