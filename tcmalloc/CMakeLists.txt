@@ -938,6 +938,30 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_mock_cpu_cache
+  ALIAS
+    tcmalloc::mock_cpu_cache
+  HDRS
+    "mock_cpu_cache.h"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::base"
+    "absl::bits"
+    "absl::core_headers"
+    "absl::string_view"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_numa"
+    "tcmalloc::internal_percpu_tcmalloc"
+    "tcmalloc::mock_central_freelist"
+    "tcmalloc::mock_transfer_cache"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_mock_huge_page_static_forwarder
   ALIAS
     tcmalloc::mock_huge_page_static_forwarder
@@ -1917,7 +1941,6 @@ create_percpu_tcmalloc_testsuite(
     "GTest::gtest_main"
     "GTest::gmock_main"
     "GTest::gmock"
-    "absl::bits"
     "absl::btree"
     "absl::core_headers"
     "absl::dynamic_annotations"
@@ -1934,13 +1957,13 @@ create_percpu_tcmalloc_testsuite(
     "tcmalloc::internal_affinity"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
-    "tcmalloc::internal_numa"
     "tcmalloc::internal_optimization"
     "tcmalloc::internal_percpu"
     "tcmalloc::internal_percpu_tcmalloc"
     "tcmalloc::internal_size_class_info"
     "tcmalloc::internal_sysinfo"
     "tcmalloc::mock_central_freelist"
+    "tcmalloc::mock_cpu_cache"
     "tcmalloc::mock_transfer_cache"
     "tcmalloc::testing_rseq_util"
     "tcmalloc::testing_testutil"

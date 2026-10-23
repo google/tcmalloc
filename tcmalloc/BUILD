@@ -744,6 +744,28 @@ cc_library(
 )
 
 cc_library(
+    name = "mock_cpu_cache",
+    testonly = 1,
+    hdrs = ["mock_cpu_cache.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common_8k_pages",
+        ":mock_central_freelist",
+        ":mock_transfer_cache",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:numa",
+        "//tcmalloc/internal:percpu_tcmalloc",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
     name = "mock_huge_page_static_forwarder",
     testonly = 1,
     srcs = ["mock_huge_page_static_forwarder.cc"],
@@ -1658,11 +1680,11 @@ create_percpu_tcmalloc_testsuite(
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
+        ":mock_cpu_cache",
         ":mock_transfer_cache",
         "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:numa",
         "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:percpu",
         "//tcmalloc/internal:percpu_tcmalloc",
@@ -1675,7 +1697,6 @@ create_percpu_tcmalloc_testsuite(
         "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:bit_gen_ref",
         "@com_google_absl//absl/strings",
