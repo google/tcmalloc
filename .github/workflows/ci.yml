@@ -16,8 +16,8 @@ name: Tests
 on:
   # continuous runs
   schedule:
-    # Run every hour
-    - cron: "0 * * * *"
+    # Run every 4 hours
+    - cron: "17 */4 * * *"
 
   # postsubmit runs
   push:
