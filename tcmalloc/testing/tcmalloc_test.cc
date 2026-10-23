@@ -1847,5 +1847,19 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   EXPECT_EQ(GetPageAllocationStatus(random_aligned), std::nullopt);
 }
 
+TEST(TCMallocTest, ReallocOveralignedToSmallSizeClass) {
+  ScopedNeverSample never_sample;
+  const size_t page_size = Length(1).in_bytes();
+  void* p;
+  ASSERT_EQ(posix_memalign(&p, 2 * page_size, page_size), 0);
+  ASSERT_NE(p, nullptr);
+  memset(p, 0xAB, page_size);
+  p = realloc(p, page_size);
+  ASSERT_NE(p, nullptr);
+  EXPECT_EQ(static_cast<unsigned char*>(p)[0], 0xAB);
+  EXPECT_EQ(static_cast<unsigned char*>(p)[page_size - 1], 0xAB);
+  free_sized(p, page_size);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

@@ -88,6 +88,20 @@ FUZZ_TEST(TCMalloc, AlignedAllocFreeAlignedSized)
     .WithDomains(fuzztest::InRange(size_t{0}, GetPageSizeLog2()),
                  fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
 
+void AlignedAllocReallocFreeSized(size_t alignment_log2, size_t a, size_t b) {
+  const size_t alignment = size_t{1} << static_cast<int>(alignment_log2);
+  void* ptr = TCMallocInternalAlignedAlloc(alignment, a);
+  ASSERT_TRUE(ptr != nullptr);
+  ptr = TCMallocInternalRealloc(ptr, b);
+  ASSERT_TRUE(b == 0 || ptr != nullptr);
+  TCMallocInternalFreeSized(ptr, b);
+}
+
+FUZZ_TEST(TCMalloc, AlignedAllocReallocFreeSized)
+    .WithDomains(fuzztest::InRange(size_t{0}, GetPageSizeLog2()),
+                 fuzztest::InRange(size_t{0}, kFuzzingMaxSize),
+                 fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
+
 void AllocAtLeastFreeAllocatedSize(size_t size) {
   const auto result = TCMallocInternalAllocAtLeast(size);
   ASSERT_TRUE(result.ptr != nullptr);

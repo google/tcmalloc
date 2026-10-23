@@ -540,6 +540,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
 
 struct SizeAndSampled {
   size_t size;
+  CompactSizeClass size_class;
   bool sampled;
 };
 
@@ -547,12 +548,12 @@ inline SizeAndSampled GetLargeSizeAndSampled(const void* ptr, PageMeta meta) {
   if (meta.sampled()) {
     if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
       return SizeAndSampled{
-          tc_globals.guardedpage_allocator().GetRequestedSize(ptr), true};
+          tc_globals.guardedpage_allocator().GetRequestedSize(ptr), 0, true};
     }
     return SizeAndSampled{
-        meta.sampled_allocation()->sampled_stack.allocated_size, true};
+        meta.sampled_allocation()->sampled_stack.allocated_size, 0, true};
   } else {
-    return SizeAndSampled{meta.size().in_bytes(), false};
+    return SizeAndSampled{meta.size().in_bytes(), 0, false};
   }
 }
 
@@ -561,12 +562,12 @@ inline size_t GetLargeSize(const void* ptr, PageMeta meta) {
 }
 
 inline SizeAndSampled GetSizeAndSampled(const void* ptr) {
-  if (ABSL_PREDICT_FALSE(ptr == nullptr)) return SizeAndSampled{0, false};
+  if (ABSL_PREDICT_FALSE(ptr == nullptr)) return SizeAndSampled{0, 0, false};
   const PageId p = PageIdContainingTagged(ptr);
   const PageMeta meta = tc_globals.pagemap().GetDescriptor(p);
   if (meta.sizeclass() != 0) {
     return SizeAndSampled{tc_globals.sizemap().class_to_size(meta.sizeclass()),
-                          false};
+                          meta.sizeclass(), false};
   } else if (ABSL_PREDICT_FALSE(meta.freed())) {
     ReportDoubleFree(tc_globals, ptr);
   } else if (ABSL_PREDICT_FALSE(!meta.valid())) {
@@ -1656,7 +1657,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   // therefore static initialization must have already occurred.
   TC_ASSERT(tc_globals.IsInited());
   // Get the size of the old entry
-  const auto [old_size, was_sampled] = GetSizeAndSampled(old_ptr);
+  const auto [old_size, old_size_class, was_sampled] =
+      GetSizeAndSampled(old_ptr);
 
   // Sampled allocations are reallocated and copied even if not strictly
   // necessary. This is problematic for very large allocations, since some old
@@ -1673,15 +1675,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   // calculate the actual size for readability purposes.
   bool changes_correct_size;
   {
-    size_t actual_new_size;
     const auto [is_small, new_size_class] = tc_globals.sizemap().GetSizeClass(
         MallocPolicy().InSamePartitionAs(old_ptr), new_size);
     if (is_small) {
-      actual_new_size = tc_globals.sizemap().class_to_size(new_size_class);
+      changes_correct_size = new_size_class != old_size_class;
     } else {
-      actual_new_size = BytesToLengthCeil(new_size).in_bytes();
+      size_t actual_new_size = BytesToLengthCeil(new_size).in_bytes();
+      changes_correct_size = old_size_class != 0 || actual_new_size != old_size;
     }
-    changes_correct_size = actual_new_size != old_size;
   }
 
   if (changes_correct_size || was_sampled || will_sample ||
