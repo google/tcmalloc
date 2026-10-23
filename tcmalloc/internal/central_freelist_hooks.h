@@ -16,6 +16,7 @@
 #define TCMALLOC_INTERNAL_CENTRAL_FREELIST_HOOKS_H_
 
 #include <cstddef>
+#include <cstdint>
 
 #include "absl/types/span.h"
 #include "tcmalloc/internal/hook_list.h"
@@ -25,9 +26,11 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 using CentralFreelistInsertRangeHook = void (*)(size_t size_class,
-                                                absl::Span<void*> batch);
+                                                absl::Span<void*> batch,
+                                                uint64_t seq);
 using CentralFreelistRemoveRangeHook = void (*)(size_t size_class,
-                                                absl::Span<void*> batch);
+                                                absl::Span<void*> batch,
+                                                uint64_t seq);
 
 extern HookList<CentralFreelistInsertRangeHook>
     central_freelist_insert_range_hooks;
