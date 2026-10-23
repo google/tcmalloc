@@ -321,24 +321,34 @@ void SelectExperiments(bool* buffer, absl::string_view test_target,
   }
 }
 
-static_assert(
-    [] {
-      for (const auto& e : experiments) {
-        if (e.rollout_lower_bound < 0.0) return false;
-        if (e.rollout_upper_bound > 1.0) return false;
-        if (!e.rollout_inverted) continue;
-        // The ablation arm [1 - (upper - lower), 1) must be non-empty and
-        // must not overlap the treatment slot [lower, upper), i.e.
-        // 1 - (upper - lower) >= upper.
-        if (e.rollout_upper_bound <= e.rollout_lower_bound) return false;
-        if (2 * e.rollout_upper_bound - e.rollout_lower_bound > 1.0) {
-          return false;
-        }
+static_assert([] {
+  auto salt_of = [](const ExperimentConfig& e) {
+    return e.rollout_salt.empty() ? e.name : e.rollout_salt;
+  };
+  for (const auto& e : experiments) {
+    // Rollout bounds must be in [0, 1].
+    if (e.rollout_lower_bound < 0.0) return false;
+    if (e.rollout_upper_bound > 1.0) return false;
+    if (!e.rollout_inverted) continue;
+    // The ablation arm [1 - (upper - lower), 1) must be non-empty and
+    // must not overlap the treatment slot [lower, upper), i.e.
+    // 1 - (upper - lower) >= upper.
+    if (e.rollout_upper_bound <= e.rollout_lower_bound) return false;
+    if (2 * e.rollout_upper_bound - e.rollout_lower_bound > 1.0) {
+      return false;
+    }
+    // At most one experiment per rollout_salt may be inverted: two would both
+    // be active on every host outside their slots and the shared holdback, so
+    // neither holdback could be read out alone.
+    for (const auto& other : experiments) {
+      if (other.rollout_inverted && other.name != e.name &&
+          salt_of(other) == salt_of(e)) {
+        return false;
       }
-      return true;
-    }(),
-    "rollout bounds must be in [0, 1]; inverted rollouts additionally require "
-    "a non-empty ablation arm disjoint from the treatment slot");
+    }
+  }
+  return true;
+}());
 
 }  // namespace tcmalloc_internal
 
