@@ -120,7 +120,7 @@ ssize_t Sampler::GetGeometricVariable(ssize_t mean) {
     return static_cast<ssize_t>(interval);
 }
 
-size_t Sampler::RecordAllocationSlow(size_t k) {
+ssize_t Sampler::RecordAllocationSlow(size_t k) {
   if (ABSL_PREDICT_FALSE(!initialized_)) {
     initialized_ = true;
     Init(absl::HashOf(
@@ -129,7 +129,7 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
     // Avoid missampling 0.
     bytes_until_sample_ -= k + 1;
     if (ABSL_PREDICT_TRUE(bytes_until_sample_ >= 0)) {
-      return 0;
+      return -1;
     }
   }
 

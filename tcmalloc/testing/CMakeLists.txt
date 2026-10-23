@@ -478,6 +478,36 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_test_variants(
   NAME
+    tcmalloc_testing_first_allocation_test
+  SRCS
+    "first_allocation_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "tcmalloc::internal_config"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_first_allocation_large_test
+  SRCS
+    "first_allocation_test.cc"
+  COPTS
+    "-DFIRST_ALLOCATION_LARGE"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::core_headers"
+    "tcmalloc::internal_config"
+    "tcmalloc::malloc_extension"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
     tcmalloc_testing_no_deps_per_cpu_test
   SRCS
     "no_deps_test.cc"

@@ -520,6 +520,32 @@ create_tcmalloc_testsuite(
 )
 
 create_tcmalloc_testsuite(
+    name = "first_allocation_test",
+    srcs = ["first_allocation_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "first_allocation_large_test",
+    srcs = ["first_allocation_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + ["-DFIRST_ALLOCATION_LARGE"],
+    linkstatic = 1,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
     name = "no_deps_per_cpu_test",
     srcs = ["no_deps_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

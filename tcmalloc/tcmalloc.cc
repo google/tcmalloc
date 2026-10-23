@@ -635,7 +635,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
 
 namespace {
 
-ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, size_t weight,
+ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, ssize_t weight,
                                                     DynamicPolicy policy) {
   // Page allocator does not deal well with num_pages = 0.
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
@@ -669,7 +669,7 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, size_t weight,
   TC_ASSERT(!ColdFeatureActive() ||
             tag == GetMemoryTag(alloc_res.r.start_addr()));
 
-  if (weight != 0) {
+  if (weight > 0) {
     auto ptr =
         SampleifyAllocation(tc_globals, policy, size, weight,
                             /*size_class=*/0, alloc_res.r, alloc_res.donated);
@@ -1269,7 +1269,7 @@ namespace tcmalloc_internal {
 
 ABSL_ATTRIBUTE_NOINLINE static sized_ptr_t
 alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
-                                       DynamicPolicy policy, size_t weight) {
+                                       DynamicPolicy policy, ssize_t weight) {
   if (ABSL_PREDICT_FALSE(size_class == 0)) {
     // This happens on the first call then the size class table is not inited.
     TC_ASSERT(tc_globals.IsInited());
@@ -1278,7 +1278,7 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
     TC_CHECK(ret.is_small);
   }
   __sized_ptr_t ptr;
-  if (ABSL_PREDICT_FALSE(weight != 0)) {
+  if (ABSL_PREDICT_FALSE(weight > 0)) {
     ptr = SampleifyAllocation(tc_globals, policy, size, weight, size_class,
                               Range(), /*donated=*/false);
   } else {
@@ -1314,7 +1314,7 @@ ABSL_ATTRIBUTE_NOINLINE static
     typename Policy::pointer_type slow_alloc_small(size_t size,
                                                    uint32_t size_class,
                                                    Policy policy) {
-  size_t weight = GetThreadSampler().RecordedAllocationFast(size);
+  ssize_t weight = GetThreadSampler().RecordedAllocationFast(size);
   if (ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
@@ -1334,7 +1334,7 @@ ABSL_ATTRIBUTE_NOINLINE static
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
     size_t size, Policy policy) {
-  size_t weight = GetThreadSampler().RecordAllocation(size);
+  ssize_t weight = GetThreadSampler().RecordAllocation(size);
   __sized_ptr_t res = do_malloc_pages(size, weight, DynamicPolicy(policy));
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
 

@@ -123,11 +123,11 @@ TEST(Sampler, LargeAndSmallAllocs_CombinedTest) {
   int num_iters = 128 * 4 * 8;
   // Allocate in mixed chunks
   for (int i = 0; i < num_iters; i++) {
-    if (sampler.RecordAllocation(size_big)) {
+    if (sampler.RecordAllocation(size_big) > 0) {
       counter_big += 1;
     }
     for (int i = 0; i < 129; i++) {
-      if (sampler.RecordAllocation(size_small)) {
+      if (sampler.RecordAllocation(size_small) > 0) {
         counter_small += 1;
       }
     }
@@ -262,12 +262,25 @@ TEST(Sampler, weight_distribution) {
     // Since each sample requires ~2MiB / size iterations, using fewer samples
     // for the small sizes makes this test run in ~2s vs. ~90s.
     DoCheckMean(expected, size < 4096 ? 100 : kSamples, [size, &s]() {
-      size_t weight = 0;
-      while (!(weight = s.RecordAllocation(size))) {
+      ssize_t weight = 0;
+      while ((weight = s.RecordAllocation(size)) <= 0) {
       }
       return weight;
     });
   }
+}
+
+TEST(Sampler, InitRecordedAllocationFast) {
+  ScopedNeverSample never_sample;
+  Sampler sampler;
+  ASSERT_FALSE(sampler.TryRecordAllocationFast(1));
+  EXPECT_LT(sampler.RecordedAllocationFast(1), 0);
+  ASSERT_TRUE(sampler.TryRecordAllocationFast(1));
+  EXPECT_EQ(sampler.RecordedAllocationFast(1), 0);
+
+  Sampler large_sampler;
+  EXPECT_LT(large_sampler.RecordAllocation(1), 0);
+  EXPECT_EQ(large_sampler.RecordAllocation(1), 0);
 }
 
 }  // namespace

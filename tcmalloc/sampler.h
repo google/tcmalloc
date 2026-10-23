@@ -81,8 +81,10 @@ class Sampler {
  public:
   // Record allocation of "k" bytes. If the allocation needs to be sampled,
   // return its sampling weight (i.e., the expected number of allocations of
-  // this size represented by this sample); otherwise return 0.
-  [[nodiscard]] size_t RecordAllocation(size_t k);
+  // this size represented by this sample); otherwise return 0, or a negative
+  // value if the sampler was just initialized and the allocation should not be
+  // sampled.
+  [[nodiscard]] ssize_t RecordAllocation(size_t k);
 
   // Same as above (but faster), except:
   // b) if this returns false, you must call RecordAllocation
@@ -95,7 +97,9 @@ class Sampler {
 
   // Counterpart of TryRecordAllocationFast that needs to be called
   // on the slow path when TryRecordAllocationFast returns false.
-  [[nodiscard]] size_t RecordedAllocationFast(size_t k);
+  // Returns a negative value if the sampler was just initialized and the
+  // allocation should not be sampled.
+  [[nodiscard]] ssize_t RecordedAllocationFast(size_t k);
 
   // Check if the next allocation of size "k" will be sampled
   // without changing the internal state.
@@ -149,11 +153,12 @@ class Sampler {
   // Initialize this sampler.
   void Init(uint64_t seed);
 
-  [[nodiscard]] size_t RecordAllocationSlow(size_t k);
+  [[nodiscard]] ssize_t RecordAllocationSlow(size_t k);
   [[nodiscard]] ssize_t GetGeometricVariable(ssize_t mean);
 };
 
-inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE Sampler::RecordAllocation(size_t k) {
+inline ssize_t ABSL_ATTRIBUTE_ALWAYS_INLINE
+Sampler::RecordAllocation(size_t k) {
   if (ABSL_PREDICT_FALSE(!TryRecordAllocationFast(k))) {
     return RecordAllocationSlow(k);
   }
@@ -173,7 +178,7 @@ Sampler::TryRecordAllocationFast(size_t k) {
       bytes_until_sample_, k, reinterpret_cast<size_t*>(&bytes_until_sample_)));
 }
 
-inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE
+inline ssize_t ABSL_ATTRIBUTE_ALWAYS_INLINE
 Sampler::RecordedAllocationFast(size_t k) {
   // TryRecordAllocationFast already decremented the counter.
   if (ABSL_PREDICT_FALSE(bytes_until_sample_ < 0)) {
