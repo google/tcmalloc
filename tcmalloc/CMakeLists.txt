@@ -956,6 +956,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_logging"
     "tcmalloc::internal_numa"
     "tcmalloc::internal_percpu_tcmalloc"
+    "tcmalloc::internal_sysinfo"
     "tcmalloc::mock_central_freelist"
     "tcmalloc::mock_transfer_cache"
 )
@@ -1972,6 +1973,33 @@ create_percpu_tcmalloc_testsuite(
     "BORG_EXPERIMENTS="
   TIMEOUT
     900
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_cpu_cache_fuzz
+  SRCS
+    "cpu_cache_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::bits"
+    "absl::core_headers"
+    "absl::span"
+    "absl::str_format"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_percpu"
+    "tcmalloc::internal_percpu_tcmalloc"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::mock_central_freelist"
+    "tcmalloc::mock_cpu_cache"
+    "tcmalloc::mock_transfer_cache"
+    "tcmalloc::testing_rseq_util"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test(

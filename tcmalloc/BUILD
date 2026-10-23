@@ -757,6 +757,7 @@ cc_library(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:numa",
         "//tcmalloc/internal:percpu_tcmalloc",
+        "//tcmalloc/internal:sysinfo",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/numeric:bits",
@@ -1706,6 +1707,37 @@ create_percpu_tcmalloc_testsuite(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "cpu_cache_fuzz",
+    srcs = ["cpu_cache_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    # There can be only one CpuCache due to slab offset caching in rseq.
+    malloc = "//tcmalloc/internal:system_malloc",
+    tags = [
+        "noubsan",  # matches cpu_cache_test and percpu_tcmalloc_fuzz
+    ],
+    deps = [
+        ":common_8k_pages",
+        ":mock_central_freelist",
+        ":mock_cpu_cache",
+        ":mock_transfer_cache",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:percpu",
+        "//tcmalloc/internal:percpu_tcmalloc",
+        "//tcmalloc/internal:sysinfo",
+        "//tcmalloc/testing:rseq_util",
+        "//tcmalloc/testing:testutil",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:span",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 

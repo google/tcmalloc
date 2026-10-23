@@ -45,6 +45,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/parameters.h"
@@ -152,6 +153,54 @@ class CpuCachePeer {
   static uint8_t PartitionShift(const CpuCache& cpu_cache) {
     return cpu_cache.PartitionShift();
   }
+
+  // Drains <cpu> and marks it unpopulated, as TryDrainingCaches does through
+  // ReleaseSlabMetadataForDrainedCpus, so that the next allocation on it takes
+  // the Populate path again.
+  template <typename CpuCache>
+  static uint64_t Reclaim(CpuCache& cpu_cache, int cpu) {
+    const uint64_t bytes = cpu_cache.Drain(cpu);
+    AllocationGuardSpinLockHolder h(cpu_cache.resize_[cpu].lock);
+    if (cpu_cache.resize_[cpu].populated.load(std::memory_order_relaxed)) {
+      cpu_cache.resize_[cpu].populated.store(false, std::memory_order_release);
+      cpu_cache.resize_[cpu].num_unpopulates.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+    return bytes;
+  }
+
+  // Releases the slab metadata of every drained CPU, as TryDrainingCaches does
+  // when release_drained_slab_metadata() is set, without requiring two idle
+  // drain intervals first.
+  template <typename CpuCache>
+  static void ReleaseDrainedSlabMetadata(CpuCache& cpu_cache)
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    const int num_cpus = NumCPUs();
+    // As in TryDrainingCaches, resize_lock_ keeps capacity stable for the
+    // available <= capacity check.
+    AllocationGuardSpinLockHolder l(cpu_cache.resize_lock_);
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      cpu_cache.resize_[cpu].lock.lock();
+    }
+    cpu_cache.freelist_.ReleaseSlabMetadataForDrainedCpus(
+        [&cpu_cache](int cpu) { return cpu_cache.HasPopulated(cpu); },
+        [&cpu_cache](int cpu) {
+          TC_CHECK_LE(
+              cpu_cache.resize_[cpu].available.load(std::memory_order_relaxed),
+              static_cast<int64_t>(cpu_cache.resize_[cpu].capacity()));
+          cpu_cache.resize_[cpu].populated.store(false,
+                                                 std::memory_order_release);
+          cpu_cache.resize_[cpu].num_unpopulates.fetch_add(
+              1, std::memory_order_relaxed);
+        },
+        [&cpu_cache](void* slab_addr, size_t slab_size) {
+          return cpu_cache.MadviseAwaySlabs(slab_addr, slab_size,
+                                            /*skip_nohugepage=*/true);
+        });
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      cpu_cache.resize_[cpu].lock.unlock();
+    }
+  }
 };
 
 enum class DynamicSlab { kGrow, kShrink, kNoop };
@@ -208,8 +257,9 @@ class TestStaticForwarder : private Parameters {
 
   void* AllocReportedImpending(size_t size, std::align_val_t alignment) {
     arena_reported_impending_bytes_ -= static_cast<int64_t>(size);
-    return mmap(nullptr, size, PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    // Resized slabs must be aligned to their size, as the arena guarantees, for
+    // ReleaseSlabMetadataForDrainedCpus to accept them.
+    return AllocCpuCache(size, alignment);
   }
 
   struct SetAnonVmaNameCall {
