@@ -46,7 +46,7 @@ struct State {
   Length pages;
   size_t num_to_move;
   size_t objects_per_span = 0;
-  int32_t bitmap_offset = 0;
+  Span::BitmapMode bitmap_mode = Span::BitmapMode::kDisabled;
   uint32_t size_reciprocal;
   void* mem = nullptr;
   std::unique_ptr<Span> span;
@@ -64,13 +64,12 @@ struct State {
     const auto info =
         Span::CalcBitmapInfo(use_bitmap_for_small, pages, object_size);
     objects_per_span = info.objects_per_span;
-    bitmap_offset = info.bitmap_offset;
+    bitmap_mode = info.mode;
     TC_CHECK_EQ(posix_memalign(&mem, kPageSize, pages.in_bytes()), 0);
 
     span = std::make_unique<Span>(PageIdContaining(mem));
     TC_CHECK_EQ(
-        span->BuildFreelist(object_size, objects_per_span, {}, bitmap_offset),
-        0);
+        span->BuildFreelist(object_size, objects_per_span, {}, bitmap_mode), 0);
 
     live_ptrs.reserve(objects_per_span);
     batch.resize(kMaxObjectsToMove);
@@ -81,9 +80,9 @@ struct State {
       size_t limit = std::min<size_t>(live_ptrs.size() - i, num_to_move);
       Span::ObjIdx idx[kMaxObjectsToMove];
       Span::ObjectsToIdx({&live_ptrs[i], limit}, span.get(), object_size,
-                         size_reciprocal, idx, bitmap_offset);
+                         size_reciprocal, idx, bitmap_mode);
       (void)span->FreelistPushBatch(absl::MakeSpan(idx, limit), object_size,
-                                    bitmap_offset);
+                                    bitmap_mode);
       i += limit;
     }
     free(mem);
@@ -109,7 +108,7 @@ struct Alloc {
 
     size_t popped = state.span->FreelistPopBatch(
         absl::MakeSpan(state.batch.data(), n), state.object_size,
-        state.objects_per_span, state.bitmap_offset);
+        state.objects_per_span, state.bitmap_mode);
     state.live_ptrs.insert(state.live_ptrs.end(), state.batch.data(),
                            state.batch.data() + popped);
   }
@@ -147,11 +146,11 @@ struct Dealloc {
 
     Span::ObjIdx idx[kMaxObjectsToMove];
     Span::ObjectsToIdx(ptrs, state.span.get(), state.object_size,
-                       state.size_reciprocal, idx, state.bitmap_offset);
+                       state.size_reciprocal, idx, state.bitmap_mode);
 
     (void)state.span->FreelistPushBatch(
         absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
-        state.bitmap_offset);
+        state.bitmap_mode);
     state.live_ptrs.resize(state.live_ptrs.size() - n);
   }
 };
@@ -237,7 +236,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   }
 
   const auto pages = num_pages;
-  const auto [objects_per_span, bitmap_offset] =
+  const auto [objects_per_span, bitmap_mode] =
       Span::CalcBitmapInfo(use_bitmap_for_small, pages, object_size);
   const size_t initial_objects =
       std::min<size_t>(objects_per_span, initial_objects_at_build);
@@ -255,7 +254,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   ptrs.resize(initial_objects);
 
   TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span,
-                                  absl::MakeSpan(ptrs), bitmap_offset),
+                                  absl::MakeSpan(ptrs), bitmap_mode),
               initial_objects);
   TC_CHECK_EQ(span->Allocated(), initial_objects);
 
@@ -266,7 +265,7 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
     void* batch[kMaxObjectsToMove];
     TC_CHECK(!span->FreelistEmpty(objects_per_span));
     size_t n = span->FreelistPopBatch(absl::MakeSpan(batch, want), object_size,
-                                      objects_per_span, bitmap_offset);
+                                      objects_per_span, bitmap_mode);
 
     TC_CHECK_GT(n, 0);
     TC_CHECK_LE(n, want);
@@ -281,9 +280,9 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
     Span::ObjIdx idx;
     Span::ObjectsToIdx({&ptrs[i], 1}, span.get(), object_size, size_reciprocal,
-                       &idx, bitmap_offset);
+                       &idx, bitmap_mode);
     bool ok = span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
-                                      bitmap_offset);
+                                      bitmap_mode);
     TC_CHECK_EQ(ok, i != popped - 1);
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.
