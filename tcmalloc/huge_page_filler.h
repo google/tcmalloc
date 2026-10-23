@@ -920,7 +920,10 @@ class HugePageFiller {
   MemoryTagFunction& set_anon_vma_name_;
   int max_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 1;
   int current_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 0;
-  uintptr_t rng_ = 0;
+  // PRNG state stepped via `ExponentialBiased::NextRandom` / `GetRandom` when
+  // sampling trackers in `Contribute()`, seeded with the 64-bit golden-ratio
+  // fractional constant (`floor(2^64 / phi)`).
+  uint64_t rng_ = 0x9e3779b97f4a7c15ULL;
   SubreleaseUnbackedMode subrelease_unbacked_mode_;
 };
 
@@ -1216,7 +1219,8 @@ inline void HugePageFiller<TrackerType>::Contribute(
 
   // Decide whether to sample this tracker for tagging.
   rng_ = ExponentialBiased::NextRandom(rng_);
-  pt->SetTagState({.sampled_for_tagging = (rng_ % 100 == 0)});
+  pt->SetTagState(
+      {.sampled_for_tagging = (ExponentialBiased::GetRandom(rng_) % 100 == 0)});
 
   pages_allocated_[type] += pt->used_pages();
   TC_ASSERT(!(type == AccessDensityPrediction::kDense && donated));

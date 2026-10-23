@@ -8502,6 +8502,31 @@ TEST_F(FillerTest, ConcurrentTreatmentInterferenceStress) {
   CheckStats();
 }
 
+TEST_F(FillerTest, ContributeSamplesAcrossModuloFourResidues) {
+  randomize_density_ = false;
+  set_anon_vma_name_.SetIgnoreName(true);
+
+  const Length kAlloc = kPagesPerHugePage / 2 + Length(1);
+  SpanAllocInfo sparse_info = {1, AccessDensityPrediction::kSparse};
+
+  // Raw NextRandom(rng_) % 100 == 0 could only ever sample contributions with
+  // index % 4 == 3 because 100 % 4 == 0 and the 48-bit LCG low 2 bits cycle
+  // with period 4. Verify all four mod-4 residues are sampled.
+  std::array<int, 4> residue_counts = {0, 0, 0, 0};
+  for (int i = 0; i < 4000; ++i) {
+    PAlloc p = AllocateWithSpanAllocInfo(kAlloc, sparse_info);
+    if (p.pt->GetTagState().sampled_for_tagging) {
+      ++residue_counts[i % 4];
+    }
+    DeleteRaw(p);
+  }
+  for (int r = 0; r < 4; ++r) {
+    EXPECT_GT(residue_counts[r], 0) << "residue " << r;
+  }
+  DrainFreedTrackers();
+  CheckStats();
+}
+
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the
   // filler. Make sure it doesn't signal that we should skip the limit.
