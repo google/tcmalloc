@@ -70,10 +70,11 @@ class SampleRecorder {
 
   // Registers for sampling.  Returns an opaque registration info.
   template <typename... Targs>
-  [[nodiscard]] T* Register(Targs&&... args);
+  [[nodiscard]] T* Register(Targs&&... args)
+      ABSL_LOCKS_EXCLUDED(graveyard_.lock);
 
   // Unregisters the sample.
-  void Unregister(T* sample);
+  void Unregister(T* sample) ABSL_LOCKS_EXCLUDED(graveyard_.lock, sample->lock);
 
   // Unregisters any live samples starting from `all_`. Note that if there are
   // any samples added in front of `all_` in other threads after this function
@@ -82,16 +83,26 @@ class SampleRecorder {
   // Extra care must be taken when `Unregister()` is invoked concurrently with
   // this function to avoid a dead sample (updated by this function) being
   // passed to `Unregister()` which assumes the sample is live.
-  void UnregisterAll();
+  void UnregisterAll() ABSL_LOCKS_EXCLUDED(graveyard_.lock);
 
   // Iterates over all the registered samples.
-  void Iterate(const absl::FunctionRef<void(const T& sample)>& f);
+  void Iterate(const absl::FunctionRef<void(const T& sample)>& f)
+      ABSL_LOCKS_EXCLUDED(graveyard_.lock);
 
  private:
   void PushNew(T* sample);
-  void PushDead(T* sample);
+  void PushDead(T* sample) ABSL_LOCKS_EXCLUDED(graveyard_.lock, sample->lock);
   template <typename... Targs>
-  [[nodiscard]] T* PopDead(Targs&&... args);
+  [[nodiscard]] T* PopDead(Targs&&... args)
+      ABSL_LOCKS_EXCLUDED(graveyard_.lock);
+  // Returns the dead-list successor of `sample`.  `T::dead` is guarded by the
+  // sample's own lock, but the links of samples on the dead list are only
+  // written while `graveyard_.lock` is held, so holding it suffices here.
+  [[nodiscard]] T* NextDead(const T* sample) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(graveyard_.lock)
+          ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return sample->dead;
+  }
 
   // Intrusive lock free linked lists for tracking samples.
   //
@@ -119,7 +130,15 @@ class SampleRecorder {
   //     +--------------------------------------+
   //
   std::atomic<T*> all_ = nullptr;
-  T graveyard_;
+  // Derives from T so that `&graveyard_` is a valid `T*` list sentinel, and
+  // redeclares `lock` and `dead` so that `graveyard_.lock` is a distinct field
+  // from `T::lock` for -Wthread-safety-analysis lock-order annotations.
+  struct Graveyard : public T {
+    absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(T::lock){
+        absl::base_internal::SCHEDULE_KERNEL_ONLY};
+    T* dead ABSL_GUARDED_BY(lock) = nullptr;
+  };
+  Graveyard graveyard_;
 
   Allocator* allocator_ = nullptr;
 };
@@ -178,7 +197,7 @@ T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
     sample = graveyard_.dead;
     if (ABSL_PREDICT_FALSE(sample == &graveyard_)) return nullptr;
 
-    graveyard_.dead = sample->dead;
+    graveyard_.dead = NextDead(sample);
   }
   absl::base_internal::SpinLockHolder sample_lock(sample->lock);
   // TODO(b/73749855): This could be moved out but requires updating our lock
