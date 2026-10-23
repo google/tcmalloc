@@ -655,6 +655,11 @@ void DumpStats(Printer& out, int level) {
                        CollapseReleasedHugePages::kEnabled
                    ? 1
                    : 0);
+    out.printf(
+        "PARAMETER tcmalloc_prefer_backed_filler_pages %d\n",
+        Parameters::prefer_backed_filler_pages() == PreferBackedPages::kEnabled
+            ? 1
+            : 0);
     out.printf("PARAMETER tcmalloc_madvise_sampled_allocations %d\n",
                Parameters::madvise_sampled_allocations() ==
                    MadviseSampledAllocations::kEnabled);
@@ -951,6 +956,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool("tcmalloc_collapse_released_hugepages",
                    Parameters::collapse_released_hugepages() ==
                        CollapseReleasedHugePages::kEnabled);
+  region.PrintBool(
+      "tcmalloc_prefer_backed_filler_pages",
+      Parameters::prefer_backed_filler_pages() == PreferBackedPages::kEnabled);
   region.PrintI64("profile_sampling_interval",
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",
