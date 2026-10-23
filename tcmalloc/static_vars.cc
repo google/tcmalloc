@@ -85,6 +85,17 @@ SizeClassConfiguration Static::size_class_configuration() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     return SizeClassConfiguration::kPow2Only;
   }
+  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE)) {
+    return SizeClassConfiguration::kFlexible;
+  }
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE_NO_40_56)) {
+    return SizeClassConfiguration::kFlexibleNoReuseNo4056;
+  }
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE)) {
+    return SizeClassConfiguration::kFlexibleNoReuse;
+  }
   return SizeClassConfiguration::kReuseRelaxedBelow64;
 }
 

@@ -300,6 +300,33 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc_legacy_locking2 tcmalloc::common_legacy_locking2
     ENV ${TCMALLOC_ENV}
   )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_flexible_size_classes_level_1
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE"
+  )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_flexible_size_classes_level_2
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE_NO_40_56"
+  )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_flexible_size_classes_level_3
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE"
+  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_cfl_prioritization_ablation
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}

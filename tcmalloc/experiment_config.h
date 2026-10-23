@@ -32,6 +32,9 @@ enum class Experiment : int {
   TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS,  // TODO: b/527907199 - Complete experiment.
   TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE,  // TODO: b/572530574 - Complete experiment.
   TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE,  // TODO: b/538230058 - Complete experiment.
+  TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE,  // TODO: b/573893198 - Complete experiment.
+  TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE,  // TODO: b/573893198 - Complete experiment.
+  TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE_NO_40_56,  // TODO: b/573893198 - Complete experiment.
   TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES,  // TODO: b/572530574 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
@@ -64,6 +67,9 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS, "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"", /*rollout_inverted=*/true},
     {Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE, "TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE"},
     {Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE, "TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
+    {Experiment::TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE, "TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"TCMALLOC_SONIC_FLEXIBLE"},
+    {Experiment::TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE, "TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0.02, /*rollout_upper_bound=*/0.03, /*rollout_salt=*/"TCMALLOC_SONIC_FLEXIBLE"},
+    {Experiment::TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE_NO_40_56, "TCMALLOC_SONIC_SIZE_CLASS_FLEXIBLE_NO_REUSE_NO_40_56", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0.01, /*rollout_upper_bound=*/0.02, /*rollout_salt=*/"TCMALLOC_SONIC_FLEXIBLE"},
     {Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES, "TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
     {Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS, "TEST_ONLY_TCMALLOC_POW2_SIZECLASS", /*brittle=*/true},
