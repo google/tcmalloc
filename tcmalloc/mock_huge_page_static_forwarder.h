@@ -128,8 +128,15 @@ class FakeHugePageStaticForwarder : private Parameters {
   }
   static void ResetClock() { clock_.store(0, std::memory_order_relaxed); }
 
-  // Arena state.
-  [[nodiscard]] Arena& arena() { return arena_; }
+  // Arena state.  One arena for every forwarder in the process: Arena never
+  // returns its blocks, and each block is a hugepage from the system allocator,
+  // so an arena per forwarder leaks that much per allocator a test or fuzzer
+  // builds.  Metadata the arena hands out stays allocated once the allocator
+  // that owns it is gone, which is a few KiB per allocator.
+  [[nodiscard]] static Arena& arena() {
+    ABSL_CONST_INIT static Arena arena;
+    return arena;
+  }
 
   // PageAllocator state.
 
@@ -274,7 +281,6 @@ class FakeHugePageStaticForwarder : private Parameters {
   bool release_succeeds_ = true;
   bool collapse_succeeds_ = true;
   int error_number_ = 0;
-  Arena arena_;
 
   static int64_t FakeClock() { return clock_.load(std::memory_order_relaxed); }
   static double FakeClockFrequency() { return 1e9; }
