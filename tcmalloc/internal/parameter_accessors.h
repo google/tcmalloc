@@ -160,6 +160,9 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetTrackBrokenHugepages(bool v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetPreserveDonatedOnCollapse();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetCollapseReleasedHugepages();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetCollapseReleasedHugepages(bool v);
 
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
     std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull

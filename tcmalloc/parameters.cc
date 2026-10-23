@@ -152,6 +152,12 @@ void Parameters::InitializeFromExperiments() {
                                         std::memory_order_relaxed);
   }
 
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES)) {
+    collapse_released_hugepages_.store(CollapseReleasedHugePages::kEnabled,
+                                       std::memory_order_relaxed);
+  }
+
   if (IsExperimentActive(Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
     madvise_cold_regions_nohugepage_.store(MadviseRegionsNoHugepage::kEnabled,
                                            std::memory_order_relaxed);
@@ -828,6 +834,20 @@ void TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v) {
   Parameters::preserve_donated_on_collapse_.store(
       v ? tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kEnabled
         : tcmalloc::tcmalloc_internal::PreserveDonatedOnCollapse::kDisabled,
+      std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetCollapseReleasedHugepages() {
+  tc_globals.InitIfNecessary();
+  return Parameters::collapse_released_hugepages() ==
+         tcmalloc::tcmalloc_internal::CollapseReleasedHugePages::kEnabled;
+}
+
+void TCMalloc_Internal_SetCollapseReleasedHugepages(bool v) {
+  tc_globals.InitIfNecessary();
+  Parameters::collapse_released_hugepages_.store(
+      v ? tcmalloc::tcmalloc_internal::CollapseReleasedHugePages::kEnabled
+        : tcmalloc::tcmalloc_internal::CollapseReleasedHugePages::kDisabled,
       std::memory_order_relaxed);
 }
 
