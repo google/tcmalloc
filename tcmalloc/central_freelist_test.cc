@@ -665,12 +665,10 @@ TEST_P(CentralFreeListTest, HookTracing) {
   static int remove_count = 0;
   insert_count = 0;
   remove_count = 0;
-  auto insert_hook = [](size_t size_class, absl::Span<void*> batch) {
-    insert_count += batch.size();
-  };
-  auto remove_hook = [](size_t size_class, absl::Span<void*> batch) {
-    remove_count += batch.size();
-  };
+  auto insert_hook = [](size_t size_class, absl::Span<void*> batch,
+                        uint64_t /*seq*/) { insert_count += batch.size(); };
+  auto remove_hook = [](size_t size_class, absl::Span<void*> batch,
+                        uint64_t /*seq*/) { remove_count += batch.size(); };
 
   EXPECT_TRUE(e.forwarder().insert_range_hooks_.Add(insert_hook));
   EXPECT_TRUE(e.forwarder().remove_range_hooks_.Add(remove_hook));
@@ -943,6 +941,111 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
+TEST_P(CentralFreeListTest, ForEachNonemptySpanAndRemoveWholeSpan) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  const size_t objs_per_span = e.objects_per_span();
+  ASSERT_GE(objs_per_span, 1);
+
+  std::vector<void*> whole_span(objs_per_span);
+  ASSERT_TRUE(e.central_freelist().RemoveWholeSpan(absl::MakeSpan(whole_span)));
+  EXPECT_EQ(e.central_freelist().length(), 0);
+
+  size_t visited_spans = 0;
+  bool under_lock_ran = false;
+  e.central_freelist().ForEachNonemptySpan(
+      [&](const Span&, size_t, uint32_t, int32_t) { ++visited_spans; },
+      [&]() { under_lock_ran = true; });
+  EXPECT_TRUE(under_lock_ran);
+  EXPECT_EQ(visited_spans, 0);
+
+  if (objs_per_span > 1) {
+    // Return one object so the span enters `nonempty_`.
+    e.central_freelist().InsertRange(absl::MakeSpan(&whole_span[0], 1));
+    size_t free_slots = 0;
+    e.central_freelist().ForEachNonemptySpan(
+        [&](const Span& span, size_t obj_size, uint32_t span_objs,
+            int32_t bitmap_offset) {
+          ++visited_spans;
+          span.ForEachFreeObject(obj_size, span_objs, bitmap_offset,
+                                 [&](size_t) { ++free_slots; });
+        },
+        []() {});
+    EXPECT_EQ(visited_spans, 1);
+    EXPECT_EQ(free_slots, 1);
+
+    for (size_t i = 1; i < whole_span.size(); i += e.batch_size()) {
+      const size_t n = std::min(whole_span.size() - i, e.batch_size());
+      e.central_freelist().InsertRange(absl::MakeSpan(&whole_span[i], n));
+    }
+  } else {
+    e.central_freelist().InsertRange(absl::MakeSpan(whole_span));
+  }
+}
+
+struct RecordedHookCall {
+  bool is_insert;
+  size_t count;
+  uint64_t seq;
+};
+
+static std::vector<RecordedHookCall>* g_hook_calls = nullptr;
+
+static void RecordInsertSeqHook(size_t, absl::Span<void*> batch, uint64_t seq) {
+  g_hook_calls->push_back({true, batch.size(), seq});
+}
+
+static void RecordRemoveSeqHook(size_t, absl::Span<void*> batch, uint64_t seq) {
+  g_hook_calls->push_back({false, batch.size(), seq});
+}
+
+TEST_P(CentralFreeListTest, SequencedHooksOrder) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  std::vector<RecordedHookCall> calls;
+  g_hook_calls = &calls;
+  ASSERT_TRUE(e.forwarder().insert_range_hooks_.Add(&RecordInsertSeqHook));
+  ASSERT_TRUE(e.forwarder().remove_range_hooks_.Add(&RecordRemoveSeqHook));
+
+  const size_t target =
+      e.objects_per_span() + std::min<size_t>(e.batch_size(), 4);
+  std::vector<void*> live;
+  void* batch[kMaxObjectsToMove];
+  while (live.size() < target) {
+    const size_t want = std::min(target - live.size(), e.batch_size());
+    const int got =
+        e.central_freelist().RemoveRange(absl::MakeSpan(batch, want));
+    ASSERT_GT(got, 0);
+    live.insert(live.end(), batch, batch + got);
+  }
+  for (size_t i = 0; i < live.size(); i += e.batch_size()) {
+    const size_t n = std::min(live.size() - i, e.batch_size());
+    e.central_freelist().InsertRange(absl::MakeSpan(&live[i], n));
+  }
+
+  const uint64_t final_seq =
+      e.central_freelist().ForEachNonemptySpan([](auto&&...) {}, []() {});
+  ASSERT_TRUE(e.forwarder().insert_range_hooks_.Remove(&RecordInsertSeqHook));
+  ASSERT_TRUE(e.forwarder().remove_range_hooks_.Remove(&RecordRemoveSeqHook));
+  g_hook_calls = nullptr;
+
+  ASSERT_FALSE(calls.empty());
+  for (size_t i = 0; i < calls.size(); ++i) {
+    EXPECT_EQ(calls[i].seq, i + 1);
+  }
+  EXPECT_EQ(final_seq, calls.back().seq);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
     testing::Combine(

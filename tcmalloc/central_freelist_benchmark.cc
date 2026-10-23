@@ -106,6 +106,7 @@ class BenchmarkStaticForwarder : public StaticForwarder<Static, tc_globals> {
       Span* span = free_spans_.back();
       free_spans_.pop_back();
       new (span) Span(span->first_page());
+      span->set_nonempty_index(Span::kInFlightSpan);
       RegisterSpanLocked(span, pages_per_span, size_class);
       return span;
     }
@@ -124,6 +125,7 @@ class BenchmarkStaticForwarder : public StaticForwarder<Static, tc_globals> {
     }
 
     Span* span = new Span(page);
+    span->set_nonempty_index(Span::kInFlightSpan);
     allocated_spans_.push_back(span);
     RegisterSpanLocked(span, pages_per_span, size_class);
     return span;
