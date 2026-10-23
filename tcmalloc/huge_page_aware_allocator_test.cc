@@ -2864,6 +2864,134 @@ TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, PreferBackedFillerPages) {
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().release_partial_alloc_pages.set(
+      ReleasePartialAllocPages::kEnabled);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  // 1. Small allocations (`AllocSmall`): partition `hp` into a tighter
+  //    unbacked hole of length `kTightHole` and a wider backed hole of length
+  //    `kWiderBackedHole`, then flip `prefer_backed_filler_pages` between
+  //    `kDisabled`, `kEnabled`, and `kDisabled` on the live tracker.
+  {
+    constexpr Length kTightHole = Length(2);
+    constexpr Length kWiderBackedHole = Length(3);
+    AllocationState pin0 = New(Length(1), kSpanInfo);
+    AllocationState unbacked_hole = New(kTightHole, kSpanInfo);
+    AllocationState pin1 = New(Length(1), kSpanInfo);
+    AllocationState backed_hole = New(kWiderBackedHole, kSpanInfo);
+    AllocationState pin2 =
+        New(kPagesPerHugePage - Length(2) - kTightHole - kWiderBackedHole,
+            kSpanInfo);
+    const HugePage hp = HugePageContaining(pin0.r.p);
+    ASSERT_EQ(HugePageContaining(unbacked_hole.r.p), hp);
+    ASSERT_EQ(HugePageContaining(pin1.r.p), hp);
+    ASSERT_EQ(HugePageContaining(backed_hole.r.p), hp);
+    ASSERT_EQ(HugePageContaining(pin2.r.p), hp);
+
+    const PageId unbacked_start = unbacked_hole.r.p;
+    const PageId backed_start = backed_hole.r.p;
+
+    Delete(unbacked_hole, 1);
+    ReleasePages(kTightHole, PageReleaseReason::kProcessBackgroundActions);
+    ASSERT_EQ(GetHugepageState(hp).released_pages, kTightHole);
+    Delete(backed_hole, 1);
+
+    // Initially disabled: standard best-fit chooses the tighter unbacked hole.
+    allocator_->forwarder().prefer_backed_filler_pages.set(
+        PreferBackedPages::kDisabled);
+    AllocationState s_disabled = New(kTightHole, kSpanInfo);
+    EXPECT_EQ(s_disabled.r.p, unbacked_start);
+    EXPECT_EQ(GetHugepageState(hp).released_pages, Length(0));
+
+    // Re-subrelease `unbacked_hole` while holding `backed_hole` allocated.
+    AllocationState hold_backed = New(kWiderBackedHole, kSpanInfo);
+    ASSERT_EQ(hold_backed.r.p, backed_start);
+    Delete(s_disabled, 1);
+    ReleasePages(kTightHole, PageReleaseReason::kProcessBackgroundActions);
+    ASSERT_EQ(GetHugepageState(hp).released_pages, kTightHole);
+    Delete(hold_backed, 1);
+
+    // Flip to enabled at runtime: chooses the backed hole and preserves the
+    // unbacked hole until no backed hole is large enough.
+    allocator_->forwarder().prefer_backed_filler_pages.set(
+        PreferBackedPages::kEnabled);
+    AllocationState s_enabled = New(kTightHole, kSpanInfo);
+    EXPECT_EQ(s_enabled.r.p, backed_start);
+    EXPECT_EQ(GetHugepageState(hp).released_pages, kTightHole);
+
+    AllocationState s_fallback = New(kTightHole, kSpanInfo);
+    EXPECT_EQ(s_fallback.r.p, unbacked_start);
+    EXPECT_EQ(GetHugepageState(hp).released_pages, Length(0));
+
+    AllocationState hold_rem = New(kWiderBackedHole - kTightHole, kSpanInfo);
+    Delete(s_fallback, 1);
+    ReleasePages(kTightHole, PageReleaseReason::kProcessBackgroundActions);
+    ASSERT_EQ(GetHugepageState(hp).released_pages, kTightHole);
+    Delete(s_enabled, 1);
+    Delete(hold_rem, 1);
+
+    // Flip back to disabled at runtime: reverts to choosing the tighter
+    // unbacked hole.
+    allocator_->forwarder().prefer_backed_filler_pages.set(
+        PreferBackedPages::kDisabled);
+    AllocationState s_reverted = New(kTightHole, kSpanInfo);
+    EXPECT_EQ(s_reverted.r.p, unbacked_start);
+    EXPECT_EQ(GetHugepageState(hp).released_pages, Length(0));
+
+    Delete(s_reverted, 1);
+    Delete(pin0, 1);
+    Delete(pin1, 1);
+    Delete(pin2, 1);
+  }
+
+  // 2. Large sub-hugepage allocations (`AllocLarge`, `n > kPagesPerHugePage /
+  // 2`):
+  //    create a free range of length `n + 1` whose first page is unbacked and
+  //    trailing `n` pages are backed, and flip `prefer_backed_filler_pages`.
+  {
+    constexpr Length kLargeAlloc = kPagesPerHugePage / 2 + Length(1);
+    AllocationState unbacked_prefix = New(Length(1), kSpanInfo);
+    AllocationState backed_suffix = New(kLargeAlloc, kSpanInfo);
+    AllocationState pin =
+        New(kPagesPerHugePage - Length(1) - kLargeAlloc, kSpanInfo);
+    const HugePage hp = HugePageContaining(unbacked_prefix.r.p);
+    ASSERT_EQ(HugePageContaining(backed_suffix.r.p), hp);
+    ASSERT_EQ(HugePageContaining(pin.r.p), hp);
+
+    const PageId prefix_start = unbacked_prefix.r.p;
+    const PageId suffix_start = backed_suffix.r.p;
+
+    Delete(unbacked_prefix, 1);
+    ReleasePages(Length(1), PageReleaseReason::kProcessBackgroundActions);
+    ASSERT_EQ(GetHugepageState(hp).released_pages, Length(1));
+    Delete(backed_suffix, 1);
+
+    allocator_->forwarder().prefer_backed_filler_pages.set(
+        PreferBackedPages::kEnabled);
+    AllocationState s_enabled = New(kLargeAlloc, kSpanInfo);
+    EXPECT_EQ(s_enabled.r.p, suffix_start);
+    EXPECT_EQ(GetHugepageState(hp).released_pages, Length(1));
+    Delete(s_enabled, 1);
+    ASSERT_EQ(GetHugepageState(hp).released_pages, Length(1));
+
+    allocator_->forwarder().prefer_backed_filler_pages.set(
+        PreferBackedPages::kDisabled);
+    AllocationState s_disabled = New(kLargeAlloc, kSpanInfo);
+    EXPECT_EQ(s_disabled.r.p, prefix_start);
+    EXPECT_EQ(GetHugepageState(hp).released_pages, Length(0));
+
+    Delete(s_disabled, 1);
+    Delete(pin, 1);
+  }
+}
+
 TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {
   FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
   constexpr SpanAllocInfo kSpanInfo = {

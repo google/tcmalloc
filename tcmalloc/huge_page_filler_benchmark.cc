@@ -122,7 +122,7 @@ class FillerHeap {
                                               BenchClock::now());
       {
         PageHeapSpinLockHolder l;
-        (void)pt->Get(Length(1), kInfo);
+        (void)pt->Get(Length(1), kInfo, PreferBackedPages::kDisabled);
       }
       filler_.Contribute(pt.get(), /*donated=*/false, kInfo);
       trackers_.push_back(std::move(pt));
