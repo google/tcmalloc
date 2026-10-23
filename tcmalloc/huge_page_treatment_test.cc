@@ -245,7 +245,8 @@ class HugePageTreatmentRealMemoryTest : public ::testing::Test {
                                                  FakeClock::now());
     {
       PageHeapSpinLockHolder l;
-      *kept_page = tracker->Get(kept_len, info).page;
+      *kept_page =
+          tracker->Get(kept_len, info, PreferBackedPages::kDisabled).page;
       filler_.Contribute(tracker.get(), /*donated=*/false, info);
     }
     return OwnedTracker(
@@ -287,7 +288,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   PageId rel_page;
   {
     PageHeapSpinLockHolder l;
-    auto [got_pt, got_page, from_released] = filler_.TryGet(released_len, info);
+    auto [got_pt, got_page, from_released] =
+        filler_.TryGet(released_len, info, PreferBackedPages::kDisabled);
     ASSERT_EQ(got_pt, pt.get());
     EXPECT_FALSE(from_released);
     rel_page = got_page;
@@ -322,7 +324,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   PageId extra_free_page;
   {
     PageHeapSpinLockHolder l;
-    auto [got_pt, got_page, from_released] = filler_.TryGet(Length(1), info);
+    auto [got_pt, got_page, from_released] =
+        filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
     ASSERT_EQ(got_pt, pt.get());
     EXPECT_TRUE(from_released);
     extra_free_page = got_page;

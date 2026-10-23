@@ -173,14 +173,16 @@ struct Allocate {
   uint16_t length;
   uint32_t num_objects;
   bool density_dense;
+  bool prefer_backed;
 
   void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Allocate& a) {
     absl::Format(&sink,
-                 "Allocate{.length=%d, .num_objects=%d, .density_dense=%v}",
-                 a.length, a.num_objects, a.density_dense);
+                 "Allocate{.length=%d, .num_objects=%d, .density_dense=%v, "
+                 ".prefer_backed=%v}",
+                 a.length, a.num_objects, a.density_dense, a.prefer_backed);
   }
 };
 
@@ -780,10 +782,13 @@ void Allocate::Perform(State& state) const {
                 Length(state.released_set.size()));
   }
 
+  const PreferBackedPages prefer_backed_pages =
+      prefer_backed ? PreferBackedPages::kEnabled
+                    : PreferBackedPages::kDisabled;
   HugePageFiller<PageTracker>::TryGetResult result;
   {
     PageHeapSpinLockHolder l;
-    result = state.filler.TryGet(n, alloc_info);
+    result = state.filler.TryGet(n, alloc_info, prefer_backed_pages);
   }
 
   if (result.pt == nullptr) {
@@ -795,7 +800,7 @@ void Allocate::Perform(State& state) const {
     state.next_hugepage++;
     {
       PageHeapSpinLockHolder l;
-      result.page = result.pt->Get(n, alloc_info).page;
+      result.page = result.pt->Get(n, alloc_info, prefer_backed_pages).page;
       state.filler.Contribute(result.pt, donated, alloc_info);
     }
     state.trackers.push_back(result.pt);
@@ -970,7 +975,9 @@ void ModelTail::Perform(State& state) const {
   PageId start;
   {
     PageHeapSpinLockHolder l;
-    start = pt->Get(n, {1, AccessDensityPrediction::kSparse}).page;
+    start = pt->Get(n, {1, AccessDensityPrediction::kSparse},
+                    PreferBackedPages::kDisabled)
+                .page;
     state.filler.Contribute(pt, /*donated=*/true,
                             {1, AccessDensityPrediction::kSparse});
   }
@@ -1621,10 +1628,14 @@ TEST(HugePageFillerTest, SubreleaseUnbackedRegression) {
 
 TEST(HugePageFillerTest, InstructionStringify) {
   {
-    Instruction inst =
-        Allocate{.length = 1, .num_objects = 2, .density_dense = true};
+    Instruction inst = Allocate{.length = 1,
+                                .num_objects = 2,
+                                .density_dense = true,
+                                .prefer_backed = true};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(s, "Allocate{.length=1, .num_objects=2, .density_dense=true}");
+    EXPECT_EQ(s,
+              "Allocate{.length=1, .num_objects=2, .density_dense=true, "
+              ".prefer_backed=true}");
     EXPECT_THAT(s, Not(HasSubstr("<MAPPING_FUNCTION>")));
   }
   {
