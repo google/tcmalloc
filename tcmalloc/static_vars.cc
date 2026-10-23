@@ -88,13 +88,31 @@ SizeClassConfiguration Static::size_class_configuration() {
   return SizeClassConfiguration::kReuseRelaxedBelow64;
 }
 
-ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
-  PageHeapSpinLockHolder l;
-
-  // double-checked locking
-  if (inited_.load(std::memory_order_acquire)) {
+void Static::ActivateCpuCacheIfNecessary() {
+  InitIfNecessary();
+  if (CpuCacheActive()) {
     return;
   }
+  if (!Parameters::per_cpu_caches() || !subtle::percpu::IsFast()) {
+    return;
+  }
+
+  AllocationGuardSpinLockHolder l(init_lock_);
+  if (!CpuCacheActive()) {
+    cpu_cache_.Activate();
+    cpu_cache_active_.store(true, std::memory_order_release);
+  }
+}
+
+ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
+  AllocationGuardSpinLockHolder init_l(init_lock_);
+
+  // double-checked locking
+  if (IsInited()) {
+    return;
+  }
+
+  PageHeapSpinLockHolder l;
 
   numa_topology_.Init();
   TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
