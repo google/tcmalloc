@@ -126,6 +126,7 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
   }
 
   // We're still not below limit.
+  over_limit_ = true;
   if (hard_limit < std::numeric_limits<size_t>::max()) {
     // Recompute how many pages we still need to release.
     BackingStats s = stats();
@@ -133,6 +134,7 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
         s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
     if (backed <= hard_limit) {
       // We're already fine in terms of hard limit.
+      over_limit_ = backed > limits_[kSoft];
       return;
     }
     const size_t overage = backed - hard_limit;
@@ -158,6 +160,7 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
       ++successful_shrinks_after_limit_hit_[kHard];
       TC_ASSERT_LE(successful_shrinks_after_limit_hit_[kHard],
                    limit_hits_[kHard]);
+      over_limit_ = backed_now > limits_[kSoft];
       return;
     }
     limits_[kHard] = std::numeric_limits<size_t>::max();
@@ -176,8 +179,6 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
         ,
         hard_limit);
   }
-
-  over_limit_ = true;
 
   // Print logs once.
   static bool warned = false;

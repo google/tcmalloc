@@ -1018,6 +1018,7 @@ void Alloc::Perform(State& state) const {
   const size_t before_backed =
       before_stats.system_bytes - before_stats.unmapped_bytes;
   const size_t runs_before = state.reentrant_runs;
+  state.allocator.forwarder().clear_last_may_have_grown();
 
   AllocationState s = use_aligned
                           ? state.allocator.NewAligned(len, align, alloc_info)
@@ -1555,6 +1556,19 @@ TEST(HugePageAwareAllocatorTest, FuzzHPAARegression2) {
   }});
 
   FuzzHPAA(options, instructions);
+}
+
+TEST(HugePageAwareAllocatorTest, SmallAllocRefillRecordsGrowth) {
+  FuzzHPAA(
+      FuzzHugePageAwareAllocatorOptions{
+          .tag = MemoryTag::kNormal,
+          .use_huge_region_more_often =
+              HugeRegionUsageOption::kUseForAllLargeAllocs},
+      {Instruction{.instr = Alloc{.length = 1,
+                                  .num_objects = 1,
+                                  .alignment = 1,
+                                  .use_aligned = false,
+                                  .dense = true}}});
 }
 
 // ReleaseAtLeastNPages runs under PageHeapSpinLockHolder, whose

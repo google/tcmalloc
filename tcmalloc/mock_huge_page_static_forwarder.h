@@ -145,8 +145,9 @@ class FakeHugePageStaticForwarder : private Parameters {
   // for realized fragmentation estimation.
   void ShrinkToUsageLimit(Length n, bool may_have_grown)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    last_may_have_grown_ = may_have_grown;
+    last_may_have_grown_ |= may_have_grown;
   }
+  void clear_last_may_have_grown() { last_may_have_grown_ = false; }
   [[nodiscard]] bool last_may_have_grown() const {
     return last_may_have_grown_;
   }

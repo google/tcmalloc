@@ -312,6 +312,59 @@ TEST_F(PageAllocatorTest, ShrinkFailureStickyTest) {
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
+TEST_F(PageAllocatorTest, ShrinkFailureStickyWithHardLimitTest) {
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  AllocationState normal1 =
+      New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  AllocationState normal2 =
+      New(kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
+
+  const size_t metadata_bytes = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.metadata_bytes();
+  }();
+  allocator_->set_limit(metadata_bytes + 4 * kHugePageSize,
+                        PageAllocator::kHard);
+  allocator_->set_limit(metadata_bytes + (3 * kPagesPerHugePage / 4).in_bytes(),
+                        PageAllocator::kSoft);
+  EXPECT_EQ(1, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(
+      0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+
+  // Deleting normal1 makes enough pages releasable to drop below kSoft, while
+  // keeping normal2 alive so HugePageFiller::Put does not unback automatically.
+  Delete(normal1, kSpanInfo, MemoryTag::kNormal);
+
+  // Even with kHard set above current backing, over_limit_ must remain set so a
+  // subsequent call with may_have_grown == false shrinks below kSoft.
+  {
+    PageHeapSpinLockHolder l;
+    allocator_->ShrinkToUsageLimit(Length(0), /*may_have_grown=*/false);
+  }
+  EXPECT_EQ(2, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(
+      1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+
+  // Once below kSoft, over_limit_ is cleared.
+  {
+    PageHeapSpinLockHolder l;
+    allocator_->ShrinkToUsageLimit(Length(0), /*may_have_grown=*/false);
+  }
+  EXPECT_EQ(2, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_EQ(
+      1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
+
+  Delete(normal2, kSpanInfo, MemoryTag::kNormal);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
 struct HookRecord {
   size_t start_page_index;
   size_t n;
