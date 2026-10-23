@@ -472,6 +472,7 @@ tcmalloc_cc_test_variants(
     "absl::core_headers"
     "absl::str_format"
     "absl::string_view"
+    "tcmalloc::internal_environment"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_rseq_util"
 )
@@ -487,7 +488,10 @@ tcmalloc_cc_test_variants(
     "GTest::gmock"
     "absl::core_headers"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_environment"
+    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_rseq_util"
 )
 
 tcmalloc_cc_test_variants(
@@ -503,7 +507,10 @@ tcmalloc_cc_test_variants(
     "GTest::gmock"
     "absl::core_headers"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_environment"
+    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_rseq_util"
 )
 
 tcmalloc_cc_test_variants(
@@ -515,6 +522,7 @@ tcmalloc_cc_test_variants(
     "absl::core_headers"
     "absl::str_format"
     "absl::string_view"
+    "tcmalloc::internal_environment"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_rseq_util"
 )
@@ -1090,6 +1098,24 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_environment"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_percpu"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_cpu_cache_size_test
+  SRCS
+    "cpu_cache_size_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::strings"
+    "absl::time"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_test_allocator_harness"
+    "tcmalloc::testing_testutil"
+    "tcmalloc::testing_thread_manager"
 )
 
 tcmalloc_cc_test(
