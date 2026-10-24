@@ -248,9 +248,10 @@ SampleifyAllocation(Static& state, DynamicPolicy policy, size_t requested_size,
   SampledAllocation* sampled_allocation =
       state.sampled_allocation_recorder().Register(std::move(stack_trace));
 
-  // No pageheap_lock required. The page is freshly allocated and no one else
-  // can access it. It is visible after we return from this allocation path.
-  state.pagemap().SetSampled(r.p, sampled_allocation, donated);
+  {
+    PageHeapSpinLockHolder l;
+    state.pagemap().SetSampled(r.p, sampled_allocation, donated);
+  }
 
   // The cast to value matches MaybeUnsampleAllocation.
   StatsCounter::Value allocated_bytes = static_cast<StatsCounter::Value>(
@@ -410,6 +411,10 @@ void MaybeUnsampleAllocation(Static& state, DynamicPolicy policy,
                               ? MallocHook::Access::Cold
                               : MallocHook::Access::Hot,
   };
+  {
+    PageHeapSpinLockHolder l;
+    state.pagemap().SetFreed(p);
+  }
   state.sampled_allocation_recorder().Unregister(sampled_allocation);
 
   // Adjust our estimate of internal fragmentation.

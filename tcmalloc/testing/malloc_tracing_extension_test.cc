@@ -20,14 +20,22 @@
 #include "tcmalloc/malloc_tracing_extension.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "gtest/gtest.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
 #ifndef MALLOC_TRACING_EXTENSION_NOT_SUPPORTED
+#include <atomic>
+#include <new>
+#include <optional>
+#include <thread>
+
 #include "gmock/gmock.h"
 #include "absl/cleanup/cleanup.h"
+#include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/malloc_hook.h"
 #endif
 
 namespace {
@@ -105,6 +113,88 @@ TEST(MallocTracingExtension, GetAllocatedAddressRanges) {
           << " for the " << size[i] << "-byte object at index " << i;
     }
   }
+}
+
+std::atomic<const void*> target_deleted_ptr{nullptr};
+std::atomic<bool> in_sampled_delete_hook{false};
+std::atomic<bool> snapshot_taken{false};
+
+void OnSampledDeleteForTracingTest(
+    const
+    tcmalloc::MallocHook::SampledAlloc& sampled_alloc) {
+  const void* target = target_deleted_ptr.load(std::memory_order_acquire);
+  if (target != nullptr && sampled_alloc.ptr == target) {
+    target_deleted_ptr.store(nullptr, std::memory_order_release);
+    in_sampled_delete_hook.store(true, std::memory_order_release);
+    while (!snapshot_taken.load(std::memory_order_acquire)) {
+      std::this_thread::yield();
+    }
+  }
+}
+
+TEST(MallocTracingExtension,
+     GetAllocatedAddressRangesDoesNotReadUnregisteredSample) {
+  const int64_t old_profile_interval =
+      tcmalloc::MallocExtension::GetProfileSamplingInterval();
+  const int64_t old_guarded_interval =
+      tcmalloc::MallocExtension::GetGuardedSamplingInterval();
+  tcmalloc::MallocExtension::SetProfileSamplingInterval(1);
+  tcmalloc::MallocExtension::SetGuardedSamplingInterval(-1);
+  absl::Cleanup restore_intervals = [&] {
+    tcmalloc::MallocExtension::SetProfileSamplingInterval(old_profile_interval);
+    tcmalloc::MallocExtension::SetGuardedSamplingInterval(old_guarded_interval);
+  };
+
+  in_sampled_delete_hook.store(false, std::memory_order_relaxed);
+  snapshot_taken.store(false, std::memory_order_relaxed);
+  ASSERT_TRUE(tcmalloc::MallocHook::AddSampledDeleteHook(
+      &OnSampledDeleteForTracingTest));
+  absl::Cleanup remove_hook = [&] {
+    (void)tcmalloc::MallocHook::RemoveSampledDeleteHook(
+        &OnSampledDeleteForTracingTest);
+  };
+
+  constexpr size_t kLargeSize = 2 * 1024 * 1024;
+  void* p1;
+  do {
+    p1 = ::operator new(kLargeSize);
+    in_sampled_delete_hook.store(false, std::memory_order_relaxed);
+    snapshot_taken.store(false, std::memory_order_relaxed);
+    target_deleted_ptr.store(p1, std::memory_order_release);
+
+    absl::StatusOr<AllocatedAddressRanges> ranges_during_delete;
+    std::thread worker([&] {
+      while (!in_sampled_delete_hook.load(std::memory_order_acquire) &&
+             target_deleted_ptr.load(std::memory_order_acquire) != nullptr) {
+        std::this_thread::yield();
+      }
+      if (!in_sampled_delete_hook.load(std::memory_order_acquire)) {
+        return;
+      }
+      // Reuse the unregistered SampledAllocation node with a 64-byte allocation
+      // while p1's free is paused in SampledDeleteHook.
+      void* p2 = ::operator new(64);
+      ranges_during_delete =
+          tcmalloc::malloc_tracing_extension::GetAllocatedAddressRanges();
+      ::operator delete(p2);
+      snapshot_taken.store(true, std::memory_order_release);
+    });
+
+    ::operator delete(p1);
+    target_deleted_ptr.store(nullptr, std::memory_order_release);
+    worker.join();
+
+    if (in_sampled_delete_hook.load(std::memory_order_acquire)) {
+      ASSERT_TRUE(ranges_during_delete.ok());
+      std::optional<AllocatedAddressRanges::SpanDetails> p1_span =
+          GetSpanDetailsForObject(*ranges_during_delete, p1, 1);
+      EXPECT_TRUE(!p1_span.has_value() || p1_span->size >= kLargeSize)
+          << "p1 span reported corrupted size " << p1_span->size
+          << " from recycled SampledAllocation (expected >= " << kLargeSize
+          << ")";
+      break;
+    }
+  } while (true);
 }
 #endif
 
