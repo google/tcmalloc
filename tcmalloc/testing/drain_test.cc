@@ -23,6 +23,8 @@
 
 #include "gtest/gtest.h"
 #include "absl/strings/numbers.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
