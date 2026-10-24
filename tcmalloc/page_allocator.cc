@@ -14,6 +14,7 @@
 
 #include "tcmalloc/page_allocator.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -22,6 +23,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -194,10 +196,21 @@ bool PageAllocatorImpl<Forwarder>::ShrinkHardBy(Length pages,
   const PageReleaseReason release_reason =
       limit_kind == kHard ? PageReleaseReason::kHardLimitExceeded
                           : PageReleaseReason::kSoftLimitExceeded;
+  auto remaining_overage_pages =
+      [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) -> Length {
+    const BackingStats s = stats();
+    const size_t backed =
+        s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+    if (backed <= limits_[limit_kind]) {
+      return Length(0);
+    }
+    return BytesToLengthCeil(backed - limits_[limit_kind]);
+  };
   Length ret = ReleaseAtLeastNPages(pages, release_reason);
   if (alg_ == HPAA) {
-    if (pages <= ret) {
-      // We released target amount.
+    if (pages <= ret || remaining_overage_pages() == Length(0)) {
+      // We released target amount or concurrent activity brought us under the
+      // limit while pageheap_lock was dropped.
       return true;
     }
 
@@ -216,16 +229,20 @@ bool PageAllocatorImpl<Forwarder>::ShrinkHardBy(Length pages,
       warned_hugepages = true;
     }
     for (auto* heap : heaps_) {
+      const Length needed = std::min(pages - ret, remaining_overage_pages());
+      if (needed == Length(0)) {
+        return true;
+      }
       ret +=
           static_cast<Interface*>(heap)->ReleaseAtLeastNPagesBreakingHugepages(
-              pages - ret, release_reason);
-      if (ret >= pages) {
+              needed, release_reason);
+      if (ret >= pages || remaining_overage_pages() == Length(0)) {
         return true;
       }
     }
   }
   // Return "true", if we got back under the limit.
-  return (pages <= ret);
+  return pages <= ret || remaining_overage_pages() == Length(0);
 }
 
 template <typename Forwarder>
