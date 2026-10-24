@@ -1165,7 +1165,7 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     TC_ASSERT_GE(unmapped_, released_pages);
     unmapped_ -= released_pages;
 
-    if (free_pages > released_pages) {
+    if (free_pages > released_pages && !pt->BeingCollapsed()) {
       // pt is partially released.  As the rest of the hugepage-aware
       // allocator works in terms of whole hugepages, we need to release the
       // rest of the hugepage.  This simplifies subsequent accounting by
@@ -1849,6 +1849,7 @@ inline MemoryModifyStatus HugePageFiller<TrackerType>::Collapse(
     if (collapse_released == CollapseReleasedHugePages::kDisabled) {
       TC_ASSERT(!pt->released());
     }
+    pt->SetBeingCollapsed(/*value=*/false);
     if (status.success) {
       // MADV_COLLAPSE re-backs the whole hugepage, holes included, so update
       // tracker state and filler lists under pageheap_lock before dropping
@@ -1875,8 +1876,21 @@ inline MemoryModifyStatus HugePageFiller<TrackerType>::Collapse(
         TC_ASSERT(!pt->BeingReleased());
         OnCollapseSuccess(pt, preserve_donated_on_collapse, collapse_released);
       }
+    } else if (pt->fully_freed() && pt->released()) {
+      const Length free_pages = kPagesPerHugePage;
+      const Length released_pages = pt->released_pages();
+      if (free_pages > released_pages) {
+        if (unback_without_lock_(HugeRange(pt->location(), NHugePages(1)))
+                .success) {
+          const Length unmapped = free_pages - released_pages;
+          unmapping_unaccounted_ += unmapped;
+          subrelease_stats_.total_pages_subreleased += unmapped;
+        } else {
+          pt->ResetReleased();
+        }
+        UpdateFillerStatsTracker(clock_.now());
+      }
     }
-    pt->SetBeingCollapsed(/*value=*/false);
   }
 
   return status;

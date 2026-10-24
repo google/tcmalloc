@@ -5354,9 +5354,7 @@ TEST_F(FillerTest, ConcurrentPutEmptiesSubreleasedTrackerDuringCollapse) {
     EXPECT_EQ(filler_.unmapped_pages(), Length(0));
 
     EXPECT_EQ(DrainFreedTrackers(), 1);
-    if (mode == CollapseReleasedHugePages::kEnabled) {
-      EXPECT_EQ(ReleasePages(Length(0)), Length(1));
-    }
+    EXPECT_EQ(ReleasePages(Length(0)), Length(0));
     CheckStats();
   }
 }
