@@ -916,6 +916,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_proc_maps"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test_variants(
