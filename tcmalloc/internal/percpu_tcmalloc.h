@@ -968,25 +968,97 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 }
 #endif
 
+[[nodiscard]] static inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t
+TcmallocSlab_Internal_Grow(uintptr_t expected_slabs, volatile void* hdrp,
+                           uint32_t begin, uint32_t len, uint32_t max_cap) {
+  uintptr_t scratch = 0;
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
+  uint32_t hdr, cap, tmp;
+  asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Grow)
+          R"(
+      xorq %[scratch], %[scratch]
+      cmpq %[expected_slabs], %[rseq_slabs_addr]
+      jne 5f
+      movl %[hdrp], %[hdr]
+      movzwl %w[hdr], %[cap]
+      subl %[begin], %[cap]
+      jb 5f
+      movl %[hdr], %[tmp]
+      shrl $16, %[tmp]
+      addl %[tmp], %[cap]
+      movl %[max_cap], %[tmp]
+      subl %[cap], %[tmp]
+      jbe 5f
+      cmpl %[len], %[tmp]
+      cmoval %[len], %[tmp]
+      movl %[tmp], %k[scratch]
+      shll $16, %[tmp]
+      addl %[tmp], %[hdr]
+      movl %[hdr], %[hdrp]
+      5 :)"
+      : [scratch] "=&r"(scratch), [hdr] "=&r"(hdr), [cap] "=&r"(cap),
+        [tmp] "=&r"(tmp)
+      : TCMALLOC_RSEQ_INPUTS, [expected_slabs] "r"(expected_slabs),
+        [hdrp] "m"(*static_cast<uint32_t volatile*>(hdrp)), [begin] "r"(begin),
+        [len] "r"(len), [max_cap] "r"(max_cap)
+      : "cc", "memory");
+#elif TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
+  uintptr_t tmp;
+  uint32_t hdr, cap;
+  asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Grow)
+          R"(
+      mov %[scratch], #0
+      ldr %[tmp], [%[sampler_addr], #%c[sampler_slabs_offset]]
+      cmp %[tmp], %[expected_slabs]
+      b.ne 5f
+      ldr %w[hdr], %[hdrp]
+      uxth %w[cap], %w[hdr]
+      subs %w[cap], %w[cap], %w[begin]
+      b.lo 5f
+      add %w[cap], %w[cap], %w[hdr], lsr #16
+      subs %w[tmp], %w[max_cap], %w[cap]
+      b.ls 5f
+      cmp %w[tmp], %w[len]
+      csel %w[tmp], %w[tmp], %w[len], lo
+      mov %w[scratch], %w[tmp]
+      add %w[hdr], %w[hdr], %w[tmp], lsl #16
+      str %w[hdr], %[hdrp]
+      5 :)"
+      : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp), [hdr] "=&r"(hdr),
+        [cap] "=&r"(cap)
+      : TCMALLOC_RSEQ_INPUTS, [expected_slabs] "r"(expected_slabs),
+        [hdrp] "m"(*static_cast<uint32_t volatile*>(hdrp)), [begin] "r"(begin),
+        [len] "r"(len), [max_cap] "r"(max_cap)
+      : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
+#else
+  (void)expected_slabs;
+  (void)hdrp;
+  (void)begin;
+  (void)len;
+  (void)max_cap;
+#endif
+  return scratch;
+}
+
 template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::Grow(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t()> max_capacity) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  const size_t max_cap = max_capacity();
-  auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
-  Header hdr = LoadHeader(hdrp);
-  uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  ssize_t have = static_cast<ssize_t>(max_cap - hdr.capacity(begin));
-  if (have <= 0) {
+  const size_t raw_max_cap = max_capacity();
+  const uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
+  if (begin == 0 || begin >= Header::kReservedIndexValue - 1) {
     return 0;
   }
-  uint16_t n = std::min<uint16_t>(len, have);
-  hdr.remaining_capacity += n;
-  // 0xffff is an invalid value, so we must not be able to grow to or past that.
-  TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
-               Header::kReservedIndexValue);
-  return StoreCurrentCpu(hdrp, hdr) ? n : 0;
+  const uint32_t max_cap =
+      std::min<size_t>(raw_max_cap, Header::kReservedIndexValue - 1 - begin);
+  const uint32_t bounded_len = std::min<size_t>(len, max_cap);
+  const uintptr_t expected_slabs =
+      reinterpret_cast<uintptr_t>(CpuMemoryStart(slabs, shift, cpu)) |
+      TCMALLOC_CACHED_SLABS_MASK;
+  auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
+  return TcmallocSlab_Internal_Grow(expected_slabs, hdrp, begin, bounded_len,
+                                    max_cap);
 }
 
 template <size_t NumClasses>
@@ -1365,15 +1437,16 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   ScopedDelay delay(ScopedDelay::update_max_capacities_delay);
 #endif
 
-  // Phase 2: Update max capacity of the size classes.
+  // Phase 2: Initialize slabs before publishing new max capacities so
+  // concurrent readers never observe new capacities against old slabs/begins.
+  InitSlabs(new_slabs, shift, capacity);
+
+  // Phase 3: Update max capacity of the size classes.
   for (int i = 0; i < classes_to_resize; ++i) {
     size_t size_class = new_max_capacity[i].size_class;
     size_t cap = new_max_capacity[i].max_capacity;
     update_capacity(size_class, cap);
   }
-
-  // Phase 3: Initialize slabs.
-  InitSlabs(new_slabs, shift, capacity);
 
   // Phase 4: Re-start all CPUs.
   StartAllCpus();

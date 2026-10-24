@@ -1446,6 +1446,78 @@ TEST(VirtualCpuTest, Synchronize) {
   }
 }
 
+TEST_F(TcmallocSlabTest, GrowAbortsOnCpuMigrationAndSlabSwap) {
+  if (!IsFast() || NumCPUs() < 2) {
+    GTEST_SKIP() << "Need fast percpu and >= 2 CPUs.";
+  }
+
+  slab_.InitCpu(0, [](size_t) { return kCapacity; });
+  slab_.InitCpu(1, [](size_t) { return kCapacity; });
+
+  ScopedFakeCpuId fake_cpu_id(0);
+  ASSERT_EQ(slab_.CacheCpuSlab().first, 0);
+
+  // Preempt Grow(cpu=0) inside max_capacity(): UpdateMaxCapacities swaps in
+  // new_slabs (draining and unlocking old_slabs) and this thread migrates to
+  // CPU 1 caching new_slabs. Grow must not commit to retired old_slabs/CPU 0.
+  void* new_slabs = AllocSlabs(
+      [&](size_t s, std::align_val_t a) { return ByteCountingMalloc(s, a); },
+      kShift);
+  ResizeSlabsInfo retired{};
+  const size_t grown =
+      slab_.Grow(/*cpu=*/0, /*size_class=*/1, /*len=*/4, [&]() {
+        PerSizeClassMaxCapacity resize = {.size_class = 1,
+                                          .max_capacity = kCapacity};
+        retired = slab_.UpdateMaxCapacities(
+            new_slabs, [](size_t) { return kCapacity; }, [](int, uint16_t) {},
+            [](size_t cpu) { return cpu <= 1; },
+            [](int, size_t, void**, size_t, size_t) {}, &resize, 1);
+        fake_cpu_id.SwitchTo(1);
+        EXPECT_EQ(slab_.CacheCpuSlab().first, 1);
+        return kCapacity;
+      });
+  sized_aligned_delete(retired.old_slabs, retired.old_slabs_size,
+                       SlabAlignment(ToShiftType(kShift)));
+
+  EXPECT_EQ(grown, 0);
+  EXPECT_EQ(slab_.Capacity(0, 1), 0);
+}
+
+TEST_F(TcmallocSlabTest, UpdateMaxCapacitiesPublishesSlabsBeforeCapacity) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu.";
+  }
+
+  ScopedFakeCpuId fake_cpu_id(0);
+  slab_.InitCpu(0, [](size_t) { return kCapacity; });
+  ASSERT_EQ(slab_.CacheCpuSlab().first, 0);
+  ASSERT_EQ(slab_.Grow(0, 1, 1, []() { return kCapacity; }), 1);
+  int dummy = 0;
+  void* item = &dummy;
+  ASSERT_TRUE(slab_.Push(1, item));
+  ASSERT_EQ(slab_.Length(0, 1), 1);
+
+  void* new_slabs = AllocSlabs(
+      [&](size_t s, std::align_val_t a) { return ByteCountingMalloc(s, a); },
+      kShift);
+  PerSizeClassMaxCapacity resize = {.size_class = 1,
+                                    .max_capacity = kCapacity + 2};
+  size_t length_at_publish = 999;
+  size_t drained = 0;
+  const auto [old_slabs, old_slabs_size] = slab_.UpdateMaxCapacities(
+      new_slabs, [](size_t sc) { return sc == 1 ? kCapacity + 2 : kCapacity; },
+      [&](int sc, uint16_t) {
+        if (sc == 1) length_at_publish = slab_.Length(0, 1);
+      },
+      [](size_t cpu) { return cpu == 0; },
+      [&](int, size_t, void**, size_t n, size_t) { drained += n; }, &resize, 1);
+  sized_aligned_delete(old_slabs, old_slabs_size,
+                       SlabAlignment(ToShiftType(kShift)));
+
+  EXPECT_EQ(length_at_publish, 0);
+  EXPECT_EQ(drained, 1);
+}
+
 }  // namespace
 }  // namespace percpu
 }  // namespace subtle
