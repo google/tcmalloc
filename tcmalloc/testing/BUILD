@@ -989,6 +989,7 @@ cc_test(
         "notsan",
     ],
     deps = [
+        ":testutil",
         "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",

@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <unistd.h>
 
 #include <limits>
 #include <optional>
@@ -36,6 +37,7 @@
 #include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/testing/testutil.h"
 
 #ifndef PR_SET_VMA
 #define PR_SET_VMA 0x53564d41
@@ -169,6 +171,40 @@ TEST(UsageHint, VerifyUsageHintkMetadataTest) {
   EXPECT_EQ(*f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
       << "Usage hint is " << hintToString(*f.usage_hint_);
   // Arena memory is never returned, so ptr is intentionally not freed.
+}
+
+class ReentrantStatsRegionFactory : public SimpleRegionFactory {
+ public:
+  size_t GetStatsInPbtxt(absl::Span<char> buffer) override {
+    called_ = true;
+    // Allocating or querying page-heap stats inside AddressRegionFactory stats
+    // must not violate AllocationGuard or deadlock on pageheap_lock.
+    void* p = ::operator new(64);
+    ::operator delete(p);
+    const std::optional<size_t> heap_size =
+        MallocExtension::GetNumericProperty("generic.heap_size");
+    EXPECT_TRUE(heap_size.has_value());
+    return absl::SNPrintF(buffer.data(), buffer.size(),
+                          "region_factory_heap_size: %zu\n",
+                          heap_size.value_or(0));
+  }
+
+  bool called_ = false;
+};
+
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT ReentrantStatsRegionFactory
+    reentrant_f;
+
+TEST(Basic, GetStatsInPbtxtDoesNotHoldPageHeapLock) {
+  reentrant_f.called_ = false;
+  AddressRegionFactory* prev = MallocExtension::GetRegionFactory();
+  MallocExtension::SetRegionFactory(&reentrant_f);
+  alarm(2);
+  const std::string stats = GetStatsInPbTxt();
+  alarm(0);
+  MallocExtension::SetRegionFactory(prev);
+  EXPECT_TRUE(reentrant_f.called_);
+  EXPECT_THAT(stats, testing::HasSubstr("region_factory_heap_size:"));
 }
 
 }  // namespace

@@ -211,7 +211,6 @@ extern "C" [[maybe_unused]] int MallocExtension_Internal_GetStatsInPbtxt(
   size_t required = printer.SpaceRequired();
 
   if (buffer_length > required) {
-    PageHeapSpinLockHolder l;
     required +=
         tc_globals.system_allocator().GetRegionFactory()->GetStatsInPbtxt(
             absl::Span<char>(buffer + required, buffer_length - required));
