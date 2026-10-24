@@ -396,10 +396,14 @@ class LongJmpScope {
 
  private:
   static void FuzzLogWriter(const char* msg, int len) {
-    if (!absl::StrContains(absl::string_view(msg, len), "CHECK")) {
+    if (!absl::StrContains(absl::string_view(msg, len), "CHECK") ||
+        absl::StrContains(absl::string_view(msg, len), "ReentrancyGuard")) {
       return;
     }
 
+#if !defined(NDEBUG)
+    tcmalloc_internal::tcmalloc_reentrancy_count = 0;
+#endif
     tcmalloc_internal::log_message_writer = previous_;
     longjmp(buf_, 1);
   }
