@@ -15,6 +15,7 @@
 #include "tcmalloc/internal/percpu.h"
 
 #include <signal.h>
+#include <sys/syscall.h>
 #include <sys/time.h>
 #include <ucontext.h>
 #include <unistd.h>
@@ -163,6 +164,25 @@ TEST(PerCpu, FenceCpuMissingCpu) {
   FenceCpu(num_cpus);
   EXPECT_EQ(errno, 0);
 }
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+TEST(PerCpu, PreRegisteredRseqFenceAllCpus) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_EXIT(
+      {
+        if (!IsFastNoInit()) {
+          syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), 0,
+                  TCMALLOC_PERCPU_RSEQ_SIGNATURE);
+        }
+        if (IsFastNoInit()) {
+          TC_CHECK(IsFast());
+          FenceAllCpus();
+        }
+        _exit(0);
+      },
+      testing::ExitedWithCode(0), "");
+}
+#endif
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal::subtle::percpu
