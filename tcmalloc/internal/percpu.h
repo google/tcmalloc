@@ -210,9 +210,14 @@ ABSL_CONST_INIT thread_local volatile uintptr_t tcmalloc_slabs
     ABSL_ATTRIBUTE_WEAK = {};
 ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
     ABSL_ATTRIBUTE_WEAK = {
-        0, static_cast<unsigned>(kCpuIdUninitialized),   0, 0, 0,
-        0, {{kCpuIdUninitialized, kCpuIdUninitialized}},
-};
+        0,
+        static_cast<unsigned>(kCpuIdUninitialized),
+        0,
+        0,
+        0,
+        static_cast<unsigned>(kCpuIdUninitialized),
+        {{kCpuIdUninitialized, kCpuIdUninitialized}},
+    };
 ABSL_CONST_INIT thread_local volatile int tcmalloc_cached_vcpu
     ABSL_ATTRIBUTE_WEAK = kCpuIdUninitialized;
 ABSL_CONST_INIT thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_WEAK = 0;
