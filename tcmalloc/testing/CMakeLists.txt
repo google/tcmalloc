@@ -1022,6 +1022,8 @@ tcmalloc_cc_test_variants(
     "absl::cleanup"
     "absl::status"
     "absl::statusor"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
     "tcmalloc::malloc_tracing_extension"
 )
 

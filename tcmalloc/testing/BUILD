@@ -1103,6 +1103,8 @@ create_tcmalloc_testsuite(
         "notsan",
     ],
     deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:malloc_hook",
         "//tcmalloc:malloc_tracing_extension",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/status",

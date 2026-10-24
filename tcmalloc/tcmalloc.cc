@@ -779,14 +779,16 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   MaybeUnsampleAllocation(tc_globals, policy, ptr, size, p, meta);
 
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
-    tc_globals.pagemap().SetFreed(p);
+    if (!meta.sampled()) {
+      PageHeapSpinLockHolder l;
+      tc_globals.pagemap().SetFreed(p);
+    }
     gwp_asan.Deallocate(ptr);
   } else {
     if (ABSL_PREDICT_FALSE(ptr != p.start_addr())) {
       ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
                           ptr);
     }
-    tc_globals.pagemap().SetFreed(p);
     PageAllocatorInterface::AllocationState a{
         Range(p, num_pages),
         meta.donated(),
@@ -805,6 +807,9 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     const MemoryTag tag = GetMemoryTag(ptr);
 #endif
     PageHeapSpinLockHolder l;
+    if (!meta.sampled()) {
+      tc_globals.pagemap().SetFreed(p);
+    }
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     const MemoryTag tag = GetMemoryTag(ptr);
 #endif
