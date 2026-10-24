@@ -931,6 +931,7 @@ cc_library(
     linkstatic = 1,
     textual_hdrs = [
         "percpu_rseq_aarch64.S",
+        "percpu_rseq_riscv64.S",
         "percpu_rseq_x86_64.S",
     ],
     visibility = [

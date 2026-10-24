@@ -52,8 +52,8 @@
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
 // TODO(b/478927694): re-enable for HWASan
-#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__)) && \
-    !TCMALLOC_INTERNAL_PERCPU_HWASAN
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__) || \
+    defined(__riscv)) && !TCMALLOC_INTERNAL_PERCPU_HWASAN
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 1
 #else
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 0
@@ -65,6 +65,8 @@
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x53053053
 #elif defined(__aarch64__)
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0xd428bc00
+#elif defined(__riscv)
+#define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0xf1401073
 #else
 // Rather than error, allow us to build, but with an invalid signature.
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x0
