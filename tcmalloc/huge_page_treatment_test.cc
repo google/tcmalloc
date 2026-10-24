@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -93,11 +94,16 @@ class SystemAllocatorCollapse final : public MemoryModifyFunction {
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
     ++calls_;
     last_status_ = allocator_.Collapse(r.start_addr(), r.in_bytes());
+    if (post_collapse_hook_ != nullptr) {
+      post_collapse_hook_(r);
+    }
     return last_status_;
   }
 
   [[nodiscard]] size_t calls() const { return calls_; }
   [[nodiscard]] MemoryModifyStatus last_status() const { return last_status_; }
+
+  std::function<void(Range)> post_collapse_hook_;
 
  private:
   TestSystemAllocator& allocator_;
@@ -488,6 +494,94 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     EXPECT_TRUE(pt->GetHugePageResidencyState().swapped.IsZero());
     EXPECT_TRUE(pt->unbroken());
   }
+}
+
+TEST_F(HugePageTreatmentRealMemoryTest,
+       ConcurrentPutEmptiesSubreleasedTrackerDuringRealCollapse) {
+  const SpanAllocInfo info = {.objects_per_span = 1,
+                              .density = AccessDensityPrediction::kSparse};
+  const Length released_len(4);
+  const Length kept_len = kPagesPerHugePage - released_len;
+
+  PageId kept_page;
+  OwnedTracker pt = CreateTrackerWithKeptPages(kept_len, info, &kept_page);
+  *reinterpret_cast<uint8_t*>(kept_page.start_addr()) = 0xAB;
+
+  PageId rel_page;
+  {
+    PageHeapSpinLockHolder l;
+    auto [got_pt, got_page, from_released] = filler_.TryGet(released_len, info);
+    ASSERT_EQ(got_pt, pt.get());
+    EXPECT_FALSE(from_released);
+    rel_page = got_page;
+    EXPECT_EQ(filler_.Put(pt.get(), Range(rel_page, released_len), info),
+              nullptr);
+    ASSERT_EQ(filler_.ReleasePages(released_len, SkipSubreleaseIntervals{},
+                                   ReleasePartialAllocPages::kEnabled,
+                                   /*hit_limit=*/false),
+              released_len);
+  }
+
+  PageTracker* raw_pt = pt.release();
+  collapse_.post_collapse_hook_ = [&](Range r) {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(raw_pt->BeingCollapsed());
+    EXPECT_EQ(filler_.Put(raw_pt, Range(kept_page, kept_len), info), nullptr);
+    EXPECT_TRUE(raw_pt->fully_freed());
+  };
+
+  FakeClock::Advance(kRecordInterval + absl::Minutes(1));
+  {
+    PageHeapSpinLockHolder l;
+    ASSERT_EQ(madvise(backing_.ptr, kHugePageSize, MADV_HUGEPAGE), 0) << errno;
+    filler_.TreatHugepageTrackers(
+        EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
+        ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
+        CollapseReleasedHugePages::kEnabled, &pageflags_, &residency_);
+  }
+  collapse_.post_collapse_hook_ = nullptr;
+
+  if (collapse_.calls() == 0 &&
+      pageflags_.IsHugepageBacked(backing_.ptr).value_or(false)) {
+    PageHeapSpinLockHolder l;
+    delete filler_.FetchFullyFreedTracker();
+    GTEST_SKIP() << "Kernel khugepaged collapsed VMA concurrently with test.";
+  }
+  ASSERT_EQ(collapse_.calls(), 1);
+  if (!collapse_.last_status().success) {
+    PageHeapSpinLockHolder l;
+    delete filler_.FetchFullyFreedTracker();
+    GTEST_SKIP() << "madvise(MADV_COLLAPSE) failed on host kernel with errno="
+                 << collapse_.last_status().error_number;
+  }
+
+  std::unique_ptr<PageTracker> retired;
+  Length unmapped_pages;
+  Length unaccounted_released;
+  {
+    PageHeapSpinLockHolder l;
+    retired.reset(filler_.FetchFullyFreedTracker());
+    unmapped_pages = filler_.unmapped_pages();
+    unaccounted_released = filler_.ReleasePages(
+        Length(0), SkipSubreleaseIntervals{},
+        ReleasePartialAllocPages::kDisabled, /*hit_limit=*/false);
+  }
+  ASSERT_EQ(retired.get(), raw_pt);
+  EXPECT_FALSE(retired->released());
+  EXPECT_EQ(retired->released_pages(), Length(0));
+  EXPECT_TRUE(retired->unbroken());
+  EXPECT_EQ(unmapped_pages, Length(0));
+  // Collapse re-backed the entire hugepage; HandleFullyFreedTracker must not
+  // have unbacked the collapsing hugepage or credited kept_len to
+  // unmapping_unaccounted_.
+  EXPECT_EQ(unaccounted_released, Length(0));
+
+  EXPECT_THAT(pageflags_.IsHugepageBacked(backing_.ptr),
+              testing::Optional(true));
+  auto post_collapse_residency =
+      residency_.GetUnbackedAndSwappedBitmaps(backing_.ptr);
+  ASSERT_EQ(post_collapse_residency.status, absl::StatusCode::kOk);
+  EXPECT_EQ(post_collapse_residency.unbacked.CountBits(), 0);
 }
 
 }  // namespace
