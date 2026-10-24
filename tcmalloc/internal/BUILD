@@ -93,6 +93,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":allocation_guard",
+        ":scoped_allow_allocation",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_googletest//:gtest_main",

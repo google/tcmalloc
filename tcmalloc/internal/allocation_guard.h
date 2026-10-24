@@ -31,7 +31,7 @@ class AllocationGuard {
   AllocationGuard() {
 #if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     if (disallowed_ == 0) {
-      (void)MallocHook::AddNewHook(Hook);
+      AcquireHook();
     }
     ++disallowed_;
 #endif
@@ -41,16 +41,33 @@ class AllocationGuard {
 #if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     --disallowed_;
     if (disallowed_ == 0) {
-      (void)MallocHook::RemoveNewHook(Hook);
+      ReleaseHook();
     }
 #endif
   }
 
  private:
+  static void AcquireHook() {
+#ifndef NDEBUG
+    absl::base_internal::SpinLockHolder l(&hook_lock_);
+    if (active_guard_threads_++ == 0) {
+      (void)MallocHook::AddNewHook(Hook);
+    }
+#endif
+  }
+  static void ReleaseHook() {
+#ifndef NDEBUG
+    absl::base_internal::SpinLockHolder l(&hook_lock_);
+    if (active_guard_threads_ > 0 && --active_guard_threads_ == 0) {
+      (void)MallocHook::RemoveNewHook(Hook);
+    }
+#endif
+  }
   static void Hook(const MallocHook::NewInfo& info) {
 #ifndef NDEBUG
     if (disallowed_ > 0) {
-      (void)MallocHook::RemoveNewHook(Hook);
+      disallowed_ = 0;
+      ReleaseHook();
       abort();
     }
 #endif
@@ -59,6 +76,8 @@ class AllocationGuard {
 
 #ifndef NDEBUG
   ABSL_CONST_INIT static thread_local int disallowed_;
+  ABSL_CONST_INIT static absl::base_internal::SpinLock hook_lock_;
+  ABSL_CONST_INIT static int active_guard_threads_;
 #endif
 };
 
