@@ -21,9 +21,11 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
 #include <new>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -160,6 +162,39 @@ TEST_P(PageMapTest, RandomAccess) {
 }
 
 INSTANTIATE_TEST_SUITE_P(Limits, PageMapTest, ::testing::Values(100, 1 << 16));
+
+TEST_F(PageMapTest, ConcurrentEnsureSetAndLookup) {
+  constexpr intptr_t kNumPages = 1024;
+  std::atomic<bool> stop{false};
+
+  std::thread reader([&]() {
+    while (!stop.load(std::memory_order_relaxed)) {
+      for (intptr_t i = 0; i < kNumPages; ++i) {
+        PageId p(i * 4096);
+        CompactSizeClass c = map->sizeclass(p);
+        PageMeta meta = map->GetDescriptor(p);
+        if (meta.valid() && meta.sizeclass() != 0) {
+          EXPECT_EQ(meta.span(), span(i));
+          EXPECT_EQ(meta.sizeclass(), sc(i));
+        }
+        (void)c;
+      }
+    }
+  });
+
+  for (int iter = 0; iter < 5; ++iter) {
+    for (intptr_t i = 0; i < kNumPages; ++i) {
+      PageId p(i * 4096);
+      ASSERT_TRUE(map->Ensure(Range(p, Length(1))));
+      map->SetSmall(p, span(i), sc(i), /*donated=*/false);
+      map->SetHugepage(p, reinterpret_cast<void*>(i + 1));
+      EXPECT_EQ(map->GetHugepage(p), reinterpret_cast<void*>(i + 1));
+    }
+  }
+
+  stop.store(true, std::memory_order_relaxed);
+  reader.join();
+}
 
 // Surround pagemap with unused memory. This isolates it so that it does not
 // share pages with any other structures. This avoids the risk that adjacent

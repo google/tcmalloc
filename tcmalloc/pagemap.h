@@ -31,6 +31,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <atomic>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -185,18 +186,29 @@ class PageMap {
     // allocation pointer, along with flags and sizeclass). This allows us to
     // avoid two separate memory loads when fetching both the descriptor and the
     // sizeclass.
-    PageMeta page[kLeafLength];
-    void* hugepage[kLeafHugepages];
+    std::atomic<PageMeta> page[kLeafLength];
+    std::atomic<void*> hugepage[kLeafHugepages];
   };
 
   struct Node {
     // Mid-level structure that holds pointers to leafs
-    Leaf* absl_nullable leafs[kMidLength];
+    std::atomic<Leaf* absl_nullable> leafs[kMidLength];
   };
 
   typedef uintptr_t Number;
 
-  Node* absl_nullable root_[kRootLength];  // Top-level node
+#ifdef ABSL_HAVE_THREAD_SANITIZER
+  static constexpr std::memory_order kDependentLoadOrder =
+      std::memory_order_acquire;
+#else
+  // Hardware preserves address-dependent load ordering for
+  // root_ -> node -> leaf -> entry; avoid emitting ldar on AArch64 delete
+  // fast paths while still pairing with Ensure()'s release stores on TSan.
+  static constexpr std::memory_order kDependentLoadOrder =
+      std::memory_order_relaxed;
+#endif
+
+  std::atomic<Node* absl_nullable> root_[kRootLength];  // Top-level node
 
   [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE std::tuple<Number, Number, Number>
   Index(PageId p) const {
@@ -212,8 +224,9 @@ class PageMap {
       MustIndex(PageId p) const {
     TC_ASSERT_EQ(p.index() >> BITS, 0);
     auto [i1, i2, i3] = Index(p);
-    TC_ASSERT_NE(root_[i1], nullptr);
-    Leaf* leaf = root_[i1]->leafs[i2];
+    Node* node = root_[i1].load(kDependentLoadOrder);
+    TC_ASSERT_NE(node, nullptr);
+    Leaf* leaf = node->leafs[i2].load(kDependentLoadOrder);
     TC_ASSERT_NE(leaf, nullptr);
     return {leaf, i3};
   }
@@ -226,11 +239,11 @@ class PageMap {
       return {nullptr, 0};
     }
     auto [i1, i2, i3] = Index(p);
-    const Node* node = root_[i1];
+    const Node* node = root_[i1].load(kDependentLoadOrder);
     if (ABSL_PREDICT_FALSE(node == nullptr)) {
       return {nullptr, 0};
     }
-    return {node->leafs[i2], i3};
+    return {node->leafs[i2].load(kDependentLoadOrder), i3};
   }
 
  public:
@@ -255,7 +268,7 @@ class PageMap {
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return PageMeta{};
     }
-    return leaf->page[i3];
+    return leaf->page[i3].load(std::memory_order_acquire);
   }
 
   // Return the descriptor for the specified page.
@@ -264,57 +277,71 @@ class PageMap {
   [[nodiscard]] PageMeta GetExistingDescriptor(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
     auto [leaf, i3] = MustIndex(p);
-    return leaf->page[i3];
+    return leaf->page[i3].load(std::memory_order_acquire);
   }
 
   // Return the size class for p, or 0 if it is not known to tcmalloc
   // or is a page containing large objects.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  //
-  // TODO(b/193887621): Convert to atomics to permit the PageMap to run cleanly
-  // under TSan.
   [[nodiscard]] CompactSizeClass sizeclass(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
     auto [leaf, i3] = MaybeIndex(p);
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return 0;
     }
-    return leaf->page[i3].sizeclass();
+#ifdef ABSL_HAVE_THREAD_SANITIZER
+    return leaf->page[i3].load(std::memory_order_relaxed).sizeclass();
+#else
+    // PageMeta places sizeclass_ in the low byte so the unsized delete fast
+    // path can issue a narrow zero-extending byte load (movzbl / ldrb) without
+    // a dependent mask or redundant zero-extension from ISD::ATOMIC_LOAD.
+    return reinterpret_cast<const PageMeta*>(&leaf->page[i3])->sizeclass();
+#endif
   }
 
   void SetSmall(PageId p, Span* absl_nonnull span, CompactSizeClass sc,
                 bool donated) {
     auto [leaf, i3] = MustIndex(p);
-    leaf->page[i3].set_small(span, sc, donated);
+    PageMeta meta;
+    meta.set_small(span, sc, donated);
+    leaf->page[i3].store(meta, std::memory_order_release);
   }
 
   void SetLarge(PageId p, Length size, bool donated) {
     auto [leaf, i3] = MustIndex(p);
-    TC_ASSERT_EQ(leaf->page[i3].sizeclass(), 0);
-    leaf->page[i3].set_large(size, donated);
+    TC_ASSERT_EQ(leaf->page[i3].load(std::memory_order_relaxed).sizeclass(), 0);
+    PageMeta meta;
+    meta.set_large(size, donated);
+    leaf->page[i3].store(meta, std::memory_order_release);
   }
 
   void SetSampled(PageId p, SampledAllocation* absl_nonnull sampled,
                   bool donated) {
     auto [leaf, i3] = MustIndex(p);
-    TC_ASSERT_EQ(leaf->page[i3].sizeclass(), 0);
-    leaf->page[i3].set_sampled(sampled, donated);
+    TC_ASSERT_EQ(leaf->page[i3].load(std::memory_order_relaxed).sizeclass(), 0);
+    PageMeta meta;
+    meta.set_sampled(sampled, donated);
+    leaf->page[i3].store(meta, std::memory_order_release);
   }
 
   void SetFreed(PageId p) {
     auto [leaf, i3] = MustIndex(p);
-    TC_ASSERT_EQ(leaf->page[i3].sizeclass(), 0);
-    leaf->page[i3].set_freed();
+    TC_ASSERT_EQ(leaf->page[i3].load(std::memory_order_relaxed).sizeclass(), 0);
+    PageMeta meta;
+    meta.set_freed();
+    leaf->page[i3].store(meta, std::memory_order_release);
   }
 
   [[nodiscard]] void* GetHugepage(PageId p) const {
     auto [leaf, i3] = MustIndex(p);
-    return leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)];
+    return leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)].load(
+        std::memory_order_acquire);
   }
 
   void SetHugepage(PageId p, void* v) {
     auto [leaf, i3] = MustIndex(p);
-    leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)] = v;
+    leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)].store(
+        v, std::memory_order_release);
   }
 
   [[nodiscard]] bool HasLeaf(PageId p) const {
@@ -326,11 +353,13 @@ class PageMap {
   [[nodiscard]] std::optional<PageId> get_next_set_page(PageId p) const {
     auto [i1, i2, i3] = Index(p + Length(1));
     for (; i1 < kRootLength; ++i1, i2 = 0, i3 = 0) {
-      if (root_[i1] == nullptr) continue;
+      const Node* node = root_[i1].load(kDependentLoadOrder);
+      if (node == nullptr) continue;
       for (; i2 < kMidLength; ++i2, i3 = 0) {
-        if (root_[i1]->leafs[i2] == nullptr) continue;
+        const Leaf* leaf = node->leafs[i2].load(kDependentLoadOrder);
+        if (leaf == nullptr) continue;
         for (; i3 < kLeafLength; ++i3) {
-          if (root_[i1]->leafs[i2]->page[i3].valid())
+          if (leaf->page[i3].load(std::memory_order_acquire).valid())
             return PageId((i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) |
                           i3);
         }
@@ -353,19 +382,20 @@ class PageMap {
       if (i1 >= kRootLength) return false;
 
       // Allocate Node if necessary
-      if (root_[i1] == nullptr) {
-        Node* node = reinterpret_cast<Node*>(Allocator(sizeof(Node)));
+      Node* node = root_[i1].load(std::memory_order_acquire);
+      if (node == nullptr) {
+        node = reinterpret_cast<Node*>(Allocator(sizeof(Node)));
         if (node == nullptr) return false;
         memset(node, 0, sizeof(*node));
-        root_[i1] = node;
+        root_[i1].store(node, std::memory_order_release);
       }
 
       // Allocate Leaf if necessary
-      if (root_[i1]->leafs[i2] == nullptr) {
+      if (node->leafs[i2].load(std::memory_order_acquire) == nullptr) {
         Leaf* leaf = reinterpret_cast<Leaf*>(Allocator(sizeof(Leaf)));
         if (leaf == nullptr) return false;
         memset(leaf, 0, sizeof(*leaf));
-        root_[i1]->leafs[i2] = leaf;
+        node->leafs[i2].store(leaf, std::memory_order_release);
       }
 
       // Advance p past whatever is covered by this leaf node
@@ -405,9 +435,11 @@ class PageMap {
     const PageMeta first_meta = GetExistingDescriptor(first);
     TC_ASSERT_EQ(first_meta.span(), span);
     const bool donated = first_meta.donated();
+    PageMeta freed_meta;
+    freed_meta.set_freed();
     for (PageId p = first; p <= last; ++p) {
       auto [leaf, i3] = MustIndex(p);
-      leaf->page[i3].set_freed();
+      leaf->page[i3].store(freed_meta, std::memory_order_release);
     }
     return donated;
   }
