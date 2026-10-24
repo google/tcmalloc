@@ -514,6 +514,71 @@ TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
+static void ReleaseDuringSoftLimitShrinkHook(size_t num_pages, size_t released,
+                                             PageReleaseReason reason)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  if (reason != PageReleaseReason::kSoftLimitExceeded || !shrink_hook_alloc) {
+    return;
+  }
+  ++shrink_hook_calls;
+  const PageAllocatorInterface::AllocationState a = *shrink_hook_alloc;
+  shrink_hook_alloc.reset();
+  shrink_hook_allocator->Delete(a, MemoryTag::kSampledOrCold,
+                                shrink_hook_alloc_info);
+  (void)shrink_hook_allocator->ReleaseAtLeastNPages(
+      kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem);
+}
+
+TEST_F(PageAllocatorTest,
+       ConcurrentReleaseSatisfiesSoftLimitWithoutBreakingHugepages) {
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  AllocationState normal =
+      New(3 * kPagesPerHugePage / 4, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
+
+  const size_t metadata_bytes = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.metadata_bytes();
+  }();
+
+  shrink_hook_allocator = &*allocator_;
+  shrink_hook_alloc.emplace(sampled);
+  shrink_hook_alloc_info = kSpanInfo;
+  shrink_hook_calls = 0;
+  ASSERT_TRUE(
+      page_allocator_release_hooks.Add(&ReleaseDuringSoftLimitShrinkHook));
+
+  // Initial backed is 2 hugepages; soft limit is 1.25 hugepages (overage 0.75
+  // hugepages). With hpaa_subrelease disabled, ReleaseAtLeastNPages releases 0
+  // pages, and the release hook frees and releases sampled's entire hugepage
+  // (bringing backed down to 1.0 hugepage <= 1.25 hugepages). ShrinkHardBy
+  // must recognize that we are now below the soft limit without breaking
+  // normal's hugepage.
+  allocator_->set_limit(metadata_bytes + (5 * kPagesPerHugePage / 4).in_bytes(),
+                        PageAllocator::kSoft);
+
+  EXPECT_EQ(shrink_hook_calls, 1);
+  EXPECT_EQ(allocator_->limit_hits(PageAllocator::kSoft), 1);
+  EXPECT_EQ(
+      allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft), 1);
+  BackingStats stats;
+  {
+    PageHeapSpinLockHolder l;
+    stats = allocator_->stats();
+  }
+  EXPECT_EQ(stats.unmapped_bytes, kHugePageSize);
+
+  ASSERT_TRUE(
+      page_allocator_release_hooks.Remove(&ReleaseDuringSoftLimitShrinkHook));
+  shrink_hook_allocator = nullptr;
+  Delete(normal, kSpanInfo, MemoryTag::kNormal);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
 TEST_F(PageAllocatorTest, TreatHugepageTrackersAllPartitions) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
                                        AccessDensityPrediction::kSparse};
