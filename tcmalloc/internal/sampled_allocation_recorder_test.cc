@@ -249,6 +249,82 @@ TEST(SampleRecorderWithParamTest, RegisterWithParam) {
   EXPECT_TRUE(info->initialized);
 }
 
+TEST_F(SampleRecorderTest, UnregisterDoesNotBlockOtherSamplesDuringIterate) {
+  Info* s1 = Register(1);
+  Info* s2 = Register(2);
+
+  absl::Notification in_iterate;
+  absl::Notification release_iterate;
+  absl::Notification unregister_s1_entered;
+  absl::Notification other_ops_done;
+
+  ThreadManager iterate_thread;
+  iterate_thread.Start(1, [&](int) {
+    sample_recorder_.Iterate([&](const Info& info) {
+      if (info.size.load(std::memory_order_acquire) == 1 &&
+          !in_iterate.HasBeenNotified()) {
+        in_iterate.Notify();
+        release_iterate.WaitForNotification();
+      }
+    });
+  });
+
+  in_iterate.WaitForNotification();
+
+  ThreadManager unregister_s1_thread;
+  unregister_s1_thread.Start(1, [&](int) {
+    if (!unregister_s1_entered.HasBeenNotified()) {
+      unregister_s1_entered.Notify();
+      sample_recorder_.Unregister(s1);
+    }
+  });
+
+  unregister_s1_entered.WaitForNotification();
+  // Give unregister_s1_thread time to enter PushDead(s1) and contend on s1.
+  absl::SleepFor(absl::Milliseconds(50));
+
+  ThreadManager other_thread;
+  other_thread.Start(1, [&](int) {
+    if (!other_ops_done.HasBeenNotified()) {
+      sample_recorder_.Unregister(s2);
+      Info* s3 = Register(3);
+      sample_recorder_.Unregister(s3);
+      other_ops_done.Notify();
+    }
+  });
+
+  bool unblocked =
+      other_ops_done.WaitForNotificationWithTimeout(absl::Milliseconds(500));
+  EXPECT_TRUE(unblocked)
+      << "Unregister(s1) blocked unrelated Register/Unregister(s2) while "
+         "Iterate held s1->lock";
+
+  release_iterate.Notify();
+  other_thread.Stop();
+  unregister_s1_thread.Stop();
+  iterate_thread.Stop();
+}
+
+TEST_F(SampleRecorderTest, DuplicateUnregisterDoesNotCycleGraveyard) {
+  Info* s1 = Register(1);
+  sample_recorder_.Unregister(s1);
+  sample_recorder_.Unregister(s1);
+
+  Info* r1 = Register(2);
+  Info* r2 = Register(3);
+  Info* r3 = Register(4);
+  EXPECT_NE(r1, nullptr);
+  EXPECT_NE(r2, nullptr);
+  EXPECT_NE(r3, nullptr);
+  EXPECT_NE(r1, r2);
+  EXPECT_NE(r2, r3);
+  EXPECT_NE(r1, r3);
+
+  sample_recorder_.Unregister(r1);
+  sample_recorder_.Unregister(r2);
+  sample_recorder_.Unregister(r3);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

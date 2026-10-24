@@ -177,8 +177,11 @@ void SampleRecorder<T, Allocator>::PushNew(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::PushDead(T* sample) {
-  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   AllocationGuardSpinLockHolder sample_lock(sample->lock);
+  if (ABSL_PREDICT_FALSE(sample->dead != nullptr)) {
+    return;
+  }
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   sample->dead = graveyard_.dead;
   graveyard_.dead = sample;
 }
@@ -227,16 +230,9 @@ void SampleRecorder<T, Allocator>::Unregister(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::UnregisterAll() {
-  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   T* sample = all_.load(std::memory_order_acquire);
   while (sample != nullptr) {
-    {
-      AllocationGuardSpinLockHolder sample_lock(sample->lock);
-      if (sample->dead == nullptr) {
-        sample->dead = graveyard_.dead;
-        graveyard_.dead = sample;
-      }
-    }
+    PushDead(sample);
     sample = sample->next;
   }
 }
