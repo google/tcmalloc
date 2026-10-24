@@ -25,6 +25,10 @@
 #define MADV_GUARD_INSTALL 102
 #endif
 
+#ifndef MADV_COLD
+#define MADV_COLD 20
+#endif
+
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -45,6 +49,7 @@
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/util.h"
+#include "tcmalloc/testing/smaps.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -76,6 +81,7 @@ using ::testing::_;
 using ::testing::FieldsAre;
 using ::testing::Optional;
 
+constexpr uint64_t kPageExclusive = (1ULL << 56);
 constexpr uint64_t kPageGuardRegion = (1ULL << 58);
 constexpr uint64_t kPageSwapped = (1ULL << 62);
 constexpr uint64_t kPagePresent = (1ULL << 63);
@@ -204,7 +210,7 @@ TEST(ResidenceTest, GuardPagesNotCountedAsSwapped) {
   ASSERT_NE(write_fd, -1) << errno;
   const uint64_t entries[3] = {
       kPageSwapped | kPageGuardRegion,
-      kPagePresent,
+      kPagePresent | kPageExclusive,
       kPageSwapped,
   };
   ASSERT_EQ(write(write_fd, entries, sizeof(entries)), sizeof(entries));
@@ -223,6 +229,154 @@ TEST(ResidenceTest, GuardPagesNotCountedAsSwapped) {
   EXPECT_FALSE(info->page_is_resident.GetBit(0));
   EXPECT_TRUE(info->page_is_resident.GetBit(1));
   EXPECT_FALSE(info->page_is_resident.GetBit(2));
+}
+
+// Anonymous memory that is a VMA of its own: it is surrounded by PROT_NONE
+// guard regions, so the kernel cannot merge it with neighboring mappings.
+class IsolatedAnonMapping {
+ public:
+  IsolatedAnonMapping(size_t size, size_t alignment)
+      : reservation_size_(size + 2 * alignment) {
+    reservation_ = mmap(nullptr, reservation_size_, PROT_NONE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    CHECK_NE(reservation_, MAP_FAILED) << errno;
+    data_ = reinterpret_cast<char*>((reinterpret_cast<uintptr_t>(reservation_) +
+                                     GetPageSize() + alignment - 1) &
+                                    ~(alignment - 1));
+    CHECK_EQ(mprotect(data_, size, PROT_READ | PROT_WRITE), 0) << errno;
+  }
+
+  ~IsolatedAnonMapping() {
+    CHECK_EQ(munmap(reservation_, reservation_size_), 0) << errno;
+  }
+
+  IsolatedAnonMapping(const IsolatedAnonMapping&) = delete;
+  IsolatedAnonMapping& operator=(const IsolatedAnonMapping&) = delete;
+
+  char* data() const { return data_; }
+
+ private:
+  const size_t reservation_size_;
+  void* reservation_;
+  char* data_;
+};
+
+// Checks that ResidencyPageMap agrees with the kernel's smaps Rss for
+// [addr, addr + size), which must be a VMA of its own. Returns Rss in `rss`.
+void CheckResidencyMatchesSmaps(void* addr, size_t size, size_t& rss) {
+  std::optional<SmapEntry> vma;
+  ASSERT_TRUE(ForEachSmapEntry([&](const SmapEntry& entry) {
+    if (entry.Overlaps(addr, size)) vma = entry;
+  }));
+  ASSERT_TRUE(vma.has_value());
+  ASSERT_EQ(vma->start, reinterpret_cast<uintptr_t>(addr));
+  ASSERT_EQ(vma->end - vma->start, size);
+
+  ResidencyPageMap r;
+  std::optional<Residency::Info> info = r.Get(addr, size);
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->bytes_resident, vma->rss_bytes);
+  EXPECT_EQ(info->page_is_resident.CountBits() * GetPageSize(), vma->rss_bytes);
+  rss = vma->rss_bytes;
+}
+
+void ReadEveryPage(const void* p, size_t size) {
+  const volatile char* v = static_cast<const char*>(p);
+  for (size_t i = 0; i < size; i += GetPageSize()) {
+    (void)v[i];
+  }
+}
+
+TEST(ResidenceSmapsTest, TouchedAnon) {
+  const size_t kSize = 16 * GetPageSize();
+  IsolatedAnonMapping m(kSize, GetPageSize());
+  ASSERT_EQ(madvise(m.data(), kSize, MADV_NOHUGEPAGE), 0) << errno;
+  memset(m.data(), 1, kSize);
+
+  size_t rss;
+  ASSERT_NO_FATAL_FAILURE(CheckResidencyMatchesSmaps(m.data(), kSize, rss));
+  EXPECT_EQ(rss, kSize);
+}
+
+TEST(ResidenceSmapsTest, ReadFaultedAnon) {
+  // Read faults on untouched private anonymous memory map the shared zero
+  // page, which is present in pagemap but not part of Rss.
+  const size_t kSize = 16 * GetPageSize();
+  IsolatedAnonMapping m(kSize, GetPageSize());
+  ASSERT_EQ(madvise(m.data(), kSize, MADV_NOHUGEPAGE), 0) << errno;
+  ReadEveryPage(m.data(), kSize);
+
+  size_t rss;
+  ASSERT_NO_FATAL_FAILURE(CheckResidencyMatchesSmaps(m.data(), kSize, rss));
+  EXPECT_EQ(rss, size_t{0});
+}
+
+TEST(ResidenceSmapsTest, IntactThp) {
+  IsolatedAnonMapping m(kHugePageSize, kHugePageSize);
+  if (madvise(m.data(), kHugePageSize, MADV_HUGEPAGE) != 0) {
+    GTEST_SKIP() << "MADV_HUGEPAGE not supported: " << errno;
+  }
+  // Fill the whole hugepage so the kernel has no reason to split it.
+  memset(m.data(), 1, kHugePageSize);
+
+  size_t rss;
+  ASSERT_NO_FATAL_FAILURE(
+      CheckResidencyMatchesSmaps(m.data(), kHugePageSize, rss));
+  if (rss != kHugePageSize) {
+    GTEST_SKIP() << "Mapping is not backed by a THP";
+  }
+}
+
+TEST(ResidenceSmapsTest, ThpSplit) {
+  IsolatedAnonMapping m(kHugePageSize, kHugePageSize);
+  if (madvise(m.data(), kHugePageSize, MADV_HUGEPAGE) != 0) {
+    GTEST_SKIP() << "MADV_HUGEPAGE not supported: " << errno;
+  }
+  m.data()[0] = 1;
+  size_t rss;
+  ASSERT_NO_FATAL_FAILURE(
+      CheckResidencyMatchesSmaps(m.data(), kHugePageSize, rss));
+  if (rss != kHugePageSize) {
+    GTEST_SKIP() << "Mapping is not backed by a THP";
+  }
+
+  // MADV_COLD on part of the THP splits it. Newer kernels then remap the
+  // untouched (all-zero) subpages to the shared zero page.
+  if (madvise(m.data() + 100 * GetPageSize(), GetPageSize(), MADV_COLD) != 0) {
+    GTEST_SKIP() << "MADV_COLD not supported: " << errno;
+  }
+  // Keep khugepaged from collapsing the range again between the reads below.
+  ASSERT_EQ(madvise(m.data(), kHugePageSize, MADV_NOHUGEPAGE), 0) << errno;
+  ASSERT_NO_FATAL_FAILURE(
+      CheckResidencyMatchesSmaps(m.data(), kHugePageSize, rss));
+}
+
+TEST(ResidenceSmapsTest, FileBackedMappedTwice) {
+  const size_t kSize = 16 * GetPageSize();
+  std::string path = absl::StrCat(testing::TempDir(), "/residency_smaps_file");
+  int fd = signal_safe_open(path.c_str(), O_CREAT | O_RDWR | O_TRUNC,
+                            S_IRUSR | S_IWUSR);
+  ASSERT_NE(fd, -1) << errno;
+  std::vector<char> contents(kSize, 1);
+  ASSERT_EQ(write(fd, contents.data(), kSize), kSize);
+
+  // Map the file twice, so every page is mapped twice: PM_MMAP_EXCLUSIVE is
+  // clear and only PM_FILE marks the pages as resident. File mappings never
+  // merge with anonymous ones, nor with each other at the same file offset.
+  void* mappings[2];
+  for (void*& m : mappings) {
+    m = mmap(nullptr, kSize, PROT_READ, MAP_PRIVATE, fd, 0);
+    ASSERT_NE(m, MAP_FAILED) << errno;
+  }
+  ASSERT_EQ(close(fd), 0) << errno;
+  for (void* m : mappings) ReadEveryPage(m, kSize);
+
+  for (void* m : mappings) {
+    size_t rss;
+    ASSERT_NO_FATAL_FAILURE(CheckResidencyMatchesSmaps(m, kSize, rss));
+    EXPECT_EQ(rss, kSize);
+    ASSERT_EQ(munmap(m, kSize), 0) << errno;
+  }
 }
 
 // Method that can write a region with a single hugepage
