@@ -20,6 +20,8 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <atomic>
+
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
@@ -201,8 +203,8 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   FreeList list_[kNumClasses];  // Array indexed by size-class
 
-  size_t size_;      // Combined size of data
-  size_t max_size_;  // size_ > max_size_ --> Scavenge()
+  std::atomic<size_t> size_;      // Combined size of data
+  std::atomic<size_t> max_size_;  // size_ > max_size_ --> Scavenge()
 
   pthread_t tid_;
   bool in_setspecific_;
@@ -230,7 +232,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
   FreeList* list = &list_[size_class];
   void* ret;
   if (ABSL_PREDICT_TRUE(list->TryPop(&ret))) {
-    size_ -= allocated_size;
+    size_.store(size_.load(std::memory_order_relaxed) - allocated_size,
+                std::memory_order_relaxed);
     return ret;
   }
 
@@ -240,8 +243,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
 ThreadCache::Deallocate(void* ptr, size_t size_class) {
   FreeList* list = &list_[size_class];
-  size_ += tc_globals.sizemap().class_to_size(size_class);
-  ssize_t size_headroom = max_size_ - size_ - 1;
+  const size_t size = size_.load(std::memory_order_relaxed) +
+                      tc_globals.sizemap().class_to_size(size_class);
+  size_.store(size, std::memory_order_relaxed);
+  ssize_t size_headroom = max_size_.load(std::memory_order_relaxed) - size - 1;
 
   list->Push(ptr);
   ssize_t list_headroom =
