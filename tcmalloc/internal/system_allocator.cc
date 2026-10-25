@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 
 #include "absl/base/attributes.h"
@@ -120,6 +121,46 @@ int MadvDontNeedAdviceAvailable() {
       &flag, [&]() { advice = ProbeMadvDontNeedAdvice(); });
 
   return advice;
+}
+
+namespace {
+ABSL_CONST_INIT std::atomic<PassthroughRangeFn> g_passthrough_notify_release{
+    nullptr};
+ABSL_CONST_INIT std::atomic<PassthroughRangeFn> g_passthrough_synchronize_back{
+    nullptr};
+ABSL_CONST_INIT std::atomic<PassthroughEnabledFn> g_passthrough_is_enabled{
+    nullptr};
+}  // namespace
+
+void RegisterPassthroughHooks(PassthroughRangeFn notify_release,
+                              PassthroughRangeFn synchronize_back,
+                              PassthroughEnabledFn is_enabled) {
+  g_passthrough_notify_release.store(notify_release, std::memory_order_release);
+  g_passthrough_synchronize_back.store(synchronize_back,
+                                       std::memory_order_release);
+  g_passthrough_is_enabled.store(is_enabled, std::memory_order_release);
+}
+
+void InvokePassthroughNotifyRelease(void* start, size_t length) {
+  PassthroughRangeFn fn =
+      g_passthrough_notify_release.load(std::memory_order_acquire);
+  if (ABSL_PREDICT_FALSE(fn != nullptr)) {
+    fn(start, length);
+  }
+}
+
+void InvokePassthroughSynchronizeBack(void* start, size_t length) {
+  PassthroughRangeFn fn =
+      g_passthrough_synchronize_back.load(std::memory_order_acquire);
+  if (ABSL_PREDICT_FALSE(fn != nullptr)) {
+    fn(start, length);
+  }
+}
+
+bool IsPassthroughEnabled() {
+  PassthroughEnabledFn fn =
+      g_passthrough_is_enabled.load(std::memory_order_acquire);
+  return ABSL_PREDICT_FALSE(fn != nullptr) && fn();
 }
 
 }  // namespace tcmalloc::tcmalloc_internal::system_allocator_internal

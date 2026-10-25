@@ -92,6 +92,18 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+namespace system_allocator_internal {
+using PassthroughRangeFn = void (*)(void* start, size_t length);
+using PassthroughEnabledFn = bool (*)();
+
+void RegisterPassthroughHooks(PassthroughRangeFn notify_release,
+                              PassthroughRangeFn synchronize_back,
+                              PassthroughEnabledFn is_enabled);
+void InvokePassthroughNotifyRelease(void* start, size_t length);
+void InvokePassthroughSynchronizeBack(void* start, size_t length);
+[[nodiscard]] bool IsPassthroughEnabled();
+}  // namespace system_allocator_internal
+
 struct AddressRange {
   void* ptr;
   size_t bytes;
@@ -182,6 +194,7 @@ class SystemAllocator {
   //
   // REQUIRES: [start, start + length) is a range aligned to 4KiB boundaries.
   void Back(void* start, size_t length) {
+    system_allocator_internal::InvokePassthroughSynchronizeBack(start, length);
     madvise(start, length, MADV_POPULATE_READ | MADV_POPULATE_WRITE);
   }
 
@@ -730,6 +743,8 @@ MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
 
   ReleaseStatus result = ReleasePages(new_ptr, new_length);
   if (result == ReleaseStatus::kSuccess) {
+    system_allocator_internal::InvokePassthroughNotifyRelease(new_ptr,
+                                                              new_length);
     return {true, errno};
   } else if (result == ReleaseStatus::kRetryAfterMunlock) {
     // Try unlocking.
@@ -740,6 +755,8 @@ MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
 
     if (ret == 0 &&
         ReleasePages(new_ptr, new_length) == ReleaseStatus::kSuccess) {
+      system_allocator_internal::InvokePassthroughNotifyRelease(new_ptr,
+                                                                new_length);
       return {true, errno};
     }
   }

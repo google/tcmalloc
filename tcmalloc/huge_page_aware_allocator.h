@@ -756,6 +756,9 @@ HugePageAwareAllocator<Forwarder>::NewAligned(Length n, Length align,
 template <class Forwarder>
 inline bool HugePageAwareAllocator<Forwarder>::ShouldBack(
     const Range& r) const {
+  if (ABSL_PREDICT_FALSE(system_allocator_internal::IsPassthroughEnabled())) {
+    return true;
+  }
   // TODO(b/134694141): Experiment with the size threshold used for deciding
   // whether to back or not.
   return forwarder_.back_small_allocations() &&
