@@ -32,6 +32,8 @@
 #ifdef __linux__
 #include <linux/mempolicy.h>
 #endif
+#include <errno.h>
+#include <sched.h>
 #include <stddef.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
@@ -180,9 +182,40 @@ class SystemAllocator {
   // should be faulted in.  (In principle this is a best-effort hint, but in
   // practice we will unconditionally fault the range.)
   //
+  // On a cooperative passthrough hugetlbfs VMA, the guest madvise kprobe
+  // returns -EAGAIN while an asynchronous release offer or in-flight host hole
+  // punch for the enclosing 2 MiB cluster is being retracted or completed,
+  // allowing the populate to proceed once the cluster is safe to fault in.
+  //
   // REQUIRES: [start, start + length) is a range aligned to 4KiB boundaries.
   void Back(void* start, size_t length) {
-    madvise(start, length, MADV_POPULATE_READ | MADV_POPULATE_WRITE);
+    ErrnoRestorer errno_restorer;
+    int ret;
+    do {
+      ret = madvise(start, length, MADV_POPULATE_READ | MADV_POPULATE_WRITE);
+      if (ret == -1 && errno == EAGAIN) {
+        sched_yield();
+      }
+    } while (ret == -1 && errno == EAGAIN);
+    if (ABSL_PREDICT_FALSE(
+            has_custom_region_factory_.load(std::memory_order_relaxed))) {
+#if !defined(ABSL_HAVE_MEMORY_SANITIZER) && !defined(ABSL_HAVE_THREAD_SANITIZER)
+      if (ret == 0 && length > 0) {
+        uintptr_t cur = reinterpret_cast<uintptr_t>(start);
+        const uintptr_t end = cur + length;
+        while (cur < end) {
+          reinterpret_cast<std::atomic<uint8_t>*>(cur)->fetch_or(
+              0, std::memory_order_relaxed);
+          const uintptr_t next = (cur & ~(kHugePageSize - 1)) + kHugePageSize;
+          if (next <= cur) break;
+          cur = next;
+        }
+      }
+#endif
+      if (auto* factory = GetRegionFactory()) {
+        factory->NotifyBack(start, length);
+      }
+    }
   }
 
   // Returns the current address region factory.
@@ -730,6 +763,12 @@ MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
 
   ReleaseStatus result = ReleasePages(new_ptr, new_length);
   if (result == ReleaseStatus::kSuccess) {
+    if (ABSL_PREDICT_FALSE(
+            has_custom_region_factory_.load(std::memory_order_relaxed))) {
+      if (auto* factory = GetRegionFactory()) {
+        factory->NotifyRelease(new_ptr, new_length);
+      }
+    }
     return {true, errno};
   } else if (result == ReleaseStatus::kRetryAfterMunlock) {
     // Try unlocking.
@@ -740,6 +779,12 @@ MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
 
     if (ret == 0 &&
         ReleasePages(new_ptr, new_length) == ReleaseStatus::kSuccess) {
+      if (ABSL_PREDICT_FALSE(
+              has_custom_region_factory_.load(std::memory_order_relaxed))) {
+        if (auto* factory = GetRegionFactory()) {
+          factory->NotifyRelease(new_length);
+        }
+      }
       return {true, errno};
     }
   }
