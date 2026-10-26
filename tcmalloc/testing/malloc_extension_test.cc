@@ -199,6 +199,22 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
       testing::Field(&MallocExtension::Property::value, testing::Gt(0)));
 }
 
+TEST(MallocExtension, SetMaxTotalThreadCacheBytesNegativeClamped) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Running under sanitizers";
+  }
+
+  const int64_t original = MallocExtension::GetMaxTotalThreadCacheBytes();
+  MallocExtension::SetMaxTotalThreadCacheBytes(-1);
+
+  std::optional<size_t> prop = MallocExtension::GetNumericProperty(
+      "tcmalloc.max_total_thread_cache_bytes");
+  ASSERT_TRUE(prop.has_value());
+  EXPECT_LT(*prop, size_t{1} << 40);
+
+  MallocExtension::SetMaxTotalThreadCacheBytes(original);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
