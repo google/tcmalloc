@@ -633,6 +633,8 @@ create_tcmalloc_testsuite(
     timeout = "long",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    # Some experiments change size classes, which interferes with death tests.
+    env = {"BORG_EXPERIMENTS": ""},
     shard_count = 20,
     tags = [
         "nohwasan",

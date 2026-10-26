@@ -601,6 +601,8 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_memory_tag"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_testutil"
+  ENV
+    "BORG_EXPERIMENTS="
   TIMEOUT
     900
 )
