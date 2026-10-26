@@ -1838,6 +1838,9 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   size_t num_resizes = 0;
   {
     AllocationGuardSpinLockHolder h(resize_[cpu].lock);
+    if (!HasPopulated(cpu)) {
+      return;
+    }
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
     int64_t available = resize_[cpu].TakeAvailable();
     TC_ASSERT_GE(available, 0);

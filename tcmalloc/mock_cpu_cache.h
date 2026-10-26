@@ -154,6 +154,18 @@ class CpuCachePeer {
     return cpu_cache.PartitionShift();
   }
 
+  template <typename CpuCache>
+  static void RecordCapacityMiss(CpuCache& cpu_cache, int cpu,
+                                 size_t size_class) {
+    cpu_cache.resize_[cpu].per_class[size_class].RecordMiss(
+        CpuCache::PerClassMissType::kCapacityTotal);
+  }
+
+  template <typename CpuCache>
+  static void ResizeCpuSizeClasses(CpuCache& cpu_cache, int cpu) {
+    cpu_cache.ResizeCpuSizeClasses(cpu);
+  }
+
   // Drains <cpu> and marks it unpopulated, as TryDrainingCaches does through
   // ReleaseSlabMetadataForDrainedCpus, so that the next allocation on it takes
   // the Populate path again.
