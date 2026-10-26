@@ -238,6 +238,8 @@ class PageAllocatorImpl {
       MemoryTag tag);
   GOOGLE_MALLOC_SECTION static void InvokeReleaseHookSlow(
       Length num_pages, Length released, PageReleaseReason reason);
+  [[nodiscard]] GOOGLE_MALLOC_SECTION size_t current_backed() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   GOOGLE_MALLOC_SECTION ABSL_ATTRIBUTE_NOINLINE void ShrinkToUsageLimitSlow(
       Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   [[nodiscard]] GOOGLE_MALLOC_SECTION bool ShrinkHardBy(Length page,
