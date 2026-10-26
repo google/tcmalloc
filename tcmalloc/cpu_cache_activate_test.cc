@@ -28,6 +28,7 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal_malloc_extension.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
@@ -42,28 +43,18 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
     return;
   }
 
-  auto& cache = tc_globals.cpu_cache();
-
   absl::Notification done;
 
   std::thread t([&]() {
-    const int num_cpus = NumCPUs();
     absl::BitGen rng;
 
     while (!done.HasBeenNotified()) {
       const double coin = absl::Uniform(rng, 0., 1.);
-      const bool ready = tc_globals.CpuCacheActive();
-
-      if (ready && coin < 0.25) {
-        const int cpu = absl::Uniform(rng, 0, num_cpus);
-        benchmark::DoNotOptimize(cache.UsedBytes(cpu));
-      } else if (ready && coin < 0.5) {
-        const int cpu = absl::Uniform(rng, 0, num_cpus);
-        benchmark::DoNotOptimize(cache.Capacity(cpu));
-      } else if (ready && coin < 0.75) {
-        benchmark::DoNotOptimize(cache.TotalUsedBytes());
+      if (coin < 0.5) {
+        benchmark::DoNotOptimize(MallocExtension::GetNumericProperty(
+            "generic.current_allocated_bytes"));
       } else {
-        benchmark::DoNotOptimize(cache.CacheLimit());
+        benchmark::DoNotOptimize(MallocExtension::GetProperties());
       }
     }
   });
