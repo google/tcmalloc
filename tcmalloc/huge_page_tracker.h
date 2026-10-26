@@ -140,7 +140,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   //
   // Returns a PageId i and a count of previously unbacked pages in the range
   // [i, i+n) in previously_unbacked.
-  [[nodiscard]] PageAllocation Get(Length n, SpanAllocInfo span_alloc_info)
+  [[nodiscard]] PageAllocation Get(Length n, SpanAllocInfo span_alloc_info,
+                                   PreferBackedPages prefer_backed)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: r was the result of a previous call to Get(n)
@@ -463,8 +464,35 @@ class PageTracker : public TList<PageTracker>::Elem {
 };
 
 inline typename PageTracker::PageAllocation PageTracker::Get(
-    Length n, SpanAllocInfo span_alloc_info) {
-  Length index = Length(tracker_.FindAndMark(n.raw_num()));
+    Length n, SpanAllocInfo span_alloc_info, PreferBackedPages prefer_backed) {
+  Length index;
+  bool found_backed = false;
+  if (ABSL_PREDICT_FALSE(prefer_backed == PreferBackedPages::kEnabled &&
+                         released_count_ > 0)) {
+    PageBitmap allocated_or_released =
+        allocated_pages_bitmap() | released_by_page_;
+    size_t best_pos = 0;
+    size_t best_len = std::numeric_limits<size_t>::max();
+    size_t idx = 0;
+    size_t pos;
+    size_t len;
+    while (allocated_or_released.NextFreeRange(idx, &pos, &len)) {
+      if (len >= n.raw_num() && len < best_len) {
+        best_pos = pos;
+        best_len = len;
+      }
+      idx = pos + len;
+    }
+    if (best_len != std::numeric_limits<size_t>::max()) {
+      tracker_.Mark(best_pos, n.raw_num());
+      index = Length(best_pos);
+      found_backed = true;
+    } else {
+      index = Length(tracker_.FindAndMark(n.raw_num()));
+    }
+  } else {
+    index = Length(tracker_.FindAndMark(n.raw_num()));
+  }
   num_objects_ += span_alloc_info.objects_per_span;
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
@@ -476,11 +504,16 @@ inline typename PageTracker::PageAllocation PageTracker::Get(
   //
   // This is a performance optimization, not a logical requirement.
   if (ABSL_PREDICT_FALSE(released_count_ > 0)) {
-    unbacked =
-        Length(released_by_page_.CountBits(index.raw_num(), n.raw_num()));
-    released_by_page_.ClearRange(index.raw_num(), n.raw_num());
-    TC_ASSERT_GE(Length(released_count_), unbacked);
-    released_count_ -= unbacked.raw_num();
+    if (found_backed) {
+      TC_ASSERT_EQ(released_by_page_.CountBits(index.raw_num(), n.raw_num()),
+                   0);
+    } else {
+      unbacked =
+          Length(released_by_page_.CountBits(index.raw_num(), n.raw_num()));
+      released_by_page_.ClearRange(index.raw_num(), n.raw_num());
+      TC_ASSERT_GE(Length(released_count_), unbacked);
+      released_count_ -= unbacked.raw_num();
+    }
   }
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
