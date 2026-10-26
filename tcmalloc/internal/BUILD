@@ -472,6 +472,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
+        "@do_not_use_for_gloop_visibility_only//gloop/base:examine_stack",
     ],
 )
 
@@ -484,10 +485,10 @@ cc_test(
     tags = ["nohwasan"],
     deps = [
         ":logging",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
+        "@do_not_use_for_gloop_visibility_only//gloop/util/process",
     ],
 )
 
@@ -948,6 +949,7 @@ cc_library(
         "//tcmalloc:experiment",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+        "@do_not_use_for_gloop_visibility_only//gloop/base:percpu",
     ],
 )
 
