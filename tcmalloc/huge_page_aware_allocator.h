@@ -204,26 +204,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
  private:
   static constexpr Length kSmallAllocPages = kPagesPerHugePage / 2;
 
-  class Unback final : public MemoryModifyFunction {
-   public:
-    explicit Unback(HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
-        : hpaa_(hpaa) {}
-    ~Unback() override = default;
-
-    static void operator delete(void*) { __builtin_trap(); }
-
-    [[nodiscard]] MemoryModifyStatus operator()(Range r) override
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-#ifndef NDEBUG
-      pageheap_lock.AssertHeld();
-#endif  // NDEBUG
-      return hpaa_.forwarder_.ReleasePages(r);
-    }
-
-   public:
-    HugePageAwareAllocator& hpaa_;
-  };
-
   class UnbackWithoutLock final : public MemoryModifyFunction {
    public:
     explicit UnbackWithoutLock(
@@ -234,7 +214,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     static void operator delete(void*) { __builtin_trap(); }
 
     [[nodiscard]] MemoryModifyStatus operator()(Range r) override
-        ABSL_NO_THREAD_SAFETY_ANALYSIS {
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
 #endif  // NDEBUG
@@ -285,7 +265,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
-  Unback unback_ ABSL_GUARDED_BY(pageheap_lock);
   UnbackWithoutLock unback_without_lock_ ABSL_GUARDED_BY(pageheap_lock);
   Collapse collapse_;
   SetAnonVmaName set_anon_vma_name_;
@@ -433,7 +412,6 @@ template <class Forwarder>
 inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     const HugePageAwareAllocatorOptions& options)
     : PageAllocatorInterface("HugePageAware", options.tag),
-      unback_(*this),
       unback_without_lock_(*this),
       collapse_(*this),
       set_anon_vma_name_(*this),
@@ -795,7 +773,8 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
     } while (madvise_failed && errno == EAGAIN);
   }
 
-  HugeRegion* region = region_allocator_.New(r, unback_, set_anon_vma_name_);
+  HugeRegion* region =
+      region_allocator_.New(r, unback_without_lock_, set_anon_vma_name_);
   regions_.Contribute(region);
   return true;
 }

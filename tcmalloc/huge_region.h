@@ -64,6 +64,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   [[nodiscard]] static constexpr HugeLength size() { return kRegionSize; }
 
   // REQUIRES: r.len() == size(); r unbacked.
+  // `unback` may drop pageheap_lock around the syscall (see UnbackHugepages).
   HugeRegion(
       HugeRange r, MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryTagFunction& set_anon_vma_name ABSL_ATTRIBUTE_LIFETIME_BOUND);
@@ -103,6 +104,11 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // Is p located in this region?
   [[nodiscard]] bool contains(PageId p) const { return location_.contains(p); }
 
+  // Reports which pages of `hp` are allocated.
+  //
+  // A hugepage whose unback is in flight (see UnbackHugepages) reads back as
+  // fully allocated: the reservation marks it used precisely so that nobody
+  // hands it out while the syscall runs without pageheap_lock.
   [[nodiscard]] bool GetPageAllocationStatus(HugePage hp,
                                              PageBitmap& pages) const {
     if (!contains(hp.first_page())) {
@@ -176,6 +182,10 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   PutResult Dec(Range r, bool release,
                 absl::FunctionRef<void()> on_longest_free_changed);
 
+  // Unbacks the free-and-backed hugepages set in maybe_unback, in contiguous
+  // batches. unback_ may drop pageheap_lock; each batch is hidden from Get, Put
+  // and Release for the duration and every candidate is re-validated under the
+  // lock before it is unbacked.
   HugeLength UnbackHugepages(const Bitmap<kNumHugePages>& maybe_unback,
                              absl::FunctionRef<void()> on_longest_free_changed);
 
@@ -604,7 +614,9 @@ inline HugeLength HugeRegion::UnbackHugepages(
     // Temporarily block allocations to these pages.
     //
     // We both Mark and toggle pages_used_, as allocations use FindAndMark but
-    // Release only uses pages_used_.
+    // Release only uses pages_used_. unback_ may drop pageheap_lock below, so
+    // this is what keeps a concurrent Get, Put or Release away from the range
+    // until the syscall returns.
     //
     // TODO(b/73749855): Optimize release by consulting the bitmap first.
     tracker_.Mark(NHugePages(i).in_pages().raw_num(), hl.in_pages().raw_num());
@@ -809,8 +821,11 @@ inline void HugeRegionSet<Region>::Print(Printer& out) const {
     total_backed += region->backed();
     total_free_backed += region->free_backed();
   }
-  TC_ASSERT_EQ(total_backed, backed_huge_pages_);
-  TC_ASSERT_EQ(total_free_backed, free_backed_count_);
+  // An in-flight ReleasePages sweep has already subtracted its batches from
+  // each region's free_backed() (and completed batches from backed()), while
+  // ReleasePages updates backed_huge_pages_ and free_backed_count_ on return.
+  TC_ASSERT_LE(total_backed, backed_huge_pages_);
+  TC_ASSERT_LE(total_free_backed, free_backed_count_);
 
   out.printf(
       "HugeRegionSet: %v hugepages backed, %v backed and free, "
