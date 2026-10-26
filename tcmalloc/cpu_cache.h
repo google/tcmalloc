@@ -427,6 +427,16 @@ class CpuCache {
   friend class ::tcmalloc::tcmalloc_internal::CpuCachePeer;
   friend void DumpMaxCapacityForTest();
 
+  // Number of entries in the per-CPU ResizeInfo::per_class and
+  // ResizeInfo::last_miss arrays: the size classes of active partitions, the
+  // cold size classes (if any), and one trailing dummy entry shared by every
+  // size class in an inactive partition.
+  size_t NumActiveClasses() const {
+    return kSecondaryPartitionStart +
+           (forwarder_.active_partitions() - 1) * kNumBaseClasses;
+  }
+
+
   using Freelist = subtle::percpu::TcmallocSlab<kNumClasses>;
 
   struct PerClassMissCounts {
@@ -570,7 +580,7 @@ class CpuCache {
     // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock){
         absl::base_internal::SCHEDULE_KERNEL_ONLY};
-    PerClassResizeInfo per_class[kNumClasses];
+    PerClassResizeInfo* per_class = nullptr;
     std::atomic<size_t> num_size_class_resizes;
     // Tracks number of underflows on allocate.
     MissCounts underflows;
@@ -581,7 +591,7 @@ class CpuCache {
       Cycles32 last_overflow_cycles;
       Cycles32 last_underflow_cycles;
     };
-    LastMiss last_miss[kNumClasses];
+    LastMiss* last_miss = nullptr;
     // Total cache space available on this CPU (see above): the allocated and
     // unallocated bytes on this CPU cache.
     [[nodiscard]] size_t capacity() const {
@@ -872,7 +882,7 @@ inline bool CpuCache<Forwarder>::IsActive(size_t size_class) const {
          !BypassCpuCache(size_class) &&
          forwarder_.class_to_size(size_class) != 0 &&
          (IsColdSizeClass(size_class) ||
-          size_class < forwarder_.active_partitions() * kNumBaseClasses);
+          size_class < NumActiveClasses());
 }
 
 template <class Forwarder>
@@ -956,9 +966,10 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
   // one by one in case they are inactive (e.g. because they are bypassed).
   for (unsigned partition_idx = 0;
        partition_idx < forwarder_.active_partitions(); ++partition_idx) {
+    size_t partition_offset = partition_idx == 0 ? 0 : kSecondaryPartitionStart + (partition_idx - 1) * kNumBaseClasses;
     for (size_t other_size_class = 1; other_size_class <= kNumSmall;
          ++other_size_class) {
-      if (IsActive(other_size_class + partition_idx * kNumBaseClasses)) {
+      if (IsActive(other_size_class + partition_offset)) {
         pointers_left_in_slab -= kSmallObjectDepth;
       }
     }
@@ -977,7 +988,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
 
   size_t num_cold_classes = 0;
   for (size_t other_size_class = kColdClassesStart;
-       other_size_class < kNumClasses; ++other_size_class) {
+       other_size_class < kSecondaryPartitionStart; ++other_size_class) {
     num_cold_classes += IsActive(other_size_class);
   }
 
@@ -988,18 +999,21 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
   TC_CHECK_LT(pointers_for_cold_objects, pointers_left_in_slab);
   size_t pointers_for_large_hot_objects =
       pointers_left_in_slab - pointers_for_cold_objects;
+  
+
   int capacity;
   if (IsColdSizeClass(size_class)) {
     capacity = DistributeCapacityEquallyAmongSizeClasses(
-        pointers_for_cold_objects, size_class, kColdClassesStart, kNumClasses,
+        pointers_for_cold_objects, size_class, kColdClassesStart, kSecondaryPartitionStart,
         [&](size_t other_size_class) { return IsActive(other_size_class); });
   } else {
     capacity = DistributeCapacityEquallyAmongSizeClasses(
         pointers_for_large_hot_objects, size_class, 0,
-        forwarder_.active_partitions() * kNumBaseClasses,
+        NumActiveClasses(),
         [&](size_t other_size_class) {
           return (other_size_class % kNumBaseClasses) > kNumSmall &&
-                 IsActive(other_size_class);
+                 IsActive(other_size_class) &&
+                 !IsColdSizeClass(other_size_class);
         });
   }
 
@@ -1021,7 +1035,7 @@ inline void CpuCache<Forwarder>::CalculateMaxCapacityForAllClasses(
   int relative_shift = shift_bounds_.max_shift - shift;
 #endif
 
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 0; size_class < NumActiveClasses(); ++size_class) {
     int capacity = MaxCapacity(size_class, shift);
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     // Check that the capacity is greater than the batch size.
@@ -1130,9 +1144,15 @@ inline void CpuCache<Forwarder>::Activate() {
 
     for (int cpu = 0; cpu < num_cpus; ++cpu) {
       new (&resize[cpu]) ResizeInfo();
+      resize[cpu].per_class = reinterpret_cast<PerClassResizeInfo*>(forwarder_.AllocCpuCache(
+          sizeof(PerClassResizeInfo) * NumActiveClasses(), std::align_val_t{alignof(PerClassResizeInfo)}));
+      resize[cpu].last_miss = reinterpret_cast<typename ResizeInfo::LastMiss*>(forwarder_.AllocCpuCache(
+          sizeof(typename ResizeInfo::LastMiss) * NumActiveClasses(), std::align_val_t{alignof(typename ResizeInfo::LastMiss)}));
 
-      for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      for (int size_class = 1; size_class < NumActiveClasses(); ++size_class) {
+        new (&resize[cpu].per_class[size_class]) PerClassResizeInfo();
         resize[cpu].per_class[size_class].Init();
+        new (&resize[cpu].last_miss[size_class]) typename ResizeInfo::LastMiss();
       }
       resize[cpu].AddCapacity(resize_lock_, max_cache_size);
       resize[cpu].available.store(max_cache_size, std::memory_order_relaxed);
@@ -1170,6 +1190,16 @@ inline void CpuCache<Forwarder>::Deactivate() {
   freelist_.Destroy(&forwarder_.Dealloc);
   static_assert(std::is_trivially_destructible_v<decltype(*resize_)>,
                 "ResizeInfo is expected to be trivially destructible");
+  if (resize != nullptr) {
+    for (int i = 0; i < num_cpus; i++) {
+      if (resize[i].per_class != nullptr) {
+        forwarder_.Dealloc(resize[i].per_class, sizeof(PerClassResizeInfo) * NumActiveClasses(), std::align_val_t{alignof(PerClassResizeInfo)});
+      }
+      if (resize[i].last_miss != nullptr) {
+        forwarder_.Dealloc(resize[i].last_miss, sizeof(typename ResizeInfo::LastMiss) * NumActiveClasses(), std::align_val_t{alignof(typename ResizeInfo::LastMiss)});
+      }
+    }
+  }
   forwarder_.Dealloc(resize, sizeof(*resize) * num_cpus,
                      std::align_val_t{alignof(decltype(*resize_))});
 }
@@ -1372,8 +1402,8 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   } else {
     resize.last_miss[size_class].last_underflow_cycles.Update();
   }
-  bool grow_by_batch =
-      resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
+  bool grow_by_batch = resize.per_class[size_class].Update(
+      overflow, grow_by_one, &successive);
   if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
     size_t increase = 1;
     if (grow_by_batch) {
@@ -1530,11 +1560,12 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     index = 0;
     if (!HasPopulated(cpu)) continue;
-    for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
+    for (size_t size_class = 0; size_class < NumActiveClasses(); ++size_class) {
       total_misses[index] +=
-          resize_[cpu].per_class[size_class].GetAndUpdateIntervalMisses(
-              PerClassMissType::kMaxCapacityTotal,
-              PerClassMissType::kMaxCapacityResize);
+          resize_[cpu]
+              .per_class[size_class]
+              .GetAndUpdateIntervalMisses(PerClassMissType::kMaxCapacityTotal,
+                                          PerClassMissType::kMaxCapacityResize);
 
       ++index;
     }
@@ -1542,7 +1573,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 
   absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses);
   index = 0;
-  for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (size_t size_class = 0; size_class < NumActiveClasses(); ++size_class) {
     miss_stats[index] = SizeClassMissStat{.size_class = size_class,
                                           .misses = total_misses[index]};
     ++index;
@@ -1550,7 +1581,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 
   // Sort the collected stats to record size classes with largest number of
   // misses in the last interval.
-  std::sort(miss_stats.begin(), miss_stats.end(),
+  std::sort(miss_stats.begin(), miss_stats.begin() + NumActiveClasses(),
             [](SizeClassMissStat a, SizeClassMissStat b) {
               // In case of a conflict, prefer growing smaller size classes.
               if (a.misses == b.misses) {
@@ -1578,9 +1609,9 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
   int growth_factor = 5;
   // Indices in miss_stats corresponding to the size classes we aim to grow
   // and shrink.
-  int shrink_index = kNumClasses - 1;
+  int shrink_index = NumActiveClasses() - 1;
   int relative_shift = shift_bounds_.max_shift - freelist_.GetShift();
-  for (int grow_index = 0; grow_index < kNumClasses; ++grow_index) {
+  for (int grow_index = 0; grow_index < NumActiveClasses(); ++grow_index) {
     // If a size class with largest misses is zero, break. Other size classes
     // should also have suffered zero misses as well.
     if (miss_stats[grow_index].misses == 0) break;
@@ -1620,7 +1651,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
       to_shrink = std::min<size_t>(to_shrink, cap - batch_size);
       if (to_shrink == 0) continue;
 
-      TC_ASSERT_LT(next_capacity_index, kNumClasses);
+      TC_ASSERT_LT(next_capacity_index, NumActiveClasses());
       TC_ASSERT_LT(next_capacity_index, max_capacity.size());
       max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
           .size_class = size_class_to_shrink, .max_capacity = cap - to_shrink};
@@ -1636,7 +1667,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
     // amount we shrunk from other size classes.
     size_t cap =
         max_capacity_[size_class_to_grow].load(std::memory_order_relaxed);
-    TC_ASSERT_LT(next_capacity_index, kNumClasses);
+    TC_ASSERT_LT(next_capacity_index, NumActiveClasses());
     max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
         .size_class = size_class_to_grow, .max_capacity = cap + shrunk};
     ++next_capacity_index;
@@ -1794,7 +1825,7 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
 
     // Record full stats in previous full stat counters so that we can collect
     // stats per interval.
-    for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+    for (size_t size_class = 1; size_class < NumActiveClasses(); ++size_class) {
       resize_[cpu].per_class[size_class].UpdateIntervalMisses(
           PerClassMissType::kCapacityTotal, PerClassMissType::kCapacityResize);
     }
@@ -1816,7 +1847,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   }
 
   absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses - 1);
-  for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+  for (size_t size_class = 1; size_class < NumActiveClasses(); ++size_class) {
     miss_stats[size_class - 1] = SizeClassMissStat{
         .size_class = size_class,
         .misses = resize_[cpu].per_class[size_class].GetIntervalMisses(
@@ -1826,7 +1857,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
 
   // Sort the collected stats to record size classes with largest number of
   // misses in the last interval.
-  std::sort(miss_stats.begin(), miss_stats.end(),
+  std::sort(miss_stats.begin(), miss_stats.begin() + NumActiveClasses() - 1,
             [](SizeClassMissStat a, SizeClassMissStat b) {
               // In case of a conflict, prefer growing smaller size classes.
               if (a.misses == b.misses) {
@@ -2050,7 +2081,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
     subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, src_cpu);
     size_t source_size_class = resize_[src_cpu].next_steal;
     for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
-      if (source_size_class >= kNumClasses) {
+      if (source_size_class >= NumActiveClasses()) {
         source_size_class = 1;
       }
       if (size_t stolen = ShrinkOtherCache(src_cpu, source_size_class)) {
@@ -2080,7 +2111,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
 template <class Forwarder>
 size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
   TC_ASSERT(cpu >= 0 && cpu < NumCPUs(), "cpu=%d", cpu);
-  TC_ASSERT(size_class >= 1 && size_class < kNumClasses);
+  TC_ASSERT(size_class >= 1 && size_class < NumActiveClasses());
   TC_ASSERT(resize_[cpu].lock.IsHeld());
   const size_t capacity = freelist_.Capacity(cpu, size_class);
   if (capacity == 0) {
@@ -2146,7 +2177,7 @@ inline size_t CpuCache<Forwarder>::StealCapacityForSizeClassWithinCpu(
   size_t acquired = 0;
   size_t source_size_class = resize_[cpu].next_steal;
   for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
-    if (source_size_class >= kNumClasses) {
+    if (source_size_class >= NumActiveClasses()) {
       source_size_class = 1;
     }
     // Decide if we want to steal source_size_class.
@@ -2221,7 +2252,7 @@ inline uint64_t CpuCache<Forwarder>::Allocated(int target_cpu) const {
   }
 
   uint64_t total = 0;
-  for (int size_class = 1; size_class < kNumClasses; size_class++) {
+  for (int size_class = 1; size_class < NumActiveClasses(); size_class++) {
     int size = forwarder_.class_to_size(size_class);
     total += size * freelist_.Capacity(target_cpu, size_class);
   }
@@ -2236,7 +2267,7 @@ inline uint64_t CpuCache<Forwarder>::UsedBytes(int target_cpu) const {
   }
 
   uint64_t total = 0;
-  for (int size_class = 1; size_class < kNumClasses; size_class++) {
+  for (int size_class = 1; size_class < NumActiveClasses(); size_class++) {
     int size = forwarder_.class_to_size(size_class);
     total += size * freelist_.Length(target_cpu, size_class);
   }
@@ -2409,7 +2440,7 @@ inline uint64_t CpuCache<Forwarder>::DrainLocksHeld(
   // Resetting the whole array of last miss timestamps is infrequent on idle
   // CPUs; it prevents 32-bit cycle counter epoch exhaustion if no longer
   // updated when idle.
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 0; size_class < NumActiveClasses(); ++size_class) {
     resize_[cpu].last_miss[size_class].last_overflow_cycles.Reset();
     resize_[cpu].last_miss[size_class].last_underflow_cycles.Reset();
   }
@@ -2778,8 +2809,8 @@ template <class Forwarder>
 size_t CpuCache<Forwarder>::GetIntervalSizeClassMisses(
     int cpu, size_t size_class, PerClassMissType total_type,
     PerClassMissType interval_type) {
-  return resize_[cpu].per_class[size_class].GetIntervalMisses(total_type,
-                                                              interval_type);
+  return resize_[cpu].per_class[size_class].GetIntervalMisses(
+      total_type, interval_type);
 }
 
 template <class Forwarder>
@@ -2885,7 +2916,7 @@ inline void CpuCache<Forwarder>::Print(Printer& out) const {
   out.printf("Size class capacity statistics in per-cpu caches\n");
   out.printf("------------------------------------------------\n");
 
-  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 1; size_class < NumActiveClasses(); ++size_class) {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     out.printf(
         "class %3d [ %8zu bytes ] : "
@@ -2973,7 +3004,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
   }
 
   // Record size class capacity statistics.
-  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 1; size_class < NumActiveClasses(); ++size_class) {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     PbtxtRegion entry = region.CreateSubRegion("size_class_capacity");
     entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));
