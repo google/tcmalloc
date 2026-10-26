@@ -21,9 +21,12 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
+#include <memory>
 #include <new>
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
 #include <utility>
 #include <vector>
 
@@ -50,8 +53,8 @@ class PageMapTest : public ::testing::TestWithParam<int> {
  public:
   PageMapTest() {
     // Arrange to pass zero-filled memory as the backing store for map.
-    memset(storage, 0, sizeof(Map));
-    map = new (storage) Map();
+    memset(storage_, 0, sizeof(Map));
+    map_ = new (storage_) Map();
   }
 
   ~PageMapTest() override {
@@ -76,66 +79,66 @@ class PageMapTest : public ::testing::TestWithParam<int> {
  public:
   static constexpr int kTestBits = kAddressBits - kPageShift;
   using Map = PageMap<kTestBits, alloc>;
-  Map* map;
+  Map* map_;
 
  private:
-  alignas(Map) char storage[sizeof(Map)];
+  alignas(Map) char storage_[sizeof(Map)];
 };
 
 TEST_P(PageMapTest, Sequential) {
   const intptr_t limit = GetParam();
 
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_TRUE(map->Ensure(Range(PageId(i), Length(1))));
-    map->SetLarge(PageId(i), Length(i + 1), (i & 1) != 0);
-    ASSERT_TRUE(map->GetDescriptor(PageId(i)).valid());
-    ASSERT_FALSE(map->GetDescriptor(PageId(i)).sampled());
-    ASSERT_FALSE(map->GetDescriptor(PageId(i)).freed());
-    ASSERT_EQ(map->GetDescriptor(PageId(i)).size(), Length(i + 1));
-    ASSERT_EQ(map->GetDescriptor(PageId(i)).donated(), (i & 1) != 0);
-    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)).size(), Length(i + 1));
+    ASSERT_TRUE(map_->Ensure(Range(PageId(i), Length(1))));
+    map_->SetLarge(PageId(i), Length(i + 1), (i & 1) != 0);
+    ASSERT_TRUE(map_->GetDescriptor(PageId(i)).valid());
+    ASSERT_FALSE(map_->GetDescriptor(PageId(i)).sampled());
+    ASSERT_FALSE(map_->GetDescriptor(PageId(i)).freed());
+    ASSERT_EQ(map_->GetDescriptor(PageId(i)).size(), Length(i + 1));
+    ASSERT_EQ(map_->GetDescriptor(PageId(i)).donated(), (i & 1) != 0);
+    ASSERT_EQ(map_->GetExistingDescriptor(PageId(i)).size(), Length(i + 1));
 
     // Test size class handling
-    ASSERT_EQ(0, map->sizeclass(PageId(i)));
-    map->SetSmall(PageId(i), span(i), sc(i), false);
-    ASSERT_EQ(sc(i), map->sizeclass(PageId(i)));
+    ASSERT_EQ(0, map_->sizeclass(PageId(i)));
+    map_->SetSmall(PageId(i), span(i), sc(i), false);
+    ASSERT_EQ(sc(i), map_->sizeclass(PageId(i)));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
-    ASSERT_EQ(map->GetExistingDescriptor(PageId(i)).span(), span(i));
-    ASSERT_EQ(map->sizeclass(PageId(i)), sc(i));
-    ASSERT_EQ(map->GetDescriptor(PageId(i)).sizeclass(), sc(i));
+    ASSERT_EQ(map_->GetDescriptor(PageId(i)).span(), span(i));
+    ASSERT_EQ(map_->GetExistingDescriptor(PageId(i)).span(), span(i));
+    ASSERT_EQ(map_->sizeclass(PageId(i)), sc(i));
+    ASSERT_EQ(map_->GetDescriptor(PageId(i)).sizeclass(), sc(i));
   }
 }
 
 TEST_P(PageMapTest, Bulk) {
   const intptr_t limit = GetParam();
 
-  ASSERT_TRUE(map->Ensure(Range(PageId(0), Length(limit))));
+  ASSERT_TRUE(map_->Ensure(Range(PageId(0), Length(limit))));
   for (intptr_t i = 0; i < limit; i++) {
-    map->SetSmall(PageId(i), span(i), sc(i), false);
-    ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
+    map_->SetSmall(PageId(i), span(i), sc(i), false);
+    ASSERT_EQ(map_->GetDescriptor(PageId(i)).span(), span(i));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
+    ASSERT_EQ(map_->GetDescriptor(PageId(i)).span(), span(i));
   }
 }
 
 TEST_P(PageMapTest, Overflow) {
   const uintptr_t kLimit = uintptr_t{1} << kTestBits;
-  ASSERT_FALSE(map->Ensure(Range(PageId(kLimit), Length(kLimit + 1))));
+  ASSERT_FALSE(map_->Ensure(Range(PageId(kLimit), Length(kLimit + 1))));
 }
 
 TEST_P(PageMapTest, EnsureOverflowAndPartialBounds) {
   const uintptr_t kLimit = uintptr_t{1} << kTestBits;
   const Length kMaxLen(std::numeric_limits<uintptr_t>::max());
-  EXPECT_FALSE(map->Ensure(Range(PageId(2), kMaxLen)));
-  EXPECT_FALSE(map->HasLeaf(PageId(2)));
-  EXPECT_FALSE(map->Ensure(Range(PageId(kLimit), kMaxLen)));
-  EXPECT_FALSE(map->Ensure(Range(PageId(kLimit - 1), Length(2))));
-  EXPECT_FALSE(map->HasLeaf(PageId(kLimit - 1)));
-  EXPECT_FALSE(map->Ensure(Range(PageId(1), kMaxLen)));
-  EXPECT_FALSE(map->HasLeaf(PageId(1)));
+  EXPECT_FALSE(map_->Ensure(Range(PageId(2), kMaxLen)));
+  EXPECT_FALSE(map_->HasLeaf(PageId(2)));
+  EXPECT_FALSE(map_->Ensure(Range(PageId(kLimit), kMaxLen)));
+  EXPECT_FALSE(map_->Ensure(Range(PageId(kLimit - 1), Length(2))));
+  EXPECT_FALSE(map_->HasLeaf(PageId(kLimit - 1)));
+  EXPECT_FALSE(map_->Ensure(Range(PageId(1), kMaxLen)));
+  EXPECT_FALSE(map_->HasLeaf(PageId(1)));
 }
 
 TEST_P(PageMapTest, RandomAccess) {
@@ -148,15 +151,64 @@ TEST_P(PageMapTest, RandomAccess) {
   std::shuffle(elements.begin(), elements.end(), absl::BitGen());
 
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_TRUE(map->Ensure(Range(PageId(elements[i]), Length(1))));
-    map->SetSmall(PageId(elements[i]), span(elements[i]), sc(elements[i]),
-                  false);
-    ASSERT_EQ(map->GetDescriptor(PageId(elements[i])).span(),
+    ASSERT_TRUE(map_->Ensure(Range(PageId(elements[i]), Length(1))));
+    map_->SetSmall(PageId(elements[i]), span(elements[i]), sc(elements[i]),
+                   false);
+    ASSERT_EQ(map_->GetDescriptor(PageId(elements[i])).span(),
               span(elements[i]));
   }
   for (intptr_t i = 0; i < limit; i++) {
-    ASSERT_EQ(map->GetDescriptor(PageId(i)).span(), span(i));
+    ASSERT_EQ(map_->GetDescriptor(PageId(i)).span(), span(i));
   }
+}
+
+TEST_P(PageMapTest, ConcurrentUpdateAndReadDescriptor) {
+#if defined(ABSL_HAVE_THREAD_SANITIZER)
+  GTEST_SKIP() << "PageMap does not run cleanly under TSan (b/193887621).";
+#else
+  const intptr_t limit = std::min<intptr_t>(GetParam(), 256);
+  std::vector<std::unique_ptr<Span> > spans(limit);
+  for (intptr_t i = 0; i < limit; ++i) {
+    spans[i] = std::make_unique<Span>(PageId(i + 1));
+  }
+
+  std::atomic<bool> stop{false};
+  auto reader_fn = [&]() {
+    while (!stop.load(std::memory_order_relaxed)) {
+      for (intptr_t i = 0; i < limit; ++i) {
+        const PageId p(i + 1);
+        const CompactSizeClass cls = map_->sizeclass(p);
+        EXPECT_TRUE(cls == 0 || cls == sc(i));
+        const PageMeta meta = map_->GetDescriptor(p);
+        if (meta.valid()) {
+          if (meta.sizeclass() != 0) {
+            EXPECT_EQ(meta.sizeclass(), sc(i));
+            EXPECT_EQ(meta.span(), spans[i].get());
+          } else {
+            EXPECT_EQ(meta.size(), Length(i + 1));
+          }
+        }
+      }
+      (void)map_->get_next_set_page(PageId(0));
+    }
+  };
+  std::thread reader(reader_fn);
+
+  for (int iter = 0; iter < 50; ++iter) {
+    for (intptr_t i = 0; i < limit; ++i) {
+      const PageId p(i + 1);
+      ASSERT_TRUE(map_->Ensure(Range(p, Length(1))));
+      map_->RegisterSizeClass(spans[i].get(), Length(1), sc(i),
+                              /*donated=*/false);
+      EXPECT_FALSE(map_->UnregisterSizeClass(spans[i].get(), Length(1)));
+      map_->SetLarge(p, Length(i + 1), /*donated=*/(i & 1) != 0);
+      map_->SetFreed(p);
+    }
+  }
+
+  stop.store(true, std::memory_order_relaxed);
+  reader.join();
+#endif
 }
 
 INSTANTIATE_TEST_SUITE_P(Limits, PageMapTest, ::testing::Values(100, 1 << 16));
