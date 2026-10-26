@@ -2048,6 +2048,79 @@ TEST_P(HugeRegionSetTest, ContributeDuringReleasePages) {
   }
 }
 
+// Regression test for the visit bound in HugeRegionSet::ReleasePages.
+//
+// Each region here holds exactly one contiguous free-but-backed range, so one
+// region visit performs exactly one unback call. Freeing the tail of the
+// region being visited grows its longest free range past every other
+// region's, so Fix() moves it to the back of list_ and the reverse iterator
+// resumes from the moved node's new neighbours, walking part of the list a
+// second time.
+//
+// With the bound the traversal performs kNumRegions visits; without it, one
+// more.
+TEST_P(HugeRegionSetTest, ReleasePagesVisitBound) {
+  constexpr int kNumRegions = 3;
+
+  std::vector<std::unique_ptr<Region>> regions;
+  // The still-allocated tail of each region, indexed like `regions`.
+  std::vector<Range> tails;
+  for (int i = 0; i < kNumRegions; ++i) {
+    std::unique_ptr<Region> region = GetRegion(unback_without_lock_);
+
+    // Back the whole region, then free a prefix. The region is left with a
+    // free-but-backed range to release, and with a longest free range that is
+    // strictly larger than the previous region's, so that Contribute() orders
+    // list_ as R0, R1, R2 and the adaptive traversal visits R2, R1, R0.
+    PageId p;
+    bool from_released;
+    ASSERT_TRUE(
+        region->MaybeGet(Region::size().in_pages(), &p, &from_released));
+    const Length free_len = NHugePages(4 * (i + 1)).in_pages();
+    region->Put(Range(p, free_len), /*release=*/false);
+    tails.push_back(Range(p + free_len, Region::size().in_pages() - free_len));
+
+    set_.Contribute(region.get());
+    regions.push_back(std::move(region));
+  }
+
+  // Always fail unbacks so `released` never advances: only the visit bound can
+  // terminate the traversal.
+  unback_.success_ = false;
+  int visits = 0;
+  bool in_put = false;
+  bool relocated = false;
+  unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    // When !UseHugeRegionMoreOften(), PutUnderLock -> MaybePut eagerly unbacks
+    // the freed tail through this same unback_without_lock_, re-entering this
+    // hook. Ignore that nested call so `visits` only counts regions visited by
+    // ReleasePages.
+    if (in_put) return;
+    // Relocate while the second region of the traversal is being visited.
+    // Relocating during the first would be a no-op: that region is already
+    // at the back of the list and cannot move further back.
+    if (++visits != 2) return;
+    relocated = true;
+    for (int i = 0; i < kNumRegions; ++i) {
+      if (regions[i]->contains(r.p)) {
+        in_put = true;
+        PutUnderLock({&tails[i], 1});
+        in_put = false;
+        return;
+      }
+    }
+    ADD_FAILURE() << "unbacked range belongs to no region";
+  };
+
+  EXPECT_EQ(ReleaseAll(Length::max(), HugeRegionAdaptiveRelease::kEnabled),
+            Length(0));
+  unback_without_lock_.unlocked_hook_ = nullptr;
+  unback_.success_ = true;
+
+  EXPECT_TRUE(relocated);
+  EXPECT_EQ(visits, kNumRegions);
+}
+
 TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {
   MockMemoryTagFunction mock_set_anon_vma_name;
   NilUnback nil_unback;
