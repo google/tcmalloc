@@ -1911,8 +1911,7 @@ cc_library(
     hdrs = ["malloc_hook.h"],
     textual_hdrs = ["malloc_hook_invoke.h"],
     visibility = [
-        ":__subpackages__",
-        "@do_not_use_for_gloop_visibility_only//gloop/base:__pkg__",
+        "//visibility:public",
     ],
     deps = [
         "//tcmalloc/internal:config",
