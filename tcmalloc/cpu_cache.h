@@ -430,10 +430,10 @@ class CpuCache {
   using Freelist = subtle::percpu::TcmallocSlab<kNumClasses>;
 
   struct PerClassMissCounts {
-    std::atomic<size_t>
+    std::atomic<uint32_t>
         misses[static_cast<size_t>(PerClassMissType::kNumTypes)];
 
-    [[nodiscard]] std::atomic<size_t>& operator[](PerClassMissType type) {
+    [[nodiscard]] std::atomic<uint32_t>& operator[](PerClassMissType type) {
       return misses[static_cast<size_t>(type)];
     }
   };
@@ -490,9 +490,9 @@ class CpuCache {
 
   // Helper type so we don't need to sprinkle `static_cast`s everywhere.
   struct MissCounts {
-    std::atomic<size_t> misses[static_cast<size_t>(MissCount::kNumCounts)];
+    std::atomic<uint32_t> misses[static_cast<size_t>(MissCount::kNumCounts)];
 
-    [[nodiscard]] std::atomic<size_t>& operator[](MissCount miss_count) {
+    [[nodiscard]] std::atomic<uint32_t>& operator[](MissCount miss_count) {
       return misses[static_cast<size_t>(miss_count)];
     }
   };
@@ -2737,12 +2737,12 @@ CpuCache<Forwarder>::GetIntervalCacheMissStats(int cpu,
   TC_ASSERT_NE(miss_count, MissCount::kTotal);
   TC_ASSERT_LT(miss_count, MissCount::kNumCounts);
   const auto get_safe_miss_diff = [miss_count](MissCounts& misses) {
-    const size_t total_misses =
+    const uint32_t total_misses =
         misses[MissCount::kTotal].load(std::memory_order_relaxed);
-    const size_t interval_misses =
+    const uint32_t interval_misses =
         misses[miss_count].load(std::memory_order_relaxed);
-    // In case of a size_t overflow, we wrap around to 0.
-    return total_misses > interval_misses ? total_misses - interval_misses : 0;
+    // Unsigned subtraction correctly handles overflow.
+    return static_cast<size_t>(total_misses - interval_misses);
   };
   return {get_safe_miss_diff(resize_[cpu].underflows),
           get_safe_miss_diff(resize_[cpu].overflows)};
@@ -3078,13 +3078,13 @@ CpuCache<Forwarder>::PerClassResizeInfo::GetAndUpdateIntervalMisses(
   TC_ASSERT_LT(total_type, PerClassMissType::kNumTypes);
   TC_ASSERT_LT(interval_type, PerClassMissType::kNumTypes);
 
-  const size_t total_misses =
+  const uint32_t total_misses =
       misses_[total_type].load(std::memory_order_relaxed);
-  const size_t interval_misses =
+  const uint32_t interval_misses =
       misses_[interval_type].load(std::memory_order_relaxed);
   misses_[interval_type].store(total_misses, std::memory_order_relaxed);
-  // In case of a size_t overflow, we wrap around to 0.
-  return total_misses > interval_misses ? total_misses - interval_misses : 0;
+  // Unsigned subtraction correctly handles overflow.
+  return total_misses - interval_misses;
 }
 
 template <class Forwarder>
@@ -3093,12 +3093,12 @@ inline size_t CpuCache<Forwarder>::PerClassResizeInfo::GetIntervalMisses(
   TC_ASSERT_LT(total_type, PerClassMissType::kNumTypes);
   TC_ASSERT_LT(interval_type, PerClassMissType::kNumTypes);
 
-  const size_t total_misses =
+  const uint32_t total_misses =
       misses_[total_type].load(std::memory_order_relaxed);
-  const size_t interval_misses =
+  const uint32_t interval_misses =
       misses_[interval_type].load(std::memory_order_relaxed);
-  // In case of a size_t overflow, we wrap around to 0.
-  return total_misses > interval_misses ? total_misses - interval_misses : 0;
+  // Unsigned subtraction correctly handles overflow.
+  return total_misses - interval_misses;
 }
 
 template <class Forwarder>

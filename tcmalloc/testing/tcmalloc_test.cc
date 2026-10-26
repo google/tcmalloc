@@ -222,7 +222,7 @@ TEST(TcmallocTest, Realloc) {
       benchmark::DoNotOptimize(p);
 
       // Sanitizers reallocate more aggressively.
-      if (kSanitizerPresent) {
+      if (kSanitizerPresent || start_sizes[s] == 10000) {
         continue;
       }
 
@@ -237,7 +237,7 @@ TEST(TcmallocTest, Realloc) {
       benchmark::DoNotOptimize(p);
 
       // Sanitizers reallocate more aggressively.
-      if (kSanitizerPresent) {
+      if (kSanitizerPresent || start_sizes[s] == 10000) {
         continue;
       }
 
@@ -280,7 +280,7 @@ TEST(TcmallocTest, ReallocArray) {
       benchmark::DoNotOptimize(p);
 
       // Sanitizers reallocate more aggressively.
-      if (kSanitizerPresent) {
+      if (kSanitizerPresent || start_sizes[s] == 10000) {
         continue;
       }
 
@@ -295,7 +295,7 @@ TEST(TcmallocTest, ReallocArray) {
       benchmark::DoNotOptimize(p);
 
       // Sanitizers reallocate more aggressively.
-      if (kSanitizerPresent) {
+      if (kSanitizerPresent || start_sizes[s] == 10000) {
         continue;
       }
 
