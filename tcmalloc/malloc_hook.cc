@@ -31,6 +31,9 @@ ABSL_ATTRIBUTE_WEAK void MallocHook_InitAtFirstAllocation_ForTesting() {
 ABSL_ATTRIBUTE_WEAK void MallocHook_HooksChanged() {
   // Do Nothing
 }
+ABSL_ATTRIBUTE_WEAK void MallocHook_HooksAdded() {
+  // Do Nothing
+}
 
 }  // extern "C"
 
@@ -70,7 +73,7 @@ void RemoveInitialHooksAndCallInitializers() {
 bool MallocHook::AddNewHook(NewHook hook) {
   bool ok = tcmalloc_internal::new_hooks_.Add(hook);
   if (ok) {
-    MallocHook_HooksChanged();
+    MallocHook_HooksAdded();
   }
   return ok;
 }
@@ -86,7 +89,7 @@ bool MallocHook::RemoveNewHook(NewHook hook) {
 bool MallocHook::AddDeleteHook(DeleteHook hook) {
   bool ok = tcmalloc_internal::delete_hooks_.Add(hook);
   if (ok) {
-    MallocHook_HooksChanged();
+    MallocHook_HooksAdded();
   }
   return ok;
 }
