@@ -373,8 +373,8 @@ cc_test(
     srcs = ["gwp_asan_state_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":config",
         ":gwp_asan_state",
+        ":logging",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
@@ -941,12 +941,12 @@ cc_library(
         ":cpu_utils",
         ":linux_syscall_support",
         ":logging",
-        ":optimization",
         ":sysinfo",
         ":util",
         "//tcmalloc:experiment",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+        "@do_not_use_for_gloop_visibility_only//gloop/base:percpu",
     ],
 )
 
