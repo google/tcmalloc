@@ -39,6 +39,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"

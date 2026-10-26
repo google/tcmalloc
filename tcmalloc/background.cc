@@ -13,19 +13,14 @@
 // limitations under the License.
 
 #include <algorithm>
-#include <atomic>
 #include <cstddef>
 #include <limits>
 
 #include "absl/base/attributes.h"
-#include "absl/base/call_once.h"
 #include "absl/base/const_init.h"
-#include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "tcmalloc/central_freelist.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
