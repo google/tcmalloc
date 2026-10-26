@@ -525,11 +525,11 @@ struct State {
   // Put or a treatment sees the same accounting another thread would.
   void CheckInvariants() {
     PageHeapSpinLockHolder l;
-    // A tracker emptied while ReleaseFreeFromTracker was unbacking it with the
-    // lock dropped leaves size() only once that unback returns.
+    // A tracker emptied while ReleaseFreeFromTracker or Collapse was operating
+    // on it with the lock dropped leaves size() only once that call returns.
     size_t in_flight = 0;
     for (const PageTracker* pt : parked) {
-      in_flight += pt->BeingReleased();
+      in_flight += pt->BeingReleased() || pt->BeingCollapsed();
     }
     TC_CHECK_EQ(filler.size(), NHugePages(trackers.size() + in_flight));
     // Sparse and dense allocations live on disjoint sets of hugepages, so the
