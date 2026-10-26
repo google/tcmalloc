@@ -22,11 +22,13 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <new>
 #include <optional>
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
 #include "benchmark/benchmark.h"
@@ -676,6 +678,83 @@ TEST(HooksTest, AllocationInHookFails) {
         EXPECT_TRUE(page_allocator_delete_hooks.Remove(delete_hook));
       },
       "");
+}
+
+static std::atomic<bool> g_worker_measuring{false};
+static std::atomic<int> g_observed_worker_new{0};
+static std::atomic<int> g_observed_worker_delete{0};
+
+static void WorkerPropagationNewHook(const MallocHook::NewInfo&) {
+  if (g_worker_measuring.load(std::memory_order_acquire)) {
+    g_observed_worker_new.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+static void WorkerPropagationDeleteHook(const MallocHook::DeleteInfo&) {
+  if (g_worker_measuring.load(std::memory_order_acquire)) {
+    g_observed_worker_delete.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+TEST(HooksPropagationTest, NewAndDeleteHooksObservedByRunningPerCpuThread) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizers intercept malloc/new.";
+  }
+  if (!MallocExtension::PerCpuCachesActive()) {
+    GTEST_SKIP() << "Per-CPU caches are inactive.";
+  }
+
+  for (int round = 0; round < 5; ++round) {
+    g_worker_measuring.store(false, std::memory_order_relaxed);
+    g_observed_worker_new.store(0, std::memory_order_relaxed);
+    g_observed_worker_delete.store(0, std::memory_order_relaxed);
+
+    std::atomic<bool> ready{false};
+    std::atomic<int> phase{0};
+
+    std::thread worker([&]() {
+      // Prime the current CPU's 32-byte slab so it is neither empty nor full.
+      void* keep0 = ::operator new(32);
+      void* keep1 = ::operator new(32);
+      void* p0 = ::operator new(32);
+      void* p1 = ::operator new(32);
+      ::operator delete(p0, 32);
+      ::operator delete(p1, 32);
+
+      int warmup_iters = 0;
+      while (phase.load(std::memory_order_acquire) == 0) {
+        void* p = ::operator new(32);
+        benchmark::DoNotOptimize(p);
+        ::operator delete(p, 32);
+        if (++warmup_iters == 1024) {
+          ready.store(true, std::memory_order_release);
+        }
+      }
+
+      g_worker_measuring.store(true, std::memory_order_release);
+      void* measured = ::operator new(32);
+      benchmark::DoNotOptimize(measured);
+      ::operator delete(measured, 32);
+      g_worker_measuring.store(false, std::memory_order_release);
+
+      ::operator delete(keep0, 32);
+      ::operator delete(keep1, 32);
+    });
+
+    while (!ready.load(std::memory_order_acquire)) {
+    }
+    ASSERT_TRUE(MallocHook::AddNewHook(&WorkerPropagationNewHook));
+    ASSERT_TRUE(MallocHook::AddDeleteHook(&WorkerPropagationDeleteHook));
+    phase.store(1, std::memory_order_release);
+    worker.join();
+    ASSERT_TRUE(MallocHook::RemoveNewHook(&WorkerPropagationNewHook));
+    ASSERT_TRUE(MallocHook::RemoveDeleteHook(&WorkerPropagationDeleteHook));
+
+    EXPECT_GE(g_observed_worker_new.load(std::memory_order_relaxed), 1)
+        << "round=" << round;
+    EXPECT_GE(g_observed_worker_delete.load(std::memory_order_relaxed), 1)
+        << "round=" << round;
+  }
 }
 
 }  // namespace

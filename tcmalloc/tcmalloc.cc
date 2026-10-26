@@ -1393,8 +1393,18 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
 }  // namespace tcmalloc
 
 extern "C" void MallocHook_HooksChanged() {
-  // A hook has been added, so we need to move off of the fast path.
+  // A hook has changed, so move the current thread off the fast path if needed.
   tc_globals.cpu_cache().MaybeForceSlowPath();
+}
+
+extern "C" void MallocHook_HooksAdded() {
+  // A global hook has been added, so move both the current thread and any
+  // concurrently running per-CPU threads off the fast path.
+  tc_globals.cpu_cache().MaybeForceSlowPath();
+  if (tc_globals.CpuCacheActive() &&
+      tcmalloc::tcmalloc_internal::subtle::percpu::IsFast()) {
+    tcmalloc::tcmalloc_internal::subtle::percpu::FenceAllCpus();
+  }
 }
 
 using tcmalloc::tcmalloc_internal::GetOwnership;
