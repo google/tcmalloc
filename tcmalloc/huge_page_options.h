@@ -79,6 +79,18 @@ enum class PreferBackedPages : bool {
   kEnabled = true,
 };
 
+template <typename Sink>
+inline void AbslStringify(Sink& sink, PreferBackedPages v) {
+  switch (v) {
+    case PreferBackedPages::kDisabled:
+      sink.Append("false");
+      return;
+    case PreferBackedPages::kEnabled:
+      sink.Append("true");
+      return;
+  }
+}
+
 enum class HugeRegionUsageOption : bool {
   // This is a default behavior. We use slack to determine when to use
   // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and

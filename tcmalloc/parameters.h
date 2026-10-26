@@ -168,6 +168,10 @@ class Parameters {
     return prefer_backed_filler_pages_.load(std::memory_order_relaxed);
   }
 
+  static void set_prefer_backed_filler_pages(bool value) {
+    TCMalloc_Internal_SetPreferBackedFillerPages(value);
+  }
+
   [[nodiscard]] static MadviseRegionsNoHugepage
   madvise_cold_regions_nohugepage() {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
@@ -332,6 +336,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetTrackBrokenHugepages(bool v);
   friend void ::TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v);
   friend void ::TCMalloc_Internal_SetCollapseReleasedHugepages(bool v);
+  friend void ::TCMalloc_Internal_SetPreferBackedFillerPages(bool v);
   friend void ::TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v);
   friend void ::TCMalloc_Internal_SetMadviseSampledAllocations(
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);

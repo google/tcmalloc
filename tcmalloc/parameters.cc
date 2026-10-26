@@ -158,6 +158,12 @@ void Parameters::InitializeFromExperiments() {
                                        std::memory_order_relaxed);
   }
 
+  if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_PREFER_BACKED_FILLER_PAGES)) {
+    prefer_backed_filler_pages_.store(PreferBackedPages::kEnabled,
+                                      std::memory_order_relaxed);
+  }
+
   if (IsExperimentActive(Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
     madvise_cold_regions_nohugepage_.store(MadviseRegionsNoHugepage::kEnabled,
                                            std::memory_order_relaxed);
@@ -849,6 +855,20 @@ void TCMalloc_Internal_SetCollapseReleasedHugepages(bool v) {
   Parameters::collapse_released_hugepages_.store(
       v ? tcmalloc::tcmalloc_internal::CollapseReleasedHugePages::kEnabled
         : tcmalloc::tcmalloc_internal::CollapseReleasedHugePages::kDisabled,
+      std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetPreferBackedFillerPages() {
+  tc_globals.InitIfNecessary();
+  return Parameters::prefer_backed_filler_pages() ==
+         tcmalloc::tcmalloc_internal::PreferBackedPages::kEnabled;
+}
+
+void TCMalloc_Internal_SetPreferBackedFillerPages(bool v) {
+  tc_globals.InitIfNecessary();
+  Parameters::prefer_backed_filler_pages_.store(
+      v ? tcmalloc::tcmalloc_internal::PreferBackedPages::kEnabled
+        : tcmalloc::tcmalloc_internal::PreferBackedPages::kDisabled,
       std::memory_order_relaxed);
 }
 
