@@ -977,11 +977,19 @@ inline size_t TcmallocSlab<NumClasses>::Grow(
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
+  if (ABSL_PREDICT_FALSE(hdr.current < begin || begin == 0)) {
+    return 0;
+  }
   ssize_t have = static_cast<ssize_t>(max_cap - hdr.capacity(begin));
   if (have <= 0) {
     return 0;
   }
   uint16_t n = std::min<uint16_t>(len, have);
+  if (ABSL_PREDICT_FALSE(static_cast<int>(hdr.current) +
+                             hdr.remaining_capacity + n >=
+                         Header::kReservedIndexValue)) {
+    return 0;
+  }
   hdr.remaining_capacity += n;
   // 0xffff is an invalid value, so we must not be able to grow to or past that.
   TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
@@ -1468,7 +1476,19 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
   auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  uint16_t to_grow = std::min<uint16_t>(len, max_cap - hdr.capacity(begin));
+  if (ABSL_PREDICT_FALSE(hdr.current < begin || begin == 0)) {
+    return 0;
+  }
+  const uint16_t cur_cap = hdr.capacity(begin);
+  if (max_cap <= cur_cap) {
+    return 0;
+  }
+  uint16_t to_grow = std::min<uint16_t>(len, max_cap - cur_cap);
+  if (ABSL_PREDICT_FALSE(static_cast<int>(hdr.current) +
+                             hdr.remaining_capacity + to_grow >=
+                         Header::kReservedIndexValue)) {
+    return 0;
+  }
   hdr.remaining_capacity += to_grow;
   // 0xffff is an invalid value, so we must not be able to grow to or past that.
   TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
@@ -1491,7 +1511,10 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
   // If we pop items, we also execute callbacks.
   const uint16_t unused = hdr.remaining_capacity;
   uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  if (unused < len && hdr.current != begin) {
+  if (ABSL_PREDICT_FALSE(hdr.current < begin || begin == 0)) {
+    return 0;
+  }
+  if (unused < len && hdr.current > begin) {
     uint16_t pop = std::min<uint16_t>(len - unused, hdr.current - begin);
     void** batch = reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) +
                    hdr.current - pop;
