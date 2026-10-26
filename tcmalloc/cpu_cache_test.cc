@@ -1374,6 +1374,29 @@ TEST(CpuCacheTest, ResizeCpuSizeClassesHoldsLockForAvailable) {
   cache.Deactivate();
 }
 
+TEST(CpuCacheTest, ResizeCpuSizeClassesSkipsUnpopulatedCpu) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.SetCacheLimit(1 << 10);
+  cache.Activate();
+
+  constexpr int kCpuId = 0;
+  ASSERT_FALSE(cache.HasPopulated(kCpuId));
+  CpuCachePeer::RecordCapacityMiss(cache, kCpuId, /*size_class=*/1);
+
+  // Simulates ResizeSizeClasses() passing its unlocked HasPopulated(cpu) check
+  // right before ReleaseSlabMetadataForDrainedCpus unpopulates and madvises the
+  // CPU's slab back to zeroed headers.
+  CpuCachePeer::ResizeCpuSizeClasses(cache, kCpuId);
+  CpuCachePeer::CheckResizeLockInvariants(cache, kCpuId);
+
+  cache.Deactivate();
+}
+
 TEST(CpuCacheTest, DrainCpuCache) {
   if (!subtle::percpu::IsFast()) {
     return;
