@@ -193,6 +193,47 @@ TEST_F(TcmallocSlabTest, Metadata) {
   EXPECT_GT(post_stats.resident_size, r.resident_size);
 }
 
+TEST_F(TcmallocSlabTest, UninitializedCpuOperationsDoNotCorruptHeader) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+
+  constexpr int kCpu0 = 0;
+  const int shrink_cpu = NumCPUs() > 1 ? 1 : kCpu0;
+  constexpr size_t kSizeClass = 1;
+  ASSERT_GT(NumCPUs(), 0);
+  ASSERT_EQ(slab_.Capacity(kCpu0, kSizeClass), 0);
+  ASSERT_EQ(slab_.Length(kCpu0, kSizeClass), 0);
+
+  // Neither CPU has called InitCpu(), matching a freshly allocated or
+  // madvised-away slab where Header is {current = 0, remaining_capacity = 0}.
+  size_t shrunk_items = 0;
+  slab_.StopCpu(shrink_cpu);
+  EXPECT_EQ(slab_.ShrinkOtherCache(
+                shrink_cpu, kSizeClass, 1,
+                [&](size_t, void**, size_t n) { shrunk_items += n; }),
+            0);
+  slab_.StartCpu(shrink_cpu);
+  EXPECT_EQ(shrunk_items, 0);
+
+  slab_.StopCpu(kCpu0);
+  EXPECT_EQ(
+      slab_.GrowOtherCache(kCpu0, kSizeClass, 4, []() { return kCapacity; }),
+      0);
+  slab_.StartCpu(kCpu0);
+
+  if (!MallocExtension::PerCpuCachesActive()) {
+    ScopedFakeCpuId fake_cpu_id(kCpu0);
+    auto [got_cpu, cached] = slab_.CacheCpuSlab();
+    ASSERT_TRUE(cached);
+    ASSERT_EQ(got_cpu, kCpu0);
+    EXPECT_EQ(slab_.Grow(kCpu0, kSizeClass, 4, []() { return kCapacity; }), 0);
+    void* obj = &shrunk_items;
+    EXPECT_FALSE(slab_.Push(kSizeClass, obj));
+  }
+}
+
 TEST_F(TcmallocSlabTest, Unit) {
   if (MallocExtension::PerCpuCachesActive()) {
     // This test unregisters rseq temporarily, as to decrease flakiness.
