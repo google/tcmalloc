@@ -150,6 +150,42 @@ class TcmallocSlabTest : public testing::Test {
   size_t metadata_bytes_ = 0;
 };
 
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+// Unregistering a thread from rseq must forget its cached slab address: the
+// kernel stops rewriting __rseq_abi for the thread, so nothing would
+// invalidate the address on migration, and a fast path that found it still
+// cached would run its (no longer restartable) sequence against that CPU.
+TEST_F(TcmallocSlabTest, UnregisteringForgetsCachedSlab) {
+  if (MallocExtension::PerCpuCachesActive()) {
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+  }
+
+  // The top 4 bytes of tcmalloc_slabs overlap __rseq_abi.cpu_id_start, which
+  // the kernel rewrites on every reschedule: only the cached bit says whether
+  // a slab is cached.  An earlier test on this thread may have left one cached.
+  auto cached = [] {
+    return (tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) != 0;
+  };
+  slab_.UncacheCpuSlab();
+  ASSERT_FALSE(cached());
+  {
+    const auto [cpu, ok] = slab_.CacheCpuSlab();
+    ASSERT_GE(cpu, 0);
+    ASSERT_TRUE(ok);
+  }
+  ASSERT_TRUE(cached());
+
+  {
+    ScopedUnregisterRseq unregister;
+    EXPECT_FALSE(cached());
+  }
+  ASSERT_TRUE(IsFast());
+}
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+
 TEST_F(TcmallocSlabTest, Metadata) {
   if (!IsFast()) {
     GTEST_SKIP() << "Need fast percpu. Skipping.";

@@ -203,6 +203,9 @@ inline void UnregisterRseq() {
           sizeof(tcmalloc_internal::subtle::percpu::__rseq_abi),
           tcmalloc_internal::subtle::percpu::kRseqUnregister,
           TCMALLOC_PERCPU_RSEQ_SIGNATURE);
+  // The kernel no longer rewrites __rseq_abi for this thread, so nothing would
+  // invalidate a cached slab address on migration: forget it.
+  tcmalloc_internal::subtle::percpu::tcmalloc_slabs = 0;
 #else
   TC_BUG("rseq is is unavailable in this build");
 #endif
