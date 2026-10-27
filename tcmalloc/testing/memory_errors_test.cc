@@ -163,16 +163,31 @@ TEST(GuardedTagTest, ColdAndSampledAllocationsAreNotGuarded) {
     GTEST_SKIP() << "Sanitizers intercept allocations";
   }
   ScopedGuardedSamplingInterval gs(-1);
+  int sampled_or_cold = 0;
   for (bool sample : {false, true}) {
     ScopedProfileSamplingInterval s(sample ? 1 : 0);
     for (size_t size : {size_t{8}, size_t{64}, kPageSize, kMaxSize + 1}) {
       for (const auto hot_cold : {hot_cold_t{0}, hot_cold_t{255}}) {
         void* p = ::operator new(size, hot_cold);
         EXPECT_FALSE(tcmalloc_internal::IsGuardedMemory(p));
+        EXPECT_NE(tcmalloc_internal::IsNormalMemory(p),
+                  tcmalloc_internal::IsSampledOrColdMemory(p));
+        sampled_or_cold += tcmalloc_internal::IsSampledOrColdMemory(p);
+        if (!sample && hot_cold == hot_cold_t{255}) {
+          EXPECT_FALSE(tcmalloc_internal::IsSampledOrColdMemory(p));
+          EXPECT_TRUE(tcmalloc_internal::IsNormalMemory(p));
+        }
         ::operator delete(p, size);
       }
     }
   }
+  EXPECT_GT(sampled_or_cold, 0);
+
+  void* meta =
+      tc_globals.arena().Alloc(tcmalloc_internal::ArenaAlloc::kTest, 8);
+  EXPECT_FALSE(tcmalloc_internal::IsGuardedMemory(meta));
+  EXPECT_FALSE(tcmalloc_internal::IsSampledOrColdMemory(meta));
+  EXPECT_FALSE(tcmalloc_internal::IsNormalMemory(meta));
 }
 
 }  // namespace
