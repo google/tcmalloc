@@ -955,6 +955,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_numa"
+    "tcmalloc::internal_page_size"
     "tcmalloc::internal_percpu_tcmalloc"
     "tcmalloc::internal_sysinfo"
     "tcmalloc::mock_central_freelist"

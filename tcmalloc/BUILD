@@ -756,6 +756,7 @@ cc_library(
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:numa",
+        "//tcmalloc/internal:page_size",
         "//tcmalloc/internal:percpu_tcmalloc",
         "//tcmalloc/internal:sysinfo",
         "@com_google_absl//absl/base",

@@ -15,11 +15,6 @@
 #ifndef TCMALLOC_MOCK_CPU_CACHE_H_
 #define TCMALLOC_MOCK_CPU_CACHE_H_
 
-#if defined(__linux__)
-#include <linux/param.h>
-#else
-#include <sys/param.h>
-#endif
 #include <sys/mman.h>
 
 #include <algorithm>
@@ -44,6 +39,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/mock_central_freelist.h"
@@ -222,12 +218,15 @@ class TestStaticForwarder : private Parameters {
     const size_t align = static_cast<size_t>(alignment);
     TC_ASSERT(absl::has_single_bit(align));
 
+    // mmap only aligns to the kernel's page size, which can be smaller than
+    // EXEC_PAGESIZE (64 KiB on aarch64, which commonly runs 4 KiB pages).
+    const size_t page_size = GetPageSize();
     size_t alloc_size = size;
-    if (align > EXEC_PAGESIZE) {
+    if (align > page_size) {
       // Allocate enough memory that we know for sure
       // we will be able to satisfy the request.
       // We will free the part we don't use, below.
-      alloc_size += align - EXEC_PAGESIZE;
+      alloc_size += align - page_size;
     }
     void* ptr = mmap(nullptr, alloc_size, PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
