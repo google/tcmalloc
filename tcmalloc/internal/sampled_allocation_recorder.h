@@ -134,8 +134,13 @@ class SampleRecorder {
   // redeclares `lock` and `dead` so that `graveyard_.lock` is a distinct field
   // from `T::lock` for -Wthread-safety-analysis lock-order annotations.
   struct Graveyard : public T {
-    absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(T::lock){
-        absl::base_internal::SCHEDULE_KERNEL_ONLY};
+    absl::base_internal::SpinLock lock
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        ABSL_ACQUIRED_BEFORE(T::lock)
+#else
+        ABSL_ACQUIRED_AFTER(T::lock)
+#endif
+            {absl::base_internal::SCHEDULE_KERNEL_ONLY};
     T* dead ABSL_GUARDED_BY(lock) = nullptr;
   };
   Graveyard graveyard_;
@@ -177,8 +182,17 @@ void SampleRecorder<T, Allocator>::PushNew(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::PushDead(T* sample) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
   AllocationGuardSpinLockHolder sample_lock(sample->lock);
+#else
+  AllocationGuardSpinLockHolder sample_lock(sample->lock);
+  // Already on the dead list; UnregisterAll visits every sample in `all_`.
+  if (ABSL_PREDICT_FALSE(sample->dead != nullptr)) {
+    return;
+  }
+  AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
+#endif
   sample->dead = graveyard_.dead;
   graveyard_.dead = sample;
 }
@@ -227,9 +241,12 @@ void SampleRecorder<T, Allocator>::Unregister(T* sample) {
 
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::UnregisterAll() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   AllocationGuardSpinLockHolder graveyard_lock(graveyard_.lock);
+#endif
   T* sample = all_.load(std::memory_order_acquire);
   while (sample != nullptr) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     {
       AllocationGuardSpinLockHolder sample_lock(sample->lock);
       if (sample->dead == nullptr) {
@@ -237,6 +254,9 @@ void SampleRecorder<T, Allocator>::UnregisterAll() {
         graveyard_.dead = sample;
       }
     }
+#else
+    PushDead(sample);
+#endif
     sample = sample->next;
   }
 }
