@@ -62,10 +62,8 @@ class DumpForwarder {
   bool per_cpu_caches_dynamic_slab_enabled() const { return false; }
   bool multiple_non_numa_partitions() const { return false; }
   void SetAnonVmaName(void* addr, size_t size, absl::string_view name) {}
-  bool UseWiderSlabs() const { return use_wider_slabs_; }
   bool reuse_size_classes() const { return true; }
 
-  void set_use_wider_slabs(bool value) { use_wider_slabs_ = value; }
   void set_num_active_partitions(size_t value) {
     num_active_partitions_ = value;
   }
@@ -73,7 +71,6 @@ class DumpForwarder {
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
   ShardedManager sharded_transfer_cache_{nullptr};
-  bool use_wider_slabs_ = false;
   size_t num_active_partitions_ = 1;
 };
 
@@ -84,50 +81,43 @@ void DumpMaxCapacityForTest() {
   }
 
   for (int num_active_partitions : {1, 2}) {
-    for (bool use_wider_slabs : {false, true}) {
-      if (use_wider_slabs && num_active_partitions != 1) {
-        // This configuration does not exist.
-        continue;
+    int extra_shift = (num_active_partitions > 1) ? 1 : 0;
+
+    CpuCache<DumpForwarder> cache;
+    cache.forwarder().set_num_active_partitions(num_active_partitions);
+    cache.Init();
+    cache.Activate();
+
+    for (uint8_t shift = kInitialBasePerCpuShift + extra_shift;
+         shift <= kMaxBasePerCpuShift + extra_shift; ++shift) {
+      std::array<std::atomic<uint16_t>, kNumClasses> max_capacity;
+      cache.CalculateMaxCapacityForAllClasses(shift, max_capacity.data());
+      MaxCapacityFunctor get_capacity{max_capacity.data()};
+
+      // Add space used for Header.
+      printf(
+          "Initial max capacity each size class for %u kB pages, %u kB "
+          "slabs, "
+          "num_active_partitions=%u:\n",
+          (1 << TCMALLOC_PAGE_SHIFT) / 1024, (1 << shift) / 1024,
+          num_active_partitions);
+      for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
+        printf(" - %3zu: %5zu element(s)\n", size_class,
+               get_capacity(size_class));
       }
-      int extra_shift = (use_wider_slabs || num_active_partitions > 1) ? 1 : 0;
 
-      CpuCache<DumpForwarder> cache;
-      cache.forwarder().set_use_wider_slabs(use_wider_slabs);
-      cache.forwarder().set_num_active_partitions(num_active_partitions);
-      cache.Init();
-      cache.Activate();
-
-      for (uint8_t shift = kInitialBasePerCpuShift + extra_shift;
-           shift <= kMaxBasePerCpuShift + extra_shift; ++shift) {
-        std::array<std::atomic<uint16_t>, kNumClasses> max_capacity;
-        cache.CalculateMaxCapacityForAllClasses(shift, max_capacity.data());
-        MaxCapacityFunctor get_capacity{max_capacity.data()};
-
-        // Add space used for Header.
-        printf(
-            "Initial max capacity each size class for %u kB pages, %u kB "
-            "slabs, "
-            "wide=%u, num_active_partitions=%u:\n",
-            (1 << TCMALLOC_PAGE_SHIFT) / 1024, (1 << shift) / 1024,
-            use_wider_slabs, num_active_partitions);
-        for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
-          printf(" - %3zu: %5zu element(s)\n", size_class,
-                 get_capacity(size_class));
-        }
-
-        // Note that bytes_used includes Header metadata and guard pointers,
-        // so it will be larger than just adding together all max_capacity[]
-        // and multiplying by sizeof(void*).
-        int bytes_used =
-            subtle::percpu::TcmallocSlab<kNumClasses>::EstimateSlabBytes(
-                get_capacity);
-        int bytes_available =
-            CpuCache<DumpForwarder>::Freelist::GetBytesAvailable(
-                subtle::percpu::ToShiftType(shift));
-        printf("Total: %d bytes used, %d bytes unused.\n", bytes_used,
-               bytes_available - bytes_used);
-        printf("\n");
-      }
+      // Note that bytes_used includes Header metadata and guard pointers,
+      // so it will be larger than just adding together all max_capacity[]
+      // and multiplying by sizeof(void*).
+      int bytes_used =
+          subtle::percpu::TcmallocSlab<kNumClasses>::EstimateSlabBytes(
+              get_capacity);
+      int bytes_available =
+          CpuCache<DumpForwarder>::Freelist::GetBytesAvailable(
+              subtle::percpu::ToShiftType(shift));
+      printf("Total: %d bytes used, %d bytes unused.\n", bytes_used,
+             bytes_available - bytes_used);
+      printf("\n");
     }
   }
 }

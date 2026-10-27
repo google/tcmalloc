@@ -192,13 +192,6 @@ class StaticForwarder : private Parameters {
         Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
   }
 
-  [[nodiscard]] static bool UseWiderSlabs() {
-    // We use wider 512KiB slab only when partitioning is not enabled. NUMA
-    // and security partitions increase shift by 1 by itself, so we can not
-    // increase it further.
-    return state.active_partitions() == 1;
-  }
-
   [[nodiscard]] static bool HaveHooks() { return state.HaveHooks(); }
 
   [[nodiscard]] static auto active_partitions() {

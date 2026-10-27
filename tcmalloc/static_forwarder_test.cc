@@ -191,8 +191,6 @@ TEST(StaticForwarderTest, Accessors) {
             tc_globals.sharded_transfer_cache().UseCacheForLargeClassesOnly());
 #endif  // TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_EQ(ProdForwarder::active_partitions(), tc_globals.active_partitions());
-  EXPECT_EQ(ProdForwarder::UseWiderSlabs(),
-            tc_globals.active_partitions() == 1);
   EXPECT_EQ(ProdForwarder::multiple_non_numa_partitions(),
             Static::multiple_non_numa_partitions());
   EXPECT_EQ(ProdForwarder::HaveHooks(), Static::HaveHooks());

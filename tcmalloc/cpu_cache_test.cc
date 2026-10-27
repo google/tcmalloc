@@ -340,6 +340,7 @@ TEST(CpuCacheTest, Metadata) {
     case 13:
       EXPECT_GE(r.resident_size, 4096);
       break;
+    case 18:
     case 19:
       EXPECT_GE(r.resident_size, 8192);
       break;
@@ -918,6 +919,7 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   constexpr int kLargeClass = 2;
   constexpr int kMaxCapacity = 2048;
 
+  const size_t small_class_size = cache.forwarder().class_to_size(kSmallClass);
   const size_t large_class_size = cache.forwarder().class_to_size(kLargeClass);
   ASSERT_GT(large_class_size * kMaxCapacity, max_cpu_cache_size);
 
@@ -974,19 +976,21 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
       PerClassMissType::kCapacityResize);
   EXPECT_EQ(interval_misses, 0);
 
-  EXPECT_EQ(cache.Unallocated(kCpuId), 0);
-  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+  // Shrinking one kLargeClass object frees large_class_size bytes, and
+  // kSmallClass grows up to its max capacity.
+  const size_t unallocated_bytes =
+      large_class_size - cache.GetMaxCapacity(kSmallClass) * small_class_size;
+  EXPECT_EQ(cache.Unallocated(kCpuId), unallocated_bytes);
+  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size - unallocated_bytes);
 
   AllocateThenDeallocate(cache, kCpuId, kSmallClass, batch_size_small);
   interval_misses = cache.GetIntervalSizeClassMisses(
       kCpuId, kSmallClass, PerClassMissType::kCapacityTotal,
       PerClassMissType::kCapacityResize);
-  // Given all objects are allocated, cpu cache will still try to grow the
-  // capacity on an underflow and record one miss.
-  EXPECT_EQ(interval_misses, 1);
+  EXPECT_EQ(interval_misses, 0);
 
-  EXPECT_EQ(cache.Unallocated(kCpuId), 0);
-  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+  EXPECT_EQ(cache.Unallocated(kCpuId), unallocated_bytes);
+  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size - unallocated_bytes);
   EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), batch_size_small);
 
   // Drain caches.
@@ -1092,12 +1096,23 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
   EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
   cache.ResizeSlabIfNeeded();
 
-  // If wider slabs is enabled, we must use overflows and underflows of
-  // individual cpu caches to decide whether to grow the slab. Hence, the
-  // slab should have grown. If wider slabs is disabled, slab shift should
-  // stay the same as total miss ratio is lower than
+  // Slab shift should stay the same as total miss ratio is lower than
   // kDynamicSlabGrowThreshold.
+  EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
+
+  // Now accumulate overflows and underflows on kCpuId0 without extra
+  // underflows on kCpuId1 so that the total miss ratio exceeds
+  // kDynamicSlabGrowThreshold.
+  HotCacheOperations(cache, kCpuId0, /*drain=*/true);
+  total_misses =
+      cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
+  total_misses +=
+      cache.GetIntervalCacheMissStats(kCpuId1, MissCount::kSlabResize);
+  ASSERT_GT(total_misses.overflows,
+            total_misses.underflows * kDynamicSlabGrowThreshold);
+  cache.ResizeSlabIfNeeded();
   EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
+  cache.Deactivate();
 }
 
 // Test that when dynamic slab parameters change, things still work.

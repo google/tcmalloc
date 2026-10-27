@@ -406,9 +406,6 @@ class CpuCache {
       int cpu, size_t size_class, PerClassMissType total_type,
       PerClassMissType interval_type);
 
-  // Reports if we should use a wider 512KiB slab.
-  [[nodiscard]] bool UseWiderSlabs() const;
-
   // Reports allowed slab shift initial and maximum bounds.
   [[nodiscard]] SlabShiftBounds GetPerCpuSlabShiftBounds() const;
 
@@ -911,12 +908,6 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
 
   int relative_shift = shift_bounds_.max_shift - shift;
 
-#if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  // When we use wider slabs, we also want to double the maximum capacities for
-  // size classes to use that slab.
-  const size_t kWiderSlabMultiplier = UseWiderSlabs() ? 2 : 1;
-#endif
-
   // The memory used for each per-CPU slab is the sum of:
   //   sizeof(std::atomic<int64_t>) * kNumClasses
   //   sizeof(void*) * (kSmallObjectDepth + 1) * kNumSmall
@@ -933,8 +924,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   const uint16_t kSmallObjectDepth = 16 >> relative_shift;
 #else
-  const uint16_t kSmallObjectDepth =
-      (2000 * kWiderSlabMultiplier) >> relative_shift;
+  const uint16_t kSmallObjectDepth = 2000 >> relative_shift;
 #endif
 
   if (!IsColdSizeClass(size_class) &&
@@ -946,8 +936,8 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
   // We allocate the remaining space in the slab equally among the remaining
   // large classes. If there's support for cold objects, we allocate 20%
   // of the space for them (including small cold objects), or at least
-  // two for each class; otherwise, everything goes to the remaining
-  // large hot objects.
+  // enough for one scaled batch (plus guard pointer) for each class;
+  // otherwise, everything goes to the remaining large hot objects.
   int64_t pointers_left_in_slab =
       Freelist::GetBytesAvailable(subtle::percpu::ToShiftType(shift)) /
       sizeof(void*);
@@ -976,14 +966,23 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class,
   TC_CHECK_GT(pointers_left_in_slab, 0);
 
   size_t num_cold_classes = 0;
+  size_t min_cold_capacity = 1;
   for (size_t other_size_class = kColdClassesStart;
        other_size_class < kNumClasses; ++other_size_class) {
-    num_cold_classes += IsActive(other_size_class);
+    if (IsActive(other_size_class)) {
+      ++num_cold_classes;
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+      min_cold_capacity = std::max(
+          min_cold_capacity,
+          forwarder_.num_objects_to_move(other_size_class) >> relative_shift);
+#endif
+    }
   }
 
   size_t pointers_for_cold_objects =
       ColdFeatureActive()
-          ? std::max<size_t>(pointers_left_in_slab / 5, num_cold_classes * 2)
+          ? std::max<size_t>(pointers_left_in_slab / 5,
+                             num_cold_classes * (min_cold_capacity + 1))
           : 0;
   TC_CHECK_LT(pointers_for_cold_objects, pointers_left_in_slab);
   size_t pointers_for_large_hot_objects =
@@ -1057,11 +1056,6 @@ inline void CpuCache<Forwarder>::UpdateMaxCapacity(int size_class,
 }
 
 template <class Forwarder>
-inline bool CpuCache<Forwarder>::UseWiderSlabs() const {
-  return forwarder_.UseWiderSlabs();
-}
-
-template <class Forwarder>
 inline SlabShiftBounds CpuCache<Forwarder>::GetPerCpuSlabShiftBounds() const {
   return shift_bounds_;
 }
@@ -1088,10 +1082,9 @@ inline void CpuCache<Forwarder>::Activate() {
                               : kMaxBasePerCpuShift;
 
   const uint8_t partition_shift = PartitionShift();
-  const uint8_t wider_slab_shift = UseWiderSlabs() ? 1 : 0;
-  shift_bounds_.initial_shift += partition_shift + wider_slab_shift;
-  shift_bounds_.max_shift += partition_shift + wider_slab_shift;
-  per_cpu_shift += partition_shift + wider_slab_shift;
+  shift_bounds_.initial_shift += partition_shift;
+  shift_bounds_.max_shift += partition_shift;
+  per_cpu_shift += partition_shift;
 
   TC_CHECK_LE(shift_bounds_.initial_shift, shift_bounds_.max_shift);
   TC_CHECK_GE(per_cpu_shift, shift_bounds_.initial_shift);
@@ -2582,28 +2575,9 @@ inline typename CpuCache<Forwarder>::DynamicSlabResize
 CpuCache<Forwarder>::ShouldResizeSlab() {
   const int num_cpus = NumCPUs();
   CpuCacheMissStats total_misses{};
-  DynamicSlabResize resize = DynamicSlabResize::kNoop;
-  const bool wider_slabs_enabled = UseWiderSlabs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    CpuCacheMissStats misses =
+    total_misses +=
         GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kSlabResize);
-    total_misses += misses;
-
-    // If overflows to underflows ratio exceeds the threshold, grow the slab.
-    // Increase counts by 1 during comparison so that we can still compare the
-    // ratio to the threshold when underflows is zero.
-    if (misses.overflows + 1 >
-        (misses.underflows + 1) *
-            forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
-      resize = DynamicSlabResize::kGrow;
-    }
-  }
-
-  // When wider slabs featuee is enabled, we try to grow slabs when the
-  // condition for at least one cpu cache is met. Else, we use total misses to
-  // figure out whether to grow the slab, shrink it, or do nothing.
-  if (wider_slabs_enabled && resize == DynamicSlabResize::kGrow) {
-    return resize;
   }
 
   // As a simple heuristic, we decide to grow if the total number of overflows
@@ -2611,6 +2585,8 @@ CpuCache<Forwarder>::ShouldResizeSlab() {
   // If the slab size was infinite, we would expect 0 overflows. If the slab
   // size was 0, we would expect approximately equal numbers of underflows and
   // overflows.
+  // Increase counts by 1 during comparison so that we can still compare the
+  // ratio to the threshold when underflows is zero.
   if (total_misses.overflows + 1 >
       (total_misses.underflows + 1) *
           forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {

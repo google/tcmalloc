@@ -663,8 +663,6 @@ void DumpStats(Printer& out, int level) {
     out.printf("PARAMETER tcmalloc_madvise_sampled_allocations %d\n",
                Parameters::madvise_sampled_allocations() ==
                    MadviseSampledAllocations::kEnabled);
-    out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
-               tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
     out.printf("PARAMETER heap_partitioning %d\n",
                tc_globals.multiple_non_numa_partitions() ? 1 : 0);
 
@@ -961,8 +959,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",
                   PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
-  region.PrintBool("tcmalloc_use_wider_slabs",
-                   tc_globals.cpu_cache().UseWiderSlabs());
   region.PrintI64("active_partitions", tc_globals.active_partitions());
   region.PrintRaw("heap_partitioning", HeapPartitioningModeString());
   region.PrintI64("min_hot_access_hint",
