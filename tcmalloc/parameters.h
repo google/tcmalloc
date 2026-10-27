@@ -279,7 +279,9 @@ class Parameters {
         std::memory_order_relaxed);
   }
 
-  [[nodiscard]] static bool release_drained_slab_metadata();
+  [[nodiscard]] static bool release_drained_slab_metadata() {
+    return release_drained_slab_metadata_.load(std::memory_order_relaxed);
+  }
 
   [[nodiscard]] static HeapPartitioningMode heap_partitioning_mode();
 
@@ -375,6 +377,7 @@ class Parameters {
   static std::atomic<int64_t> skip_subrelease_cold_short_interval_ns_;
   static std::atomic<int64_t> skip_subrelease_cold_long_interval_ns_;
   static std::atomic<bool> release_max_filler_pages_;
+  static std::atomic<bool> release_drained_slab_metadata_;
   static std::atomic<TrackBrokenHugepages> track_broken_hugepages_;
   static std::atomic<PreserveDonatedOnCollapse> preserve_donated_on_collapse_;
   static std::atomic<PreferBackedPages> prefer_backed_filler_pages_;
