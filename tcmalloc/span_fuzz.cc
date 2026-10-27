@@ -148,10 +148,25 @@ struct Dealloc {
     Span::ObjectsToIdx(ptrs, state.span.get(), state.object_size,
                        state.size_reciprocal, idx, state.bitmap_mode);
 
-    (void)state.span->FreelistPushBatch(
+    const bool span_nonempty = state.span->FreelistPushBatch(
         absl::MakeSpan(idx).subspan(0, ptrs.size()), state.object_size,
         state.bitmap_mode);
     state.live_ptrs.resize(state.live_ptrs.size() - n);
+    // FreelistPushBatch returns true while allocated objects remain in the
+    // span, and false when the last allocated objects are returned (leaving
+    // live_ptrs empty).
+    TC_CHECK_EQ(span_nonempty, !state.live_ptrs.empty());
+    if (!span_nonempty) {
+      // When all allocated objects in the span are returned, FreelistPushBatch
+      // returns false without pushing the batch onto the freelist or
+      // decrementing allocated_ (in CentralFreeList, the empty span would be
+      // deallocated to the page heap). Rebuild the freelist so subsequent
+      // Alloc instructions in FuzzSpanInstructions can reuse state.span.
+      TC_CHECK_EQ(
+          state.span->BuildFreelist(state.object_size, state.objects_per_span,
+                                    {}, state.bitmap_mode),
+          0);
+    }
   }
 };
 
@@ -214,6 +229,23 @@ void FuzzSpanInstructions(size_t object_size_direct, Length num_pages_direct,
 
   for (const auto& instruction : instructions) {
     std::visit([&](const auto& arg) { arg.Perform(state); }, instruction);
+    TC_CHECK_EQ(state.span->Allocated(), state.live_ptrs.size());
+  }
+}
+
+TEST(SpanTest, FuzzSpanInstructionsFullDealloc) {
+  const std::vector<Instruction> instructions = {
+      Instruction{Alloc{64}},   Instruction{Dealloc{64}},
+      Instruction{Alloc{64}},   Instruction{Alloc{64}},
+      Instruction{Shuffle{}},   Instruction{Dealloc{32}},
+      Instruction{Dealloc{64}}, Instruction{Dealloc{64}},
+      Instruction{Alloc{64}},
+  };
+  for (size_t size : {8, 16, 24, 64, 128, 512, 4096}) {
+    for (bool use_bitmap_for_small : {false, true}) {
+      FuzzSpanInstructions(size, Length(0), 63, instructions,
+                           use_bitmap_for_small);
+    }
   }
 }
 
