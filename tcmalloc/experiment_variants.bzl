@@ -65,12 +65,6 @@ experiment_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE"},
     },
     {
-        "name": "sonic_sharded_transfer_cache",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE"},
-    },
-    {
         "name": "tcmalloc_span_bitmap",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

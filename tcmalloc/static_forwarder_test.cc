@@ -174,11 +174,7 @@ TEST(StaticForwarderTest, Accessors) {
   EXPECT_EQ(&ProdForwarder::sharded_transfer_cache(),
             &tc_globals.sharded_transfer_cache());
   EXPECT_EQ(&ProdForwarder::transfer_cache(), &tc_globals.transfer_cache());
-  EXPECT_EQ(
-      ProdForwarder::UseGenericShardedCache(),
-      IsExperimentActive(Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE) &&
-          !IsExperimentActive(
-              Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE));
+  EXPECT_FALSE(ProdForwarder::UseGenericShardedCache());
   EXPECT_EQ(ProdForwarder::UseShardedCacheForLargeClassesOnly(),
             IsExperimentActive(
                 Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE));

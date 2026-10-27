@@ -178,12 +178,7 @@ class StaticForwarder : private Parameters {
 
   [[nodiscard]] static auto& transfer_cache() { return state.transfer_cache(); }
 
-  [[nodiscard]] static bool UseGenericShardedCache() {
-    return IsExperimentActive(
-               Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE) &&
-           !IsExperimentActive(
-               Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
-  }
+  [[nodiscard]] static bool UseGenericShardedCache() { return false; }
 
   [[nodiscard]] static bool UseShardedCacheForLargeClassesOnly() {
     // Traditionally, we enable sharded transfer cache for large size
