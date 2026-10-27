@@ -125,9 +125,6 @@ TEST_F(GetStatsTest, Pbtxt) {
                    Parameters::filler_skip_subrelease_cold_long_interval()))));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
-  EXPECT_THAT(
-      buf,
-      HasSubstr("tcmalloc_dense_trackers_sorted_on_spans_allocated: true"));
 
 #ifdef NDEBUG
   EXPECT_THAT(buf, HasSubstr("usermode_hugepage_collapse: true"));
@@ -298,10 +295,6 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr(
-            R"(PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1)"));
 
 #ifdef NDEBUG
     EXPECT_THAT(

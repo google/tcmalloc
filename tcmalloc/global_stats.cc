@@ -676,8 +676,6 @@ void DumpStats(Printer& out, int level) {
     out.printf("PARAMETER madvise %s\n", MadviseString());
     out.printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
                Parameters::resize_size_class_max_capacity() ? 1 : 0);
-    out.printf(
-        "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated 1\n");
     out.printf("PARAMETER min_hot_access_hint %d\n",
                static_cast<int>(Parameters::min_hot_access_hint()));
     out.printf(
@@ -967,7 +965,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                    tc_globals.cpu_cache().UseWiderSlabs());
   region.PrintI64("active_partitions", tc_globals.active_partitions());
   region.PrintRaw("heap_partitioning", HeapPartitioningModeString());
-  region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated", true);
   region.PrintI64("min_hot_access_hint",
                   static_cast<int>(Parameters::min_hot_access_hint()));
   region.PrintBool(
