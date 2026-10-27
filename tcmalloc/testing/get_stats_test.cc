@@ -218,9 +218,7 @@ TEST_F(GetStatsTest, ArenaTypeStats) {
 TEST_F(GetStatsTest, Parameters) {
   const bool old_hpaa_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(false);
-  const bool old_guarded_sampling_interval =
-      Parameters::guarded_sampling_interval();
-  Parameters::set_guarded_sampling_interval(-1);
+  ScopedGuardedSamplingInterval guarded_sampling_interval(-1);
   const bool old_per_cpu_caches = Parameters::per_cpu_caches();
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
   Parameters::set_per_cpu_caches(false);
@@ -231,12 +229,8 @@ TEST_F(GetStatsTest, Parameters) {
   const int64_t old_max_total_thread_cache_bytes =
       Parameters::max_total_thread_cache_bytes();
   Parameters::set_max_total_thread_cache_bytes(-1);
-  const absl::Duration old_skip_subrelease_short =
-      Parameters::filler_skip_subrelease_short_interval();
-  Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
-  const absl::Duration old_skip_subrelease_long =
-      Parameters::filler_skip_subrelease_long_interval();
-  Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
+  ScopedSkipSubreleaseShortInterval skip_subrelease_short(absl::Seconds(2));
+  ScopedSkipSubreleaseLongInterval skip_subrelease_long(absl::Seconds(3));
   const absl::Duration old_skip_subrelease_cold_short =
       Parameters::filler_skip_subrelease_cold_short_interval();
   Parameters::set_filler_skip_subrelease_cold_short_interval(absl::Seconds(4));
@@ -259,6 +253,7 @@ TEST_F(GetStatsTest, Parameters) {
       Parameters::prefer_backed_filler_pages() ==
       tcmalloc_internal::PreferBackedPages::kEnabled;
   Parameters::set_prefer_backed_filler_pages(false);
+  const hot_cold_t old_min_hot_access_hint = Parameters::min_hot_access_hint();
   ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
   ASSERT_NE(&TCMalloc_Internal_GetBackSmallAllocations, nullptr);
   const bool old_back_small_allocations =
@@ -530,15 +525,10 @@ TEST_F(GetStatsTest, Parameters) {
   }
 
   Parameters::set_hpaa_subrelease(old_hpaa_subrelease);
-  Parameters::set_guarded_sampling_interval(old_guarded_sampling_interval);
   Parameters::set_per_cpu_caches(old_per_cpu_caches);
   Parameters::set_max_per_cpu_cache_size(old_max_per_cpu_cache_size);
   Parameters::set_max_total_thread_cache_bytes(
       old_max_total_thread_cache_bytes);
-  Parameters::set_filler_skip_subrelease_short_interval(
-      old_skip_subrelease_short);
-  Parameters::set_filler_skip_subrelease_long_interval(
-      old_skip_subrelease_long);
   Parameters::set_filler_skip_subrelease_cold_short_interval(
       old_skip_subrelease_cold_short);
   Parameters::set_filler_skip_subrelease_cold_long_interval(
@@ -548,6 +538,7 @@ TEST_F(GetStatsTest, Parameters) {
       old_preserve_donated_on_collapse);
   Parameters::set_collapse_released_hugepages(old_collapse_released_hugepages);
   Parameters::set_prefer_backed_filler_pages(old_prefer_backed_filler_pages);
+  Parameters::set_min_hot_access_hint(old_min_hot_access_hint);
   TCMalloc_Internal_SetBackSmallAllocations(old_back_small_allocations);
 }
 
