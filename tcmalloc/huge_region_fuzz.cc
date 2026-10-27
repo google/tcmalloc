@@ -235,10 +235,19 @@ struct State {
     unback.release_callback_ = [this](Range r) {
       // HugeRegion::Release will drop pageheap_lock around the unback
       // (b/73749855), so other threads may observe the region here.
+      for (const Range& other : in_flight) {
+        ASSERT_TRUE(other.p + other.n <= r.p || r.p + r.n <= other.p);
+      }
+      for (PageId p = r.p, end = r.p + r.n; p != end; ++p) {
+        ASSERT_FALSE(unback.released_.contains(p));
+      }
       in_flight.push_back(r);
       CheckInvariants();
       RunReentrant();
       // Whatever ran meanwhile left the range alone.
+      for (PageId p = r.p, end = r.p + r.n; p != end; ++p) {
+        ASSERT_FALSE(unback.released_.contains(p));
+      }
       CheckInvariants();
       in_flight.pop_back();
     };
@@ -278,6 +287,8 @@ struct State {
     SmallSpanStats small;
     LargeSpanStats large;
     region.AddSpanStats(&small, &large);
+    ExpectSpanStats(small, large, region.free_pages(), region.unmapped_pages());
+    EXPECT_EQ(Length(unback.released_.size()), region.unmapped_pages());
     ASSERT_LE(region.free_backed(), region.backed());
     ASSERT_LE(region.backed(), region.size());
     // Free-and-backed hugepages are entirely free.  A range being unbacked is
@@ -329,18 +340,16 @@ void Allocate::Perform(State& state) const {
   EXPECT_TRUE(state.region.contains(p));
   EXPECT_TRUE(state.region.contains(p + n - Length(1)));
   state.allocs.emplace_back(p, n);
-  if (!from_released) {
-    return;
-  }
   bool did_release = false;
-  for (PageId q = p, end = p + n; q != end; ++q) {
-    auto it = state.unback.released_.find(q);
-    if (it != state.unback.released_.end()) {
-      state.unback.released_.erase(it);
+  const PageId first = HugePageContaining(p).first_page();
+  const PageId end =
+      (HugePageContaining(p + n - Length(1)) + NHugePages(1)).first_page();
+  for (PageId q = first; q != end; ++q) {
+    if (state.unback.released_.erase(q) > 0) {
       did_release = true;
     }
   }
-  CHECK(did_release);
+  CHECK_EQ(did_release, from_released);
 }
 
 void Deallocate::Perform(State& state) const {
