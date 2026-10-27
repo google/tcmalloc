@@ -188,13 +188,17 @@ TEST(TcmallocTest, Calloc) {
   }
 }
 
+constexpr int kReallocLargeSize = (1 << 20) - (1 << 10);
+static_assert(kReallocLargeSize > tcmalloc_internal::kMaxSize);
+// 9900 is arbitrary, chosen so the tested deltas stay within a single size
+// class across all size-class configurations (avoiding the 9984-byte boundary
+// in 256 KiB page flexible size classes).
+constexpr int kStartSizes[] = {100, 1000, 9900, 100000, kReallocLargeSize};
+constexpr int kDeltas[] = {1,   -2, 4,    -8,      16,
+                           -32, 64, -128, 1 << 10, -(2 << 10)};
+
 TEST(TcmallocTest, Realloc) {
   // Test that realloc doesn't always reallocate and copy memory.
-  constexpr int kLargeSize = (1 << 20) - (1 << 10);
-  ASSERT_GT(kLargeSize, tcmalloc_internal::kMaxSize);
-  constexpr int start_sizes[] = {100, 1000, 10000, 100000, kLargeSize};
-  constexpr int deltas[] = {1,   -2, 4,    -8,      16,
-                            -32, 64, -128, 1 << 10, -(2 << 10)};
 
   // When sampling, we always allocate in units of page-size, which makes
   // reallocs of small sizes do extra work (thus, failing these checks).
@@ -203,8 +207,8 @@ TEST(TcmallocTest, Realloc) {
   // reallocated even with sampling.
   ScopedNeverSample never_sample;
 
-  for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
-    void* p = malloc(start_sizes[s]);
+  for (int s = 0; s < std::size(kStartSizes); ++s) {
+    void* p = malloc(kStartSizes[s]);
     // We stash a copy of the pointer p so we can reference it later.  We must
     // work with the return value of p.
     //
@@ -217,7 +221,7 @@ TEST(TcmallocTest, Realloc) {
     ASSERT_NE(p, nullptr);
     // The larger the start-size, the larger the non-reallocing delta.
     for (int d = 0; d < (s + 1) * 2; ++d) {
-      p = realloc(p, start_sizes[s] + deltas[d]);
+      p = realloc(p, kStartSizes[s] + kDeltas[d]);
       const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
       benchmark::DoNotOptimize(p);
 
@@ -228,11 +232,11 @@ TEST(TcmallocTest, Realloc) {
 
       ASSERT_EQ(orig_ptr, new_ptr)
           << ": realloc should not allocate new memory"
-          << " (" << start_sizes[s] << " + " << deltas[d] << ")";
+          << " (" << kStartSizes[s] << " + " << kDeltas[d] << ")";
     }
     // Test again, but this time reallocing smaller first.
     for (int d = 0; d < s * 2; ++d) {
-      p = realloc(p, start_sizes[s] - deltas[d]);
+      p = realloc(p, kStartSizes[s] - kDeltas[d]);
       const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
       benchmark::DoNotOptimize(p);
 
@@ -243,7 +247,7 @@ TEST(TcmallocTest, Realloc) {
 
       ASSERT_EQ(orig_ptr, new_ptr)
           << ": realloc should not allocate new memory"
-          << " (" << start_sizes[s] << " + " << -deltas[d] << ")";
+          << " (" << kStartSizes[s] << " + " << -kDeltas[d] << ")";
     }
     free(p);
   }
@@ -258,11 +262,8 @@ TEST(TcmallocTest, ReallocArray) {
   // to us here.
   ScopedNeverSample never_sample;
 
-  constexpr int start_sizes[] = {100, 1000, 10000, 100000};
-  constexpr int deltas[] = {1, -2, 4, -8, 16, -32, 64, -128};
-
-  for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
-    void* p = malloc(start_sizes[s]);
+  for (int s = 0; s < std::size(kStartSizes); ++s) {
+    void* p = malloc(kStartSizes[s]);
     // We stash a copy of the pointer p so we can reference it later.  We must
     // work with the return value of p.
     //
@@ -275,7 +276,7 @@ TEST(TcmallocTest, ReallocArray) {
     ASSERT_NE(p, nullptr);
     // The larger the start-size, the larger the non-reallocing delta.
     for (int d = 0; d < (s + 1) * 2; ++d) {
-      p = reallocarray(p, start_sizes[s] + deltas[d], 1);
+      p = reallocarray(p, kStartSizes[s] + kDeltas[d], 1);
       const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
       benchmark::DoNotOptimize(p);
 
@@ -286,11 +287,11 @@ TEST(TcmallocTest, ReallocArray) {
 
       ASSERT_EQ(orig_ptr, new_ptr)
           << ": reallocarray should not allocate new memory"
-          << " (" << start_sizes[s] << " + " << deltas[d] << ")";
+          << " (" << kStartSizes[s] << " + " << kDeltas[d] << ")";
     }
     // Test again, but this time reallocing smaller first.
     for (int d = 0; d < s * 2; ++d) {
-      p = reallocarray(p, start_sizes[s] - deltas[d], 1);
+      p = reallocarray(p, kStartSizes[s] - kDeltas[d], 1);
       const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
       benchmark::DoNotOptimize(p);
 
@@ -301,7 +302,7 @@ TEST(TcmallocTest, ReallocArray) {
 
       ASSERT_EQ(orig_ptr, new_ptr)
           << ": reallocarray should not allocate new memory"
-          << " (" << start_sizes[s] << " + " << -deltas[d] << ")";
+          << " (" << kStartSizes[s] << " + " << -kDeltas[d] << ")";
     }
     free(p);
   }
