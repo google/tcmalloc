@@ -99,8 +99,6 @@ MallocExtension_Internal_GetMaxPerCpuCacheSize();
 MallocExtension_Internal_GetBackgroundProcessActionsEnabled();
 ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_GetBackgroundProcessSleepInterval(absl::Duration* ret);
-ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetSkipSubreleaseInterval(
-    absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_GetSkipSubreleaseShortInterval(absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetSkipSubreleaseLongInterval(
@@ -118,8 +116,6 @@ ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value);
 ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_SetBackgroundProcessSleepInterval(
-    absl::Duration value);
-ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetSkipSubreleaseInterval(
     absl::Duration value);
 ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_SetSkipSubreleaseShortInterval(absl::Duration value);
