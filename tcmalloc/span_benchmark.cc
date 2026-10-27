@@ -46,14 +46,14 @@ class RawSpan {
   RawSpan& operator=(const RawSpan&) = delete;
 
   void Init(size_t size, Length npages, size_t objects_per_span,
-            int32_t bitmap_offset) {
+            Span::BitmapMode bitmap_mode) {
     TC_CHECK_GT(size, 0);
 
     void* mem;
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
     span_.emplace(PageIdContaining(mem));
-    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, bitmap_offset),
+    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, bitmap_mode),
                 0);
   }
 
@@ -90,7 +90,7 @@ void BM_SpanPopPush(benchmark::State& state) {
   TC_CHECK_LE(batch_size, kMaxObjectsToMove);
 
   auto npages = tc_globals.sizemap().class_to_pages(size_class);
-  const auto [objects_per_span, bitmap_offset] =
+  const auto [objects_per_span, bitmap_mode] =
       Span::CalcBitmapInfo(/*use_bitmap_for_small=*/true, npages, size);
   // We need at least batch_size + 1 objects to keep 1 allocated and avoid
   // FreelistPushBatch returning false on empty span.
@@ -104,13 +104,13 @@ void BM_SpanPopPush(benchmark::State& state) {
   std::vector<void*> dummy_objects(num_spans);
 
   for (size_t i = 0; i < num_spans; i++) {
-    spans[i].Init(size, npages, objects_per_span, bitmap_offset);
+    spans[i].Init(size, npages, objects_per_span, bitmap_mode);
     active_batches[i].resize(batch_size);
 
     void* prepop[kMaxObjectsToMove + 1];
     int popped =
         spans[i].span().FreelistPopBatch(absl::MakeSpan(prepop, batch_size + 1),
-                                         size, objects_per_span, bitmap_offset);
+                                         size, objects_per_span, bitmap_mode);
     TC_CHECK_EQ(popped, batch_size + 1);
 
     dummy_objects[i] = prepop[0];
@@ -134,15 +134,15 @@ void BM_SpanPopPush(benchmark::State& state) {
     Span::ObjIdx idx_batch[kMaxObjectsToMove];
     Span::ObjectsToIdx(active_batches[current_span],
                        &spans[current_span].span(), size, reciprocal, idx_batch,
-                       bitmap_offset);
+                       bitmap_mode);
     bool ok = spans[current_span].span().FreelistPushBatch(
-        absl::MakeSpan(idx_batch, batch_size), size, bitmap_offset);
+        absl::MakeSpan(idx_batch, batch_size), size, bitmap_mode);
     TC_CHECK(ok);
 
     // Pop
     int n = spans[current_span].span().FreelistPopBatch(
         absl::MakeSpan(active_batches[current_span]), size, objects_per_span,
-        bitmap_offset);
+        bitmap_mode);
     TC_CHECK_EQ(n, batch_size);
     processed += n;
   }
@@ -160,7 +160,7 @@ void BM_SpanDrainFill(benchmark::State& state) {
   TC_CHECK_LE(batch_size, kMaxObjectsToMove);
 
   Length npages = tc_globals.sizemap().class_to_pages(size_class);
-  const auto [objects_per_span, bitmap_offset] =
+  const auto [objects_per_span, bitmap_mode] =
       Span::CalcBitmapInfo(/*use_bitmap_for_small=*/true, npages, size);
   // We leave 1 object allocated to avoid FreelistPushBatch returning false.
   size_t run_objects = objects_per_span - 1;
@@ -172,10 +172,10 @@ void BM_SpanDrainFill(benchmark::State& state) {
   std::vector<RawSpan> spans(num_spans);
   std::vector<void*> dummy_objects(num_spans);
   for (size_t i = 0; i < num_spans; i++) {
-    spans[i].Init(size, npages, objects_per_span, bitmap_offset);
+    spans[i].Init(size, npages, objects_per_span, bitmap_mode);
     void* dummy;
     int popped = spans[i].span().FreelistPopBatch(
-        absl::MakeSpan(&dummy, 1), size, objects_per_span, bitmap_offset);
+        absl::MakeSpan(&dummy, 1), size, objects_per_span, bitmap_mode);
     TC_CHECK_EQ(popped, 1);
     dummy_objects[i] = dummy;
   }
@@ -210,7 +210,7 @@ void BM_SpanDrainFill(benchmark::State& state) {
           size_t to_pop = std::min(batch_size, run_objects - oindex);
           size_t popped = spans[span_idx].span().FreelistPopBatch(
               absl::MakeSpan(all_objects[span_idx]).subspan(oindex, to_pop),
-              size, objects_per_span, bitmap_offset);
+              size, objects_per_span, bitmap_mode);
           pop_offsets[span_idx] = oindex + popped;
           processed += popped;
           if (popped > 0) {
@@ -234,9 +234,9 @@ void BM_SpanDrainFill(benchmark::State& state) {
           Span::ObjIdx idx_batch[kMaxObjectsToMove];
           Span::ObjectsToIdx({&all_objects[span_idx][start_idx], to_push},
                              &spans[span_idx].span(), size, reciprocal,
-                             idx_batch, bitmap_offset);
+                             idx_batch, bitmap_mode);
           bool ok = spans[span_idx].span().FreelistPushBatch(
-              absl::MakeSpan(idx_batch, to_push), size, bitmap_offset);
+              absl::MakeSpan(idx_batch, to_push), size, bitmap_mode);
           TC_CHECK(ok);
           push_offsets[span_idx] = start_idx;
           active = true;

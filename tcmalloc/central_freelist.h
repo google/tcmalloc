@@ -169,7 +169,7 @@ class CentralFreeList {
                                                    Span* absl_nonnull span,
                                                    size_t object_size,
                                                    uint32_t objects_per_span,
-                                                   int32_t bitmap_offset)
+                                                   Span::BitmapMode bitmap_mode)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Populate cache by fetching from the page heap.
@@ -220,10 +220,7 @@ class CentralFreeList {
   // Size reciprocal is used to replace division with multiplication when
   // computing object indices in the Span bitmap.
   uint32_t size_reciprocal_ = 0;
-  // >0 if the bitmap is stored at the end of the span at this byte offset;
-  // <0 if the bitmap is stored in the Span::raw_bitmap_;
-  // =0 if the linked-list or the old Span::bitmap is used.
-  int32_t bitmap_offset_ = 0;
+  Span::BitmapMode bitmap_mode_ = Span::BitmapMode::kDisabled;
   Length pages_per_span_;
 
   [[nodiscard]] size_t num_spans() const {
@@ -326,10 +323,10 @@ inline void CentralFreeList<Forwarder>::Init(
   // Use the new bitmap-based freelist for small objects.
   // Will be enabled as an experiment in a follow-up CL.
   constexpr bool kUseBitmapForSmall = false;
-  const auto [objects_per_span, bitmap_offset] =
+  const auto [objects_per_span, bitmap_mode] =
       Span::CalcBitmapInfo(kUseBitmapForSmall, pages_per_span_, object_size_);
   objects_per_span_ = objects_per_span;
-  bitmap_offset_ = bitmap_offset;
+  bitmap_mode_ = bitmap_mode;
   size_reciprocal_ = CalcReciprocal(object_size_);
   use_all_buckets_for_few_object_spans_ = objects_per_span_ <= 2 * kNumLists;
 
@@ -341,7 +338,7 @@ template <class Forwarder>
 template <typename T>
 inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     absl::Span<T> batch, Span* span, size_t object_size,
-    uint32_t objects_per_span, int32_t bitmap_offset) {
+    uint32_t objects_per_span, Span::BitmapMode bitmap_mode) {
   // By default, we prepend (AddFront) to the nonempty_ list. When the
   // CflSubbucketPrioritization feature is enabled, we append (AddBack).
   const bool use_prepend =
@@ -353,7 +350,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   const uint8_t prev_bitwidth =
       absl::bit_width(static_cast<unsigned>(prev_allocated));
   if (ABSL_PREDICT_FALSE(
-          !span->FreelistPushBatch(batch, object_size, bitmap_offset))) {
+          !span->FreelistPushBatch(batch, object_size, bitmap_mode))) {
     // Update the histogram as the span is full and will be removed from the
     // nonempty_ list.
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
@@ -470,10 +467,10 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   const size_t object_size = object_size_;
   const uint32_t size_reciprocal = size_reciprocal_;
   const uint32_t objects_per_span = objects_per_span_;
-  const int32_t bitmap_offset = bitmap_offset_;
+  const Span::BitmapMode bitmap_mode = bitmap_mode_;
   Span::ObjIdx idx[kMaxObjectsToMove];
   Span::ObjectsToIdx(batch, spans, object_size, size_reciprocal, idx,
-                     bitmap_offset);
+                     bitmap_mode);
   int runs = 0;
 
   // Safe to store free spans into freed up space in span array.
@@ -494,7 +491,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
       ++runs;
 
       Span* span = ReleaseToSpans(b, spans[i], object_size, objects_per_span,
-                                  bitmap_offset);
+                                  bitmap_mode);
       if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
         free_count++;
@@ -553,7 +550,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
     size_t object_size = object_size_;
     size_t num_spans = 0;
     size_t objects_per_span = objects_per_span_;
-    int32_t bitmap_offset = bitmap_offset_;
+    Span::BitmapMode bitmap_mode = bitmap_mode_;
 
     {
       CentralFreeListLockHolder h(lock_);
@@ -578,7 +575,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         const size_t size = batch.size();
         const int here = span->FreelistPopBatch(
             absl::MakeSpan(batch.data() + result, size - result), object_size,
-            objects_per_span, bitmap_offset);
+            objects_per_span, bitmap_mode);
         ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
         // As the objects are being popped from the span, its utilization might
         // change. So, we remove the stale utilization from the histogram here
@@ -645,8 +642,8 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
     return 0;
   }
 
-  const int result = span->BuildFreelist(object_size_, objects_per_span_, batch,
-                                         bitmap_offset_);
+  const int result =
+      span->BuildFreelist(object_size_, objects_per_span_, batch, bitmap_mode_);
   TC_ASSERT_GT(result, 0);
   // This is a cheaper check than using FreelistEmpty().
   bool span_empty = result == objects_per_span_;
