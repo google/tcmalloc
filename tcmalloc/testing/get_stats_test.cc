@@ -28,7 +28,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/config.h"
-#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
@@ -257,17 +256,11 @@ TEST_F(GetStatsTest, Parameters) {
       TCMalloc_Internal_GetBackSmallAllocations();
   TCMalloc_Internal_SetBackSmallAllocations(false);
 
-  auto using_hpaa = [](absl::string_view sv) {
-    return absl::StrContains(sv, "HugePageAwareAllocator");
-  };
-
   std::string buf = MallocExtension::GetStats();
   std::string pbtxt = GetStatsInPbTxt();
 
   if (!tcmalloc_internal::kSanitizerPresent) {
-    if (using_hpaa(buf)) {
-      EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
-    }
+    EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 0)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter -1)"));
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
@@ -341,10 +334,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_prefer_backed_filler_pages 0)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 0)"));
-    if (using_hpaa(buf)) {
-      EXPECT_THAT(buf, HasSubstr(R"(using_hpaa_subrelease: false)"));
-    }
 
+    EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: false)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: -1)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: false)"));
@@ -433,9 +424,8 @@ TEST_F(GetStatsTest, Parameters) {
   pbtxt = GetStatsInPbTxt();
 
   if (!tcmalloc_internal::kSanitizerPresent) {
-    if (using_hpaa(buf)) {
-      EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
-    }
+    // Sampled and cold allocators always report 1; check that none report 0.
+    EXPECT_THAT(buf, Not(HasSubstr(R"(PARAMETER hpaa_subrelease 0)")));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter 50)"));
     EXPECT_THAT(
@@ -477,9 +467,7 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 1)"));
 
-    if (using_hpaa(buf)) {
-      EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
-    }
+    EXPECT_THAT(pbtxt, Not(HasSubstr(R"(using_hpaa_subrelease: false)")));
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: 50)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(desired_usage_limit_bytes: -1)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(hard_usage_limit_bytes: -1)"));
