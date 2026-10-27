@@ -21,6 +21,7 @@
 #include <new>
 #include <random>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -42,6 +43,9 @@ auto AnyLength() {
 }
 
 struct State {
+  static constexpr uint8_t kSpanPoisonPattern = 0xA5;
+  static constexpr uint8_t kCanaryMask = 0x5A;
+
   size_t object_size;
   Length pages;
   size_t num_to_move;
@@ -51,6 +55,7 @@ struct State {
   void* mem = nullptr;
   std::unique_ptr<Span> span;
   std::vector<void*> live_ptrs;
+  std::vector<bool> allocated_idx;
   std::vector<void*> batch;
   std::mt19937 rng;
   uint8_t nonempty_index = 0;
@@ -66,18 +71,51 @@ struct State {
     objects_per_span = info.objects_per_span;
     bitmap_mode = info.mode;
     TC_CHECK_EQ(posix_memalign(&mem, kPageSize, pages.in_bytes()), 0);
+    memset(mem, kSpanPoisonPattern, pages.in_bytes());
 
     span = std::make_unique<Span>(PageIdContaining(mem));
     TC_CHECK_EQ(
         span->BuildFreelist(object_size, objects_per_span, {}, bitmap_mode), 0);
 
     live_ptrs.reserve(objects_per_span);
+    allocated_idx.assign(objects_per_span, false);
     batch.resize(kMaxObjectsToMove);
+  }
+
+  std::pair<size_t, uint8_t> ValidateObj(void* p) const {
+    char* const start = static_cast<char*>(mem);
+    const uintptr_t off = static_cast<char*>(p) - start;
+    TC_CHECK_LT(off, objects_per_span * object_size);
+    TC_CHECK_EQ(off % object_size, 0);
+    const size_t idx = off / object_size;
+    const uint8_t pattern = static_cast<uint8_t>((idx & 0xFF) ^ kCanaryMask);
+    return {idx, pattern};
+  }
+
+  void ValidateAndRecordPop(void* p) {
+    const auto [idx, pattern] = ValidateObj(p);
+    TC_CHECK(!allocated_idx[idx]);
+    allocated_idx[idx] = true;
+    const size_t fill = std::min<size_t>(object_size, 64);
+    memset(p, pattern, fill);
+    memset(static_cast<char*>(p) + object_size - fill, pattern, fill);
+  }
+
+  void ValidateAndRecordPush(void* p) {
+    const auto [idx, pattern] = ValidateObj(p);
+    TC_CHECK(allocated_idx[idx]);
+    allocated_idx[idx] = false;
+    const auto* bytes = static_cast<const uint8_t*>(p);
+    TC_CHECK_EQ(bytes[0], pattern);
+    TC_CHECK_EQ(bytes[object_size - 1], pattern);
   }
 
   ~State() {
     for (size_t i = 0; i < live_ptrs.size();) {
       size_t limit = std::min<size_t>(live_ptrs.size() - i, num_to_move);
+      for (size_t j = 0; j < limit; ++j) {
+        ValidateAndRecordPush(live_ptrs[i + j]);
+      }
       Span::ObjIdx idx[kMaxObjectsToMove];
       Span::ObjectsToIdx({&live_ptrs[i], limit}, span.get(), object_size,
                          size_reciprocal, idx, bitmap_mode);
@@ -109,6 +147,9 @@ struct Alloc {
     size_t popped = state.span->FreelistPopBatch(
         absl::MakeSpan(state.batch.data(), n), state.object_size,
         state.objects_per_span, state.bitmap_mode);
+    for (size_t i = 0; i < popped; ++i) {
+      state.ValidateAndRecordPop(state.batch[i]);
+    }
     state.live_ptrs.insert(state.live_ptrs.end(), state.batch.data(),
                            state.batch.data() + popped);
   }
@@ -143,6 +184,9 @@ struct Dealloc {
 
     absl::Span<void*> ptrs =
         absl::MakeSpan(state.live_ptrs.data() + state.live_ptrs.size() - n, n);
+    for (void* p : ptrs) {
+      state.ValidateAndRecordPush(p);
+    }
 
     Span::ObjIdx idx[kMaxObjectsToMove];
     Span::ObjectsToIdx(ptrs, state.span.get(), state.object_size,
