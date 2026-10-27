@@ -456,14 +456,8 @@ TEST_F(TCMallocHookTest, SizeReturningOperatorNewInvokesHook) {
 
 TEST_F(TCMallocHookTest, GuardedAllocatedSizeIsRequested) {
   MallocExtension::ActivateGuardedSampling();
-  MallocExtension::SetProfileSamplingInterval(1);
-  // Allocate a large block of memory to make sure
-  // Sampler::RecordAllocationSlow is called so that
-  // Sampler::bytes_until_sample_ is updated.
-  void* p = ::operator new[](256 * 1024 * 1024);
-  ::operator delete[](p);
-
-  MallocExtension::SetGuardedSamplingInterval(0);  // Guard every sample
+  ScopedProfileSamplingInterval profile_sampling(1);
+  ScopedGuardedSamplingInterval guarded_sampling(0);  // Guard every sample
   // Allocate some memory until allocs_until_guarded_sample_ reaches 0.
   for (int i = 0; i < 1000; i++) {
     void* p = ::operator new[](32);
@@ -477,7 +471,6 @@ TEST_F(TCMallocHookTest, GuardedAllocatedSizeIsRequested) {
   EXPECT_EQ(res.n, 34);
 
   ::operator delete(res.p);
-  MallocExtension::SetProfileSamplingInterval(0);
 }
 
 // These are used as callbacks by the sanity-check.  Set* and Reset* register

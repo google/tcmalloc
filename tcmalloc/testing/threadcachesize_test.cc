@@ -76,7 +76,7 @@ void Filler(absl::Barrier* fill, absl::Barrier* filled) {
 
 TEST(ThreadCache, MaxCacheHonored) {
   // Set the maximum total cache size
-  MallocExtension::SetMaxTotalThreadCacheBytes(kTotalThreadCacheSize);
+  ScopedMaxTotalThreadCacheBytes scoped_cache_size(kTotalThreadCacheSize);
 
   absl::Barrier startfill(kNumThreads + 1);
   absl::Barrier filled(kNumThreads + 1);

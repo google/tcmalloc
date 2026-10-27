@@ -86,7 +86,7 @@ TEST(AllocationSampleTest, TokenAbuse) {
 // Verify that profiling sessions concurrent with allocations do not crash due
 // to mutating pointers accessed by the sampling code (b/143623146).
 TEST(AllocationSampleTest, RaceToClaim) {
-  MallocExtension::SetProfileSamplingInterval(1 << 14);
+  ScopedProfileSamplingInterval ps(1 << 14);
 
   absl::BlockingCounter counter(2);
   std::atomic<bool> stop{false};
@@ -133,7 +133,7 @@ TEST(AllocationSampleTest, RaceToClaim) {
 // combine these to into a single test if the deallocation profiler is
 // refactored to use a template-d interface shared with the allocation profiler.
 TEST(DeallocationSampleTest, RaceToClaim) {
-  MallocExtension::SetProfileSamplingInterval(1 << 14);
+  ScopedProfileSamplingInterval ps(1 << 14);
 
   absl::BlockingCounter counter(2);
   std::atomic<bool> stop{false};
@@ -178,7 +178,7 @@ TEST(DeallocationSampleTest, RaceToClaim) {
 TEST(AllocationSampleTest, SampleAccuracy) {
   ScopedBackgroundProcessActionsEnabled disable_background_actions(false);
   // Disable GWP-ASan, since it allocates different sizes than normal samples.
-  MallocExtension::SetGuardedSamplingInterval(-1);
+  ScopedGuardedSamplingInterval gs(-1);
 
   constexpr size_t kSamplingRate = 16 * 1024;
   // Increase sampling rate to decrease flakiness.

@@ -109,112 +109,64 @@ class ScopedProfileSamplingInterval {
   int64_t previous_;
 };
 
-// Sets custom background thread actions enable/disable when in scope.
-class ScopedBackgroundProcessActionsEnabled {
+// Saves the current value of a parameter on construction, sets it to a new
+// value, and restores the previous value on destruction.
+template <auto Getter, auto Setter>
+class ScopedParameter {
  public:
-  explicit ScopedBackgroundProcessActionsEnabled(bool value)
-      : previous_(MallocExtension::GetBackgroundProcessActionsEnabled()) {
-    MallocExtension::SetBackgroundProcessActionsEnabled(value);
+  using ValueType = decltype(Getter());
+
+  explicit ScopedParameter(ValueType value) : previous_(Getter()) {
+    Setter(value);
   }
 
-  ~ScopedBackgroundProcessActionsEnabled() {
-    MallocExtension::SetBackgroundProcessActionsEnabled(previous_);
-  }
+  ~ScopedParameter() { Setter(previous_); }
+
+  ScopedParameter(const ScopedParameter&) = delete;
+  ScopedParameter& operator=(const ScopedParameter&) = delete;
 
  private:
-  bool previous_;
+  ValueType previous_;
 };
+
+// Sets custom background thread actions enable/disable when in scope.
+using ScopedBackgroundProcessActionsEnabled =
+    ScopedParameter<MallocExtension::GetBackgroundProcessActionsEnabled,
+                    MallocExtension::SetBackgroundProcessActionsEnabled>;
 
 // Sets a custom background release rate when in scope.
-class ScopedBackgroundReleaseRate {
- public:
-  explicit ScopedBackgroundReleaseRate(MallocExtension::BytesPerSecond rate)
-      : previous_(MallocExtension::GetBackgroundReleaseRate()) {
-    MallocExtension::SetBackgroundReleaseRate(rate);
-  }
-
-  ~ScopedBackgroundReleaseRate() {
-    MallocExtension::SetBackgroundReleaseRate(previous_);
-  }
-
- private:
-  MallocExtension::BytesPerSecond previous_;
-};
+using ScopedBackgroundReleaseRate =
+    ScopedParameter<MallocExtension::GetBackgroundReleaseRate,
+                    MallocExtension::SetBackgroundReleaseRate>;
 
 // Sets a custom background thread process sleep interval when in scope.
-class ScopedBackgroundProcessSleepInterval {
- public:
-  explicit ScopedBackgroundProcessSleepInterval(absl::Duration limit)
-      : previous_(MallocExtension::GetBackgroundProcessSleepInterval()) {
-    MallocExtension::SetBackgroundProcessSleepInterval(limit);
-  }
+using ScopedBackgroundProcessSleepInterval =
+    ScopedParameter<MallocExtension::GetBackgroundProcessSleepInterval,
+                    MallocExtension::SetBackgroundProcessSleepInterval>;
 
-  ~ScopedBackgroundProcessSleepInterval() {
-    MallocExtension::SetBackgroundProcessSleepInterval(previous_);
-  }
+using ScopedSkipSubreleaseShortInterval =
+    ScopedParameter<MallocExtension::GetSkipSubreleaseShortInterval,
+                    MallocExtension::SetSkipSubreleaseShortInterval>;
 
- private:
-  absl::Duration previous_;
-};
-
-class ScopedSkipSubreleaseShortInterval {
- public:
-  explicit ScopedSkipSubreleaseShortInterval(absl::Duration interval)
-      : previous_(MallocExtension::GetSkipSubreleaseShortInterval()) {
-    MallocExtension::SetSkipSubreleaseShortInterval(interval);
-  }
-
-  ~ScopedSkipSubreleaseShortInterval() {
-    MallocExtension::SetSkipSubreleaseShortInterval(previous_);
-  }
-
- private:
-  absl::Duration previous_;
-};
-
-class ScopedSkipSubreleaseLongInterval {
- public:
-  explicit ScopedSkipSubreleaseLongInterval(absl::Duration interval)
-      : previous_(MallocExtension::GetSkipSubreleaseLongInterval()) {
-    MallocExtension::SetSkipSubreleaseLongInterval(interval);
-  }
-
-  ~ScopedSkipSubreleaseLongInterval() {
-    MallocExtension::SetSkipSubreleaseLongInterval(previous_);
-  }
-
- private:
-  absl::Duration previous_;
-};
+using ScopedSkipSubreleaseLongInterval =
+    ScopedParameter<MallocExtension::GetSkipSubreleaseLongInterval,
+                    MallocExtension::SetSkipSubreleaseLongInterval>;
 
 // Sets a custom resource limit when in scope.
-class ScopedResourceLimit {
- public:
-  explicit ScopedResourceLimit(size_t limit)
-      : previous_(GetTestResourceLimit()) {
-    SetTestResourceLimit(limit);
-  }
+using ScopedResourceLimit =
+    ScopedParameter<GetTestResourceLimit, SetTestResourceLimit>;
 
-  ~ScopedResourceLimit() { SetTestResourceLimit(previous_); }
+using ScopedGuardedSamplingInterval =
+    ScopedParameter<MallocExtension::GetGuardedSamplingInterval,
+                    MallocExtension::SetGuardedSamplingInterval>;
 
- private:
-  size_t previous_;
-};
+using ScopedMaxPerCpuCacheSize =
+    ScopedParameter<MallocExtension::GetMaxPerCpuCacheSize,
+                    MallocExtension::SetMaxPerCpuCacheSize>;
 
-class ScopedGuardedSamplingInterval {
- public:
-  explicit ScopedGuardedSamplingInterval(int64_t temporary_value)
-      : previous_(MallocExtension::GetGuardedSamplingInterval()) {
-    MallocExtension::SetGuardedSamplingInterval(temporary_value);
-  }
-
-  ~ScopedGuardedSamplingInterval() {
-    MallocExtension::SetGuardedSamplingInterval(previous_);
-  }
-
- private:
-  int64_t previous_;
-};
+using ScopedMaxTotalThreadCacheBytes =
+    ScopedParameter<MallocExtension::GetMaxTotalThreadCacheBytes,
+                    MallocExtension::SetMaxTotalThreadCacheBytes>;
 
 // Disables both guarded sampling and profile sampling while in scope.
 class ScopedNeverSample {
@@ -241,21 +193,9 @@ class ScopedAlwaysSample {
   ScopedProfileSamplingInterval profile_sampling_interval_;
 };
 
-class ScopedMadviseSampledAllocations {
- public:
-  explicit ScopedMadviseSampledAllocations(
-      tcmalloc_internal::MadviseSampledAllocations new_madvise)
-      : old_madvise_(TCMalloc_Internal_GetMadviseSampledAllocations()) {
-    TCMalloc_Internal_SetMadviseSampledAllocations(new_madvise);
-  }
-
-  ~ScopedMadviseSampledAllocations() {
-    TCMalloc_Internal_SetMadviseSampledAllocations(old_madvise_);
-  }
-
- private:
-  tcmalloc_internal::MadviseSampledAllocations old_madvise_;
-};
+using ScopedMadviseSampledAllocations =
+    ScopedParameter<TCMalloc_Internal_GetMadviseSampledAllocations,
+                    TCMalloc_Internal_SetMadviseSampledAllocations>;
 
 inline void UnregisterRseq() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
