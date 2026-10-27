@@ -22,11 +22,13 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <new>
 #include <optional>
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
 #include "benchmark/benchmark.h"
@@ -53,9 +55,7 @@ using tcmalloc_testing::MallocHookRecorder;
 using testing::Contains;
 using testing::ElementsAre;
 using testing::HasSubstr;
-using testing::IsEmpty;
 using testing::Lt;
-using testing::SizeIs;
 using testing::UnorderedElementsAre;
 
 class TCMallocHookTest : public testing::Test {
@@ -194,7 +194,7 @@ TEST_F(TCMallocHookTest, ReallocInvokesHook) {
                                       DeleteCall(copy_p1, std::nullopt,
                                                  p1_allocated_size)));
 #else
-  EXPECT_THAT(Log(false), IsEmpty());
+  EXPECT_THAT(Log(false), testing::IsEmpty());
   (void)p1_allocated_size;
 #endif
   free(p2);
@@ -213,7 +213,7 @@ TEST_F(TCMallocHookTest, ReallocShrinkInvokesHook) {
                                       DeleteCall(copy_p1, std::nullopt,
                                                  p1_allocated_size)));
 #else
-  EXPECT_THAT(Log(false), IsEmpty());
+  EXPECT_THAT(Log(false), testing::IsEmpty());
   (void)p1_allocated_size;
 #endif
   free(p2);
@@ -265,7 +265,7 @@ TEST_F(TCMallocHookTest, BoundedReallocInvokesHook) {
                                       DeleteCall(copy_p1, std::nullopt,
                                                  p1_allocated_size)));
 #else
-  EXPECT_THAT(Log(false), IsEmpty());
+  EXPECT_THAT(Log(false), testing::IsEmpty());
   (void)p1_allocated_size;
 #endif
   free(p2);
@@ -283,7 +283,7 @@ TEST_F(TCMallocHookTest, PosixMemalignInvokesHook) {
 #if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p1, 40, GetAllocatedSize(p1))));
 #else
-  EXPECT_THAT(Log(false), IsEmpty());
+  EXPECT_THAT(Log(false), testing::IsEmpty());
 #endif
   free(p1);
 }
@@ -293,7 +293,7 @@ TEST_F(TCMallocHookTest, MemalignInvokesHook) {
 #if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p1, 50, GetAllocatedSize(p1))));
 #else
-  EXPECT_THAT(Log(false), IsEmpty());
+  EXPECT_THAT(Log(false), testing::IsEmpty());
 #endif
   free(p1);
 }
@@ -303,7 +303,7 @@ TEST_F(TCMallocHookTest, VallocInvokesHook) {
 #if !defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(Log(false), ElementsAre(NewCall(p1, 60, GetAllocatedSize(p1))));
 #else
-  EXPECT_THAT(Log(false), IsEmpty());
+  EXPECT_THAT(Log(false), testing::IsEmpty());
 #endif
   free(p1);
 }
@@ -316,7 +316,7 @@ TEST_F(TCMallocHookTest, PvallocInvokesHook) {
   EXPECT_THAT(Log(false),
               ElementsAre(NewCall(p1, pagesize, GetAllocatedSize(p1))));
 #else
-  EXPECT_THAT(Log(false), IsEmpty());
+  EXPECT_THAT(Log(false), testing::IsEmpty());
   (void)pagesize;
 #endif
   free(p1);
@@ -490,7 +490,7 @@ TEST_F(TCMallocHookTest, GuardedAllocatedSizeIsRequested) {
   static void IncrementCallsTo##hook_type(__VA_ARGS__) {                     \
     g_##hook_type##_calls++;                                                 \
   }                                                                          \
-  static void Verify##hook_type##WasCalled() {                               \
+  ABSL_ATTRIBUTE_UNUSED static void Verify##hook_type##WasCalled() {         \
     ASSERT_GT(g_##hook_type##_calls, 0);                                     \
     g_##hook_type##_calls = 0; /* reset for next call */                     \
   }                                                                          \
@@ -506,7 +506,7 @@ TEST_F(TCMallocHookTest, GuardedAllocatedSizeIsRequested) {
   static void IncrementCallsTo##hook_type(__VA_ARGS__) {                     \
     g_##hook_type##_calls++;                                                 \
   }                                                                          \
-  static void Verify##hook_type##WasCalled() {                               \
+  ABSL_ATTRIBUTE_UNUSED static void Verify##hook_type##WasCalled() {         \
     ASSERT_GT(g_##hook_type##_calls, 0);                                     \
     g_##hook_type##_calls = 0; /* reset for next call */                     \
   }                                                                          \
@@ -526,18 +526,20 @@ MAKE_HOOK_CALLBACK(SampledDeleteHook,
                    MallocHook::SampledAlloc&);
 
 TEST(TCMallocTest, GetStatsReportsHooks) {
+  int new_hook_count = 0;
 #ifndef NDEBUG
   // In debug builds, key locks in TCMalloc verify that no allocations are
   // occurring with AllocationGuard.  We skip this scenario, but we confirm that
   // AllocationGuard does install hooks to avoid spurious skips if this changes.
-  int new_hook_count = 0;
   {
     tcmalloc_internal::AllocationGuard guard;
     new_hook_count = tcmalloc_internal::new_hooks_.size();
   }
   EXPECT_GT(new_hook_count, 0);
-  GTEST_SKIP() << "Under debug builds, AllocationGuard installs extra hooks.";
 #endif
+  if (new_hook_count > 0) {
+    GTEST_SKIP() << "Under debug builds, AllocationGuard installs extra hooks.";
+  }
 
   std::string stats;
 
@@ -679,4 +681,46 @@ TEST(HooksTest, AllocationInHookFails) {
 }
 
 }  // namespace
+
+TEST(HooksPropagationTest, ConcurrentAllocationGuardsDoNotExhaustHookList) {
+#if defined(NDEBUG) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+  GTEST_SKIP() << "AllocationGuard only registers hooks in debug builds.";
+#else
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizers intercept malloc/new.";
+  }
+
+  constexpr int kThreads = 8;
+  std::atomic<int> entered{0};
+  std::atomic<bool> release{false};
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    threads.emplace_back([&]() {
+      tcmalloc_internal::AllocationGuard guard;
+      entered.fetch_add(1, std::memory_order_release);
+      while (!release.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+    });
+  }
+
+  while (entered.load(std::memory_order_acquire) < kThreads) {
+    std::this_thread::yield();
+  }
+
+  const auto user_hook = [](const MallocHook::NewInfo&) {};
+  const bool added = MallocHook::AddNewHook(user_hook);
+  EXPECT_TRUE(added);
+  if (added) {
+    EXPECT_TRUE(MallocHook::RemoveNewHook(user_hook));
+  }
+
+  release.store(true, std::memory_order_release);
+  for (auto& t : threads) {
+    t.join();
+  }
+#endif
+}
+
 }  // namespace tcmalloc

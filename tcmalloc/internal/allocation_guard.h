@@ -30,27 +30,30 @@ class AllocationGuard {
  public:
   AllocationGuard() {
 #if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
-    if (disallowed_ == 0) {
-      (void)MallocHook::AddNewHook(Hook);
+    if (disallowed_++ == 0) {
+      RegisterThreadGuard();
     }
-    ++disallowed_;
 #endif
   }
 
   ~AllocationGuard() {
 #if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
-    --disallowed_;
-    if (disallowed_ == 0) {
-      (void)MallocHook::RemoveNewHook(Hook);
+    if (disallowed_ == 1) {
+      UnregisterThreadGuard();
     }
+    --disallowed_;
 #endif
   }
 
  private:
+#ifndef NDEBUG
+  static void RegisterThreadGuard();
+  static void UnregisterThreadGuard();
+#endif
   static void Hook(const MallocHook::NewInfo& info) {
 #ifndef NDEBUG
     if (disallowed_ > 0) {
-      (void)MallocHook::RemoveNewHook(Hook);
+      disallowed_ = 0;
       abort();
     }
 #endif
