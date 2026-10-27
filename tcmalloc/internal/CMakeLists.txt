@@ -722,6 +722,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_residency"
     "tcmalloc::internal_util"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_smaps"
 )
 
 tcmalloc_cc_library(

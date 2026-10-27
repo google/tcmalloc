@@ -35,7 +35,9 @@ namespace tcmalloc_internal {
 namespace {
 
 // From fs/proc/task_mmu.c:
+#define PM_MMAP_EXCLUSIVE (1ULL << 56)
 #define PM_GUARD_REGION (1ULL << 58)
+#define PM_FILE (1ULL << 61)
 #define PM_SWAP (1ULL << 62)
 #define PM_PRESENT (1ULL << 63)
 
@@ -53,7 +55,9 @@ constexpr bool PagePresent(uint64_t flags) {
 void Update(const uint64_t input, const size_t size, const size_t page_index,
             Residency::Info& info) {
   // From fs/proc/task_mmu.c:
-  bool present = PagePresent(input);
+  // Zero-page PTEs are PM_PRESENT without PM_MMAP_EXCLUSIVE or PM_FILE and are
+  // not counted in Rss.
+  bool present = PagePresent(input) && (input & (PM_MMAP_EXCLUSIVE | PM_FILE));
   bool swapped = PageSwapped(input);
   if (present) {
     info.bytes_resident += size;
