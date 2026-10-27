@@ -57,6 +57,8 @@ struct TCMallocStats {
   Length num_released_soft_limit_exceeded;
   Length num_released_hard_limit_exceeded;
 
+  PageAllocator::LimitStats limit_stats;
+
   ArenaStats arena;  // Stats from the metadata Arena
 
   // Explicitly declare the ctor to put it in the google_malloc section.

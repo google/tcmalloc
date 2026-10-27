@@ -169,6 +169,28 @@ class PageAllocatorImpl {
   [[nodiscard]] int64_t successful_shrinks_after_limit_hit(
       LimitKind limit_kind) const ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
+  struct LimitStats {
+    size_t soft_limit_bytes;
+    size_t hard_limit_bytes;
+    int64_t soft_limit_hits;
+    int64_t hard_limit_hits;
+    int64_t successful_shrinks_after_soft_limit_hit;
+    int64_t successful_shrinks_after_hard_limit_hit;
+  };
+  [[nodiscard]] LimitStats GetLimitStats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return LimitStats{
+        .soft_limit_bytes = limits_[kSoft],
+        .hard_limit_bytes = limits_[kHard],
+        .soft_limit_hits = limit_hits_[kSoft],
+        .hard_limit_hits = limit_hits_[kHard],
+        .successful_shrinks_after_soft_limit_hit =
+            successful_shrinks_after_limit_hit_[kSoft],
+        .successful_shrinks_after_hard_limit_hit =
+            successful_shrinks_after_limit_hit_[kHard],
+    };
+  }
+
   // If we have a usage limit set, ensure we're not violating it from our latest
   // allocation.
   void ShrinkToUsageLimit(Length n, bool may_have_grown)

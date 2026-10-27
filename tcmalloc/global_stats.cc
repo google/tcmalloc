@@ -155,6 +155,7 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
         release_stats.process_background_actions;
     r.num_released_soft_limit_exceeded = release_stats.soft_limit_exceeded;
     r.num_released_hard_limit_exceeded = release_stats.hard_limit_exceeded;
+    r.limit_stats = tc_globals.page_allocator().GetLimitStats();
 
     r.per_cpu_bytes = 0;
     r.sharded_transfer_bytes = 0;
@@ -556,23 +557,18 @@ void DumpStats(Printer& out, int level) {
     out.printf("------------------------------------------------\n");
     out.printf("Configured limits and related statistics\n");
     out.printf("------------------------------------------------\n");
-    uint64_t soft_limit_bytes =
-        tc_globals.page_allocator().limit(PageAllocator::kSoft);
-    uint64_t hard_limit_bytes =
-        tc_globals.page_allocator().limit(PageAllocator::kHard);
-
-    out.printf("PARAMETER desired_usage_limit_bytes %u\n", soft_limit_bytes);
-    out.printf("PARAMETER hard_usage_limit_bytes %u\n", hard_limit_bytes);
+    out.printf("PARAMETER desired_usage_limit_bytes %u\n",
+               stats.limit_stats.soft_limit_bytes);
+    out.printf("PARAMETER hard_usage_limit_bytes %u\n",
+               stats.limit_stats.hard_limit_bytes);
     out.printf("Number of times soft limit was hit: %lld\n",
-               tc_globals.page_allocator().limit_hits(PageAllocator::kSoft));
+               stats.limit_stats.soft_limit_hits);
     out.printf("Number of times hard limit was hit: %lld\n",
-               tc_globals.page_allocator().limit_hits(PageAllocator::kHard));
+               stats.limit_stats.hard_limit_hits);
     out.printf("Number of times memory shrank below soft limit: %lld\n",
-               tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-                   PageAllocator::kSoft));
+               stats.limit_stats.successful_shrinks_after_soft_limit_hit);
     out.printf("Number of times memory shrank below hard limit: %lld\n",
-               tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-                   PageAllocator::kHard));
+               stats.limit_stats.successful_shrinks_after_hard_limit_hit);
 
     out.printf("Total number of pages released: %v (%7.1f MiB)\n",
                stats.num_released_total.in_pages(),
@@ -869,25 +865,15 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   }
   // We do not collect tracking information in pbtxt.
 
-  size_t soft_limit_bytes =
-      tc_globals.page_allocator().limit(PageAllocator::kSoft);
-  size_t hard_limit_bytes =
-      tc_globals.page_allocator().limit(PageAllocator::kHard);
-
-  region.PrintI64("desired_usage_limit_bytes", soft_limit_bytes);
-  region.PrintI64("hard_usage_limit_bytes", hard_limit_bytes);
-  region.PrintI64("soft_limit_hits",
-                  tc_globals.page_allocator().limit_hits(PageAllocator::kSoft));
-  region.PrintI64("hard_limit_hits",
-                  tc_globals.page_allocator().limit_hits(PageAllocator::kHard));
-  region.PrintI64(
-      "successful_shrinks_after_soft_limit_hit",
-      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-          PageAllocator::kSoft));
-  region.PrintI64(
-      "successful_shrinks_after_hard_limit_hit",
-      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-          PageAllocator::kHard));
+  region.PrintI64("desired_usage_limit_bytes",
+                  stats.limit_stats.soft_limit_bytes);
+  region.PrintI64("hard_usage_limit_bytes", stats.limit_stats.hard_limit_bytes);
+  region.PrintI64("soft_limit_hits", stats.limit_stats.soft_limit_hits);
+  region.PrintI64("hard_limit_hits", stats.limit_stats.hard_limit_hits);
+  region.PrintI64("successful_shrinks_after_soft_limit_hit",
+                  stats.limit_stats.successful_shrinks_after_soft_limit_hit);
+  region.PrintI64("successful_shrinks_after_hard_limit_hit",
+                  stats.limit_stats.successful_shrinks_after_hard_limit_hit);
 
   region.PrintI64("num_released_total_pages",
                   stats.num_released_total.in_pages().raw_num());
