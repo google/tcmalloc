@@ -1932,6 +1932,7 @@ cc_library(
     name = "malloc_hook",
     srcs = ["malloc_hook.cc"],
     hdrs = ["malloc_hook.h"],
+    linkstatic = 1,
     textual_hdrs = ["malloc_hook_invoke.h"],
     visibility = [
         "//visibility:public",
