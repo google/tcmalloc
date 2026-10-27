@@ -309,18 +309,24 @@ void FuzzSpan(size_t object_size, Length num_pages, size_t num_to_move,
   TC_CHECK_EQ(ptrs.size(), objects_per_span);
   TC_CHECK_EQ(ptrs.size(), span->Allocated());
 
-  for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
-    Span::ObjIdx idx;
-    Span::ObjectsToIdx({&ptrs[i], 1}, span.get(), object_size, size_reciprocal,
-                       &idx, bitmap_mode);
-    bool ok = span->FreelistPushBatch(absl::MakeSpan(&idx, 1), object_size,
-                                      bitmap_mode);
-    TC_CHECK_EQ(ok, i != popped - 1);
+  for (size_t i = 0, popped = ptrs.size(); i < popped;) {
+    const size_t batch_len = std::min(num_to_move, popped - i);
+    Span::ObjIdx idx[kMaxObjectsToMove];
+    Span::ObjectsToIdx({&ptrs[i], batch_len}, span.get(), object_size,
+                       size_reciprocal, idx, bitmap_mode);
+    bool ok = span->FreelistPushBatch(absl::MakeSpan(idx, batch_len),
+                                      object_size, bitmap_mode);
+    i += batch_len;
+    TC_CHECK_EQ(ok, i < popped);
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.
     //
-    // For single object spans, the freelist always stays "empty" as a result.
-    TC_CHECK(popped == 1 || !span->FreelistEmpty(objects_per_span));
+    // When all objects are returned in a single batch (popped <= num_to_move),
+    // the freelist stays "empty" as a result.
+    TC_CHECK(popped <= num_to_move || !span->FreelistEmpty(objects_per_span));
+    if (ok) {
+      TC_CHECK_EQ(span->Allocated(), popped - i);
+    }
   }
 
   free(mem);
