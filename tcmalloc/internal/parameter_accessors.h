@@ -67,8 +67,6 @@ TCMalloc_Internal_GetUsermodeHugepageCollapse();
 TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled();
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled();
-[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
-TCMalloc_Internal_GetPrioritizeSpansEnabled();
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK double
 TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction();
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
@@ -86,7 +84,6 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(
     bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(
     bool v);
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPrioritizeSpansEnabled(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(
     int64_t v);
@@ -134,9 +131,6 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(
 TCMalloc_Internal_GetMadvise();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadvise(
     tcmalloc::tcmalloc_internal::MadvisePreference v);
-[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
-TCMalloc_Internal_GetReleaseFreeSwapped();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
 
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetBackSmallAllocations();

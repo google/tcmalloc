@@ -20,7 +20,6 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/central_freelist_options.h"
 #include "tcmalloc/huge_page_options.h"
@@ -298,15 +297,12 @@ class Parameters {
   friend class Static;
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v);
-  friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetUsermodeHugepageCollapse(bool v);
   friend void ::TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v);
   friend void ::TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v);
-  friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
   friend void ::TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v);
-  friend void ::TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(
       bool v);
   friend void ::TCMalloc_Internal_SetProfileSamplingInterval(int64_t v);
@@ -323,12 +319,7 @@ class Parameters {
           absl::Duration v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v);
 
-  friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
-      absl::string_view s);
-  friend void ::TCMalloc_Internal_SetMadvise(
-      tcmalloc::tcmalloc_internal::MadvisePreference v);
   friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
-  friend void ::TCMalloc_Internal_SetReleaseFreeSwapped(bool v);
 
   friend void ::TCMalloc_Internal_SetBackSmallAllocations(bool v);
   friend void ::TCMalloc_Internal_SetBackSizeThresholdBytes(int32_t v);
