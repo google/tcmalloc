@@ -90,6 +90,7 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
                   SmallSpanStats* absl_nullable small_spans,
                   LargeSpanStats* absl_nullable large_spans,
                   bool report_residence) {
+  tc_globals.InitIfNecessary();
   r.central_bytes = 0;
   r.transfer_bytes = 0;
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
@@ -106,7 +107,7 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
       // Sum the lengths of all per-class freelists, except the per-thread
       // freelists, which get counted when we call GetThreadStats(), below.
       class_count[size_class] = length + tc_length + sharded_tc_length;
-      if (UsePerCpuCache(tc_globals)) {
+      if (tc_globals.CpuCacheActive()) {
         class_count[size_class] +=
             tc_globals.cpu_cache().TotalObjectsOfClass(size_class);
       }
@@ -161,7 +162,7 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
     r.sharded_transfer_bytes = 0;
     r.percpu_metadata_bytes_res = 0;
     r.percpu_metadata_bytes = 0;
-    if (UsePerCpuCache(tc_globals)) {
+    if (tc_globals.CpuCacheActive()) {
       r.per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
       r.sharded_transfer_bytes =
           tc_globals.sharded_transfer_cache().TotalBytes();
@@ -537,7 +538,7 @@ void DumpStats(Printer& out, int level) {
     tc_globals.sharded_transfer_cache().Print(
         tc_globals.per_size_class_counts(), out);
 
-    if (UsePerCpuCache(tc_globals)) {
+    if (tc_globals.CpuCacheActive()) {
       tc_globals.cpu_cache().Print(out);
     }
 
@@ -692,7 +693,7 @@ void DumpStats(Printer& out, int level) {
                absl::ToInt64Nanoseconds(
                    Parameters::background_process_sleep_interval()));
 
-    if (UsePerCpuCache(tc_globals)) {
+    if (tc_globals.CpuCacheActive()) {
       out.printf("PARAMETER tcmalloc_cpu_cache_touched %d\n",
                  tc_globals.cpu_cache().CountTouchedCpus());
       out.printf("PARAMETER max_tcmalloc_cpu_cache_touched %d\n",
@@ -846,7 +847,7 @@ void DumpStatsInPbtxt(Printer& out, int level) {
     tc_globals.sharded_transfer_cache().PrintInPbtxt(
         tc_globals.per_size_class_counts(), region);
   }
-  if (UsePerCpuCache(tc_globals)) {
+  if (tc_globals.CpuCacheActive()) {
     tc_globals.cpu_cache().PrintInPbtxt(region);
   }
 
@@ -996,6 +997,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
                         size_t* absl_nonnull value) {
   TC_ASSERT(name_data != nullptr || name_size == 0);
   TC_ASSERT_NE(value, nullptr);
+  tc_globals.InitIfNecessary();
   const absl::string_view name(name_data, name_size);
 
   // LINT.IfChange
