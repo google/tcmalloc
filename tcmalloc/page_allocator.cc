@@ -116,7 +116,8 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
 
   ++limit_hits_[kSoft];
   const size_t hard_limit = limits_[kHard];
-  if (hard_limit < backed) ++limit_hits_[kHard];
+  const bool hard_limit_counted = hard_limit < backed;
+  if (hard_limit_counted) ++limit_hits_[kHard];
 
   const size_t overage = backed - limits_[kSoft];
   const Length pages = BytesToLengthCeil(overage);
@@ -136,6 +137,9 @@ void PageAllocatorImpl<Forwarder>::ShrinkToUsageLimitSlow(Length n) {
       // We're already fine in terms of hard limit.
       over_limit_ = backed > limits_[kSoft];
       return;
+    }
+    if (!hard_limit_counted) {
+      ++limit_hits_[kHard];
     }
     const size_t overage = backed - hard_limit;
     const Length pages = BytesToLengthCeil(overage);

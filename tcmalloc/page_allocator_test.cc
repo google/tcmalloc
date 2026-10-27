@@ -514,6 +514,70 @@ TEST_F(PageAllocatorTest, ConcurrentReleaseSatisfiesHardLimit) {
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
+static int64_t soft_shrink_metadata_delta = 0;
+
+static void HardLimitCrossedDuringSoftShrinkHook(size_t num_pages,
+                                                 size_t released,
+                                                 PageReleaseReason reason)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  if (reason == PageReleaseReason::kSoftLimitExceeded &&
+      soft_shrink_metadata_delta == 0) {
+    soft_shrink_metadata_delta = 2 * static_cast<int64_t>(kHugePageSize);
+    tc_globals.arena().UpdateAllocatedAndNonresident(soft_shrink_metadata_delta,
+                                                     0);
+  } else if (reason == PageReleaseReason::kHardLimitExceeded &&
+             soft_shrink_metadata_delta != 0) {
+    tc_globals.arena().UpdateAllocatedAndNonresident(
+        -soft_shrink_metadata_delta, 0);
+    soft_shrink_metadata_delta = 0;
+  }
+}
+
+TEST_F(PageAllocatorTest, HardLimitCrossedDuringSoftShrinkDoesNotAssert) {
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+
+  constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
+                                       AccessDensityPrediction::kSparse};
+  AllocationState normal =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kNormal);
+  AllocationState sampled =
+      New(kPagesPerHugePage / 2, kSpanInfo, MemoryTag::kSampledOrCold);
+
+  const size_t metadata_bytes = []() {
+    PageHeapSpinLockHolder l;
+    return tc_globals.metadata_bytes();
+  }();
+  // Initial backed bytes equal metadata_bytes + 2 * kHugePageSize, which does
+  // not exceed kHard at entry to ShrinkToUsageLimitSlow, but does exceed kSoft.
+  allocator_->set_limit(metadata_bytes + 2 * kHugePageSize,
+                        PageAllocator::kHard);
+  ASSERT_EQ(allocator_->limit_hits(PageAllocator::kHard), 0);
+
+  soft_shrink_metadata_delta = 0;
+  ASSERT_TRUE(
+      page_allocator_release_hooks.Add(&HardLimitCrossedDuringSoftShrinkHook));
+  allocator_->set_limit(metadata_bytes, PageAllocator::kSoft);
+  ASSERT_TRUE(page_allocator_release_hooks.Remove(
+      &HardLimitCrossedDuringSoftShrinkHook));
+  if (soft_shrink_metadata_delta != 0) {
+    PageHeapSpinLockHolder l;
+    tc_globals.arena().UpdateAllocatedAndNonresident(
+        -soft_shrink_metadata_delta, 0);
+    soft_shrink_metadata_delta = 0;
+  }
+
+  EXPECT_EQ(
+      allocator_->successful_shrinks_after_limit_hit(PageAllocator::kHard), 1);
+  EXPECT_LE(
+      allocator_->successful_shrinks_after_limit_hit(PageAllocator::kHard),
+      allocator_->limit_hits(PageAllocator::kHard));
+
+  Delete(normal, kSpanInfo, MemoryTag::kNormal);
+  Delete(sampled, kSpanInfo, MemoryTag::kSampledOrCold);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
 TEST_F(PageAllocatorTest, TreatHugepageTrackersAllPartitions) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/1,
                                        AccessDensityPrediction::kSparse};
