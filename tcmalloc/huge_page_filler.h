@@ -820,6 +820,11 @@ class HugePageFiller {
   // released hugepages (n_partial_released and n_used_partial_released_) until
   // the release completes.
   HugeLength n_in_flight_release_[AccessDensityPrediction::kPredictionCounts];
+  // Non-released hugepages that became empty while Collapse() had dropped
+  // pageheap_lock.  Released hugepages that empty during Collapse() use
+  // n_in_flight_release_ so FreePagesInPartialAllocs() stays balanced against
+  // unmapped_ until Collapse() finishes.
+  HugeLength n_in_flight_collapse_[AccessDensityPrediction::kPredictionCounts];
   // n_used_partial_released_ is the number of pages which have been allocated
   // from the hugepages in the set regular_alloc_partial_released and from the
   // hugepages whose release is in flight.
@@ -1141,10 +1146,11 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
     pages_allocated_[AccessDensityPrediction::kSparse] -= r.n;
   }
 
-  // If ReleaseFreeFromTracker is unbacking pt's free pages with pageheap_lock
-  // dropped, pt stays in flight even though it is now empty; the releasing
-  // thread retires it once the unback completes.
-  if (ABSL_PREDICT_FALSE(pt->fully_freed() && !pt->BeingReleased())) {
+  // If ReleaseFreeFromTracker or Collapse is operating on pt with pageheap_lock
+  // dropped, pt stays in flight even though it is now empty; the in-flight
+  // operation retires it once its syscall completes.
+  if (ABSL_PREDICT_FALSE(pt->fully_freed() && !pt->BeingReleased() &&
+                         !pt->BeingCollapsed())) {
     return HandleFullyFreedTracker(pt, now);
   }
   AddToFillerList(pt);
@@ -1158,6 +1164,7 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
                                                      int64_t now) {
   TC_ASSERT_EQ(pt->nallocs(), 0);
   TC_ASSERT(!pt->BeingReleased());
+  TC_ASSERT(!pt->BeingCollapsed());
   --size_;
   ClearWasReleased(pt);
   if (pt->released()) {
@@ -1653,10 +1660,12 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
 
   stats.n_total[AccessDensityPrediction::kSparse] +=
       stats.n_released[AccessDensityPrediction::kSparse] +
-      regular_alloc_.sparse.size();
+      regular_alloc_.sparse.size() +
+      n_in_flight_collapse_[AccessDensityPrediction::kSparse];
   stats.n_total[AccessDensityPrediction::kDense] +=
       stats.n_released[AccessDensityPrediction::kDense] +
-      regular_alloc_.dense.size();
+      regular_alloc_.dense.size() +
+      n_in_flight_collapse_[AccessDensityPrediction::kDense];
 
   stats.n_partial[AccessDensityPrediction::kSparse] =
       stats.n_total[AccessDensityPrediction::kSparse] -
@@ -1834,6 +1843,7 @@ inline MemoryModifyStatus HugePageFiller<TrackerType>::Collapse(
     CollapseReleasedHugePages collapse_released) {
   {
     PageHeapSpinLockHolder l;
+    TC_ASSERT(pt->DontFreeTracker());
     if (pt->fully_freed() || pt->BeingReleased() ||
         (collapse_released == CollapseReleasedHugePages::kDisabled &&
          pt->released())) {
@@ -1851,34 +1861,55 @@ inline MemoryModifyStatus HugePageFiller<TrackerType>::Collapse(
     if (collapse_released == CollapseReleasedHugePages::kDisabled) {
       TC_ASSERT(!pt->released());
     }
-    if (status.success) {
-      // MADV_COLLAPSE re-backs the whole hugepage, holes included, so update
-      // tracker state and filler lists under pageheap_lock before dropping
-      // BeingCollapsed:
-      //   1. Any ReleasePages between selection and Collapse() was superseded
-      //      by this collapse; clear its released pages and
-      //      released_since_selected bit.
-      //   2. Any ReleasePages after BeingCollapsed is cleared (before
-      //      Restore()) sees released_by_page_ empty and unbacks all free pages
-      //      rather than skipping re-backed pages, while setting
-      //      released_since_selected anew so Restore() records
-      //      maybe_hugepage_backed = false.
-      //   3. If a concurrent Put emptied and parked pt during the syscall,
-      //      clearing released_by_page_ and marking pt unbroken lets
-      //      ReleaseHugepage see !pt->released() and pt->unbroken(), returning
-      //      the re-backed hugepage to cache_.Release() as unbroken.
-      pt->ClearReleasedSinceSelected();
-      if (pt->fully_freed()) {
+    if (ABSL_PREDICT_FALSE(pt->fully_freed())) {
+      const AccessDensityPrediction type =
+          pt->HasDenseSpans() ? AccessDensityPrediction::kDense
+                              : AccessDensityPrediction::kSparse;
+      if (pt->released()) {
+        TC_ASSERT_GT(n_in_flight_release_[type], NHugePages(0));
+        --n_in_flight_release_[type];
+      } else {
+        TC_ASSERT_GT(n_in_flight_collapse_[type], NHugePages(0));
+        --n_in_flight_collapse_[type];
+      }
+      if (status.success) {
+        // MADV_COLLAPSE re-backed the whole hugepage, holes included, while a
+        // concurrent Put emptied pt and deferred HandleFullyFreedTracker to us.
+        // Clear released_by_page_, subtract those pages from unmapped_, and
+        // mark pt unbroken so HandleFullyFreedTracker skips
+        // unback_without_lock_ and parks pt as an unbroken hugepage for
+        // ReleaseHugepage.
+        pt->ClearReleasedSinceSelected();
         if (collapse_released == CollapseReleasedHugePages::kEnabled) {
-          (void)pt->ClearReleasedPages();
+          const Length previously_released = pt->ClearReleasedPages();
+          TC_ASSERT_GE(unmapped_, previously_released);
+          unmapped_ -= previously_released;
         }
         pt->set_unbroken(/*status=*/true);
-      } else {
+      }
+      pt->SetBeingCollapsed(/*value=*/false);
+      [[maybe_unused]] TrackerType* freed =
+          HandleFullyFreedTracker(pt, clock_.now());
+      TC_ASSERT_EQ(freed, nullptr);
+    } else {
+      if (status.success) {
+        // MADV_COLLAPSE re-backs the whole hugepage, holes included, so update
+        // tracker state and filler lists under pageheap_lock before dropping
+        // BeingCollapsed:
+        //   1. Any ReleasePages between selection and Collapse() was superseded
+        //      by this collapse; clear its released pages and
+        //      released_since_selected bit.
+        //   2. Any ReleasePages after BeingCollapsed is cleared (before
+        //      Restore()) sees released_by_page_ empty and unbacks all free
+        //      pages rather than skipping re-backed pages, while setting
+        //      released_since_selected anew so Restore() records
+        //      maybe_hugepage_backed = false.
+        pt->ClearReleasedSinceSelected();
         TC_ASSERT(!pt->BeingReleased());
         OnCollapseSuccess(pt, preserve_donated_on_collapse, collapse_released);
       }
+      pt->SetBeingCollapsed(/*value=*/false);
     }
-    pt->SetBeingCollapsed(/*value=*/false);
   }
 
   return status;
@@ -2503,6 +2534,20 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
                                              : AccessDensityPrediction::kSparse;
     ++n_in_flight_release_[type];
     n_used_partial_released_[type] += pt->used_pages();
+    return;
+  }
+
+  if (ABSL_PREDICT_FALSE(pt->BeingCollapsed() && pt->fully_freed())) {
+    // Emptied by Put while Collapse() had dropped pageheap_lock: keep off all
+    // lists until Collapse() finishes and retires it.
+    const AccessDensityPrediction type = pt->HasDenseSpans()
+                                             ? AccessDensityPrediction::kDense
+                                             : AccessDensityPrediction::kSparse;
+    if (pt->released()) {
+      ++n_in_flight_release_[type];
+    } else {
+      ++n_in_flight_collapse_[type];
+    }
     return;
   }
 

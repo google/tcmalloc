@@ -5372,10 +5372,54 @@ TEST_F(FillerTest, ConcurrentPutEmptiesSubreleasedTrackerDuringCollapse) {
 
     EXPECT_EQ(DrainFreedTrackers(), 1);
     if (mode == CollapseReleasedHugePages::kEnabled) {
-      EXPECT_EQ(ReleasePages(Length(0)), Length(1));
+      EXPECT_EQ(ReleasePages(Length(0)), Length(0));
     }
     CheckStats();
   }
+}
+
+TEST_F(FillerTest, ConcurrentPutDuringCollapseDoesNotUnbackCollapsedHugepage) {
+  randomize_density_ = false;
+  collapse_released_ = CollapseReleasedHugePages::kEnabled;
+  const Length N = kPagesPerHugePage;
+
+  PAlloc pa = Allocate(Length(1));
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  ASSERT_EQ(ReleasePages(N - Length(1)), N - Length(1));
+  ASSERT_FALSE(pa.pt->unbroken());
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  MarkUnbackedInResidency(pa, pageflags, residency);
+
+  PageTracker* tracker = pa.pt;
+  int hook_calls = 0;
+  collapse_.unlocked_hook_ = [&](Range r) {
+    ++hook_calls;
+    EXPECT_EQ(r.p, pa.p);
+    EXPECT_TRUE(tracker->BeingCollapsed());
+    // Model MADV_COLLAPSE backing the hugepage before another thread frees the
+    // final live span while pageheap_lock is dropped.
+    MarkRange(tracker->location().first_page(), N, 0xCAFE);
+    EXPECT_FALSE(DeleteRaw(pa));
+    EXPECT_TRUE(tracker->fully_freed());
+  };
+  FakeClock::Advance(kRecordInterval + absl::Minutes(1));
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  collapse_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(hook_calls, 1);
+
+  EXPECT_TRUE(tracker->fully_freed());
+  EXPECT_FALSE(tracker->released());
+  EXPECT_TRUE(tracker->unbroken());
+  // Put() during Collapse() must not issue MADV_DONTNEED against the hugepage
+  // being collapsed or double-count its previously released pages.
+  CheckRange(tracker->location().first_page(), N, 0xCAFE);
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  EXPECT_EQ(ReleasePages(Length(0)), Length(0));
+  CheckStats();
 }
 
 TEST_F(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
