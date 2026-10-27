@@ -2549,12 +2549,15 @@ TEST_F(FillerTestWithSubreleaseUnbacked, ReleaseAfterCollapseBeforeRestore) {
 
   // The first hugepage is broken again and must be eligible for another
   // collapse; the second one stays collapsed.
-  EXPECT_TRUE(first->released());
-  EXPECT_FALSE(first->unbroken());
-  EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
-  EXPECT_FALSE(second->released());
-  EXPECT_TRUE(second->unbroken());
-  EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(first->released());
+    EXPECT_FALSE(first->unbroken());
+    EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
+    EXPECT_FALSE(second->released());
+    EXPECT_TRUE(second->unbroken());
+    EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  }
   CheckStats();
 
   EXPECT_TRUE(Delete(a));
@@ -2611,11 +2614,14 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_EQ(stats.collapse_attempted, NHugePages(2));
   EXPECT_EQ(stats.collapse_succeeded, NHugePages(2));
 
-  EXPECT_FALSE(first->released());
-  EXPECT_FALSE(first->unbroken());
-  EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
-  EXPECT_TRUE(second->unbroken());
-  EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_FALSE(first->released());
+    EXPECT_FALSE(first->unbroken());
+    EXPECT_FALSE(first->GetHugePageResidencyState().maybe_hugepage_backed);
+    EXPECT_TRUE(second->unbroken());
+    EXPECT_TRUE(second->GetHugePageResidencyState().maybe_hugepage_backed);
+  }
   CheckStats();
 
   DeleteVector(refill);
@@ -4169,8 +4175,12 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_EQ(a.pt->released_pages(), Length(0));
 
   // Verify that entry_valid remains true.
-  PageTracker::HugePageResidencyState state = a.pt->GetHugePageResidencyState();
-  EXPECT_TRUE(state.entry_valid);
+  {
+    PageHeapSpinLockHolder l;
+    PageTracker::HugePageResidencyState state =
+        a.pt->GetHugePageResidencyState();
+    EXPECT_TRUE(state.entry_valid);
+  }
 
   // Advance the clock to exceed kRecordInterval (5 minutes) so that the tracker
   // is revisited for collapse.
@@ -4990,10 +5000,13 @@ TEST_F(FillerTest, CollapseSubreleasedTrackerFlagOn) {
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(2));
-  EXPECT_TRUE(pa.pt->GetHugePageResidencyState().unbacked.IsZero());
-  EXPECT_TRUE(pa.pt->GetHugePageResidencyState().swapped.IsZero());
-  EXPECT_TRUE(pa2.pt->GetHugePageResidencyState().unbacked.IsZero());
-  EXPECT_TRUE(pa2.pt->GetHugePageResidencyState().swapped.IsZero());
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(pa.pt->GetHugePageResidencyState().unbacked.IsZero());
+    EXPECT_TRUE(pa.pt->GetHugePageResidencyState().swapped.IsZero());
+    EXPECT_TRUE(pa2.pt->GetHugePageResidencyState().unbacked.IsZero());
+    EXPECT_TRUE(pa2.pt->GetHugePageResidencyState().swapped.IsZero());
+  }
   ExpectTrackerReleaseState(pa.pt, {.released_pages = Length(0),
                                     .unbroken = true,
                                     .unmapped_pages = Length(0),
@@ -5038,8 +5051,11 @@ TEST_F(FillerTest, CollapseFullyReleasedTrackerAndAllocate) {
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(GetHugePageTreatmentStats().collapse_succeeded, NHugePages(1));
-  EXPECT_TRUE(pa.pt->GetHugePageResidencyState().unbacked.IsZero());
-  EXPECT_TRUE(pa.pt->GetHugePageResidencyState().swapped.IsZero());
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(pa.pt->GetHugePageResidencyState().unbacked.IsZero());
+    EXPECT_TRUE(pa.pt->GetHugePageResidencyState().swapped.IsZero());
+  }
   ExpectTrackerReleaseState(pa.pt, {.released_pages = Length(0),
                                     .unbroken = true,
                                     .unmapped_pages = Length(0),
@@ -5213,7 +5229,10 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
       EXPECT_EQ(reallocated.p, rel.p);
       EXPECT_FALSE(reallocated.from_released);
       EXPECT_EQ(ReleasePages(Length(4)), Length(4));
-      EXPECT_TRUE(pa.pt->GetHugePageResidencyState().released_since_selected);
+      {
+        PageHeapSpinLockHolder l;
+        EXPECT_TRUE(pa.pt->GetHugePageResidencyState().released_since_selected);
+      }
       Delete(reallocated);
     }
   };
@@ -5232,19 +5251,22 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
   EXPECT_EQ(collapse_.TimesCollapsed(pa2.p.start_addr()), 1);
 
-  // Control tracker `pa2.pt` had no concurrent subrelease, so its collapse
-  // kept maybe_hugepage_backed = true and unbroken = true.
-  EXPECT_TRUE(pa2.pt->GetHugePageResidencyState().maybe_hugepage_backed);
-  EXPECT_TRUE(pa2.pt->unbroken());
+  {
+    PageHeapSpinLockHolder l;
+    // Control tracker `pa2.pt` had no concurrent subrelease, so its collapse
+    // kept maybe_hugepage_backed = true and unbroken = true.
+    EXPECT_TRUE(pa2.pt->GetHugePageResidencyState().maybe_hugepage_backed);
+    EXPECT_TRUE(pa2.pt->unbroken());
 
-  // Target tracker `pa.pt` was concurrently subreleased (4 of 8 free pages)
-  // after its collapse succeeded: Restore() observed
-  // released_since_selected == true and reset maybe_hugepage_backed to false,
-  // while keeping unbacked and swapped bitmaps cleared and leaving the other 4
-  // free pages backed.
-  EXPECT_FALSE(pa.pt->GetHugePageResidencyState().maybe_hugepage_backed);
-  EXPECT_TRUE(pa.pt->GetHugePageResidencyState().unbacked.IsZero());
-  EXPECT_TRUE(pa.pt->GetHugePageResidencyState().swapped.IsZero());
+    // Target tracker `pa.pt` was concurrently subreleased (4 of 8 free pages)
+    // after its collapse succeeded: Restore() observed
+    // released_since_selected == true and reset maybe_hugepage_backed to false,
+    // while keeping unbacked and swapped bitmaps cleared and leaving the other
+    // 4 free pages backed.
+    EXPECT_FALSE(pa.pt->GetHugePageResidencyState().maybe_hugepage_backed);
+    EXPECT_TRUE(pa.pt->GetHugePageResidencyState().unbacked.IsZero());
+    EXPECT_TRUE(pa.pt->GetHugePageResidencyState().swapped.IsZero());
+  }
   ExpectTrackerReleaseState(pa.pt,
                             {.released_pages = Length(4),
                              .unbroken = false,
